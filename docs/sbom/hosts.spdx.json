@@ -1,0 +1,1376 @@
+{
+  "spdxVersion": "SPDX-2.2",
+  "dataLicense": "CC0-1.0",
+  "SPDXID": "SPDXRef-DOCUMENT",
+  "name": "yuruna-hosts",
+  "documentNamespace": "https://github.com/alissonsol/yuruna/sbom/hosts/179a79ed5f5fa0e1a5befcaa93d85faa50898690920793606327e72223e9b0f6",
+  "creationInfo": {
+    "created": "2026-10-03T16:48:41Z",
+    "creators": [
+      "Tool: Sync-Sbom.py-1",
+      "Organization: Alisson Sol et al."
+    ],
+    "comment": "Created date is the initial inventory creation date. Source digest identifies each regenerated inventory. Unrecorded licenses and transitive dependencies remain unasserted."
+  },
+  "documentDescribes": [
+    "SPDXRef-Repository"
+  ],
+  "packages": [
+    {
+      "name": "yuruna-hosts",
+      "SPDXID": "SPDXRef-Repository",
+      "downloadLocation": "https://github.com/alissonsol/yuruna",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "LicenseRef-Yuruna",
+      "copyrightText": "NOASSERTION",
+      "supplier": "Organization: Alisson Sol et al.",
+      "comment": "Declared hosts inventory; source-inputs SHA256 179a79ed5f5fa0e1a5befcaa93d85faa50898690920793606327e72223e9b0f6. Not an installed-system scan.",
+      "versionInfo": "2026.10.14"
+    },
+    {
+      "name": "acl",
+      "SPDXID": "SPDXRef-a6e384e9893fef1dfd09",
+      "downloadLocation": "NOASSERTION",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "NOASSERTION",
+      "copyrightText": "NOASSERTION",
+      "comment": "{\"completeness\": \"source-declared\", \"ecosystem\": \"apt\", \"evidence\": [{\"detail\": \"target=ubuntu-kvm; action=apt-get install; requested=acl; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 444, \"path\": \"install/ubuntu.kvm.sh\"}, {\"detail\": \"target=ubuntu-kvm; action=conditional missing-package installation table; version unresolved\", \"line\": 117, \"path\": \"host/ubuntu.kvm/Enable-TestAutomation.ps1\"}], \"group\": \"yuruna:hosts:ubuntu-kvm\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
+    },
+    {
+      "name": "bridge-utils",
+      "SPDXID": "SPDXRef-82ed5808078d7fc58ad3",
+      "downloadLocation": "NOASSERTION",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "NOASSERTION",
+      "copyrightText": "NOASSERTION",
+      "comment": "{\"completeness\": \"source-declared\", \"ecosystem\": \"apt\", \"evidence\": [{\"detail\": \"target=ubuntu-kvm; action=apt-get install; requested=bridge-utils; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 444, \"path\": \"install/ubuntu.kvm.sh\"}], \"group\": \"yuruna:hosts:ubuntu-kvm\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
+    },
+    {
+      "name": "ca-certificates",
+      "SPDXID": "SPDXRef-371023a2bec8717b74c8",
+      "downloadLocation": "NOASSERTION",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "NOASSERTION",
+      "copyrightText": "NOASSERTION",
+      "comment": "{\"completeness\": \"source-declared\", \"ecosystem\": \"apt\", \"evidence\": [{\"detail\": \"target=ubuntu-kvm; action=apt-get install; requested=ca-certificates; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 444, \"path\": \"install/ubuntu.kvm.sh\"}], \"group\": \"yuruna:hosts:ubuntu-kvm\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
+    },
+    {
+      "name": "cifs-utils",
+      "SPDXID": "SPDXRef-e43dd2ba2804193c0e67",
+      "downloadLocation": "NOASSERTION",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "NOASSERTION",
+      "copyrightText": "NOASSERTION",
+      "comment": "{\"completeness\": \"source-declared\", \"ecosystem\": \"apt\", \"evidence\": [{\"detail\": \"target=ubuntu-kvm; action=apt-get install; requested=cifs-utils; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 444, \"path\": \"install/ubuntu.kvm.sh\"}, {\"detail\": \"target=ubuntu-kvm; action=conditional missing-package installation table; version unresolved\", \"line\": 118, \"path\": \"host/ubuntu.kvm/Enable-TestAutomation.ps1\"}], \"group\": \"yuruna:hosts:ubuntu-kvm\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
+    },
+    {
+      "name": "cloud-image-utils",
+      "SPDXID": "SPDXRef-153f3fd251409a19f1d3",
+      "downloadLocation": "NOASSERTION",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "NOASSERTION",
+      "copyrightText": "NOASSERTION",
+      "comment": "{\"completeness\": \"source-declared\", \"ecosystem\": \"apt\", \"evidence\": [{\"detail\": \"target=ubuntu-kvm; action=apt-get install; requested=cloud-image-utils; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 444, \"path\": \"install/ubuntu.kvm.sh\"}], \"group\": \"yuruna:hosts:ubuntu-kvm\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
+    },
+    {
+      "name": "cpu-checker",
+      "SPDXID": "SPDXRef-a5fdf0d8578e6857f20d",
+      "downloadLocation": "NOASSERTION",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "NOASSERTION",
+      "copyrightText": "NOASSERTION",
+      "comment": "{\"completeness\": \"source-declared\", \"ecosystem\": \"apt\", \"evidence\": [{\"detail\": \"target=ubuntu-kvm; action=apt-get install; requested=cpu-checker; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 444, \"path\": \"install/ubuntu.kvm.sh\"}], \"group\": \"yuruna:hosts:ubuntu-kvm\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
+    },
+    {
+      "name": "curl",
+      "SPDXID": "SPDXRef-9aeb1463104ba2d20372",
+      "downloadLocation": "NOASSERTION",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "NOASSERTION",
+      "copyrightText": "NOASSERTION",
+      "comment": "{\"completeness\": \"source-declared\", \"ecosystem\": \"apt\", \"evidence\": [{\"detail\": \"target=ubuntu-kvm; action=apt-get install; requested=curl; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 444, \"path\": \"install/ubuntu.kvm.sh\"}], \"group\": \"yuruna:hosts:ubuntu-kvm\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
+    },
+    {
+      "name": "dnsmasq-base",
+      "SPDXID": "SPDXRef-0243416dceef10838d39",
+      "downloadLocation": "NOASSERTION",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "NOASSERTION",
+      "copyrightText": "NOASSERTION",
+      "comment": "{\"completeness\": \"source-declared\", \"ecosystem\": \"apt\", \"evidence\": [{\"detail\": \"target=ubuntu-kvm; action=apt-get install; requested=dnsmasq-base; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 444, \"path\": \"install/ubuntu.kvm.sh\"}], \"group\": \"yuruna:hosts:ubuntu-kvm\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
+    },
+    {
+      "name": "gcc",
+      "SPDXID": "SPDXRef-c7194058a28229d35435",
+      "downloadLocation": "NOASSERTION",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "NOASSERTION",
+      "copyrightText": "NOASSERTION",
+      "comment": "{\"completeness\": \"source-declared\", \"ecosystem\": \"apt\", \"evidence\": [{\"detail\": \"target=ubuntu-kvm; action=apt-get install; requested=gcc; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 1207, \"path\": \"install/ubuntu.kvm.sh\"}, {\"detail\": \"target=ubuntu-kvm; action=apt-get install; requested=gcc; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 1209, \"path\": \"install/ubuntu.kvm.sh\"}], \"group\": \"yuruna:hosts:ubuntu-kvm\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
+    },
+    {
+      "name": "genisoimage",
+      "SPDXID": "SPDXRef-992132d1aec875639b5d",
+      "downloadLocation": "NOASSERTION",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "NOASSERTION",
+      "copyrightText": "NOASSERTION",
+      "comment": "{\"completeness\": \"source-declared\", \"ecosystem\": \"apt\", \"evidence\": [{\"detail\": \"target=ubuntu-kvm; action=apt-get install; requested=genisoimage; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 444, \"path\": \"install/ubuntu.kvm.sh\"}], \"group\": \"yuruna:hosts:ubuntu-kvm\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
+    },
+    {
+      "name": "gettext",
+      "SPDXID": "SPDXRef-b995aea457a8ce7d8f04",
+      "downloadLocation": "NOASSERTION",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "NOASSERTION",
+      "copyrightText": "NOASSERTION",
+      "comment": "{\"completeness\": \"source-declared\", \"ecosystem\": \"apt\", \"evidence\": [{\"detail\": \"target=ubuntu-kvm; action=apt-get install; requested=gettext; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 1207, \"path\": \"install/ubuntu.kvm.sh\"}, {\"detail\": \"target=ubuntu-kvm; action=apt-get install; requested=gettext; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 1209, \"path\": \"install/ubuntu.kvm.sh\"}], \"group\": \"yuruna:hosts:ubuntu-kvm\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
+    },
+    {
+      "name": "gh",
+      "SPDXID": "SPDXRef-55ac7d4748b44eed02e0",
+      "downloadLocation": "NOASSERTION",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "NOASSERTION",
+      "copyrightText": "NOASSERTION",
+      "comment": "{\"completeness\": \"source-declared\", \"ecosystem\": \"apt\", \"evidence\": [{\"detail\": \"target=ubuntu-kvm; action=apt-get install; requested=gh; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 1437, \"path\": \"install/ubuntu.kvm.sh\"}], \"group\": \"yuruna:hosts:ubuntu-kvm\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
+    },
+    {
+      "name": "git",
+      "SPDXID": "SPDXRef-2bf35518bbd1a849d403",
+      "downloadLocation": "NOASSERTION",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "NOASSERTION",
+      "copyrightText": "NOASSERTION",
+      "comment": "{\"completeness\": \"source-declared\", \"ecosystem\": \"apt\", \"evidence\": [{\"detail\": \"target=ubuntu-kvm; action=apt-get install; requested=git; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 444, \"path\": \"install/ubuntu.kvm.sh\"}], \"group\": \"yuruna:hosts:ubuntu-kvm\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
+    },
+    {
+      "name": "gpg",
+      "SPDXID": "SPDXRef-ae81c5a929ee2e65792f",
+      "downloadLocation": "NOASSERTION",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "NOASSERTION",
+      "copyrightText": "NOASSERTION",
+      "comment": "{\"completeness\": \"source-declared\", \"ecosystem\": \"apt\", \"evidence\": [{\"detail\": \"target=ubuntu-kvm; action=apt-get install; requested=gpg; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 1207, \"path\": \"install/ubuntu.kvm.sh\"}, {\"detail\": \"target=ubuntu-kvm; action=apt-get install; requested=gpg; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 1209, \"path\": \"install/ubuntu.kvm.sh\"}], \"group\": \"yuruna:hosts:ubuntu-kvm\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
+    },
+    {
+      "name": "gpgv",
+      "SPDXID": "SPDXRef-dc18cd369934960d79fb",
+      "downloadLocation": "NOASSERTION",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "NOASSERTION",
+      "copyrightText": "NOASSERTION",
+      "comment": "{\"completeness\": \"source-declared\", \"ecosystem\": \"apt\", \"evidence\": [{\"detail\": \"target=ubuntu-kvm; action=apt-get install; requested=gpgv; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 1207, \"path\": \"install/ubuntu.kvm.sh\"}, {\"detail\": \"target=ubuntu-kvm; action=apt-get install; requested=gpgv; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 1209, \"path\": \"install/ubuntu.kvm.sh\"}], \"group\": \"yuruna:hosts:ubuntu-kvm\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
+    },
+    {
+      "name": "imagemagick",
+      "SPDXID": "SPDXRef-97aa7c6f110e33300afe",
+      "downloadLocation": "NOASSERTION",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "NOASSERTION",
+      "copyrightText": "NOASSERTION",
+      "comment": "{\"completeness\": \"source-declared\", \"ecosystem\": \"apt\", \"evidence\": [{\"detail\": \"target=ubuntu-kvm; action=apt-get install; requested=imagemagick; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 444, \"path\": \"install/ubuntu.kvm.sh\"}], \"group\": \"yuruna:hosts:ubuntu-kvm\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
+    },
+    {
+      "name": "jq",
+      "SPDXID": "SPDXRef-469008743a02109b635d",
+      "downloadLocation": "NOASSERTION",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "NOASSERTION",
+      "copyrightText": "NOASSERTION",
+      "comment": "{\"completeness\": \"source-declared\", \"ecosystem\": \"apt\", \"evidence\": [{\"detail\": \"target=ubuntu-kvm; action=apt-get install; requested=jq; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 444, \"path\": \"install/ubuntu.kvm.sh\"}], \"group\": \"yuruna:hosts:ubuntu-kvm\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
+    },
+    {
+      "name": "libc6-dev",
+      "SPDXID": "SPDXRef-cd3abb4813e8c547ec5d",
+      "downloadLocation": "NOASSERTION",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "NOASSERTION",
+      "copyrightText": "NOASSERTION",
+      "comment": "{\"completeness\": \"source-declared\", \"ecosystem\": \"apt\", \"evidence\": [{\"detail\": \"target=ubuntu-kvm; action=apt-get install; requested=libc6-dev; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 1207, \"path\": \"install/ubuntu.kvm.sh\"}, {\"detail\": \"target=ubuntu-kvm; action=apt-get install; requested=libc6-dev; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 1209, \"path\": \"install/ubuntu.kvm.sh\"}], \"group\": \"yuruna:hosts:ubuntu-kvm\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
+    },
+    {
+      "name": "libcurl4-openssl-dev",
+      "SPDXID": "SPDXRef-f92deb256ad9b2c4bfa6",
+      "downloadLocation": "NOASSERTION",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "NOASSERTION",
+      "copyrightText": "NOASSERTION",
+      "comment": "{\"completeness\": \"source-declared\", \"ecosystem\": \"apt\", \"evidence\": [{\"detail\": \"target=ubuntu-kvm; action=apt-get install; requested=libcurl4-openssl-dev; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 1207, \"path\": \"install/ubuntu.kvm.sh\"}, {\"detail\": \"target=ubuntu-kvm; action=apt-get install; requested=libcurl4-openssl-dev; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 1209, \"path\": \"install/ubuntu.kvm.sh\"}], \"group\": \"yuruna:hosts:ubuntu-kvm\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
+    },
+    {
+      "name": "libexpat1-dev",
+      "SPDXID": "SPDXRef-e800c09371ab25270145",
+      "downloadLocation": "NOASSERTION",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "NOASSERTION",
+      "copyrightText": "NOASSERTION",
+      "comment": "{\"completeness\": \"source-declared\", \"ecosystem\": \"apt\", \"evidence\": [{\"detail\": \"target=ubuntu-kvm; action=apt-get install; requested=libexpat1-dev; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 1207, \"path\": \"install/ubuntu.kvm.sh\"}, {\"detail\": \"target=ubuntu-kvm; action=apt-get install; requested=libexpat1-dev; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 1209, \"path\": \"install/ubuntu.kvm.sh\"}], \"group\": \"yuruna:hosts:ubuntu-kvm\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
+    },
+    {
+      "name": "libpcre2-dev",
+      "SPDXID": "SPDXRef-869c9342eecbabb0b984",
+      "downloadLocation": "NOASSERTION",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "NOASSERTION",
+      "copyrightText": "NOASSERTION",
+      "comment": "{\"completeness\": \"source-declared\", \"ecosystem\": \"apt\", \"evidence\": [{\"detail\": \"target=ubuntu-kvm; action=apt-get install; requested=libpcre2-dev; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 1207, \"path\": \"install/ubuntu.kvm.sh\"}, {\"detail\": \"target=ubuntu-kvm; action=apt-get install; requested=libpcre2-dev; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 1209, \"path\": \"install/ubuntu.kvm.sh\"}], \"group\": \"yuruna:hosts:ubuntu-kvm\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
+    },
+    {
+      "name": "libssl-dev",
+      "SPDXID": "SPDXRef-51b92a33735a962b0451",
+      "downloadLocation": "NOASSERTION",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "NOASSERTION",
+      "copyrightText": "NOASSERTION",
+      "comment": "{\"completeness\": \"source-declared\", \"ecosystem\": \"apt\", \"evidence\": [{\"detail\": \"target=ubuntu-kvm; action=apt-get install; requested=libssl-dev; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 1207, \"path\": \"install/ubuntu.kvm.sh\"}, {\"detail\": \"target=ubuntu-kvm; action=apt-get install; requested=libssl-dev; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 1209, \"path\": \"install/ubuntu.kvm.sh\"}], \"group\": \"yuruna:hosts:ubuntu-kvm\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
+    },
+    {
+      "name": "libvirt-clients",
+      "SPDXID": "SPDXRef-b93ff953ca55f9023567",
+      "downloadLocation": "NOASSERTION",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "NOASSERTION",
+      "copyrightText": "NOASSERTION",
+      "comment": "{\"completeness\": \"source-declared\", \"ecosystem\": \"apt\", \"evidence\": [{\"detail\": \"target=ubuntu-kvm; action=apt-get install; requested=libvirt-clients; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 444, \"path\": \"install/ubuntu.kvm.sh\"}, {\"detail\": \"target=ubuntu-kvm; action=conditional missing-package installation table; version unresolved\", \"line\": 115, \"path\": \"host/ubuntu.kvm/Enable-TestAutomation.ps1\"}], \"group\": \"yuruna:hosts:ubuntu-kvm\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
+    },
+    {
+      "name": "libvirt-daemon-system",
+      "SPDXID": "SPDXRef-bb46b83a8e3a8f79f9b3",
+      "downloadLocation": "NOASSERTION",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "NOASSERTION",
+      "copyrightText": "NOASSERTION",
+      "comment": "{\"completeness\": \"source-declared\", \"ecosystem\": \"apt\", \"evidence\": [{\"detail\": \"target=ubuntu-kvm; action=apt-get install; requested=libvirt-daemon-system; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 444, \"path\": \"install/ubuntu.kvm.sh\"}, {\"detail\": \"target=ubuntu-kvm; action=conditional missing-package installation table; version unresolved\", \"line\": 114, \"path\": \"host/ubuntu.kvm/Enable-TestAutomation.ps1\"}], \"group\": \"yuruna:hosts:ubuntu-kvm\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
+    },
+    {
+      "name": "make",
+      "SPDXID": "SPDXRef-0d3100754be783e83188",
+      "downloadLocation": "NOASSERTION",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "NOASSERTION",
+      "copyrightText": "NOASSERTION",
+      "comment": "{\"completeness\": \"source-declared\", \"ecosystem\": \"apt\", \"evidence\": [{\"detail\": \"target=ubuntu-kvm; action=apt-get install; requested=make; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 1207, \"path\": \"install/ubuntu.kvm.sh\"}, {\"detail\": \"target=ubuntu-kvm; action=apt-get install; requested=make; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 1209, \"path\": \"install/ubuntu.kvm.sh\"}], \"group\": \"yuruna:hosts:ubuntu-kvm\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
+    },
+    {
+      "name": "osinfo-db",
+      "SPDXID": "SPDXRef-f7ffc5701054a5c67a23",
+      "downloadLocation": "NOASSERTION",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "NOASSERTION",
+      "copyrightText": "NOASSERTION",
+      "comment": "{\"completeness\": \"source-declared\", \"ecosystem\": \"apt\", \"evidence\": [{\"detail\": \"target=ubuntu-kvm; action=apt-get install; requested=osinfo-db; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 444, \"path\": \"install/ubuntu.kvm.sh\"}], \"group\": \"yuruna:hosts:ubuntu-kvm\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
+    },
+    {
+      "name": "osinfo-db-tools",
+      "SPDXID": "SPDXRef-39bbfb237661dfd76936",
+      "downloadLocation": "NOASSERTION",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "NOASSERTION",
+      "copyrightText": "NOASSERTION",
+      "comment": "{\"completeness\": \"source-declared\", \"ecosystem\": \"apt\", \"evidence\": [{\"detail\": \"target=ubuntu-kvm; action=apt-get install; requested=osinfo-db-tools; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 444, \"path\": \"install/ubuntu.kvm.sh\"}], \"group\": \"yuruna:hosts:ubuntu-kvm\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
+    },
+    {
+      "name": "ovmf",
+      "SPDXID": "SPDXRef-a9a3dfd76087d4e6f287",
+      "downloadLocation": "NOASSERTION",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "NOASSERTION",
+      "copyrightText": "NOASSERTION",
+      "comment": "{\"completeness\": \"source-declared\", \"ecosystem\": \"apt\", \"evidence\": [{\"detail\": \"target=ubuntu-kvm; action=apt-get install; requested=ovmf; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 444, \"path\": \"install/ubuntu.kvm.sh\"}], \"group\": \"yuruna:hosts:ubuntu-kvm\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
+    },
+    {
+      "name": "powershell",
+      "SPDXID": "SPDXRef-d7c7615c1baec9e081bd",
+      "downloadLocation": "NOASSERTION",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "NOASSERTION",
+      "copyrightText": "NOASSERTION",
+      "comment": "{\"completeness\": \"source-declared\", \"ecosystem\": \"apt\", \"evidence\": [{\"detail\": \"target=ubuntu-kvm; action=apt-get install; requested=powershell; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 661, \"path\": \"install/ubuntu.kvm.sh\"}], \"group\": \"yuruna:hosts:ubuntu-kvm\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
+    },
+    {
+      "name": "python3",
+      "SPDXID": "SPDXRef-f5d83d9f93e7446aa6c3",
+      "downloadLocation": "NOASSERTION",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "NOASSERTION",
+      "copyrightText": "NOASSERTION",
+      "comment": "{\"completeness\": \"source-declared\", \"ecosystem\": \"apt\", \"evidence\": [{\"detail\": \"target=ubuntu-kvm; action=apt-get install; requested=python3; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 444, \"path\": \"install/ubuntu.kvm.sh\"}], \"group\": \"yuruna:hosts:ubuntu-kvm\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
+    },
+    {
+      "name": "python3-pip",
+      "SPDXID": "SPDXRef-ea13113043c55930d243",
+      "downloadLocation": "NOASSERTION",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "NOASSERTION",
+      "copyrightText": "NOASSERTION",
+      "comment": "{\"completeness\": \"source-declared\", \"ecosystem\": \"apt\", \"evidence\": [{\"detail\": \"target=ubuntu-kvm; action=apt-get install; requested=python3-pip; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 444, \"path\": \"install/ubuntu.kvm.sh\"}], \"group\": \"yuruna:hosts:ubuntu-kvm\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
+    },
+    {
+      "name": "qemu-efi-aarch64",
+      "SPDXID": "SPDXRef-fb4b5e267509da6ba945",
+      "downloadLocation": "NOASSERTION",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "NOASSERTION",
+      "copyrightText": "NOASSERTION",
+      "comment": "{\"completeness\": \"source-declared\", \"ecosystem\": \"apt\", \"evidence\": [{\"detail\": \"target=ubuntu-kvm; action=apt-get install; requested=qemu-efi-aarch64; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 444, \"path\": \"install/ubuntu.kvm.sh\"}], \"group\": \"yuruna:hosts:ubuntu-kvm\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
+    },
+    {
+      "name": "qemu-system-arm",
+      "SPDXID": "SPDXRef-6a11993246a1a6ec1383",
+      "downloadLocation": "NOASSERTION",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "NOASSERTION",
+      "copyrightText": "NOASSERTION",
+      "comment": "{\"completeness\": \"source-declared\", \"ecosystem\": \"apt\", \"evidence\": [{\"detail\": \"target=ubuntu-kvm; action=apt-get install; requested=qemu-system-arm; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 444, \"path\": \"install/ubuntu.kvm.sh\"}], \"group\": \"yuruna:hosts:ubuntu-kvm\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
+    },
+    {
+      "name": "qemu-system-x86",
+      "SPDXID": "SPDXRef-bcd45fabfe681fb761da",
+      "downloadLocation": "NOASSERTION",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "NOASSERTION",
+      "copyrightText": "NOASSERTION",
+      "comment": "{\"completeness\": \"source-declared\", \"ecosystem\": \"apt\", \"evidence\": [{\"detail\": \"target=ubuntu-kvm; action=apt-get install; requested=qemu-system-x86; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 444, \"path\": \"install/ubuntu.kvm.sh\"}], \"group\": \"yuruna:hosts:ubuntu-kvm\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
+    },
+    {
+      "name": "qemu-utils",
+      "SPDXID": "SPDXRef-568c14fb312b6e014b81",
+      "downloadLocation": "NOASSERTION",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "NOASSERTION",
+      "copyrightText": "NOASSERTION",
+      "comment": "{\"completeness\": \"source-declared\", \"ecosystem\": \"apt\", \"evidence\": [{\"detail\": \"target=ubuntu-kvm; action=apt-get install; requested=qemu-utils; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 444, \"path\": \"install/ubuntu.kvm.sh\"}], \"group\": \"yuruna:hosts:ubuntu-kvm\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
+    },
+    {
+      "name": "sshpass",
+      "SPDXID": "SPDXRef-b23592ec0ddcadebe907",
+      "downloadLocation": "NOASSERTION",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "NOASSERTION",
+      "copyrightText": "NOASSERTION",
+      "comment": "{\"completeness\": \"source-declared\", \"ecosystem\": \"apt\", \"evidence\": [{\"detail\": \"target=ubuntu-kvm; action=apt-get install; requested=sshpass; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 444, \"path\": \"install/ubuntu.kvm.sh\"}], \"group\": \"yuruna:hosts:ubuntu-kvm\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
+    },
+    {
+      "name": "swtpm",
+      "SPDXID": "SPDXRef-3553f60b6067f841fd02",
+      "downloadLocation": "NOASSERTION",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "NOASSERTION",
+      "copyrightText": "NOASSERTION",
+      "comment": "{\"completeness\": \"source-declared\", \"ecosystem\": \"apt\", \"evidence\": [{\"detail\": \"target=ubuntu-kvm; action=apt-get install; requested=swtpm; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 444, \"path\": \"install/ubuntu.kvm.sh\"}], \"group\": \"yuruna:hosts:ubuntu-kvm\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
+    },
+    {
+      "name": "swtpm-tools",
+      "SPDXID": "SPDXRef-46fee012817e412a4424",
+      "downloadLocation": "NOASSERTION",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "NOASSERTION",
+      "copyrightText": "NOASSERTION",
+      "comment": "{\"completeness\": \"source-declared\", \"ecosystem\": \"apt\", \"evidence\": [{\"detail\": \"target=ubuntu-kvm; action=apt-get install; requested=swtpm-tools; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 444, \"path\": \"install/ubuntu.kvm.sh\"}], \"group\": \"yuruna:hosts:ubuntu-kvm\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
+    },
+    {
+      "name": "tesseract-ocr",
+      "SPDXID": "SPDXRef-a2b918cae678d216ee51",
+      "downloadLocation": "NOASSERTION",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "NOASSERTION",
+      "copyrightText": "NOASSERTION",
+      "comment": "{\"completeness\": \"source-declared\", \"ecosystem\": \"apt\", \"evidence\": [{\"detail\": \"target=ubuntu-kvm; action=apt-get install; requested=tesseract-ocr; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 444, \"path\": \"install/ubuntu.kvm.sh\"}], \"group\": \"yuruna:hosts:ubuntu-kvm\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
+    },
+    {
+      "name": "unzip",
+      "SPDXID": "SPDXRef-b38a7ce27cdb4a043528",
+      "downloadLocation": "NOASSERTION",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "NOASSERTION",
+      "copyrightText": "NOASSERTION",
+      "comment": "{\"completeness\": \"source-declared\", \"ecosystem\": \"apt\", \"evidence\": [{\"detail\": \"target=ubuntu-kvm; action=apt-get install; requested=unzip; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 444, \"path\": \"install/ubuntu.kvm.sh\"}], \"group\": \"yuruna:hosts:ubuntu-kvm\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
+    },
+    {
+      "name": "virt-manager",
+      "SPDXID": "SPDXRef-9f899340dfa7c4a8ffe8",
+      "downloadLocation": "NOASSERTION",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "NOASSERTION",
+      "copyrightText": "NOASSERTION",
+      "comment": "{\"completeness\": \"source-declared\", \"ecosystem\": \"apt\", \"evidence\": [{\"detail\": \"target=ubuntu-kvm; action=apt-get install; requested=virt-manager; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 452, \"path\": \"install/ubuntu.kvm.sh\"}, {\"detail\": \"target=ubuntu-kvm; action=conditional missing-package installation table; version unresolved\", \"line\": 119, \"path\": \"host/ubuntu.kvm/Enable-TestAutomation.ps1\"}], \"group\": \"yuruna:hosts:ubuntu-kvm\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
+    },
+    {
+      "name": "virt-viewer",
+      "SPDXID": "SPDXRef-67028d71ed610e7b4219",
+      "downloadLocation": "NOASSERTION",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "NOASSERTION",
+      "copyrightText": "NOASSERTION",
+      "comment": "{\"completeness\": \"source-declared\", \"ecosystem\": \"apt\", \"evidence\": [{\"detail\": \"target=ubuntu-kvm; action=apt-get install; requested=virt-viewer; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 444, \"path\": \"install/ubuntu.kvm.sh\"}], \"group\": \"yuruna:hosts:ubuntu-kvm\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
+    },
+    {
+      "name": "virtinst",
+      "SPDXID": "SPDXRef-fbebb5d2d33bd0d2072d",
+      "downloadLocation": "NOASSERTION",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "NOASSERTION",
+      "copyrightText": "NOASSERTION",
+      "comment": "{\"completeness\": \"source-declared\", \"ecosystem\": \"apt\", \"evidence\": [{\"detail\": \"target=ubuntu-kvm; action=apt-get install; requested=virtinst; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 444, \"path\": \"install/ubuntu.kvm.sh\"}, {\"detail\": \"target=ubuntu-kvm; action=conditional missing-package installation table; version unresolved\", \"line\": 116, \"path\": \"host/ubuntu.kvm/Enable-TestAutomation.ps1\"}], \"group\": \"yuruna:hosts:ubuntu-kvm\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
+    },
+    {
+      "name": "wget",
+      "SPDXID": "SPDXRef-ca6e89935cb3f2dda4cd",
+      "downloadLocation": "NOASSERTION",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "NOASSERTION",
+      "copyrightText": "NOASSERTION",
+      "comment": "{\"completeness\": \"source-declared\", \"ecosystem\": \"apt\", \"evidence\": [{\"detail\": \"target=ubuntu-kvm; action=apt-get install; requested=wget; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 444, \"path\": \"install/ubuntu.kvm.sh\"}], \"group\": \"yuruna:hosts:ubuntu-kvm\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
+    },
+    {
+      "name": "whois",
+      "SPDXID": "SPDXRef-1d2ee3e56474bf7da25f",
+      "downloadLocation": "NOASSERTION",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "NOASSERTION",
+      "copyrightText": "NOASSERTION",
+      "comment": "{\"completeness\": \"source-declared\", \"ecosystem\": \"apt\", \"evidence\": [{\"detail\": \"target=ubuntu-kvm; action=apt-get install; requested=whois; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 444, \"path\": \"install/ubuntu.kvm.sh\"}], \"group\": \"yuruna:hosts:ubuntu-kvm\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
+    },
+    {
+      "name": "xwayland",
+      "SPDXID": "SPDXRef-9eafaffb755d9f543605",
+      "downloadLocation": "NOASSERTION",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "NOASSERTION",
+      "copyrightText": "NOASSERTION",
+      "comment": "{\"completeness\": \"source-declared\", \"ecosystem\": \"apt\", \"evidence\": [{\"detail\": \"target=ubuntu-kvm; action=apt-get install; requested=xwayland; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 444, \"path\": \"install/ubuntu.kvm.sh\"}], \"group\": \"yuruna:hosts:ubuntu-kvm\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
+    },
+    {
+      "name": "zlib1g-dev",
+      "SPDXID": "SPDXRef-8314f589c11b66905987",
+      "downloadLocation": "NOASSERTION",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "NOASSERTION",
+      "copyrightText": "NOASSERTION",
+      "comment": "{\"completeness\": \"source-declared\", \"ecosystem\": \"apt\", \"evidence\": [{\"detail\": \"target=ubuntu-kvm; action=apt-get install; requested=zlib1g-dev; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 1207, \"path\": \"install/ubuntu.kvm.sh\"}, {\"detail\": \"target=ubuntu-kvm; action=apt-get install; requested=zlib1g-dev; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 1209, \"path\": \"install/ubuntu.kvm.sh\"}], \"group\": \"yuruna:hosts:ubuntu-kvm\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
+    },
+    {
+      "name": "Homebrew/install",
+      "SPDXID": "SPDXRef-58ef4bffde4983e8e94f",
+      "downloadLocation": "NOASSERTION",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "NOASSERTION",
+      "copyrightText": "NOASSERTION",
+      "comment": "{\"completeness\": \"source-declared\", \"ecosystem\": \"download\", \"evidence\": [{\"detail\": \"target=macos; action=downloaded provisioning artifact; source=https://raw.githubusercontent.com/Homebrew/install/280cbc9adffcbdef15dd1c9d991ef2d1dd7cfc9c/install.sh; installed payload dependencies unresolved\", \"line\": 315, \"path\": \"install/macos.utm.sh\"}], \"group\": \"yuruna:hosts:macos\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}",
+      "versionInfo": "280cbc9adffcbdef15dd1c9d991ef2d1dd7cfc9c",
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "f3e91784ffeda32bc397de7acc1154724cc47522a459c9ac656cca176eeba457"
+        }
+      ]
+    },
+    {
+      "name": "PowerShell/PowerShell",
+      "SPDXID": "SPDXRef-3a9b83e4c7e2f402e878",
+      "downloadLocation": "NOASSERTION",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "NOASSERTION",
+      "copyrightText": "NOASSERTION",
+      "comment": "{\"completeness\": \"source-declared\", \"ecosystem\": \"download\", \"evidence\": [{\"detail\": \"target=ubuntu-kvm; action=downloaded provisioning artifact; source=https://github.com/PowerShell/PowerShell/releases/download/v$1/powershell-$1-linux-arm64.tar.gz; installed payload dependencies unresolved; artifact version unresolved or floating\", \"line\": 697, \"path\": \"install/ubuntu.kvm.sh\"}, {\"detail\": \"target=ubuntu-kvm; action=downloaded provisioning artifact; source=https://github.com/PowerShell/PowerShell/releases/download/v$1/powershell-$1-linux-x64.tar.gz; installed payload dependencies unresolved; artifact version unresolved or floating\", \"line\": 697, \"path\": \"install/ubuntu.kvm.sh\"}, {\"detail\": \"target=ubuntu-kvm; action=downloaded provisioning artifact; source=https://github.com/PowerShell/PowerShell/releases/download/v$1/powershell-${PWSH_VERSION:-}-linux-arm64.tar.gz; installed payload dependencies unresolved; artifact version unresolved or floating\", \"line\": 697, \"path\": \"install/ubuntu.kvm.sh\"}, {\"detail\": \"target=ubuntu-kvm; action=downloaded provisioning artifact; source=https://github.com/PowerShell/PowerShell/releases/download/v$1/powershell-${PWSH_VERSION:-}-linux-x64.tar.gz; installed payload dependencies unresolved; artifact version unresolved or floating\", \"line\": 697, \"path\": \"install/ubuntu.kvm.sh\"}, {\"detail\": \"target=ubuntu-kvm; action=downloaded provisioning artifact; source=https://github.com/PowerShell/PowerShell/releases/download/v$1/powershell-${tag#v}-linux-arm64.tar.gz; installed payload dependencies unresolved; artifact version unresolved or floating\", \"line\": 697, \"path\": \"install/ubuntu.kvm.sh\"}, {\"detail\": \"target=ubuntu-kvm; action=downloaded provisioning artifact; source=https://github.com/PowerShell/PowerShell/releases/download/v$1/powershell-${tag#v}-linux-x64.tar.gz; installed payload dependencies unresolved; artifact version unresolved or floating\", \"line\": 697, \"path\": \"install/ubuntu.kvm.sh\"}, {\"detail\": \"target=ubuntu-kvm; action=downloaded provisioning artifact; source=https://github.com/PowerShell/PowerShell/releases/download/v$1/powershell-${target#-linux-arm64.tar.gz; installed payload dependencies unresolved; artifact version unresolved or floating\", \"line\": 697, \"path\": \"install/ubuntu.kvm.sh\"}, {\"detail\": \"target=ubuntu-kvm; action=downloaded provisioning artifact; source=https://github.com/PowerShell/PowerShell/releases/download/v$1/powershell-${target#-linux-x64.tar.gz; installed payload dependencies unresolved; artifact version unresolved or floating\", \"line\": 697, \"path\": \"install/ubuntu.kvm.sh\"}, {\"detail\": \"target=ubuntu-kvm; action=downloaded provisioning artifact; source=https://github.com/PowerShell/PowerShell/releases/download/v$1/powershell-${ver%%/*}-linux-arm64.tar.gz; installed payload dependencies unresolved; artifact version unresolved or floating\", \"line\": 697, \"path\": \"install/ubuntu.kvm.sh\"}, {\"detail\": \"target=ubuntu-kvm; action=downloaded provisioning artifact; source=https://github.com/PowerShell/PowerShell/releases/download/v$1/powershell-${ver%%/*}-linux-x64.tar.gz; installed payload dependencies unresolved; artifact version unresolved or floating\", \"line\": 697, \"path\": \"install/ubuntu.kvm.sh\"}, {\"detail\": \"target=ubuntu-kvm; action=downloaded provisioning artifact; source=https://github.com/PowerShell/PowerShell/releases/download/v${PWSH_VERSION:-}/${pkg}; installed payload dependencies unresolved; artifact version unresolved or floating\", \"line\": 697, \"path\": \"install/ubuntu.kvm.sh\"}, {\"detail\": \"target=ubuntu-kvm; action=downloaded provisioning artifact; source=https://github.com/PowerShell/PowerShell/releases/download/v${PWSH_VERSION:-}/hashes.sha256; installed payload dependencies unresolved; artifact version unresolved or floating\", \"line\": 703, \"path\": \"install/ubuntu.kvm.sh\"}, {\"detail\": \"target=ubuntu-kvm; action=downloaded provisioning artifact; source=https://github.com/PowerShell/PowerShell/releases/download/v${tag#v}/${pkg}; installed payload dependencies unresolved; artifact version unresolved or floating\", \"line\": 697, \"path\": \"install/ubuntu.kvm.sh\"}, {\"detail\": \"target=ubuntu-kvm; action=downloaded provisioning artifact; source=https://github.com/PowerShell/PowerShell/releases/download/v${tag#v}/hashes.sha256; installed payload dependencies unresolved; artifact version unresolved or floating\", \"line\": 703, \"path\": \"install/ubuntu.kvm.sh\"}, {\"detail\": \"target=ubuntu-kvm; action=downloaded provisioning artifact; source=https://github.com/PowerShell/PowerShell/releases/download/v${target#/${pkg}; installed payload dependencies unresolved; artifact version unresolved or floating\", \"line\": 697, \"path\": \"install/ubuntu.kvm.sh\"}, {\"detail\": \"target=ubuntu-kvm; action=downloaded provisioning artifact; source=https://github.com/PowerShell/PowerShell/releases/download/v${target#/hashes.sha256; installed payload dependencies unresolved; artifact version unresolved or floating\", \"line\": 703, \"path\": \"install/ubuntu.kvm.sh\"}, {\"detail\": \"target=ubuntu-kvm; action=downloaded provisioning artifact; source=https://github.com/PowerShell/PowerShell/releases/download/v${ver%%/*}/${pkg}; installed payload dependencies unresolved; artifact version unresolved or floating\", \"line\": 697, \"path\": \"install/ubuntu.kvm.sh\"}, {\"detail\": \"target=ubuntu-kvm; action=downloaded provisioning artifact; source=https://github.com/PowerShell/PowerShell/releases/download/v${ver%%/*}/hashes.sha256; installed payload dependencies unresolved; artifact version unresolved or floating\", \"line\": 703, \"path\": \"install/ubuntu.kvm.sh\"}], \"group\": \"yuruna:hosts:ubuntu-kvm\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
+    },
+    {
+      "name": "AWS cli",
+      "SPDXID": "SPDXRef-106f0c0ca9b1bd6bc561",
+      "downloadLocation": "NOASSERTION",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "NOASSERTION",
+      "copyrightText": "NOASSERTION",
+      "comment": "{\"completeness\": \"source-declared\", \"ecosystem\": \"generic\", \"evidence\": [{\"detail\": \"target=shared-or-configured; Host requirement floor; platform applicability and probe are declared in this manifest; not an installed version\", \"line\": 129, \"path\": \"automation/Yuruna.Requirement.yml\"}], \"group\": \"yuruna:hosts:shared-or-configured\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\", \"versionConstraint\": \">=2.37.12\"}"
+    },
+    {
+      "name": "Azure cli",
+      "SPDXID": "SPDXRef-2989682fe7cd7762b1fa",
+      "downloadLocation": "NOASSERTION",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "NOASSERTION",
+      "copyrightText": "NOASSERTION",
+      "comment": "{\"completeness\": \"source-declared\", \"ecosystem\": \"generic\", \"evidence\": [{\"detail\": \"target=shared-or-configured; Host requirement floor; platform applicability and probe are declared in this manifest; not an installed version\", \"line\": 133, \"path\": \"automation/Yuruna.Requirement.yml\"}], \"group\": \"yuruna:hosts:shared-or-configured\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\", \"versionConstraint\": \">=2.91.0\"}"
+    },
+    {
+      "name": "Docker",
+      "SPDXID": "SPDXRef-2fa246ccd8096c978b54",
+      "downloadLocation": "NOASSERTION",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "NOASSERTION",
+      "copyrightText": "NOASSERTION",
+      "comment": "{\"completeness\": \"source-declared\", \"ecosystem\": \"generic\", \"evidence\": [{\"detail\": \"target=shared-or-configured; Host requirement floor; platform applicability and probe are declared in this manifest; not an installed version\", \"line\": 35, \"path\": \"automation/Yuruna.Requirement.yml\"}], \"group\": \"yuruna:hosts:shared-or-configured\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\", \"versionConstraint\": \">=29.8.2\"}"
+    },
+    {
+      "name": "Docker buildx",
+      "SPDXID": "SPDXRef-1cd86414285fbbfc5afb",
+      "downloadLocation": "NOASSERTION",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "NOASSERTION",
+      "copyrightText": "NOASSERTION",
+      "comment": "{\"completeness\": \"source-declared\", \"ecosystem\": \"generic\", \"evidence\": [{\"detail\": \"target=shared-or-configured; Host requirement floor; platform applicability and probe are declared in this manifest; not an installed version\", \"line\": 43, \"path\": \"automation/Yuruna.Requirement.yml\"}], \"group\": \"yuruna:hosts:shared-or-configured\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\", \"versionConstraint\": \">=0.37.2\"}"
+    },
+    {
+      "name": "Google Cloud",
+      "SPDXID": "SPDXRef-0aff0cab850505634b54",
+      "downloadLocation": "NOASSERTION",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "NOASSERTION",
+      "copyrightText": "NOASSERTION",
+      "comment": "{\"completeness\": \"source-declared\", \"ecosystem\": \"generic\", \"evidence\": [{\"detail\": \"target=shared-or-configured; Host requirement floor; platform applicability and probe are declared in this manifest; not an installed version\", \"line\": 139, \"path\": \"automation/Yuruna.Requirement.yml\"}], \"group\": \"yuruna:hosts:shared-or-configured\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\", \"versionConstraint\": \">=588.0.0\"}"
+    },
+    {
+      "name": "Helm",
+      "SPDXID": "SPDXRef-0ac28c42fc93644dd0d4",
+      "downloadLocation": "NOASSERTION",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "NOASSERTION",
+      "copyrightText": "NOASSERTION",
+      "comment": "{\"completeness\": \"source-declared\", \"ecosystem\": \"generic\", \"evidence\": [{\"detail\": \"target=shared-or-configured; Host requirement floor; platform applicability and probe are declared in this manifest; not an installed version\", \"line\": 29, \"path\": \"automation/Yuruna.Requirement.yml\"}], \"group\": \"yuruna:hosts:shared-or-configured\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\", \"versionConstraint\": \">=4.3.0\"}"
+    },
+    {
+      "name": "Kubernetes",
+      "SPDXID": "SPDXRef-3c760dd2c18e9ecf6ee9",
+      "downloadLocation": "NOASSERTION",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "NOASSERTION",
+      "copyrightText": "NOASSERTION",
+      "comment": "{\"completeness\": \"source-declared\", \"ecosystem\": \"generic\", \"evidence\": [{\"detail\": \"target=shared-or-configured; Host requirement floor; platform applicability and probe are declared in this manifest; not an installed version\", \"line\": 55, \"path\": \"automation/Yuruna.Requirement.yml\"}], \"group\": \"yuruna:hosts:shared-or-configured\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\", \"versionConstraint\": \">=1.36.3\"}"
+    },
+    {
+      "name": "OpenTofu",
+      "SPDXID": "SPDXRef-40e24d8a3da1601bc36d",
+      "downloadLocation": "NOASSERTION",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "NOASSERTION",
+      "copyrightText": "NOASSERTION",
+      "comment": "{\"completeness\": \"source-declared\", \"ecosystem\": \"generic\", \"evidence\": [{\"detail\": \"target=shared-or-configured; Host requirement floor; platform applicability and probe are declared in this manifest; not an installed version\", \"line\": 25, \"path\": \"automation/Yuruna.Requirement.yml\"}], \"group\": \"yuruna:hosts:shared-or-configured\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\", \"versionConstraint\": \">=1.13.0\"}"
+    },
+    {
+      "name": "PowerShell",
+      "SPDXID": "SPDXRef-a331001e1eac1c025ade",
+      "downloadLocation": "NOASSERTION",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "NOASSERTION",
+      "copyrightText": "NOASSERTION",
+      "comment": "{\"completeness\": \"source-declared\", \"ecosystem\": \"generic\", \"evidence\": [{\"detail\": \"target=shared-or-configured; Host requirement floor; platform applicability and probe are declared in this manifest; not an installed version\", \"line\": 10, \"path\": \"automation/Yuruna.Requirement.yml\"}], \"group\": \"yuruna:hosts:shared-or-configured\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\", \"versionConstraint\": \">=7.6.6\"}"
+    },
+    {
+      "name": "Visual Studio Code",
+      "SPDXID": "SPDXRef-ab0d33710b55fed01d91",
+      "downloadLocation": "NOASSERTION",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "NOASSERTION",
+      "copyrightText": "NOASSERTION",
+      "comment": "{\"completeness\": \"source-declared\", \"ecosystem\": \"generic\", \"evidence\": [{\"detail\": \"target=shared-or-configured; Host requirement floor; platform applicability and probe are declared in this manifest; not an installed version\", \"line\": 61, \"path\": \"automation/Yuruna.Requirement.yml\"}], \"group\": \"yuruna:hosts:shared-or-configured\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\", \"versionConstraint\": \">=1.132.0\"}"
+    },
+    {
+      "name": "containerd",
+      "SPDXID": "SPDXRef-ded49b19c8e8f9ed1f15",
+      "downloadLocation": "NOASSERTION",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "NOASSERTION",
+      "copyrightText": "NOASSERTION",
+      "comment": "{\"completeness\": \"source-declared\", \"ecosystem\": \"generic\", \"evidence\": [{\"detail\": \"target=shared-or-configured; Host requirement floor; platform applicability and probe are declared in this manifest; not an installed version\", \"line\": 51, \"path\": \"automation/Yuruna.Requirement.yml\"}], \"group\": \"yuruna:hosts:shared-or-configured\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\", \"versionConstraint\": \">=2.3.3\"}"
+    },
+    {
+      "name": "curl",
+      "SPDXID": "SPDXRef-c2376b9b59af41d5a996",
+      "downloadLocation": "NOASSERTION",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "NOASSERTION",
+      "copyrightText": "NOASSERTION",
+      "comment": "{\"completeness\": \"source-declared\", \"ecosystem\": \"generic\", \"evidence\": [{\"detail\": \"target=shared-or-configured; Host requirement floor; platform applicability and probe are declared in this manifest; not an installed version\", \"line\": 87, \"path\": \"automation/Yuruna.Requirement.yml\"}], \"group\": \"yuruna:hosts:shared-or-configured\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\", \"versionConstraint\": \">=8.18.0\"}"
+    },
+    {
+      "name": "git",
+      "SPDXID": "SPDXRef-d4992dfc10e330359850",
+      "downloadLocation": "NOASSERTION",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "NOASSERTION",
+      "copyrightText": "NOASSERTION",
+      "comment": "{\"completeness\": \"source-declared\", \"ecosystem\": \"generic\", \"evidence\": [{\"detail\": \"target=shared-or-configured; Host requirement floor; platform applicability and probe are declared in this manifest; not an installed version\", \"line\": 15, \"path\": \"automation/Yuruna.Requirement.yml\"}], \"group\": \"yuruna:hosts:shared-or-configured\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\", \"versionConstraint\": \">=2.53.0\"}"
+    },
+    {
+      "name": "mkcert",
+      "SPDXID": "SPDXRef-86a7af0ece23c51df1bc",
+      "downloadLocation": "NOASSERTION",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "NOASSERTION",
+      "copyrightText": "NOASSERTION",
+      "comment": "{\"completeness\": \"source-declared\", \"ecosystem\": \"generic\", \"evidence\": [{\"detail\": \"target=shared-or-configured; Host requirement floor; platform applicability and probe are declared in this manifest; not an installed version\", \"line\": 67, \"path\": \"automation/Yuruna.Requirement.yml\"}], \"group\": \"yuruna:hosts:shared-or-configured\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\", \"versionConstraint\": \">=1.4.4\"}"
+    },
+    {
+      "name": "node",
+      "SPDXID": "SPDXRef-55be0269bb2cb0118876",
+      "downloadLocation": "NOASSERTION",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "NOASSERTION",
+      "copyrightText": "NOASSERTION",
+      "comment": "{\"completeness\": \"source-declared\", \"ecosystem\": \"generic\", \"evidence\": [{\"detail\": \"target=shared-or-configured; Host requirement floor; platform applicability and probe are declared in this manifest; not an installed version\", \"line\": 72, \"path\": \"automation/Yuruna.Requirement.yml\"}], \"group\": \"yuruna:hosts:shared-or-configured\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\", \"versionConstraint\": \">=24.20.0\"}"
+    },
+    {
+      "name": "npm",
+      "SPDXID": "SPDXRef-ed804c41c819f151f0c8",
+      "downloadLocation": "NOASSERTION",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "NOASSERTION",
+      "copyrightText": "NOASSERTION",
+      "comment": "{\"completeness\": \"source-declared\", \"ecosystem\": \"generic\", \"evidence\": [{\"detail\": \"target=shared-or-configured; Host requirement floor; platform applicability and probe are declared in this manifest; not an installed version\", \"line\": 80, \"path\": \"automation/Yuruna.Requirement.yml\"}], \"group\": \"yuruna:hosts:shared-or-configured\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\", \"versionConstraint\": \">=11.19.0\"}"
+    },
+    {
+      "name": "oscdimg",
+      "SPDXID": "SPDXRef-69e33900aa71dcb6a321",
+      "downloadLocation": "NOASSERTION",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "NOASSERTION",
+      "copyrightText": "NOASSERTION",
+      "comment": "{\"completeness\": \"source-declared\", \"ecosystem\": \"generic\", \"evidence\": [{\"detail\": \"target=shared-or-configured; Host requirement floor; platform applicability and probe are declared in this manifest; not an installed version\", \"line\": 122, \"path\": \"automation/Yuruna.Requirement.yml\"}], \"group\": \"yuruna:hosts:shared-or-configured\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\", \"versionConstraint\": \">=2.56\"}"
+    },
+    {
+      "name": "python3",
+      "SPDXID": "SPDXRef-d3d95420b896612f603e",
+      "downloadLocation": "NOASSERTION",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "NOASSERTION",
+      "copyrightText": "NOASSERTION",
+      "comment": "{\"completeness\": \"source-declared\", \"ecosystem\": \"generic\", \"evidence\": [{\"detail\": \"target=shared-or-configured; Host requirement floor; platform applicability and probe are declared in this manifest; not an installed version\", \"line\": 20, \"path\": \"automation/Yuruna.Requirement.yml\"}], \"group\": \"yuruna:hosts:shared-or-configured\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\", \"versionConstraint\": \">=3.14.4\"}"
+    },
+    {
+      "name": "qemu-img",
+      "SPDXID": "SPDXRef-ac75147d29dee5996d72",
+      "downloadLocation": "NOASSERTION",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "NOASSERTION",
+      "copyrightText": "NOASSERTION",
+      "comment": "{\"completeness\": \"source-declared\", \"ecosystem\": \"generic\", \"evidence\": [{\"detail\": \"target=shared-or-configured; Host requirement floor; platform applicability and probe are declared in this manifest; not an installed version\", \"line\": 106, \"path\": \"automation/Yuruna.Requirement.yml\"}], \"group\": \"yuruna:hosts:shared-or-configured\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\", \"versionConstraint\": \">=10.2.1\"}"
+    },
+    {
+      "name": "tesseract",
+      "SPDXID": "SPDXRef-c3492989aa6373fc05a3",
+      "downloadLocation": "NOASSERTION",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "NOASSERTION",
+      "copyrightText": "NOASSERTION",
+      "comment": "{\"completeness\": \"source-declared\", \"ecosystem\": \"generic\", \"evidence\": [{\"detail\": \"target=shared-or-configured; Host requirement floor; platform applicability and probe are declared in this manifest; not an installed version\", \"line\": 95, \"path\": \"automation/Yuruna.Requirement.yml\"}], \"group\": \"yuruna:hosts:shared-or-configured\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\", \"versionConstraint\": \">=5.5.0\"}"
+    },
+    {
+      "name": "wget",
+      "SPDXID": "SPDXRef-3cac7f06cdfc7fc71f62",
+      "downloadLocation": "NOASSERTION",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "NOASSERTION",
+      "copyrightText": "NOASSERTION",
+      "comment": "{\"completeness\": \"source-declared\", \"ecosystem\": \"generic\", \"evidence\": [{\"detail\": \"target=shared-or-configured; Host requirement floor; platform applicability and probe are declared in this manifest; not an installed version\", \"line\": 91, \"path\": \"automation/Yuruna.Requirement.yml\"}], \"group\": \"yuruna:hosts:shared-or-configured\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\", \"versionConstraint\": \">=1.25.0\"}"
+    },
+    {
+      "name": "gh",
+      "SPDXID": "SPDXRef-e75ef79db60304ec86b2",
+      "downloadLocation": "NOASSERTION",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "NOASSERTION",
+      "copyrightText": "NOASSERTION",
+      "comment": "{\"completeness\": \"source-declared\", \"ecosystem\": \"homebrew\", \"evidence\": [{\"detail\": \"target=macos; action=brew brew_ensure_formula; requested=gh; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 752, \"path\": \"install/macos.utm.sh\"}], \"group\": \"yuruna:hosts:macos\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
+    },
+    {
+      "name": "git",
+      "SPDXID": "SPDXRef-3ea749ddb58679df01a3",
+      "downloadLocation": "NOASSERTION",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "NOASSERTION",
+      "copyrightText": "NOASSERTION",
+      "comment": "{\"completeness\": \"source-declared\", \"ecosystem\": \"homebrew\", \"evidence\": [{\"detail\": \"target=macos; action=brew brew_ensure_formula; requested=git; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 746, \"path\": \"install/macos.utm.sh\"}], \"group\": \"yuruna:hosts:macos\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
+    },
+    {
+      "name": "openssl",
+      "SPDXID": "SPDXRef-1d8744ef1eae4583adf8",
+      "downloadLocation": "NOASSERTION",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "NOASSERTION",
+      "copyrightText": "NOASSERTION",
+      "comment": "{\"completeness\": \"source-declared\", \"ecosystem\": \"homebrew\", \"evidence\": [{\"detail\": \"target=macos; action=brew brew_ensure_formula; requested=openssl; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 751, \"path\": \"install/macos.utm.sh\"}], \"group\": \"yuruna:hosts:macos\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
+    },
+    {
+      "name": "powershell",
+      "SPDXID": "SPDXRef-718094e6792592775da5",
+      "downloadLocation": "NOASSERTION",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "NOASSERTION",
+      "copyrightText": "NOASSERTION",
+      "comment": "{\"completeness\": \"source-declared\", \"ecosystem\": \"homebrew\", \"evidence\": [{\"detail\": \"target=macos; action=brew brew_ensure_cask; requested=powershell; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 1262, \"path\": \"install/macos.utm.sh\"}, {\"detail\": \"target=macos; action=brew brew_ensure_cask; requested=powershell; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 747, \"path\": \"install/macos.utm.sh\"}, {\"detail\": \"target=macos; action=brew brew_ensure_formula; requested=powershell; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 1259, \"path\": \"install/macos.utm.sh\"}, {\"detail\": \"target=macos; action=brew brew_ensure_formula; requested=powershell; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 747, \"path\": \"install/macos.utm.sh\"}, {\"detail\": \"target=macos; action=brew install; requested=powershell; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 766, \"path\": \"install/macos.utm.sh\"}], \"group\": \"yuruna:hosts:macos\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
+    },
+    {
+      "name": "qemu",
+      "SPDXID": "SPDXRef-fd5d09e835c6136da0d9",
+      "downloadLocation": "NOASSERTION",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "NOASSERTION",
+      "copyrightText": "NOASSERTION",
+      "comment": "{\"completeness\": \"source-declared\", \"ecosystem\": \"homebrew\", \"evidence\": [{\"detail\": \"target=macos; action=brew brew_ensure_formula; requested=qemu; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 749, \"path\": \"install/macos.utm.sh\"}], \"group\": \"yuruna:hosts:macos\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
+    },
+    {
+      "name": "tesseract",
+      "SPDXID": "SPDXRef-601532ad5d30e53aa394",
+      "downloadLocation": "NOASSERTION",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "NOASSERTION",
+      "copyrightText": "NOASSERTION",
+      "comment": "{\"completeness\": \"source-declared\", \"ecosystem\": \"homebrew\", \"evidence\": [{\"detail\": \"target=macos; action=brew brew_ensure_formula; requested=tesseract; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 748, \"path\": \"install/macos.utm.sh\"}], \"group\": \"yuruna:hosts:macos\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
+    },
+    {
+      "name": "utm",
+      "SPDXID": "SPDXRef-3b06be56d840526f65cb",
+      "downloadLocation": "NOASSERTION",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "NOASSERTION",
+      "copyrightText": "NOASSERTION",
+      "comment": "{\"completeness\": \"source-declared\", \"ecosystem\": \"homebrew\", \"evidence\": [{\"detail\": \"target=macos; action=brew brew_ensure_cask; requested=utm; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 761, \"path\": \"install/macos.utm.sh\"}, {\"detail\": \"target=macos; action=brew install; requested=utm; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 798, \"path\": \"install/macos.utm.sh\"}], \"group\": \"yuruna:hosts:macos\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
+    },
+    {
+      "name": "wget",
+      "SPDXID": "SPDXRef-96eb5a13fdfe75325323",
+      "downloadLocation": "NOASSERTION",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "NOASSERTION",
+      "copyrightText": "NOASSERTION",
+      "comment": "{\"completeness\": \"source-declared\", \"ecosystem\": \"homebrew\", \"evidence\": [{\"detail\": \"target=macos; action=brew brew_ensure_formula; requested=wget; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 750, \"path\": \"install/macos.utm.sh\"}], \"group\": \"yuruna:hosts:macos\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
+    },
+    {
+      "name": "PSScriptAnalyzer",
+      "SPDXID": "SPDXRef-d2df92912b4e6fdf0187",
+      "downloadLocation": "NOASSERTION",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "NOASSERTION",
+      "copyrightText": "NOASSERTION",
+      "comment": "{\"completeness\": \"source-declared\", \"ecosystem\": \"psgallery\", \"evidence\": [{\"detail\": \"target=shared-or-configured; action=Install-PSScriptAnalyzerIfMissing; version unresolved\", \"line\": 159, \"path\": \"automation/Yuruna.HostSetup.psm1\"}, {\"detail\": \"target=shared-or-configured; action=Install-PSScriptAnalyzerIfMissing; version unresolved\", \"line\": 160, \"path\": \"automation/Yuruna.HostSetup.psm1\"}, {\"detail\": \"target=shared-or-configured; action=psgallery Install-Module; requested=PSScriptAnalyzer; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 104, \"path\": \"tools/Install-TestModule.ps1\"}], \"group\": \"yuruna:hosts:shared-or-configured\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
+    },
+    {
+      "name": "Pester",
+      "SPDXID": "SPDXRef-216b85567ef245f36c4e",
+      "downloadLocation": "NOASSERTION",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "NOASSERTION",
+      "copyrightText": "NOASSERTION",
+      "comment": "{\"completeness\": \"source-declared\", \"ecosystem\": \"psgallery\", \"evidence\": [{\"detail\": \"target=shared-or-configured; action=psgallery Install-Module; requested=Pester; conditional provisioning input\", \"line\": 85, \"path\": \"tools/Install-TestModule.ps1\"}], \"group\": \"yuruna:hosts:shared-or-configured\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\", \"versionConstraint\": \"$($newest.Version)\"}"
+    },
+    {
+      "name": "powershell-yaml",
+      "SPDXID": "SPDXRef-21caed0f5f09538e99b9",
+      "downloadLocation": "NOASSERTION",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "NOASSERTION",
+      "copyrightText": "NOASSERTION",
+      "comment": "{\"completeness\": \"source-declared\", \"ecosystem\": \"psgallery\", \"evidence\": [{\"detail\": \"target=macos; action=psgallery Install-Module; requested=powershell-yaml; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 830, \"path\": \"install/macos.utm.sh\"}, {\"detail\": \"target=shared-or-configured; action=Install-PowershellYamlIfMissing; version unresolved\", \"line\": 157, \"path\": \"automation/Yuruna.HostSetup.psm1\"}, {\"detail\": \"target=shared-or-configured; action=Install-PowershellYamlIfMissing; version unresolved\", \"line\": 158, \"path\": \"automation/Yuruna.HostSetup.psm1\"}, {\"detail\": \"target=ubuntu-kvm; action=psgallery Install-Module; requested=powershell-yaml; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 743, \"path\": \"install/ubuntu.kvm.sh\"}, {\"detail\": \"target=windows; action=psgallery Install-Module; requested=powershell-yaml; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 1005, \"path\": \"install/windows.hyper-v.ps1\"}], \"groups\": [\"yuruna:hosts:macos\", \"yuruna:hosts:shared-or-configured\", \"yuruna:hosts:ubuntu-kvm\", \"yuruna:hosts:windows\"], \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
+    },
+    {
+      "name": "Git.Git",
+      "SPDXID": "SPDXRef-623a79724605de2ddce8",
+      "downloadLocation": "NOASSERTION",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "NOASSERTION",
+      "copyrightText": "NOASSERTION",
+      "comment": "{\"completeness\": \"source-declared\", \"ecosystem\": \"winget\", \"evidence\": [{\"detail\": \"target=windows; action=winget Install-WingetPackage; requested=Git.Git; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 955, \"path\": \"install/windows.hyper-v.ps1\"}], \"group\": \"yuruna:hosts:windows\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
+    },
+    {
+      "name": "GitHub.cli",
+      "SPDXID": "SPDXRef-4b6149e6e24e861c30be",
+      "downloadLocation": "NOASSERTION",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "NOASSERTION",
+      "copyrightText": "NOASSERTION",
+      "comment": "{\"completeness\": \"source-declared\", \"ecosystem\": \"winget\", \"evidence\": [{\"detail\": \"target=windows; action=winget Install-WingetPackage; requested=GitHub.cli; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 965, \"path\": \"install/windows.hyper-v.ps1\"}], \"group\": \"yuruna:hosts:windows\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
+    },
+    {
+      "name": "Microsoft.PowerShell",
+      "SPDXID": "SPDXRef-f66aece12acf506469ab",
+      "downloadLocation": "NOASSERTION",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "NOASSERTION",
+      "copyrightText": "NOASSERTION",
+      "comment": "{\"completeness\": \"source-declared\", \"ecosystem\": \"winget\", \"evidence\": [{\"detail\": \"target=windows; action=winget Install-WingetPackage; requested=Microsoft.PowerShell; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 953, \"path\": \"install/windows.hyper-v.ps1\"}, {\"detail\": \"target=windows; action=winget install; requested=Microsoft.PowerShell; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 516, \"path\": \"install/windows.hyper-v.ps1\"}], \"group\": \"yuruna:hosts:windows\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
+    },
+    {
+      "name": "Microsoft.WindowsADK",
+      "SPDXID": "SPDXRef-df85c12ef0ff8a9cbf5e",
+      "downloadLocation": "NOASSERTION",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "NOASSERTION",
+      "copyrightText": "NOASSERTION",
+      "comment": "{\"completeness\": \"source-declared\", \"ecosystem\": \"winget\", \"evidence\": [{\"detail\": \"target=windows; action=winget Install-WingetPackage; requested=Microsoft.WindowsADK; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 956, \"path\": \"install/windows.hyper-v.ps1\"}], \"group\": \"yuruna:hosts:windows\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
+    },
+    {
+      "name": "Prometheus.WindowsExporter",
+      "SPDXID": "SPDXRef-dede3d560b781942e602",
+      "downloadLocation": "NOASSERTION",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "NOASSERTION",
+      "copyrightText": "NOASSERTION",
+      "comment": "{\"completeness\": \"source-declared\", \"ecosystem\": \"winget\", \"evidence\": [{\"detail\": \"target=windows; action=winget Install-WingetPackage; requested=Prometheus.WindowsExporter; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 964, \"path\": \"install/windows.hyper-v.ps1\"}], \"group\": \"yuruna:hosts:windows\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
+    },
+    {
+      "name": "SoftwareFreedomConservancy.QEMU",
+      "SPDXID": "SPDXRef-b9ef7e099152e9b367f3",
+      "downloadLocation": "NOASSERTION",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "NOASSERTION",
+      "copyrightText": "NOASSERTION",
+      "comment": "{\"completeness\": \"source-declared\", \"ecosystem\": \"winget\", \"evidence\": [{\"detail\": \"target=windows; action=winget Install-WingetPackage; requested=SoftwareFreedomConservancy.QEMU; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 957, \"path\": \"install/windows.hyper-v.ps1\"}], \"group\": \"yuruna:hosts:windows\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
+    },
+    {
+      "name": "UB-Mannheim.TesseractOCR",
+      "SPDXID": "SPDXRef-ce0adc07f0b110f066cb",
+      "downloadLocation": "NOASSERTION",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "NOASSERTION",
+      "copyrightText": "NOASSERTION",
+      "comment": "{\"completeness\": \"source-declared\", \"ecosystem\": \"winget\", \"evidence\": [{\"detail\": \"target=windows; action=winget Install-WingetPackage; requested=UB-Mannheim.TesseractOCR; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 958, \"path\": \"install/windows.hyper-v.ps1\"}], \"group\": \"yuruna:hosts:windows\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
+    }
+  ],
+  "relationships": [
+    {
+      "spdxElementId": "SPDXRef-DOCUMENT",
+      "relationshipType": "DESCRIBES",
+      "relatedSpdxElement": "SPDXRef-Repository"
+    },
+    {
+      "spdxElementId": "SPDXRef-Repository",
+      "relationshipType": "DEPENDS_ON",
+      "relatedSpdxElement": "SPDXRef-a6e384e9893fef1dfd09"
+    },
+    {
+      "spdxElementId": "SPDXRef-Repository",
+      "relationshipType": "DEPENDS_ON",
+      "relatedSpdxElement": "SPDXRef-82ed5808078d7fc58ad3"
+    },
+    {
+      "spdxElementId": "SPDXRef-Repository",
+      "relationshipType": "DEPENDS_ON",
+      "relatedSpdxElement": "SPDXRef-371023a2bec8717b74c8"
+    },
+    {
+      "spdxElementId": "SPDXRef-Repository",
+      "relationshipType": "DEPENDS_ON",
+      "relatedSpdxElement": "SPDXRef-e43dd2ba2804193c0e67"
+    },
+    {
+      "spdxElementId": "SPDXRef-Repository",
+      "relationshipType": "DEPENDS_ON",
+      "relatedSpdxElement": "SPDXRef-153f3fd251409a19f1d3"
+    },
+    {
+      "spdxElementId": "SPDXRef-Repository",
+      "relationshipType": "DEPENDS_ON",
+      "relatedSpdxElement": "SPDXRef-a5fdf0d8578e6857f20d"
+    },
+    {
+      "spdxElementId": "SPDXRef-Repository",
+      "relationshipType": "DEPENDS_ON",
+      "relatedSpdxElement": "SPDXRef-9aeb1463104ba2d20372"
+    },
+    {
+      "spdxElementId": "SPDXRef-Repository",
+      "relationshipType": "DEPENDS_ON",
+      "relatedSpdxElement": "SPDXRef-0243416dceef10838d39"
+    },
+    {
+      "spdxElementId": "SPDXRef-Repository",
+      "relationshipType": "DEPENDS_ON",
+      "relatedSpdxElement": "SPDXRef-c7194058a28229d35435"
+    },
+    {
+      "spdxElementId": "SPDXRef-Repository",
+      "relationshipType": "DEPENDS_ON",
+      "relatedSpdxElement": "SPDXRef-992132d1aec875639b5d"
+    },
+    {
+      "spdxElementId": "SPDXRef-Repository",
+      "relationshipType": "DEPENDS_ON",
+      "relatedSpdxElement": "SPDXRef-b995aea457a8ce7d8f04"
+    },
+    {
+      "spdxElementId": "SPDXRef-Repository",
+      "relationshipType": "DEPENDS_ON",
+      "relatedSpdxElement": "SPDXRef-55ac7d4748b44eed02e0"
+    },
+    {
+      "spdxElementId": "SPDXRef-Repository",
+      "relationshipType": "DEPENDS_ON",
+      "relatedSpdxElement": "SPDXRef-2bf35518bbd1a849d403"
+    },
+    {
+      "spdxElementId": "SPDXRef-Repository",
+      "relationshipType": "DEPENDS_ON",
+      "relatedSpdxElement": "SPDXRef-ae81c5a929ee2e65792f"
+    },
+    {
+      "spdxElementId": "SPDXRef-Repository",
+      "relationshipType": "DEPENDS_ON",
+      "relatedSpdxElement": "SPDXRef-dc18cd369934960d79fb"
+    },
+    {
+      "spdxElementId": "SPDXRef-Repository",
+      "relationshipType": "DEPENDS_ON",
+      "relatedSpdxElement": "SPDXRef-97aa7c6f110e33300afe"
+    },
+    {
+      "spdxElementId": "SPDXRef-Repository",
+      "relationshipType": "DEPENDS_ON",
+      "relatedSpdxElement": "SPDXRef-469008743a02109b635d"
+    },
+    {
+      "spdxElementId": "SPDXRef-Repository",
+      "relationshipType": "DEPENDS_ON",
+      "relatedSpdxElement": "SPDXRef-cd3abb4813e8c547ec5d"
+    },
+    {
+      "spdxElementId": "SPDXRef-Repository",
+      "relationshipType": "DEPENDS_ON",
+      "relatedSpdxElement": "SPDXRef-f92deb256ad9b2c4bfa6"
+    },
+    {
+      "spdxElementId": "SPDXRef-Repository",
+      "relationshipType": "DEPENDS_ON",
+      "relatedSpdxElement": "SPDXRef-e800c09371ab25270145"
+    },
+    {
+      "spdxElementId": "SPDXRef-Repository",
+      "relationshipType": "DEPENDS_ON",
+      "relatedSpdxElement": "SPDXRef-869c9342eecbabb0b984"
+    },
+    {
+      "spdxElementId": "SPDXRef-Repository",
+      "relationshipType": "DEPENDS_ON",
+      "relatedSpdxElement": "SPDXRef-51b92a33735a962b0451"
+    },
+    {
+      "spdxElementId": "SPDXRef-Repository",
+      "relationshipType": "DEPENDS_ON",
+      "relatedSpdxElement": "SPDXRef-b93ff953ca55f9023567"
+    },
+    {
+      "spdxElementId": "SPDXRef-Repository",
+      "relationshipType": "DEPENDS_ON",
+      "relatedSpdxElement": "SPDXRef-bb46b83a8e3a8f79f9b3"
+    },
+    {
+      "spdxElementId": "SPDXRef-Repository",
+      "relationshipType": "DEPENDS_ON",
+      "relatedSpdxElement": "SPDXRef-0d3100754be783e83188"
+    },
+    {
+      "spdxElementId": "SPDXRef-Repository",
+      "relationshipType": "DEPENDS_ON",
+      "relatedSpdxElement": "SPDXRef-f7ffc5701054a5c67a23"
+    },
+    {
+      "spdxElementId": "SPDXRef-Repository",
+      "relationshipType": "DEPENDS_ON",
+      "relatedSpdxElement": "SPDXRef-39bbfb237661dfd76936"
+    },
+    {
+      "spdxElementId": "SPDXRef-Repository",
+      "relationshipType": "DEPENDS_ON",
+      "relatedSpdxElement": "SPDXRef-a9a3dfd76087d4e6f287"
+    },
+    {
+      "spdxElementId": "SPDXRef-Repository",
+      "relationshipType": "DEPENDS_ON",
+      "relatedSpdxElement": "SPDXRef-d7c7615c1baec9e081bd"
+    },
+    {
+      "spdxElementId": "SPDXRef-Repository",
+      "relationshipType": "DEPENDS_ON",
+      "relatedSpdxElement": "SPDXRef-f5d83d9f93e7446aa6c3"
+    },
+    {
+      "spdxElementId": "SPDXRef-Repository",
+      "relationshipType": "DEPENDS_ON",
+      "relatedSpdxElement": "SPDXRef-ea13113043c55930d243"
+    },
+    {
+      "spdxElementId": "SPDXRef-Repository",
+      "relationshipType": "DEPENDS_ON",
+      "relatedSpdxElement": "SPDXRef-fb4b5e267509da6ba945"
+    },
+    {
+      "spdxElementId": "SPDXRef-Repository",
+      "relationshipType": "DEPENDS_ON",
+      "relatedSpdxElement": "SPDXRef-6a11993246a1a6ec1383"
+    },
+    {
+      "spdxElementId": "SPDXRef-Repository",
+      "relationshipType": "DEPENDS_ON",
+      "relatedSpdxElement": "SPDXRef-bcd45fabfe681fb761da"
+    },
+    {
+      "spdxElementId": "SPDXRef-Repository",
+      "relationshipType": "DEPENDS_ON",
+      "relatedSpdxElement": "SPDXRef-568c14fb312b6e014b81"
+    },
+    {
+      "spdxElementId": "SPDXRef-Repository",
+      "relationshipType": "DEPENDS_ON",
+      "relatedSpdxElement": "SPDXRef-b23592ec0ddcadebe907"
+    },
+    {
+      "spdxElementId": "SPDXRef-Repository",
+      "relationshipType": "DEPENDS_ON",
+      "relatedSpdxElement": "SPDXRef-3553f60b6067f841fd02"
+    },
+    {
+      "spdxElementId": "SPDXRef-Repository",
+      "relationshipType": "DEPENDS_ON",
+      "relatedSpdxElement": "SPDXRef-46fee012817e412a4424"
+    },
+    {
+      "spdxElementId": "SPDXRef-Repository",
+      "relationshipType": "DEPENDS_ON",
+      "relatedSpdxElement": "SPDXRef-a2b918cae678d216ee51"
+    },
+    {
+      "spdxElementId": "SPDXRef-Repository",
+      "relationshipType": "DEPENDS_ON",
+      "relatedSpdxElement": "SPDXRef-b38a7ce27cdb4a043528"
+    },
+    {
+      "spdxElementId": "SPDXRef-Repository",
+      "relationshipType": "DEPENDS_ON",
+      "relatedSpdxElement": "SPDXRef-9f899340dfa7c4a8ffe8"
+    },
+    {
+      "spdxElementId": "SPDXRef-Repository",
+      "relationshipType": "DEPENDS_ON",
+      "relatedSpdxElement": "SPDXRef-67028d71ed610e7b4219"
+    },
+    {
+      "spdxElementId": "SPDXRef-Repository",
+      "relationshipType": "DEPENDS_ON",
+      "relatedSpdxElement": "SPDXRef-fbebb5d2d33bd0d2072d"
+    },
+    {
+      "spdxElementId": "SPDXRef-Repository",
+      "relationshipType": "DEPENDS_ON",
+      "relatedSpdxElement": "SPDXRef-ca6e89935cb3f2dda4cd"
+    },
+    {
+      "spdxElementId": "SPDXRef-Repository",
+      "relationshipType": "DEPENDS_ON",
+      "relatedSpdxElement": "SPDXRef-1d2ee3e56474bf7da25f"
+    },
+    {
+      "spdxElementId": "SPDXRef-Repository",
+      "relationshipType": "DEPENDS_ON",
+      "relatedSpdxElement": "SPDXRef-9eafaffb755d9f543605"
+    },
+    {
+      "spdxElementId": "SPDXRef-Repository",
+      "relationshipType": "DEPENDS_ON",
+      "relatedSpdxElement": "SPDXRef-8314f589c11b66905987"
+    },
+    {
+      "spdxElementId": "SPDXRef-Repository",
+      "relationshipType": "DEPENDS_ON",
+      "relatedSpdxElement": "SPDXRef-58ef4bffde4983e8e94f"
+    },
+    {
+      "spdxElementId": "SPDXRef-Repository",
+      "relationshipType": "DEPENDS_ON",
+      "relatedSpdxElement": "SPDXRef-3a9b83e4c7e2f402e878"
+    },
+    {
+      "spdxElementId": "SPDXRef-Repository",
+      "relationshipType": "DEPENDS_ON",
+      "relatedSpdxElement": "SPDXRef-106f0c0ca9b1bd6bc561"
+    },
+    {
+      "spdxElementId": "SPDXRef-Repository",
+      "relationshipType": "DEPENDS_ON",
+      "relatedSpdxElement": "SPDXRef-2989682fe7cd7762b1fa"
+    },
+    {
+      "spdxElementId": "SPDXRef-Repository",
+      "relationshipType": "DEPENDS_ON",
+      "relatedSpdxElement": "SPDXRef-2fa246ccd8096c978b54"
+    },
+    {
+      "spdxElementId": "SPDXRef-Repository",
+      "relationshipType": "DEPENDS_ON",
+      "relatedSpdxElement": "SPDXRef-1cd86414285fbbfc5afb"
+    },
+    {
+      "spdxElementId": "SPDXRef-Repository",
+      "relationshipType": "DEPENDS_ON",
+      "relatedSpdxElement": "SPDXRef-0aff0cab850505634b54"
+    },
+    {
+      "spdxElementId": "SPDXRef-Repository",
+      "relationshipType": "DEPENDS_ON",
+      "relatedSpdxElement": "SPDXRef-0ac28c42fc93644dd0d4"
+    },
+    {
+      "spdxElementId": "SPDXRef-Repository",
+      "relationshipType": "DEPENDS_ON",
+      "relatedSpdxElement": "SPDXRef-3c760dd2c18e9ecf6ee9"
+    },
+    {
+      "spdxElementId": "SPDXRef-Repository",
+      "relationshipType": "DEPENDS_ON",
+      "relatedSpdxElement": "SPDXRef-40e24d8a3da1601bc36d"
+    },
+    {
+      "spdxElementId": "SPDXRef-Repository",
+      "relationshipType": "DEPENDS_ON",
+      "relatedSpdxElement": "SPDXRef-a331001e1eac1c025ade"
+    },
+    {
+      "spdxElementId": "SPDXRef-Repository",
+      "relationshipType": "DEPENDS_ON",
+      "relatedSpdxElement": "SPDXRef-ab0d33710b55fed01d91"
+    },
+    {
+      "spdxElementId": "SPDXRef-Repository",
+      "relationshipType": "DEPENDS_ON",
+      "relatedSpdxElement": "SPDXRef-ded49b19c8e8f9ed1f15"
+    },
+    {
+      "spdxElementId": "SPDXRef-Repository",
+      "relationshipType": "DEPENDS_ON",
+      "relatedSpdxElement": "SPDXRef-c2376b9b59af41d5a996"
+    },
+    {
+      "spdxElementId": "SPDXRef-Repository",
+      "relationshipType": "DEPENDS_ON",
+      "relatedSpdxElement": "SPDXRef-d4992dfc10e330359850"
+    },
+    {
+      "spdxElementId": "SPDXRef-Repository",
+      "relationshipType": "DEPENDS_ON",
+      "relatedSpdxElement": "SPDXRef-86a7af0ece23c51df1bc"
+    },
+    {
+      "spdxElementId": "SPDXRef-Repository",
+      "relationshipType": "DEPENDS_ON",
+      "relatedSpdxElement": "SPDXRef-55be0269bb2cb0118876"
+    },
+    {
+      "spdxElementId": "SPDXRef-Repository",
+      "relationshipType": "DEPENDS_ON",
+      "relatedSpdxElement": "SPDXRef-ed804c41c819f151f0c8"
+    },
+    {
+      "spdxElementId": "SPDXRef-Repository",
+      "relationshipType": "DEPENDS_ON",
+      "relatedSpdxElement": "SPDXRef-69e33900aa71dcb6a321"
+    },
+    {
+      "spdxElementId": "SPDXRef-Repository",
+      "relationshipType": "DEPENDS_ON",
+      "relatedSpdxElement": "SPDXRef-d3d95420b896612f603e"
+    },
+    {
+      "spdxElementId": "SPDXRef-Repository",
+      "relationshipType": "DEPENDS_ON",
+      "relatedSpdxElement": "SPDXRef-ac75147d29dee5996d72"
+    },
+    {
+      "spdxElementId": "SPDXRef-Repository",
+      "relationshipType": "DEPENDS_ON",
+      "relatedSpdxElement": "SPDXRef-c3492989aa6373fc05a3"
+    },
+    {
+      "spdxElementId": "SPDXRef-Repository",
+      "relationshipType": "DEPENDS_ON",
+      "relatedSpdxElement": "SPDXRef-3cac7f06cdfc7fc71f62"
+    },
+    {
+      "spdxElementId": "SPDXRef-Repository",
+      "relationshipType": "DEPENDS_ON",
+      "relatedSpdxElement": "SPDXRef-e75ef79db60304ec86b2"
+    },
+    {
+      "spdxElementId": "SPDXRef-Repository",
+      "relationshipType": "DEPENDS_ON",
+      "relatedSpdxElement": "SPDXRef-3ea749ddb58679df01a3"
+    },
+    {
+      "spdxElementId": "SPDXRef-Repository",
+      "relationshipType": "DEPENDS_ON",
+      "relatedSpdxElement": "SPDXRef-1d8744ef1eae4583adf8"
+    },
+    {
+      "spdxElementId": "SPDXRef-Repository",
+      "relationshipType": "DEPENDS_ON",
+      "relatedSpdxElement": "SPDXRef-718094e6792592775da5"
+    },
+    {
+      "spdxElementId": "SPDXRef-Repository",
+      "relationshipType": "DEPENDS_ON",
+      "relatedSpdxElement": "SPDXRef-fd5d09e835c6136da0d9"
+    },
+    {
+      "spdxElementId": "SPDXRef-Repository",
+      "relationshipType": "DEPENDS_ON",
+      "relatedSpdxElement": "SPDXRef-601532ad5d30e53aa394"
+    },
+    {
+      "spdxElementId": "SPDXRef-Repository",
+      "relationshipType": "DEPENDS_ON",
+      "relatedSpdxElement": "SPDXRef-3b06be56d840526f65cb"
+    },
+    {
+      "spdxElementId": "SPDXRef-Repository",
+      "relationshipType": "DEPENDS_ON",
+      "relatedSpdxElement": "SPDXRef-96eb5a13fdfe75325323"
+    },
+    {
+      "spdxElementId": "SPDXRef-Repository",
+      "relationshipType": "DEPENDS_ON",
+      "relatedSpdxElement": "SPDXRef-d2df92912b4e6fdf0187"
+    },
+    {
+      "spdxElementId": "SPDXRef-Repository",
+      "relationshipType": "DEPENDS_ON",
+      "relatedSpdxElement": "SPDXRef-216b85567ef245f36c4e"
+    },
+    {
+      "spdxElementId": "SPDXRef-Repository",
+      "relationshipType": "DEPENDS_ON",
+      "relatedSpdxElement": "SPDXRef-21caed0f5f09538e99b9"
+    },
+    {
+      "spdxElementId": "SPDXRef-Repository",
+      "relationshipType": "DEPENDS_ON",
+      "relatedSpdxElement": "SPDXRef-623a79724605de2ddce8"
+    },
+    {
+      "spdxElementId": "SPDXRef-Repository",
+      "relationshipType": "DEPENDS_ON",
+      "relatedSpdxElement": "SPDXRef-4b6149e6e24e861c30be"
+    },
+    {
+      "spdxElementId": "SPDXRef-Repository",
+      "relationshipType": "DEPENDS_ON",
+      "relatedSpdxElement": "SPDXRef-f66aece12acf506469ab"
+    },
+    {
+      "spdxElementId": "SPDXRef-Repository",
+      "relationshipType": "DEPENDS_ON",
+      "relatedSpdxElement": "SPDXRef-df85c12ef0ff8a9cbf5e"
+    },
+    {
+      "spdxElementId": "SPDXRef-Repository",
+      "relationshipType": "DEPENDS_ON",
+      "relatedSpdxElement": "SPDXRef-dede3d560b781942e602"
+    },
+    {
+      "spdxElementId": "SPDXRef-Repository",
+      "relationshipType": "DEPENDS_ON",
+      "relatedSpdxElement": "SPDXRef-b9ef7e099152e9b367f3"
+    },
+    {
+      "spdxElementId": "SPDXRef-Repository",
+      "relationshipType": "DEPENDS_ON",
+      "relatedSpdxElement": "SPDXRef-ce0adc07f0b110f066cb"
+    }
+  ],
+  "hasExtractedLicensingInfos": [
+    {
+      "licenseId": "LicenseRef-Yuruna",
+      "name": "LicenseRef-Yuruna",
+      "extractedText": "# Yuruna License\n\nThis is the **Yuruna License**, based on the [MIT License](https://opensource.org/license/mit/).\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all\ncopies or substantial portions of the Software.\n\n## No Warranty / \"As Is\"\n\n**There is no warranty of any kind.** The Software is provided **\"as is\"**,\nwithout any guarantees -- express or implied -- including but not limited to\ncorrectness, completeness, fitness for a particular purpose, merchantability,\nor non-infringement. You assume the entire risk of using it.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\nSOFTWARE.\n\n## <span style=\"color:red;\">Administrator Risk Warning</span>\n\nPortions of this Software are designed to run with **elevated / administrator\nprivileges** (e.g., as Administrator on Windows, or via `sudo` / root on\nLinux and macOS). Running code at this privilege level is **inherently\nrisky**: it can modify system configuration, create or destroy virtual\nmachines, alter networking, install or remove packages, and read or write\narbitrary files. Mistakes -- whether in the Software, in the operator's\ninput, or in the surrounding environment -- **may lead to data loss, system\ninstability, or unrecoverable changes**.\n\nBy executing any part of the Software with administrator or root permissions,\nyou acknowledge this risk and accept full responsibility for the outcome.\nReview the code, take backups, and test in an isolated environment before\nrunning anything privileged against systems you cannot afford to lose.\n\n---\n\nLICENSEURI https://yuruna.link/license\n\nCopyright (c) 2019-2026 by Alisson Sol et al.\n\nLast review: 2026.10.14\n\nBack to [Yuruna](README.md)\n",
+      "seeAlsos": [
+        "https://github.com/alissonsol/yuruna/blob/main/LICENSE.md"
+      ]
+    }
+  ]
+}

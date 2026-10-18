@@ -1,0 +1,40 @@
+# LICENSEURI https://yuruna.link/license
+# Copyright (c) 2019-2026 by Alisson Sol et al.
+# --- REGION: [Unit]
+[Unit]
+Description=Yuruna caching-proxy-parser-service (in-memory last-100 squid requests)
+Documentation=https://yuruna.link/caching-proxy-parser-service
+After=squid.service network-online.target
+PartOf=squid.service
+
+# --- REGION: [Service]
+[Service]
+Type=simple
+Environment=YURUNA_LANGUAGE=auto YURUNA_ALLOW_PSEUDO_LOCALE=false
+EnvironmentFile=-/etc/yuruna/globalization.env
+User=proxy
+Group=proxy
+ExecStart=/usr/local/bin/caching-proxy-parser-service --language=${YURUNA_LANGUAGE} --allow-pseudo-locale=${YURUNA_ALLOW_PSEUDO_LOCALE}
+Restart=on-failure
+RestartSec=5
+# proxy already owns /var/log/squid/yuruna_access.log (mode 0640) -- the
+# unit only needs to read it. No writes anywhere; the ring buffer is
+# memory-only.
+ReadOnlyPaths=/var/log/squid
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_INET AF_INET6
+LockPersonality=true
+MemoryDenyWriteExecute=true
+RestrictRealtime=true
+SystemCallArchitectures=native
+
+# --- REGION: [Install]
+[Install]
+WantedBy=multi-user.target

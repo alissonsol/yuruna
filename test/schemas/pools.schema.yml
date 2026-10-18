@@ -1,0 +1,184 @@
+# LICENSEURI https://yuruna.link/license
+# Copyright (c) 2019-2026 by Alisson Sol et al.
+$schema: https://json-schema.org/draft/2020-12/schema
+$id: https://yuruna.com/schemas/pools.schema.yml
+title: Yuruna pool definitions
+description: >
+  The slow-changing pool CONFIGURATION, authored by the operator (pool admin CLI) and
+  pulled by each runner over the LAN from the bare git repo on the caching-proxy-service.
+  `members[]` (a list of stable hostIds) is the SINGLE source of truth for which
+  host belongs to which pool: a runner finds its own pool by locating its hostId
+  here (a host belongs to AT MOST one pool); the aggregator labels each host's
+  telemetry by the same mapping. `configuredState` gates the runner
+  (run/paused/drain); `repositories` (the pool's framework and project
+  repository URLs) is what a pooled host runs; `config` overrides the
+  per-host testCycle knobs; `gating` is the advisory pool alert/quorum policy
+  the aggregator + host notifier act on.
+
+type: object
+required: [schemaVersion, pools]
+additionalProperties: false
+
+properties:
+
+  schemaVersion:
+    type: integer
+    const: 4
+    description: >
+      Schema contract version. v4 uses `configuredState` and retains a stable
+      `poolGuid` and optional `repositories` (the framework and project repository URLs).
+
+  pools:
+    type: array
+    description: All pools defined for this LAN. One file holds every pool.
+    items: { $ref: "#/$defs/pool" }
+
+  autoEnrollment:
+    type: object
+    description: >
+      Policy for the sweep that adds lab-token-enrolled hosts to a pool
+      automatically. A host is a candidate only when the aggregator reports
+      `control: ready` for it AND it belongs to no pool at all, so the
+      "a host is in at most one pool" invariant holds by construction.
+    additionalProperties: false
+    properties:
+      enabled:
+        type: boolean
+        description: >
+          Master switch for the auto-enrollment sweep across this LAN. Default
+          false: the feature ships off and is turned on deliberately.
+      targetPoolId:
+        type: string
+        pattern: "^[a-z0-9][a-z0-9-]{0,62}$"
+        description: >
+          The pool auto-enrolled hosts land in (conventionally `default`). This
+          pool is FORBIDDEN from carrying repositories -- hosts arrive here
+          without anyone choosing it for them, so repositories here would
+          silently repoint every auto-enrolled host in the lab. Enforced in code
+          (Test-PoolConfiguration.ps1 / Set-PoolRepository.ps1), because a cross-field
+          constraint of this shape is not expressible in JSON Schema.
+      excluded:
+        type: array
+        description: >
+          Hosts an operator removed from the target pool by hand. The sweep
+          never re-adds these. Without it, removing a host and the 60-second
+          sweep would fight forever and the UI would look broken.
+        items:
+          type: string
+          pattern: "^42[0-9a-fA-F]{30}$"
+
+$defs:
+
+  pool:
+    type: object
+    required: [poolId, poolGuid]
+    additionalProperties: false
+    properties:
+
+      poolId:
+        type: string
+        pattern: "^[a-z0-9][a-z0-9-]{0,62}$"
+        description: >
+          DNS-label-safe pool identifier. This is the Loki/Prometheus label
+          value and is IMMUTABLE once telemetry has accumulated under it --
+          renaming it forks the history.
+
+      poolGuid:
+        type: string
+        pattern: "^42[0-9a-fA-F]{6}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
+        description: >
+          Stable 42-prefixed GUID minted at pool creation. Unlike poolId it is
+          opaque and never reused. Distinct from poolId so the pool GUID and
+          telemetry label can evolve independently.
+
+      displayName:
+        type: string
+        description: Human-friendly label shown on the dashboard. Default "".
+
+      members:
+        type: array
+        description: >
+          Stable hostIds (42-prefixed 32-hex, from runtime/host.uuid) in this
+          pool. The single source of truth for membership; order is not
+          significant. A host learns its own pool by finding its hostId here.
+        items:
+          type: string
+          pattern: "^42[0-9a-fA-F]{30}$"
+
+      repositories:
+        type: object
+        description: >
+          The framework and project repositories every member of this pool
+          runs. A pooled runner overrides its own repositories.frameworkUrl /
+          repositories.projectUrl with these for the cycle (its GH_TOKEN stays
+          host-local, never in pool configuration) and then runs that project's own
+          test.runner.yml. Absent when the pool sets none: each member then
+          runs its own configured repositories. Set or cleared with
+          test/pool/Set-PoolRepository.ps1 or on the pool-control Pools page.
+        required: [frameworkUrl, projectUrl]
+        additionalProperties: false
+        properties:
+          frameworkUrl:
+            type: string
+            minLength: 1
+            description: The Yuruna framework repository URL each pooled host clones for the cycle.
+          projectUrl:
+            type: string
+            minLength: 1
+            description: The project repository URL each pooled host tests (its test.runner.yml drives the cycle).
+
+      config:
+        type: object
+        description: >
+          Per-pool overrides of the testCycle.* knobs. The runner's outer loop merges
+          config.testCycle over each host's test.config.yml (override WINS: pool >
+          config > default), so a pool can engage auto-remediation or tighten the step
+          timeout fleet-wide without editing every host.
+        additionalProperties: false
+        properties:
+          testCycle:
+            type: object
+            description: Overrides mirroring the test.config.yml testCycle block.
+            additionalProperties: true
+
+      gating:
+        type: object
+        description: >
+          Advisory pool alert/quorum policy. The aggregator computes a `degraded` flag
+          when the healthy-member fraction stays below the threshold for the sustained
+          window, latches an alert with poll-count hysteresis, and the host-side notifier
+          delivers it. Advisory only: no host reads it to gate a cycle. Authoring an
+          (even empty) gating block opts the pool into alerting; a pool with no gating is
+          observed via the gauges but never paged.
+        additionalProperties: false
+        properties:
+          failuresBeforeAlert:
+            type: integer
+            minimum: 1
+            description: Consecutive degraded polls before a pool alert fires. Default 3.
+          successesBeforeRearm:
+            type: integer
+            minimum: 1
+            description: Consecutive non-degraded polls before the alert re-arms. Default 2.
+          quorum:
+            type: object
+            additionalProperties: false
+            properties:
+              healthyThreshold:
+                type: number
+                minimum: 0
+                maximum: 1
+                description: Fraction of members that must be healthy. Default 0.5.
+              degradedAfterSeconds:
+                type: integer
+                minimum: 0
+                description: Seconds below the threshold before the pool is "degraded". Default 1800.
+
+      configuredState:
+        type: string
+        enum: [run, paused, drain]
+        description: >
+          Gates the runner (pulled configuration, mirroring the
+          local control.cycle-restart flag). run = cycle normally; paused = finish
+          the in-flight cycle then hold; drain = stop after the current cycle.
+          Default "run" when absent.

@@ -1,0 +1,2416 @@
+<#PSScriptInfo
+.VERSION 2026.10.14
+.GUID 42a266d5-29ef-459f-9141-78b35e35cc6c
+.AUTHOR Alisson Sol et al.
+.COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
+.TAGS yuruna test diagnostics failure cross-platform
+.LICENSEURI https://yuruna.link/license
+.PROJECTURI https://yuruna.com
+.ICONURI
+.EXTERNALMODULEDEPENDENCIES
+.REQUIREDSCRIPTS
+.EXTERNALSCRIPTDEPENDENCIES
+.RELEASENOTES
+.PRIVATEDATA
+#>
+
+#requires -version 7
+
+<#
+.SYNOPSIS
+    Collects post-failure system diagnostic captures from a guest VM
+    and drops them into the per-guest cycleGuestDataFolder next to the
+    screenshot and OCR text.
+
+.DESCRIPTION
+    Runs automation/Get-SystemDiagnostic.ps1 inside the guest over SSH
+    and writes the captured output to:
+        <OutputFolder>/<yyyy-MM-dd.HH-mm>.system.diagnostic.<Id>.txt
+    where <Id> is the caller-supplied tag from the 'id' field of a
+    saveSystemDiagnostic sequence step. The dashboard tile links
+    straight into the cycleGuestDataFolder so every capture in the
+    cycle is visible to the operator with one click.
+
+    A rung that fails after capturing output keeps it beside the main
+    file, in <...>.system.diagnostic.<Id>.<rung>.txt, and the console
+    rung's upload lands in <...>.<Id>.console.txt until it is promoted
+    to the main name. No rung writes another rung's file, so a later
+    fallback cannot erase the record of why an earlier one failed.
+
+    Authentication strategy (intentional, ordered, cross-platform):
+      1. The harness's per-host ed25519 key, available on every host.
+      2. Password via `sshpass -e` when installed. The password is loaded
+         into the SSHPASS environment variable of that child alone,
+         never into command arguments or the runner environment.
+      3. SECOND-DEFENSE console keystroke injection. When SSH itself is
+         unavailable (sshd down, network partition, or auth genuinely
+         the bug we're trying to debug), we fall back to typing a one-
+         liner into the guest's tty1 via the Yuruna.Host Send-Text
+         contract. The one-liner curls Get-SystemDiagnostic.ps1 from
+         the host's status service, runs it locally, and POSTs the
+         result back to the host's /diagnostics/<folder>/<file>
+         endpoint, which writes it directly into the per-guest folder.
+         Precondition: an interactive shell is sitting at the guest's
+         tty1 (the failure path tends to leave one there after a
+         passwd / login retry). The function will time out and
+         degrade quietly if the keystrokes go into the void.
+
+    Side-effect-free on the guest: Get-SystemDiagnostic.ps1 is a pure
+    read-only dump and we never elevate.
+#>
+
+# -Global so callers that have already imported Test.VMUtility / Test.Ssh
+# keep their existing bindings -- same pattern Test.Ssh uses for its own
+# transitive imports.
+Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
+Import-Module (Join-Path $PSScriptRoot 'Test.VMUtility.psm1') -Force -DisableNameChecking -Global
+Import-Module (Join-Path $PSScriptRoot 'Test.Ssh.psm1')        -Force -DisableNameChecking -Global
+# Test.Extension loads the active authentication extension; Get-Password
+# is exported by that extension and is the source of truth for the
+# stored per-user password.
+Import-Module (Join-Path $PSScriptRoot 'Test.Extension.psm1')  -Force -Global
+# Test.Config provides the mtime-keyed Read-TestConfig cache so
+# Resolve-StatusServiceEndpoint doesn't reparse test.config.yml on
+# every diagnostic call.
+Import-Module (Join-Path $PSScriptRoot 'Test.Config.psm1')     -Force -DisableNameChecking -Global
+
+# See https://yuruna.link/4213a0b3-004a
+try {
+    Import-Module (Join-Path $PSScriptRoot 'Test.OcrMatch.psm1')  -Force -DisableNameChecking -Global -ErrorAction Stop
+    Import-Module (Join-Path $PSScriptRoot 'Test.OcrEngine.psm1') -Force -DisableNameChecking -Global -ErrorAction Stop
+} catch {
+    Write-Verbose "Test.Diagnostic: OCR modules unavailable; console echo verification will be skipped. $($_.Exception.Message)"
+}
+
+# Remote script path. We deliberately use $HOME (shell-expanded on the
+# guest) rather than a hardcoded /home/<user>/ -- works for ec2-user,
+# the per-guest test user, ubuntu without any per-guest fork.
+$script:RemoteDiagScript = '$HOME/yuruna/automation/Get-SystemDiagnostic.ps1'
+
+function Get-RemoteDiagnosticsCommand {
+<#
+.SYNOPSIS
+    Returns the bash one-liner the SSH rungs run on the guest to
+    produce a diagnostic capture, with an optional curl bootstrap
+    fallback for the case where the yuruna tarball hasn't yet been
+    extracted on the guest.
+.DESCRIPTION
+    Without -BootstrapUrl, the command is the bare
+    `pwsh -NoProfile -File $HOME/yuruna/automation/Get-SystemDiagnostic.ps1`.
+
+    With -BootstrapUrl, the command tests for the materialized script
+    first; if absent, it falls through to `curl -fsSL <url>/yuruna-repo
+    /automation/Get-SystemDiagnostic.ps1` and runs the downloaded copy
+    out of /tmp. This rescues the failure mode where the cycle
+    watchdog fires mid-update.sh -- e.g. apt-get update stalled on UTM
+    bridge networking before reaching the tarball-extract step -- so
+    pwsh would otherwise exit 64 with its usage banner and the
+    captured artifact would be useless. The status service's
+    /yuruna-repo/ mount serves the host's working tree, so the
+    downloaded script is the same one that would have been in the
+    tarball.
+
+    Bash conditional rather than `&&` so an exit code from pwsh
+    inside the bootstrap branch doesn't suppress the trailing
+    `rm /tmp/yuruna-diag.ps1` cleanup. `rc=$?` captures pwsh's real
+    exit BEFORE the rm and re-raises it via `exit $rc`, so the SSH rung
+    (which decides success purely on exit code) can't read the rm's 0
+    as a clean capture when pwsh actually failed.
+#>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param([string]$BootstrapUrl)
+
+    if ([string]::IsNullOrWhiteSpace($BootstrapUrl)) {
+        return "pwsh -NoProfile -File $script:RemoteDiagScript -CheckoutRoot `"`$HOME/yuruna`""
+    }
+    $u      = $BootstrapUrl.TrimEnd('/')
+    $remote = $script:RemoteDiagScript
+    return ("if [ -f $remote ]; then " +
+            "pwsh -NoProfile -File $remote -CheckoutRoot `"`$HOME/yuruna`"; " +
+            "elif curl -fsSL '$u/yuruna-repo/automation/Get-SystemDiagnostic.ps1' -o /tmp/yuruna-diag.ps1; then " +
+            "pwsh -NoProfile -File /tmp/yuruna-diag.ps1 -CheckoutRoot `"`$HOME/yuruna`"; rc=`$?; rm -f /tmp/yuruna-diag.ps1; exit `$rc; " +
+            "else echo 'diag-bootstrap: yuruna not extracted and status service unreachable' >&2; exit 64; fi")
+}
+
+# The independent worker bounds every stage, including provider calls and
+# cleanup. Stage budgets share its monotonic deadline and leave time for
+# fallbacks; they cannot extend the supervisor's overall limit.
+$script:SaveGuestDiagnosticTotalTimeoutSeconds = 300
+$script:SaveGuestDiagnosticPerCommandTimeoutSeconds = 60
+$script:GuestDiagnosticWorkerPath = Join-Path $PSScriptRoot '../Invoke-GuestDiagnosticWorker.ps1'
+
+# Characters each SSH rung retains per stream. A capture that outgrows the cap
+# is reported as truncated and the rung as failed, which hands the capture to
+# the next rung, so the cap must sit well above any real report: a guest
+# running Kubernetes with a deployed project already produces about 600 KB.
+$script:GuestDiagnosticMaxCapturedChars = 16777216
+
+function Get-DiagnosticsFileName {
+<#
+.SYNOPSIS
+    Returns the timestamped basename for one diagnostic capture, tagged
+    with a caller-supplied identifier.
+.DESCRIPTION
+    Format: yyyy-MM-dd.HH-mm.system.diagnostic.<Id>.txt (UTC). The
+    timestamp is sortable and aligns with the yyyy-MM-ddTHH-mm-ssZ
+    convention used elsewhere in test/status/log/. Minute precision is
+    intentional: a cycle's per-guest folder is timestamped to the
+    second already, so the additional second on the diagnostic file
+    would only repeat noise visible in the parent directory name.
+    The Id tag is what lets a single cycle hold multiple captures
+    (each saveSystemDiagnostic step in a sequence supplies a distinct
+    Id) without filenames colliding.
+.PARAMETER Id
+    Caller-supplied tag appended after 'system.diagnostic.' and before
+    '.txt'. Use snake/dot-case (no slashes, no spaces, no '..'). The
+    'id' field on each saveSystemDiagnostic sequence step chooses the
+    tag -- e.g. 'after.k8s.bootstrap' or 'before.reboot'.
+#>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param(
+        [Parameter(Mandatory)][ValidateNotNullOrEmpty()][string]$Id
+    )
+    $stamp = (Get-Date).ToUniversalTime().ToString('yyyy-MM-dd.HH-mm', [Globalization.CultureInfo]::InvariantCulture)
+    return "$stamp.system.diagnostic.$Id.txt"
+}
+
+function Resolve-StoredPassword {
+<#
+.SYNOPSIS
+    Look up the currently stored password for a guest's SSH user.
+.DESCRIPTION
+    Wraps Get-Password (active authentication extension) with the soft-
+    fail behavior this module needs: a missing/uninitialized vault must
+    NOT throw -- the diagnostics flow has to degrade gracefully to the
+    key-based fallback path. The vault is a per-cycle artifact; pre-
+    sequence failures (New-VM crashing before any sequence ran) can
+    legitimately reach this code with no entry to look up.
+
+    Returns @{ password; reason } so callers can discriminate the three
+    distinct failure modes (auth extension not loaded, Get-Password
+    not exported, Get-Password threw) instead of collapsing all three to
+    a bare $null that leaves the operator guessing which one fired. The
+    reason string is short (one phrase) so a caller can log it directly
+    into the diagnostic file header / failure NDJSON.
+
+      password  [string] the stored password, or $null on any failure
+      reason    [string] 'ok' when password is set, otherwise one of
+                  'auth-extension-load-failed',
+                  'get-password-not-exported',
+                  'get-password-threw',
+                  'no-entry'   (Get-Password returned $null)
+#>
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param([Parameter(Mandatory)][string]$Username)
+    if (-not (Get-Command Get-Password -ErrorAction SilentlyContinue)) {
+        try {
+            [void](Import-Extension -Area 'authentication' -RequireSingle)
+        } catch {
+            Write-Verbose "Save-GuestDiagnostic: auth extension load failed: $($_.Exception.Message)"
+            return @{ password = $null; reason = 'auth-extension-load-failed' }
+        }
+    }
+    if (-not (Get-Command Get-Password -ErrorAction SilentlyContinue)) {
+        return @{ password = $null; reason = 'get-password-not-exported' }
+    }
+    try {
+        $pw = Get-Password -Username $Username
+    } catch {
+        Write-Verbose "Save-GuestDiagnostic: Get-Password threw for '$Username': $($_.Exception.Message)"
+        return @{ password = $null; reason = 'get-password-threw' }
+    }
+    if ([string]::IsNullOrEmpty($pw)) {
+        return @{ password = $null; reason = 'no-entry' }
+    }
+    return @{ password = $pw; reason = 'ok' }
+}
+
+function Invoke-RemoteDiagnosticsPasswordSsh {
+<#
+.SYNOPSIS
+    Runs Get-SystemDiagnostic.ps1 over SSH using password auth via
+    sshpass. Returns @{ success; output; exitCode; mechanism } the same
+    shape Invoke-RemoteDiagnosticsKeySsh returns so the caller can pick
+    a path without branching on the return shape.
+.DESCRIPTION
+    SSHPASS is set inside the native child so the password never lives
+    in the parent process env (which would inherit into every later
+    Start-Process call) and never appears on a process arg list visible
+    to /bin/ps or Get-CimInstance Win32_Process.
+
+    `-o PreferredAuthentications=password -o PubkeyAuthentication=no`
+    forces the password path even when the key happens to be authorized
+    in the guest -- so this function genuinely tests the credential the
+    operator asked us to use.
+#>
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute(
+        'PSAvoidUsingPlainTextForPassword', 'Password',
+        Justification = 'The vault credential reaches sshpass only through SSHPASS in its isolated child environment.')]
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute(
+        'PSAvoidUsingUsernameAndPasswordParams', '',
+        Justification = 'User + Password mirror the sshpass -e contract, which consumes a child environment variable.')]
+    param(
+        [Parameter(Mandatory)][string]$User,
+        [Parameter(Mandatory)][string]$Address,
+        [Parameter(Mandatory)][string]$Password,
+        [Parameter(Mandatory)][string]$SshpassPath,
+        [int]$TimeoutSeconds = 180,
+        [string]$BootstrapUrl
+    )
+    $target  = "$User@$Address"
+    $command = Get-RemoteDiagnosticsCommand -BootstrapUrl $BootstrapUrl
+
+    # Child-only environment avoids leaking the credential into later commands.
+    # The native supervisor bounds stream draining and process cleanup as well
+    # as execution; stopping a PowerShell job can itself wait indefinitely.
+    $nativeArgs = @('-e', 'ssh') +
+        @(Test.Ssh\Get-YurunaSshHostKeyOption) +
+        @('-o', 'PreferredAuthentications=password', '-o', 'PubkeyAuthentication=no',
+        '-o', 'ConnectTimeout=10', '-o', 'ServerAliveInterval=30', '-o', 'LogLevel=ERROR',
+        $target, $command)
+    $r = Invoke-BoundedNativeCommand -FilePath $SshpassPath -ArgumentList $nativeArgs `
+        -Environment @{ SSHPASS = $Password } -TimeoutSeconds $TimeoutSeconds `
+        -MaxCapturedChars $script:GuestDiagnosticMaxCapturedChars `
+        -StreamEncoding ([System.Text.UTF8Encoding]::new($false))
+    return @{
+        success   = ($r.Started -and $r.ExitCode -eq 0 -and (Test-BoundedNativeResultComplete -Result $r))
+        output    = ("$($r.StdOut)$($r.StdErr)").TrimEnd()
+        exitCode  = [int]$r.ExitCode
+        mechanism = 'password'
+        timedOut = [bool]$r.TimedOut
+        drainTimedOut = [bool]$r.DrainTimedOut
+        outputTruncated = [bool]$r.OutputTruncated
+        killFailed = [bool]$r.KillFailed
+    }
+}
+
+function Invoke-RemoteDiagnosticsKeySsh {
+<#
+.SYNOPSIS
+    Runs Get-SystemDiagnostic.ps1 over SSH using the harness's
+    per-host ed25519 key. Cross-platform fallback for hosts without
+    sshpass installed.
+.DESCRIPTION
+    Delegates to Invoke-GuestSsh (Test.Ssh) so the BatchMode / host-key
+    options are the harness defaults and any future fix to that path
+    benefits this function automatically.
+#>
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param(
+        [Parameter(Mandatory)][string]$VMName,
+        [Parameter(Mandatory)][string]$GuestKey,
+        [int]$TimeoutSeconds = 180,
+        [string]$BootstrapUrl
+    )
+    $command = Get-RemoteDiagnosticsCommand -BootstrapUrl $BootstrapUrl
+    # Test.Ssh is imported -Global at module load, and the Yuruna.Host Send-*
+    # dispatchers import Invoke-Sequence -Global, so Test.Ssh stays in the
+    # global session through the console rung -- the module-qualified call
+    # below resolves without a per-call re-assert.
+    $r = Test.Ssh\Invoke-GuestSsh -VMName $VMName -GuestKey $GuestKey `
+            -Command $command -TimeoutSeconds $TimeoutSeconds -PreservePartialOutputOnTimeout `
+            -MaxCapturedChars $script:GuestDiagnosticMaxCapturedChars
+    return @{
+        success   = [bool]$r.success
+        output    = [string]$r.output
+        exitCode  = [int]$r.exitCode
+        mechanism = 'key'
+        timedOut = [bool]$r.timedOut
+        drainTimedOut = [bool]$r.drainTimedOut
+        outputTruncated = [bool]$r.outputTruncated
+        killFailed = [bool]$r.killFailed
+    }
+}
+
+function Resolve-StatusServiceEndpoint {
+<#
+.SYNOPSIS
+    Returns the URL the guest should use to reach the host's status
+    server, as @{ ip; port; url }, or $null if either piece can't be
+    determined.
+.DESCRIPTION
+    IP comes from the active host driver's Get-GuestReachableHostIp
+    (same call site that New-VM.ps1 uses to seed cloud-init); port
+    comes from test.config.yml's statusService.port with the 8080
+    default the server uses when the field is missing.
+
+    When VMName is supplied and Hyper-V's Get-VMNetworkAdapter is
+    available, we resolve the VM's actual vSwitch and pass it as
+    -SwitchName to Get-GuestReachableHostIp. Without that hint, the
+    Hyper-V driver falls back to the Default Switch IP (172.x.x.x),
+    which is unreachable from a guest attached to the External
+    vSwitch and produces the symptom "console keystroke fallback
+    via http://172.29.32.1:8080 (line length=...) -> 180s timeout"
+    even though sshd is healthy and curl from inside the guest to
+    the host's LAN IP (192.168.x.x) returns instantly.
+
+    Soft-fails to $null rather than throwing because the console
+    fallback is itself an emergency code path -- we don't want a
+    missing host driver to swallow what would otherwise be a partial
+    SSH-side diagnostic.
+#>
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param(
+        [string]$RepoRoot,
+        [string]$VMName
+    )
+
+    $ip = $null
+    if (Get-Command Get-GuestReachableHostIp -ErrorAction SilentlyContinue) {
+        try {
+            # Hyper-V: look up the VM's switch so Get-GuestReachableHostIp
+            # returns the host's LAN IP (External vSwitch) instead of the
+            # Default Switch IP. KVM/UTM don't expose Get-VMNetworkAdapter,
+            # so the lookup quietly no-ops and we keep the legacy no-arg
+            # call -- those drivers have a single-subnet topology where
+            # the IP is unambiguous.
+            $switchName = $null
+            if ($VMName -and (Get-Command Get-VMNetworkAdapter -ErrorAction SilentlyContinue)) {
+                try {
+                    $adapter = Get-VMNetworkAdapter -VMName $VMName -ErrorAction Stop | Select-Object -First 1
+                    if ($adapter) { $switchName = [string]$adapter.SwitchName }
+                } catch {
+                    Write-Verbose "Resolve-StatusServiceEndpoint: Get-VMNetworkAdapter '$VMName' failed: $($_.Exception.Message)"
+                }
+            }
+            if ($switchName) {
+                $ip = Get-GuestReachableHostIp -SwitchName $switchName
+            } else {
+                $ip = Get-GuestReachableHostIp
+            }
+        } catch { Write-Verbose "Get-GuestReachableHostIp threw: $($_.Exception.Message)" }
+    }
+    if (-not $ip) { return $null }
+
+    # Resolve port from test.config.yml. RepoRoot is optional; default
+    # walks up from $PSScriptRoot (test/modules/) two levels to land on
+    # the repo root so a stand-alone import still finds the config.
+    if (-not $RepoRoot) {
+        $RepoRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
+    }
+    $port = 8080
+    $configPath = Join-Path $RepoRoot 'test/test.config.yml'
+    # Read-TestConfig is mtime+hash cached; repeated diagnostic calls in
+    # one cycle do not re-parse the YAML.
+    $cfg = Read-TestConfig -Path $configPath
+    if ($cfg -and $cfg.statusService.port) { $port = [int]$cfg.statusService.port }
+    return @{ ip = [string]$ip; port = [int]$port; url = "http://${ip}:${port}" }
+}
+
+function New-DiagnosticsConsoleCommand {
+<#
+.SYNOPSIS
+    Returns the one-line bash command that fetches
+    Get-SystemDiagnostic.ps1 from the status service, runs it under
+    pwsh on the guest, and POSTs the captured text back to
+    /diagnostics/<folder>/<file>.
+.DESCRIPTION
+    Plain ASCII so every byte maps to a scancode in Invoke-Sequence's
+    char table -- the console transport sends scancodes for ` $ ; = / `
+    etc and rejects anything outside that table. Single-quoted
+    Content-Type and small variable names keep the line short (~240
+    chars at default) so 30 ms/char typing finishes in under 8 s.
+
+    Failure modes are intentionally swallowed by the shell side:
+      * curl fetch fails  -> pwsh never runs, second curl has nothing
+      * pwsh runs but throws -> partial transcript in y.txt is still
+                                POSTed (the operator wants to SEE the
+                                bug, not have us hide it on exit code)
+      * second curl fails -> rm in the trailing `;` still runs so we
+                             don't leave artifacts on the guest
+#>
+    [CmdletBinding()]
+    [OutputType([string])]
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute(
+        'PSUseShouldProcessForStateChangingFunctions', '',
+        Justification = 'Pure value constructor: returns the one-liner string; does not mutate host or guest state. Matches the New-RandomPassword precedent in the auth extension.')]
+    param(
+        [Parameter(Mandatory)][string]$ServerUrl,
+        [Parameter(Mandatory)][string]$FailureFolderName,
+        [Parameter(Mandatory)][string]$DiagnosticsFileName
+    )
+    # `cd /tmp` first so y.ps1/y.txt live somewhere the guest will tolerate
+    # without `sudo`. /tmp is world-writable on every guest OS we test
+    # against. The trailing rm runs regardless of POST exit code so we
+    # leave no breadcrumb on the guest.
+    return ("H=$ServerUrl;F=$FailureFolderName;N=$DiagnosticsFileName;" +
+            'cd /tmp;' +
+            'curl -fsSLo y.ps1 $H/yuruna-repo/automation/Get-SystemDiagnostic.ps1 && ' +
+            'pwsh -NoProfile -File y.ps1 -CheckoutRoot "$HOME/yuruna" > y.txt 2>&1;' +
+            "curl -sS -X POST --data-binary @y.txt -H 'Content-Type: text/plain' " +
+            '$H/diagnostics/$F/$N;' +
+            'rm -f y.ps1 y.txt')
+}
+
+function Wait-DiagnosticsFile {
+<#
+.SYNOPSIS
+    Polls $FailureFolderPath/$DiagnosticsFileName until it exists and
+    is non-empty, OR the timeout elapses. Returns the file size on
+    success, $null on timeout.
+.DESCRIPTION
+    The console path is best-effort: the guest writes the file
+    indirectly via the status service's /diagnostics POST handler, so
+    "did it land" is observable on the host filesystem. We poll on a
+    1-second cadence -- fast enough to confirm a healthy capture
+    within a few seconds of curl returning, slow enough not to
+    saturate the disk.
+.PARAMETER NewerThanUtc
+    When supplied, a file already present at the target counts as this
+    attempt's capture only if its LastWriteTimeUtc is strictly newer than
+    this baseline, so a stale same-minute file is not mistaken for arrival.
+#>
+    [CmdletBinding()]
+    # Returns [long] on success, $null on timeout. PSUseOutputTypeCorrectly
+    # only validates against the typed returns, so declaring [long] is
+    # sufficient; the $null branch carries no type to match.
+    [OutputType([long])]
+    param(
+        [Parameter(Mandatory)][string]$FailureFolderPath,
+        [Parameter(Mandatory)][string]$DiagnosticsFileName,
+        [int]$TimeoutSeconds = 240,
+        [Nullable[datetime]]$NewerThanUtc = $null
+    )
+    $target  = Join-Path $FailureFolderPath $DiagnosticsFileName
+    $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
+    while ((Get-Date) -lt $deadline) {
+        if (Test-Path -LiteralPath $target -PathType Leaf) {
+            $item = Get-Item -LiteralPath $target
+            # Filenames are minute-precision and the Id is caller-supplied, so
+            # two same-minute captures target the identical path. Requiring the
+            # mtime to advance past the pre-injection baseline stops a stale
+            # pre-existing file from being reported as this attempt's upload.
+            if ($item.Length -gt 0 -and ($null -eq $NewerThanUtc -or $item.LastWriteTimeUtc -gt $NewerThanUtc)) {
+                return [long]$item.Length
+            }
+        }
+        Start-Sleep -Seconds 1
+    }
+    return $null
+}
+
+function Clear-GuestTtyLine {
+<#
+.SYNOPSIS
+    Sends Ctrl-U to the guest console so the tty's line buffer is empty
+    before a command is typed into it.
+.DESCRIPTION
+    Ctrl-U is VKILL in canonical mode: it discards the current input line
+    and nothing else. It signals no process, so it is safe to send
+    unconditionally -- at a shell prompt, at `login:`, at a password
+    prompt, or into a boot console that ignores it entirely. That safety
+    is the reason Ctrl-U (and not a bare Enter) opens the console path:
+    an Enter would SUBMIT whatever residue is already on the line rather
+    than discard it, which is exactly how a partial line becomes an
+    executed command.
+
+    In raw-mode full-screen applications (vi, less, a curses installer)
+    ^U is a half-page scroll instead of a line kill. That is a benign
+    no-op for our purpose, and it is why this is not gated on any
+    screen-state check: gating tty hygiene on OCR would make the
+    emergency path depend on the OCR path, whose degradation is itself
+    a modeled failure class.
+
+    Never throws -- cleanup must not convert a soft diagnostic failure
+    into a thrown exception, and a failed clear must not stop the
+    payload from being typed.
+
+    Returns whether the chord actually reached the guest. Callers that
+    only need best-effort hygiene can ignore it; callers whose next step
+    depends on the line really being empty (the retype branch) must not,
+    because a clear that never landed leaves the previous characters in
+    place and makes everything measured afterwards describe a stale line.
+.PARAMETER VMName
+    Guest VM whose console receives the chord.
+#>
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param([Parameter(Mandatory)][string]$VMName, [object]$SendKey)
+    try {
+        if (-not $SendKey) { $SendKey = Get-Command Send-Key -ErrorAction Stop }
+        $sent = [bool](& $SendKey -VMName $VMName -Key 'CtrlU' -Mechanism gui)
+        Start-Sleep -Milliseconds 200
+        return $sent
+    } catch {
+        Write-Verbose "  Diagnostics: console line-buffer clear (Ctrl-U) failed: $($_.Exception.Message)"
+        return $false
+    }
+}
+
+function Reset-GuestTtyPrompt {
+<#
+.SYNOPSIS
+    Sends Ctrl-C then Enter to the guest console so the next sequence
+    step starts on a fresh prompt.
+.DESCRIPTION
+    Called only after the console rung has already typed its payload
+    into the tty. By that point the line is dirty regardless, so this is
+    strictly cleanup: without it a partially typed or keystroke-corrupted
+    command stays on the line and the FOLLOWING sequence step's text is
+    appended to it, landing as extra arguments on a command nobody asked
+    for.
+
+    Order is load-bearing. Ctrl-C first DISCARDS the pending line; Enter
+    first would EXECUTE it. Ctrl-C is also what makes the resulting guest
+    state predictable across contexts -- at a shell it prints ^C and
+    redraws, at `login:` or a password prompt it restarts the prompt, and
+    at a boot console with no foreground process group it is ignored. The
+    trailing Enter then forces the prompt to redraw, the same benign
+    nudge sequences already use to make agetty repaint a login.
+
+    Deliberately NOT sent from the rung's pre-typing guards: a Ctrl-C
+    into a guest we never touched could interrupt a healthy foreground
+    command for no benefit.
+
+    Never throws.
+
+    Each chord is sent from its own try, and neither is skipped because
+    the other failed. The two keys repair different things -- Ctrl-C
+    discards the pending line, Enter redraws the prompt -- so a single
+    try around both turns any failure of the first into a total no-op,
+    silently leaving the tty in exactly the state this function exists to
+    prevent. Returns whether both chords reached the guest.
+.PARAMETER VMName
+    Guest VM whose console receives the chords.
+#>
+    [CmdletBinding()]
+    [OutputType([bool])]
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute(
+        'PSUseShouldProcessForStateChangingFunctions', '',
+        Justification = 'Best-effort console cleanup on an already-dirty tty inside the soft-failing diagnostics path; a -Confirm prompt would stall an unattended failure path and leave the guest console dirty.')]
+    param([Parameter(Mandatory)][string]$VMName, [object]$SendKey)
+    $interrupted = $false
+    $redrawn     = $false
+    try {
+        if (-not $SendKey) { $SendKey = Get-Command Send-Key -ErrorAction Stop }
+        $interrupted = [bool](& $SendKey -VMName $VMName -Key 'CtrlC' -Mechanism gui)
+        Start-Sleep -Milliseconds 200
+    } catch {
+        Write-Verbose "  Diagnostics: console tty restore (Ctrl-C) failed: $($_.Exception.Message)"
+    }
+    try {
+        $redrawn = [bool](& $SendKey -VMName $VMName -Key 'Enter' -Mechanism gui)
+    } catch {
+        Write-Verbose "  Diagnostics: console tty restore (Enter) failed: $($_.Exception.Message)"
+    }
+    if ($interrupted -and $redrawn) {
+        Write-Verbose "  Diagnostics: console tty restored (Ctrl-C + Enter) after a failed console rung."
+        return $true
+    }
+    # Warned, not just traced: the guest is now holding a partially typed
+    # command, and the next text sent to it will be appended to that line
+    # rather than run on its own. The resulting command surfaces far from
+    # here -- as a step that reports success while its text was swallowed as
+    # trailing arguments -- so this is the only place it can be named.
+    Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_f32f00842fbdbf46' -FormatValues ($interrupted, $redrawn) -FormatBindings @{ interrupted = '0'; redrawn = '1' })
+    return $false
+}
+
+# Tuning constants for the pre-Enter console echo check. Named rather than
+# inline so the unit tests can state the same numbers the rung enforces.
+#
+# GramSize 4 is the smallest window that makes a run of one repeated
+# character unexplainable while still surviving OCR noise: a single
+# misread character invalidates at most GramSize consecutive windows, so
+# scattered noise can never accumulate into a long unexplained run.
+$script:ConsoleEchoGramSize = 4
+# See https://yuruna.link/4213a0b3-004b
+$script:ConsoleEchoMaxUnexplainedRun = 80
+# See https://yuruna.link/4213a0b3-004c
+$script:ConsoleEchoAnchorMinRun = 12
+# Fraction of the command's distinct grams that must appear somewhere in
+# the OCR text. Guards gross truncation, where the screen shows only the
+# first few characters. Real captures put a healthy line at 52-87% and a
+# truncated fragment at 3.5%, so the floor is far from both boundaries.
+$script:ConsoleEchoMinCoveragePercent = 20
+# Below this many normalized characters there is not enough signal to
+# judge, and the verdict is 'unknown' rather than 'corrupt'. This is the
+# Vision-returns-nothing case, which happens precisely on the WORST
+# corruption (the Swift path crops to the densest text cluster and a wall
+# of repeated glyphs defeats it), so an empty read must never be scored as
+# healthy either.
+$script:ConsoleEchoMinNormalizedLength = 32
+# Hard wall-clock cap on one verification round trip (capture + up to two
+# OCR engines). Tesseract costs ~1.7s on a clean frame and ~5.4s on a
+# corrupted one -- the garbage is slowest to read precisely when it
+# matters -- and the screenshot path is separately bounded at 5s.
+$script:ConsoleEchoVerifyCapSeconds = 15
+# The file-wait window is never shortened below this, no matter how much
+# wall clock verification and a retype consumed. A retype that starved the
+# upload wait would turn a recovered line into a false timeout.
+$script:ConsoleMinFileWaitSeconds = 30
+
+function Get-OcrGramSet {
+<#
+.SYNOPSIS
+    Returns the set of distinct fixed-length character windows in a string.
+.DESCRIPTION
+    Module-private helper for Test-ConsoleEchoIntact. A HashSet is returned
+    by reference (via the unary comma) because PowerShell would otherwise
+    unroll it to an object array and cost the O(1) lookup the caller's inner
+    loop depends on.
+.PARAMETER Text
+    Already-normalized text to window.
+.PARAMETER Size
+    Window length in characters.
+#>
+    [CmdletBinding()]
+    [OutputType([System.Collections.Generic.HashSet[string]])]
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute(
+        'PSUseOutputTypeCorrectly', '',
+        Justification = 'The unary-comma return is what preserves the HashSet across the pipeline; the analyzer reads the wrapper array as the return type, while every caller receives the declared HashSet.')]
+    param(
+        [Parameter(Mandatory)][AllowEmptyString()][string]$Text,
+        [Parameter(Mandatory)][int]$Size
+    )
+    $set = [System.Collections.Generic.HashSet[string]]::new()
+    for ($i = 0; $i -le $Text.Length - $Size; $i++) {
+        [void]$set.Add($Text.Substring($i, $Size))
+    }
+    return ,$set
+}
+
+function Test-ConsoleEchoIntact {
+<#
+.SYNOPSIS
+    Judges whether the console echo of a typed command, as read by OCR,
+    is the command we typed -- returning 'intact', 'corrupt' or 'unknown'.
+.DESCRIPTION
+    See ../../docs/ocr.md#detecting-a-corrupted-console-echo for the
+    corruption-detection technique and why the obvious equality/repeated-
+    character checks do not work here. -- Test.Diagnostic.psm1
+.PARAMETER Expected
+    The exact text handed to Send-Text.
+.PARAMETER OcrText
+    Text an OCR engine read from the console screenshot.
+.PARAMETER GramSize
+    Window length used to decide whether a position is explained.
+.PARAMETER MaxUnexplainedRun
+    Longest run of unexplained normalized characters still called 'intact'.
+.PARAMETER AnchorMinRun
+    Consecutive explained positions that must appear before the following
+    unexplained stretch is counted, so scrollback ahead of the command is
+    not scored as corruption.
+.PARAMETER MinCoveragePercent
+    Minimum percentage of the command's windows that must appear in the OCR
+    text before the echo is considered present at all.
+.PARAMETER MinNormalizedLength
+    OCR text shorter than this yields 'unknown'.
+.OUTPUTS
+    [string] one of 'intact', 'corrupt', 'unknown'.
+#>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param(
+        [Parameter(Mandatory)][AllowEmptyString()][string]$Expected,
+        [Parameter(Mandatory)][AllowEmptyString()][string]$OcrText,
+        [int]$GramSize            = $script:ConsoleEchoGramSize,
+        [int]$MaxUnexplainedRun   = $script:ConsoleEchoMaxUnexplainedRun,
+        [int]$AnchorMinRun        = $script:ConsoleEchoAnchorMinRun,
+        [int]$MinCoveragePercent  = $script:ConsoleEchoMinCoveragePercent,
+        [int]$MinNormalizedLength = $script:ConsoleEchoMinNormalizedLength
+    )
+
+    # The normalizer lives in Test.OcrMatch, whose import is allowed to
+    # fail. Without it there is no noise-tolerant comparison to make, and
+    # guessing is worse than declining to judge.
+    if (-not (Get-Command Get-OCRNormalized -ErrorAction SilentlyContinue)) {
+        Write-Verbose '  Diagnostics: Get-OCRNormalized unavailable; console echo verification skipped.'
+        return 'unknown'
+    }
+    if ([string]::IsNullOrWhiteSpace($Expected)) { return 'unknown' }
+
+    $normExpected = Get-OCRNormalized -Text $Expected
+    $normOcr      = Get-OCRNormalized -Text $OcrText
+
+    if ($normExpected.Length -lt $GramSize) { return 'unknown' }
+    # Too little text to distinguish "the screen was unreadable" from "the
+    # line was destroyed". Both reach here; only the second is actionable,
+    # and we cannot tell them apart, so we decline.
+    if ($normOcr.Length -lt $MinNormalizedLength) { return 'unknown' }
+
+    $expectedGrams = Get-OcrGramSet -Text $normExpected -Size $GramSize
+    if ($expectedGrams.Count -eq 0) { return 'unknown' }
+
+    # Truncation signal first: if the command is barely on screen at all,
+    # the run measurement below has nothing meaningful to anchor to.
+    $ocrGrams = Get-OcrGramSet -Text $normOcr -Size $GramSize
+    $seen = 0
+    foreach ($gram in $expectedGrams) {
+        if ($ocrGrams.Contains($gram)) { $seen++ }
+    }
+    $coveragePercent = 100.0 * $seen / $expectedGrams.Count
+    if ($coveragePercent -lt $MinCoveragePercent) {
+        Write-Verbose ('  Diagnostics: console echo coverage {0:N1}% below {1}% floor -- echo truncated or absent.' -f $coveragePercent, $MinCoveragePercent)
+        return 'corrupt'
+    }
+
+    # Corruption signal: the longest stretch the command cannot account for,
+    # scored only after AnchorMinRun explained positions in a row have marked
+    # where the command's OWN echo starts (rationale at the constant). A stuck
+    # key's garbage sits at or after the command it corrupted, so that dense
+    # echo has already anchored the count by the time the garbage is reached.
+    $longestRun   = 0
+    $currentRun   = 0
+    $explainedRun = 0
+    $anchored     = $false
+    $lastStart    = $normOcr.Length - $GramSize
+    for ($i = 0; $i -le $lastStart; $i++) {
+        if ($expectedGrams.Contains($normOcr.Substring($i, $GramSize))) {
+            $explainedRun++
+            if ($explainedRun -ge $AnchorMinRun) { $anchored = $true }
+            $currentRun = 0
+        } else {
+            if ($anchored) {
+                $currentRun++
+                if ($currentRun -gt $longestRun) { $longestRun = $currentRun }
+            }
+            $explainedRun = 0
+        }
+    }
+
+    if ($longestRun -gt $MaxUnexplainedRun) {
+        Write-Verbose ('  Diagnostics: console echo has a {0}-character stretch the command cannot explain (limit {1}) -- keystroke corruption.' -f $longestRun, $MaxUnexplainedRun)
+        return 'corrupt'
+    }
+    Write-Verbose ('  Diagnostics: console echo verified (coverage {0:N1}%, longest unexplained run {1}).' -f $coveragePercent, $longestRun)
+    return 'intact'
+}
+
+function Get-ConsoleEchoVerdict {
+<#
+.SYNOPSIS
+    Screenshots the guest console, OCRs it, and returns the
+    Test-ConsoleEchoIntact verdict for the command just typed.
+.DESCRIPTION
+    All of the I/O for the echo check, kept out of the predicate so the
+    predicate stays unit-testable. Every failure here -- no host driver, no
+    OCR engine, a throw from either, or the wall-clock cap -- resolves to
+    'unknown', which the caller treats as "proceed". Nothing in this
+    function may abort the capture: a broken verifier must cost accuracy,
+    never the diagnostic itself.
+
+    Engine order is a cost decision. Vision runs first because it costs
+    ~250-390ms regardless of what is on screen, and on a healthy frame its
+    verdict ends the check. Tesseract is consulted only when Vision
+    declined or flagged, because it costs ~1.7s on a clean frame and ~5.4s
+    on a corrupted one. That second opinion is not optional: on the most
+    severely corrupted real frame Vision returned an EMPTY string (its
+    densest-text-cluster crop is defeated by a wall of repeated glyphs),
+    and tesseract is the only engine that saw the damage.
+
+    A 'corrupt' verdict from either engine wins. The screen genuinely holds
+    text the command cannot explain, and the recovery it triggers is one
+    bounded retype.
+.PARAMETER VMName
+    Guest whose console is captured.
+.PARAMETER Expected
+    The text that was typed, passed straight through to the predicate.
+.OUTPUTS
+    [string] one of 'intact', 'corrupt', 'unknown'.
+#>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param(
+        [Parameter(Mandatory)][string]$VMName,
+        [Parameter(Mandatory)][AllowEmptyString()][string]$Expected
+    )
+
+    # Get-VMScreenshot only exists once Initialize-YurunaHost has loaded a
+    # driver, so it cannot be a module-scope import; probe it at call time,
+    # the same way the rung probes Send-Text / Send-Key.
+    $screenshot = Get-Command Get-VMScreenshot  -ErrorAction SilentlyContinue
+    $ocr        = Get-Command Invoke-OcrProvider -ErrorAction SilentlyContinue
+    if (-not $screenshot -or -not $ocr) {
+        Write-Verbose '  Diagnostics: screenshot or OCR provider unavailable; console echo verification skipped.'
+        return 'unknown'
+    }
+
+    $deadline = (Get-Date).AddSeconds($script:ConsoleEchoVerifyCapSeconds)
+    $imagePath = $null
+    try {
+        $imagePath = Get-VMScreenshot -VMName $VMName -Source frame
+        if (-not $imagePath -or -not (Test-Path -LiteralPath $imagePath -PathType Leaf)) {
+            Write-Verbose '  Diagnostics: console screenshot unavailable; echo verification skipped.'
+            return 'unknown'
+        }
+
+        $verdict = 'unknown'
+        foreach ($engine in 'macos-vision', 'tesseract') {
+            if ((Get-Date) -ge $deadline) {
+                Write-Verbose "  Diagnostics: console echo verification hit its ${script:ConsoleEchoVerifyCapSeconds}s cap; proceeding unverified."
+                break
+            }
+            if (-not (Test-OcrProviderAvailable -Name $engine)) { continue }
+            $text = ''
+            try {
+                $text = [string](Invoke-OcrProvider -Name $engine -ImagePath $imagePath)
+            } catch {
+                Write-Verbose "  Diagnostics: OCR engine '$engine' failed during echo verification: $($_.Exception.Message)"
+                continue
+            }
+            $engineVerdict = Test-ConsoleEchoIntact -Expected $Expected -OcrText $text
+            Write-Verbose "  Diagnostics: console echo verdict from '$engine': $engineVerdict"
+            # Corruption is decisive -- act on it without paying for the
+            # slower engine. 'intact' from the fast engine also ends the
+            # check; only 'unknown' is worth a second opinion.
+            if ($engineVerdict -eq 'corrupt') { return 'corrupt' }
+            if ($engineVerdict -eq 'intact')  { return 'intact' }
+        }
+        return $verdict
+    } catch {
+        Write-Verbose "  Diagnostics: console echo verification errored: $($_.Exception.Message)"
+        return 'unknown'
+    } finally {
+        # The frame is a transient artifact of the check, not a cycle
+        # screenshot the operator will look for; the cycle's own screen
+        # captures are written elsewhere by the sequence runner.
+        if ($imagePath) {
+            Remove-Item -LiteralPath $imagePath -Force -ErrorAction SilentlyContinue
+        }
+    }
+}
+
+function Invoke-RemoteDiagnosticsConsole {
+<#
+.SYNOPSIS
+    Second-defense diagnostics path: types a fetch+run+POST one-liner
+    into the guest's tty1 via the Yuruna.Host Send-Text contract and
+    waits for the resulting file to appear in the failure folder.
+.DESCRIPTION
+    Used when SSH is unreachable (sshd not up) or auth is itself the
+    bug we're debugging. Requires the active Yuruna.Host driver to
+    export Send-Text + Send-Key -- the runner loads these via
+    Initialize-YurunaHost before any failure path runs, so they're
+    typically available; we degrade quietly with a Write-Warning if
+    not.
+
+    Returns the standard @{ success; output; exitCode; mechanism }
+    hashtable so Save-GuestDiagnostic's strategy chain can branch
+    on the same shape regardless of which path produced the file.
+    `output` is the empty string here -- the actual capture is
+    written directly into the failure folder by the status service,
+    not piped through this function.
+#>
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param(
+        [Parameter(Mandatory)][string]$VMName,
+        [Parameter(Mandatory)][string]$FailureFolderPath,
+        [Parameter(Mandatory)][string]$DiagnosticsFileName,
+        [int]$TimeoutSeconds = 240
+    )
+    $failResult = @{ success = $false; output = ''; exitCode = -1; mechanism = 'console' }
+
+    $sendText = Get-Command Send-Text -ErrorAction SilentlyContinue
+    $sendKey  = Get-Command Send-Key  -ErrorAction SilentlyContinue
+    if (-not $sendText -or -not $sendKey) {
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_b691b2ed436b4774')
+        return $failResult
+    }
+
+    $endpoint = Resolve-StatusServiceEndpoint -VMName $VMName
+    if (-not $endpoint) {
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_6e0d6c63257a47af')
+        return $failResult
+    }
+
+    # Multi-segment relative folder. The per-guest data folder lives at
+    # <logDir>/<cycleBase>/<VMName>/, so the URL path mirrors the disk
+    # path: /diagnostics/<cycleBase>/<VMName>/<file> -- a bare <VMName>
+    # would resolve to the non-existent <logDir>/<VMName>/ on the
+    # server. Forward slash is required so bash leaves it intact in
+    # the URL; we never embed Windows paths.
+    $cycleBase  = Split-Path -Leaf (Split-Path -Parent $FailureFolderPath)
+    $vmFolder   = Split-Path -Leaf $FailureFolderPath
+    $folderName = if ($cycleBase) { "$cycleBase/$vmFolder" } else { $vmFolder }
+    $cmd = New-DiagnosticsConsoleCommand -ServerUrl $endpoint.url `
+            -FailureFolderName $folderName -DiagnosticsFileName $DiagnosticsFileName
+
+    Write-Verbose "  Diagnostics: console keystroke fallback via $($endpoint.url) (line length=$($cmd.Length))"
+
+    # Snapshot the target's mtime before typing so a stale same-minute
+    # file from an earlier capture can't be mistaken for this upload; the
+    # console POST rewrites the file and advances its mtime past this.
+    $targetFile = Join-Path $FailureFolderPath $DiagnosticsFileName
+    $baselineMtimeUtc = $null
+    if (Test-Path -LiteralPath $targetFile -PathType Leaf) {
+        try { $baselineMtimeUtc = (Get-Item -LiteralPath $targetFile).LastWriteTimeUtc } catch { $null = $_ }
+    }
+
+    # tty hygiene bracket. Everything from the first keystroke onwards runs
+    # inside a try/finally so that every way this rung can fail after it has
+    # touched the console -- injection throw, upload timeout, or an error
+    # from Wait-DiagnosticsFile itself -- leaves the guest on a clean prompt.
+    # The guards above return BEFORE this bracket on purpose: nothing was
+    # typed there, so there is no dirt to clear and no reason to interrupt
+    # the guest.
+    $typed     = $false
+    $succeeded = $false
+    try {
+        # See https://yuruna.link/4213a0b3-004d
+        [void](Clear-GuestTtyLine -VMName $VMName -SendKey $sendKey)
+
+        # Send-Text returns $true on success per the host facade; we tolerate
+        # $false because some hosts (KVM virsh send-key) don't bubble up a
+        # useful status. The deciding signal is whether the file lands on
+        # disk before the timeout.
+        # Wall clock spent typing and verifying, deducted from the upload
+        # wait below so the rung's total stays inside the caller's budget.
+        $preEnterClock = [System.Diagnostics.Stopwatch]::StartNew()
+        try {
+            # Marked before the call, not after: a throw part-way through
+            # Send-Text has still delivered some characters to the tty, and
+            # that half-line is exactly what the restore has to clear.
+            $typed = $true
+            [void](& $sendText -VMName $VMName -Text $cmd -Mechanism gui)
+            # Brief settle so the last typed char registers before Enter.
+            Start-Sleep -Milliseconds 200
+
+            # Verify the echo BEFORE submitting. The transport posts
+            # per-character HID events to a global event source, and a key
+            # that sticks in autorepeat appends hundreds of copies of one
+            # character to the line. Submitting that runs a command nobody
+            # wrote; catching it here costs one retype.
+            $verdict = Get-ConsoleEchoVerdict -VMName $VMName -Expected $cmd
+            if ($verdict -eq 'corrupt') {
+                Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_c29ff5bcd747258c')
+                # Ctrl-U discards the corrupted line without submitting it.
+                # An Enter here would execute exactly the malformed command
+                # we just detected.
+                $cleared = [bool](Clear-GuestTtyLine -VMName $VMName -SendKey $sendKey)
+                $retyped = [bool](& $sendText -VMName $VMName -Text $cmd -Mechanism gui)
+                Start-Sleep -Milliseconds 200
+                if (-not ($cleared -and $retyped)) {
+                    # See https://yuruna.link/4213a0b3-004e
+                    Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_614941dc7da5cc4d' -FormatValues ($cleared, $retyped) -FormatBindings @{ cleared = '0'; retyped = '1' })
+                    return $failResult
+                }
+                $verdict = Get-ConsoleEchoVerdict -VMName $VMName -Expected $cmd
+                if ($verdict -eq 'corrupt') {
+                    # A second corrupted echo means the tty is not taking
+                    # dictation reliably; more typing only burns budget that
+                    # the remaining rungs and the cycle still need. Return
+                    # the standard failure -- the finally block restores the
+                    # prompt, which is what stops the NEXT sequence step from
+                    # being appended to this line.
+                    Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_06133b7736b263c1')
+                    return $failResult
+                }
+                Write-Verbose '  Diagnostics: console echo verified after retype.'
+            }
+            [void](& $sendKey -VMName $VMName -Key 'Enter' -Mechanism gui)
+        } catch {
+            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_4fc3e1360294bece' -Arguments @{ message = "$($_.Exception.Message)" })
+            return $failResult
+        }
+        $preEnterClock.Stop()
+
+        # See https://yuruna.link/4213a0b3-004f
+        $waitSeconds = $TimeoutSeconds - [int][math]::Ceiling($preEnterClock.Elapsed.TotalSeconds)
+        if ($waitSeconds -lt $script:ConsoleMinFileWaitSeconds) {
+            $waitSeconds = [math]::Min($script:ConsoleMinFileWaitSeconds, $TimeoutSeconds)
+        }
+
+        $bytes = Wait-DiagnosticsFile -FailureFolderPath $FailureFolderPath `
+                -DiagnosticsFileName $DiagnosticsFileName -TimeoutSeconds $waitSeconds `
+                -NewerThanUtc $baselineMtimeUtc
+        if ($null -eq $bytes) {
+            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_98b0096fa6f069d3' -Arguments @{ waitSeconds = "${waitSeconds}" })
+            $failResult.timedOut = $true
+            return $failResult
+        }
+        Write-Verbose "  Diagnostics: console path succeeded (${bytes} bytes uploaded by guest)."
+        $succeeded = $true
+        return @{ success = $true; output = ''; exitCode = 0; mechanism = 'console' }
+    } finally {
+        # On success the guest ran the one-liner and returned to its prompt
+        # by itself, so an interrupt would be gratuitous. Only a failed rung
+        # leaves something on the line worth discarding.
+        if ($typed -and -not $succeeded) {
+            # Captured, not emitted: output written from a finally still joins
+            # the function's output stream, and a stray [bool] there would turn
+            # the returned hashtable into a two-element array whose .success
+            # reads $null -- a failed restore would then also corrupt the
+            # result of every rung that succeeded.
+            [void](Reset-GuestTtyPrompt -VMName $VMName -SendKey $sendKey)
+        }
+    }
+}
+
+function Select-MoreInformativeDiagResult {
+    # See https://yuruna.link/4213a0b3-0050
+    param($Current, $Candidate)
+    if (-not $Candidate -or -not $Candidate.output) { return $Current }
+    if (-not $Current -or -not $Current.output) { return $Candidate }
+    if (([string]$Candidate.output).Length -gt ([string]$Current.output).Length) { return $Candidate }
+    return $Current
+}
+
+function Get-GuestDiagnosticOutcome {
+    <#
+    .SYNOPSIS
+        Classifies capture completeness independently of the workload result.
+    #>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param([Parameter(Mandatory)][hashtable]$Manifest)
+    # Machine state takes precedence over guest text and localized reasons.
+    if ($Manifest.timedOut -or $Manifest.budgetExceeded -or $Manifest.drainTimedOut) { return 'timeout' }
+    $capture = ''
+    if ($Manifest.outPath -and (Test-Path -LiteralPath $Manifest.outPath -PathType Leaf)) {
+        $capture = [System.IO.File]::ReadAllText($Manifest.outPath)
+    }
+    # The guest translates its headings and completion footer. Its invariant
+    # summary is the completion contract, including sections that aborted even
+    # when the transport exited successfully. Legacy captures have no summary.
+    if ($capture.Contains('===YURUNA-DIAG-JSON-BEGIN===')) {
+        $blocks = [regex]::Matches($capture, '(?ms)^===YURUNA-DIAG-JSON-BEGIN===\r?\n(.*?)\r?\n===YURUNA-DIAG-JSON-END===\r?$')
+        if ($blocks.Count -gt 0) {
+            try {
+                $summary = $blocks[$blocks.Count - 1].Groups[1].Value | ConvertFrom-Json -AsHashtable -ErrorAction Stop
+                if ($summary.schema -ceq 'yuruna.diagnostic.problems/v1' -and
+                    $summary.byClass -is [System.Collections.IDictionary] -and
+                    $summary.problems -is [array] -and $summary.ContainsKey('count') -and
+                    $summary.count -eq $summary.problems.Count -and
+                    -not $summary.byClass['DIAG.section-aborted'] -and
+                    -not @($summary.problems | Where-Object { $_.class -ceq 'DIAG.section-aborted' }).Count -and
+                    $Manifest.success -and -not $Manifest.outputTruncated) { return 'complete' }
+            } catch { Write-Verbose $_.Exception.Message }
+        }
+        return 'partial'
+    }
+    if ($capture -match '(?im)^Diagnostics complete\.\s*$' -and $Manifest.success -and
+        $capture -notmatch '(?m)^\*\* ERROR in section ') { return 'complete' }
+    # Only historical results lack structured state. Keep their text fallback
+    # for existing artifacts, without using translated prose for new captures.
+    if (-not $Manifest.ContainsKey('timedOut') -and -not $Manifest.ContainsKey('reasonCode') -and
+        ($Manifest.reason -match 'budget exhausted|timed? out|timeout' -or
+        $capture -match '(?im)^Timed out after \d+s\s*$')) { return 'timeout' }
+    if ($capture -match '(?m)^========\r?$|^Hostname\s+:' -or
+        ($Manifest.success -and -not [string]::IsNullOrWhiteSpace($capture))) { return 'partial' }
+    return 'unavailable'
+}
+
+function Invoke-GuestEvidenceSsh {
+    <#
+    .SYNOPSIS
+        Bounds discovery and SSH separately within one evidence collection budget.
+    #>
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param(
+        [Parameter(Mandatory)][string]$VMName,
+        [Parameter(Mandatory)][string]$GuestKey,
+        [Parameter(Mandatory)][string]$Command,
+        [ValidateRange(1,60)][int]$TimeoutSeconds = 20,
+        [ValidateRange(4096,4194304)][int]$MaxCapturedChars = 524288,
+        [switch]$ProvenAddressOnly
+    )
+    $clock = [Diagnostics.Stopwatch]::StartNew()
+    $sshModule = Get-Module Test.Ssh
+    $keyPath = & $sshModule { $script:SshKeyPath }
+    if (-not (Test-Path -LiteralPath $keyPath -PathType Leaf)) {
+        return @{ success=$false; exitCode=-1; output='Evidence unavailable: no existing harness SSH key.' }
+    }
+    $address = Test.Ssh\Get-ProvenGuestAddress -VMName $VMName
+    if (-not $address -and $ProvenAddressOnly) {
+        return @{ success=$false; exitCode=-1; output='Evidence unavailable: no previously proven guest address.' }
+    }
+    if (-not $address) {
+        Import-Module (Join-Path $PSScriptRoot 'Test.HostSampling.psm1') -Global -ErrorAction Stop
+        $hostModule = (Get-Command Get-VMIp -ErrorAction SilentlyContinue).Module.Path
+        $config = @{ vmName=$VMName; sshModule=$sshModule.Path; hostModule=$hostModule } | ConvertTo-Json -Compress
+        $encodedConfig = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($config))
+        $probe = @'
+$c = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('__CONFIG__')) | ConvertFrom-Json
+Import-Module $c.sshModule -Global -DisableNameChecking
+if ($c.hostModule) { Import-Module $c.hostModule -Global -DisableNameChecking }
+$address = Test.Ssh\Get-GuestAddress -VMName $c.vmName
+Write-Output ('YURUNA_EVIDENCE_ADDRESS=' + $address)
+'@
+        $encodedProbe = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($probe.Replace('__CONFIG__',$encodedConfig)))
+        $discoveryBudget = [math]::Max(1,[math]::Min(5,$TimeoutSeconds - 2))
+        $probeResult = Invoke-YurunaHostBoundedCommand -FilePath (Join-Path $PSHOME ($IsWindows ? 'pwsh.exe' : 'pwsh')) `
+            -ArgumentList @('-NoLogo','-NoProfile','-NonInteractive','-EncodedCommand',$encodedProbe) -TimeoutSeconds $discoveryBudget
+        if ($probeResult.Status -eq 'timeout') {
+            return @{ success=$false; exitCode=-1; output="Timed out after ${discoveryBudget}s (guest address discovery)" }
+        }
+        if ($probeResult.Output -match '(?m)^YURUNA_EVIDENCE_ADDRESS=([^\r\n]+)') { $address = $Matches[1].Trim() }
+    }
+    $parsedAddress = $null
+    if (-not [Net.IPAddress]::TryParse([string]$address,[ref]$parsedAddress)) {
+        return @{ success=$false; exitCode=-1; output='Evidence unavailable: no guest address discovered within the collection budget.' }
+    }
+    # Reserve one second for draining partial output after the native client is killed.
+    $remaining = [int][math]::Floor($TimeoutSeconds - $clock.Elapsed.TotalSeconds - 1)
+    if ($remaining -lt 1) { return @{ success=$false; exitCode=-1; output="Timed out after ${TimeoutSeconds}s (evidence preparation)" } }
+    return Test.Ssh\Invoke-GuestSsh -VMName $VMName -GuestKey $GuestKey -Command $Command `
+        -ResolvedAddress $address -PrivateKeyPath $keyPath -TimeoutSeconds $remaining -AddressWaitSeconds 0 -PreservePartialOutputOnTimeout -MaxCapturedChars $MaxCapturedChars
+}
+
+# --- REGION: ConvertFrom-GuestClockEvidence
+function ConvertFrom-GuestClockEvidence {
+    <#
+    .SYNOPSIS
+        Parses bounded raw clock samples without interpreting lifetime CPU percentages.
+    .OUTPUTS
+        [hashtable[]] One array, including an empty array when no samples match.
+    #>
+    [CmdletBinding()]
+    [OutputType([hashtable[]])]
+    param([AllowEmptyString()][string]$Text)
+    $samples = [Collections.Generic.List[hashtable]]::new()
+    $blocks = [regex]::Split($Text, '(?m)^--- YURUNA CLOCK SAMPLE ---\r?$')
+    foreach ($block in $blocks) {
+        if ($block -notmatch '(?m)^guestEvidenceSchema=2\r?$') { continue }
+        $sample = @{ valid=$false; cpus=@{}; rawFields=@{}; problems=@() }
+        foreach ($match in [regex]::Matches($block, '(?m)^(guest[A-Za-z]+)=([^\r\n]*)\r?$')) {
+            if ($sample.rawFields.ContainsKey($match.Groups[1].Value)) { $sample.problems += 'duplicate-field'; continue }
+            $sample.rawFields[$match.Groups[1].Value] = $match.Groups[2].Value
+        }
+        $sample.bootId = [string]$sample.rawFields.guestBootId
+        foreach ($pair in @(@('guestClockUptimeSeconds','uptimeSeconds'), @('guestClockEpochSeconds','epochSeconds'), @('guestClockTicksPerSecond','ticksPerSecond'))) {
+            $value = 0.0
+            if ([double]::TryParse([string]$sample.rawFields[$pair[0]], [Globalization.NumberStyles]::Float,
+                [Globalization.CultureInfo]::InvariantCulture, [ref]$value) -and [double]::IsFinite($value) -and $value -ge 0) {
+                $sample[$pair[1]] = $value
+            } else { $sample.problems += "invalid-$($pair[0])" }
+        }
+        foreach ($pair in @(@('guestClockMonotonicSeconds','monotonicSeconds'), @('guestClockBoottimeSeconds','boottimeSeconds'))) {
+            $rawValue = [string]$sample.rawFields[$pair[0]]
+            if (-not $rawValue -or $rawValue -eq 'unavailable') { continue }
+            $value = 0.0
+            if ([double]::TryParse($rawValue, [Globalization.NumberStyles]::Float,
+                [Globalization.CultureInfo]::InvariantCulture, [ref]$value) -and [double]::IsFinite($value) -and $value -ge 0) {
+                $sample[$pair[1]] = $value
+            } else { $sample.problems += "invalid-$($pair[0])" }
+        }
+        if ($sample.bootId -notmatch '^[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}$') { $sample.problems += 'invalid-boot-id' }
+        if ($sample.ticksPerSecond -le 0) { $sample.problems += 'invalid-clock-tick-rate' }
+        # The raw /proc/stat block ends at its next heading. Ignore matching
+        # text from process command lines or other diagnostic sections.
+        $raw = [regex]::Match($block, '(?ms)^--- /proc/stat ---\r?\n(.*?)(?=^--- |^snapshotCompleteUtc=|\z)')
+        foreach ($line in ($raw.Groups[1].Value -split '\r?\n')) {
+            $match = [regex]::Match($line, '^(cpu[0-9]+)\s+([0-9]+(?:\s+[0-9]+){3,9})\s*$')
+            if (-not $match.Success) { continue }
+            if ($sample.cpus.Count -ge 4096 -or $sample.cpus.ContainsKey($match.Groups[1].Value)) { $sample.problems += 'invalid-cpu-list'; break }
+            $counters = [Collections.Generic.List[double]]::new()
+            foreach ($counter in ($match.Groups[2].Value -split '\s+')) {
+                $value = 0.0
+                if (-not [double]::TryParse($counter, [Globalization.NumberStyles]::None, [Globalization.CultureInfo]::InvariantCulture, [ref]$value) -or
+                    -not [double]::IsFinite($value)) { $sample.problems += 'invalid-cpu-counter'; break }
+                $counters.Add($value)
+            }
+            $sample.cpus[$match.Groups[1].Value] = $counters.ToArray()
+        }
+        if ($sample.cpus.Count -eq 0) { $sample.problems += 'missing-per-cpu-stat' }
+        if ($raw.Groups[1].Value -notmatch '(?m)^procs_running\s+[0-9]+\s*$') { $sample.problems += 'truncated-proc-stat' }
+        $sample.onlineCpus = [string]$sample.rawFields.guestOnlineCpus
+        if ($sample.onlineCpus) {
+            $online = [Collections.Generic.HashSet[int]]::new()
+            if ($sample.onlineCpus -notmatch '^[0-9]+(?:-[0-9]+)?(?:,[0-9]+(?:-[0-9]+)?)*$') { $sample.problems += 'invalid-online-cpus' }
+            else {
+                foreach ($range in ($sample.onlineCpus -split ',')) {
+                    $ends = $range -split '-'; $first=0; $last=0
+                    if (-not [int]::TryParse($ends[0],[ref]$first) -or
+                        -not [int]::TryParse($ends[-1],[ref]$last) -or $first -lt 0 -or $last -lt $first -or $last -ge 4096) {
+                        $sample.problems += 'invalid-online-cpus'; break
+                    }
+                    for ($cpuIndex=$first; $cpuIndex -le $last; $cpuIndex++) { [void]$online.Add($cpuIndex) }
+                }
+                if ($online.Count -ne $sample.cpus.Count -or @($online | Where-Object { -not $sample.cpus.ContainsKey("cpu$_") }).Count) {
+                    $sample.problems += 'incomplete-cpu-inventory'
+                }
+            }
+        }
+        $sample.valid = $sample.problems.Count -eq 0
+        $samples.Add($sample)
+        if ($samples.Count -ge 4) { break }
+    }
+    $PSCmdlet.WriteObject($samples.ToArray(), $false)
+}
+
+# --- REGION: Get-GuestClockAccountingAnalysis
+function Get-GuestClockAccountingAnalysis {
+    <#
+    .SYNOPSIS
+        Emits advisory clock/accounting findings while respecting boot boundaries.
+    #>
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param([hashtable[]]$Samples, [hashtable]$Previous, [hashtable]$HostClock)
+    $warnings = [Collections.Generic.List[hashtable]]::new()
+    $comparison = 'unavailable'
+    $prior = $null
+    if ($Previous -and $Previous.samples) { $prior = @($Previous.samples)[-1] }
+    foreach ($sample in @($Samples | Where-Object { $_ })) {
+        if (-not $sample.valid) {
+            $warnings.Add(@{code='clock-evidence-incomplete'; detail=@($sample.problems)})
+            $prior = $null
+            continue
+        }
+        if ($sample.ContainsKey('boottimeSeconds') -and [math]::Abs($sample.boottimeSeconds-$sample.uptimeSeconds) -gt 2) {
+            $warnings.Add(@{code='guest-boottime-uptime-mismatch'; boottimeSeconds=$sample.boottimeSeconds; uptimeSeconds=$sample.uptimeSeconds})
+        }
+        if ($sample.ContainsKey('monotonicSeconds') -and $sample.ContainsKey('boottimeSeconds') -and
+            $sample.monotonicSeconds -gt $sample.boottimeSeconds+2) {
+            $warnings.Add(@{code='guest-monotonic-exceeds-boottime'})
+        }
+        $slack = [math]::Max(5, $sample.uptimeSeconds * 0.01)
+        foreach ($cpu in $sample.cpus.Keys) {
+            $idleSeconds = $sample.cpus[$cpu][3] / $sample.ticksPerSecond
+            if ($idleSeconds -gt $sample.uptimeSeconds + $slack) {
+                $warnings.Add(@{code='cpu-idle-exceeds-boot-uptime'; cpu=$cpu; idleSeconds=$idleSeconds; uptimeSeconds=$sample.uptimeSeconds})
+            }
+        }
+        if ($prior -and $prior.valid) {
+            if ($prior.bootId -ne $sample.bootId) {
+                $comparison = 'reboot-boundary'
+            } else {
+                if ($comparison -ne 'reboot-boundary') { $comparison = 'same-boot' }
+                $elapsed = $sample.uptimeSeconds - $prior.uptimeSeconds
+                if ($elapsed -lt 0) { $warnings.Add(@{code='guest-uptime-decreased'; deltaSeconds=$elapsed}) }
+                $clockTolerance = [math]::Max(2,[math]::Abs($elapsed) * 0.05)
+                foreach ($pair in @(@('monotonicSeconds','guest-monotonic-clock'), @('boottimeSeconds','guest-boottime-clock'))) {
+                    if (-not $sample.ContainsKey($pair[0]) -or -not $prior.ContainsKey($pair[0])) { continue }
+                    $clockDelta = $sample[$pair[0]]-$prior[$pair[0]]
+                    if ($clockDelta -lt 0) { $warnings.Add(@{code="$($pair[1])-decreased"; deltaSeconds=$clockDelta}) }
+                    # Suspend advances BOOTTIME while MONOTONIC can stand still.
+                    # Only an excessive monotonic delta is impossible here.
+                    if ($elapsed -ge 0 -and (($pair[0] -eq 'boottimeSeconds' -and [math]::Abs($clockDelta-$elapsed) -gt $clockTolerance) -or
+                        ($pair[0] -eq 'monotonicSeconds' -and $clockDelta -gt $elapsed+$clockTolerance))) {
+                        $warnings.Add(@{code="$($pair[1])-delta-inconsistent"; deltaSeconds=$clockDelta; uptimeDeltaSeconds=$elapsed})
+                    }
+                }
+
+                if ($prior.ticksPerSecond -ne $sample.ticksPerSecond) {
+                    $warnings.Add(@{code='clock-tick-rate-changed'})
+                } else {
+                    foreach ($cpu in $sample.cpus.Keys) {
+                        if (-not $prior.cpus.ContainsKey($cpu)) { continue }
+                        $currentCounters = @($sample.cpus[$cpu]); $previousCounters = @($prior.cpus[$cpu])
+                        for ($index=0; $index -lt [math]::Min($currentCounters.Count,$previousCounters.Count); $index++) {
+                            # Linux documents iowait as non-monotonic. guest and
+                            # guest_nice overlap user/nice; never sum them twice.
+                            if ($index -eq 4) { continue }
+                            if ($currentCounters[$index] -lt $previousCounters[$index]) {
+                                $warnings.Add(@{code='cpu-counter-decreased'; cpu=$cpu; counterIndex=$index})
+                            }
+                        }
+                        $accountedDelta = 0.0
+                        for ($index=0; $index -lt [math]::Min(8,[math]::Min($currentCounters.Count,$previousCounters.Count)); $index++) {
+                            $accountedDelta += $currentCounters[$index]-$previousCounters[$index]
+                        }
+                        $accountedDelta /= $sample.ticksPerSecond
+                        if ($elapsed -ge 0 -and $accountedDelta -gt $elapsed+$clockTolerance) {
+                            $warnings.Add(@{code='cpu-accounted-delta-exceeds-elapsed'; cpu=$cpu; accountedDeltaSeconds=$accountedDelta; elapsedSeconds=$elapsed})
+                        }
+                        $idleDelta = ($currentCounters[3] - $previousCounters[3]) / $sample.ticksPerSecond
+                        if ($elapsed -ge 0 -and $idleDelta -gt $elapsed + [math]::Max(2,$elapsed * 0.05)) {
+                            $warnings.Add(@{code='cpu-idle-delta-exceeds-elapsed'; cpu=$cpu; idleDeltaSeconds=$idleDelta; elapsedSeconds=$elapsed})
+                        }
+                    }
+                }
+                $wallDelta = $sample.epochSeconds - $prior.epochSeconds
+                if ($elapsed -ge 0 -and [math]::Abs($wallDelta-$elapsed) -gt [math]::Max(5,$elapsed * 0.05)) {
+                    $warnings.Add(@{code='guest-wall-clock-discontinuity'; wallDeltaSeconds=$wallDelta; uptimeDeltaSeconds=$elapsed})
+                }
+            }
+        }
+        $prior = $sample
+    }
+    $valid = @($Samples | Where-Object { $_.valid })
+    if ($Previous -and $Previous.hostClock -and $HostClock -and $valid.Count -gt 0) {
+        $previousSample = @($Previous.samples | Where-Object { $_.valid }) | Select-Object -Last 1
+        if ($previousSample -and $previousSample.bootId -eq $valid[0].bootId -and
+            $Previous.hostClock.frequency -eq $HostClock.frequency -and $HostClock.frequency -gt 0) {
+            $hostElapsed = ($HostClock.beforeTicks - $Previous.hostClock.afterTicks) / $HostClock.frequency
+            $uncertainty = (($HostClock.afterTicks-$HostClock.beforeTicks) + ($Previous.hostClock.afterTicks-$Previous.hostClock.beforeTicks)) / $HostClock.frequency
+            $guestElapsed = $valid[0].uptimeSeconds-$previousSample.uptimeSeconds
+            if ($hostElapsed -ge 0 -and [math]::Abs($guestElapsed-$hostElapsed) -gt [math]::Max(5,$hostElapsed * 0.05)+$uncertainty) {
+                $warnings.Add(@{code='guest-host-monotonic-discontinuity'; hostElapsedSeconds=$hostElapsed; guestElapsedSeconds=$guestElapsed; bracketUncertaintySeconds=$uncertainty})
+            }
+        }
+    }
+    return @{ schema='yuruna.guest-clock-analysis/v1'; advisoryOnly=$true; comparison=$comparison; sampleCount=@($Samples | Where-Object { $_ }).Count
+        validSampleCount=$valid.Count; warnings=$warnings.ToArray() }
+}
+
+# --- REGION: Save-HyperVCpuRestartHostContext
+function Save-HyperVCpuRestartHostContext {
+    <#
+    .SYNOPSIS
+        Saves effective VM settings under a bounded, read-only Hyper-V query.
+    #>
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param([Parameter(Mandatory)][string]$VMName, [Parameter(Mandatory)][string]$OutputFolder,
+        [Parameter(Mandatory)][ValidateSet('before-cpu-restart','after-cpu-restart','offline-before-resize','offline-after-resize')][string]$Phase)
+    $context = @{ schema='yuruna.cpu-restart-host-context/v1'; phase=$Phase; vmName=$VMName; status='unavailable'
+        hostUtc=[DateTime]::UtcNow.ToString('o'); hostTicks=[Diagnostics.Stopwatch]::GetTimestamp(); frequency=[Diagnostics.Stopwatch]::Frequency }
+    try {
+        Import-Module (Join-Path $PSScriptRoot 'Test.HostSampling.psm1') -Global -ErrorAction Stop
+        $encodedName = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($VMName))
+        $query = @'
+$ErrorActionPreference='Stop'
+Import-Module Hyper-V -ErrorAction Stop
+$name=[Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('__VM__'))
+$vm=Hyper-V\Get-VM -Name $name -ErrorAction Stop
+$cpu=Hyper-V\Get-VMProcessor -VMName $name -ErrorAction Stop
+$memory=Hyper-V\Get-VMMemory -VMName $name -ErrorAction Stop
+[ordered]@{ vmId=[string]$vm.Id; state=[string]$vm.State; generation=$vm.Generation; version=$vm.Version; processorCount=$cpu.Count; memoryStartupBytes=$memory.Startup; dynamicMemoryEnabled=$memory.DynamicMemoryEnabled; hostArchitecture=[string][Runtime.InteropServices.RuntimeInformation]::OSArchitecture; hostOs=[Runtime.InteropServices.RuntimeInformation]::OSDescription; queryUtc=[DateTime]::UtcNow.ToString('o'); queryTicks=[Diagnostics.Stopwatch]::GetTimestamp() } | ConvertTo-Json -Compress
+'@
+        $encoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($query.Replace('__VM__',$encodedName)))
+        $result = Invoke-YurunaHostBoundedCommand -FilePath (Join-Path $PSHOME ($IsWindows ? 'pwsh.exe' : 'pwsh')) `
+            -ArgumentList @('-NoLogo','-NoProfile','-NonInteractive','-EncodedCommand',$encoded) -TimeoutSeconds 3
+        $context.status = [string]$result.Status
+        if ($result.Status -eq 'complete' -and $result.ExitCode -eq 0 -and $result.Output.Length -le 16384) { $context.settings = $result.Output | ConvertFrom-Json -AsHashtable -ErrorAction Stop }
+        else { $context.reason = 'bounded-hyperv-query-unavailable' }
+    } catch { $context.reason='host-context-capture-error'; Write-Verbose $_.Exception.Message }
+    $context.afterUtc=[DateTime]::UtcNow.ToString('o'); $context.afterTicks=[Diagnostics.Stopwatch]::GetTimestamp()
+    try {
+        [void][IO.Directory]::CreateDirectory($OutputFolder)
+        [IO.File]::WriteAllText((Join-Path $OutputFolder "guest.cpu-clock.$Phase.host.json"),($context | ConvertTo-Json -Depth 8))
+    } catch { Write-Verbose $_.Exception.Message }
+    return $context
+}
+
+# --- REGION: Save-GuestCpuRestartEvidence
+function Save-GuestCpuRestartEvidence {
+    <#
+    .SYNOPSIS
+        Captures two guest observations without discovery, recovery, or workload gating.
+    #>
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param([Parameter(Mandatory)][string]$VMName, [Parameter(Mandatory)][string]$GuestKey,
+        [Parameter(Mandatory)][string]$OutputFolder,
+        [Parameter(Mandatory)][ValidateSet('before-cpu-restart','after-cpu-restart')][string]$Phase,
+        [string]$StepInvocationId, [string]$SequenceInvocationId)
+    $capture = @{ schema='yuruna.cpu-restart-evidence/v1'; phase=$Phase; diagnosticOutcome='unavailable'; samples=@(); advisoryOnly=$true }
+    try {
+        $capture.hostContext=Save-HyperVCpuRestartHostContext -VMName $VMName -OutputFolder $OutputFolder -Phase $Phase
+        $source=Get-Content -LiteralPath (Join-Path $PSScriptRoot '../../automation/guest-performance-snapshot.sh') -Raw
+        $encoded=[Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($source))
+        $prefix='E_CLOCK_ONLY=1 '
+        foreach ($entry in @(@('E_SI',$StepInvocationId),@('E_QI',$SequenceInvocationId))) {
+            if ($entry[1] -match '^[A-Za-z0-9-]{1,64}$') { $prefix += "$($entry[0])=$($entry[1]) " }
+        }
+        $clock=@{beforeUtc=[DateTime]::UtcNow.ToString('o');beforeTicks=[Diagnostics.Stopwatch]::GetTimestamp();frequency=[Diagnostics.Stopwatch]::Frequency}
+        $result=Invoke-GuestEvidenceSsh -VMName $VMName -GuestKey $GuestKey -Command "printf '%s' '$encoded' | base64 -d | ${prefix}bash" `
+            -TimeoutSeconds 5 -MaxCapturedChars 262144 -ProvenAddressOnly
+        $clock.afterTicks=[Diagnostics.Stopwatch]::GetTimestamp(); $clock.afterUtc=[DateTime]::UtcNow.ToString('o')
+        $capture.hostClock=$clock
+        $safe=Protect-GuestEvidenceText -Text ([string]$result.output)
+        $capture.samples=ConvertFrom-GuestClockEvidence -Text $safe
+        $capture.stepInvocationId=$StepInvocationId; $capture.sequenceInvocationId=$SequenceInvocationId
+        $capture.diagnosticOutcome=if ($result.success -and $safe -match '(?m)^snapshotCompleteUtc=' -and @($capture.samples | Where-Object { $_.valid }).Count -ge 2) { 'complete' }
+            elseif ($capture.samples.Count -gt 0) { 'partial' } else { 'unavailable' }
+        $previous=$null
+        $beforePath=Join-Path $OutputFolder 'guest.cpu-clock.before-cpu-restart.json'
+        if ($Phase -eq 'after-cpu-restart' -and (Test-Path -LiteralPath $beforePath -PathType Leaf)) {
+            try { $previous=[IO.File]::ReadAllText($beforePath) | ConvertFrom-Json -AsHashtable -ErrorAction Stop } catch { Write-Verbose $_.Exception.Message }
+        }
+        $capture.analysis=Get-GuestClockAccountingAnalysis -Samples $capture.samples -Previous $previous -HostClock $clock
+        [void][IO.Directory]::CreateDirectory($OutputFolder)
+        $capture.outPath=Join-Path $OutputFolder "guest.cpu-clock.$Phase.txt"
+        [IO.File]::WriteAllText($capture.outPath, "# Host clock bracket: $($clock | ConvertTo-Json -Compress)`n"+$safe)
+        [IO.File]::WriteAllText((Join-Path $OutputFolder "guest.cpu-clock.$Phase.json"),($capture | ConvertTo-Json -Depth 12))
+    } catch { $capture.reason='clock-evidence-capture-error'; Write-Verbose $_.Exception.Message }
+    return $capture
+}
+
+function Save-GuestPerformanceSnapshot {
+    <#
+    .SYNOPSIS
+        Saves a short Linux sample under a separate SSH budget.
+    #>
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param(
+        [Parameter(Mandatory)][string]$VMName,
+        [Parameter(Mandatory)][string]$GuestKey,
+        [Parameter(Mandatory)][string]$OutputFolder,
+        [string]$Id = 'snapshot',
+        [string]$StepInvocationId,
+        [string]$SequenceInvocationId,
+        [ValidateRange(1,60)][int]$TimeoutSeconds = 20
+    )
+    $path = Join-Path $OutputFolder ((Get-DiagnosticsFileName -Id $Id) -replace '\.txt$', '.snapshot.txt')
+    try {
+        if ($GuestKey -match 'windows|macos') { return @{ diagnosticOutcome='unavailable'; outPath=$null; reason=(Format-YurunaOperatorMessage -Key 'runner.operator_9c627f468ca0a406') } }
+        $source = Get-Content -LiteralPath (Join-Path $PSScriptRoot '../../automation/guest-performance-snapshot.sh') -Raw
+        $prefix = ''
+        foreach ($entry in @(@('E_SI',$StepInvocationId), @('E_QI',$SequenceInvocationId))) {
+            if ($entry[1] -match '^[A-Za-z0-9-]{1,64}$') { $prefix += "$($entry[0])=$($entry[1]) " }
+        }
+        $encoded = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($source))
+        $command = "printf '%s' '$encoded' | base64 -d | ${prefix}bash"
+        $hostClock = [ordered]@{ beforeUtc=[DateTime]::UtcNow.ToString('o'); beforeTicks=[Diagnostics.Stopwatch]::GetTimestamp(); frequency=[Diagnostics.Stopwatch]::Frequency }
+        $result = Invoke-GuestEvidenceSsh -VMName $VMName -GuestKey $GuestKey -Command $command -TimeoutSeconds $TimeoutSeconds
+        $hostClock.afterTicks = [Diagnostics.Stopwatch]::GetTimestamp()
+        $hostClock.afterUtc = [DateTime]::UtcNow.ToString('o')
+        [void][System.IO.Directory]::CreateDirectory($OutputFolder)
+        $body = "# Guest performance snapshot; budgetSeconds=$TimeoutSeconds`n# Host clock bracket: $($hostClock | ConvertTo-Json -Compress)`n" + [string]$result.output
+        $body = Protect-GuestEvidenceText -Text $body
+        $clockSamples = ConvertFrom-GuestClockEvidence -Text ([string]$result.output)
+        $clockAnalysis = Get-GuestClockAccountingAnalysis -Samples $clockSamples -HostClock $hostClock
+        $body += "`n# Clock accounting analysis: $($clockAnalysis | ConvertTo-Json -Compress -Depth 8)`n"
+        [System.IO.File]::WriteAllText($path, $body)
+        $outcome = if ($result.success -and $body -match '(?m)^snapshotCompleteUtc=') { 'complete' }
+            elseif ($result.timedOut -or $result.drainTimedOut -or
+                (-not $result.ContainsKey('timedOut') -and $body -match '(?i)timed? out|timeout')) { 'timeout' }
+            elseif ($body -match '(?m)^snapshotUtc=') { 'partial' } else { 'unavailable' }
+        return @{ diagnosticOutcome=$outcome; outPath=$path; reason=if ($outcome -eq 'complete') { $null } else { (Format-YurunaOperatorMessage -Key 'runner.operator_ce1e07b67cff6083') }; exitCode=[int]$result.exitCode; hostClock=$hostClock; clockAnalysis=$clockAnalysis }
+    } catch {
+        Write-Verbose "Guest performance snapshot unavailable: $($_.Exception.Message)"
+        return @{ diagnosticOutcome='unavailable'; outPath=$null; reason=$_.Exception.Message }
+    }
+}
+
+function Protect-GuestEvidenceText {
+    <#
+    .SYNOPSIS
+        Redacts known credentials and secret assignments before evidence is published.
+    #>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param([AllowEmptyString()][string]$Text, [hashtable]$Variables = @{})
+    Import-Module (Join-Path $PSScriptRoot 'Test.Message.psm1') -Global -ErrorAction Stop
+    $secrets = @($env:GH_TOKEN,$env:GITHUB_TOKEN)
+    if (Get-Command Get-YurunaGitHubSource -ErrorAction SilentlyContinue) {
+        $secrets += [string](Get-YurunaGitHubSource -RepoRoot (Join-Path $PSScriptRoot '../..')).Token
+    }
+    foreach ($key in $Variables.Keys) {
+        if ($key -match '(?i)password|passwd|secret|token|credential|private.?key') { $secrets += [string]$Variables[$key] }
+    }
+    foreach ($secret in @($secrets | Where-Object { $_ } | Sort-Object { $_.Length } -Descending)) {
+        $Text = $Text.Replace($secret, '[REDACTED]')
+        foreach ($fragment in @($secret -split '\r?\n' | Where-Object { $_.Length -ge 4 })) {
+            $Text = $Text.Replace($fragment, '[REDACTED]')
+        }
+    }
+    $Text = [regex]::Replace($Text, '(?s)-----BEGIN [^-]*PRIVATE KEY-----.*?-----END [^-]*PRIVATE KEY-----', '[REDACTED PRIVATE KEY]')
+    $Text = [regex]::Replace($Text, '\b(?:gh[pousr]_[A-Za-z0-9_]{20,}|github_pat_[A-Za-z0-9_]+)', '[REDACTED]')
+    $lines = foreach ($line in ($Text -split '\r?\n')) {
+        if ($line -match '(?i)\b[A-Za-z0-9_]*(?:TOKEN|PASSWORD|SECRET|PRIVATE_KEY|CREDENTIAL)[A-Za-z0-9_]*\s*=') { '[REDACTED SECRET ASSIGNMENT]'; continue }
+        (Protect-MessageDetail -Text $line -Source 'guest.evidence' -Secret $secrets).text
+    }
+    return $lines -join "`n"
+}
+
+function Get-GuestExecutionLogVerdict {
+    <#
+    .SYNOPSIS
+        Joins a complete execution-log header to one exact script invocation.
+    #>
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param(
+        [AllowNull()]$ExecutionLog,
+        [string]$ScriptPath,
+        [string]$StepInvocationId,
+        [string]$SequenceInvocationId
+    )
+    $verdict = @{ state='unavailable'; reasonCode='execution-log-absent';
+        scriptPath=''; stepInvocationId=''; sequenceInvocationId='';
+        expectedScriptPath=$ScriptPath; expectedStepInvocationId=$StepInvocationId;
+        expectedSequenceInvocationId=$SequenceInvocationId }
+    $text = if ($ExecutionLog -is [System.Array]) {
+        (@($ExecutionLog) | ForEach-Object { [string]$_ }) -join "`n"
+    } else { [string]$ExecutionLog }
+    if ([string]::IsNullOrWhiteSpace($text)) { return $verdict }
+    if ($ScriptPath -notmatch '^[A-Za-z0-9_./-]+$' -or $ScriptPath.StartsWith('/') -or
+        $ScriptPath -match '(^|/)\.\.?(/|$)') {
+        $verdict.reasonCode='execution-script-unavailable'; return $verdict
+    }
+    # A script name alone cannot distinguish two executions of the same step.
+    # Older guests without invocation IDs remain inspectable, but unattributed.
+    if ($StepInvocationId -notmatch '^[A-Za-z0-9-]{1,64}$' -or
+        $SequenceInvocationId -notmatch '^[A-Za-z0-9-]{1,64}$') {
+        $verdict.reasonCode='execution-invocation-unavailable'; return $verdict
+    }
+    $rows = @($text -split "`r?`n")
+    if ($rows[0].TrimStart([char]0xFEFF) -cne '# Yuruna fetch-and-execute log') {
+        $verdict.reasonCode='execution-header-invalid'; return $verdict
+    }
+    $headerEnd = -1
+    for ($index = 1; $index -lt [Math]::Min($rows.Count, 64); $index++) {
+        if ($rows[$index] -ceq '# ---') { $headerEnd=$index; break }
+        if ($rows[$index] -notmatch '^#(?: |$)') { break }
+    }
+    if ($headerEnd -le 1) { $verdict.reasonCode='execution-header-incomplete'; return $verdict }
+    $header = $rows[1..($headerEnd - 1)] -join "`n"
+    foreach ($field in 'script','stepInvocationId','sequenceInvocationId') {
+        $fieldMatches = [regex]::Matches($header, "(?m)^# ${field}: *([^`r`n]*)`$")
+        if ($fieldMatches.Count -ne 1 -or [string]::IsNullOrWhiteSpace($fieldMatches[0].Groups[1].Value)) {
+            $verdict.reasonCode='execution-header-incomplete'; return $verdict
+        }
+        $value = $fieldMatches[0].Groups[1].Value
+        $key = if ($field -eq 'script') { 'scriptPath' } else { $field }
+        $valid = if ($field -eq 'script') {
+            $value -match '^[A-Za-z0-9_./-]+$' -and -not $value.StartsWith('/') -and
+                $value -notmatch '(^|/)\.\.?(/|$)'
+        } else { $value -match '^[A-Za-z0-9-]{1,64}$' }
+        if (-not $valid) { $verdict.reasonCode='execution-header-invalid'; return $verdict }
+        $verdict[$key]=$value
+    }
+    foreach ($entry in @(@('scriptPath',$ScriptPath,'script'), @('stepInvocationId',$StepInvocationId,'step'),
+        @('sequenceInvocationId',$SequenceInvocationId,'sequence'))) {
+        if ($verdict[$entry[0]] -cne $entry[1]) {
+            $verdict.state='stale'; $verdict.reasonCode="execution-$($entry[2])-mismatch"; return $verdict
+        }
+    }
+    $verdict.state='current'; $verdict.reasonCode='execution-log-current'
+    return $verdict
+}
+
+function Save-GuestExecutionProfile {
+    <#
+    .SYNOPSIS
+        Fetches matching traces and records complete, partial, or unavailable capture.
+    #>
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param(
+        [Parameter(Mandatory)][string]$VMName,
+        [Parameter(Mandatory)][string]$GuestKey,
+        [Parameter(Mandatory)][string]$OutputFolder,
+        [Parameter(Mandatory)][ValidatePattern('^[A-Za-z0-9-]{1,64}$')][string]$StepInvocationId,
+        [ValidateRange(1,60)][int]$TimeoutSeconds = 20,
+        [hashtable]$Variables = @{},
+        [string]$ScriptPath,
+        [string]$SequenceInvocationId
+    )
+    $command = @'
+f=/tmp/yuruna-last-fetch-and-execute.log
+[ -r "$f" ] || { printf 'profile execution log absent\n'; exit 66; }
+step=$(sed -n 's/^# stepInvocationId: *//p' "$f" | head -n 1)
+[ "$step" = '__STEP__' ] || { printf 'profile invocation mismatch: %s\n' "$step"; exit 65; }
+printf '%s\n' '--- YURUNA EXECUTION LOG ---'
+sequence=$(sed -n 's/^# sequenceInvocationId: *//p' "$f" | head -n 1)
+printf '# stepInvocationId: %s\n# sequenceInvocationId: %s\n# Log: last 100000 bytes\n' "$step" "$sequence"
+__IDENTITY_HEADER__
+# A bounded tail may begin inside a credential; discard that partial line.
+if [ "$(wc -c < "$f")" -gt 100000 ]; then tail -c 100000 "$f" | sed '1d'; else cat "$f"; fi
+p=$(sed -n 's/^# profile: *//p' "$f" | head -n 1)
+profile_rc=66
+case "$p" in /tmp/yuruna-fae-profile.*)
+    if [ -r "$p" ]; then
+        printf '\n%s\n' '--- YURUNA COMMAND PROFILE (last 400000 bytes) ---'
+        bytes=$(wc -c < "$p")
+        printf '%s\n' "$bytes"
+        if [ "$bytes" -gt 400000 ]; then tail -c 400000 "$p" | sed '1d'; else cat "$p"; fi
+        profile_rc=0
+    fi ;;
+esac
+r=$(sed -n 's/^# recorder: *//p' "$f" | head -n 1)
+case "$r" in /tmp/yuruna-fae-recorder.*)
+    suffix=${r#/tmp/yuruna-fae-recorder.}
+    case "$suffix" in ''|*[!A-Za-z0-9]*) ;; *)
+        if [ -r "$r/evidence.txt" ]; then
+            printf '\n%s\n' '--- YURUNA RECORDER EVIDENCE ---'
+            head -c 1100000 "$r/evidence.txt"
+            printf '\n%s\n' '--- YURUNA RECORDER STATUS ---'
+            head -c 2048 "$r/status" 2>/dev/null
+        fi ;;
+    esac ;;
+esac
+exit "$profile_rc"
+'@
+    $strictIdentity = $PSBoundParameters.ContainsKey('ScriptPath') -or $PSBoundParameters.ContainsKey('SequenceInvocationId')
+    # A body tail can omit the original header. Keep a bounded copy separate so
+    # large execution logs can still prove their identity before publication.
+    $identityProbe = if ($strictIdentity) {
+        "printf '%s\n' '--- YURUNA EXECUTION HEADER ---'`n" +
+        'head -n 64 "$f" | sed -n ''1,/^# ---$/p''' + "`n" +
+        "printf '\n%s\n' '--- YURUNA EXECUTION LOG BODY ---'"
+    } else { '' }
+    $command = $command.Replace('__IDENTITY_HEADER__', $identityProbe)
+    $capture = @{ success=$false; diagnosticOutcome='unavailable'; outPath=$null
+        stepInvocationId=$StepInvocationId; reasonCode='profile-unavailable'; reason=$null
+        exitCode=-1; sshResponsive=$false; timedOut=$false; outputTruncated=$false }
+    try {
+        $result = Invoke-GuestEvidenceSsh -VMName $VMName -GuestKey $GuestKey `
+            -Command $command.Replace('__STEP__',$StepInvocationId) -TimeoutSeconds $TimeoutSeconds -MaxCapturedChars 2097152
+        $capture.exitCode = [int]$result.exitCode
+        $capture.outputTruncated = [bool]$result.outputTruncated
+        $capture.timedOut = [bool]($result.timedOut -or $result.drainTimedOut -or
+            (-not $result.success -and $result.exitCode -eq -1 -and
+                ([string]$result.output -notmatch '(?m)^--- YURUNA EXECUTION LOG ---') -and
+                ([string]$result.output -match '(?im)^(?:Timed out after [0-9]+s|ssh: .+ timed out|.+: Connection timed out)')))
+        $capture.sshResponsive = [bool]($result.success -or $result.exitCode -in @(65,66) -or
+            ([string]$result.output -match '(?m)^--- YURUNA EXECUTION LOG ---'))
+        $capture.reasonCode = if ($capture.outputTruncated) { 'profile-output-truncated' }
+            elseif ($capture.timedOut) { 'profile-ssh-timeout' }
+            elseif ($result.exitCode -eq 65) { 'profile-invocation-mismatch' }
+            elseif ($result.exitCode -eq 66) { 'profile-file-absent' } else { 'profile-ssh-unavailable' }
+        $capture.reason = Protect-GuestEvidenceText -Text ([string]$result.output) -Variables $Variables
+        if ($strictIdentity) {
+            $headerMatch = [regex]::Match([string]$result.output,
+                '(?ms)^--- YURUNA EXECUTION HEADER ---\r?\n(?<header>.*?)^--- YURUNA EXECUTION LOG BODY ---(?:\r?\n|$)')
+            $identity = Get-GuestExecutionLogVerdict -ExecutionLog $headerMatch.Groups['header'].Value `
+                -ScriptPath $ScriptPath -StepInvocationId $StepInvocationId -SequenceInvocationId $SequenceInvocationId
+            $capture.executionLog = $identity
+            if ($identity.state -ne 'current') {
+                if (-not $capture.timedOut -and $result.exitCode -ne 65) {
+                    $capture.reasonCode="profile-$($identity.reasonCode)"
+                }
+                $capture.reason=$capture.reasonCode
+                return $capture
+            }
+        }
+        if ([string]$result.output -match '(?m)^--- YURUNA EXECUTION LOG ---') {
+            [void][System.IO.Directory]::CreateDirectory($OutputFolder)
+            $path = Join-Path $OutputFolder "fetch-and-execute.$StepInvocationId.profile.log"
+            [System.IO.File]::WriteAllText($path, $capture.reason)
+            $capture.outPath = $path
+            $capture.success = [bool]($result.success -and -not $capture.outputTruncated -and
+                ([string]$result.output -match '(?m)^--- YURUNA COMMAND PROFILE'))
+            $capture.diagnosticOutcome = if ($capture.success) { 'complete' } else { 'partial' }
+            if ($capture.success) { $capture.reasonCode='profile-complete'; $capture.reason=$null }
+            else { $capture.reason="Execution log retained; command profile capture ended with exit code $($capture.exitCode)." }
+        }
+    } catch {
+        $capture.reasonCode = 'profile-capture-error'
+        $capture.reason = Protect-GuestEvidenceText -Text $_.Exception.Message -Variables $Variables
+    }
+    return $capture
+}
+
+function Save-GuestDiagnostic {
+    <#
+    .SYNOPSIS
+        Supervises all diagnostic work in an isolated process with a shared deadline.
+    #>
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param(
+        [Parameter(Mandatory)][string]$VMName,
+        [Parameter(Mandatory)][string]$GuestKey,
+        [Parameter(Mandatory)][string]$OutputFolder,
+        [Parameter(Mandatory)][ValidateNotNullOrEmpty()][string]$Id,
+        [string]$StepInvocationId,
+        [string]$SequenceInvocationId,
+        [AllowNull()]$HostSnapshot
+    )
+    # Copy only session data needed by this guest. Reimporting a driver in a
+    # separate process cannot evict the running sequence's module state.
+    $driver = Get-Module -Name Yuruna.Host | Select-Object -First 1
+    $users = @{}
+    $overrides = Get-Variable -Name YurunaGuestSshUserOverrides -Scope Global -ValueOnly -ErrorAction SilentlyContinue
+    if ($overrides -and $overrides.ContainsKey($GuestKey)) { $users[$GuestKey] = $overrides[$GuestKey] }
+    $addresses = @{}
+    $proven = Get-Variable -Name YurunaProvenGuestAddress -Scope Global -ValueOnly -ErrorAction SilentlyContinue
+    if ($proven -and $proven.ContainsKey($VMName)) { $addresses[$VMName] = $proven[$VMName] }
+    $fileName = Get-DiagnosticsFileName -Id $Id
+    $request = @{
+        VMName=$VMName; GuestKey=$GuestKey; Id=$Id
+        OutputFolder=$ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($OutputFolder)
+        StepInvocationId=$StepInvocationId; SequenceInvocationId=$SequenceInvocationId
+        HostSnapshot=$HostSnapshot; HostModulePath=if ($driver) { $driver.Path } else { $null }
+        WorkingDirectory=(Get-Location).ProviderPath
+        GuestSshUserOverrides=$users; ProvenGuestAddress=$addresses
+        OperatorLocaleContext=(Get-YurunaOperatorLocale)
+        DiagnosticsFileName=$fileName
+        TimeoutSeconds=$script:SaveGuestDiagnosticTotalTimeoutSeconds
+        PerCommandTimeoutSeconds=$script:SaveGuestDiagnosticPerCommandTimeoutSeconds
+    }
+    $manifest = Invoke-GuestDiagnosticWorker -Request $request -TimeoutSeconds $script:SaveGuestDiagnosticTotalTimeoutSeconds
+    $manifest.stepInvocationId = $StepInvocationId
+    $manifest.sequenceInvocationId = $SequenceInvocationId
+    try {
+        [void][System.IO.Directory]::CreateDirectory($request.OutputFolder)
+        $manifestPath = Join-Path $request.OutputFolder ($fileName -replace '\.txt$', '.manifest.json')
+        [System.IO.File]::WriteAllText($manifestPath, ($manifest | ConvertTo-Json -Depth 12))
+    } catch { Write-Verbose "Diagnostic manifest could not be saved: $($_.Exception.Message)" }
+    return $manifest
+}
+
+function Invoke-GuestDiagnosticWorker {
+    <#
+    .SYNOPSIS
+        Bounds startup, host/vault calls, sampling, SSH, console I/O, and cleanup.
+    #>
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param(
+        [Parameter(Mandatory)][hashtable]$Request,
+        [Parameter(Mandatory)][ValidateRange(1,3600)][int]$TimeoutSeconds
+    )
+    $clock = [System.Diagnostics.Stopwatch]::StartNew()
+    $captureId = [guid]::NewGuid().ToString('N')
+    $workFolder = Join-Path ([System.IO.Path]::GetTempPath()) "yuruna-diagnostic-$captureId"
+    $requestPath = Join-Path $workFolder 'request.json'
+    $resultPath = Join-Path $workFolder 'result.json'
+    $checkpointPath = Join-Path $workFolder 'checkpoint.json'
+    $manifest = @{
+        success=$false; outPath=$null; mechanism='none'; attempted=@(); exitCode=-1
+        bytes=0L; skipped=$false; reasonCode='diagnostic-worker-failed'
+        hostSnapshot=$Request.HostSnapshot; guestSnapshot=$null
+    }
+    $native = $null
+    $deadline = New-YurunaDeadline -TotalMilliseconds ($TimeoutSeconds * 1000)
+    try {
+        [void][System.IO.Directory]::CreateDirectory($workFolder)
+        $workerRequest = $Request.Clone()
+        $workerRequest.CaptureId = $captureId
+        $workerRequest.ResultPath = $resultPath
+        $workerRequest.CheckpointPath = $checkpointPath
+        $workerRequest.ExpiryTick = $deadline.ExpiryTick
+        [System.IO.File]::WriteAllText($requestPath, ($workerRequest | ConvertTo-Json -Depth 12))
+        $pwsh = Join-Path $PSHOME $(if ($IsWindows) { 'pwsh.exe' } else { 'pwsh' })
+        $native = Invoke-BoundedNativeCommand -FilePath $pwsh -ArgumentList @(
+            '-NoLogo', '-NoProfile', '-NonInteractive', '-File', $script:GuestDiagnosticWorkerPath,
+            '-RequestPath', $requestPath) -TimeoutSeconds $TimeoutSeconds -Deadline $deadline `
+            -StreamEncoding ([System.Text.UTF8Encoding]::new($false))
+        $complete = $native.Started -and $native.ExitCode -eq 0 -and -not (
+            $native.TimedOut -or $native.DrainTimedOut -or $native.KillFailed)
+        # A checkpoint is atomic and invocation-specific. An old result or a
+        # partially written JSON document can never certify this capture.
+        $resultAccepted = $false
+        foreach ($candidate in @($resultPath, $checkpointPath)) {
+            if (-not (Test-Path -LiteralPath $candidate -PathType Leaf)) { continue }
+            try {
+                $envelope = [System.IO.File]::ReadAllText($candidate) | ConvertFrom-Json -AsHashtable -ErrorAction Stop
+                if ($envelope.captureId -cne $captureId -or $envelope.manifest -isnot [hashtable] -or
+                    $envelope.manifest.success -isnot [bool]) { continue }
+                $manifest = $envelope.manifest
+                $resultAccepted = $complete -and $candidate -eq $resultPath
+                break
+            } catch { Write-Verbose $_.Exception.Message }
+        }
+        if (-not $resultAccepted) {
+            $manifest.success = $false
+            $manifest.timedOut = [bool]($native.TimedOut -or $native.DrainTimedOut -or $native.DeadlineExhausted)
+            $manifest.budgetExceeded = $manifest.timedOut
+            $manifest.reasonCode = if ($manifest.timedOut) { 'diagnostic-deadline-exceeded' } else { 'diagnostic-worker-failed' }
+            $manifest.reason = if ($manifest.timedOut) {
+                Format-YurunaOperatorMessage -Key 'runner.diagnostic_deadline_exceeded' -Arguments @{ timeoutSeconds=$TimeoutSeconds; vmName=$Request.VMName }
+            } else {
+                Format-YurunaOperatorMessage -Key 'runner.diagnostic_worker_failed' -Arguments @{ vmName=$Request.VMName; exitCode=[int]$native.ExitCode }
+            }
+            Write-Warning $manifest.reason
+        }
+        $manifest.worker = @{
+            exitCode=[int]$native.ExitCode; timedOut=[bool]$native.TimedOut
+            drainTimedOut=[bool]$native.DrainTimedOut; killFailed=[bool]$native.KillFailed
+            cleanupPending=[bool]$native.CleanupPending; outputTruncated=[bool]$native.OutputTruncated
+        }
+        if ($native.StdOut -or $native.StdErr) { Write-Verbose ("$($native.StdOut)$($native.StdErr)") }
+    } catch {
+        $manifest.success = $false
+        $manifest.reasonCode = 'diagnostic-worker-failed'
+        $manifest.reason = $_.Exception.Message
+        Write-Verbose $_.Exception.Message
+    } finally {
+        # Delete only known files, without recursive traversal. A worker whose
+        # termination is still pending retains its private state for inspection.
+        if (-not $native -or -not ($native.KillFailed -or $native.CleanupPending)) {
+            foreach ($path in @($requestPath, $resultPath, $checkpointPath, "$checkpointPath.tmp", "$resultPath.tmp")) {
+                if (Test-Path -LiteralPath $path) { Remove-Item -LiteralPath $path -Force -ErrorAction SilentlyContinue }
+            }
+            try {
+                if (Test-Path -LiteralPath $workFolder) { [System.IO.Directory]::Delete($workFolder, $false) }
+            } catch { $manifest.workerStatePath = $workFolder }
+        } else { $manifest.workerStatePath = $workFolder }
+    }
+    $manifest.elapsedSeconds = [math]::Round($clock.Elapsed.TotalSeconds, 3)
+    try { $manifest.diagnosticOutcome = Get-GuestDiagnosticOutcome -Manifest $manifest }
+    catch { $manifest.diagnosticOutcome = 'unavailable'; $manifest.reason = $_.Exception.Message }
+    return $manifest
+}
+
+function Update-GuestDiagnosticCheckpoint {
+    <# .SYNOPSIS
+        Publishes completed evidence before starting another potentially blocking stage.
+    #>
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+        Justification = 'Internal checkpoint write is part of the already requested diagnostic capture.')]
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][hashtable]$Values)
+    if (-not $script:GuestDiagnosticCheckpointPath) { return }
+    foreach ($key in $Values.Keys) { $script:GuestDiagnosticCheckpointManifest[$key] = $Values[$key] }
+    $envelope = @{ captureId=$script:GuestDiagnosticCaptureId; manifest=$script:GuestDiagnosticCheckpointManifest }
+    $tempPath = "$script:GuestDiagnosticCheckpointPath.tmp"
+    [System.IO.File]::WriteAllText($tempPath, ($envelope | ConvertTo-Json -Depth 12))
+    [System.IO.File]::Move($tempPath, $script:GuestDiagnosticCheckpointPath, $true)
+}
+
+function Get-GuestDiagnosticRungEvidencePath {
+    <# .SYNOPSIS
+        The file that holds one rung's own capture, beside the main capture.
+    .DESCRIPTION
+        Every rung writes to a file no other rung writes to, so a later rung
+        cannot replace what an earlier one recorded. A failed SSH rung's output
+        is often the only record of why that rung failed, and a shared file
+        would put the console fallback's upload on top of it. The name keeps the
+        *.system.diagnostic.*.txt shape the status service accepts for uploads.
+    #>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param(
+        [Parameter(Mandatory)][string]$OutPath,
+        [Parameter(Mandatory)][ValidateSet('key-ssh', 'password-ssh', 'console')][string]$Rung
+    )
+    return ($OutPath -replace '\.txt$', '') + ".$Rung.txt"
+}
+
+function Save-GuestDiagnosticRungEvidence {
+    <# .SYNOPSIS
+        Keeps a failed SSH rung's output in that rung's own file.
+    .DESCRIPTION
+        Written before the next rung starts, so the output survives a later rung
+        that stops responding, and never to the main capture file, so a later
+        rung's capture cannot replace it. The checkpoint names the file of the
+        most informative failed rung: a worker killed mid-ladder still reports
+        that output as its capture.
+    .PARAMETER Selected
+        The failed rung result the informativeness picker currently prefers.
+    .PARAMETER Evidence
+        The capture's evidence list; a record for this rung is appended to it.
+    #>
+    [CmdletBinding()]
+    param(
+        $Result,
+        [Parameter(Mandatory)][ValidateSet('key-ssh', 'password-ssh')][string]$Rung,
+        [string[]]$Attempted,
+        [Parameter(Mandatory)][string]$OutPath,
+        $Selected,
+        [Parameter(Mandatory)][AllowEmptyCollection()][System.Collections.Generic.List[hashtable]]$Evidence
+    )
+    if ($Result -and -not $Result.success -and $Result.output) {
+        $path = Get-GuestDiagnosticRungEvidencePath -OutPath $OutPath -Rung $Rung
+        [System.IO.File]::WriteAllText($path, [string]$Result.output)
+        $Result.evidencePath = $path
+        $Evidence.Add(@{
+            rung = $Rung; path = $path; bytes = ([System.IO.FileInfo]::new($path)).Length
+            exitCode = [int]$Result.exitCode; timedOut = [bool]$Result.timedOut
+            drainTimedOut = [bool]$Result.drainTimedOut; outputTruncated = [bool]$Result.outputTruncated
+        })
+    }
+    $values = @{ attempted=$Attempted; rungEvidence=@($Evidence) }
+    if ($Selected -and $Selected.evidencePath) {
+        $values.outPath = [string]$Selected.evidencePath
+        $values.bytes = ([System.IO.FileInfo]::new([string]$Selected.evidencePath)).Length
+        $values.mechanism = [string]$Selected.mechanism
+        $values.exitCode = [int]$Selected.exitCode
+        $values.timedOut = [bool]$Selected.timedOut
+    }
+    Update-GuestDiagnosticCheckpoint -Values $values
+}
+
+function Save-GuestDiagnosticCore {
+    <#
+    .SYNOPSIS
+        Preserves host and guest samples before the full diagnostic ladder.
+    .OUTPUTS
+        A manifest whose diagnosticOutcome describes the full diagnostic only.
+        hostSnapshot.Status and guestSnapshot.diagnosticOutcome independently
+        describe the short samples; a complete diagnostic does not imply that
+        every host counter or guest snapshot was available.
+    #>
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param(
+        [Parameter(Mandatory)][string]$VMName,
+        [Parameter(Mandatory)][string]$GuestKey,
+        [Parameter(Mandatory)][string]$OutputFolder,
+        [Parameter(Mandatory)][ValidateNotNullOrEmpty()][string]$Id,
+        [string]$StepInvocationId,
+        [string]$SequenceInvocationId,
+        [AllowNull()]$HostSnapshot
+    )
+    $captureClock = [System.Diagnostics.Stopwatch]::StartNew()
+    if (-not $script:GuestDiagnosticDeadline) {
+        $script:GuestDiagnosticDeadline = New-YurunaDeadline -TotalMilliseconds ($script:SaveGuestDiagnosticTotalTimeoutSeconds * 1000)
+    }
+    $hostSample = $HostSnapshot
+    if (-not $hostSample) {
+        $hostSample = @{ Status='unavailable'; Path=$null; Reason=(Format-YurunaOperatorMessage -Key 'runner.operator_7b76367fda1c3017') }
+        try {
+            Import-Module (Join-Path $PSScriptRoot 'Test.HostSampling.psm1') -Global -ErrorAction Stop
+            $hostSample = Save-YurunaHostSampleSnapshot -DestinationDirectory $OutputFolder -RuntimeDirectory $env:YURUNA_RUNTIME_DIR
+        } catch { Write-Verbose "Host sample unavailable: $($_.Exception.Message)" }
+    }
+    Update-GuestDiagnosticCheckpoint -Values @{ hostSnapshot=$hostSample }
+    $guestSample = Save-GuestPerformanceSnapshot -VMName $VMName -GuestKey $GuestKey -OutputFolder $OutputFolder `
+        -Id $Id -StepInvocationId $StepInvocationId -SequenceInvocationId $SequenceInvocationId
+    Update-GuestDiagnosticCheckpoint -Values @{ guestSnapshot=$guestSample }
+    # The supervisor owns the deadline. Checkpoints keep completed samples
+    # and rung output available even when a subsequent provider stops returning.
+    try {
+        $manifest = Invoke-GuestDiagnosticCapture -VMName $VMName -GuestKey $GuestKey -OutputFolder $OutputFolder -Id $Id
+    } catch {
+        $manifest = if ($script:GuestDiagnosticCheckpointManifest) { $script:GuestDiagnosticCheckpointManifest.Clone() }
+            else { @{ outPath=$null; mechanism='none'; attempted=@(); exitCode=-1; bytes=0L; skipped=$false } }
+        $manifest.success = $false
+        $manifest.reasonCode = 'diagnostic-capture-failed'
+        $manifest.reason = $_.Exception.Message
+    }
+    $captureSeconds = [int]$captureClock.Elapsed.TotalSeconds
+    try { $manifest.diagnosticOutcome = Get-GuestDiagnosticOutcome -Manifest $manifest }
+    catch { $manifest.diagnosticOutcome = 'unavailable'; $manifest.reason = $_.Exception.Message }
+    # Recorded on the manifest so a stage that stopped returning and a guest
+    # that was merely slow stop looking identical to whoever reads the folder.
+    $manifest.elapsedSeconds  = $captureSeconds
+    $manifest.budgetExceeded  = ($manifest.budgetExceeded -or $captureSeconds -gt $script:SaveGuestDiagnosticTotalTimeoutSeconds)
+    if ($manifest.budgetExceeded) {
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_22323c8e215f0677' -FormatValues ($captureSeconds, $script:SaveGuestDiagnosticTotalTimeoutSeconds, $VMName) -FormatBindings @{ elapsedSeconds = '0'; saveGuestDiagnosticTotalTimeoutSeconds = '1'; vMName = '2' })
+    }
+    $manifest.hostSnapshot = $hostSample
+    $manifest.guestSnapshot = $guestSample
+    $manifest.stepInvocationId = $StepInvocationId
+    $manifest.sequenceInvocationId = $SequenceInvocationId
+    Update-GuestDiagnosticCheckpoint -Values $manifest
+    return $manifest
+}
+
+function Invoke-GuestDiagnosticCapture {
+<#
+.SYNOPSIS
+    SSH into a guest, run Get-SystemDiagnostic.ps1, and write the
+    captured output into the per-guest data folder for the current cycle.
+.DESCRIPTION
+    Called from two places:
+      (a) Copy-FailureArtifactsToStatusLog -- on cycle failure, captures
+          the post-mortem state right after the screenshot + OCR copy.
+      (b) The `saveSystemDiagnostic` sequence action, fired wherever an
+          explicit checkpoint step appears in the YAML.
+
+    Soft-failing by contract -- diagnostics are a debugging aid; an
+    unreachable guest, a missing pwsh on the guest, a missing vault
+    entry, all degrade to a Write-Warning and a return value of $false.
+    The outer failure path must NOT be re-thrown by this collection step.
+
+    The function tries key authentication, then password authentication
+    when sshpass is available, then the host driver's console transport.
+
+.PARAMETER VMName
+    Guest VM name as registered with the host hypervisor.
+.PARAMETER GuestKey
+    Guest identifier (e.g. guest.ubuntu.server.24). Determines the SSH
+    login user via Get-GuestSshUser.
+.PARAMETER OutputFolder
+    Absolute path of the destination folder. Typically the
+    cycleGuestDataFolder produced by Get-CycleGuestDataFolder; the
+    function creates the folder if it does not yet exist (so a caller
+    that only knows the path string need not pre-create it).
+.PARAMETER Id
+    Tag appended to the saved filename -- see Get-DiagnosticsFileName
+    for the exact format. Sequence steps supply their own value: the
+    saveSystemDiagnostic action requires an 'id' field on each step so
+    multiple captures in the same cycle land in distinct files.
+
+    The wall-clock budget for the whole capture, and the per-SSH-call
+    timeout for each attempt, are NOT parameters -- they're module-
+    level variables ($SaveGuestDiagnosticTotalTimeoutSeconds and
+    $SaveGuestDiagnosticPerCommandTimeoutSeconds at the top of this
+    file) so every caller picks up the same cap and changes are made
+    in one place. The function emits Write-Warning lines when either
+    cap is hit so the operator sees the budget was exceeded instead
+    of attributing the missing artifact to a connectivity issue.
+.OUTPUTS
+    [hashtable] manifest with:
+        success     [bool]   $true if a diagnostic file was written
+        outPath     [string] absolute path of the written file (or $null)
+        mechanism   [string] 'key-ssh' | 'password-ssh' | 'console' | 'none'
+        attempted   [string[]] rungs tried in order (e.g. 'key-ssh','console')
+        exitCode    [int]    exit code from the winning (or last) rung
+        bytes       [long]   size of the diagnostic file (0 if not written)
+        skipped     [bool]   $true if a precondition aborted before any rung ran
+        reason      [string] short reason on skip / failure (or $null)
+        rungEvidence [hashtable[]] one record per failed SSH rung that left
+                     output: rung, path of its own evidence file, bytes,
+                     exitCode, timedOut, drainTimedOut, outputTruncated
+    Boolean-coercible: callers that did `if ($result)` continue to work
+    because PowerShell coerces a non-empty hashtable to $true. Use
+    $result.success for explicit pass/fail.
+#>
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param(
+        [Parameter(Mandatory)][string]$VMName,
+        [Parameter(Mandatory)][string]$GuestKey,
+        [Parameter(Mandatory)][string]$OutputFolder,
+        [Parameter(Mandatory)][ValidateNotNullOrEmpty()][string]$Id
+    )
+    # Attempted-rung accumulator hoisted to the top so every early-return
+    # site can include it in the manifest. Each rung pushes its label
+    # before invoking the SSH/console handler.
+    $attempted = @()
+    $captureTimedOut = $false
+
+    # Wall-clock budget for the whole capture. Each downstream call
+    # below clamps its own timeout to `min(perCommandCap, remaining)`
+    # so a near-deadline rung doesn't overshoot. Surface caps in logs
+    # so a stuck cycle's transcript points the operator at the bound.
+    $diagClock = [System.Diagnostics.Stopwatch]::StartNew()
+    $diagDeadline = if ($script:GuestDiagnosticDeadline) { $script:GuestDiagnosticDeadline }
+        else { New-YurunaDeadline -TotalMilliseconds ($script:SaveGuestDiagnosticTotalTimeoutSeconds * 1000) }
+    $perCmdCap    = [int]$script:SaveGuestDiagnosticPerCommandTimeoutSeconds
+    Write-Verbose ("Save-GuestDiagnostic: total cap {0}s, per-ssh cap {1}s" -f $script:SaveGuestDiagnosticTotalTimeoutSeconds, $perCmdCap)
+    function Get-DiagBudgetRemaining {
+        return [int][math]::Floor((Get-YurunaDeadlineRemainingMs -Deadline $diagDeadline) / 1000)
+    }
+    function Get-PerCmdBudget {
+        # Clamp the per-command cap to whatever remains in the total
+        # budget so a long-running rung at minute 4 of the 5-minute cap
+        # can't blow through the cycle's outer timeout.
+        $remain = Get-DiagBudgetRemaining
+        if ($remain -le 0) { return 0 }
+        return [math]::Min($perCmdCap, $remain)
+    }
+    function Test-DiagSshTimeoutHit {
+        param($Result, [string]$Rung, [int]$TimeoutSeconds)
+        if ($Result -and ($Result.timedOut -or $Result.drainTimedOut)) {
+            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_625fcb6b4b3ecfa6' -FormatValues ($Rung, $TimeoutSeconds) -FormatBindings @{ rung = '0'; matches = '1' })
+        }
+    }
+
+    # Stage gate. Each rung below clamps its own timeout to what is left, but
+    # the gate also prevents ENTERING a stage after the budget is already
+    # gone -- preflight stages reach into the host driver and the
+    # vault, neither of which promises to return. Checking between stages is
+    # what stops a spent budget from buying another unbounded wait.
+    #
+    # Typed state keeps deadline classification independent of display language.
+    function Get-DiagBudgetSpentManifest {
+        param([Parameter(Mandatory)][string]$Stage)
+        Write-Verbose ("Save-GuestDiagnostic: total {0}s budget exhausted before {1}; ending the capture." -f $script:SaveGuestDiagnosticTotalTimeoutSeconds, $Stage)
+        return @{
+            success=$false; outPath=$null; mechanism='none'; attempted=$attempted
+            exitCode=0; bytes=0L; skipped=$true
+            timedOut=$true; budgetExceeded=$true; reasonCode='diagnostic-deadline-exceeded'
+            reason=(Format-YurunaOperatorMessage -Key 'runner.diagnostic_budget_exhausted' -Arguments @{ timeoutSeconds=$script:SaveGuestDiagnosticTotalTimeoutSeconds; stage=$Stage })
+        }
+    }
+
+    if (-not (Test-Path -LiteralPath $OutputFolder -PathType Container)) {
+        try {
+            New-Item -ItemType Directory -Path $OutputFolder -Force | Out-Null
+        } catch {
+            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_e1f533f3abb267e7' -Arguments @{ outputFolder = "$OutputFolder"; message = "$($_.Exception.Message)" })
+            return @{ success=$false; outPath=$null; mechanism='none'; attempted=$attempted; exitCode=0; bytes=0L; skipped=$true; reason=(Format-YurunaOperatorMessage -Key 'runner.operator_c762446cf47236d6' -Arguments @{ outputFolder = "$OutputFolder"; message = "$($_.Exception.Message)" }) }
+        }
+    }
+    # Local alias: the shared console-fallback helpers below take
+    # -FailureFolderPath, so map the OutputFolder parameter onto that
+    # name once here instead of renaming it on every private helper.
+    $FailureFolderPath = $OutputFolder
+
+    # Module-qualified Test.Ssh calls below: when Save-GuestDiagnostic
+    # runs from the failure-artifact path (Invoke-TestRunnerInnerLoop's
+    # Copy-FailureArtifactsToStatusLog re-imports this module with
+    # -Force -Global), PowerShell's nested re-import can lose the bare-
+    # name binding to Test.Ssh's exports even though Test.Diagnostic's
+    # body imported it -Global at the top. Qualifying the call goes
+    # directly through Test.Ssh's command table.
+    $user = Test.Ssh\Get-GuestSshUser -GuestKey $GuestKey
+    if (-not $user -or $user -eq 'root') {
+        # 'root' is Get-GuestSshUser's catch-all return when the guest
+        # key is unknown (Windows guests today). Diagnostics over SSH
+        # has no sensible path there yet.
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_3541ead0f5647e4a' -Arguments @{ guestKey = "$GuestKey" })
+        return @{ success=$false; outPath=$null; mechanism='none'; attempted=$attempted; exitCode=0; bytes=0L; skipped=$true; reason=(Format-YurunaOperatorMessage -Key 'runner.operator_7d19d373db6f2996' -Arguments @{ guestKey = "$GuestKey" }) }
+    }
+
+    # See https://yuruna.link/4213a0b3-0051
+    try {
+        Write-Verbose '  Diagnostics: warming the host neighbor cache before address lookup...'
+        $null = Update-GuestNeighborCache -VMName $VMName
+    } catch {
+        Write-Debug "Save-GuestDiagnostic: Update-GuestNeighborCache threw: $($_.Exception.Message)"
+    }
+
+    # Pre-flight: real-handshake Wait-SshReady gate (mid-reboot races,
+    # half-up sshd, late-binding KVP). Budget capped to the cycle's
+    # remaining diag budget. Full rationale and trap class:
+    # https://yuruna.link/42d38664
+    $waitBudget = [math]::Min(180, (Get-DiagBudgetRemaining))
+    if ($waitBudget -le 0) {
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_3b5e52665a4e90e0' -FormatValues ($script:SaveGuestDiagnosticTotalTimeoutSeconds) -FormatBindings @{ saveGuestDiagnosticTotalTimeoutSeconds = '0' })
+        $spent = Get-DiagBudgetSpentManifest -Stage 'ssh-readiness'
+        $spent.reason = Format-YurunaOperatorMessage -Key 'runner.operator_796f8cf00a32ff21' -Arguments @{ saveGuestDiagnosticTotalTimeoutSeconds = "$($script:SaveGuestDiagnosticTotalTimeoutSeconds)" }
+        return $spent
+    }
+    $sshReady = $true
+    if (-not (Test.Ssh\Wait-SshReady -VMName $VMName -GuestKey $GuestKey -TimeoutSeconds $waitBudget -PollSeconds 5)) {
+        # Do NOT return here. The console-keystroke rung below is the fallback built precisely
+        # for the sshd-down / auth-broken / network-partitioned cases -- the exact scenarios
+        # where SSH readiness fails. Skip only the two SSH rungs and still give console a chance.
+        Write-Verbose ("Save-GuestDiagnostic: SSH did not become ready within {0}s for VM '{1}' (mid-reboot, late-binding KVP, or sshd not yet up); skipping SSH rungs, will try the console fallback." -f $waitBudget, $VMName)
+        $sshReady = $false
+        $attempted += 'ssh-not-ready'
+    }
+
+    # Wait-SshReady proved we can reach $user@$target via key auth, so
+    # Get-GuestAddress will now return a real IP. Defensive re-check
+    # kept so the SSH calls below have a non-VMName target even in the
+    # pathological case where the IP unbinds between Wait-SshReady's
+    # last poll and here.
+    $address = Test.Ssh\Get-GuestAddress -VMName $VMName
+    if (-not $address -or $address -eq $VMName) {
+        # No routable IP means the SSH rungs cannot run, but the console rung drives the VM
+        # console (tty1 keystrokes) and needs no IP -- fall through to it instead of returning.
+        Write-Verbose "Save-GuestDiagnostic: no routable IP for '$VMName' (guest may be mid-reboot); skipping SSH rungs, will try the console fallback."
+        $sshReady = $false
+    }
+
+    if ((Get-DiagBudgetRemaining) -le 0) { return (Get-DiagBudgetSpentManifest -Stage 'credential-lookup') }
+    $sshpassPath = (Get-Command sshpass -ErrorAction SilentlyContinue)?.Source
+    # @{ password; reason } -- preserve $reason so the password-SSH-skip
+    # branch below can name the specific failure mode ("no-entry" is the
+    # common pre-sequence case; "auth-extension-load-failed" / "get-
+    # password-threw" mean something is actually wrong with the vault
+    # plumbing and deserves a louder line).
+    $pwLookup    = Resolve-StoredPassword -Username $user
+    $password    = $pwLookup.password
+    $pwReason    = $pwLookup.reason
+
+    # See https://yuruna.link/4213a0b3-0052
+    if ((Get-DiagBudgetRemaining) -le 0) { return (Get-DiagBudgetSpentManifest -Stage 'status-service-lookup') }
+    $bootstrapUrl = $null
+    try {
+        $endpoint = Resolve-StatusServiceEndpoint -VMName $VMName
+        if ($endpoint) { $bootstrapUrl = [string]$endpoint.url }
+    } catch {
+        Write-Verbose "Save-GuestDiagnostic: Resolve-StatusServiceEndpoint threw: $($_.Exception.Message)"
+    }
+
+    # Strategy chain (keyed SSH -> password SSH -> console). The all-rungs-failed
+    # fallback keeps the SSH rung with the fuller captured error text; the
+    # console rung POSTs its capture to disk and adds no manifest text:
+    # https://yuruna.link/42d38664
+    # Only this function writes the main capture file. Each rung writes to its
+    # own sibling file, so no rung can replace the evidence another one left.
+    $fileName = if ($script:GuestDiagnosticFileName) { $script:GuestDiagnosticFileName } else { Get-DiagnosticsFileName -Id $Id }
+    $outPath  = Join-Path $FailureFolderPath $fileName
+    $consoleUploadName = Split-Path -Leaf (Get-GuestDiagnosticRungEvidencePath -OutPath $outPath -Rung 'console')
+    $rungEvidence = [System.Collections.Generic.List[hashtable]]::new()
+
+    $result      = $null
+    $lastResult  = $null
+
+    # Primary: key SSH (most reliable rung on a healthy guest). Skipped when the pre-flight
+    # showed SSH is unreachable -- the console rung below is the fallback for that case.
+    $keyBudget = if ($sshReady) { Get-PerCmdBudget } else { 0 }
+    if (-not $sshReady) {
+        Write-Verbose "  Diagnostics: SSH not reachable; skipping key-ssh rung."
+    } elseif ($keyBudget -le 0) {
+        $captureTimedOut = $true
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_86fa2b24d07ad7dd' -FormatValues ($script:SaveGuestDiagnosticTotalTimeoutSeconds) -FormatBindings @{ saveGuestDiagnosticTotalTimeoutSeconds = '0' })
+    } else {
+        $attempted += 'key-ssh'
+        Write-Verbose ("  Diagnostics: ssh {0}@{1} (key auth via yuruna_ed25519, budget {2}s)" -f $user, $address, $keyBudget)
+        $keyResult = Invoke-RemoteDiagnosticsKeySsh `
+            -VMName $VMName -GuestKey $GuestKey -TimeoutSeconds $keyBudget `
+            -BootstrapUrl $bootstrapUrl
+        Test-DiagSshTimeoutHit -Result $keyResult -Rung 'key-ssh' -TimeoutSeconds $keyBudget
+        $captureTimedOut = $captureTimedOut -or $keyResult.timedOut -or $keyResult.drainTimedOut
+        $lastResult = Select-MoreInformativeDiagResult -Current $lastResult -Candidate $keyResult
+        Save-GuestDiagnosticRungEvidence -Result $keyResult -Rung 'key-ssh' -Attempted $attempted `
+            -OutPath $outPath -Selected $lastResult -Evidence $rungEvidence
+        if ($keyResult.success) {
+            $result = $keyResult
+        } else {
+            Write-Verbose "  Diagnostics: key SSH failed (exit=$($keyResult.exitCode)); trying password SSH if available."
+        }
+    }
+
+    # Backup: password SSH. Useful for the early-bootstrap case where
+    # the yuruna_ed25519 key hasn't been installed yet; needs sshpass
+    # on PATH (Linux-only out of the box -- the macOS installer does
+    # not bring it in by design).
+    if (-not $result) {
+        $pwBudget = Get-PerCmdBudget
+        if ($pwBudget -le 0) {
+            $captureTimedOut = $true
+            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_3f3307e39b4b707c' -FormatValues ($script:SaveGuestDiagnosticTotalTimeoutSeconds) -FormatBindings @{ saveGuestDiagnosticTotalTimeoutSeconds = '0' })
+        } elseif ($sshReady -and $sshpassPath -and $password) {
+            $attempted += 'password-ssh'
+            Write-Verbose ("  Diagnostics: ssh {0}@{1} (password auth via sshpass, budget {2}s)" -f $user, $address, $pwBudget)
+            $passwordResult = Invoke-RemoteDiagnosticsPasswordSsh `
+                -User $user -Address $address -Password $password `
+                -SshpassPath $sshpassPath -TimeoutSeconds $pwBudget `
+                -BootstrapUrl $bootstrapUrl
+            Test-DiagSshTimeoutHit -Result $passwordResult -Rung 'password-ssh' -TimeoutSeconds $pwBudget
+            $captureTimedOut = $captureTimedOut -or $passwordResult.timedOut -or $passwordResult.drainTimedOut
+            $lastResult = Select-MoreInformativeDiagResult -Current $lastResult -Candidate $passwordResult
+            Save-GuestDiagnosticRungEvidence -Result $passwordResult -Rung 'password-ssh' -Attempted $attempted `
+                -OutPath $outPath -Selected $lastResult -Evidence $rungEvidence
+            if ($passwordResult.success) {
+                $result = $passwordResult
+            } else {
+                Write-Verbose "  Diagnostics: password SSH failed (exit=$($passwordResult.exitCode))."
+            }
+        } else {
+            # Discriminate the three vault-side failure modes so an
+            # operator (or remediator) can fix the right thing. The
+            # pre-sequence "no-entry" case is benign; the other two
+            # mean the vault plumbing itself is broken and the cycle's
+            # operator needs to inspect the authentication extension.
+            $reason =
+                if (-not $sshReady) { 'SSH not reachable' }
+                elseif (-not $sshpassPath) { (Format-YurunaOperatorMessage -Key 'runner.operator_3282d26b2446f352') }
+                elseif ($pwReason -eq 'auth-extension-load-failed') { (Format-YurunaOperatorMessage -Key 'runner.operator_36e902798e978721' -Arguments @{ user = "$user" }) }
+                elseif ($pwReason -eq 'get-password-not-exported')  { (Format-YurunaOperatorMessage -Key 'runner.operator_79eb693e18673223' -Arguments @{ user = "$user" }) }
+                elseif ($pwReason -eq 'get-password-threw')         { (Format-YurunaOperatorMessage -Key 'runner.operator_0e9e9264026f513e' -Arguments @{ user = "$user" }) }
+                else                                                 { (Format-YurunaOperatorMessage -Key 'runner.operator_2be4fdfd7f69bd4d' -Arguments @{ user = "$user" }) }
+            Write-Verbose "  Diagnostics: $reason -- skipping password SSH."
+        }
+    }
+
+    # Emergency fallback: console keystroke path. The guest POSTs its capture
+    # to the console rung's own file, so an upload that arrives after this
+    # rung gave up cannot replace the main file or an SSH rung's evidence.
+    # A capture that arrives in time is promoted to the main name. Used when
+    # sshd is unreachable (half-up sshd, auth misconfigured, network
+    # partition) -- the only case where typing into tty1 still has a chance.
+    if (-not $result) {
+        $consoleBudget = Get-PerCmdBudget
+        if ($consoleBudget -le 0) {
+            $captureTimedOut = $true
+            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_fe6e1414e9873a8d' -FormatValues ($script:SaveGuestDiagnosticTotalTimeoutSeconds) -FormatBindings @{ saveGuestDiagnosticTotalTimeoutSeconds = '0' })
+        } else {
+            $attempted += 'console'
+            Update-GuestDiagnosticCheckpoint -Values @{ attempted=$attempted }
+            $consoleResult = Invoke-RemoteDiagnosticsConsole `
+                -VMName $VMName -FailureFolderPath $FailureFolderPath `
+                -DiagnosticsFileName $consoleUploadName -TimeoutSeconds $consoleBudget
+            Test-DiagSshTimeoutHit -Result $consoleResult -Rung 'console' -TimeoutSeconds $consoleBudget
+            $captureTimedOut = $captureTimedOut -or $consoleResult.timedOut -or $consoleResult.drainTimedOut
+            if ($consoleResult.success) {
+                $consolePath = Join-Path $FailureFolderPath $consoleUploadName
+                $capturePath = $outPath
+                try {
+                    [System.IO.File]::Move($consolePath, $outPath, $true)
+                } catch {
+                    Write-Verbose "Save-GuestDiagnostic: console capture kept at its upload name: $($_.Exception.Message)"
+                    $capturePath = $consolePath
+                }
+                Write-Verbose "  Diagnostics saved: $(Split-Path -Leaf $FailureFolderPath)/$(Split-Path -Leaf $capturePath) (mechanism=console, attempts=$($attempted -join ','))"
+                $consoleBytes = 0L
+                try { if (Test-Path -LiteralPath $capturePath) { $consoleBytes = [long](Get-Item -LiteralPath $capturePath).Length } } catch { Write-Verbose "Save-GuestDiagnostic: outPath size probe failed: $($_.Exception.Message)" }
+                return @{ success=$true; outPath=$capturePath; mechanism='console'; attempted=$attempted; exitCode=[int]$consoleResult.exitCode; bytes=$consoleBytes; skipped=$false; reason=$null; rungEvidence=@($rungEvidence) }
+            }
+            $lastResult = Select-MoreInformativeDiagResult -Current $lastResult -Candidate $consoleResult
+            Write-Verbose "  Diagnostics: console failed (exit=$($consoleResult.exitCode))."
+        }
+    }
+
+    # All rungs exhausted -- surface whatever output we collected so the
+    # operator sees error text instead of an empty folder.
+    if (-not $result) {
+        # Every rung failed. The step itself stays advisory, but a guest that
+        # answers neither SSH nor its console is the earliest symptom later
+        # failures will be traced back to, so it is recorded where the failure
+        # record and the event stream can see it, instead of only in this
+        # function's verbose log.
+        Publish-GuestDiagnosticSilence -VMName $VMName -Attempted $attempted -LastResult $lastResult
+        if (-not $lastResult) {
+            # No rung produced any guest output (all failed early or were
+            # skipped for budget). A header-only stub reads like a capture
+            # but holds no guest state; an empty per-guest folder is the
+            # clearer signal, so skip the write and return nothing on disk.
+            Write-Verbose "  Diagnostics: no rung produced output for VM '$VMName'; leaving folder empty rather than writing a header-only stub."
+            return @{ success=$false; outPath=$null; mechanism='none'; attempted=$attempted; exitCode=-1; bytes=0L; skipped=$false; timedOut=$captureTimedOut; reason=(Format-YurunaOperatorMessage -Key 'runner.operator_e09e27604e13c08b'); rungEvidence=@($rungEvidence) }
+        }
+        $result = $lastResult
+    }
+
+    $body = [System.Text.StringBuilder]::new()
+    [void]$body.AppendLine("# Yuruna Diagnostics")
+    [void]$body.AppendLine("# VM        : $VMName")
+    [void]$body.AppendLine("# Guest     : $GuestKey")
+    [void]$body.AppendLine("# SSH user  : $user")
+    [void]$body.AppendLine("# Address   : $address")
+    [void]$body.AppendLine("# Mechanism : $($result.mechanism)")
+    [void]$body.AppendLine("# Exit code : $($result.exitCode)")
+    [void]$body.AppendLine("# Captured  : $((Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ', [Globalization.CultureInfo]::InvariantCulture))")
+    [void]$body.AppendLine("# ---")
+    [void]$body.AppendLine($result.output)
+
+    try {
+        # PS7 Set-Content default is BOM-less UTF-8 (per repo memory),
+        # which is correct for a plain-text diagnostics dump. We
+        # explicitly set the encoding so a future global change to the
+        # default doesn't silently shift this file's encoding and
+        # confuse downstream readers (browsers serving it as text/plain).
+        Set-Content -LiteralPath $outPath -Value $body.ToString() -Encoding utf8 -NoNewline
+    } catch {
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_128d310098239f76' -Arguments @{ outPath = "$outPath"; message = "$($_.Exception.Message)" })
+        return @{ success=$false; outPath=$outPath; mechanism=[string]$result.mechanism; attempted=$attempted; exitCode=[int]$result.exitCode; bytes=0L; skipped=$false; reason=(Format-YurunaOperatorMessage -Key 'runner.operator_bc30bb4fb49d53bf' -Arguments @{ message = "$($_.Exception.Message)" }); rungEvidence=@($rungEvidence) }
+    }
+
+    # The cap warning itself is raised by Save-GuestDiagnostic, which is the
+    # only vantage point that sees every path out of this function.
+    $elapsedSeconds = [int]$diagClock.Elapsed.TotalSeconds
+    Write-Verbose "  Diagnostics saved: $(Split-Path -Leaf $FailureFolderPath)/$fileName (mechanism=$($result.mechanism), exit=$($result.exitCode), elapsed=${elapsedSeconds}s)"
+    $writtenBytes = 0L
+    try { if (Test-Path -LiteralPath $outPath) { $writtenBytes = [long](Get-Item -LiteralPath $outPath).Length } } catch { Write-Verbose "Save-GuestDiagnostic: outPath size probe failed: $($_.Exception.Message)" }
+    return @{
+        success   = [bool]$result.success
+        outPath   = $outPath
+        mechanism = [string]$result.mechanism
+        attempted = $attempted
+        exitCode  = [int]$result.exitCode
+        bytes     = $writtenBytes
+        timedOut = [bool]($result.timedOut -or (-not $result.success -and $captureTimedOut))
+        drainTimedOut = [bool]$result.drainTimedOut
+        outputTruncated = [bool]$result.outputTruncated
+        skipped   = $false
+        reason    = if ($result.success) { $null } else { (Format-YurunaOperatorMessage -Key 'runner.operator_ed0c49bb24ec78e3') }
+        rungEvidence = @($rungEvidence)
+    }
+}
+
+# --- REGION: Guest silence from a failed diagnostic
+# The sequence failure store and the degradation emitter are optional here:
+# the diagnostic module also runs outside a sequence, where neither exists.
+function Publish-GuestDiagnosticSilence {
+    [CmdletBinding()]
+    [OutputType([void])]
+    param(
+        [Parameter(Mandatory)][string]$VMName,
+        [string[]]$Attempted = @(),
+        [AllowNull()]$LastResult
+    )
+    $transportDropped = [bool]($LastResult -and $LastResult.transportLost)
+    $source = if ($transportDropped) { 'saveSystemDiagnostic: SSH transport dropped mid-command' } else { 'saveSystemDiagnostic: no rung reached the guest' }
+    try {
+        if (Get-Command Get-SequenceFailureState -ErrorAction SilentlyContinue) {
+            $state = Get-SequenceFailureState
+            if (-not $state.FirstGuestSilenceUtc) {
+                $state.FirstGuestSilenceUtc = [DateTime]::UtcNow.ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", [Globalization.CultureInfo]::InvariantCulture)
+                $state.FirstGuestSilenceSource = $source
+            }
+        }
+    } catch { Write-Verbose "  Diagnostics: silence marker not recorded: $($_.Exception.Message)" }
+    if (Get-Command Send-YurunaDegradation -ErrorAction SilentlyContinue) {
+        Send-YurunaDegradation -Dependency 'guest-diagnostics' -Primary ($(if ($Attempted.Count) { $Attempted -join ',' } else { 'none' })) `
+            -Fallback 'no-capture' -Reason "'$VMName': $source" -Severity soft
+    }
+}
+
+Export-ModuleMember -Function `
+    Save-GuestDiagnostic, `
+    Save-GuestPerformanceSnapshot, `
+    Save-GuestCpuRestartEvidence, `
+    Save-HyperVCpuRestartHostContext, `
+    Save-GuestExecutionProfile, `
+    Get-GuestExecutionLogVerdict, `
+    Protect-GuestEvidenceText, `
+    Get-DiagnosticsFileName, `
+    Resolve-StatusServiceEndpoint, `
+    New-DiagnosticsConsoleCommand, `
+    Test-ConsoleEchoIntact, `
+    Get-ConsoleEchoVerdict

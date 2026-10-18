@@ -1,0 +1,417 @@
+<#PSScriptInfo
+.VERSION 2026.10.14
+.GUID 420897b3-ba3c-4550-ba93-63e8deebf8a9
+.AUTHOR Alisson Sol et al.
+.COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
+.TAGS Yuruna.Workload
+.LICENSEURI https://yuruna.link/license
+.PROJECTURI https://yuruna.com
+.ICONURI
+.EXTERNALMODULEDEPENDENCIES powershell-yaml
+.REQUIREDSCRIPTS
+.EXTERNALSCRIPTDEPENDENCIES
+.RELEASENOTES
+.PRIVATEDATA
+#>
+
+#requires -version 7
+
+Import-Module (Join-Path $PSScriptRoot 'Yuruna.Globalization.psm1') -DisableNameChecking
+Import-Module powershell-yaml -ErrorAction Stop
+$yuruna_root = Resolve-Path -Path (Join-Path -Path $PSScriptRoot -ChildPath "..")
+$validationModulePath = Join-Path -Path $yuruna_root -ChildPath "automation/Yuruna.Validation.psm1"
+Import-Module -Name $validationModulePath
+Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "Invoke-DynamicExpression")
+Import-Module (Join-Path $PSScriptRoot 'Yuruna.Result.psm1') -Global -Force
+# New-YurunaTimestampedBackup: the shared timestamped-backup step, so the
+# timestamp format cannot drift between the three publishers.
+Import-Module (Join-Path $PSScriptRoot 'Yuruna.Common.psm1') -Global -Force
+# Set-ExpandedVariableHashtable + Set-ExpandedResourcesOutput live in
+# Yuruna.VariableExpansion so [[Yuruna.Component]] can reuse the same
+# walk (with its -NoExpand flavor) instead of carrying a parallel
+# inline copy. -Global so the exported functions stay resolvable from
+# any nested scope Publish-WorkloadList enters.
+Import-Module (Join-Path $PSScriptRoot 'Yuruna.VariableExpansion.psm1') -Global -Force
+# Shared retry policy (10s initial, x2 backoff, 5 attempts, jitter) used
+# by the transient-fetch retry below, and Write-YurunaToolLogSection, which
+# writes each "== <cmd> (exit=N) ==" section of the chart log in one append.
+# -Global -Force so the import does not evict an instance another module
+# loaded; see feedback_module_force_import_evicts_global.md.
+Import-Module (Join-Path $PSScriptRoot 'Yuruna.Retry.psm1') -Global -Force
+# Shared deployment-kind catalog (chart|kubectl|helm|shell detection,
+# error text, tool-expression mapping, retry gating) consumed by the
+# per-deployment loop below and, separately, by Confirm-WorkloadList.
+# Imported here as well as in Yuruna.Validation because Set-Workload.ps1
+# imports Workload only; -Global -Force so the import does not evict an
+# instance another module loaded (feedback_module_force_import_evicts_global.md).
+Import-Module (Join-Path $PSScriptRoot 'Yuruna.DeploymentKind.psm1') -Global -Force
+
+function Invoke-WorkloadChartDeployment {
+    <#
+    .SYNOPSIS
+        Apply one chart deployment (copy chart, write values.yaml, helm
+        lint / pending-state recovery / upgrade --install --atomic).
+    .DESCRIPTION
+        Self-contained: pushes into the per-install work folder and pops
+        it before every exit path. Reads $sw live so a failure manifest
+        carries the elapsed-at-failure duration.
+    .OUTPUTS
+        $null when the chart applied cleanly (caller continues the loop),
+        or a New-YurunaResultManifest failure [hashtable] when the
+        deployment must abort the cycle.
+    #>
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param (
+        $project_root,
+        $config_subfolder,
+        $contextName,
+        $deployment,
+        $deploymentVars,
+        $workloadsFile,
+        $sw
+    )
+    $chartName = $deployment['chart']
+    if ([string]::IsNullOrEmpty($chartName)) { Write-Information (Format-YurunaOperatorMessage -Key 'automation.operator_1506eb75a8975ce0' -Arguments @{ workloadsFile = "$workloadsFile" }); return (New-YurunaResultManifest -Success $false -ErrorMessage "context.chart cannot be null or empty in $workloadsFile" -FailureClass 'config_error' -DurationMs $sw.ElapsedMilliseconds); }
+    $chartFolder = Resolve-Path -Path (Join-Path -Path $project_root -ChildPath "workloads/$chartName")
+    if (-Not (Test-Path -Path $chartFolder)) { Write-Information (Format-YurunaOperatorMessage -Key 'automation.operator_24a5e116f61aa042' -Arguments @{ contextName = "$contextName"; chartName = "$chartName"; chartFolder = "$chartFolder" }); return (New-YurunaResultManifest -Success $false -ErrorMessage "workload[$contextName] chart[$chartName] folder not found: $chartFolder" -FailureClass 'config_error' -DurationMs $sw.ElapsedMilliseconds); }
+    $installName = $ExecutionContext.InvokeCommand.ExpandString($deployment.variables['installName'])
+    if ([string]::IsNullOrEmpty($installName)) {
+        Write-Information (Format-YurunaOperatorMessage -Key 'automation.operator_aa8bf2f60f5da888' -Arguments @{ chartName = "$chartName"; workloadsFile = "$workloadsFile" }); return (New-YurunaResultManifest -Success $false -ErrorMessage "Chart[$chartName] missing variables['installName'] in $workloadsFile" -FailureClass 'config_error' -DurationMs $sw.ElapsedMilliseconds);
+    }
+    $workFolder = Join-Path -Path $project_root -ChildPath ".yuruna/$config_subfolder/workloads/$contextName/$installName"
+    $null = New-Item -ItemType Directory -Force -Path $workFolder -ErrorAction SilentlyContinue
+    $workFolder = Resolve-Path -Path $workFolder
+    Write-Debug "Copying chart from: $chartFolder to $workFolder"
+    Copy-Item "$chartFolder/*" -Destination $workFolder -Recurse -Container -Force -ErrorAction SilentlyContinue
+
+    # Values files are YAML documents, not helm --set expressions.
+    $helmValuesFile = Join-Path -Path $workFolder -ChildPath "values.yaml"
+    $helmValues = [ordered]@{}
+    foreach ($key in $deploymentVars.Keys) { $helmValues[$key] = $deploymentVars[$key] }
+    $helmValues['contextName'] = $contextName
+    [IO.File]::WriteAllText($helmValuesFile, (ConvertTo-Yaml $helmValues), [Text.UTF8Encoding]::new($false))
+    Write-Debug "Helm execute from: $workFolder"
+    Push-Location $workFolder -ErrorAction Stop
+    try {
+
+    # Per-chart helm log and final-rc sidecar, truncated at chart entry. helm.rc holds
+    # the LAST observed exit code, which is what the diagnostic checks.
+    # See https://yuruna.link/42e568c8-000a
+    $helmLogFile = Join-Path -Path $workFolder -ChildPath "helm.stderr.log"
+    $helmRcFile  = Join-Path -Path $workFolder -ChildPath "helm.rc"
+    Remove-Item -LiteralPath $helmLogFile -Force -ErrorAction SilentlyContinue
+    Remove-Item -LiteralPath $helmRcFile  -Force -ErrorAction SilentlyContinue
+
+    # Lint gate: a helm lint failure WILL cascade to a failed install, so
+    # abort BEFORE attempting install. The chart path '.' must be passed
+    # explicitly (required argument on helm 4).
+    # --- REGION: https://yuruna.link/42d69dfa-003e
+    Write-Debug "Helm lint"
+    $lintOutput = helm lint . *>&1
+    $lintExit = $LASTEXITCODE
+    Write-YurunaToolLogSection -LogFile $helmLogFile -Header "== helm lint (exit=$lintExit) ==" -Line @($lintOutput | ForEach-Object { [string]$_ })
+    $lintOutput | ForEach-Object { Write-Verbose "$_" }
+    Set-Content -LiteralPath $helmRcFile -Value $lintExit -NoNewline
+    if ($lintExit -ne 0) {
+        Write-Information (Format-YurunaOperatorMessage -Key 'automation.operator_e1738c24bf654188' -Arguments @{ lintExit = "$lintExit"; installName = "$installName"; workFolder = "$workFolder" })
+        $lintOutput | ForEach-Object { Write-Information "$_" }
+        return (New-YurunaResultManifest -Success $false -ErrorMessage "helm lint failed for chart '$installName' in $workFolder" -FailureClass 'chart_invalid' -ExitCode $lintExit -DurationMs $sw.ElapsedMilliseconds)
+    }
+
+    # Pre-flight: a process kill mid-upgrade leaves the release pending-*
+    # (helm's atomic rollback fires only on helm-detected failures), wedging
+    # every later upgrade. Detect and clear it via rollback before installing.
+    # --- REGION: https://yuruna.link/42d69dfa-003f
+    Write-Debug "Helm status probe for $installName"
+    $statusOutput = helm status $installName 2>&1
+    $statusExit   = $LASTEXITCODE
+    if ($statusExit -eq 0) {
+        $statusLine = ($statusOutput | Where-Object { $_ -match '^STATUS:\s*(\S+)' }) | Select-Object -First 1
+        if ($statusLine -and $statusLine -match '^STATUS:\s*(pending-\S+)') {
+            $pendingState = $Matches[1]
+            Write-Warning (Format-YurunaOperatorMessage -Key 'automation.operator_5010c107b9432bae' -Arguments @{ installName = "$installName"; pendingState = "$pendingState" })
+            Write-YurunaToolLogSection -LogFile $helmLogFile -Header "== pre-flight helm status (state=$pendingState; recovering) ==" -Line @($statusOutput | ForEach-Object { [string]$_ })
+            $rollbackOutput = helm rollback $installName 0 2>&1
+            $rollbackExit = $LASTEXITCODE
+            Write-YurunaToolLogSection -LogFile $helmLogFile -Header "== helm rollback $installName 0 (exit=$rollbackExit) ==" -Line @($rollbackOutput | ForEach-Object { [string]$_ })
+            if ($rollbackExit -ne 0) {
+                # No prior good revision to roll back to (the very first
+                # upgrade was the one killed): fall through to uninstall
+                # --no-hooks so the next upgrade --install lands fresh.
+                Write-Warning (Format-YurunaOperatorMessage -Key 'automation.operator_712c78ee18789584' -Arguments @{ rollbackExit = "$rollbackExit" })
+                $uninstallOutput = helm uninstall $installName --no-hooks 2>&1
+                $uninstallExit = $LASTEXITCODE
+                Write-YurunaToolLogSection -LogFile $helmLogFile -Header "== helm uninstall $installName --no-hooks (exit=$uninstallExit) ==" -Line @($uninstallOutput | ForEach-Object { [string]$_ })
+            }
+        }
+    }
+
+    # One idempotent-and-atomic helm call: no uninstall/install race, and
+    # helm-detected failures auto-roll back. Non-zero exit is authoritative,
+    # and the output is ALSO scanned for "Error:" lines because helm can
+    # return 0 on post-render admission rejections; either signal aborts.
+    # --- REGION: https://yuruna.link/42d69dfa-0040
+    Write-Debug "Helm upgrade --install --atomic $installName"
+    $installOutput = helm upgrade --install --atomic $installName . --debug *>&1
+    $installExit = $LASTEXITCODE
+    Write-YurunaToolLogSection -LogFile $helmLogFile -Header "== helm upgrade --install --atomic $installName --debug (exit=$installExit) ==" -Line @($installOutput | ForEach-Object { [string]$_ })
+    $installOutput | ForEach-Object { Write-Verbose "$_" }
+    Set-Content -LiteralPath $helmRcFile -Value $installExit -NoNewline
+    # Match only helm's terminal error shapes: a real error line starts at column
+    # 0 with "Error: " (helm's stderr format), so an indented --debug / rendered
+    # line that merely contains "Error:" (a NOTES or manifest value) is not a helm
+    # failure and must not match. --atomic failures also carry an "INSTALLATION
+    # FAILED" / "UPGRADE FAILED" marker.
+    $installErrorLines = @($installOutput | Where-Object { $_ -match '^Error: ' -or $_ -match '(INSTALLATION|UPGRADE) FAILED' })
+    if ($installExit -ne 0 -or $installErrorLines.Count -gt 0) {
+        Write-Information (Format-YurunaOperatorMessage -Key 'automation.operator_ce3524d480509234' -Arguments @{ installName = "$installName"; installExit = "$installExit"; count = "$($installErrorLines.Count)"; workFolder = "$workFolder" })
+        $installOutput | ForEach-Object { Write-Information "$_" }
+        return (New-YurunaResultManifest -Success $false -ErrorMessage "helm upgrade --install --atomic '$installName' failed in $workFolder (exit $installExit, $($installErrorLines.Count) Error: line(s))" -FailureClass 'tool_failed' -ExitCode $installExit -DurationMs $sw.ElapsedMilliseconds)
+    }
+    } finally { Pop-Location }
+}
+
+function Invoke-WorkloadToolDeployment {
+    <#
+    .SYNOPSIS
+        Apply one non-chart deployment (kubectl | helm | shell) via the
+        resolved deployment-kind descriptor, with transient-fetch retry.
+    .DESCRIPTION
+        Self-contained: pushes into the per-context work folder and pops
+        it before every exit path. Resolves Invoke-DynamicExpression via
+        Get-Command here (same module session state) so the GetNewClosure
+        scriptblock can invoke it via `& $dynExpr` after Yuruna.Retry runs
+        the block in its own scope, which cannot see this module's private
+        import by name (feedback_closure_foreign_module_command_resolution.md).
+        Reads $sw live so a failure manifest carries elapsed-at-failure ms.
+    .OUTPUTS
+        $null when the tool applied cleanly (caller continues the loop),
+        or a New-YurunaResultManifest failure [hashtable] when the
+        deployment must abort the cycle.
+    #>
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param (
+        $kind,
+        $project_root,
+        $config_subfolder,
+        $contextName,
+        $deployment,
+        $deploymentVars,
+        $sw
+    )
+    # Push deploymentVars to the environment: a non-chart deployment reads the
+    # same merged variable set a chart gets, but through ${env:<key>} in its
+    # command string rather than through values.yaml.
+    foreach ($key in $deploymentVars.Keys) {
+        $value = $deploymentVars[$key]
+        Set-Item -Path Env:$key -Value ${value}
+    }
+    Set-Item -Path Env:contextName -Value ${contextName}
+    # Tool name, command prefix and value come from the
+    # resolved descriptor. CommandPrefix carries its own
+    # trailing space for kubectl/helm and is '' for shell, so
+    # shell runs its value verbatim. $kind is the non-chart
+    # kind this else-branch was entered for.
+    $value = $deployment[$kind.Field]
+    $expression = "$($kind.CommandPrefix)$value"
+    $toolName = $kind.ToolName
+
+    $workFolder = Join-Path -Path $project_root -ChildPath ".yuruna/$config_subfolder/workloads/$contextName"
+    $workFolder = Resolve-Path -Path $workFolder
+    Set-Item -Path Env:workFolder -Value ${workFolder}
+    Push-Location $workFolder -ErrorAction Stop
+    try {
+    $expression = $ExecutionContext.InvokeCommand.ExpandString($expression)
+    Write-Debug "$expression"
+    # Per-tool <tool>.stderr.log + <tool>.rc sidecar -- same convention as the
+    # helm sidecar in Invoke-WorkloadChartDeployment (rationale there). Delta
+    # here: multiple deployments of the same tool append to one log, ordered
+    # as in workloads.yml.
+    $toolLogFile = Join-Path -Path $workFolder -ChildPath "$toolName.stderr.log"
+    $toolRcFile  = Join-Path -Path $workFolder -ChildPath "$toolName.rc"
+    # Retry via the shared Yuruna.Retry policy ONLY when the output
+    # matches a transient-fetch pattern and the tool is helm/kubectl;
+    # real config errors and shell steps fail fast. Symptoms retried,
+    # and why the classifier is sourced rather than restated here:
+    # docs/architecture.md#shared-transient-failure-retry-policy
+    $transientPattern = Get-YurunaTransientPattern
+    $retryable = $kind.Retryable
+    # Closures so the predicate and command survive being invoked from inside
+    # the Yuruna.Retry module scope: GetNewClosure pins $expression /
+    # $retryable / $transientPattern by value, and Invoke-DynamicExpression is
+    # captured as a CommandInfo here (where it IS visible) then invoked via &,
+    # because the retry module's session state cannot see this module's private
+    # import by name.
+    $dynExpr = Get-Command Invoke-DynamicExpression
+    $execBlock = { & $dynExpr -Command $expression *>&1 }.GetNewClosure()
+    $shouldRetryTransient = {
+        param($info)
+        if (-not $retryable) { return $false }
+        $text = (@($info.Output) | ForEach-Object { [string]$_ }) -join "`n"
+        return ($text -match $transientPattern)
+    }.GetNewClosure()
+    $retry = Invoke-WithYurunaRetry -Label $expression -ScriptBlock $execBlock -LogPath $toolLogFile -ShouldRetry $shouldRetryTransient
+    $output   = $retry.LastOutput
+    $toolExit = $retry.LastExit
+    Set-Content -LiteralPath $toolRcFile -Value $toolExit -NoNewline
+    # Shell can Write-Information back to the user, so stream visibly
+    if ($kind.Name -eq 'shell') {
+        $output | ForEach-Object { Write-Information ([string]$_) }
+    }
+    else {
+        $output | ForEach-Object { Write-Verbose ([string]$_) }
+    }
+    if (-Not (0 -eq $toolExit)) {
+        # Always abort the cycle on a non-zero tool exit. A swallowed
+        # helm/kubectl failure leaves the bash wrapper's `set -e` with
+        # nothing to catch, so the next sequence step (e.g.
+        # test-localhost.sh) runs into a missing ingress controller and
+        # times out minutes later -- masking the real fault.
+        Write-Information (Format-YurunaOperatorMessage -Key 'automation.operator_796c5d30f7816aa9' -Arguments @{ toolExit = "$toolExit"; expression = "$expression" })
+        $output | ForEach-Object { Write-Information "$_" }
+        return (New-YurunaResultManifest -Success $false -ErrorMessage "$toolName exit $toolExit for: $expression" -FailureClass 'tool_failed' -ExitCode $toolExit -DurationMs $sw.ElapsedMilliseconds)
+    }
+    } finally { Pop-Location }
+}
+
+function Publish-WorkloadList {
+    <#
+    .SYNOPSIS
+        Publish every workload declared in config/<subfolder>/workloads.yml.
+    .DESCRIPTION
+        Iterates each workload, switches to its kube context, and runs
+        each deployment (chart | kubectl | helm | shell). Chart
+        deployments are copied to the .yuruna work folder with merged
+        variable values written to values.yaml before helm install.
+    .OUTPUTS
+        [hashtable] result manifest produced by New-YurunaResultManifest.
+    #>
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param (
+        $project_root,
+        $config_subfolder
+    )
+
+    $sw = [Diagnostics.Stopwatch]::StartNew()
+    if (!(Confirm-WorkloadList $project_root $config_subfolder)) { return (New-YurunaResultManifest -Success $false -ErrorMessage "Confirm-WorkloadList failed for $project_root / $config_subfolder" -FailureClass 'config_error' -DurationMs $sw.ElapsedMilliseconds); }
+    Write-Debug "---- Publish Workloads"
+    $workloadsFile = Join-Path -Path $project_root -ChildPath "config/$config_subfolder/workloads.yml"
+    if (-Not (Test-Path -Path $workloadsFile)) { Write-Information (Format-YurunaOperatorMessage -Key 'automation.operator_e62e8faba8815e88' -Arguments @{ workloadsFile = "$workloadsFile" }); return (New-YurunaResultManifest -Success $false -ErrorMessage "File not found: $workloadsFile" -FailureClass 'config_error' -DurationMs $sw.ElapsedMilliseconds); }
+    $workloadsYaml = ConvertFrom-File $workloadsFile
+    if ($null -eq $workloadsYaml) { Write-Information (Format-YurunaOperatorMessage -Key 'automation.operator_99a7029eb87427d9' -Arguments @{ workloadsFile = "$workloadsFile" }); return (New-YurunaResultManifest -Success $true -Skipped $true -DurationMs $sw.ElapsedMilliseconds); }
+    if ($null -eq $workloadsYaml.workloads) { Write-Information (Format-YurunaOperatorMessage -Key 'automation.operator_99a7029eb87427d9' -Arguments @{ workloadsFile = "$workloadsFile" }); return (New-YurunaResultManifest -Success $true -Skipped $true -DurationMs $sw.ElapsedMilliseconds); }
+
+    $workFolder = Join-Path -Path $project_root -ChildPath ".yuruna/$config_subfolder/workloads"
+    $null = New-Item -ItemType Directory -Force -Path $workFolder -ErrorAction SilentlyContinue
+    $workFolder = Resolve-Path -Path $workFolder
+    New-YurunaTimestampedBackup -SourceFile $workloadsFile -WorkFolder $workFolder -Prefix 'workloads'
+
+    $resourcesOutputFile = Join-Path -Path $project_root -ChildPath "config/$config_subfolder/resources.output.yml"
+    $resourcesOutputYaml = $null
+    if (Test-Path -Path $resourcesOutputFile) {
+        $resourcesOutputYaml = ConvertFrom-File $resourcesOutputFile
+    }
+    else {
+        # Allow phased workload deployment by reusing an upper-level resource output
+        $resourcesOutputFile = Join-Path -Path $project_root -ChildPath "config/$config_subfolder/../resources.output.yml"
+        if (Test-Path -Path $resourcesOutputFile) {
+            $resourcesOutputYaml = ConvertFrom-File $resourcesOutputFile
+        }
+    }
+
+    # Resources output values go to env verbatim (-NoExpand): they are
+    # terraform outputs plus already-expanded globals, so ExpandString is
+    # a no-op on well-formed data but would execute $(...)/backtick
+    # subexpressions echoed back by cloud resource names or tags.
+    Set-ExpandedResourcesOutput -ResourcesOutputYaml $resourcesOutputYaml -EmitDebug -NoExpand
+    # Global variables expanded into env and CACHED back so the second
+    # pass (per-deployment) doesn't pay re-expansion cost.
+    Set-ExpandedVariableHashtable -Variables $workloadsYaml.globalVariables -DebugLabel 'globalVariables' -CacheExpanded
+
+    foreach ($workload in $workloadsYaml.workloads) {
+        $contextName = $ExecutionContext.InvokeCommand.ExpandString($workload['context'])
+        Write-Information (Format-YurunaOperatorMessage -Key 'automation.operator_413b7cf0cb658ee6' -Arguments @{ contextName = "$contextName" })
+        if ([string]::IsNullOrEmpty($contextName)) { Write-Information (Format-YurunaOperatorMessage -Key 'automation.operator_5dcf5d347e3917c0' -Arguments @{ workloadsFile = "$workloadsFile" }); return (New-YurunaResultManifest -Success $false -ErrorMessage "workloads.context cannot be null or empty in $workloadsFile" -FailureClass 'config_error' -DurationMs $sw.ElapsedMilliseconds); }
+        $workFolder = Join-Path -Path $project_root -ChildPath ".yuruna/$config_subfolder/workloads/$contextName"
+        if (-Not ([string]::IsNullOrEmpty($workFolder))) {
+            $resolvedFolder = Resolve-Path -Path $workFolder -ErrorAction SilentlyContinue
+            if (-Not ([string]::IsNullOrEmpty($resolvedFolder))) {
+                Remove-Item -Path $resolvedFolder -Force -Recurse -ErrorAction SilentlyContinue
+            }
+        }
+        if ([string]::IsNullOrEmpty($workFolder)) { Write-Information (Format-YurunaOperatorMessage -Key 'automation.operator_f2223139d6d90a86' -Arguments @{ workloadsFile = "$workloadsFile" }); return (New-YurunaResultManifest -Success $false -ErrorMessage "workFolder cannot be null or empty in $workloadsFile" -FailureClass 'config_error' -DurationMs $sw.ElapsedMilliseconds); }
+        Set-Item -Path Env:contextName -Value ${contextName}
+        Set-Item -Path Env:workFolder -Value ${workFolder}
+
+        Set-ExpandedVariableHashtable -Variables $workload.variables -DebugLabel 'workloadVariables'
+
+        $workFolder = Join-Path -Path $project_root -ChildPath ".yuruna/$config_subfolder/workloads/$contextName"
+        $null = New-Item -ItemType Directory -Force -Path $workFolder -ErrorAction SilentlyContinue
+        # Save the operator's active context so the finally below can put the
+        # shell back on it. Capture kubectl's exit code: a broken kubeconfig
+        # makes the read fail, and blindly restoring an empty $originalContext
+        # in the finally would error or clobber the operator's active context,
+        # so gate the restore on a confirmed read.
+        $originalContext = kubectl config current-context 2>$null
+        $originalContextRead = ($LASTEXITCODE -eq 0) -and (-not [string]::IsNullOrWhiteSpace($originalContext))
+        # Context must exist. `kubectl config get-contexts <name>` is a
+        # non-mutating existence probe -- it exits non-zero when the context is
+        # absent without switching the operator's current context, so a missing
+        # context never leaves the shell on the wrong cluster.
+        $null = kubectl config get-contexts $contextName *>&1
+        $probeExit = $LASTEXITCODE
+        if ($probeExit -ne 0) { Write-Information (Format-YurunaOperatorMessage -Key 'automation.operator_9ec31ed2e8859fe3' -Arguments @{ contextName = "$contextName"; workloadsFile = "$workloadsFile" }); return (New-YurunaResultManifest -Success $false -ErrorMessage "K8S context '$contextName' not usable (cluster unreachable or context not found) in $workloadsFile" -FailureClass 'cluster_unreachable' -DurationMs $sw.ElapsedMilliseconds); }
+        # Activate the context for the deployment loop; every kubectl/helm call
+        # below targets whatever the kubeconfig's current context is.
+        kubectl config use-context $contextName *>&1 | Write-Verbose
+        $useContextExit = $LASTEXITCODE
+        if ($useContextExit -ne 0) { Write-Information (Format-YurunaOperatorMessage -Key 'automation.operator_9ec31ed2e8859fe3' -Arguments @{ contextName = "$contextName"; workloadsFile = "$workloadsFile" }); return (New-YurunaResultManifest -Success $false -ErrorMessage "K8S context '$contextName' not usable (cluster unreachable or context not found) in $workloadsFile" -FailureClass 'cluster_unreachable' -DurationMs $sw.ElapsedMilliseconds); }
+
+        # Restore $originalContext in a finally so every early-return failure
+        # path inside the per-deployment loop (and the normal end-of-loop exit)
+        # leaves the operator's shell on the context they started with. Bare
+        # try/finally with NO catch so YurunaCycleRestart and other message-
+        # prefix control-flow markers still propagate to Invoke-Sequence
+        # (guards against the generic-catch-eats-control-flow-markers class).
+        try {
+        foreach ($deployment in $workload.deployments) {
+            # Effective deployment kind + the kinds phrase come from the
+            # shared Yuruna.DeploymentKind catalog so a new kind is one
+            # Register-YurunaDeploymentKind line and the phrase can't
+            # diverge from the validator. Hoist the phrase once so the
+            # should-be and must-be strings stay identical.
+            $kind = Resolve-YurunaDeploymentKind -Deployment $deployment
+            $expectedKinds = Get-YurunaDeploymentKindExpectedText
+            if ($null -eq $kind) { Write-Information (Format-YurunaOperatorMessage -Key 'automation.operator_29e3eefb95c92048' -Arguments @{ expectedKinds = "$expectedKinds"; workloadsFile = "$workloadsFile" }); return (New-YurunaResultManifest -Success $false -ErrorMessage "context.deployment must be $expectedKinds in $workloadsFile" -FailureClass 'config_error' -DurationMs $sw.ElapsedMilliseconds); }
+
+            # Build the merged variable set: resources.output + workloads
+            # globals + workload locals + deployment locals (latter wins).
+            # Each layer is also pushed to env so ${env:...} references in
+            # later layers resolve against the merged state.
+            $deploymentVars = [ordered]@{}
+            Set-ExpandedResourcesOutput -ResourcesOutputYaml $resourcesOutputYaml -Sink $deploymentVars -NoExpand
+            Set-ExpandedVariableHashtable -Variables $workloadsYaml.globalVariables -Sink $deploymentVars -NoExpand
+            Set-ExpandedVariableHashtable -Variables $workload.variables -Sink $deploymentVars
+            Set-ExpandedVariableHashtable -Variables $deployment.variables -Sink $deploymentVars -DebugLabel 'deploymentVariables' -WarnOnEmpty
+
+            if ($kind.IsChart) {
+                $deploymentFailure = Invoke-WorkloadChartDeployment -project_root $project_root -config_subfolder $config_subfolder -contextName $contextName -deployment $deployment -deploymentVars $deploymentVars -workloadsFile $workloadsFile -sw $sw
+            }
+            else {
+                $deploymentFailure = Invoke-WorkloadToolDeployment -kind $kind -project_root $project_root -config_subfolder $config_subfolder -contextName $contextName -deployment $deployment -deploymentVars $deploymentVars -sw $sw
+            }
+            if ($null -ne $deploymentFailure) { return $deploymentFailure }
+        }
+        }
+        finally {
+            if ($originalContextRead) { kubectl config use-context $originalContext *>&1 | Write-Verbose }
+        }
+    }
+
+    return (New-YurunaResultManifest -Success $true -DurationMs $sw.ElapsedMilliseconds);
+}
+
+Export-ModuleMember -Function Publish-WorkloadList -Alias *

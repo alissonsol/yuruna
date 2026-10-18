@@ -1,0 +1,1180 @@
+<a id="429fb30b-0001"></a>
+
+# Yuruna install scripts -- rationale
+
+This file collects the load-bearing rationale for the three bootstrap
+installers:
+
+- [install/windows.hyper-v.ps1](../install/windows.hyper-v.ps1)
+- [install/macos.utm.sh](../install/macos.utm.sh)
+- [install/ubuntu.kvm.sh](../install/ubuntu.kvm.sh)
+
+The scripts stay deliberately small -- each section here maps to a
+`# --- REGION: Section name` divider in the script body. The single
+`# --- REGION: https://yuruna.link/429fb30b` line near the top of
+each installer is the operator's entry point to this document; from there,
+navigate to the section matching the divider above the code being studied.
+
+Permanent anchors use the document key plus a four-hex-digit suffix, such as
+`https://yuruna.link/42xxxxxx-yyyy`. They remain stable when a heading is
+reworded.
+
+The same `# --- REGION: https://yuruna.link/42xxxxxx-yyyy` convention is
+used by [memory.md](memory.md), [definition.md](definition.md),
+[vmconfig.md](vmconfig.md), and [network.md](network.md).
+
+---
+
+<a id="429fb30b-0002"></a>
+
+## All hosts (shared rationale)
+
+Installers compare the tools they manage with `automation/Yuruna.Requirement.yml`
+and report remaining shortfalls without turning a completed installation into
+a hard failure. They omit tools the installer cannot advance. Windows excludes
+its in-box curl, which Windows Update owns, and can leave the running PowerShell
+below its floor because an MSI self-upgrade could terminate the installer.
+Ubuntu's AMD platform preserves its ABI-bound system Python. macOS repairs PATH
+precedence and Homebrew copies in two passes before reporting remaining issues.
+See the [Ubuntu floor policy](https://yuruna.link/429fb30b-0035) and
+[macOS floor repair](https://yuruna.link/429fb30b-0029).
+
+<a id="429fb30b-0003"></a>
+
+### Install log
+
+Each installer mirrors stdout+stderr to a log file and the
+terminal so a mid-install failure can be inspected afterward. The shell
+installers use a FIFO and a backgrounded `tee` (rather than
+`exec > >(tee ...)`) so the EXIT path can wait for tee to flush, keeping
+the file complete even on an abrupt exit -- a process-substitution tee is
+orphaned and may be killed before flushing its block-buffered write. The
+log lands in the standard per-user location -- `~/Library/Logs/Yuruna` on
+macOS, the state dir `$XDG_STATE_HOME/yuruna/logs`
+(default `~/.local/state/yuruna/logs`) on
+Ubuntu -- falling back to `${TMPDIR:-/tmp}`.
+
+On Windows the failure mode differs: the elevated relaunch runs in a
+SEPARATE console window that vanishes the instant the script ends or
+dies, leaving nothing on screen to read. The installer transcripts every
+elevated stage to a file under a standard, discoverable location
+(`%ProgramData%\Yuruna\logs`, falling back to `%TEMP%`). The path is generated ONCE
+and forwarded through every relaunch via `-LogPath`, so the line printed
+before the UAC relaunch names the exact file the elevated window writes,
+and every stage appends to that one file.
+
+<a id="429fb30b-0004"></a>
+
+### Outcome buckets and the facts store
+
+`install/setup.ps1` files every step into one of five buckets, and the
+closing report prints all five:
+
+- **Done** -- the step did its work and nothing is left unmet.
+- **Skipped** -- the operator declined the step. This bucket matters most:
+  a setup that silently declines to do something reads as a setup that
+  already did it.
+- **Blocked** -- the step could not run because something it needs failed.
+  Kept separate from Skipped so a cascade never reads as a decision -- a
+  step blocked by an earlier failure is a different fact about the
+  machine from a step the operator declined.
+- **Warned** -- the middle the other four have no room for: the step did
+  its work and something it cannot fix itself is still unmet (a TCC
+  grant needs the terminal quit; a Mac with no lid never surfaces every
+  pmset guard). Without it the only honest encodings left are a PASS
+  that hides the condition and a FAIL with no path to green.
+- **Failed** -- the step was attempted and did not work.
+
+Alongside the buckets, a facts store records what later steps are
+allowed to assume. Each fact is THREE-valued on purpose: `ok`, plus the
+two ways a fact can be absent -- `declined` (nobody asked for it) and
+`failed` (attempted, did not work). A boolean collapses those two, and
+the collapse prints "a prerequisite failed" over a run where the
+operator chose not to have the thing.
+
+<a id="429fb30b-0005"></a>
+
+### Two-repo split
+
+The installer ships in TWO repos that share the same script:
+
+- public  `https://github.com/alissonsol/yuruna`       (clone works unauthenticated)
+- private `https://github.com/alissonsol/yurunadev`    (clone needs GitHub auth)
+
+Each repo's copy points the `$YurunaRepo` / `$YURUNA_REPO` default at its
+OWN URL, so the `irm | iex` (or `curl | bash`) one-liner clones the repo
+the operator downloaded the script from. Both constants stay defined
+regardless of which copy runs, so the existing-checkout logic below can
+recognize the remote a previous run cloned from -- and skip a pull that
+would stall waiting for GitHub credentials this run doesn't have.
+
+<a id="429fb30b-0006"></a>
+
+### Release pinning + signed integrity
+
+`VERSION` (bare CalVer, `YYYY.MM.DD`) is the source of truth for releases.
+At release time `tools/Update-YurunaReleasePins.ps1` regenerates
+`install/install.sha256`, signs it (`install/install.sha256.sig`, RSA-4096),
+runs the ASCII/no-BOM gate as a hard precondition, and bumps the one tag still
+hard-coded in a URL -- the README verified-download path -- so the per-release
+work is just: bump `VERSION`, run the script, cut the tag. The installers carry
+no baked version; they read `VERSION` at install time.
+
+The clone DEFAULT stays on the moving `main` branch, so a normal install
+**auto-updates the framework every cycle** (the runner's per-cycle `git pull
+--ff-only` fast-forwards the tracking branch). To freeze a host at the current
+release, pass `-PinVersion` (Windows) / `PIN_VERSION=1` or `--pin-version`
+(macOS, Ubuntu): after cloning, the installer reads the repo's `VERSION` file
+and checks that tag out as a detached HEAD, which the per-cycle pull leaves
+untouched (no upstream -> no-op). An explicit `-YurunaBranch <tag>` /
+`YURUNA_BRANCH=<tag>` pins to any specific release instead.
+
+The convenience one-liners stay on `refs/heads/main` (latest, UNVERIFIED). The
+**verified** install path -- download the installer + `install.sha256` + `.sig`
++ the bundled public key, verify the signature (`openssl` on macOS/Linux, .NET
+on Windows PowerShell), then the hash, then run -- is documented in
+[install/README.md](../install/README.md); the signing-key fingerprint is in
+[install/keys/README.md](../install/keys/README.md).
+
+<a id="429fb30b-0007"></a>
+
+### Tolerating a v-prefixed tag ref
+
+Canonical Yuruna release tags are **bare CalVer** (`YYYY.MM.DD`, no `v`), and
+the release tool (`tools/Update-YurunaReleasePins.ps1`) validates `VERSION` as
+bare CalVer and refuses to create a `v`-variant. A human, a tool, or a
+`-YurunaBranch` / `YURUNA_BRANCH=` argument can still ask for the wrong form,
+and a `v`-prefixed ref fails to resolve when only the bare CalVer tag exists.
+
+Each installer therefore runs the requested ref through a resolver
+(`Resolve-YurunaRef` / `resolve_yuruna_ref`) before cloning or checking out:
+
+- A ref that is not CalVer-shaped (`main`, a branch name) passes through
+  unchanged -- there is no variant to try.
+- A CalVer-shaped ref that resolves on the remote is preferred as typed.
+- A CalVer-shaped ref that does NOT resolve, whose `v`-toggled variant DOES,
+  is swapped for the variant with a warning, so the mismatch self-heals
+  instead of failing the clone.
+- When neither form resolves, the installer warns that the pinned release tag
+  is probably not published yet (`VERSION` and the installer pin ran ahead of
+  the tag) and returns the ref unchanged, so the failure names the real cause.
+  The operator's escape hatch is `-YurunaBranch main` / `YURUNA_BRANCH=main`.
+
+In the shell installers the resolver returns the ref on **stdout**, so every
+warning is written to stderr -- otherwise the warning text would be captured
+into `YURUNA_BRANCH` along with the ref.
+
+<a id="429fb30b-0008"></a>
+
+### Development repo tracks latest main
+
+The private development repo (`yurunadev`) is tagged only at the weekly
+release, so mid-week its pinned-CalVer default resolves to nothing. When the
+target remote's basename is `yurunadev` and the operator did **not** pin a ref
+explicitly, the installer tracks `main` (latest code) instead of the release
+tag. So each installer records whether the ref was supplied explicitly
+(`$script:YurunaBranchExplicit` / `YURUNA_BRANCH_EXPLICIT`) at the top
+rather than comparing against the default value later; an explicit
+request always wins over this fallback.
+
+<a id="429fb30b-0009"></a>
+
+### System-requirements preflight
+
+Tested baselines:
+
+- Windows host: 32 GB RAM, 512 GB free on system drive, Windows 11
+  Pro/Enterprise/Education or Windows Server with Hyper-V on AMD64 or
+  ARM64, 16+ physical cores.
+- macOS host: 32 GB RAM, 512 GB free, macOS 26+ on arm64, 16+ cores.
+- Ubuntu host: 32 GB RAM, 512 GB free, Ubuntu 26+ on amd64, 16+ cores.
+
+Anything below is permitted but UNTESTED -- the script prompts the
+operator before proceeding so an under-spec'd host does not burn an hour
+of installs only to fail in the first test cycle. Physical core count is
+the exception on Windows: it is reported as a recommendation and never
+prompts, because a host below 16 runs the harness correctly, only slower,
+and no ARM64 Windows machine reaches 16. The check is otherwise silent
+when every requirement is met. On Windows it is gated by `-SkipPreflight`
+so self-relaunches (UAC elevation, PS5->PS7 bootstrap) do not re-prompt.
+
+<a id="429fb30b-000a"></a>
+
+### Stop running Yuruna processes before updating
+
+Re-runs of the installer must be able to upgrade installed packages and
+the repository in place. An active Yuruna test run or status service
+would fight with the upgrade for the working tree and port 8080. The
+installer force-stops the outer runner, its per-cycle inner pwsh, and
+the detached status HTTP server, then WAITS for them to exit before the
+repo update renames the checkout aside -- the rename fails while any of
+them still holds a handle inside the tree.
+
+Targets are collected from three channels, union-ed so a service is
+caught even when one channel misses it:
+
+1. The pidfiles the runner/server themselves write (`runner.pid`,
+   `inner.pid`, `server.pid` under the runtime dir). Authoritative, and
+   readable even when the process's command line is not -- on Windows a
+   runner started under a different account (e.g. a dedicated
+   "Yuruna Test" user) reports an EMPTY `Win32_Process.CommandLine` to
+   the installer, so the command-line sweep (channel 2) silently skips
+   it; the pidfile does not.
+2. Command-line pattern match -- catches an ad-hoc runner started
+   outside the managed runtime dir, whose pidfile location can't be
+   predicted. The patterns: `Start-TestRunner.ps1`,
+   `Invoke-TestRunnerInnerLoop.ps1`, `Debug-TestSequence.ps1`,
+   `Start-StatusService.ps1`, plus the detached server's generated
+   script name `.status-service.ps1`, which does NOT contain
+   "Start-StatusService.ps1".
+3. The status port's listening owner (the configured port plus the
+   8080 default), so port 8080 is freed even if the status service was
+   started some other way.
+
+The wait covers only the PIDs actually stopped, not every candidate.
+A candidate that was already gone, or that identity validation (below)
+rejected, never exits on the installer's account. Port 8080 is the
+common case: when it is held by `http.sys` on behalf of a
+driver-hosted listener, channel 3 reports the System process (pid 4) as
+its owner -- waiting on that is a guaranteed 20-second stall ending in a
+warning naming a process nobody can or should stop.
+
+On Windows every target is terminated with its whole child tree via
+`taskkill /T /F`. `/F` is a hard TerminateProcess -- NOT the soft
+console Ctrl+C that a bare `taskkill` (or a stray `^C`) sends, which
+only flips the runner into "exit after the current cycle" graceful
+shutdown. That graceful path can take many minutes (a full VM cycle)
+to actually exit, and pins the checkout the whole time -- the exact
+"the install proceeds while the runner is still up" failure this step
+guards against.
+
+<a id="429fb30b-000b"></a>
+
+### PID identity validation before kill
+
+Candidate PIDs are deduplicated, the installer's own PID is dropped,
+and each survivor is identity-validated before anything is killed:
+only PIDs whose executable is a PowerShell interpreter
+(`pwsh` / `powershell`) are stopped, because every real target -- the
+outer runner, the per-cycle inner runner, the detached status service --
+is a PowerShell process.
+
+Two ways an innocent PID reaches the candidate list:
+
+- A pidfile left behind by a crashed run holds a raw integer the
+  kernel may since have RECYCLED to an unrelated process; killing that
+  match (on Windows, `taskkill /T /F` on its whole tree) would take
+  out an innocent process.
+- On the `bash <(...)` / `-c "<script>"` launch paths the installer's
+  own script text carries the `.ps1` pattern names in argv, so a
+  `pgrep -f` pattern can match THIS installer itself or its
+  sudo-keepalive subshell. Killing such a match could reap the
+  installer's own log `tee` (SIGPIPE with no PIPE trap installed -- the
+  installer dies) or its sudo keepalive.
+
+Gating on the executable name closes both: `pwsh` for every real
+target; `bash` / `tee` / `sleep` / ... for everything that must NOT be
+touched. The bash installers read `ps -o comm=` -- the executable name,
+NOT argv, which the launch path contaminates with the pattern names --
+using `-ww` so BSD/macOS `ps` does not truncate the output when no TTY
+is attached (the `feedback_bsd_ps_args_truncation` trap class). An
+empty `comm` for a LIVE pid means `ps` could not report it; the pid is
+kept rather than silently disabling the stop (a degrade to the
+pre-validation behavior). This mirrors the PowerShell side's
+PID-identity check (the `Start-TestRunner.ps1` stale-pid guard).
+
+<a id="429fb30b-000c"></a>
+
+### Preserve the yuruna-caching-proxy-service VM
+
+The cache VM (`yuruna-caching-proxy-service`) holds tens
+of GB of pre-fetched `.deb` / `.iso` content built up across test
+cycles. The installer never stops Hyper-V VMs (no `Stop-VM` / `Remove-VM`
+in any installer), so the cache survives re-runs by default.
+
+The process-stop step above cannot reach VMs either: on Windows each
+VM runs under a `vmwp.exe` worker process parented to the Hyper-V
+management service (`vmms`), not as a child of the runner, so the
+`taskkill /T` process-tree kill never reaches it. On macOS and Ubuntu
+the UTM / libvirt domains are likewise not children of the runner, and
+those installers issue no domain stop/destroy (the macOS UTM quit is
+gated separately on cache preservation, below).
+
+On macOS the detection is two-signal: a TCP-connect probe to the recorded
+cache IP on port 3128 (authoritative, Apple-Events-independent) and a
+fallback `utmctl status` parse that treats every uncertain status as
+"preserve". The probe is the signal that survives a non-graphical launch
+(SSH, no Apple Events). `utmctl status` alone is not enough: over SSH it
+answers `utmctl could not reach UTM`, and reading that as "not running"
+quits UTM and lets the orphaned-bundle sweep delete the cache.
+
+If the cache is running OR its state is uncertain, the macOS installer
+skips the UTM cask upgrade so a quit-UTM window does not let the
+orphaned-bundle sweep delete the multi-GB Squid spool.
+
+<a id="429fb30b-000d"></a>
+
+### Directory rename that stays a rename
+
+`Move-Item` degrades a failed directory rename into a recursive
+copy-then-delete -- that is how it supports moves across volumes. Pointed
+at a checkout that is held open, it copies part of the tree (`.git`
+included) to the destination name, deletes the originals it copied, then
+fails on the first file it cannot touch: a destroyed working tree,
+reported as "the item is in use". Every directory move in the Windows
+installer therefore goes through `Move-YurunaDirectory`, a thin wrapper
+over `[System.IO.Directory]::Move`, which is a rename and nothing else --
+it either succeeds or throws with both paths exactly as they were. Every
+destination is a sibling of its source, so the same-volume restriction
+on `[System.IO.Directory]::Move` never applies.
+
+<a id="429fb30b-000e"></a>
+
+### Checkout not held open
+
+The non-ff rescue below has to rename the checkout aside, and on Windows
+a directory cannot be renamed while any process holds a handle inside
+it -- most often a shell sitting inside the tree (its working directory
+pins it), or an editor or Explorer window with the folder open. That
+failure would otherwise surface only after the winget installs, the
+Hyper-V enable and the `test/status` backup -- minutes of waiting for a
+surprising "item is in use" abort. The Windows installer probes up front
+with the same operation the rescue uses -- a rename to the
+`<dir>.locktest` sibling -- and a pass renames straight back, so nothing
+is disrupted.
+
+Besides never copying (the probe renames through `Move-YurunaDirectory`;
+see [Directory rename that stays a rename](#directory-rename-that-stays-a-rename)),
+two properties keep the probe from costing more than it reports.
+
+**It steps the PROCESS working directory out of the tree, not just the
+PowerShell location.** A process holds an open handle on its own current
+directory, and that handle pins every parent against rename.
+`Set-Location` moves only the PowerShell location; the OS-level working
+directory the process was launched with stays put, and the elevated
+relaunch inherits it. Since the documented way to run the installer is
+from inside the checkout (`install\windows.hyper-v.ps1`), moving only
+the PowerShell location leaves the installer as the one process
+blocking its own update -- a self-inflicted failure on every run.
+`[System.IO.Directory]::SetCurrentDirectory` on the checkout's parent
+releases it.
+
+**A failed probe warns; it does not abort.** Only the re-clone rescue
+needs the rename. A checkout that something else holds open still
+updates normally through `git pull`, so the probe reports the condition
+and the install continues; the rescue path reports its own failure if it
+is ever reached.
+
+On entry the probe also repairs a `<dir>.locktest` an interrupted run
+left behind, in either shape it can take: the whole checkout under the
+probe name (renamed away, never renamed back) is renamed back, and a
+tree split across both names is merged back over the checkout and the
+probe removed. The two sides of a split are disjoint except for files
+whose copy succeeded and whose delete did not, and those are
+byte-identical. This repair runs BEFORE the "no `.git`, nothing to move"
+early return, because either shape can leave `.git` itself on the probe
+side -- and a checkout without `.git` reads as never-cloned, which sends
+the update path into a `git clone` onto a non-empty directory.
+
+<a id="429fb30b-000f"></a>
+
+### Pull from the local repo's remote, not the script's default
+
+For an existing checkout the installer pulls from whatever remote the
+local repo was cloned from -- not from whichever `$YurunaRepo` /
+`$YURUNA_REPO` default this copy of the installer ships. A previous run
+may have cloned the OTHER repo (the public `yuruna` checkout works for
+everyone; the private `yurunadev` checkout needs GitHub auth) and we
+must not silently migrate the operator's local tree to a different
+remote.
+
+If the local remote is `yurunadev`, demonstrate access before
+`git fetch`: `git ls-remote` fails fast on 401/403, sparing the operator
+a stalled credential prompt or an error transcript that looks like the
+test harness broke when only auth was missing. The pull is
+skipped (not the rest of the install) so a contributor on a flaky or
+unauthenticated session can still keep iterating with the last-known-good
+code on disk. `GIT_TERMINAL_PROMPT=0` fails fast on missing credentials
+instead of blocking the installer on an interactive `Username:` prompt.
+
+<a id="429fb30b-0010"></a>
+
+### Backup-and-reclone on non-ff pull
+
+When `git pull --ff-only` cannot advance the local repo (uncommitted
+changes, divergent commits, detached HEAD), the script moves the existing
+checkout aside as a timestamped `<dir>.backup.<stamp>` and re-clones
+fresh rather than leaving a half-updated state. The final-summary block
+surfaces the backup path loudly so the operator can
+salvage local edits before deleting it. The `test/status` runtime state
+was already captured to TEMP by the preservation block above, so cycle
+history survives this path.
+
+<a id="429fb30b-0011"></a>
+
+### Renormalize line endings under .gitattributes
+
+`.gitattributes` (committed at the repo root) locks LF for every text
+type a Linux guest reads -- `*.sh`, `*.yml`, `user-data`, `meta-data`,
+etc. Adding `.gitattributes` does NOT rewrite files already in the
+working tree: without this step a developer who cloned with
+`core.autocrlf=true` still has `fetch-and-execute.sh` on disk as CRLF,
+the host status service serves those bytes byte-faithfully to the guest,
+and the guest's bash chokes with `$'\r': command not found` on line 2.
+The installer forces a one-shot rebuild of the working tree from the
+index so every file picks up the `eol=` rules.
+
+`core.autocrlf=input` is pinned on the LOCAL repo too, so any future
+file added without a matching `.gitattributes` rule still avoids CRLF
+on commit. Local config beats global; the change does not touch the
+user's other repos.
+
+`.gitconfig.yuruna` (tracked at the repo root) is included via
+`include.path = ../.gitconfig.yuruna` for `pull.rebase` +
+`rebase.autoStash` defaults so `git pull` here rebases instead of
+creating merge commits. `include.path` can hold multiple values, so the
+include is added idempotently rather than overwriting whatever else the
+operator may have included.
+
+If the working tree has uncommitted changes, only the index is
+renormalized (`git add --renormalize .`) so the installer does not
+clobber local edits. Otherwise the index is emptied and `git reset
+--hard HEAD` rebuilds every file under the current `.gitattributes`.
+
+<a id="429fb30b-0012"></a>
+
+### Preserve test/status runtime state across clone-update
+
+Re-running the installer on a host that has been executing test cycles
+must not lose the dashboard's history, per-cycle log transcripts, or
+the runtime-dir state (`status.json` with `history[]`,
+`runner.gating.json`, `runner.quarantine.json`, `runner.pid`, control
+flags). None of those are tracked by git -- per `.gitignore` every subdir
+under `test/status/` is gitignored as runtime state. The
+clone/update/renormalize block leaves untracked files alone
+(`git rm -r --cached . && git reset --hard HEAD` only touches tracked
+files), but the installer backstops that contract with an explicit
+snapshot-and-restore so a
+future regression in the renormalize logic, or a manual delete of
+`$YurunaDir` between attempts, cannot silently wipe weeks of cycle
+history.
+
+All harness runtime state lives under `test/status/<sub>/`:
+`runtime/`, `perf/`, `log/`,
+`extension/`, `captures/`, `ssh/`. The installer preserves every subdir
+so cycle history, perf JSONL, vault state, training/sequence captures,
+and the generated SSH key pair all survive a clone/update.
+
+<a id="429fb30b-0013"></a>
+
+### Baseline reset removes test-* VMs
+
+An install is a return-to-baseline operation. Status service + runner
+processes are killed earlier (`stop_yuruna_processes` / `Stop-YurunaProcess`);
+their VMs are not. `test/Remove-TestVMFiles.ps1` enumerates VMs matching
+the `test-` prefix and stops + removes each. The `yuruna-caching-proxy-service`
+VM does NOT match this prefix and is preserved. Failure here is
+non-fatal -- a wedged hypervisor helper or locked image file on one VM
+must not block the rest of the install. The step runs AFTER the repo
+update so we use the just-pulled version of the script and its host
+driver modules.
+
+On Ubuntu, group activation needs care: `usermod -aG libvirt $USER`
+adds the user to `/etc/group`, but the CURRENT shell's effective group
+set was sampled at login and won't include `libvirt` until a re-login
+or `newgrp`, so `virsh` fails with "Permission denied" on
+`/var/run/libvirt/libvirt-sock` the first time after group add.
+The cleanup therefore runs under `sg libvirt` -- see
+[sg libvirt for the first-run cleanup](#sg-libvirt-for-the-first-run-cleanup).
+
+<a id="429fb30b-0014"></a>
+
+### Root-artifact sweep — what a sudo run leaves behind
+
+The entry points refuse to run as root, but refusing only stops the NEXT
+root run -- it does nothing about the machine a PREVIOUS one already
+changed, and that state is silent, durable, and reads as somebody else's
+bug. `install/setup.ps1` therefore sweeps for it through
+[`test/modules/Test.RootArtifact.psm1`](../test/modules/Test.RootArtifact.psm1).
+
+| Artifact | How it misleads |
+|---|---|
+| Files under `test/status` owned by root | The directories stay operator-writable, so creating a NEW file still works and only an overwrite of an existing one fails -- surfacing as a permission error from whatever code happened to touch it first, naming a runtime json file rather than the sudo run that made it. |
+| A status or config service still listening as root | Its socket is invisible to an unprivileged `lsof`, so the port reads as "free but unreservable" and every later bring-up refuses on a port nothing appears to hold. |
+| Base images and VM bundles under root's home | The hypervisor runs as the operator and cannot reach them, so they are pure waste -- tens of GB of it. |
+| SMB mounts of the pool/stash shares under root's home | On macOS a second mount of a share the kernel already holds is refused with "File exists", which the mount path reports as a credential failure. |
+
+Detection never prompts and never elevates: everything is either readable
+unprivileged or probed with `sudo -n`, which fails rather than asking. Only
+`Clear-YurunaRootArtifact` elevates, and only per class, after consent.
+
+Unix-only by construction. Windows setup runs elevated on purpose, and an
+elevated Windows run writes files the operator's account can still modify,
+so there is no equivalent trap to sweep.
+
+<a id="429fb30b-0015"></a>
+
+### Host automation settings after installation
+
+Windows and Ubuntu print an explicit `Enable-TestAutomation.ps1` next step.
+Their bootstrap installers leave display, screen-lock, and other host-policy
+changes to the operator. The macOS installer applies its host settings after
+package and UTM updates, because reinstalling or upgrading UTM can restore
+defaults that prevent unattended execution. It passes `-SkipPoolStorage`: the
+interactive storage questionnaire remains a separate setup decision.
+
+Exit 2 means the settings that could be applied were applied, while a TCC grant,
+account password, or another operator action remains. The macOS installer
+records that condition in its deferred issues. Quit and reopen UTM to consume
+its App Nap and last-window settings. macOS privacy grants remain manual.
+
+<a id="429fb30b-0016"></a>
+
+### powershell-yaml install
+
+`powershell-yaml` is required by `Resolve-CyclePlan` and every YAML
+reader in the harness. pwsh 7 does NOT ship it, and `test/Invoke-TestProject.ps1`
+preflight fails fast with "powershell-yaml is not installed" if the
+module is missing -- the friction of every fresh-host bootstrap. Each
+installer installs `powershell-yaml` (CurrentUser scope,
+`-Force -AllowClobber` to auto-trust PSGallery on a fresh box).
+`Install-PowerShellYamlIfMissing` (defined in
+[test/modules/Test.HostGit.psm1](../test/modules/Test.HostGit.psm1)
+and re-exported via `Test.HostContract`) is still called from
+`Enable-TestAutomation.ps1` as a safety net for manual-clone
+bootstraps.
+
+---
+
+<a id="429fb30b-0017"></a>
+
+## Windows Hyper-V
+
+<a id="429fb30b-0018"></a>
+
+### ASCII-only constraint
+
+`install/windows.hyper-v.ps1` is invoked from a fresh Windows where
+`pwsh.exe` does not yet exist, via `irm <url> | iex` from the only shell
+that ships in-box: Windows PowerShell 5.1. PS 5.1's `Invoke-RestMethod`
+does NOT strip a leading UTF-8 BOM. When the response string is piped to
+`iex`, the BOM character (`U+FEFF`) becomes the first parse token and
+PS 5.1's parser stops recognizing `param()` as a top-of-script
+construct, failing at the `[CmdletBinding()]` line with `Unexpected
+attribute 'CmdletBinding'`.
+
+Direct invocation as a file works either way -- both PS 5.1 and pwsh
+handle BOM-prefixed files on disk -- but the `irm | iex` path is the
+documented installer entry point and it MUST work. So every comment,
+string, here-doc, and identifier in the installer file MUST stay plain
+7-bit ASCII. No em-dashes, no smart quotes, no box-drawing characters.
+If a future edit introduces non-ASCII content, replace it with an ASCII
+equivalent (e.g. `--` instead of an em-dash) rather than adding a BOM.
+
+Also captured in
+[memory.md](memory.md#why-the-bootstrap-installer-must-stay-ascii-only).
+
+<a id="429fb30b-0019"></a>
+
+### param() default + irm | iex compatibility
+
+The `[CmdletBinding()]` + `param()` block is at line 29 (after
+`<#PSScriptInfo #>` and `<# .SYNOPSIS #>` headers). PS 5.1's `iex`
+accepts `param()` as a top-of-script construct ONLY when the input has
+no leading BOM and `param()` is positioned after the comment-based help
+blocks. Both conditions are constraints on the file's byte layout, not
+on PowerShell syntax.
+
+<a id="429fb30b-001a"></a>
+
+### Single-fetch materialization
+
+Under `irm | iex` there is no `$PSCommandPath`, so the elevation and
+PS7 relaunches would each RE-FETCH the installer from the moving ref --
+extra unverified swings, two of them in the elevated context. Instead
+the installer fetches the source ONCE to a BOM-less temp file and
+relaunches via `-File`, so every child runs from that one file with a
+real `$PSCommandPath` and never re-fetches. The temp file is written
+byte-true from the IRM response (not `ScriptBlock.ToString()`, whose
+PS 5.1 round-trip fidelity is unverified), so the materialized bytes
+match the canonical installer.
+
+Before materializing, the installer sweeps stale materialization temps
+left by a crashed prior run -- only temps older than one hour, so the
+age guard never touches a concurrent run's fresh temp.
+
+<a id="429fb30b-001b"></a>
+
+### Self-elevation and PS5 -> PS7 bootstrap
+
+Every Yuruna script that needs elevation says so up front rather than
+surprising the user midway through. After a `Test-SystemRequirement`
+preflight gate, the script self-elevates via `Start-Process -Verb RunAs`
+if not already running as Administrator. The relaunch preserves the
+shell the user started from -- `powershell.exe` on PS 5.1, `pwsh.exe`
+on PS 7+ -- so a pwsh session does not get silently downgraded to
+Windows PowerShell across the UAC boundary.
+
+For the `irm | iex` entry path the downloaded script initially has no
+`$PSCommandPath`, and `iex` itself does not forward args to the invoked
+code. The materialization gate establishes a file path before elevation.
+The relaunch uses `-File` against that same installer and forwards explicitly
+bound parameters with `-SkipPreflight`, so the elevated child does not
+re-download the script or re-prompt the requirements check.
+
+If the elevated shell is still PS 5.x, the PS7 bootstrap block installs
+`Microsoft.PowerShell` via winget, refreshes PATH so `pwsh.exe`
+resolves in this same session, and re-executes the script under pwsh.
+The child inherits the elevated token, so no second UAC prompt. The
+PS7-bootstrap block must stay PS 5.1-compatible (no `?.` / `??` /
+ternary / chain ops) -- the whole file is parsed up front, and even one
+PS 7-only token would keep the file from loading on 5.1 before this
+check can run.
+
+Return (not exit) is used at every relaunch site. `exit` at the script's
+top level terminates the hosting PowerShell process, which would close
+the user's own shell when the script is invoked via `irm | iex` in
+their non-admin console.
+
+<a id="429fb30b-001c"></a>
+
+### winget --source winget pinning
+
+Without `--source winget` on every call, winget searches every
+registered source (including msstore) and fails hard when one of them
+has a stale or untrusted server cert, even if the package was found in
+the trusted `winget` source. Seen in the wild as:
+
+```
+Failed when searching source: msstore
+0x8a15005e : The server certificate did not match any of the
+             expected values.
+```
+
+When that happens winget refuses to pick a source automatically and
+aborts with "Please specify one of them using the `--source` option to
+proceed." Pinning sidesteps the disambiguation.
+
+<a id="429fb30b-001d"></a>
+
+### DISM.exe direct call, not Get-/Enable-WindowsOptionalFeature
+
+`Get-WindowsOptionalFeature` / `Enable-WindowsOptionalFeature` dispatch
+to the DISM provider via COM, and on some pwsh 7 sessions the COM class
+fails to resolve with `Class not registered` (HRESULT `0x80040154`).
+That terminates the script on re-runs; and when
+`-ErrorAction SilentlyContinue` silences it on the first run, the
+returned `$feature` becomes `$null` and the enable step is skipped
+without the user noticing, leaving Hyper-V off. `DISM.exe` is a
+plain Win32 tool with no COM dependency and is what the cmdlets wrap
+internally.
+
+<a id="429fb30b-001e"></a>
+
+### DISM "Enabled" cross-check against vmms presence
+
+`DISM /Enable-Feature` flips State to `Enabled` immediately, but the
+Hyper-V *components* (`vmms` service, `virtmgmt.msc`) are only deployed
+once the pending reboot runs. On a second pass before that reboot,
+`/Get-FeatureInfo` still says `Enabled` even though nothing actually
+works -- and the test harness would fail to launch `virtmgmt.msc` with
+"file not found". The installer cross-checks DISM's `Enabled` against
+the presence of `vmms` and `virtmgmt.msc`; if either is missing, the
+script treats it as just-enabled and sets `$script:RestartNeeded` so
+the finally-block "RESTART REQUIRED" path gives the user one clear
+message.
+
+<a id="429fb30b-001f"></a>
+
+### try/catch/finally with summary banner
+
+Every install path (success, failure, reboot-pending) is wrapped in a
+single `try/catch/finally`. The admin window spawned by
+`Start-Process -Verb RunAs` closes the instant the script exits, and
+without the wrap any failure (DISM exit code, winget non-zero, throw
+from a called module) would close the window before the user could
+read the message. The finally block prints a clear SUCCESS / FAILED /
+RESTART REQUIRED summary and -- on the success path -- automates the
+handoff to a fresh pwsh window with NEXT STEPS guidance.
+
+After the summary and bounded closing hold, the installer stops its transcript
+and returns exit 1 when installation did not complete. Automated callers can
+therefore detect failure while the operator has time to read its explanation.
+
+<a id="429fb30b-0020"></a>
+
+### Handoff window with EncodedCommand
+
+All NEXT STEPS guidance lives inside the spawned pwsh window's welcome
+banner. The admin console this script is running in was spawned by the
+self-elevation block via `Start-Process -Verb RunAs` and closes the
+moment we return, so anything we `Write-Output` AFTER that exit
+vanishes before the user can read it.
+
+The handoff window is launched via `pwsh -NoExit -EncodedCommand <base64>`
+to sidestep every shell-quoting pitfall for the spawned process.
+pwsh.exe expects the base64 payload as UTF-16LE (Unicode) bytes. If
+the handoff window doesn't open, the same guidance is printed in the
+admin console with a 60-second `Start-Sleep` to keep the window readable
+(no `Read-Host`, so an accidental Enter cannot end things early).
+
+Failed installations and newly enabled Hyper-V installations have no handoff
+window. After the complete summary, those paths also hold the elevated console
+for 60 seconds so the failure or restart instruction remains readable. This is
+a bounded delay; the transcript remains available if the operator is absent.
+
+<a id="429fb30b-0021"></a>
+
+### Test-SystemRequirement is silent on success
+
+The Windows preflight prints only when something is below baseline, so
+an operator on a tested box gets no extra noise. It uses
+`Get-CimInstance` (more portable than WMI) and converts
+`TotalVisibleMemorySize` (KB) to GB via `/ 1MB`.
+
+<a id="429fb30b-0022"></a>
+
+### Display scaling check
+
+Tesseract OCR on VM screenshots degrades when the host display scales
+above 100%. vmconnect renders the guest framebuffer through the
+DPI-scaled compositor; the upscaled bitmap defeats Tesseract
+segmentation -- `waitForText` silently times out on text a human reads
+fine. Fresh Windows 11 (HiDPI, 4K) ships at 125-150% by default, so
+this trap hits new hosts the first time they run a cycle.
+
+The installer's preflight in
+[install/windows.hyper-v.ps1](../install/windows.hyper-v.ps1)
+(`Test-DisplayScaling`) is **warn-only** -- it never blocks the install.
+It reads three registry sources that can override the default 100%:
+
+- `HKCU\Control Panel\Desktop\PerMonitorSettings\<display-id>\DpiValue`
+  (per-monitor scale; Windows 10/11). The value is an offset from
+  `RecommendedDpiValue` -- 100% maps to `-recommended` regardless of the
+  monitor's own recommended scale. Each step is +25%.
+- `HKCU\Control Panel\Desktop\LogPixels` (system-wide DPI fallback for
+  non-per-monitor-aware processes). Default is 96 (= 100%).
+- `HKCU\Software\Microsoft\Accessibility\TextScaleFactor` (Windows 11
+  "Text size" -- independent of display scale; 100 to 225).
+
+REG_DWORD values can be signed (DpiValue is often negative). The
+installer uses the same UInt32->Int32 bit-reinterpret as the module's
+reset function -- a bare `[int]` cast on values with the high bit set
+throws `OverflowException`.
+
+The corresponding reset action is re-exported by
+[test/modules/Test.HostContract.psm1](../test/modules/Test.HostContract.psm1)
+as `Set-WindowsHostConditionSet` (defined in `Test.HostCondition.Windows.psm1`), called by
+[host/windows.hyper-v/Enable-TestAutomation.ps1](../host/windows.hyper-v/Enable-TestAutomation.ps1).
+It writes 100% to all three sources and emits per-monitor status lines
+via `Write-Information`. The Enable-TestAutomation script sets
+`$InformationPreference = 'Continue'` so those messages surface to the
+operator (without it they are silent, and the script's own header would
+lie about "informing of each action"). Changes take effect after the
+operator signs out and back in (or reboots) --
+`Set-WindowsHostConditionSet` emits a `Write-Warning` reminder when any
+value was changed.
+
+The install-side reader and the module-side reset deliberately
+duplicate the three-source logic rather than share a module function:
+the install preflight runs **before** the repo is cloned, so it cannot
+`Import-Module Test.HostContract`. The shared knowledge is in this section,
+not in code.
+
+---
+
+<a id="429fb30b-0023"></a>
+
+## macOS UTM
+
+<a id="429fb30b-0024"></a>
+
+### Xcode CLT prereq for Homebrew
+
+The installer waits for `xcode-select -p` to succeed in a poll loop
+because `xcode-select --install` triggers a GUI prompt that the
+operator has to dismiss. Skipping this would leave Homebrew unable to
+build any source-only formula.
+
+<a id="429fb30b-0025"></a>
+
+### Homebrew architecture detection
+
+`brew shellenv` lives at `/opt/homebrew/bin/brew` on Apple Silicon and
+`/usr/local/bin/brew` on Intel. The installer probes both and `eval`s
+the right one so subsequent steps see `brew` on PATH regardless of CPU.
+
+<a id="429fb30b-0026"></a>
+
+### Multi-user Homebrew ownership repair
+
+A fresh macOS user account on a host where Homebrew was installed by a
+different account inherits a `/opt/homebrew` with mixed ownership AND
+(often) no `.git` directory (tarball-installed Homebrew). Every
+subsequent brew operation then either fails outright (`not writable`,
+`Can't create brew update lock`) or spams the `fatal: not in a git
+directory` + `update-report should not be called directly!` cascade
+triggered by Homebrew's internal auto-update inside every
+`brew install` / `brew upgrade`.
+
+The installer repairs the prefix on the current run instead of asking
+the operator to fix it by hand. sudo credentials are already cached
+from the earlier `sudo -v`, so the repair is silent on a
+correctly-installed host -- the writability test short-circuits to a
+no-op.
+
+Repair triggers on any of three signals: the prefix root not writable;
+no `.git` directory under the prefix (tarball-installed Homebrew --
+independent of permissions, but on a multi-user host it strongly
+correlates with mixed-ownership subdirs from the partial prior
+install); or any standard write-target subdir non-writable -- a single
+writability check on the prefix root does not catch issues in subdirs
+like `etc/bash_completion.d`, `lib/pkgconfig`, or the `share/*`
+man/completion/locale trees, so the installer samples the brew
+install/upgrade write targets directly.
+
+<a id="429fb30b-0027"></a>
+
+### Quit UTM before cask upgrade, preserve cache if running
+
+`brew upgrade --cask utm` requires UTM closed. The installer
+gracefully quits UTM via AppleScript (`tell application "UTM" to quit`)
+and falls back to `pkill` if it refuses. If the caching-proxy-service VM is
+running (see [Preserve the yuruna-caching-proxy-service VM](#preserve-the-yuruna-caching-proxy-service-vm)),
+the UTM cask upgrade is skipped this run; it upgrades on the next re-run
+when the cache is stopped (or when the operator quits UTM manually).
+
+<a id="429fb30b-0028"></a>
+
+### brew_ensure_formula vs brew_ensure_cask
+
+PowerShell ships as a brew formula on some taps and a cask on others.
+The installer tries the formula first via `brew_ensure_formula
+powershell`; if that fails it falls back to `brew_ensure_cask
+powershell`. Either path leaves `pwsh` on PATH for subsequent steps.
+
+<a id="429fb30b-0029"></a>
+
+### Version floors are repaired, not reported
+
+`automation/Yuruna.Requirement.yml` holds the floor for every tool the
+installer manages. The run checks the tools against it, repairs what is
+below, and checks again -- twice -- before anything reaches the closing
+summary. An operator asked to fix a version by hand at the end of an
+installer that held root for the whole run is being asked to do the
+installer's job.
+
+Two shapes account for nearly every Mac that finishes below a floor, and
+neither is visible in what `brew upgrade` prints:
+
+- **keg-only formulae.** Homebrew installs `curl` under
+  `$(brew --prefix curl)` and deliberately does not link it, so the name
+  keeps resolving to Apple's copy -- which never advances past what
+  shipped with the OS. `brew install curl` alone changes nothing that
+  `curl --version` says.
+- **a tool installed twice.** Microsoft's PowerShell build (the cask)
+  and the Homebrew formula advance independently, and `pwsh` resolves to
+  whichever directory comes first on PATH. `brew upgrade` then succeeds,
+  run after run, against a keg nothing actually runs.
+
+A floor is judged on what the tool prints when it is invoked BY NAME, so
+both are repaired the same way: find the newest copy this Mac carries
+and make the name resolve to it. The link goes into `PATH_LINK_DIR`
+(`/usr/local/bin`) for the reason `utmctl` does -- the stock
+`/etc/paths` lists it, so the runner, the status service and an
+`ssh host command` all see the same tool. A Homebrew-linked copy that is
+older than the best one is unlinked (`brew unlink`; the keg stays
+installed), because `brew shellenv` puts brew's bin ahead of
+`/usr/local/bin` and it would otherwise keep winning. A pin is lifted
+only for a formula already failing a floor. A real file occupying the
+link path is moved aside with a timestamp, never deleted.
+
+The second pass exists for the one escalation that needs a first attempt
+to have failed: adding the PowerShell build that is not installed yet.
+AES-GCM is a property of the runtime rather than a tool of its own, so
+it repairs as PowerShell and clears with it. Whatever two passes cannot
+reach is reported WITH the binary the name resolves to -- a floor no
+build can reach and a newer copy hidden behind an older one on PATH read
+identically without it.
+
+<a id="429fb30b-002a"></a>
+
+### TCC permissions stay manual
+
+macOS TCC (Privacy & Security -> Accessibility, Screen Recording)
+requires a human click in System Settings -- no script (even with sudo)
+can toggle Accessibility for another process. The installer prints
+the System Settings path in the NEXT STEPS banner instead of trying
+to automate.
+
+<a id="429fb30b-002b"></a>
+
+### sudo announcement + keepalive
+
+Every Yuruna script that needs elevation says so up front. The
+installer primes sudo a single time so the Homebrew installer and cask
+post-installs all reuse the same timestamp. A background keepalive
+re-runs `sudo -n true` every 30s so the timestamp does not expire
+mid-install while brew is running its own internal sudo calls.
+
+`|| true` in the keepalive is load-bearing: under `set -e` (top of
+file), a transient `sudo -n true` failure -- e.g. brief timestamp-lock
+contention while brew/cask post-install runs its own sudo -- would
+otherwise kill the subshell.
+
+A single `EXIT` trap (`yuruna_install_cleanup`) releases the sudo
+keepalive AND any test/status temp backup on every exit path: normal
+completion, Ctrl+C, `set -e` abort.
+
+<a id="429fb30b-002c"></a>
+
+### Activate Homebrew PATH in the caller's shell
+
+The installer runs in its own subshell, so `brew`, `pwsh`, `git` from
+Homebrew are not yet visible to the shell the user pasted the curl
+command into. The NEXT STEPS banner tells them to either open a new
+Terminal window or run `eval "$($BREW_PREFIX/bin/brew shellenv)"` to
+patch the current session.
+
+---
+
+<a id="429fb30b-002d"></a>
+
+## Ubuntu KVM/libvirt
+
+<a id="429fb30b-002e"></a>
+
+### ERR trap + _yuruna_step tracking
+
+Under `set -euo pipefail` the shell quits silently on the first
+non-zero command, leaving the operator with no way to see why a probe
+failed (e.g., after "Refreshing apt index").
+
+`log()` records the current phase in `$_yuruna_step`. The `ERR` trap
+fires before exit and prints the location (`$BASH_LINENO[0]`),
+command (`$BASH_COMMAND`), and captured exit status. The next failure
+is actionable instead of silent.
+
+<a id="429fb30b-002f"></a>
+
+### CPU virtualization preflight (vmx/svm)
+
+KVM acceleration requires Intel VT-x or AMD-V. The hard preflight
+greps `/proc/cpuinfo` for `vmx|svm` -- without acceleration the test
+harness is unusable, so the installer refuses to burn time on apt/repo
+work when the host cannot host VMs. On aarch64 hosts where
+`/proc/cpuinfo` does not expose `vmx`/`svm`, the check defers to the
+post-install `/dev/kvm` assertion in the final preflight.
+
+<a id="429fb30b-0030"></a>
+
+### Refresh apt index BEFORE probing for qemu-system-<arch>-hwe
+
+On a fresh image the apt cache may not yet know that the `-hwe`
+variant exists, and the probe would fall back to the base package even
+though the HWE one is available. `apt-get update -q` (one quiet, not
+`-qq`) keeps apt warnings and connectivity errors visible. With `-qq`,
+a hung mirror or a signature verification failure aborts the script with
+zero output, making the silent exit "just after Refreshing apt index"
+impossible to diagnose without re-running with `-x`.
+
+<a id="429fb30b-0031"></a>
+
+### qemu-kvm split on Ubuntu 26.04 (resolute)
+
+`qemu-kvm` is a VIRTUAL package starting with Ubuntu 26.04 -- apt
+refuses to pick between `qemu-system-<arch>` and
+`qemu-system-<arch>-hwe` automatically. The installer defaults to the
+GA (non-HWE) variant: it pulls in `ubuntu-virt`, which is the SAME
+umbrella the rest of our packages (`libvirt-daemon-system`,
+`libvirt-clients`, `ovmf`, `qemu-utils`, `virtinst`) depend on. The
+`-hwe` variant depends on `ubuntu-virt-hwe`, which *Conflicts* with
+`ubuntu-virt`, so any attempt to use `-hwe` while keeping the rest of
+the stack on the GA branch produces an apt "two conflicting
+assignments" error. Operator override: `YURUNA_QEMU_PKG=qemu-system-x86-hwe`
+to try `-hwe` anyway once a future LTS ships matching `-hwe` libvirt
+and ovmf.
+
+<a id="429fb30b-0032"></a>
+
+### apt simulate-first
+
+The installer runs apt's solver in `--simulate` mode FIRST. If a
+dependency conflict exists -- e.g. `-hwe` qemu pulling `ubuntu-virt-hwe`
+against the rest of the stack's `ubuntu-virt` -- it surfaces here
+BEFORE we start installing anything, with the same "X depends
+Y but it is not going to be installed" diagnostic the real install
+would emit. `set -e` + the ERR trap means a non-zero apt-get exit
+prints the abort block naming this step.
+
+<a id="429fb30b-0033"></a>
+
+### osinfo-db refresh from pagure
+
+Noble's apt-shipped `osinfo-db` can predate Ubuntu 24.04's release, so
+`virt-install --osinfo list` may not include `ubuntu24.04` even after
+the apt package is installed. Per-guest scripts already fall back to
+`linux2022` when the precise variant is missing, but the operator is
+better off with proper hypervisor tuning.
+
+Best-effort upstream refresh: scrape `releases.pagure.org/libosinfo/`
+for the latest `osinfo-db-YYYYMMDD.tar.xz`, fetch it, and import
+system-wide via `osinfo-db-import --local` (writes to
+`/usr/local/share/osinfo`, which libosinfo searches unconditionally on
+Ubuntu). Any failure (no network, pagure.org down, malformed tarball)
+emits a `warn` line and proceeds.
+
+Variant lookup uses a regex match against `virt-install --osinfo list`
+output. Each line is `<canonical-id>, <alias1> <alias2>` -- so a naive
+`grep -qx 'ubuntu24.04'` never matches because the line is actually
+`ubuntu24.04, ubuntunoble`. `osinfo_has_variant` strips the alias
+tail before exact-matching -- a naive exact match masks the
+upstream-import success and keeps the warning printing in
+perpetuity.
+
+<a id="429fb30b-0034"></a>
+
+### PowerShell apt vs tarball by architecture
+
+x86_64 gets `powershell` from Microsoft's apt repo (canonical source).
+aarch64 has no apt package, so the installer falls back to the
+PowerShell tarball under `/opt/microsoft/powershell/7` with a
+`/usr/local/bin/pwsh` symlink. Both paths leave `pwsh` on PATH for
+subsequent steps. The tarball path resolves the latest-stable release
+by following the `/releases/latest` redirect (PowerShell publishes both
+linux-x64 and linux-arm64 tarballs, plus `hashes.sha256`, for every GA
+release), so aarch64 tracks the same current version the apt path
+installs; set `PWSH_VERSION` to pin a specific release for a
+reproducible or air-gapped build.
+
+Both of those paths run only when `pwsh` is ABSENT, because they run
+before the checkout exists and the floor to compare against lives in it.
+A pwsh that arrived some other way -- the Canonical `powershell` snap is
+the common one, a hand-unpacked tarball the other -- is therefore
+installed by nothing here, and presence is not the question a floor
+asks. Once the repo is on disk the run reads the PowerShell floor out of
+`automation/Yuruna.Requirement.yml` and raises the interpreter to it:
+snapd is asked to refresh a PowerShell it owns first, so a host keeps
+the provenance its operator chose, and only a channel that cannot reach
+the floor falls through to the apt and tarball sources above. Those land
+under `/usr/local/bin`, which the stock PATH puts ahead of `/snap/bin`,
+so the newer copy wins the name without the older one being removed. A
+source that gives up ends the upgrade attempt, not the install -- the
+host still has a working interpreter, and the closing summary carries
+the version it is stuck at.
+
+<a id="429fb30b-0035"></a>
+
+### Version floors on an Ubuntu host
+
+On ordinary Ubuntu hosts, PowerShell's sources can lead the archive; the other
+managed tools reach the host through `apt`, whose ceiling is its Candidate.
+An LTS archive freezes upstream version numbers and backports fixes. Repeating
+`apt-get install` cannot advance an already-current package. Floors in
+`automation/Yuruna.Requirement.yml` therefore describe the selected supported
+archive, rather than promising the latest upstream version. Security patch
+level is a separate question from the upstream number.
+
+The AMD Ryzen AI Developer Platform uses Debian trixie. Its base archive cannot
+reach every Ubuntu-based floor. The installer takes curl and qemu-img from
+trixie-backports and builds Git from a verified release rather than replacing
+the base C library. Python must remain the platform's system interpreter: ROCm
+packages pin its ABI, and libvirt and desktop tools need its installed `libvirt`
+and `gi` modules. That platform's closing floor check omits Python rather than
+promising a repair the installer cannot safely perform.
+
+A standalone CPython linked as `/usr/local/bin/python3` can shadow
+`/usr/bin/python3` and break `virt-install` before any VM boots. Cleanup acts
+only when that exact `python3` symlink points into `/opt/cpython`; it removes
+corresponding version links and the owned version directory. Unrelated runtimes,
+environments, and installs without a version directory remain untouched. The
+link provenance check prevents deleting operator-managed interpreter trees.
+
+<a id="429fb30b-0036"></a>
+
+### libvirt-qemu traverse ACL on $HOME
+
+Ubuntu 24.04 cloud images create `/home/<user>` at mode 0750, which
+blocks the `libvirt-qemu` user (uid 64055, gid kvm) that runs guest
+qemu processes from traversing `$HOME` to reach VM disk files.
+`virt-install` then errors out with "Cannot access storage file ...
+Permission denied". The installer applies the traverse-only POSIX ACL
+(`setfacl -m u:libvirt-qemu:--x "$HOME"`) up front so the operator
+does not discover this the first time `New-VM.ps1` runs.
+
+The final preflight verifies `libvirt-qemu` can actually reach files
+under `$HOME` by `mktemp`-ing a probe file (mode 0644 -- `mktemp`'s
+default of 0600 would always fail the cross-user read regardless of
+traverse), then `sudo -u libvirt-qemu test -r <probe>`. The test
+isolates the directory-traverse question from the file-mode question.
+
+<a id="429fb30b-0037"></a>
+
+### Default libvirt network -- start + autostart
+
+The `default` NAT network (`192.168.122.0/24`) is shipped by
+`libvirt-daemon-system` but starts disabled. The installer ensures
+it's autostart + up so `virt-install` can attach guests without a
+manual `virsh net-start`.
+
+<a id="429fb30b-0038"></a>
+
+### Final preflight — every check is a hard requirement
+
+Up to the preflight section the installer APPLIED configuration. The
+preflight VERIFIES the host actually reached the state
+`Start-TestRunner.ps1` needs. The script collects all failures so the
+operator sees the full punch list at once instead of fix-and-re-run N
+times. A partial install is worse than no install -- subsequent runs
+see "looks configured" and skip steps that would have re-applied them.
+
+The checks cover: `kvm-ok`, `/dev/kvm` character device, group
+membership in `/etc/group` (the parent shell's stale group set is the
+operator's problem, surfaced as a NEXT STEPS hint), `libvirtd` +
+`virtlogd` systemd services active, `libvirt-qemu` system user
+present, libvirt `default` network running + autostart,
+`libvirt-qemu` `$HOME` traverse ACL working in practice, cloud-init
+seed builder (`genisoimage` or `cloud-localds`), `pwsh` on PATH,
+`virt-install` on PATH, osinfo-db variants the per-guest scripts
+request, architecture-specific UEFI firmware (`ovmf` /
+`qemu-efi-aarch64`), swtpm + swtpm_setup, GitHub CLI on PATH.
+
+<a id="429fb30b-0039"></a>
+
+### GitHub CLI via cli.github.com apt repo
+
+`gh` is not pinned to a current version in Ubuntu's default archive.
+The installer follows cli.github.com's recommended apt-repo install:
+keyring under `/etc/apt/keyrings`, repo source under
+`/etc/apt/sources.list.d`, then `apt-get install gh`. Idempotent on
+re-runs -- an existing keyring or source-list file triggers a no-op.
+The binary lands on PATH but is unauthenticated -- run `gh auth login`
+once per host.
+
+<a id="429fb30b-003a"></a>
+
+### sg libvirt for the first-run cleanup
+
+The `Remove-TestVMFiles.ps1` cleanup runs right after `usermod -aG
+libvirt $USER`, so the current shell's group set does not yet include
+`libvirt` and a direct `pwsh -File` call would inherit the stale
+group set and fail with "Permission denied" on
+`/var/run/libvirt/libvirt-sock`. `sg libvirt -c "pwsh ..."` runs a
+subshell with libvirt as an effective supplementary group, which
+works the instant `/etc/group` has the membership -- no re-login
+required.
+
+`getent group libvirt` reads `/etc/group`, which `usermod -aG` has
+just updated. Don't use `id -nG` here: it reflects the stale live
+group set of THIS shell and would force the direct-pwsh fallback on
+the first run.
+
+---
+
+LICENSEURI https://yuruna.link/license
+
+Copyright (c) 2019-2026 by Alisson Sol et al.
+
+Last review: 2026.10.14
+
+Back to [Yuruna](../README.md)

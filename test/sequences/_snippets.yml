@@ -1,0 +1,40 @@
+# yaml-language-server: $schema=../schemas/snippets.schema.yml
+
+# LICENSEURI https://yuruna.link/license
+# Copyright (c) 2019-2026 by Alisson Sol et al.
+
+# Nudge agetty before waiting so the login prompt is redrawn and input settles.
+# See https://yuruna.link/42e220c4-0007
+firstLoginPrime:
+  - action: pressKey
+    name: Enter
+    description: "Push agetty to redraw a fresh login"
+
+  - action: waitForSeconds
+    seconds: 2
+    description: "Let agetty redraw"
+
+  - action: waitForText
+    pattern: "login:"
+    noSegmentMatch: true
+    timeoutSeconds: 600
+    description: "OCR: login:"
+
+# See https://yuruna.link/42dc5bb9-0008
+shellInputPrime:
+  - action: waitForSeconds
+    seconds: 3
+    description: "Let the login shell finish drawing before typing at it"
+
+  - action: inputTextAndEnter
+    text: " echo yuruna_$(seq -s '' 1 9)_ok"
+    description: "Ask the shell to expand a token agetty cannot"
+
+  # Enter only submits the harmless probe, or an empty line if it already ran.
+  - action: waitForTextWithNudge
+    pattern: "yuruna_123456789_ok"
+    nudgeKey: Enter
+    nudgeIntervalSeconds: 15
+    timeoutSeconds: 90
+    freshMatch: true
+    description: "OCR: yuruna_123456789_ok"

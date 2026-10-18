@@ -1,0 +1,853 @@
+<a id="42185271-0001"></a>
+
+# Yuruna control routes -- who is allowed to drive a host
+
+> **Who this is for.** An operator who uses a host's **status page** to start a cycle,
+> pause a step, or run a host diagnostic -- especially from a browser on **another
+> machine**. Viewing a host's status needs no setup; *driving* one does -- this page
+> explains that one-time setup.
+
+<a id="42185271-0002"></a>
+
+## What is gated
+
+The status page's action buttons call **state-changing `/control/*` routes** on the
+host's status service. Those routes rewrite the host's `test.config.yml`, start and stop
+cycles, and run diagnostics -- so anything that can call them owns the host.
+
+A state-changing control request is accepted only when the caller is **one of**:
+
+- **on the host itself** -- the request arrives on the loopback interface
+  (`http://localhost:<port>`), which no LAN device or guest VM can reach; or
+- **carrying a valid control proof** -- a short-lived credential the pool hands to the
+  page when you arrive through the pool dashboard's host link.
+
+Everything else gets a `403`. **Read routes stay open**: the status page renders for
+anyone on the LAN, `status.json` is served, and the config-sync read
+(`GET /control/test-config`) a new host pulls from a reference host works.
+
+| Route | Gated |
+| --- | --- |
+| `control/start-cycle`, `control/cycle-pause`, `control/cycle-resume`, `control/step-pause`, `control/step-resume`, `control/lab-hold-release`, `control/break-continue`, `control/test-caching-proxy-service`, `control/host-diagnostic`, `control/host-refresh` | always |
+| `control/test-config`, `control/perf-aggregates` | on `POST`/`PUT` -- their read path stays open |
+| `control/runner-status`, `control/control-status`, `control/host-facts` | never -- read-only, and pool services read them |
+
+The browser UI uses the status service's own origin. State-changing control
+requests require `X-Yuruna: 1`; cross-origin browsers must preflight that custom
+header, and the service returns no `Access-Control-Allow-*` grants. This stops a
+foreign page from driving the host. Guest and installer ingestion routes use
+native clients and remain outside this browser guard.
+
+Every response receives `X-Content-Type-Options: nosniff` and a
+`Content-Security-Policy` before route dispatch. Uploaded diagnostics, guest-chosen
+file names, and OCR status share an origin with privileged controls, so scripts
+must come from that origin and `frame-ancestors 'none'` prevents clickjacking.
+Inline styles remain permitted for declarative UI attributes; inline scripts do
+not. Keep the common headers at the dispatch boundary so an individual handler
+cannot omit them. The stash UI uses the same script and style restrictions;
+raw artifact responses have a stricter sandbox policy.
+
+<a id="42185271-0003"></a>
+
+## Where the proof comes from
+
+The proof is an HMAC over the shared **internal authentication key** -- the same key that gates the
+aggregator's push-ingest and the cross-host credential fetch, **not a new secret**. The
+token itself never travels in a URL.
+
+When you open a host from the *Yuruna hosts* dashboard, the link goes through the pool
+aggregator on the caching-proxy-service, which mints a proof valid for **15 minutes** and
+hands it to the host page in the URL **fragment** (`#yctl=...`). A fragment never reaches a
+server or an access log; only the page's own JavaScript reads it. The page keeps it in
+`sessionStorage` **for that tab** and presents it as the `X-Yuruna-Control` header on every
+control POST. The host recomputes the HMAC with its own copy of the token and accepts a
+proof whose expiry is no more than **20 minutes** out -- deliberately longer than the mint,
+so a host whose clock trails the proxy still accepts a freshly minted proof. The proof is
+captured once on arrival and never refreshed, so the config page shows a countdown and warns
+before it lapses rather than letting a long edit fail at Save.
+
+A host with **no** internal authentication key is not broken -- it accepts control from loopback only.
+
+The **extension service UIs** are handed the same proof the same way. Opening one from the
+dashboard's *Extension hosts* table goes through `/go/stash`, which mints a proof and leaves
+it in the fragment; the page spends it on `POST /api/unlock-proof` and its actions are
+unlocked without copying the rotating code off a dashboard tile. A service VM normally holds no internal authentication key of its own, so it asks the aggregator
+(`POST /api/v1/control-proof`) whether the proof is genuine -- a verifier, not a mint. No
+proof, or an expired one, and the UI's ordinary Lab token prompt is still there.
+
+The **Pool-control service** presents the same proof when its *Pool Status* column pauses or
+continues every member of a pool at once ([pool-admin.md](pool-admin.md#pool-status--pausing-and-continuing-every-member-at-once)).
+It mints one from its own copy of the token when it has one, and otherwise reads the fragment
+off `/go/host` without following the redirect -- the same proof, obtained as a browser
+obtains it. So the enrollment state that decides whether a host's buttons work also
+decides whether pool-wide control reaches it, and the `reason` table below explains both.
+
+<a id="42185271-0004"></a>
+
+## Enabling remote control on a host
+
+Every host **and** the caching-proxy-service must hold the **same** internal authentication key: a proof
+minted by the proxy can only be verified by a host that shares that key. The key
+originates on the caching-proxy-service -- building the proxy VM mints one automatically
+when the building host has none -- and every other host obtains it by **enrolling with the
+Lab token**. The key itself is never displayed anywhere, and the ordinary paths
+never ask anyone to type it; the one escape hatch that takes it directly
+(`-InternalAuthKey`, for a lab whose aggregator is unreachable) is fed from an
+already-enrolled host's vault.
+
+**1. Read the Lab token off the dashboard.** Open the *Yuruna hosts* dashboard (Grafana on
+the caching-proxy-service) and find the **Lab token** tile at the top left of the summary
+row: a 6-character code -- the one credential an operator ever reads or types. It
+rotates every minute (aggregator
+`-lab-token-rotate`) and a displayed code stays redeemable for about three minutes, so read
+it right before the next step. A tile showing `off` means the aggregator holds no token --
+see item 5 in the 403 table below.
+
+**2. Enroll the host.**
+
+```
+pwsh test/lab/Set-LabToken.ps1 -LabToken <code> -BounceStatusService
+```
+
+The script redeems the code at the aggregator's `POST /api/v1/lab-token` and stores the
+internal authentication key in this host's vault. The reply is **sealed under the code you
+typed**, so only this host can open it: an enrolling host cannot yet verify the proxy's
+TLS certificate (it is signed by the proxy's own CA), and the seal stops anything else on
+the network from answering the exchange and planting a token of its choosing. The exchange
+is audited -- the aggregator logs every attempt with the caller's address, to its journal
+and to Loki -- and per-address throttled. Whoever can **view** the dashboard can enroll a
+host: that is the lab's trust model, and the dashboard and the code rotate together.
+
+The caching-proxy-service is found from this host's configuration
+(`vmStart.cachingProxyIp`, the persisted proxy state, or
+`$env:YURUNA_CACHING_PROXY_SERVICE_IP`). Each is probed on the aggregator port `:9400` and
+the first that answers is used, so a stale address -- the persisted state keeps its last
+value on a host that stopped running a proxy of its own -- is passed over instead of
+consuming the enrollment on a timeout. When none answers, probing continues for up to two
+minutes, so a momentary outage does not cost you a code; a claim that loses its probe is
+replaced with the address that won, so the next run does not pay for it again. When nothing
+answers at all, the script asks for the address (or takes `-CachingProxyService <address>`).
+When this host already has a `test/test.config.yml`, that answer is written to
+`vmStart.cachingProxyIp` and binds the host to this lab's proxy from then on. On a machine
+so new it has no config file yet, the address is used for this enrollment only -- the
+`Sync-HostConfiguration.ps1` run below brings over a config whose `vmStart.cachingProxyIp`
+does the binding.
+
+The script is idempotent -- a lost token, a rebuilt proxy, or a doubtful host state is
+fixed by reading the current code and running it again. It declares the `users.yml` vault
+key, stores the token, and verifies the round-trip through the same lookup the control
+gate performs -- so a key stored under one name and read under another (a silent `403`)
+cannot happen. `-BounceStatusService` restarts the status service so the token takes
+effect immediately instead of at the next cycle; `-WhatIf` previews without touching the
+vault. The vault writes are sub-second; the restart is the slow part (it re-asserts the
+caching-proxy-service port map and waits for the port to answer), so expect tens of
+seconds there. It is bounded: if the restart has not finished in 180 s the script says so
+and leaves it running; the token is stored either way and takes effect at the next cycle.
+
+Bringing a **new** host into the pool? Enroll it first, then sync its config -- the sync
+reads the just-stored token from this host's own vault to fetch credentials:
+
+```
+pwsh test/lab/Set-LabToken.ps1 -LabToken <code> -CachingProxyService <proxy> -BounceStatusService
+pwsh test/lab/Sync-HostConfiguration.ps1 -ReferenceHost <host>
+```
+
+(`Sync-HostConfiguration.ps1 -InternalAuthKey '<raw-key>' -PersistInternalAuthKey` is the
+host-to-host path for a lab whose aggregator is unreachable: it takes the raw key
+from an operator who already holds it and stores it the same way.)
+
+**3. Drive the host from the dashboard.** Open the *Yuruna hosts* dashboard on the
+caching-proxy-service and follow the host's link -- the **Control** cell in the *Pool
+hosts* table, or the timeline's "open host status page" -- both route through the
+aggregator's `/go/host` redirect. Arriving that way is what carries the proof; typing the
+host's URL by hand does not. A **Host ID** cell opens a menu instead of one destination:
+its first entry is that row's full id, GUID-formatted, to read and copy. In *Pool hosts*
+its second entry repeats the host link, so two cells per row carry the proof -- but
+**Control** is still the one that tells you whether control is on offer.
+
+The Pool-control service's own tables link host ids at the same redirect. **Every browser
+link to `/go/*` is plain http, even where the aggregator has a TLS leaf** -- the redirect
+lands on a host's plain-http status page, so https protects nothing the next hop does not
+already carry in clear, while putting a proxy-CA interstitial in front of every host link
+(an operator's browser has no reason to trust that CA). The aggregator answers both
+protocols on the same port, so server-to-server callers keep their TLS. For the same
+reason, cloud-init substitutes a plain-http base into the dashboard, and `goBaseURL` in
+the pool-control daemon downgrades the configured URL before the UI builds a link from it.
+
+**The Control cell answers "is this host enrolled?" before you click.** It reads:
+
+| Cell | Meaning |
+|---|---|
+| **remote** (green) | this host holds the same internal authentication key the proxy mints with, so its control buttons will work |
+| **onsite** (gray) | the host holds no token -- item 3 below |
+| **onsite** (amber) | the host holds a *different* token, or its clock is skewed far enough to expire a fresh proof -- items 4 and 6 |
+| **unknown** | the host has not answered `/control/control-status`; a framework build older than this route does not serve it |
+
+Following the link opens the host's status page in every state -- it is the *control* that
+is withheld, not the view. The cell refreshes on the aggregator's poll (30 s), so a host
+flips to **remote** within about a minute of `Set-LabToken.ps1` finishing -- the same beat
+as the *Lab token* tile above it.
+
+The *Extension hosts* table has no Control cell: its rows include hosts running only an
+extension service, which have no status page to open -- use their *Pool hosts* row when
+they have one.
+
+<a id="42185271-0005"></a>
+
+## Releasing a lab hold
+
+`control/lab-hold-release` is the one control route that ends a state the host
+put itself into. When a lab service that this host had been reaching stops
+answering, the cycle **holds** at its next step boundary and re-probes on backoff
+until the service returns ([failure-schema.md](failure-schema.md#the-lab-health-gate-lab_health_-events)).
+The status page's banner names what it is waiting for.
+
+Nothing has to be done about a hold: a service that comes back releases it, and
+one that does not ends the cycle on its own after the ceiling. The route is for
+the operator who already knows the outage is permanent -- the VM is not being
+rebuilt, it is gone -- and would rather have the cycle fail now than at the end
+of the wait. The gate consumes the request, drops the hold, and lets the step run
+so it fails on its own terms.
+
+It is refused with `409` when no hold is up. A release written against no hold
+would sit on disk and silently end the *next* one -- a hold nobody has looked at
+-- which is the opposite of an operator decision. `control/start-cycle` clears a
+hold as part of its normal un-pause, so restarting the cycle needs no separate
+release.
+
+<a id="42185271-0006"></a>
+
+## What works with no setup
+
+- **The on-host operator** -- `http://localhost:<port>` on the host has full control, before
+  any token exists.
+- **Read-only viewing** from any browser on the LAN.
+- **Unattended cycles** -- the runner never calls the control routes, so pool automation is
+  untouched.
+
+<a id="42185271-0007"></a>
+
+## When a control button returns 403
+
+> `follow guidance at https://yuruna.link/42185271-0007`
+
+In the config editor this reads `Save failed: ...`; the short link lands on this section. The
+underlying condition is always the same: the caller was neither on loopback nor carrying a
+valid control proof.
+
+**Check the dashboard's Control cell first** -- it names most of these conditions *before* a
+click ([Drive the host from the dashboard](#enabling-remote-control-on-a-host) above). Once
+you are looking at a 403, **read the `reason`: it names the precondition that failed**, so
+you can skip straight to the matching item below. The 403 body carries it alongside the
+message, and the status pages render it in place of a bare `HTTP 403`:
+
+| `reason` | Meaning |
+|---|---|
+| `host-token-missing` | This host holds no internal authentication key, so no proof can ever be accepted (item 3). |
+| `proof-missing` | The request carried no proof at all -- usually item 1 or 2. |
+| `proof-expired` | A well-formed proof whose expiry has passed (item 1). |
+| `proof-invalid` | A proof that does not verify against this host's token (item 4). |
+| `verifier-unavailable` | The status service could not load its verifier; check its log. |
+
+1. **Your browser is not on loopback.** Only a genuine loopback address is exempt.
+   Browsing `http://<this-host's-own-LAN-IP>:<port>` **from the host itself is _not_ loopback** --
+   the request arrives from the LAN address, so it needs a proof exactly like a remote caller.
+   This is the usual reason a control action "fails locally too". Use
+   `http://localhost:<port>` for the no-proof path.
+2. **You typed the host URL instead of following the dashboard link.** The proof lives in that
+   tab's `sessionStorage` and is per-origin: arriving on one of the host's addresses and then
+   switching to another loses it. Re-enter through the dashboard host link. A minted proof
+   lasts about 15 minutes.
+3. **The host has no `internal-auth-key` vault entry** (or an empty vault key) -- non-loopback
+   control is refused by design until the host is enrolled. Read the current Lab token off
+   the dashboard and run `pwsh test/lab/Set-LabToken.ps1 -LabToken <code> -BounceStatusService`
+   ([Enabling remote control on a host](#enabling-remote-control-on-a-host) above).
+4. **The host's token does not match the proxy's** -- typically a host enrolled against a
+   proxy since rebuilt with a new token. Re-enroll: read the current Lab token off the
+   dashboard and re-run `Set-LabToken.ps1`.
+5. **The proxy is minting nothing.** The *Lab token* tile shows `off`, and the aggregator
+   holds an empty token -- a proxy built by a version that did not auto-mint one, or a build
+   whose vault store failed (its warning names this). Confirm from the host --
+   `curl -sI '<aggregator>/go/host?host=<hostId>'` shows a `Location:` with **no `#yctl=`
+   fragment**, and `curl -sk -X POST '<aggregator>/ingest'` answers `503 ingest disabled`.
+   Fix by rebuilding the proxy VM (the build mints and stores a token when none exists), or
+   by writing the host's stored value into `/etc/yuruna/internal-auth.key` there. A stale
+   aggregator build shows the same symptom
+   ([caching.md](caching.md#migrating-to-a-replacement-cache-vm)).
+6. **The host clock is skewed** far enough that a fresh proof already looks expired. The
+   acceptance window is held above the mint to absorb ordinary drift, so this means a large
+   offset; fix time sync on the host.
+
+A different message -- `forbidden: missing X-Yuruna request header` -- is the cross-site
+request guard, not the proof: it means a non-browser client (`curl`) called a control route
+without that header.
+
+<a id="42185271-0008"></a>
+
+## Browser refusal notice
+
+A refused control action is surfaced, not swallowed. To a status page's JavaScript a 403
+is a *resolved* fetch, not a network error, so a page that only handles fetch failures
+falls through to its normal reload and the refused click looks like a silent no-op -- which
+is what a remote operator without a proof would see on every button.
+
+The status pages therefore show an explicit notice, and lead with **which precondition
+failed**: the host names it in the 403 body (`reason`, table above), and "open this page
+via the dashboard again" vs "enroll the host first" are different fixes. The notice markup
+is static: each `reason` resolves through a fixed map of prewritten texts in
+[`test/status/yuruna.common.js`](../test/status/yuruna.common.js), so no server-supplied
+text is ever interpolated into the page.
+
+<a id="42185271-0009"></a>
+
+## Pause and resume: the flag-file back-channel
+
+The four pause/resume routes flip one of two flag files, each mirrored into
+`status.json` so the next UI poll flips the banner:
+
+- `control.step-pause` -- `Invoke-Sequence` checks it at every step boundary;
+  the run stops after the running step finishes.
+- `control.cycle-pause` -- `Start-TestRunner` checks it at the cycle boundary;
+  the run stops after the current cycle finishes cleanup.
+
+The parent-side `Write-StatusJson` keeps file and JSON in sync by re-reading
+the flag files on each write. Each flag file carries the moment it was armed,
+mirrored as `stepPausedSinceUtc` / `cyclePausedSinceUtc`, so the banner can
+report a hold's age and not just its existence.
+
+<a id="42185271-000a"></a>
+
+### Which pause to use
+
+The two are not the same tool, and the difference is what keeps running:
+
+| | `control.cycle-pause` ("Pause after cycle") | `control.step-pause` ("Pause after step") |
+|---|---|---|
+| Holds at | the cycle boundary, after cleanup | the next step boundary, and at sequence start |
+| Guests | torn down; nothing is running | **still running**, and still printing |
+| Safe to leave parked | indefinitely | only as long as no guest needs driving |
+| Use it to | stop the lab, walk away, work on the host | freeze a specific guest you are about to inspect |
+
+**A step-pause holds the runner, not the guest.** The gate also fires at
+`[sequence start]` -- which is *after* `New-VM` and `Start-VM` -- so arming a
+pause before a guest's sequence begins parks a machine that is already booting.
+The guest goes on booting, installing and printing for as long as the hold
+lasts, and anything it prints once and never reprints can scroll out of the
+visible console in the meantime. A boot-time confirmation prompt is the sharp
+case: it stays live and still reading input, but its text is gone from the
+screen the resumed step has to read it off, so the step waits out its budget for
+a question that was answered nowhere.
+
+Rules of thumb:
+
+- Reach for cycle-pause unless you specifically need a guest frozen mid-sequence.
+- With a step-pause on a guest still in its boot phase, resume within about a
+  minute, or expect to drive the guest by hand afterward.
+- If a hold ran long and the resumed step is waiting on a prompt, look at the
+  console: a prompt that has scrolled away is still live. Typing the answer into
+  it (`yes` for Ubuntu's autoinstall confirmation) releases the install without a
+  restart.
+- Both ends of every hold are on the event stream as `sequence_paused` /
+  `sequence_resumed`, and a hold released just before a failing step is carried
+  into that step's record as `causeDetail.pauseBeforeStepSeconds`. See
+  [failure-schema.md](failure-schema.md).
+
+<a id="42185271-000b"></a>
+
+## GET /control/runner-status
+
+An always-open read route that reports whether the outer `Start-TestRunner`
+process is alive: `{ running: bool, pid: int|null }`. It reads
+`<track>/runner.pid` (owned by the outer runner) and verifies the PID really is
+the outer runner via two paths:
+
+1. **`<track>/runner.start` sidecar (preferred)** -- holds the outer pwsh's
+   ISO-8601 StartTime, recorded at launch. The route cross-checks it against
+   `Get-Process -Id <pid>`'s live StartTime, so a PID reused by an unrelated
+   process (different StartTime) is rejected without depending on argv
+   visibility. This is what identifies the documented
+   `pwsh ~/git/yuruna/test/Start-TestRunner.ps1` launch from an interactive
+   REPL on macOS/Linux, where argv is just `pwsh` and a cmdline regex
+   false-negatives.
+2. **Cmdline regex (fallback)** -- for older runners without the sidecar and for
+   launches that do carry the script in argv (Windows shortcut,
+   `pwsh -File ...`). Same regex the outer runner uses for its own stale-PID
+   detection at startup.
+
+The UI shows a "Stopped" banner when `running=false` so stale `status.json`
+data is not mistaken for a live runner. The pool aggregator asks every host the
+same question on every poll: the *Pool hosts* Status column reads **runner
+stopped** above every other reading, so a host whose runner is gone stops
+showing its last cycle's green to the whole lab. Only an explicit
+`running=false` counts -- a host predating the route answers `404`, which is not
+evidence of a stopped runner and leaves the cycle status showing.
+
+The answer carries more than `running`. `liveness` is the route's verdict on
+whether the runner is *progressing*, taken from the age of
+`<runtime>/runner.stepHeartbeat` -- the marker the inner runner touches from its
+own runspace at each step boundary -- against the same bound the watchdog
+applies (`testCycle.preambleTimeoutSeconds` while `runner.phase` exists,
+`testCycle.stepTimeoutSeconds` otherwise; the chosen one is echoed as
+`boundSeconds`).
+
+| `liveness` | Meaning |
+| --- | --- |
+| `idle` | No runner is alive. Deliberately not `ok`: with nothing running, nothing can be progressing. |
+| `paused` | The runner has declared a hold -- the pause after a failed cycle, or a pool `configuredState=paused`. No inner runner exists, so the step marker is not a progress signal. |
+| `unknown` | A runner is alive but there is no step marker to age. |
+| `stalled` | The step marker is older than `boundSeconds`. |
+| `slow` | The step marker is past half of `boundSeconds`. |
+| `ok` | Within half of `boundSeconds`. |
+
+`runnerState` reports the runner's own lifecycle state from
+`runner.state.json`, so the `paused` verdict can be checked against it.
+`phase` reports `runner.phase`, which is null outside the inner runner's
+preamble.
+
+**`test/service/Start-StatusService.ps1`.**
+
+Runner-liveness detection for /control/runner-status (the start-cycle worker
+re-reads runner state itself, after its cleanup). Delegates the runner.pid + runner.start
+StartTime identity check (with the cmdline regex fallback) to
+Get-RunnerInstanceState so that logic lives in one tested place; a prior
+occupant classified as anything other than this-process/absent/stale counts
+as running. -QuietErrors routes the check's own diagnostics to the debug
+stream; the default path forwards them to server.err, matching each caller's
+prior behavior.
+
+<a id="42185271-000c"></a>
+
+## GET /control/control-status
+
+An always-open read route that answers "can this host be driven remotely, and by
+whose token?" -- the input behind the dashboard's **Control** column:
+
+```json
+{ "ok": true, "tokenConfigured": true, "tokenTag": "<base64>", "utcNow": "2026-07-29T12:34:56Z",
+  "refresh": { "protocol": 1, "availability": "available", "ceiling": "start-if-stopped",
+               "reason": "", "remote": "missing", "state": "idle" } }
+```
+
+`tokenTag` is `base64(HMAC-SHA256(internal-auth-key, "yuruna-control|tag|v1"))` -- a
+non-secret **name** for the token, not the token and not a hash of it. The aggregator
+derives the same tag from its own copy and compares: equal means a proof it mints will
+verify here, unequal means this host was enrolled against a different (usually rebuilt)
+proxy. Neither end ever discloses the token, and the comparison happens inside the
+aggregator -- the tag is **never** exported to Prometheus, because `/metrics` and the
+dashboard are unauthenticated by design.
+
+Reading the tag does not help forge a proof: a proof signs `yuruna-control|proof|<expiry>`
+and the tag signs a fixed message whose label segment is `tag`, so no expiry can produce
+it. `utcNow` lets the aggregator spot the clock skew of item 6 without minting anything. A
+host holding no token answers `tokenConfigured: false` with an empty tag; a runspace that
+cannot load the verifier answers the same way, so a tag is never published by a host that
+would refuse every proof anyway.
+
+The route is deliberately outside the cross-site request guard and the loopback-or-proof
+gate: it changes nothing, and the aggregator must be able to ask a host it may share no
+token with. That is also why it is a **live** route rather than a field in
+`host.registration.json` -- that record is written once per cycle, so a host enrolled
+between cycles (or one not running cycles at all) would report stale for hours.
+
+`refresh` is the host-refresh capability, kept to a few hundred bytes because the
+aggregator reads this route through a 4096-byte reader and refuses a larger answer:
+
+| Field | Values |
+| --- | --- |
+| `protocol` | `1`. Any other value, and a reply with no `refresh` at all (an older server), means refresh is unavailable. |
+| `availability` | `available` or `unavailable`. The Config page shows its refresh control only for `available`. |
+| `ceiling` | The highest rung above the probe that this host can run (`reclaim`, `start-if-stopped`, ...); empty when unavailable. |
+| `reason` | Empty when available; otherwise why not: `no_qualified_rung`, `protocol_unreadable`, `journal_unreadable`, `unsupported_host`, `capability_unavailable`, or `listener_dependency_missing` (a module the route needs did not load; see `server.err`). |
+| `remote` | Remote-refresh provisioning: `provisioned`, `missing`, `invalid` or `unqualified`. It carries no key material. |
+| `state` | `idle`, `active` (a request is queued or running), `recovery_pending` (restoration is still owed) or `unknown`. |
+
+The capability is recomputed on every request from two small files, with no native
+command; the remote state is cached for 30 seconds.
+
+**`test/service/Start-StatusService.ps1`.**
+
+Read-only and always open -- deliberately NOT in the CSRF lists
+above: it changes nothing, and the pool-aggregator service must be
+able to ask before it holds anything to authenticate with. Answers
+{ tokenConfigured, tokenTag, verifier, utcNow }: the tag is a
+non-secret HMAC naming WHICH internal authentication key this host holds
+(Get-YurunaControlTag), so the aggregator can compare it with the
+token it mints proofs from and tell "enrolled here" from "enrolled
+against a proxy that has since been rebuilt" -- the difference
+between reasons 3 and 4 in docs/control-routes.md, which is
+otherwise invisible until a button 403s. utcNow lets the same
+comparison catch the clock skew that expires a fresh proof.
+See docs/control-routes.md (GET /control/control-status).
+
+<a id="42185271-0011"></a>
+
+## POST /control/host-refresh
+
+Starts a **host refresh**: a bounded repair of a stalled runner or hypervisor that
+restores the services it disrupts and leaves a runner ready. The route only admits the
+request and launches a detached worker (`test/lab/Invoke-HostRefresh.ps1`); it never
+waits for the repair and never holds the repair lock. The same repair is available on
+the host itself as `pwsh test/lab/Invoke-HostRefresh.ps1`.
+
+**Guest VMs can be suspended or restarted** while the hypervisor recovers, so the Config
+page asks for confirmation first, naming the ceiling it will use.
+
+The body is a JSON object of at most 4096 bytes with `Content-Type: application/json`:
+
+| Key | Value |
+| --- | --- |
+| `requestId` | A lowercase UUID (`8-4-4-4-12`). Optional from loopback, where the host mints one. Resending the same id is how a caller retries without starting a second repair. |
+| `tier` | `restart`, the only tier this route accepts. Optional from loopback. |
+| `maxRung` | A rung of Order 0 to 4 (`probe` .. `restart-broker`). Optional from loopback, where it defaults to the advertised `ceiling`. It can only lower what the tier allows. |
+
+Any other key is refused. A key that names a local-only safety switch in any spelling
+-- force, hard stop, the service-VM selections, a config path -- is refused as
+`forbidden_field`; those switches exist only on the host's command line. Duplicate keys
+in any letter case, comments, trailing commas, a byte-order mark and invalid UTF-8 are
+refused as `invalid_json`.
+
+**Two layers of authorization.** The cross-site guard applies first, as on every
+always-gated route: `X-Yuruna: 1`, and for a caller that is not on loopback a valid
+control proof in `X-Yuruna-Control`. That proof never authorizes a repair. A non-loopback
+caller must also send a **refresh proof** in its own header,
+`X-Yuruna-Refresh-Proof: yhr1.<hostId>.<requestId>.<tier>.<maxRung>.<issuedUnix>.<expiryUnix>.<mac>`
+(at most 512 bytes; the MAC is an HMAC-SHA256 over the other fields under this host's
+refresh key). The proof binds this host, this request id, and this tier and ceiling;
+its lifetime is at most 300 seconds, judged with 60 seconds of clock skew either way.
+Only pool-control's `POST /api/host/refresh` mints one; a browser on the LAN holds none,
+so from another machine use pool-control, or the status page on the host itself. Remote
+refresh needs this host's verifier key; see
+[pool-admin.md](pool-admin.md#remote-host-refresh) for provisioning. Refusals answer
+`403` with `code: status.api_host_refresh_authorization_refused` and a `reason` of
+`refresh_remote_unqualified`, `refresh_tier_not_remote`, `refresh_remote_unprovisioned`,
+`refresh_remote_key_invalid`, `refresh_verifier_failed`, `refresh_verifier_unavailable`,
+or `refresh_proof_missing` / `_malformed` / `_version_unsupported` / `_invalid` /
+`_host_mismatch` / `_request_mismatch` / `_policy_mismatch` / `_lifetime_invalid` /
+`_not_yet_valid` / `_expired`. A loopback caller skips both proof checks but still needs
+`X-Yuruna: 1`.
+
+**The body cannot stall the host.** The status service handles one request at a time, so
+the body is read asynchronously while the service keeps answering everything else. It
+must arrive complete within two seconds of the request, however slowly it trickles in;
+at most four bodies are read at once.
+
+Replies (`code` is the catalog key, `error` the sentence in the caller's language,
+`reason` the machine code):
+
+| Status | Body | When |
+| --- | --- | --- |
+| 202 | `{ok:true, requestId, action:"spawned", ceiling, stateUrl}` | Admitted and the worker launched. |
+| 202 | `{ok:true, requestId, action:"already_claimed", ceiling, stateUrl}` | The same request is already being worked on; nothing new was launched. |
+| 200 | `{ok:true, requestId, action:"completed", state, verdict, ceiling, stateUrl}` | A finished request, replayed. `ok` means the record was found: read `verdict`. |
+| 400 | `reason: invalid_json`, `unsupported_field`, `forbidden_field` or `invalid_value`, with `field` | The body failed its schema. |
+| 403 | the cross-site and control-proof shapes above, or a refresh-proof `reason` | Not authorized. |
+| 405 | `code: status.api_post_required_663cc07c`, `Allow: POST` | Not a POST. |
+| 408 | `reason: body_timeout` | The body was not complete within two seconds. Nothing was admitted. |
+| 409 | `reason: busy` with `activeKind` (`host_refresh` or `start_cycle`), `activeRequestId`, `stateUrl` | Another host operation holds the host. |
+| 409 | `reason: request_conflict`, `requestId` | This id was already used with a different tier or ceiling. |
+| 409 | `reason: request_closed`, `requestId`, `state`, `verdict` | This id was refused, expired or abandoned; it is never run again. |
+| 413 | `reason: payload_too_large` | Over 4096 bytes, declared or counted. |
+| 415 | `reason: unsupported_media_type` | Not `application/json`. |
+| 503 | `reason: launcher_failed`, `requestId`, `stateUrl` | The worker could not be launched. The request stays queued; resend the same id. |
+| 503 | `reason: listener_busy`, `Retry-After: 2` | Four bodies are already being read. |
+| 503 | `reason: refresh_unavailable`, `admission_unavailable`, `listener_dependency_missing` or `private_state_unavailable` | The host advertises no refresh, could not record the request, could not load a module, or could not secure its private state. |
+| 500 | `reason: internal_error` | The handler failed; see `server.err`. |
+
+**Progress.** The worker publishes `runtime/host-refresh.state.json` (the `stateUrl`):
+`requestId`, `generation`, `attempt`, `channel`, `phase` (`queued`, `starting`, `claimed`,
+`capturing`, `probing`, `climbing`, `converging`, `reporting`, `terminal`), `state`,
+`heartbeatUtc`, `step {index, count, name, boundMs}`, `remainingBudgetMs`, `reasonCodes`,
+`reportDegraded`, `mutated`, `verdict`, `operatorAction` and `terminalUtc`. It carries no
+path, process id, VM name, command or token. A reader treats the worker as **stale** when
+the server's clock (the response `Date` header) is more than 15 seconds plus the current
+`step.boundMs` plus 10 seconds of skew past `heartbeatUtc`; a long bounded step is
+therefore never called hung. A record for any other `requestId`, or no record yet, means
+"waiting" -- never this request's outcome. Polling needs no proof. The Config page stops
+waiting once no worker can still be running: 18 minutes after the request was accepted
+(a worker's whole budget is 915 seconds plus 60 seconds before admission), or as soon as
+the file shows another request that reached `terminal` after this one was accepted, since
+a second request is admitted only once the first is resolved. It then offers Retry, which
+resends the same `requestId` and shows the host's own answer for it.
+
+<a id="42185271-0012"></a>
+
+## POST /control/start-cycle
+
+The Config page's **Save and start cycle** asks for this after saving `test.config.yml`.
+`POST` or `PUT`, no body. The status service changes nothing itself: it records a
+start-cycle reservation -- refused as `busy` while a host refresh holds the host, so a
+runner a refresh is holding parked is never un-paused from here -- launches the detached
+worker `test/modules/Invoke-StartCycleWorker.ps1`, and answers:
+
+| Status | Body |
+| --- | --- |
+| 202 | `{ok:true, action:"queued", operationId, stateUrl:"/runtime/start-cycle.state.json"}` |
+| 409 | `reason: busy`, `activeKind: host_refresh` or `start_cycle`, `activeRequestId`, `stateUrl` |
+| 503 | `reason: launcher_failed` (the reservation is removed; nothing was changed), `admission_unavailable`, `listener_dependency_missing` or `private_state_unavailable` |
+| 405 | `code: status.api_post_required_663cc07c` |
+
+The worker first takes the host's lifetime repair lock -- the one a host refresh takes --
+and confirms its reservation; a worker that cannot do both writes nothing. Then, in this
+order, it removes `control.cycle-pause`, `control.step-pause` and the lab hold
+(`control.lab-hold`, `lab-hold.json`, `control.lab-hold-release`); rewrites the matching
+`status.json` fields atomically; writes `control.cycle-restart`; runs
+`test/Remove-TestVMFiles.ps1` under a time limit; reads the runner's state again; and
+wakes a live runner through the restart request or starts one that is positively absent.
+A runner whose state it cannot establish is left alone and reported as `runner_unknown`;
+the restart request was already written, so a live runner it could not identify still
+restarts its cycle. The runner started here reuses the options its last recorded launch
+carried. A worker that is missing a dependency, cannot take the lock or cannot confirm its
+reservation changes nothing. Whatever the outcome, the worker clears its reservation before
+it exits; one that could not load the reservation API leaves it to be cleared once the
+worker is gone. A reservation whose launch the status service could not record stays
+until that service exits, and the failure is logged to `server.err`.
+
+Progress is `runtime/start-cycle.state.json`: `operationId`, `generation`, `phase`
+(`waiting_for_lock`, `clearing_controls`, `cleanup`, `deciding`, `completed`),
+`heartbeatUtc`, `stepDeadlineUtc`, `result` (`succeeded`, `incomplete`, `failed`), `action`
+(`spawned`, `restarted`, `not_spawned`) and `reason` (`lock_busy`, `reservation_lost`,
+`busy`, `cleanup_failed`, `cleanup_timeout`, `runner_unknown`, `spawn_failed`,
+`internal_error`). The worker's streams and the runner's stay in the host's private state
+directory, not under `runtime/`.
+
+**`test/service/Start-StatusService.ps1`.**
+
+POST /control/start-cycle once the method and route checks passed: secure
+the private worker directory, reserve the host under the short admission
+lock, launch the detached worker and record the launch. Nothing else is
+written here. A reservation carries a pending launch that names this
+listener, and reservations are cleared by identity, never by age: a
+pending one left behind by a live listener would make every later
+start-cycle and every refresh busy until the listener restarts. So once the
+host is reserved, every way out records started or launch-failed (which
+removes the reservation) in the finally, and a record that does not commit
+is tried once more. A throw still reaches the dispatcher's 500 reply.
+
+<a id="42185271-0013"></a>
+
+## GET /control/host-diagnostic
+
+Runs `automation/Get-SystemDiagnostic.ps1` on the host for the Diagnostics page. The
+diagnostic can take minutes, so it runs in a detached worker
+(`test/modules/Invoke-HostDiagnosticWorker.ps1`), one run at a time, and the route only
+reads that worker's state:
+
+| Status | Body |
+| --- | --- |
+| 200 | `text/plain; charset=utf-8`: the report of a run that finished in the last 15 seconds. A run that failed in that window is served as its failure sentence, with `X-Yuruna-Message-Code`. |
+| 202 | `{ok:true, action:"pending", runId, retryAfterSeconds:3}` with `Retry-After: 3` -- a run is in progress or was just started. |
+| 503 | `reason: launcher_failed`, `listener_dependency_missing` or `private_state_unavailable` |
+
+A caller polls until it gets the report; a burst of requests starts at most one run. The
+report and its state live in the host's private state directory, never under a served
+tree. The stored report is at most 4 MiB of UTF-8, cut with a truncation notice; a
+finished run whose report cannot be sent is answered with its failure sentence
+(`report_too_large` or `report_unavailable`), never with a new run.
+
+<a id="42185271-000d"></a>
+
+## File serving: URL-prefix dispatch and deny-list
+
+The status service's file-serving side dispatches by URL prefix:
+`yuruna-repo/<rel>` maps to the repo working tree (deny-listed),
+`runtime/<name>` to the runtime dir (pids, `status.json`, control flags,
+`ipaddresses.txt`, `caching-proxy-service.txt`, `current-action.json`, `server.err`,
+`yuruna-caching-proxy-service.yml`, `host.uuid`), `log/<name>` to the log dir (HTML
+transcripts, OCR/screenshot debug, failure captures), and anything else to the
+status dir (`index.html`, template, static assets, `perf/`, `extension/`,
+`captures/`, `ssh/`). Each branch pins the resolved path under its mount root
+with a StartsWith check, so traversal such as `runtime/../../../etc/passwd`
+cannot escape. A unified deny-list then applies to every served path, so
+secrets under `status/` (`vault.yml`, `transports.yml`, `events.log`, the SSH
+private key, the caching-proxy-service state file) are blocked regardless of which
+route reached them.
+
+The shared name shapes also refuse generated copies such as `*.snapshot.json`,
+`*.snapshot.*.json`, `*.backup`, `*.bak`, and `*.tmp`. Renaming a secret into its
+parsed snapshot or pre-write backup must not make the same bytes public. Both
+file-serving paths and the cycle archive packer consume this one policy.
+
+Host-refresh private state lives under `$HOME/.yuruna/host-refresh/`, outside every served
+tree. As a second line of defense, the name shapes of that state are denied on every
+route anyway: the `host-refresh/` directory, the request journal, the repair and
+admission locks, critical records (`*.record`, `*.record.prev`), launch handshakes
+(`*.handshake.json`, `*.hop.json`), acknowledgments (`*.ack.json`) and key material
+(`*.key`, `*.credential`). The public progress files `host-refresh.state.json` and
+`start-cycle.state.json` match none of them.
+
+Private SSH keys are refused by file name on every route, wherever they sit: the
+`*-key`, `*_key` and `*.ppk` shapes, plus the `*_rsa`, `*_ecdsa`, `*_ed25519` and
+`*_dsa` suffixes that also cover the OpenSSH default names `id_rsa`, `id_ecdsa`,
+`id_ed25519` and `id_dsa`. A rule keyed on one folder (`status/ssh/`) protects only the keys its
+author remembered, so a project that parks a key in a folder of its own -- a
+hand-off directory its guests download from -- would otherwise publish it to every
+machine that can reach the port. The public halves (`*.pub`), `ca.crt` and the
+hand-off address files (`log/handoff/<vm>.ip.txt`) match none of the shapes and stay
+served. The shapes are a backstop, not a delivery mechanism: a key a guest needs
+should be generated inside that guest, with only the public half crossing to the
+machines that trust it over an authenticated channel such as the harness's SSH
+verbs. The same list guards the `archive/<cycle-folder>.zip` packer, so a key
+that lands in a cycle folder is left out of the download too.
+
+A served path containing a colon is refused outright. NTFS reads a named stream
+through the file name (`name::$DATA` is the file's own bytes), and the canonical
+path keeps that suffix, so the spelling would reach a refused file under a name no
+pattern above matches. No file this service serves has a colon in its name.
+
+`archive/<cycle-folder>.zip` is dispatched *before* this by-prefix step and
+never reaches it: it names a folder to pack rather than a file to serve, and it
+carries its own grammar in place of the StartsWith pin (see below).
+
+**Archived cycles.** On a host with `networkStorage.moveLogsToPoolStorage: true`,
+a finished cycle's local folder is deleted once its copy on the pool share is
+verified -- but every recorded link still names the local URL. So when a `log/...`
+path does not exist locally, the request is re-rooted at
+`<poolStorageLocalPath>/hosts/<hostId>/test-cycles/` and retried once. The mapping
+is not verbatim: the share layout is flat and its leaves are the bare cycle
+identity, so a leading `history.<date>/` segment is dropped and an `.incomplete` /
+`.aborted.<UTC>` suffix is stripped before the lookup. The StartsWith pin and the
+deny-list are then applied against the share root exactly as against the local one,
+and only *this* host's own `hostId` is ever used -- a host can never serve another
+host's archives. Nothing is mounted here: the fallback is skipped unless the mount
+is already present, because the status service never runs `sudo`. The `/log/` root
+index also lists archived cycles (deduplicated against local ones), so the
+directory does not look empty on a move-mode host.
+
+<a id="42185271-000e"></a>
+
+## Short per-cycle links: `/cycle/<number>`
+
+`GET /cycle/004062` redirects (302) to that cycle's HTML transcript. It exists
+because the transcript's real path repeats the cycle folder name twice, and that
+name carries a timestamp and host id -- too long to paste into a message, and
+nothing a reader can recognize. The cycle number is the part an operator reads
+off the runner console or a dashboard row, so it is the part the link uses.
+
+The number is resolved against the log dir at request time: the recent cycles at
+the top level first, then the dated `history.<date>/` rotation buckets, then -- on a
+move-mode host, where the first two see only the running cycle -- the archived
+cycles on the pool share. That
+resolution lets one stable link survive the folder's lifecycle renames
+(`<base>.incomplete` while running, `<base>` on clean close,
+`<base>.aborted.<UTC>` after a crash-recovery sweep) and rotation moving the
+folder later. The redirect is deliberately 302 with `no-store` rather than 301:
+the target moves, so a cached redirect would pin a reader to a path that no
+longer exists. An unknown or rotated-out number answers 404 with a plain-text
+reason; only a 1-6 digit segment matches the route, so nothing else reaches the
+directory lookup.
+
+The outer runner prints one of these per finished cycle, e.g.
+`Cycle 004062 - FAIL: http://192.168.7.101:8080/cycle/004062`.
+
+**`test/service/Start-StatusService.ps1`.**
+
+Short, shareable per-cycle link: /cycle/<number> -> that cycle's
+HTML transcript. The transcript's real path carries the cycle's
+timestamp and host id, which makes it far too long to paste into
+a message; the number is the only part of it an operator reads off
+a console line or a dashboard row. Redirecting rather than serving
+in place keeps the relative links INSIDE the transcript (per-guest
+folders, failure-screen dirs) resolving against the cycle folder.
+
+<a id="42185271-000f"></a>
+
+## Sharing one cycle: `/archive/<cycle-folder>.zip` and `share-cycle.html`
+
+A cycle folder is a tree -- the HTML transcript, the events feed, the host
+diagnostic, a subfolder per guest -- so sending one to a colleague meant picking
+files out of a directory listing one at a time. `GET
+/archive/000724.2026-08-05.01-47-56.<hostId>.zip` packs the whole folder,
+recursively, and serves it as one attachment-dispositioned file named
+`<short host id>.<UTC start>T<UTC time>Z.zip`. Both halves of that name come
+out of the folder, which already carries the host id and the cycle's UTC start.
+
+Zip is the format because of where this file goes: out through a browser
+download and into a mail attachment. Both stages recognize a `.zip` -- download
+reputation checks see a common type, mail scanners can read what is inside it,
+and Windows and macOS open one with nothing installed -- where a gzipped tarball
+is an opaque blob that gets flagged or quarantined unread.
+
+The URL leaf is matched against the cycle-folder grammar rather than sanitized.
+There is exactly one legal form -- one results folder directly under `log/`,
+optionally with the `.incomplete` suffix a running cycle carries -- so anything
+else is a 404 rather than something to clean up, and no path separator survives
+the match. Packing is in-process (`System.IO.Compression`), so the route needs
+no archiver installed on the host, and each file is read with `ReadWrite`
+sharing because a cycle that is still running is being written to while it is
+packed. The archive is written to a temp file under the runtime dir and the
+response serves that, so a pack that fails halfway answers 500 naming the
+failure instead of a truncated download; the temp file is removed in a
+`finally`, so a failed pack leaks nothing.
+
+`HEAD` on the same URL answers whether there is a folder to pack -- the grammar
+match and the folder-exists check, then a 200 with the `Content-Disposition` the
+`GET` would carry -- **without** packing anything. It therefore carries no
+`Content-Length`, which [RFC 9110
+section 9.3.2](https://www.rfc-editor.org/rfc/rfc9110#section-9.3.2) permits: packing a
+whole cycle folder to compute a length no caller reads would double the work for
+a question nobody asked. The share page probes with it before starting a
+download whose outcome it has no way to observe.
+
+An archived cycle is packed from the pool share instead of the log dir, so the
+share page keeps working after the local folder is gone. The zip is still built on
+the host, from a filesystem the host can see, and is not uploaded anywhere.
+
+`share-cycle.html?cycle=<folder>` is the page that drives it -- the folder *leaf*,
+which is what both the archive name and the mail subject are derived from --
+reached from the **Share cycle results** link on the dashboard's cycle timeline
+by way of the aggregator's `/go/cycle-share` (which resolves host and cycle
+exactly as `/go/cycle` does, so the archive can never be a different cycle than
+the one the click would have opened). One button packs the folder and hands it to
+the operator's mail client, with subject `Yuruna Host <short id> at <UTC time>`
+and the body `Yuruna cycle results are attached`. The body says so because the
+fallback below leaves the attaching to the operator: a mail client that reads
+its own draft for that word is the last warning before a message that promises
+a file and carries none.
+
+How it hands it over depends on what the browser offers. `navigator.share` can
+carry the file itself, so where it is available the message arrives with the
+archive attached. It is secure-context gated and the status service speaks plain
+HTTP over the LAN, so on a lab host it is normally absent -- then the archive
+downloads and the page reveals a draft link, subject and body filled in, for the
+operator to click and attach to. `mailto:` cannot carry an attachment ([RFC 6068
+section 5](https://www.rfc-editor.org/rfc/rfc6068#section-5)); that is a property of the
+scheme, not a gap to work around, which is why the fallback asks for one manual
+step instead of appearing to do it.
+
+The draft is a **separate click**, never a navigation fired next to the download.
+WebKit runs an `<a download>` click as an ordinary frame load and only promotes
+it to a download once the response headers arrive -- and this route packs the
+entire folder before writing its first header, so a `mailto:` navigation in that
+same frame lands inside the gap and cancels the still-provisional load: the mail
+client opens and no file is ever saved. Engines with an out-of-frame download
+manager are immune, so a single-gesture hand-over is a race one browser loses
+silently while the rest win by construction. Two gestures have no such gap, and
+for the same reason nothing is clicked on the operator's behalf once the user
+activation is spent -- after a `navigator.share` attempt, both links are offered
+rather than triggered, because a synthetic download click with no activation
+behind it is refused without a word.
+
+The route is open, like the file tree it archives: every byte in that archive is
+already readable file by file from the same server, so gating the convenient
+form of a read that is otherwise ungated would only be theater.
+
+<a id="42185271-0010"></a>
+
+## See also
+
+- [pool-admin.md](pool-admin.md) -- running a pool and the *Yuruna hosts* dashboard.
+- [pool-storage.md](pool-storage.md) -- the `internal-auth-key`-gated credential fetch used
+  when syncing a new host's config.
+- [caching.md](caching.md#caching-proxy-service--test-harness-operator-reference) -- the caching-proxy-service VM that hosts Grafana and the
+  pool-aggregator service.
+- [test-config.md](test-config.md) -- the host-side config keys, including the vault.
+
+---
+
+LICENSEURI https://yuruna.link/license
+
+Copyright (c) 2019-2026 by Alisson Sol et al.
+
+Last review: 2026.10.14
+
+Back to [Yuruna](../README.md)

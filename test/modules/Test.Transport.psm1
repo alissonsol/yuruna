@@ -1,0 +1,1582 @@
+<#PSScriptInfo
+.VERSION 2026.10.14
+.GUID 426cd98f-b5bd-4102-91d1-1cc3b6887155
+.AUTHOR Alisson Sol et al.
+.COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
+.TAGS
+.LICENSEURI https://yuruna.link/license
+.PROJECTURI https://yuruna.com
+.ICONURI
+.EXTERNALMODULEDEPENDENCIES
+.REQUIREDSCRIPTS
+.EXTERNALSCRIPTDEPENDENCIES
+.RELEASENOTES
+.PRIVATEDATA
+#>
+
+#requires -version 7
+
+# Per-host I/O backends consumed by Test.HostIO's registry.
+# Backend inventory and registry contract: https://yuruna.link/4222e5f2
+Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
+$script:DefaultCharDelayMs = 10
+# QEMU schedules a delay after every key down/up. A 1ms pulse consumes
+# at most 4ms for a shifted chord; this floor leaves time for its release.
+$script:KvmMinimumCharDelayMs = 10
+# See https://yuruna.link/4222e5f2-0005
+# Allow a typed field to settle before the next key or screenshot.
+$script:DefaultSettleMs    = 200
+$script:DefaultVncPort     = 5900
+# --- REGION: Hyper-V text batching default
+# See https://yuruna.link/4222e5f2-0005
+# ARM64 needs per-character sends; AMD64 defaults to batching.
+# vmCommunication.batchedTextSend overrides either default.
+$script:DefaultBatchedTextSend =
+    -not ($IsWindows -and [System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture -eq [System.Runtime.InteropServices.Architecture]::Arm64)
+$script:TransportConfigLastRefreshUtc = [DateTime]::MinValue
+# 1-second floor between refreshes. A step boundary is the natural
+# trigger (and step boundaries are >= 1 s apart in normal cycles), so
+# this throttles intra-step thrash without delaying inter-step pickup.
+$script:TransportConfigRefreshMinSeconds = 1.0
+
+Import-Module (Join-Path $PSScriptRoot 'Test.Config.psm1') -Global -Force
+
+function Update-TransportDefault {
+    <#
+    .SYNOPSIS
+        Refresh transport-layer defaults from test.config.yml at most
+        once per step boundary.
+    .DESCRIPTION
+        Module-load callers and step-boundary callers both go through
+        this function. The mtime-keyed cache in Read-TestConfig and the
+        $script:TransportConfigRefreshMinSeconds throttle below keep the
+        cost flat regardless of how many -Force imports a step issues.
+        Race-tolerant: a mid-write file that parses to $null is retried
+        once after 250 ms, then falls through to the prior in-memory
+        defaults rather than failing the module load.
+
+        The throttle check sits ABOVE the `-Force` shortcut. A -Force
+        re-import of Test.Transport itself re-runs the module body and
+        calls into here -- if -Force bypassed the throttle, every
+        cross-module -Force import would re-parse test.config.yml,
+        exactly the case the throttle was designed to defeat. -Force
+        only takes effect when `$script:TransportConfigLastRefreshUtc`
+        is at its initial MinValue (the genuine first load).
+    #>
+    [CmdletBinding()]
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions',
+        '', Justification = 'Idempotent mtime-cached read; the only state change is two module-scoped defaults.')]
+    param([switch]$Force)
+    $now = [DateTime]::UtcNow
+    $isFirstLoad = ($script:TransportConfigLastRefreshUtc -eq [DateTime]::MinValue)
+    if (-not $isFirstLoad) {
+        $elapsed = ($now - $script:TransportConfigLastRefreshUtc).TotalSeconds
+        if (-not $Force -and $elapsed -lt $script:TransportConfigRefreshMinSeconds) { return }
+    }
+    # YURUNA_CONFIG_PATH wins over the in-tree template guess so an
+    # operator running with `-ConfigPath <elsewhere>` sees their edits
+    # to vmCommunication.* take effect mid-cycle (matches the contract
+    # Sync-RuntimeConfig honors for testCycle.stopOnFailure).
+    $cfgPath = if ($env:YURUNA_CONFIG_PATH) { $env:YURUNA_CONFIG_PATH } `
+               else { Join-Path (Split-Path -Parent $PSScriptRoot) 'test.config.yml' }
+    $cfg = Read-TestConfig -Path $cfgPath
+    if (-not $cfg) {
+        Start-Sleep -Milliseconds 250
+        $cfg = Read-TestConfig -Path $cfgPath -NoCache
+    }
+    if ($cfg) {
+        $comm = $cfg.vmCommunication
+        if ($null -ne $comm.charDelayMs) { $script:DefaultCharDelayMs = [int]$comm.charDelayMs }
+        if ($comm.vncPort)          { $script:DefaultVncPort     = [int]$comm.vncPort }
+        if ($null -ne $comm.settleMs) { $script:DefaultSettleMs   = [int]$comm.settleMs }
+        if ($null -ne $comm.batchedTextSend) { $script:DefaultBatchedTextSend = [bool]$comm.batchedTextSend }
+    }
+    $script:TransportConfigLastRefreshUtc = $now
+}
+
+# Initial load: no -Force needed -- the throttle detects the first load
+# via $TransportConfigLastRefreshUtc == MinValue.
+Update-TransportDefault
+# --- REGION: Key code maps (owned by Test.KeyCodeRegistry)
+# The Get-KeyCodeMap accessor returns a reference, so the $script:*
+# aliases below stay zero-copy -- existing Send-Key / Send-Text callers
+# read the same backing dictionaries they always have.
+
+Import-Module (Join-Path $PSScriptRoot 'Test.KeyCodeRegistry.psm1') -Force -DisableNameChecking -Global
+
+$script:UTMKeyMap       = Get-KeyCodeMap -Kind 'UTM-Named'
+$script:MacCharKeyCodes = Get-KeyCodeMap -Kind 'UTM-Char'
+
+# --- REGION: Cached Hyper-V keyboard (reused across steps)
+$script:CachedKb = $null
+$script:CachedKbVM = $null
+
+function Get-HyperVKeyboard {
+    <#
+    .SYNOPSIS
+        Resolve (and cache) the Msvm_Keyboard WMI instance for $VMName.
+    .DESCRIPTION
+        Send-KeyHyperV / Send-TextHyperV invoke TypeScancodes against
+        this object many times per step. Lookups go through WMI so we
+        cache the last resolved instance to avoid the per-call WMI hit;
+        cache key is $VMName so switching VMs invalidates correctly.
+
+        The name is not enough on its own. Hyper-V re-creates a VM's
+        Msvm_Keyboard association when the guest reboots, and the VM keeps
+        its name across that, so a cached instance can name a live VM and
+        still address a device that no longer exists. Nothing about the key
+        can detect it -- only a delivery that fails can -- which is why
+        Clear-HyperVKeyboard is the other half of this cache and every
+        failed send calls it.
+    #>
+    param([string]$VMName)
+    if ($script:CachedKbVM -eq $VMName -and $script:CachedKb) { return $script:CachedKb }
+    $vmObj = Get-CimInstance -Namespace root\virtualization\v2 `
+        -ClassName Msvm_ComputerSystem -Filter "ElementName='$VMName'"
+    if (-not $vmObj) { Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_dd744e72c77d8987' -Arguments @{ vMName = "$VMName" }); return $null }
+    $kb = Get-CimAssociatedInstance -InputObject $vmObj -ResultClassName Msvm_Keyboard
+    if (-not $kb) { Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_379da0dde8e4bbe3' -Arguments @{ vMName = "$VMName" }); return $null }
+    $script:CachedKb = $kb
+    $script:CachedKbVM = $VMName
+    return $kb
+}
+
+function Clear-HyperVKeyboard {
+    <#
+    .SYNOPSIS
+        Drop the cached Msvm_Keyboard instance so the next send re-resolves.
+    .DESCRIPTION
+        A stale handle fails every send made through it, and the cache would
+        hand the same dead instance to each retry -- so a transport that one
+        re-resolve would have fixed presents as a guest that cannot be typed
+        into at all. Dropping the entry is the whole repair: the next
+        Get-HyperVKeyboard pays one WMI lookup and returns the instance for
+        the VM as it exists now.
+
+        Cheap enough to call on any failed delivery. The only cost of
+        clearing an entry that was in fact healthy is that one lookup.
+    #>
+    [CmdletBinding()]
+    [OutputType([void])]
+    param()
+    $script:CachedKb = $null
+    $script:CachedKbVM = $null
+}
+
+$script:PS2ScanCodes  = Get-KeyCodeMap -Kind 'PS2-Named'
+$script:CharScanCodes = Get-KeyCodeMap -Kind 'PS2-Char'
+
+# --- REGION: VNC (RFB) keystroke transport
+# Sends keystrokes directly to the VM's virtual display via the VNC/RFB
+# protocol, bypassing the macOS GUI entirely -- no window focus required.
+# Used for QEMU-backend UTM VMs with a built-in VNC server enabled
+# (via AdditionalArguments: -vnc localhost:0 in the plist). VMs without
+# a VNC server fall back to the AppleScript/CGEvent path in Send-TextUTM.
+
+$script:X11KeySyms     = Get-KeyCodeMap -Kind 'X11-Named'
+$script:X11CharKeySyms = Get-KeyCodeMap -Kind 'X11-Char'
+
+# Modifier chords ('CtrlU', 'CtrlC') resolve from a separate map family: the
+# -Named maps hold one scalar code per name and are dereferenced as scalars
+# everywhere, so a chord cannot live there. Each Send-Key* backend checks its
+# chord map first and falls through to its named map, which keeps a chord
+# name from being mistaken for an unknown key.
+$script:UtmChords = Get-KeyCodeMap -Kind 'UTM-Chord'
+$script:Ps2Chords = Get-KeyCodeMap -Kind 'PS2-Chord'
+$script:X11Chords = Get-KeyCodeMap -Kind 'X11-Chord'
+
+# --- REGION: Cached VNC connection (reused across steps within a sequence)
+$script:CachedVnc   = $null
+$script:CachedVncVM = $null
+
+function Read-VncBuffer {
+    <#
+    .SYNOPSIS
+        Blocking read of exactly $Count bytes from $Stream.
+    .DESCRIPTION
+        RFB framing is fixed-size per message; Stream.Read may return
+        a short read so we loop until we have the full count or the
+        connection drops (in which case we throw).
+    #>
+    param([System.IO.Stream]$Stream, [int]$Count, [DateTime]$Deadline = [DateTime]::MaxValue)
+    $buf = [byte[]]::new($Count)
+    $offset = 0
+    while ($offset -lt $Count) {
+        # Bound the WHOLE multi-read handshake by wall-clock: the socket's
+        # per-read ReceiveTimeout does not cap a server that trickles bytes just
+        # under the timeout across many partial reads, so check the deadline
+        # before each blocking Read (each Read still returns within ReceiveTimeout).
+        if ([DateTime]::UtcNow -gt $Deadline) { throw "VNC read exceeded the handshake deadline" }
+        $n = $Stream.Read($buf, $offset, $Count - $offset)
+        if ($n -eq 0) { throw "VNC connection closed during read" }
+        $offset += $n
+    }
+    return $buf
+}
+
+function Connect-VNC {
+    <#
+    .SYNOPSIS
+        Open (or reuse a cached) RFB 3.8 connection to the VM's VNC server.
+    .DESCRIPTION
+        Resolves the per-VM VNC port (via Get-VncPortForVm so multiple
+        VMs do not collide on 5900), runs the RFB handshake with
+        security type 1 (None), and caches the TcpClient so subsequent
+        Send-KeyVNC / Send-TextVNC calls within the sequence reuse the
+        connection. Returns $null on handshake failure.
+    #>
+    param([string]$VMName, [int]$Port = 0)
+    if ($script:CachedVncVM -eq $VMName -and $script:CachedVnc -and $script:CachedVnc.Connected) {
+        return $script:CachedVnc
+    }
+    # Resolve the per-VM VNC port. Hardcoding 5900 across every VM let the
+    # capture path silently grab whichever QEMU bound it first, so the
+    # producer (config.plist.template) and consumers (this module +
+    # Test.ScreenshotProvider.psm1) all derive the port from the VM name via
+    # Get-VncPortForVm. $script:DefaultVncPort is kept as a last-resort
+    # fallback for callers that don't pass a VMName.
+    if ($Port -le 0) {
+        if ($VMName) {
+            # Get-VncPortForVm lives in host/macos.utm/modules/Yuruna.Host.psm1.
+            # Yuruna.Host imports VM.common, so callers that ran
+            # Initialize-YurunaHost have it; otherwise import directly.
+            if (-not (Get-Command Get-VncPortForVm -ErrorAction SilentlyContinue)) {
+                $repoRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
+                $vmCommon = Join-Path $repoRoot 'host/macos.utm/modules/Yuruna.Host.psm1'
+                if (Test-Path $vmCommon) {
+                    Import-Module $vmCommon -Force -ErrorAction SilentlyContinue -Verbose:$false
+                }
+            }
+            $Port = Get-VncPortForVm -VMName $VMName
+        } else {
+            $Port = $script:DefaultVncPort
+        }
+    }
+    Disconnect-VNC
+    try {
+        $tcp = [System.Net.Sockets.TcpClient]::new()
+        $tcp.ReceiveTimeout = 5000
+        $tcp.SendTimeout    = 5000
+        $tcp.Connect("127.0.0.1", $Port)
+        $stream = $tcp.GetStream()
+
+        # One wall-clock bound for the whole handshake, so the sum of the reads
+        # below cannot exceed it even if each individual read stays under the 5s
+        # per-read ReceiveTimeout.
+        $handshakeDeadline = [DateTime]::UtcNow.AddSeconds(15)
+
+        # --- REGION: RFB 3.8 handshake
+        # Server sends protocol version (12 bytes): "RFB 003.008\n"
+        $verBytes = Read-VncBuffer -Stream $stream -Count 12 -Deadline $handshakeDeadline
+        $serverVersion = [System.Text.Encoding]::ASCII.GetString($verBytes).Trim()
+        Write-Debug "      VNC server version: $serverVersion"
+
+        # Client responds with RFB 003.008
+        $clientVer = [System.Text.Encoding]::ASCII.GetBytes("RFB 003.008`n")
+        $stream.Write($clientVer, 0, 12)
+
+        # Server sends security types: [1 byte count] [count x 1 byte type]
+        $countBuf = Read-VncBuffer -Stream $stream -Count 1 -Deadline $handshakeDeadline
+        $numTypes = [int]$countBuf[0]
+        if ($numTypes -eq 0) {
+            # Server sent an error -- read the reason string
+            $reasonLenBuf = Read-VncBuffer -Stream $stream -Count 4 -Deadline $handshakeDeadline
+            [Array]::Reverse($reasonLenBuf)
+            $reasonLen = [BitConverter]::ToInt32($reasonLenBuf, 0)
+            $reasonBuf = Read-VncBuffer -Stream $stream -Count $reasonLen -Deadline $handshakeDeadline
+            $reason = [System.Text.Encoding]::ASCII.GetString($reasonBuf)
+            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_349253076fe1fc58' -Arguments @{ reason = "$reason" })
+            $tcp.Dispose()
+            return $null
+        }
+        $typesBuf = Read-VncBuffer -Stream $stream -Count $numTypes -Deadline $handshakeDeadline
+
+        # Select security type 1 (None) -- safe for localhost-only VNC
+        if ($typesBuf -notcontains 1) {
+            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_f86abecc06705e79' -Arguments @{ join = "$($typesBuf -join ', ')" })
+            $tcp.Dispose()
+            return $null
+        }
+        $stream.WriteByte(1)
+
+        # RFB 3.8: read SecurityResult (4 bytes big-endian, 0 = OK)
+        $resultBuf = Read-VncBuffer -Stream $stream -Count 4 -Deadline $handshakeDeadline
+        [Array]::Reverse($resultBuf)
+        $secResult = [BitConverter]::ToInt32($resultBuf, 0)
+        if ($secResult -ne 0) {
+            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_98e81bbf07a81ccd' -Arguments @{ secResult = "$secResult" })
+            $tcp.Dispose()
+            return $null
+        }
+
+        # ClientInit: shared flag = 1 (allow other clients)
+        $stream.WriteByte(1)
+
+        # ServerInit: 2 (width) + 2 (height) + 16 (pixel format) + 4 (name len) = 24 fixed bytes
+        $initBuf = Read-VncBuffer -Stream $stream -Count 24 -Deadline $handshakeDeadline
+        $nameLenBytes = $initBuf[20..23]
+        [Array]::Reverse($nameLenBytes)
+        $nameLen = [BitConverter]::ToInt32($nameLenBytes, 0)
+        if ($nameLen -gt 0) {
+            $nameBuf = Read-VncBuffer -Stream $stream -Count $nameLen -Deadline $handshakeDeadline
+            Write-Debug "      VNC desktop: $([System.Text.Encoding]::UTF8.GetString($nameBuf))"
+        }
+
+        Write-Debug "      VNC connected to $VMName on port $Port"
+        $script:CachedVnc   = $tcp
+        $script:CachedVncVM = $VMName
+        return $tcp
+    } catch {
+        Write-Debug "      VNC connection to port $Port failed: $_"
+        if ($tcp) { try { $tcp.Dispose() } catch { Write-Debug "      VNC dispose error: $_" } }
+        return $null
+    }
+}
+
+function Disconnect-VNC {
+    <#
+    .SYNOPSIS
+        Close and discard the cached VNC connection (if any).
+    .DESCRIPTION
+        Called from Connect-VNC before opening a new handle and from
+        Repair-VncConnection to force the next Send-Key/Send-Text VNC
+        call to re-handshake. Errors are swallowed -- the cache is
+        cleared either way.
+    #>
+    if ($script:CachedVnc) {
+        try { $script:CachedVnc.Dispose() } catch { Write-Debug "      VNC disconnect error: $_" }
+        $script:CachedVnc   = $null
+        $script:CachedVncVM = $null
+    }
+}
+
+function Send-VncKeyEvent {
+    <#
+    .SYNOPSIS
+        Write a single RFB KeyEvent message (press or release).
+    .DESCRIPTION
+        Packs the 8-byte KeyEvent (type=4, down-flag, padding, big-
+        endian X11 keysym) and writes it directly to $Client's stream.
+        Caller manages press/release pairing and shift sequencing.
+    #>
+    param([System.Net.Sockets.TcpClient]$Client, [int]$KeySym, [bool]$Down)
+    # RFB KeyEvent message (8 bytes):
+    # [1: type=4] [1: down-flag] [2: padding] [4: X11 keysym big-endian]
+    $msg = [byte[]]::new(8)
+    $msg[0] = 4
+    $msg[1] = if ($Down) { 1 } else { 0 }
+    $msg[4] = [byte](($KeySym -shr 24) -band 0xFF)
+    $msg[5] = [byte](($KeySym -shr 16) -band 0xFF)
+    $msg[6] = [byte](($KeySym -shr 8)  -band 0xFF)
+    $msg[7] = [byte]($KeySym -band 0xFF)
+    $Client.GetStream().Write($msg, 0, 8)
+}
+
+function Send-KeyVNC {
+    <#
+    .SYNOPSIS
+        Press + release one named key over the VNC transport.
+    .DESCRIPTION
+        Resolves $KeyName via the X11KeySyms map, opens (or reuses)
+        the VNC handle for $VMName, and writes the down/up KeyEvent
+        pair. Returns $false on unknown key or transport failure.
+    #>
+    param([string]$VMName, [string]$KeyName, [int]$Port = 0)
+    # Chord names are checked before the named map so 'CtrlU' is not reported
+    # as an unknown key. A chord holds [modifierKeysym, baseKeysym]; the
+    # modifier must be held DOWN across the base key's press and release or
+    # the guest's tty sees a bare 'u' instead of the VKILL control code.
+    $chord = $script:X11Chords[$KeyName]
+    $keySym = if ($chord) { $null } else { $script:X11KeySyms[$KeyName] }
+    if (-not $chord -and -not $keySym) { Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_920700a319d8346c' -Arguments @{ keyName = "$KeyName" }); return $false }
+    $tcp = Connect-VNC -VMName $VMName -Port $Port
+    if (-not $tcp) { return $false }
+    # Same held-key bookkeeping as Send-TextVNC: an unmatched press leaves
+    # the key auto-repeating in the guest. It matters just as much here --
+    # this is the path that sends the Enter after every typed command.
+    $heldSym    = $null
+    $heldModSym = $null
+    $sendFailed = $false
+    try {
+        if ($chord) {
+            $modSym  = [int]$chord[0]
+            $baseSym = [int]$chord[1]
+            # Same 20ms-down / 10ms-up modifier settle Send-TextVNC uses for
+            # Shift: UTM's QEMU VNC needs the modifier to land before the
+            # base key, and needs it released after.
+            Send-VncKeyEvent -Client $tcp -KeySym $modSym -Down $true
+            $heldModSym = $modSym
+            Start-Sleep -Milliseconds 20
+            $heldSym = $baseSym
+            Send-VncKeyEvent -Client $tcp -KeySym $baseSym -Down $true
+            Send-VncKeyEvent -Client $tcp -KeySym $baseSym -Down $false
+            $heldSym = $null
+            Start-Sleep -Milliseconds 10
+            Send-VncKeyEvent -Client $tcp -KeySym $modSym -Down $false
+            $heldModSym = $null
+            Write-Debug "      VNC chord='$KeyName' mod=0x$($modSym.ToString('X4')) key=0x$($baseSym.ToString('X4'))"
+            return $true
+        }
+        $heldSym = $keySym
+        Send-VncKeyEvent -Client $tcp -KeySym $keySym -Down $true
+        Send-VncKeyEvent -Client $tcp -KeySym $keySym -Down $false
+        $heldSym = $null
+        Write-Debug "      VNC key='$KeyName' sym=0x$($keySym.ToString('X4'))"
+        return $true
+    } catch {
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_22ec2c9b5f0c9a52' -Arguments @{ value = "$_" })
+        $sendFailed = $true
+        return $false
+    } finally {
+        if ($heldSym -or $heldModSym) {
+            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_f998852aad41e2cf')
+            try {
+                if ($heldSym)    { Send-VncKeyEvent -Client $tcp -KeySym $heldSym    -Down $false }
+                if ($heldModSym) { Send-VncKeyEvent -Client $tcp -KeySym $heldModSym -Down $false }
+            } catch {
+                Write-Debug "      VNC key release after interrupted send failed: $_"
+            }
+        }
+        # Ordered after the release so the cached handle is still open for it.
+        if ($sendFailed) { Disconnect-VNC }
+    }
+}
+
+function Send-TextVNC {
+    <#
+    .SYNOPSIS
+        Type $Text into $VMName one char at a time over VNC.
+    .DESCRIPTION
+        Looks each char up in X11CharKeySyms to find its keysym and
+        shifted flag. Emits an explicit LShift press/release around
+        shifted chars because UTM's QEMU VNC does NOT auto-shift from
+        the bare keysym (asterisk arrives as 8 without the shift).
+        Returns $false on transport failure.
+
+        Every press is paired with its release on EVERY exit path (see
+        the finally below): a KeyEvent down that never gets its matching
+        up leaves the key logically held in QEMU, and the guest kernel
+        then auto-repeats it at the console default (~30 chars/sec)
+        forever. That wedges the console for the rest of the run --
+        closing the RFB client does not undo it, because QEMU releases
+        only MODIFIER keys when a client goes away, not ordinary ones.
+    #>
+    param([string]$VMName, [string]$Text, [int]$CharDelayMs = $script:DefaultCharDelayMs,
+          [int]$Port = 0)
+    $tcp = Connect-VNC -VMName $VMName -Port $Port
+    if (-not $tcp) { return $false }
+    Write-Debug "      VNC text send: $($Text.Length) chars, charDelay=${CharDelayMs}ms"
+    # See https://yuruna.link/4213a0b3-0183
+    $shiftSym = $script:X11KeySyms["LShift"]
+    $shiftDownMs = 20
+    $shiftUpMs   = 10
+    # What is pressed right now, so the finally can let go of it.
+    $heldSym    = $null
+    $shiftHeld  = $false
+    $sendFailed = $false
+    try {
+        foreach ($ch in $Text.ToCharArray()) {
+            $entry = $script:X11CharKeySyms["$ch"]
+            if (-not $entry) {
+                Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_400de73dc7d7af50' -Arguments @{ ch = "$ch" })
+                continue
+            }
+            $keySym  = $entry[0]
+            $shifted = $entry[1]
+            if ($shifted) {
+                Send-VncKeyEvent -Client $tcp -KeySym $shiftSym -Down $true
+                $shiftHeld = $true
+                Start-Sleep -Milliseconds $shiftDownMs
+            }
+            $heldSym = $keySym
+            Send-VncKeyEvent -Client $tcp -KeySym $keySym -Down $true
+            Send-VncKeyEvent -Client $tcp -KeySym $keySym -Down $false
+            $heldSym = $null
+            if ($shifted) {
+                Start-Sleep -Milliseconds $shiftUpMs
+                Send-VncKeyEvent -Client $tcp -KeySym $shiftSym -Down $false
+                $shiftHeld = $false
+            }
+            if ($CharDelayMs -gt 0) { Start-Sleep -Milliseconds $CharDelayMs }
+        }
+        Write-Debug "      VNC text send complete"
+        return $true
+    } catch {
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_2d0a11d52e180ee9' -Arguments @{ value = "$_" })
+        $sendFailed = $true
+        return $false
+    } finally {
+        # See https://yuruna.link/4213a0b3-0184
+        if ($heldSym -or $shiftHeld) {
+            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_2eff76aeff36d8bc')
+            try {
+                if ($heldSym)   { Send-VncKeyEvent -Client $tcp -KeySym $heldSym  -Down $false }
+                if ($shiftHeld) { Send-VncKeyEvent -Client $tcp -KeySym $shiftSym -Down $false }
+            } catch {
+                Write-Debug "      VNC key release after interrupted send failed: $_"
+            }
+        }
+        # Ordered after the release so the cached handle is still open for it.
+        if ($sendFailed) { Disconnect-VNC }
+    }
+}
+
+# --- REGION: UTM JXA keyboard transport and AXUI reference helpers
+# The shared JXA preamble below is used by the live UTM key and chord paths.
+# AXUIElementPostKeyboardEvent remains a reference helper only: UTM's SwiftUI
+# display does not route those Accessibility events to the guest keyboard.
+
+$script:UtmJxaRaisePreamble = @'
+ObjC.import('CoreGraphics');
+
+var se = Application('System Events');
+var utm = Application('UTM');
+utm.activate();
+delay(0.3);
+var proc = se.processes['UTM'];
+proc.frontmost = true;
+var wins = proc.windows();
+var found = false;
+for (var i = 0; i < wins.length; i++) {
+    if (wins[i].name().indexOf(__VMNAME__) >= 0) {
+        wins[i].actions['AXRaise'].perform();
+        found = true;
+        break;
+    }
+}
+if (!found) {
+    'window_not_found';
+} else {
+    delay(0.3);
+    var src = $.CGEventSourceCreate(1);  // kCGEventSourceStateHIDSystemState
+
+
+'@
+
+function Invoke-OsaScriptFile {
+    <#
+    .SYNOPSIS
+        Runs temporary macOS automation with a deadline and guaranteed cleanup.
+    .PARAMETER Script
+        The complete automation source.
+    .PARAMETER Language
+        JavaScript or AppleScript.
+    .PARAMETER TimeoutSeconds
+        The wall-clock cap for native execution.
+    #>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param([string]$Script, [ValidateSet('JavaScript', 'AppleScript')][string]$Language = 'JavaScript', [int]$TimeoutSeconds = 120)
+    $temporary = Join-Path ([IO.Path]::GetTempPath()) ('yuruna-osa-' + [IO.Path]::GetRandomFileName())
+    try {
+        [IO.File]::WriteAllText($temporary, $Script, [Text.UTF8Encoding]::new($false))
+        if (-not (Get-Command Invoke-BoundedNativeCommand -ErrorAction SilentlyContinue)) {
+            Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Common.psm1') -Global -Force -Verbose:$false
+        }
+        $probe = Invoke-BoundedNativeCommand -FilePath 'osascript' -ArgumentList @('-l', $Language, $temporary) -TimeoutSeconds $TimeoutSeconds
+        if (-not (Test-BoundedNativeResultComplete -Result $probe) -or $probe.ExitCode -ne 0) {
+            Write-Verbose "osascript did not complete successfully: $($probe.StdErr)"
+            return ''
+        }
+        return $probe.StdOut.Trim()
+    } finally { Remove-Item -LiteralPath $temporary -Force -ErrorAction SilentlyContinue }
+}
+
+function Get-UtmJxaRaisePreamble {
+    <# .SYNOPSIS
+        Inserts a literal JSON window name into the shared UTM raise preamble.
+    .PARAMETER VMName
+        The literal UTM VM name.
+    #>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param([string]$VMName)
+    return $script:UtmJxaRaisePreamble.Replace('__VMNAME__', (ConvertTo-Json -InputObject $VMName -Compress))
+}
+
+function Send-KeyAXUI {
+    <#
+    .SYNOPSIS
+        Press + release one named key via macOS Accessibility (AXUI).
+    .DESCRIPTION
+        Reference implementation only; NOT wired into the dispatcher.
+        UTM's SwiftUI VM display does not route AXUI keyboard events
+        to the virtual machine, so keys silently vanish. Retained in
+        case a future UTM version fixes the routing.
+    #>
+    param([string]$VMName, [string]$KeyName)
+    # VMName is accepted for consistent API with Send-KeyHyperV/Send-KeyUTM;
+    # AXUI targets the UTM app process, not an individual VM.
+    if ($VMName) { Write-Debug "      AXUI: -VMName '$VMName' is informational; AXUI targets the UTM app process." }
+    $code = $script:UTMKeyMap[$KeyName]
+    if (-not $code) { Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_acbc813c9795181e' -Arguments @{ keyName = "$KeyName" }); return $false }
+
+    $jxaScript = @"
+ObjC.import('ApplicationServices');
+var utm = Application('UTM');
+var pid = utm.id();
+var axApp = $.AXUIElementCreateApplication(pid);
+var err1 = $.AXUIElementPostKeyboardEvent(axApp, 0, $code, true);
+delay(0.01);
+var err2 = $.AXUIElementPostKeyboardEvent(axApp, 0, $code, false);
+(err1 === 0 && err2 === 0) ? 'ok' : 'axui_error:' + err1 + ',' + err2;
+"@
+
+    $result = Invoke-OsaScriptFile -Script $jxaScript -Language JavaScript
+    Write-Debug "      AXUI key='$KeyName' code=$code result=$result"
+    return ("$result" -eq "ok")
+}
+
+function Send-TextAXUI {
+    <#
+    .SYNOPSIS
+        Type $Text via macOS Accessibility (AXUI) batched in one JXA call.
+    .DESCRIPTION
+        Reference implementation only; NOT wired into the dispatcher
+        for the same reason as Send-KeyAXUI -- UTM's SwiftUI display
+        does not route AXUI keyboard events to the guest. Retained for
+        symmetry with the active Send-TextUTM path.
+    #>
+    param([string]$VMName, [string]$Text, [int]$CharDelayMs = $script:DefaultCharDelayMs)
+    $delaySeconds = [math]::Max(0.02, $CharDelayMs / 1000.0)
+
+    # VMName is accepted for consistent API with Send-TextHyperV/Send-TextUTM;
+    # AXUI targets the UTM app process, not an individual VM.
+    Write-Debug "      AXUI text send: vm='$VMName' $($Text.Length) chars, charDelay=${CharDelayMs}ms"
+    $charIndex = 0
+    $keyCalls = [System.Text.StringBuilder]::new()
+    foreach ($ch in $Text.ToCharArray()) {
+        $entry = $script:MacCharKeyCodes["$ch"]
+        if (-not $entry) {
+            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_99c028f32f58e097' -Arguments @{ ch = "$ch"; charIndex = "$charIndex" })
+            $charIndex++
+            continue
+        }
+        $kc = $entry[0]
+        $shifted = $entry[1] ? "true" : "false"
+        [void]$keyCalls.AppendLine("    sendKey($kc, $shifted);")
+        $charIndex++
+    }
+
+    $jxaTemplate = @'
+ObjC.import('ApplicationServices');
+var utm = Application('UTM');
+var pid = utm.id();
+var axApp = $.AXUIElementCreateApplication(pid);
+var kShiftKeyCode = 56;
+
+function sendKey(keyCode, shift) {
+    if (shift) {
+        $.AXUIElementPostKeyboardEvent(axApp, 0, kShiftKeyCode, true);
+        delay(0.02);
+    }
+    $.AXUIElementPostKeyboardEvent(axApp, 0, keyCode, true);
+    delay(0.01);
+    $.AXUIElementPostKeyboardEvent(axApp, 0, keyCode, false);
+    if (shift) {
+        delay(0.02);
+        $.AXUIElementPostKeyboardEvent(axApp, 0, kShiftKeyCode, false);
+    }
+    delay(__DELAY__);
+}
+__KEYCALLS__
+'ok';
+'@
+
+    $jxaScript = $jxaTemplate -replace '__DELAY__', $delaySeconds `
+                              -replace '__KEYCALLS__', $keyCalls.ToString()
+
+    $result = Invoke-OsaScriptFile -Script $jxaScript -Language JavaScript
+    Write-Debug "      AXUI text: $result"
+    return ("$result" -eq "ok")
+}
+
+# --- REGION: Hyper-V keystroke transport: scan codes over the synthetic keyboard
+function Send-ScanCode {
+    <#
+    .SYNOPSIS
+        Invoke the Hyper-V Msvm_Keyboard TypeScancodes WMI method.
+    .DESCRIPTION
+        Thin wrapper around Invoke-CimMethod so the Send-Key/Text/Click
+        Hyper-V paths share one call shape. Returns $true on
+        ReturnValue=0 (success); WMI errors surface to the caller.
+
+        A non-zero ReturnValue is printed, not swallowed. The two codes
+        this refuses on mean different things and demand different
+        repairs: 32769 is an access denial (the caller is not elevated, or
+        is not the session that owns the VM), while 32775 -- "invalid
+        state" -- says the handle just used addresses no live keyboard.
+        That has two causes, and dropping the cache below covers only one
+        of them: the instance may belong to a previous boot, OR the guest
+        may have no driver attached to the synthetic keyboard's VMBus
+        channel at all. The second is the steady state for a guest OS with
+        no Hyper-V VMBus drivers -- firmware and the boot loader take
+        injected keys, and every key after the kernel takes over is
+        refused -- and no amount of re-resolving reaches it. Collapsing
+        both codes to $false leaves the transcript with an unexplained
+        "pressKey returned false" and no way to tell an elevation problem
+        from a stale handle from a guest that can never accept keystrokes.
+    #>
+    param($Keyboard, [byte[]]$Codes)
+    # Both failure shapes drop the cached handle. A guest reboot re-creates the
+    # keyboard device while the VM name stays the same, so the cache cannot tell
+    # a live instance from one belonging to a previous boot -- a send that did
+    # not land is the only evidence available, and it arrives either as a WMI
+    # throw or as a non-zero ReturnValue. Keeping the entry after either turns
+    # one stale handle into every later keystroke failing the same way, which
+    # outlasts any retry built on top of this.
+    try {
+        $r = Invoke-CimMethod -InputObject $Keyboard -MethodName "TypeScancodes" -Arguments @{Scancodes=$Codes}
+    } catch {
+        Clear-HyperVKeyboard
+        throw
+    }
+    if ($r.ReturnValue -ne 0) {
+        $hint = switch ([int]$r.ReturnValue) {
+            32769   { (Format-YurunaOperatorMessage -Key 'runner.operator_09864de73849237f') }
+            32775   { (Format-YurunaOperatorMessage -Key 'runner.operator_f120f95a3c42b9cd') }
+            default { (Format-YurunaOperatorMessage -Key 'runner.operator_8d1586470c60f1fb') }
+        }
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_a429fea2cd6d1dab' -Arguments @{ returnValue = "$($r.ReturnValue)"; hint = "$hint" })
+        Clear-HyperVKeyboard
+        return $false
+    }
+    return $true
+}
+
+
+function Send-KeyHyperV {
+    <#
+    .SYNOPSIS
+        Send one PS/2 make + break for $KeyName to a Hyper-V VM.
+    .DESCRIPTION
+        Resolves $KeyName via PS2ScanCodes, then writes the make code
+        followed by `code | 0x80` (break) through Send-ScanCode. No
+        modifier-reset prefix -- see Send-TextHyperV for that.
+    #>
+    param([string]$VMName, [string]$KeyName)
+    # Chord names resolve first: 'CtrlU' is not in the scalar named map and
+    # would otherwise be rejected as unknown.
+    $chord = $script:Ps2Chords[$KeyName]
+    $scanCode = if ($chord) { $null } else { $script:PS2ScanCodes[$KeyName] }
+    if (-not $chord -and -not $scanCode) { Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_b45972989e70af37' -Arguments @{ keyName = "$KeyName" }); return $false }
+    $kb = Get-HyperVKeyboard -VMName $VMName
+    if (-not $kb) { return $false }
+    try {
+        if ($chord) {
+            # Modifier make, base make, base break, modifier break -- the
+            # modifier's break MUST be last so the PS/2 controller's flat
+            # per-code "is down" state does not leave Ctrl latched into the
+            # next keystroke (the same latching Send-TextHyperV's release
+            # prefix defends against).
+            $modMake  = [byte]$chord[0]
+            $baseMake = [byte]$chord[1]
+            [byte[]]$chordCodes = @(
+                $modMake,
+                $baseMake,
+                [byte]($baseMake -bor 0x80),
+                [byte]($modMake -bor 0x80)
+            )
+            $chordOk = Send-ScanCode -Keyboard $kb -Codes $chordCodes
+            Write-Debug "      TypeScancodes chord='$KeyName' mod=0x$($modMake.ToString('X2')) key=0x$($baseMake.ToString('X2')) ok=$chordOk"
+            return $chordOk
+        }
+        # Send make + break (press + release) as raw PS/2 scan codes
+        [byte[]]$codes = @([byte]$scanCode, [byte]($scanCode -bor 0x80))
+        $ok = Send-ScanCode -Keyboard $kb -Codes $codes
+        Write-Debug "      TypeScancodes key='$KeyName' scan=0x$($scanCode.ToString('X2')) ok=$ok"
+        return $ok
+    } catch {
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_7dbb92d8228f60e2' -Arguments @{ value = "$_" })
+        return $false
+    }
+}
+
+# --- REGION: UTM keystroke transport: AppleScript chords + JXA/CGEvent text
+function Send-ChordUTM {
+    <#
+    .SYNOPSIS
+        Press one named modifier chord (e.g. CtrlU) in a UTM VM via JXA
+        CGEvent posting.
+    .DESCRIPTION
+        Chords go through CGEvent rather than AppleScript's
+        `key code ... using control down`: the System Events keystroke
+        buffer has a documented double-fire mode when chained after a
+        Send-Text run (see Send-KeyUTM), and a duplicated Ctrl-C is a
+        second interrupt delivered to whatever the guest started next.
+
+        The event shape mirrors Send-TextUTM's shifted-character branch:
+        modifier down (flagged), base key down/up (flagged), modifier up
+        UNFLAGGED so the global HID modifier state clears for the next
+        key. The delays match that branch because those are the values
+        that tested clean against UTM's guest input path.
+    .PARAMETER VMName
+        UTM VM whose window is raised before the chord is posted.
+    .PARAMETER KeyName
+        Chord name resolved through the UTM-Chord key map.
+    #>
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param([Parameter(Mandatory)][string]$VMName, [Parameter(Mandatory)][string]$KeyName)
+    $chord = $script:UtmChords[$KeyName]
+    if (-not $chord) { Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_052af545ee232755' -Arguments @{ keyName = "$KeyName" }); return $false }
+    $modCode  = [int]$chord[0]
+    $baseCode = [int]$chord[1]
+    $modFlag  = [int]$chord[2]
+
+    # Get-UtmJxaRaisePreamble escapes the VM name for JavaScript. Replace()
+    # inserts only integer keycodes and never interprets $& or $1 as captures.
+    $jxaTemplate = (Get-UtmJxaRaisePreamble -VMName $VMName) + "`n" + @'
+    function sendChord(modKeyCode, modFlag, keyCode) {
+        var modDn = $.CGEventCreateKeyboardEvent(src, modKeyCode, true);
+        $.CGEventSetFlags(modDn, modFlag);
+        $.CGEventPost(0, modDn);
+        delay(0.08);
+
+        var down = $.CGEventCreateKeyboardEvent(src, keyCode, true);
+        $.CGEventSetFlags(down, modFlag);
+        $.CGEventPost(0, down);
+        delay(0.02);
+        var up = $.CGEventCreateKeyboardEvent(src, keyCode, false);
+        $.CGEventSetFlags(up, modFlag);
+        $.CGEventPost(0, up);
+        delay(0.06);
+
+        // Release the modifier with no flag set so the HID-system source
+        // clears the held state for whatever key is posted next.
+        var modUp = $.CGEventCreateKeyboardEvent(src, modKeyCode, false);
+        $.CGEventPost(0, modUp);
+        delay(0.02);
+    }
+    sendChord(__MODCODE__, __MODFLAG__, __BASECODE__);
+    // Final drain: the macOS event queue needs time to deliver the last
+    // CGEvent to the guest before osascript exits. Without it the modifier
+    // release is the event that gets lost, leaving Ctrl latched.
+    delay(0.3);
+    'ok';
+}
+'@
+    $jxaScript = $jxaTemplate.Replace('__MODCODE__', [string]$modCode).Replace('__MODFLAG__', [string]$modFlag).Replace('__BASECODE__', [string]$baseCode)
+
+    $result = Invoke-OsaScriptFile -Script $jxaScript -Language JavaScript
+    Write-Debug "      JXA CGEvent chord='$KeyName': $result"
+    return ("$result" -eq "ok")
+}
+
+function Send-KeyUTM {
+    <#
+    .SYNOPSIS
+        Press one named key in a UTM VM via AppleScript `key code`.
+    .DESCRIPTION
+        Uses `key code` for every key (including Enter, code 36):
+        `keystroke return` for Enter sometimes fired twice when chained
+        after Send-Text left the System Events keystroke buffer warm --
+        submitting an empty password and bouncing the guest back to the
+        login prompt.
+    #>
+    param([string]$VMName, [string]$KeyName)
+    # Modifier chords need a held modifier around the base key, which
+    # `key code` alone cannot express; they take the CGEvent path instead.
+    if ($script:UtmChords[$KeyName]) {
+        return (Send-ChordUTM -VMName $VMName -KeyName $KeyName)
+    }
+    $code = $script:UTMKeyMap[$KeyName]
+    if (-not $code) { Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_21ed4ccad135bc84' -Arguments @{ keyName = "$KeyName" }); return $false }
+    # Use `key code` for everything (including Enter, code 36). The
+    # `keystroke return` form for Enter sometimes fired twice when chained
+    # after a Send-Text run that left System Events' keystroke buffer warm --
+    # which submitted an empty password and bounced the guest back to the
+    # login prompt. `key code 36` is one synchronous event, no buffering.
+    $keyAction = "key code $code"
+    $safeVMName = $VMName -replace '\\', '\\\\' -replace '"', '\\"'
+    $appleScript = @"
+tell application "UTM" to activate
+delay 0.5
+tell application "System Events"
+    tell process "UTM"
+        set frontmost to true
+        repeat with w in windows
+            if name of w contains "$safeVMName" then
+                perform action "AXRaise" of w
+                delay 0.5
+                $keyAction
+                return "ok"
+            end if
+        end repeat
+    end tell
+end tell
+return "window_not_found"
+"@
+    $result = Invoke-OsaScriptFile -Script $appleScript -Language AppleScript
+    Write-Debug "      AppleScript: $result"
+    return ("$result" -eq "ok")
+}
+
+# --- REGION: libvirt KVM keystroke transport: virsh send-key
+# See https://yuruna.link/4213a0b3-0185
+$script:KvmCharKeyMap = Get-KeyCodeMap -Kind 'KVM-Char'
+
+function Send-KeyKvm {
+    <#
+    .SYNOPSIS
+        Press one named key in a libvirt KVM VM via `virsh send-key`.
+    .DESCRIPTION
+        Maps common harness key names (Enter, Tab, Escape, arrows, etc.)
+        to Linux KEY_* event names; unmapped names pass through
+        verbatim so a sequence can write KEY_LEFTMETA / KEY_F2
+        directly. Bypasses VNC because libvirt-managed QEMU drops the
+        RFB handshake mid-stream.
+    #>
+    param([string]$VMName, [string]$KeyName)
+    # See https://yuruna.link/4213a0b3-0186
+    $codes = @((Get-KeyCodeMap -Kind 'KVM-Chord')[$KeyName])
+    if (-not $codes -or -not $codes[0]) {
+        $codes = @((Get-KeyCodeMap -Kind 'KVM-Named')[$KeyName])
+    }
+    if (-not $codes -or -not $codes[0]) { $codes = @($KeyName) }
+    $out = & virsh --connect qemu:///system send-key $VMName @codes 2>&1
+    if ($LASTEXITCODE -ne 0) {
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_3f5e4d13c7518db1' -Arguments @{ join = "$($codes -join ' ')"; vMName = "$VMName"; trim = "$((@($out) | Out-String).Trim())" })
+        return $false
+    }
+    return $true
+}
+
+function Invoke-KvmTextBurst {
+    <#
+    .SYNOPSIS
+        Send numeric chords through one bounded system-Python libvirt child.
+    .DESCRIPTION
+        Only a missing interpreter or missing Python binding permits fallback.
+        Every other failure can have sent keys, so it must not replay the burst.
+        Numeric chords travel in an exclusively created 0600 file, keeping
+        command text and credentials out of the child command line.
+    #>
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param([string]$VMName, [object[]]$Chords, [int]$CharDelayMs)
+    $failure = @{ Available = $true; Success = $false; Sent = 0; UnknownDelivery = $true; Error = '' }
+    if (-not (Test-Path -LiteralPath '/usr/bin/python3' -PathType Leaf)) {
+        return @{ Available = $false; Success = $false; Sent = 0; Error = '' }
+    }
+    $temporary = Join-Path ([IO.Path]::GetTempPath()) ('yuruna-kvm-text-' + [Guid]::NewGuid().ToString('N') + '.json')
+    try {
+        $options = [IO.FileStreamOptions]::new()
+        $options.Mode = [IO.FileMode]::CreateNew
+        $options.Access = [IO.FileAccess]::Write
+        $options.Share = [IO.FileShare]::None
+        $options.UnixCreateMode = [IO.UnixFileMode]'UserRead, UserWrite'
+        $stream = [IO.FileStream]::new($temporary, $options)
+        try {
+            if ([int][IO.File]::GetUnixFileMode($temporary) -ne 384) { throw 'private file mode was not retained' }
+            $request = @{ vmName = $VMName; chords = @($Chords); charDelayMs = [Math]::Max(0, $CharDelayMs) }
+            $bytes = [Text.UTF8Encoding]::new($false).GetBytes((ConvertTo-Json -InputObject $request -Depth 5 -Compress))
+            $stream.Write($bytes, 0, $bytes.Length)
+        } finally { $stream.Dispose() }
+        if (-not (Get-Command Invoke-BoundedNativeCommand -ErrorAction SilentlyContinue)) {
+            Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Common.psm1') -Global -Force -Verbose:$false
+        }
+        # Pacing is intentional work, with a fixed allowance for connection
+        # setup and key RPCs. A wedged RPC is killed within the whole-call cap.
+        $timeout = [int][Math]::Min(2147483, 15 + [Math]::Ceiling($Chords.Count * [double][Math]::Max($script:KvmMinimumCharDelayMs, $CharDelayMs) / 1000))
+        $probe = Invoke-BoundedNativeCommand -FilePath '/usr/bin/python3' -ArgumentList @('-I', (Join-Path $PSScriptRoot 'Test.KvmText.py'), $temporary) -TimeoutSeconds $timeout -MaxCapturedChars 8192
+        if (-not (Test-BoundedNativeResultComplete -Result $probe)) {
+            $failure.Error = 'libvirt text send did not complete inside its deadline; delivery extent is unknown and text was not replayed'
+            return $failure
+        }
+        $result = ConvertFrom-Json -InputObject $probe.StdOut -AsHashtable -ErrorAction Stop
+        if ($result -isnot [Collections.IDictionary] -or $result.status -isnot [string]) { throw 'invalid libvirt send response' }
+        if ($result.sent -isnot [long] -and $result.sent -isnot [int]) { throw 'invalid libvirt send count' }
+        if ($result.sent -lt 0 -or $result.sent -gt $Chords.Count) { throw 'invalid libvirt send count' }
+        if ($result.status -eq 'unavailable' -and $probe.ExitCode -eq 78 -and $result.sent -eq 0) {
+            return @{ Available = $false; Success = $false; Sent = 0; Error = '' }
+        }
+        $failure.Sent = [int]$result.sent
+        if ($probe.ExitCode -eq 0 -and $result.status -eq 'ok' -and $result.sent -eq $Chords.Count) {
+            return @{ Available = $true; Success = $true; Sent = [int]$result.sent; Error = '' }
+        }
+        $failure.Error = [string]$result.error
+        if ([string]::IsNullOrWhiteSpace($failure.Error)) { $failure.Error = 'libvirt text send returned an invalid result' }
+        $failure.UnknownDelivery = ($result.status -ne 'failed' -or $probe.ExitCode -ne 1)
+        if ($failure.UnknownDelivery) { $failure.Error += '; delivery extent is unknown and text was not replayed' }
+        return $failure
+    } catch {
+        $failure.Error = $_.Exception.Message + '; delivery extent is unknown and text was not replayed'
+        return $failure
+    } finally { Remove-Item -LiteralPath $temporary -Force -ErrorAction SilentlyContinue }
+}
+
+function Send-TextKvm {
+    <#
+    .SYNOPSIS
+        Type text through one libvirt connection while preserving chord pacing.
+    .DESCRIPTION
+        Printable ASCII uses the existing PS/2 Set 1 character values, which
+        equal Linux input-event codes for these keys. Tab and Enter use the
+        named map. Shifted characters remain simultaneous two-key chords.
+        Explicit 1ms key pulses and a minimum 10ms character pause prevent
+        QEMU's delayed input queue from dropping key-release events.
+        Hosts without the system Python libvirt binding use the virsh backend;
+        a failed or interrupted libvirt send is never replayed.
+    #>
+    param([string]$VMName, [string]$Text, [int]$CharDelayMs = $script:DefaultCharDelayMs)
+    $ps2 = Get-KeyCodeMap -Kind 'PS2-Char'
+    $named = Get-KeyCodeMap -Kind 'PS2-Named'
+    $chords = [Collections.Generic.List[object]]::new()
+    $characters = [Collections.Generic.List[string]]::new()
+    foreach ($ch in $Text.ToCharArray()) {
+        $character = [string]$ch
+        if (-not $script:KvmCharKeyMap[$character]) {
+            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_dfe205f918802162' -Arguments @{ ch = "$ch"; x2 = "$([int][char]$ch | ForEach-Object { $_.ToString('X4') })" })
+            continue
+        }
+        if ($ps2.ContainsKey($character)) {
+            $entry = $ps2[$character]
+            $chord = if ($entry[1]) { @([int]$named.LShift, [int]$entry[0]) } else { @([int]$entry[0]) }
+        } elseif ($ch -eq "`t") { $chord = @([int]$named.Tab) }
+        else { $chord = @([int]$named.Enter) }
+        $chords.Add([int[]]$chord)
+        $characters.Add($character)
+    }
+    if ($chords.Count -eq 0) { return $true }
+    $result = Invoke-KvmTextBurst -VMName $VMName -Chords $chords.ToArray() -CharDelayMs $CharDelayMs
+    if (-not $result.Available) {
+        return Send-TextKvmLegacy -VMName $VMName -Text ($characters -join '') -CharDelayMs $CharDelayMs
+    }
+    if (-not $result.Success) {
+        $failedCharacter = if ($result.UnknownDelivery) { '?' } else { $characters[[Math]::Min($result.Sent, $characters.Count - 1)] }
+        $failedCodes = if ($result.UnknownDelivery) { '?' } else { $script:KvmCharKeyMap[$failedCharacter] -join ',' }
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_966231fe730b28ff' -Arguments @{ ch = $failedCharacter; join = $failedCodes; trim = $result.Error })
+        return $false
+    }
+    $effectiveDelay = [Math]::Max($script:KvmMinimumCharDelayMs, $CharDelayMs)
+    Write-Debug "      libvirt send-key: $($result.Sent) chars sent (${effectiveDelay}ms delay between chars)"
+    return $true
+}
+
+function Send-TextKvmLegacy {
+    <#
+    .SYNOPSIS
+        Type $Text into a KVM VM one chord at a time via `virsh send-key`.
+    .DESCRIPTION
+        Looks each char up in KvmCharKeyMap to find its KEY_* chord
+        (shifted chars become a 2-key chord: KEY_LEFTSHIFT + KEY_X) and
+        fires one `virsh send-key` per char. Pauses $CharDelayMs
+        between chars so the guest's input layer has time to drain.
+    #>
+    param([string]$VMName, [string]$Text, [int]$CharDelayMs = $script:DefaultCharDelayMs)
+    $sentChars = 0
+    foreach ($ch in $Text.ToCharArray()) {
+        $codes = $script:KvmCharKeyMap["$ch"]
+        if (-not $codes) {
+            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_dfe205f918802162' -Arguments @{ ch = "$ch"; x2 = "$([int][char]$ch | ForEach-Object { $_.ToString('X4') })" })
+            continue
+        }
+        # Splat the chord onto the virsh command line: with `&` the array
+        # elements become positional args, which is exactly what virsh
+        # send-key wants (one chord per call).
+        $out = & virsh --connect qemu:///system send-key $VMName @codes 2>&1
+        if ($LASTEXITCODE -ne 0) {
+            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_966231fe730b28ff' -Arguments @{ ch = "$ch"; join = "$($codes -join ',')"; trim = "$((@($out) | Out-String).Trim())" })
+            return $false
+        }
+        $sentChars++
+        if ($CharDelayMs -gt 0) { Start-Sleep -Milliseconds $CharDelayMs }
+    }
+    Write-Debug "      virsh send-key: $sentChars chars sent (${CharDelayMs}ms delay between chars)"
+    return $true
+}
+
+
+# --- REGION: Hyper-V keystroke transport: scan codes over the synthetic keyboard
+function Send-TextHyperV {
+    <#
+    .SYNOPSIS
+        Type $Text into a Hyper-V VM via batched PS/2 TypeScancodes.
+    .DESCRIPTION
+        Emits a defensive modifier-release prefix (break codes for
+        LShift/RShift/LCtrl/RCtrl/LAlt/RAlt/LMeta/RMeta) before each
+        text burst so stale modifier state from prior input does not
+        upshift the payload (yauser1 -> YAUSER!). Batches every char's
+        make/break pair into one TypeScancodes invocation and caps the
+        post-batch settle at DefaultSettleMs.
+    #>
+    param([string]$VMName, [string]$Text, [int]$CharDelayMs = $script:DefaultCharDelayMs)
+    $kb = Get-HyperVKeyboard -VMName $VMName
+    if (-not $kb) { return $false }
+    try {
+        # --- REGION: https://yuruna.link/4222e5f2-0005
+        # Break codes for every modifier are issued first: a leftover held
+        # modifier makes every later char land shifted, and break-for-not-pressed
+        # is a no-op on PS/2, so the prefix is idempotent.
+        [byte[]]$resetCodes = @(
+            0xAA,             # LShift break
+            0xB6,             # RShift break
+            0x9D,             # LCtrl break
+            0xE0, 0x9D,       # RCtrl break (E0-prefixed)
+            0xB8,             # LAlt break
+            0xE0, 0xB8,       # RAlt break (E0-prefixed)
+            0xE0, 0xDB,       # LMeta/LGUI break (E0-prefixed)
+            0xE0, 0xDC        # RMeta/RGUI break (E0-prefixed)
+        )
+        # --- REGION: Reset modifiers for batched text
+        # See https://yuruna.link/4222e5f2-0005
+        # A modifier reset before per-character sends swallows later keys on ARM64.
+        if ($script:DefaultBatchedTextSend) {
+            if (-not (Send-ScanCode -Keyboard $kb -Codes $resetCodes)) {
+                # Single-shot reset failed -- continue anyway; per-char
+                # writes may still succeed, and warning surfaces the
+                # divergence in the cycle log.
+                Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_9f57b55a58b15b7c')
+            }
+        }
+        # --- REGION: Select text send mode
+        # See https://yuruna.link/4222e5f2-0005
+        # CharDelayMs settles a batch or paces individual characters.
+        $batched = $script:DefaultBatchedTextSend
+        $codeList = [System.Collections.Generic.List[byte]]::new()
+        $charCount = 0
+        foreach ($ch in $Text.ToCharArray()) {
+            $entry = $script:CharScanCodes["$ch"]
+            if (-not $entry) {
+                Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_5f9af4fdfbb52214' -Arguments @{ ch = "$ch"; x2 = "$([int][char]$ch | ForEach-Object { $_.ToString('X4') })" })
+                continue
+            }
+            $scan = [byte]$entry[0]
+            $shifted = $entry[1]
+            [byte[]]$charCodes = @()
+            if ($shifted) { $charCodes += [byte]0x2A }           # LShift make
+            $charCodes += $scan                                   # char make
+            $charCodes += [byte]($scan -bor 0x80)                 # char break
+            if ($shifted) { $charCodes += [byte]0xAA }           # LShift break
+            if ($batched) {
+                $codeList.AddRange($charCodes)
+            } else {
+                # One call per character, and the shift pair travels WITH its
+                # character: splitting them would leave Shift held across a
+                # pacing sleep, and the guest's next character would arrive
+                # upshifted.
+                if (-not (Send-ScanCode -Keyboard $kb -Codes $charCodes)) {
+                    Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_66740d874d3769c0' -Arguments @{ charCount = "$charCount" })
+                    return $false
+                }
+                if ($CharDelayMs -gt 0) { Start-Sleep -Milliseconds $CharDelayMs }
+            }
+            $charCount++
+        }
+        if ($batched -and $codeList.Count -gt 0) {
+            $ok = Send-ScanCode -Keyboard $kb -Codes ([byte[]]$codeList.ToArray())
+            if (-not $ok) {
+                Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_7f72e9572bce0b62' -Arguments @{ charCount = "$charCount" })
+                return $false
+            }
+        }
+        # See https://yuruna.link/4213a0b3-0187
+        if ($batched -and $CharDelayMs -gt 0 -and $charCount -gt 0) {
+            $settleMs = [Math]::Min($script:DefaultSettleMs, $CharDelayMs * $charCount)
+            Start-Sleep -Milliseconds $settleMs
+        }
+        $shape = $batched ? '1 batch' : "$charCount call(s), ${CharDelayMs}ms apart"
+        Write-Debug "      TypeScancodes: $charCount chars sent in $shape (post-batch settle capped at ${script:DefaultSettleMs}ms)"
+        return $true
+    } catch {
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_28903f180d50abb4' -Arguments @{ value = "$_" })
+        return $false
+    }
+}
+
+function Test-HardCharsInText {
+    <#
+    .SYNOPSIS
+        Returns $true if $Text contains at least one char that needs
+        Shift in MacCharKeyCodes after the keypad remap.
+    .DESCRIPTION
+        Used by Send-TextUTM to decide whether the ShellEscape encoding
+        is needed before handing the payload to JXA CGEvent typing.
+    #>
+    param([string]$Text)
+    foreach ($ch in $Text.ToCharArray()) {
+        $e = $script:MacCharKeyCodes["$ch"]
+        if ($e -and $e[1]) { return $true }
+    }
+    return $false
+}
+
+function ConvertTo-ShellEscapedText {
+    <#
+    .SYNOPSIS
+        Rewrite $Text as a bash one-liner the guest's shell will
+        decode back to the original string.
+    .DESCRIPTION
+        Only unshifted safe characters reach the keyboard. The first
+        decoding stage creates an ANSI-C quoted argument for eval; all
+        whitespace and shell syntax stay encoded until that argument is
+        parsed. This prevents command-substitution field splitting and
+        pathname expansion from changing the original command.
+    #>
+    param([string]$Text)
+    $sb = [System.Text.StringBuilder]::new()
+    foreach ($byte in [Text.Encoding]::UTF8.GetBytes($Text)) {
+        if (($byte -ge 97 -and $byte -le 122) -or ($byte -ge 48 -and $byte -le 57) -or $byte -in 45,46,47) {
+            [void]$sb.Append([char]$byte)
+        } else {
+            # Backtick parsing and echo each halve the escaping. The remaining
+            # backslash lets ANSI-C quoting decode the original byte.
+            [void]$sb.Append(('\\\\x{0:x2}' -f $byte))
+        }
+    }
+    return "eval ``echo -e 'eval \x24\x27$($sb.ToString())\x27'``"
+}
+
+# --- REGION: UTM keystroke transport: AppleScript chords + JXA/CGEvent text
+function Send-TextUTM {
+    <#
+    .SYNOPSIS
+        Type $Text into a UTM VM via batched JXA CGEvent typing.
+    .DESCRIPTION
+        Raises the matching UTM window, then dispatches each char as a
+        physical Left Shift + key make/break (or plain make/break for
+        unshifted chars) using the HID-system event source. -ShellEscape
+        rewrites the payload via ConvertTo-ShellEscapedText when there
+        is a guest shell to decode the wrapper -- never pass it at
+        login/password prompts.
+    #>
+    param(
+        [string]$VMName,
+        [string]$Text,
+        [int]$CharDelayMs = $script:DefaultCharDelayMs,
+        # See https://yuruna.link/4213a0b3-0188
+        [switch]$ShellEscape
+    )
+    # JXA CGEvent typing path.
+    if ($ShellEscape -and (Test-HardCharsInText -Text $Text)) {
+        $orig = $Text
+        $Text = ConvertTo-ShellEscapedText -Text $Text
+        Write-Debug "      UTM Send-Text -ShellEscape: '$orig' rewritten to '$Text' (Linux bash decodes \xNN at the prompt)."
+    }
+    $delaySeconds = [math]::Max(0.02, $CharDelayMs / 1000.0)
+
+    $charIndex = 0
+    $shiftedCount = 0
+    $keyCalls = [System.Text.StringBuilder]::new()
+    foreach ($ch in $Text.ToCharArray()) {
+        $entry = $script:MacCharKeyCodes["$ch"]
+        if (-not $entry) {
+            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_99c028f32f58e097' -Arguments @{ ch = "$ch"; charIndex = "$charIndex" })
+            $charIndex++
+            continue
+        }
+        $kc = $entry[0]
+        $shifted = if ($entry[1]) { 'true' } else { 'false' }
+        if ($entry[1]) { $shiftedCount++ }
+        [void]$keyCalls.AppendLine("    sendKey($kc, $shifted);")
+        $charIndex++
+    }
+    Write-Debug "      UTM text send (JXA CGEvent + HID-system shift): $charIndex chars total, $shiftedCount shifted, charDelay=${CharDelayMs}ms"
+
+    $jxaTemplate = (Get-UtmJxaRaisePreamble -VMName $VMName) + "`n" + @'
+    var kShiftKeyCode = 56;
+    var kShiftFlag = 0x00020000;
+    function sendKey(keyCode, shift) {
+        if (shift) {
+            // Press physical Left Shift down first; flag is set on the
+            // event AND the HID-system source updates the global state
+            // so the guest sees Shift as held.
+            var shiftDn = $.CGEventCreateKeyboardEvent(src, kShiftKeyCode, true);
+            $.CGEventSetFlags(shiftDn, kShiftFlag);
+            $.CGEventPost(0, shiftDn);
+            delay(0.08);
+
+            var down = $.CGEventCreateKeyboardEvent(src, keyCode, true);
+            $.CGEventSetFlags(down, kShiftFlag);
+            $.CGEventPost(0, down);
+            delay(0.02);
+            var up = $.CGEventCreateKeyboardEvent(src, keyCode, false);
+            $.CGEventSetFlags(up, kShiftFlag);
+            $.CGEventPost(0, up);
+            delay(0.06);
+
+            // Release physical Left Shift; no flag so the modifier
+            // state clears for the next (potentially unshifted) char.
+            var shiftUp = $.CGEventCreateKeyboardEvent(src, kShiftKeyCode, false);
+            $.CGEventPost(0, shiftUp);
+            delay(0.02);
+        } else {
+            var down = $.CGEventCreateKeyboardEvent(src, keyCode, true);
+            $.CGEventPost(0, down);
+            delay(0.01);
+            var up = $.CGEventCreateKeyboardEvent(src, keyCode, false);
+            $.CGEventPost(0, up);
+        }
+        delay(__DELAY__);
+    }
+__KEYCALLS__
+    // Final drain: give the macOS event queue time to deliver the last
+    // CGEvent(s) to the guest before osascript exits. Without this, the
+    // last character(s) can be lost on long commands.
+    delay(0.3);
+    'ok';
+}
+'@
+    $jxaScript = $jxaTemplate.Replace('__DELAY__', $delaySeconds.ToString([Globalization.CultureInfo]::InvariantCulture)).Replace('__KEYCALLS__', $keyCalls.ToString())
+
+    $result = Invoke-OsaScriptFile -Script $jxaScript -Language JavaScript
+    Write-Debug "      JXA CGEvent: $result"
+    return ("$result" -eq "ok")
+}
+
+function Initialize-HyperVMouseType {
+    <#
+    .SYNOPSIS
+        Lazy Add-Type loader for the HyperVMouse C# helper.
+    .DESCRIPTION
+        Defines the EnumWindows/SetCursorPos/mouse_event P/Invoke
+        wrappers used by Send-ClickHyperV. Guarded so multiple module
+        re-imports don't trip "type already defined".
+    #>
+    if ('HyperVMouse' -as [type]) { return }
+    Add-Type -TypeDefinition @"
+using System;
+using System.Runtime.InteropServices;
+using System.Text;
+
+public class HyperVMouse {
+    public delegate bool EnumWindowsProc(IntPtr hWnd, IntPtr lParam);
+    [DllImport("user32.dll")] public static extern bool EnumWindows(EnumWindowsProc cb, IntPtr lParam);
+    [DllImport("user32.dll")] public static extern int GetWindowText(IntPtr hWnd, StringBuilder sb, int max);
+    [DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr hWnd);
+    [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr hWnd);
+    [DllImport("user32.dll")] public static extern bool SetCursorPos(int x, int y);
+    [DllImport("user32.dll")] public static extern bool GetCursorPos(out POINT pt);
+    [DllImport("user32.dll")] public static extern bool ClientToScreen(IntPtr hWnd, ref POINT pt);
+    [DllImport("user32.dll")] public static extern void mouse_event(uint flags, uint dx, uint dy, uint data, IntPtr extra);
+    [DllImport("user32.dll")] public static extern bool SetProcessDPIAware();
+    [DllImport("user32.dll")] public static extern IntPtr SetThreadDpiAwarenessContext(IntPtr dpiContext);
+
+    [StructLayout(LayoutKind.Sequential)] public struct POINT { public int X; public int Y; }
+
+    const uint MOUSEEVENTF_LEFTDOWN = 0x0002;
+    const uint MOUSEEVENTF_LEFTUP   = 0x0004;
+
+    static bool dpiAware = false;
+    public static void EnsureDpiAware() {
+        if (!dpiAware) { SetProcessDPIAware(); dpiAware = true; }
+    }
+
+    // Click-by-OCR maps image pixels straight to client coordinates, and the
+    // capture is in physical pixels, so the mapping runs under Per-Monitor-V2.
+    // See https://yuruna.link/4222e5f2-000c
+    static readonly IntPtr DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2 = new IntPtr(-4);
+    static IntPtr EnterPerMonitorV2() {
+        try { return SetThreadDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2); }
+        catch { return IntPtr.Zero; }
+    }
+    static void RestoreThreadDpiContext(IntPtr prev) {
+        if (prev == IntPtr.Zero) return;
+        try { SetThreadDpiAwarenessContext(prev); } catch { }
+    }
+
+    public static IntPtr FindWindow(string titleContains) {
+        IntPtr found = IntPtr.Zero;
+        EnumWindows((hWnd, lp) => {
+            if (!IsWindowVisible(hWnd)) return true;
+            var sb = new StringBuilder(256);
+            GetWindowText(hWnd, sb, 256);
+            if (sb.ToString().Contains(titleContains)) { found = hWnd; return false; }
+            return true;
+        }, IntPtr.Zero);
+        return found;
+    }
+
+    // Translate a client-area point to screen coordinates, for debug logging
+    // and diagnostics that need to report where a click actually landed.
+    // Returns null if the translation fails (e.g. invalid window handle).
+    public static int[] GetScreenPoint(IntPtr hWnd, int clientX, int clientY) {
+        EnsureDpiAware();
+        IntPtr prevDpiCtx = EnterPerMonitorV2();
+        try {
+            POINT pt = new POINT(); pt.X = clientX; pt.Y = clientY;
+            if (!ClientToScreen(hWnd, ref pt)) return null;
+            return new int[] { pt.X, pt.Y };
+        } finally {
+            RestoreThreadDpiContext(prevDpiCtx);
+        }
+    }
+
+    // Left-click at a client-area pixel (clientX, clientY) inside hWnd.
+    // Restores the host cursor afterwards so the operator's mouse isn't
+    // "stolen" mid-test. Returns false if the window cannot be targeted.
+    public static bool ClickClientPoint(IntPtr hWnd, int clientX, int clientY) {
+        EnsureDpiAware();
+        IntPtr prevDpiCtx = EnterPerMonitorV2();
+        try {
+            POINT origin; GetCursorPos(out origin);
+            // Non-fatal: foreground may be refused if another window holds focus
+            // lock (e.g. another input-receiving app just got activated). The
+            // click still lands if vmconnect accepts mouse events while inactive.
+            SetForegroundWindow(hWnd);
+            System.Threading.Thread.Sleep(80);
+            POINT pt = new POINT(); pt.X = clientX; pt.Y = clientY;
+            if (!ClientToScreen(hWnd, ref pt)) return false;
+            if (!SetCursorPos(pt.X, pt.Y)) return false;
+            System.Threading.Thread.Sleep(40);
+            mouse_event(MOUSEEVENTF_LEFTDOWN, 0, 0, 0, IntPtr.Zero);
+            System.Threading.Thread.Sleep(30);
+            mouse_event(MOUSEEVENTF_LEFTUP, 0, 0, 0, IntPtr.Zero);
+            System.Threading.Thread.Sleep(50);
+            SetCursorPos(origin.X, origin.Y);
+            return true;
+        } finally {
+            RestoreThreadDpiContext(prevDpiCtx);
+        }
+    }
+}
+"@
+}
+
+# --- REGION: Hyper-V mouse transport: vmconnect window clicks
+function Send-ClickHyperV {
+    <#
+    .SYNOPSIS
+        Left-click at (X, Y) inside the vmconnect window for $VMName.
+    .DESCRIPTION
+        Requires an open vmconnect session -- the host driver does not
+        spawn one. Restores the host cursor afterwards so the operator's
+        mouse is not "stolen" mid-test. Returns $false when the
+        vmconnect window cannot be located.
+    #>
+    param([string]$VMName, [int]$X, [int]$Y)
+    if (-not $IsWindows) {
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_0d3475ea37a81bab')
+        return $false
+    }
+    Initialize-HyperVMouseType
+    $hWnd = [HyperVMouse]::FindWindow($VMName)
+    if ($hWnd -eq [IntPtr]::Zero) {
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_f5ac5947b2cba3a4' -Arguments @{ vMName = "$VMName" })
+        return $false
+    }
+    # Pre-compute screen-space target so logLevel=Debug can report where the
+    # click was actually dispatched, not just where we think the button is.
+    $screenPoint = [HyperVMouse]::GetScreenPoint($hWnd, $X, $Y)
+    $ok = [HyperVMouse]::ClickClientPoint($hWnd, $X, $Y)
+    if ($screenPoint) {
+        Write-Debug "      Hyper-V click at client ($X, $Y) -> screen ($($screenPoint[0]), $($screenPoint[1])) ok=$ok"
+    } else {
+        Write-Debug "      Hyper-V click at client ($X, $Y) screen=<ClientToScreen failed> ok=$ok"
+    }
+    return $ok
+}
+
+# --- REGION: UTM mouse transport: CGEvent clicks in the VM window
+function Send-ClickUtm {
+    <#
+    .SYNOPSIS
+        Dispatches a left-click at (X, Y) in the UTM VM window's image
+        coordinate space.
+    .DESCRIPTION
+        X/Y arrive in PNG pixel coords (what Tesseract reports). The capture
+        hashtable carries the window's screen-point origin and the backing
+        scale factor so we can map image pixels -> screen points:
+            screenX = OriginX + X / Scale
+            screenY = OriginY + Y / Scale
+        kCGWindowBounds (source of OriginX/OriginY) and CGEventPost both use
+        the same global screen-point coordinate space (origin top-left of the
+        main display), so no axis flip is needed.
+
+        Requires Accessibility permission for the invoking process. Without
+        it CGEventPost silently drops clicks -- we probe once per session and
+        warn loudly so the operator doesn't chase a phantom OCR bug.
+    #>
+    param(
+        [int]$X,
+        [int]$Y,
+        [hashtable]$Capture = $null
+    )
+    if (-not $IsMacOS) {
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_8fe7627def332857')
+        return $false
+    }
+    if (-not $Capture -or
+        -not $Capture.ContainsKey('OriginX') -or
+        -not $Capture.ContainsKey('OriginY') -or
+        -not $Capture.ContainsKey('Scale')   -or
+        [double]$Capture.Scale -le 0) {
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_cb171080d2ed4f47')
+        return $false
+    }
+
+    $originX = [double]$Capture.OriginX
+    $originY = [double]$Capture.OriginY
+    $scale   = [double]$Capture.Scale
+    $screenX = [int][math]::Round($originX + ($X / $scale))
+    $screenY = [int][math]::Round($originY + ($Y / $scale))
+    Write-Debug "      UTM click: image ($X, $Y) scale=$scale origin=($originX, $originY) -> screen ($screenX, $screenY)"
+
+    # Bring UTM to the front before clicking. Some GNOME / GTK widgets only
+    # respond to input when the host window is key; `activate` is a no-op
+    # when UTM already has focus.
+    & osascript -e 'tell application "UTM" to activate' 2>&1 | Out-Null
+
+    # One-time Accessibility permission probe. AXIsProcessTrusted() returns
+    # false without prompting the user (we don't want a dialog popping up
+    # mid-test run). If denied, the first click-by-OCR call surfaces the
+    # fix instructions clearly; subsequent calls short-circuit.
+    if (-not $script:YurunaAxChecked) {
+        $script:YurunaAxChecked = $true
+        $axResult = & osascript -l JavaScript -e @'
+ObjC.import('ApplicationServices');
+$.AXIsProcessTrusted() ? 'yes' : 'no';
+'@ 2>&1
+        if ("$axResult".Trim() -ne 'yes') {
+            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_d3e602c92cee0b04')
+            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_737c89122c4324a5')
+            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_8b6dfab5319382eb')
+            $script:YurunaAxWorks = $false
+        } else {
+            $script:YurunaAxWorks = $true
+        }
+    }
+    if ($script:YurunaAxWorks -eq $false) { return $false }
+
+    # Synthesize move + down + up. The move event ensures hover-triggered
+    # widgets (tooltips, hover-highlight buttons) settle on the target
+    # before the mousedown, matching a real user's cursor motion. Without
+    # the move some GTK buttons in GDM 46 ignore the first mousedown.
+    $clickScript = @"
+ObjC.import('CoreGraphics');
+var pt = { x: __X__, y: __Y__ };
+var mv = `$.CGEventCreateMouseEvent(null, `$.kCGEventMouseMoved,   pt, `$.kCGMouseButtonLeft);
+var dn = `$.CGEventCreateMouseEvent(null, `$.kCGEventLeftMouseDown, pt, `$.kCGMouseButtonLeft);
+var up = `$.CGEventCreateMouseEvent(null, `$.kCGEventLeftMouseUp,   pt, `$.kCGMouseButtonLeft);
+`$.CGEventPost(`$.kCGHIDEventTap, mv);
+`$.CGEventPost(`$.kCGHIDEventTap, dn);
+`$.CGEventPost(`$.kCGHIDEventTap, up);
+'ok';
+"@
+    $clickScript = ($clickScript -replace '__X__', $screenX) -replace '__Y__', $screenY
+    $clickResult = & osascript -l JavaScript -e $clickScript 2>&1
+    # CGEventPost has no synchronous delivery confirmation -- an 'ok' here only
+    # means osascript ran and posted the events, not that the guest received
+    # them, so the one-time AXIsProcessTrusted probe above is the only guard
+    # against silently-dropped clicks. On any failure, re-arm that probe so the
+    # next click re-checks Accessibility, which can be revoked mid-run.
+    if ($LASTEXITCODE -ne 0 -or "$clickResult".Trim() -ne 'ok') {
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_87f3e8e705586371' -Arguments @{ clickResult = "$clickResult" })
+        $script:YurunaAxChecked = $false
+        return $false
+    }
+    return $true
+}
+
+# Send-KeyAXUI / Send-TextAXUI are intentionally NOT exported: AXUI keyboard
+# events do not route to UTM's SwiftUI guest display, so they are dead as a
+# transport. Kept as private functions (their docstrings record the finding)
+# rather than deleted, so the knowledge survives without shipping a dead
+# public entry point.
+Export-ModuleMember -Function Get-HyperVKeyboard, Clear-HyperVKeyboard, Read-VncBuffer, Connect-VNC, Disconnect-VNC, `
+    Send-VncKeyEvent, Send-KeyVNC, Send-TextVNC, `
+    Send-ScanCode, Send-KeyHyperV, Send-KeyUTM, Send-ChordUTM, Send-KeyKvm, `
+    Send-TextKvm, Send-TextHyperV, Test-HardCharsInText, ConvertTo-ShellEscapedText, `
+    Send-TextUTM, Initialize-HyperVMouseType, Send-ClickHyperV, Send-ClickUtm, `
+    Update-TransportDefault

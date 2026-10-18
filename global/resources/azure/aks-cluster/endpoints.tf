@@ -1,0 +1,43 @@
+# LICENSEURI https://yuruna.link/license
+# Copyright (c) 2019-2026 by Alisson Sol et al.
+resource "azurerm_public_ip" "frontendIp" {
+  name                = format("%s.frontendIp", var.resourceGroup)
+  resource_group_name = azurerm_kubernetes_cluster.default.node_resource_group
+  location            = azurerm_kubernetes_cluster.default.location
+  allocation_method   = "Static"
+  sku                 = "Standard"
+  domain_name_label   = var.clusterName
+}
+
+data "azurerm_public_ip" "frontendIp" {
+  name                     = azurerm_public_ip.frontendIp.name
+  resource_group_name      = azurerm_public_ip.frontendIp.resource_group_name
+}
+
+# Reference: https://registry.terraform.io/providers/hashicorp/external/latest/docs/data-sources/data_source
+data "external" "originalIp" {
+  # Bash + az instead of pwsh; matches the localhost-registry-check.sh
+  # pattern that avoids the FileLoadException trap class
+  # (feedback_pwsh_provisioner_assemblyname_flake.md).
+  program = [
+    "bash",
+    "./public-ip.sh",
+    azurerm_kubernetes_cluster.default.node_resource_group,
+  ]
+
+  query = {
+    placeholder = data.azurerm_public_ip.frontendIp.ip_address
+  }
+}
+
+output "frontendIp" {
+  value = data.azurerm_public_ip.frontendIp.ip_address
+}
+
+output "clusterIp" {
+  value = data.external.originalIp.result.ip_address
+}
+
+output "hostname" {
+  value = data.azurerm_public_ip.frontendIp.fqdn
+}

@@ -1,0 +1,1308 @@
+{
+  "bomFormat": "CycloneDX",
+  "specVersion": "1.7",
+  "serialNumber": "urn:uuid:4f167aa9-a5e9-55f0-a04c-bcdc6985311c",
+  "version": 1,
+  "metadata": {
+    "component": {
+      "type": "application",
+      "bom-ref": "repository-repository",
+      "name": "yuruna-repository",
+      "properties": [
+        {
+          "name": "yuruna:source-inputs-sha256",
+          "value": "179a79ed5f5fa0e1a5befcaa93d85faa50898690920793606327e72223e9b0f6"
+        },
+        {
+          "name": "yuruna:inventory-kind",
+          "value": "declared-source"
+        }
+      ],
+      "version": "2026.10.14"
+    }
+  },
+  "components": [
+    {
+      "type": "application",
+      "bom-ref": "component-a918c6f303ac3cfdd0e8",
+      "name": "Git",
+      "properties": [
+        {
+          "name": "yuruna:declaration",
+          "value": "{\"completeness\": \"unresolved\", \"ecosystem\": \"git\", \"evidence\": [{\"detail\": \"Index snapshot and generated-file staging use the installed Git CLI\", \"line\": 38, \"path\": \"tools/Sync-Sbom.py\"}], \"notes\": [\"The repository does not pin the installed Git version.\"], \"scope\": \"build\"}"
+        }
+      ]
+    },
+    {
+      "type": "application",
+      "bom-ref": "component-d177cf988c867818ae63",
+      "name": "download-agent-service",
+      "properties": [
+        {
+          "name": "yuruna:declaration",
+          "value": "{\"completeness\": \"declared\", \"ecosystem\": \"go\", \"evidence\": [{\"detail\": \"Go module declaration\", \"line\": 3, \"path\": \"test/extension/download-agent-service/server/go.mod\"}], \"notes\": [\"Go dependency graph was not resolved.\"], \"scope\": \"runtime\"}"
+        }
+      ],
+      "purl": "pkg:golang/download-agent-service"
+    },
+    {
+      "type": "library",
+      "bom-ref": "component-5b86315870921f109bf2",
+      "name": "github.com/davecgh/go-spew",
+      "properties": [
+        {
+          "name": "yuruna:declaration",
+          "value": "{\"completeness\": \"unresolved\", \"ecosystem\": \"go\", \"evidence\": [{\"detail\": \"Recorded Go module content checksum\", \"line\": 1, \"path\": \"test/extension/stash-service/server/go.sum\"}], \"notes\": [\"Go h1 is a canonical directory hash, not an archive checksum.\", \"go.sum records do not establish selected transitive versions or edges.\"], \"scope\": \"runtime\"}"
+        }
+      ],
+      "version": "v1.1.1",
+      "purl": "pkg:golang/github.com/davecgh/go-spew@v1.1.1",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "be3f63feed5baa7bc211f24ec1486d94e011aacdfeae41d8635de36164d4f7b7"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "component-280432a44173be6af224",
+      "name": "github.com/dustin/go-humanize",
+      "properties": [
+        {
+          "name": "yuruna:declaration",
+          "value": "{\"completeness\": \"declared\", \"ecosystem\": \"go\", \"evidence\": [{\"detail\": \"Declared dependency\", \"line\": 18, \"path\": \"test/extension/stash-service/server/go.mod\"}, {\"detail\": \"Recorded Go module content checksum\", \"line\": 3, \"path\": \"test/extension/stash-service/server/go.sum\"}], \"notes\": [\"Go h1 is a canonical directory hash, not an archive checksum.\", \"Transitive Go module selection was not resolved.\", \"go.sum records do not establish selected transitive versions or edges.\"], \"scope\": \"runtime\"}"
+        }
+      ],
+      "version": "v1.1.0",
+      "purl": "pkg:golang/github.com/dustin/go-humanize@v1.1.0",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "75b293aef0f492571b055fe1e0058974cb99a202400a8325bd62166796f6c568"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "component-877085193e9afb3a3c38",
+      "name": "github.com/google/go-cmp",
+      "properties": [
+        {
+          "name": "yuruna:declaration",
+          "value": "{\"completeness\": \"unresolved\", \"ecosystem\": \"go\", \"evidence\": [{\"detail\": \"Recorded Go module content checksum\", \"line\": 5, \"path\": \"test/extension/stash-service/server/go.sum\"}], \"notes\": [\"Go h1 is a canonical directory hash, not an archive checksum.\", \"go.sum records do not establish selected transitive versions or edges.\"], \"scope\": \"runtime\"}"
+        }
+      ],
+      "version": "v0.6.0",
+      "purl": "pkg:golang/github.com/google/go-cmp@v0.6.0",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "a1fca1c6f5dc66132c539ba56c588b2a5fd7045a84d464aaedab6ef2d0264d12"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "component-000139009e3b0ea2cb06",
+      "name": "github.com/google/magika/go",
+      "properties": [
+        {
+          "name": "yuruna:declaration",
+          "value": "{\"completeness\": \"declared\", \"ecosystem\": \"go\", \"evidence\": [{\"detail\": \"Declared dependency\", \"line\": 10, \"path\": \"test/extension/stash-service/server/go.mod\"}, {\"detail\": \"Recorded Go module content checksum\", \"line\": 7, \"path\": \"test/extension/stash-service/server/go.sum\"}], \"notes\": [\"Go h1 is a canonical directory hash, not an archive checksum.\", \"Transitive Go module selection was not resolved.\", \"go.sum records do not establish selected transitive versions or edges.\"], \"scope\": \"runtime\"}"
+        }
+      ],
+      "version": "v1.0.0",
+      "purl": "pkg:golang/github.com/google/magika/go@v1.0.0",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "6ecdb48531c9ed4997cb56b646ecd836d5f8f811c1d512b6e3e31516fc3f5617"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "component-0600ffc08ebfcd4ae0d8",
+      "name": "github.com/google/pprof",
+      "properties": [
+        {
+          "name": "yuruna:declaration",
+          "value": "{\"completeness\": \"unresolved\", \"ecosystem\": \"go\", \"evidence\": [{\"detail\": \"Recorded Go module content checksum\", \"line\": 9, \"path\": \"test/extension/stash-service/server/go.sum\"}], \"notes\": [\"Go h1 is a canonical directory hash, not an archive checksum.\", \"go.sum records do not establish selected transitive versions or edges.\"], \"scope\": \"runtime\"}"
+        }
+      ],
+      "version": "v0.0.0-20260802141513-ef3492d7dac3",
+      "purl": "pkg:golang/github.com/google/pprof@v0.0.0-20260802141513-ef3492d7dac3",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "2cc2d7f8b813356a5fbc205d15e6efe84b18a2d226aedfcfa5ce5c5c8ae2092a"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "component-fcc09a389055123ca453",
+      "name": "github.com/google/uuid",
+      "properties": [
+        {
+          "name": "yuruna:declaration",
+          "value": "{\"completeness\": \"declared\", \"ecosystem\": \"go\", \"evidence\": [{\"detail\": \"Declared dependency\", \"line\": 19, \"path\": \"test/extension/stash-service/server/go.mod\"}, {\"detail\": \"Recorded Go module content checksum\", \"line\": 11, \"path\": \"test/extension/stash-service/server/go.sum\"}], \"notes\": [\"Go h1 is a canonical directory hash, not an archive checksum.\", \"Transitive Go module selection was not resolved.\", \"go.sum records do not establish selected transitive versions or edges.\"], \"scope\": \"runtime\"}"
+        }
+      ],
+      "version": "v1.6.0",
+      "purl": "pkg:golang/github.com/google/uuid@v1.6.0",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "348bda24330eb231c0f27d630212d2833ac0cf2d4782bfa136b6f9edefbde05d"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "component-467244424de7eae1e3f9",
+      "name": "github.com/hashicorp/golang-lru/v2",
+      "properties": [
+        {
+          "name": "yuruna:declaration",
+          "value": "{\"completeness\": \"unresolved\", \"ecosystem\": \"go\", \"evidence\": [{\"detail\": \"Recorded Go module content checksum\", \"line\": 13, \"path\": \"test/extension/stash-service/server/go.sum\"}], \"notes\": [\"Go h1 is a canonical directory hash, not an archive checksum.\", \"go.sum records do not establish selected transitive versions or edges.\"], \"scope\": \"runtime\"}"
+        }
+      ],
+      "version": "v2.0.7",
+      "purl": "pkg:golang/github.com/hashicorp/golang-lru/v2@v2.0.7",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "6be6ec439aef18b8f31eec30ead571a333d91558215da1cec05b3896e2d42b69"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "component-8699244ea528baa8914d",
+      "name": "github.com/kr/fs",
+      "properties": [
+        {
+          "name": "yuruna:declaration",
+          "value": "{\"completeness\": \"declared\", \"ecosystem\": \"go\", \"evidence\": [{\"detail\": \"Declared dependency\", \"line\": 20, \"path\": \"test/extension/stash-service/server/go.mod\"}, {\"detail\": \"Recorded Go module content checksum\", \"line\": 15, \"path\": \"test/extension/stash-service/server/go.sum\"}], \"notes\": [\"Go h1 is a canonical directory hash, not an archive checksum.\", \"Transitive Go module selection was not resolved.\", \"go.sum records do not establish selected transitive versions or edges.\"], \"scope\": \"runtime\"}"
+        }
+      ],
+      "version": "v0.1.0",
+      "purl": "pkg:golang/github.com/kr/fs@v0.1.0",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "26c91dbbd89e3406278f1b22d0b6d0a75ba520a655d4b00580ad6d5a1a59825f"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "component-582446bc32876fcbf5fe",
+      "name": "github.com/mattn/go-isatty",
+      "properties": [
+        {
+          "name": "yuruna:declaration",
+          "value": "{\"completeness\": \"declared\", \"ecosystem\": \"go\", \"evidence\": [{\"detail\": \"Declared dependency\", \"line\": 21, \"path\": \"test/extension/stash-service/server/go.mod\"}, {\"detail\": \"Recorded Go module content checksum\", \"line\": 17, \"path\": \"test/extension/stash-service/server/go.sum\"}], \"notes\": [\"Go h1 is a canonical directory hash, not an archive checksum.\", \"Transitive Go module selection was not resolved.\", \"go.sum records do not establish selected transitive versions or edges.\"], \"scope\": \"runtime\"}"
+        }
+      ],
+      "version": "v0.0.24",
+      "purl": "pkg:golang/github.com/mattn/go-isatty@v0.0.24",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "b46659a15813fca8aa2b573ca1c54b7834bc05258c45de3b2772dbcfbbec45e2"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "component-ec815c737a818436c6b5",
+      "name": "github.com/ncruces/go-strftime",
+      "properties": [
+        {
+          "name": "yuruna:declaration",
+          "value": "{\"completeness\": \"declared\", \"ecosystem\": \"go\", \"evidence\": [{\"detail\": \"Declared dependency\", \"line\": 22, \"path\": \"test/extension/stash-service/server/go.mod\"}, {\"detail\": \"Recorded Go module content checksum\", \"line\": 19, \"path\": \"test/extension/stash-service/server/go.sum\"}], \"notes\": [\"Go h1 is a canonical directory hash, not an archive checksum.\", \"Transitive Go module selection was not resolved.\", \"go.sum records do not establish selected transitive versions or edges.\"], \"scope\": \"runtime\"}"
+        }
+      ],
+      "version": "v1.1.0",
+      "purl": "pkg:golang/github.com/ncruces/go-strftime@v1.1.0",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "bed3e63d63246f9dfd44657d5a9593f44c091aface08abcc348e286d62f8ec79"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "component-d6cf248cd102be5ff0e7",
+      "name": "github.com/pkg/sftp",
+      "properties": [
+        {
+          "name": "yuruna:declaration",
+          "value": "{\"completeness\": \"declared\", \"ecosystem\": \"go\", \"evidence\": [{\"detail\": \"Declared dependency\", \"line\": 11, \"path\": \"test/extension/stash-service/server/go.mod\"}, {\"detail\": \"Recorded Go module content checksum\", \"line\": 21, \"path\": \"test/extension/stash-service/server/go.sum\"}], \"notes\": [\"Go h1 is a canonical directory hash, not an archive checksum.\", \"Transitive Go module selection was not resolved.\", \"go.sum records do not establish selected transitive versions or edges.\"], \"scope\": \"runtime\"}"
+        }
+      ],
+      "version": "v1.13.11",
+      "purl": "pkg:golang/github.com/pkg/sftp@v1.13.11",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "d0df7648b4c1f09a80489075e192c71f3167055f261bdcf0e0aee38211055ae1"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "component-e5a7521992c856e1013d",
+      "name": "github.com/pmezard/go-difflib",
+      "properties": [
+        {
+          "name": "yuruna:declaration",
+          "value": "{\"completeness\": \"unresolved\", \"ecosystem\": \"go\", \"evidence\": [{\"detail\": \"Recorded Go module content checksum\", \"line\": 23, \"path\": \"test/extension/stash-service/server/go.sum\"}], \"notes\": [\"Go h1 is a canonical directory hash, not an archive checksum.\", \"go.sum records do not establish selected transitive versions or edges.\"], \"scope\": \"runtime\"}"
+        }
+      ],
+      "version": "v1.0.0",
+      "purl": "pkg:golang/github.com/pmezard/go-difflib@v1.0.0",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "e030700c4d0d1b24280476cb4183f04943e808c591e41133224fdfd6565b0103"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "component-e1fcb9ec435a341b7c8a",
+      "name": "github.com/remyoudompheng/bigfft",
+      "properties": [
+        {
+          "name": "yuruna:declaration",
+          "value": "{\"completeness\": \"declared\", \"ecosystem\": \"go\", \"evidence\": [{\"detail\": \"Declared dependency\", \"line\": 23, \"path\": \"test/extension/stash-service/server/go.mod\"}, {\"detail\": \"Recorded Go module content checksum\", \"line\": 25, \"path\": \"test/extension/stash-service/server/go.sum\"}], \"notes\": [\"Go h1 is a canonical directory hash, not an archive checksum.\", \"Transitive Go module selection was not resolved.\", \"go.sum records do not establish selected transitive versions or edges.\"], \"scope\": \"runtime\"}"
+        }
+      ],
+      "version": "v0.0.0-20230129092748-24d4a6f8daec",
+      "purl": "pkg:golang/github.com/remyoudompheng/bigfft@v0.0.0-20230129092748-24d4a6f8daec",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "5b4f4854973de2272ae0d8d8ddc95becb93c3b5a89f01741105f33d226d4d2b1"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "component-dbd34b0681ab6c5792e1",
+      "name": "github.com/stretchr/testify",
+      "properties": [
+        {
+          "name": "yuruna:declaration",
+          "value": "{\"completeness\": \"unresolved\", \"ecosystem\": \"go\", \"evidence\": [{\"detail\": \"Recorded Go module content checksum\", \"line\": 27, \"path\": \"test/extension/stash-service/server/go.sum\"}], \"notes\": [\"Go h1 is a canonical directory hash, not an archive checksum.\", \"go.sum records do not establish selected transitive versions or edges.\"], \"scope\": \"runtime\"}"
+        }
+      ],
+      "version": "v1.11.1",
+      "purl": "pkg:golang/github.com/stretchr/testify@v1.11.1",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "eecda2181ce9e44c11eff68866bf1aa39f9dadadf0890c8a8e316ebe054abbb5"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "component-02ff4d3b302990f322d7",
+      "name": "golang.org/x/crypto",
+      "properties": [
+        {
+          "name": "yuruna:declaration",
+          "value": "{\"completeness\": \"declared\", \"ecosystem\": \"go\", \"evidence\": [{\"detail\": \"Declared dependency\", \"line\": 12, \"path\": \"test/extension/stash-service/server/go.mod\"}, {\"detail\": \"Recorded Go module content checksum\", \"line\": 29, \"path\": \"test/extension/stash-service/server/go.sum\"}], \"notes\": [\"Go h1 is a canonical directory hash, not an archive checksum.\", \"Transitive Go module selection was not resolved.\", \"go.sum records do not establish selected transitive versions or edges.\"], \"scope\": \"runtime\"}"
+        }
+      ],
+      "version": "v0.58.0",
+      "purl": "pkg:golang/golang.org/x/crypto@v0.58.0",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "08e9182ebe24ee70c8e2be90b4c30bd807f3788b30587009b612d2e8afccff9e"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "component-da5d0b169766af760a32",
+      "name": "golang.org/x/mod",
+      "properties": [
+        {
+          "name": "yuruna:declaration",
+          "value": "{\"completeness\": \"unresolved\", \"ecosystem\": \"go\", \"evidence\": [{\"detail\": \"Recorded Go module content checksum\", \"line\": 31, \"path\": \"test/extension/stash-service/server/go.sum\"}], \"notes\": [\"Go h1 is a canonical directory hash, not an archive checksum.\", \"go.sum records do not establish selected transitive versions or edges.\"], \"scope\": \"runtime\"}"
+        }
+      ],
+      "version": "v0.41.0",
+      "purl": "pkg:golang/golang.org/x/mod@v0.41.0",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "a899a73946f8601f85b04b8cdc7716b9c75901208f1a1b17eae9633baa688347"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "component-9ad44d7925eeabd7ab5f",
+      "name": "golang.org/x/sync",
+      "properties": [
+        {
+          "name": "yuruna:declaration",
+          "value": "{\"completeness\": \"unresolved\", \"ecosystem\": \"go\", \"evidence\": [{\"detail\": \"Recorded Go module content checksum\", \"line\": 33, \"path\": \"test/extension/stash-service/server/go.sum\"}], \"notes\": [\"Go h1 is a canonical directory hash, not an archive checksum.\", \"go.sum records do not establish selected transitive versions or edges.\"], \"scope\": \"runtime\"}"
+        }
+      ],
+      "version": "v0.24.0",
+      "purl": "pkg:golang/golang.org/x/sync@v0.24.0",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "8aa883ac6a03832baf00aae12d0b61504cd4fd1dfbf0defc8176c18f179dee80"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "component-8bd068a161452022ed8c",
+      "name": "golang.org/x/sys",
+      "properties": [
+        {
+          "name": "yuruna:declaration",
+          "value": "{\"completeness\": \"declared\", \"ecosystem\": \"go\", \"evidence\": [{\"detail\": \"Declared dependency\", \"line\": 24, \"path\": \"test/extension/stash-service/server/go.mod\"}, {\"detail\": \"Recorded Go module content checksum\", \"line\": 35, \"path\": \"test/extension/stash-service/server/go.sum\"}], \"notes\": [\"Go h1 is a canonical directory hash, not an archive checksum.\", \"Transitive Go module selection was not resolved.\", \"go.sum records do not establish selected transitive versions or edges.\"], \"scope\": \"runtime\"}"
+        }
+      ],
+      "version": "v0.49.0",
+      "purl": "pkg:golang/golang.org/x/sys@v0.49.0",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "5dbce481824776a87ff26d94bb45bf750bfc9e4b71c780451e9d4cd2044e4d70"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "component-58f0d150aafb90b4ff7b",
+      "name": "golang.org/x/term",
+      "properties": [
+        {
+          "name": "yuruna:declaration",
+          "value": "{\"completeness\": \"unresolved\", \"ecosystem\": \"go\", \"evidence\": [{\"detail\": \"Recorded Go module content checksum\", \"line\": 37, \"path\": \"test/extension/stash-service/server/go.sum\"}], \"notes\": [\"Go h1 is a canonical directory hash, not an archive checksum.\", \"go.sum records do not establish selected transitive versions or edges.\"], \"scope\": \"runtime\"}"
+        }
+      ],
+      "version": "v0.47.0",
+      "purl": "pkg:golang/golang.org/x/term@v0.47.0",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "729c8ec1092bd8dcf17b6a7a2a7ad31bb122db0b738ecb928e1a575dea59fc13"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "component-80c86ce33a8a398b5681",
+      "name": "golang.org/x/text",
+      "properties": [
+        {
+          "name": "yuruna:declaration",
+          "value": "{\"completeness\": \"declared\", \"ecosystem\": \"go\", \"evidence\": [{\"detail\": \"Declared dependency\", \"line\": 13, \"path\": \"test/extension/stash-service/server/go.mod\"}, {\"detail\": \"Recorded Go module content checksum\", \"line\": 39, \"path\": \"test/extension/stash-service/server/go.sum\"}], \"notes\": [\"Go h1 is a canonical directory hash, not an archive checksum.\", \"Transitive Go module selection was not resolved.\", \"go.sum records do not establish selected transitive versions or edges.\"], \"scope\": \"runtime\"}"
+        }
+      ],
+      "version": "v0.43.0",
+      "purl": "pkg:golang/golang.org/x/text@v0.43.0",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "d508afae587002c9cc39caa039d97d9b2eecf4ec9997c3b9fd41944c9557a167"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "component-c740ff745f2883ebf5be",
+      "name": "golang.org/x/tools",
+      "properties": [
+        {
+          "name": "yuruna:declaration",
+          "value": "{\"completeness\": \"unresolved\", \"ecosystem\": \"go\", \"evidence\": [{\"detail\": \"Recorded Go module content checksum\", \"line\": 41, \"path\": \"test/extension/stash-service/server/go.sum\"}], \"notes\": [\"Go h1 is a canonical directory hash, not an archive checksum.\", \"go.sum records do not establish selected transitive versions or edges.\"], \"scope\": \"runtime\"}"
+        }
+      ],
+      "version": "v0.51.0",
+      "purl": "pkg:golang/golang.org/x/tools@v0.51.0",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "9385dcff53a6f63c24049068e0d54b3120110685ad2b5d26c7e5b90675c27802"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "component-b53018f6fcafa440a222",
+      "name": "gopkg.in/yaml.v3",
+      "properties": [
+        {
+          "name": "yuruna:declaration",
+          "value": "{\"completeness\": \"unresolved\", \"ecosystem\": \"go\", \"evidence\": [{\"detail\": \"Recorded Go module content checksum\", \"line\": 43, \"path\": \"test/extension/stash-service/server/go.sum\"}], \"notes\": [\"Go h1 is a canonical directory hash, not an archive checksum.\", \"go.sum records do not establish selected transitive versions or edges.\"], \"scope\": \"runtime\"}"
+        }
+      ],
+      "version": "v3.0.1",
+      "purl": "pkg:golang/gopkg.in/yaml.v3@v3.0.1",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "7f1566fc6cc0cc45aa2c7baf72d23dd4a4bd8613669963a85aed174d8252ec20"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "component-ecb0e3f352e3a0cc6452",
+      "name": "modernc.org/cc/v4",
+      "properties": [
+        {
+          "name": "yuruna:declaration",
+          "value": "{\"completeness\": \"unresolved\", \"ecosystem\": \"go\", \"evidence\": [{\"detail\": \"Recorded Go module content checksum\", \"line\": 45, \"path\": \"test/extension/stash-service/server/go.sum\"}], \"notes\": [\"Go h1 is a canonical directory hash, not an archive checksum.\", \"go.sum records do not establish selected transitive versions or edges.\"], \"scope\": \"runtime\"}"
+        }
+      ],
+      "version": "v4.29.7",
+      "purl": "pkg:golang/modernc.org/cc/v4@v4.29.7",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "abe357189d1b2b76f84d715841056bf696044c69e6c055a4ad4cc99ccc9afd38"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "component-15b2521b5bd7ca8b0e67",
+      "name": "modernc.org/ccgo/v4",
+      "properties": [
+        {
+          "name": "yuruna:declaration",
+          "value": "{\"completeness\": \"unresolved\", \"ecosystem\": \"go\", \"evidence\": [{\"detail\": \"Recorded Go module content checksum\", \"line\": 47, \"path\": \"test/extension/stash-service/server/go.sum\"}], \"notes\": [\"Go h1 is a canonical directory hash, not an archive checksum.\", \"go.sum records do not establish selected transitive versions or edges.\"], \"scope\": \"runtime\"}"
+        }
+      ],
+      "version": "v4.36.1",
+      "purl": "pkg:golang/modernc.org/ccgo/v4@v4.36.1",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "64d214640af23745209c9c2dcb1add133705737c83e02bb80338df3d7b0bb081"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "component-487136d8901acfa9844f",
+      "name": "modernc.org/fileutil",
+      "properties": [
+        {
+          "name": "yuruna:declaration",
+          "value": "{\"completeness\": \"unresolved\", \"ecosystem\": \"go\", \"evidence\": [{\"detail\": \"Recorded Go module content checksum\", \"line\": 49, \"path\": \"test/extension/stash-service/server/go.sum\"}], \"notes\": [\"Go h1 is a canonical directory hash, not an archive checksum.\", \"go.sum records do not establish selected transitive versions or edges.\"], \"scope\": \"runtime\"}"
+        }
+      ],
+      "version": "v1.4.0",
+      "purl": "pkg:golang/modernc.org/fileutil@v1.4.0",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "8fa6733537ed552d39e208b6f354f22e31cfa7a08f1ebd8a0b11178c46c3e923"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "component-fabca1cfebfad94a1fbe",
+      "name": "modernc.org/gc/v2",
+      "properties": [
+        {
+          "name": "yuruna:declaration",
+          "value": "{\"completeness\": \"unresolved\", \"ecosystem\": \"go\", \"evidence\": [{\"detail\": \"Recorded Go module content checksum\", \"line\": 51, \"path\": \"test/extension/stash-service/server/go.sum\"}], \"notes\": [\"Go h1 is a canonical directory hash, not an archive checksum.\", \"go.sum records do not establish selected transitive versions or edges.\"], \"scope\": \"runtime\"}"
+        }
+      ],
+      "version": "v2.6.5",
+      "purl": "pkg:golang/modernc.org/gc/v2@v2.6.5",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "9f2a9d57cab8e8abd3a5996cc3aea45aac1744776322524e846ea4c6257ff712"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "component-de651c013a28496d53d7",
+      "name": "modernc.org/gc/v3",
+      "properties": [
+        {
+          "name": "yuruna:declaration",
+          "value": "{\"completeness\": \"unresolved\", \"ecosystem\": \"go\", \"evidence\": [{\"detail\": \"Recorded Go module content checksum\", \"line\": 53, \"path\": \"test/extension/stash-service/server/go.sum\"}], \"notes\": [\"Go h1 is a canonical directory hash, not an archive checksum.\", \"go.sum records do not establish selected transitive versions or edges.\"], \"scope\": \"runtime\"}"
+        }
+      ],
+      "version": "v3.1.5",
+      "purl": "pkg:golang/modernc.org/gc/v3@v3.1.5",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "db595d7cf7d1604df54dbec1de6c002bc832d40c4fe3e74a8eb3903dfa9a9287"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "component-fc9c99298f7eb5eee5f8",
+      "name": "modernc.org/goabi0",
+      "properties": [
+        {
+          "name": "yuruna:declaration",
+          "value": "{\"completeness\": \"unresolved\", \"ecosystem\": \"go\", \"evidence\": [{\"detail\": \"Recorded Go module content checksum\", \"line\": 55, \"path\": \"test/extension/stash-service/server/go.sum\"}], \"notes\": [\"Go h1 is a canonical directory hash, not an archive checksum.\", \"go.sum records do not establish selected transitive versions or edges.\"], \"scope\": \"runtime\"}"
+        }
+      ],
+      "version": "v0.2.0",
+      "purl": "pkg:golang/modernc.org/goabi0@v0.2.0",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "1ef128c24ecbc5c3ddd1eaba99538010c6a2e3a57e8bb26b8f5dede00cee364b"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "component-47c58c7aab9f26416fb2",
+      "name": "modernc.org/libc",
+      "properties": [
+        {
+          "name": "yuruna:declaration",
+          "value": "{\"completeness\": \"declared\", \"ecosystem\": \"go\", \"evidence\": [{\"detail\": \"Declared dependency\", \"line\": 25, \"path\": \"test/extension/stash-service/server/go.mod\"}, {\"detail\": \"Recorded Go module content checksum\", \"line\": 57, \"path\": \"test/extension/stash-service/server/go.sum\"}], \"notes\": [\"Go h1 is a canonical directory hash, not an archive checksum.\", \"Transitive Go module selection was not resolved.\", \"go.sum records do not establish selected transitive versions or edges.\"], \"scope\": \"runtime\"}"
+        }
+      ],
+      "version": "v1.77.1",
+      "purl": "pkg:golang/modernc.org/libc@v1.77.1",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "0adf23e3b42d899d449e3d83b455d0b54aab3c202374298f8ed0aebeb610d07b"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "component-34ce8531c1ad8f3a8b0f",
+      "name": "modernc.org/mathutil",
+      "properties": [
+        {
+          "name": "yuruna:declaration",
+          "value": "{\"completeness\": \"declared\", \"ecosystem\": \"go\", \"evidence\": [{\"detail\": \"Declared dependency\", \"line\": 26, \"path\": \"test/extension/stash-service/server/go.mod\"}, {\"detail\": \"Recorded Go module content checksum\", \"line\": 59, \"path\": \"test/extension/stash-service/server/go.sum\"}], \"notes\": [\"Go h1 is a canonical directory hash, not an archive checksum.\", \"Transitive Go module selection was not resolved.\", \"go.sum records do not establish selected transitive versions or edges.\"], \"scope\": \"runtime\"}"
+        }
+      ],
+      "version": "v1.7.1",
+      "purl": "pkg:golang/modernc.org/mathutil@v1.7.1",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "18265519775a37c813a81d4c7ffbaca7563f852aa0236bc01863f88d9302c4e5"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "component-d36496760373c18829bb",
+      "name": "modernc.org/memory",
+      "properties": [
+        {
+          "name": "yuruna:declaration",
+          "value": "{\"completeness\": \"declared\", \"ecosystem\": \"go\", \"evidence\": [{\"detail\": \"Declared dependency\", \"line\": 27, \"path\": \"test/extension/stash-service/server/go.mod\"}, {\"detail\": \"Recorded Go module content checksum\", \"line\": 61, \"path\": \"test/extension/stash-service/server/go.sum\"}], \"notes\": [\"Go h1 is a canonical directory hash, not an archive checksum.\", \"Transitive Go module selection was not resolved.\", \"go.sum records do not establish selected transitive versions or edges.\"], \"scope\": \"runtime\"}"
+        }
+      ],
+      "version": "v1.12.1",
+      "purl": "pkg:golang/modernc.org/memory@v1.12.1",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "9c53225aba52b6065cccd97a5c8f469c893fad68582321c651a474e2919ba7d8"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "component-332c942aae4f99c9df8b",
+      "name": "modernc.org/opt",
+      "properties": [
+        {
+          "name": "yuruna:declaration",
+          "value": "{\"completeness\": \"unresolved\", \"ecosystem\": \"go\", \"evidence\": [{\"detail\": \"Recorded Go module content checksum\", \"line\": 63, \"path\": \"test/extension/stash-service/server/go.sum\"}], \"notes\": [\"Go h1 is a canonical directory hash, not an archive checksum.\", \"go.sum records do not establish selected transitive versions or edges.\"], \"scope\": \"runtime\"}"
+        }
+      ],
+      "version": "v0.2.0",
+      "purl": "pkg:golang/modernc.org/opt@v0.2.0",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "b46c9e7f9029c9c03b15210e32b69acbd49a4e4e7399bc7b4eef9c26ce102998"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "component-15946024bda4ba341768",
+      "name": "modernc.org/sortutil",
+      "properties": [
+        {
+          "name": "yuruna:declaration",
+          "value": "{\"completeness\": \"unresolved\", \"ecosystem\": \"go\", \"evidence\": [{\"detail\": \"Recorded Go module content checksum\", \"line\": 65, \"path\": \"test/extension/stash-service/server/go.sum\"}], \"notes\": [\"Go h1 is a canonical directory hash, not an archive checksum.\", \"go.sum records do not establish selected transitive versions or edges.\"], \"scope\": \"runtime\"}"
+        }
+      ],
+      "version": "v1.2.1",
+      "purl": "pkg:golang/modernc.org/sortutil@v1.2.1",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "fb1ca819fd7998cdcd3253c39c5aabb5e634ee49521712c4944d8f56e58827bc"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "component-0b3df35735774198d7c1",
+      "name": "modernc.org/sqlite",
+      "properties": [
+        {
+          "name": "yuruna:declaration",
+          "value": "{\"completeness\": \"declared\", \"ecosystem\": \"go\", \"evidence\": [{\"detail\": \"Declared dependency\", \"line\": 14, \"path\": \"test/extension/stash-service/server/go.mod\"}, {\"detail\": \"Recorded Go module content checksum\", \"line\": 67, \"path\": \"test/extension/stash-service/server/go.sum\"}], \"notes\": [\"Go h1 is a canonical directory hash, not an archive checksum.\", \"Transitive Go module selection was not resolved.\", \"go.sum records do not establish selected transitive versions or edges.\"], \"scope\": \"runtime\"}"
+        }
+      ],
+      "version": "v1.60.1",
+      "purl": "pkg:golang/modernc.org/sqlite@v1.60.1",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "fdb973e773bde7529614eb28e1042f12cfc5aba70304a2ed315ad835278954ac"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "component-005aa61133bce55cb8bf",
+      "name": "modernc.org/strutil",
+      "properties": [
+        {
+          "name": "yuruna:declaration",
+          "value": "{\"completeness\": \"unresolved\", \"ecosystem\": \"go\", \"evidence\": [{\"detail\": \"Recorded Go module content checksum\", \"line\": 69, \"path\": \"test/extension/stash-service/server/go.sum\"}], \"notes\": [\"Go h1 is a canonical directory hash, not an archive checksum.\", \"go.sum records do not establish selected transitive versions or edges.\"], \"scope\": \"runtime\"}"
+        }
+      ],
+      "version": "v1.2.1",
+      "purl": "pkg:golang/modernc.org/strutil@v1.2.1",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "527799064400f835f6469df929c33af5c4ac3444bd972f264160fbd472a5380d"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "component-08a7725ec86fb430317b",
+      "name": "modernc.org/token",
+      "properties": [
+        {
+          "name": "yuruna:declaration",
+          "value": "{\"completeness\": \"unresolved\", \"ecosystem\": \"go\", \"evidence\": [{\"detail\": \"Recorded Go module content checksum\", \"line\": 71, \"path\": \"test/extension/stash-service/server/go.sum\"}], \"notes\": [\"Go h1 is a canonical directory hash, not an archive checksum.\", \"go.sum records do not establish selected transitive versions or edges.\"], \"scope\": \"runtime\"}"
+        }
+      ],
+      "version": "v1.1.0",
+      "purl": "pkg:golang/modernc.org/token@v1.1.0",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "5e5ec0a7d74a684b3990ba0e41e4263d67af7e793f0cce6a70b718940f32b3a6"
+        }
+      ]
+    },
+    {
+      "type": "application",
+      "bom-ref": "component-070ba5f14e1b7ce30bbc",
+      "name": "pool-control-service",
+      "properties": [
+        {
+          "name": "yuruna:declaration",
+          "value": "{\"completeness\": \"declared\", \"ecosystem\": \"go\", \"evidence\": [{\"detail\": \"Go module declaration\", \"line\": 3, \"path\": \"test/extension/pool-control-service/server/go.mod\"}], \"notes\": [\"Go dependency graph was not resolved.\"], \"scope\": \"runtime\"}"
+        }
+      ],
+      "purl": "pkg:golang/pool-control-service"
+    },
+    {
+      "type": "application",
+      "bom-ref": "component-f9b42cdcad718e5a0d9f",
+      "name": "stash-service",
+      "properties": [
+        {
+          "name": "yuruna:declaration",
+          "value": "{\"completeness\": \"declared\", \"ecosystem\": \"go\", \"evidence\": [{\"detail\": \"Go module declaration\", \"line\": 3, \"path\": \"test/extension/stash-service/server/go.mod\"}], \"notes\": [\"Go dependency graph was not resolved.\"], \"scope\": \"runtime\"}"
+        }
+      ],
+      "purl": "pkg:golang/stash-service"
+    },
+    {
+      "type": "application",
+      "bom-ref": "component-9756508f804a7e5f5603",
+      "name": "yuruna.com/test/extension/caching-proxy-parser-service",
+      "properties": [
+        {
+          "name": "yuruna:declaration",
+          "value": "{\"completeness\": \"declared\", \"ecosystem\": \"go\", \"evidence\": [{\"detail\": \"Go module declaration\", \"line\": 3, \"path\": \"test/extension/caching-proxy-parser-service/go.mod\"}], \"notes\": [\"Go dependency graph was not resolved.\"], \"scope\": \"runtime\"}"
+        }
+      ],
+      "purl": "pkg:golang/yuruna.com/test/extension/caching-proxy-parser-service"
+    },
+    {
+      "type": "application",
+      "bom-ref": "component-882d4bb41cb57da0b374",
+      "name": "yuruna.com/test/extension/caching-proxy-service",
+      "properties": [
+        {
+          "name": "yuruna:declaration",
+          "value": "{\"completeness\": \"declared\", \"ecosystem\": \"go\", \"evidence\": [{\"detail\": \"Go module declaration\", \"line\": 3, \"path\": \"test/extension/caching-proxy-service/go.mod\"}], \"notes\": [\"Go dependency graph was not resolved.\"], \"scope\": \"runtime\"}"
+        }
+      ],
+      "purl": "pkg:golang/yuruna.com/test/extension/caching-proxy-service"
+    },
+    {
+      "type": "application",
+      "bom-ref": "component-7909813fb9c6b99a751b",
+      "name": "yuruna.com/test/extension/extension-sdk",
+      "properties": [
+        {
+          "name": "yuruna:declaration",
+          "value": "{\"completeness\": \"declared\", \"ecosystem\": \"go\", \"evidence\": [{\"detail\": \"Go module declaration\", \"line\": 3, \"path\": \"test/extension/extension-sdk/go.mod\"}, {\"detail\": \"Locally replaced Go module\", \"line\": 28, \"path\": \"test/extension/stash-service/server/go.mod\"}, {\"detail\": \"Locally replaced Go module\", \"line\": 9, \"path\": \"test/extension/caching-proxy-parser-service/go.mod\"}, {\"detail\": \"Locally replaced Go module\", \"line\": 9, \"path\": \"test/extension/caching-proxy-service/go.mod\"}, {\"detail\": \"Locally replaced Go module\", \"line\": 9, \"path\": \"test/extension/download-agent-service/server/go.mod\"}, {\"detail\": \"Locally replaced Go module\", \"line\": 9, \"path\": \"test/extension/pool-aggregator-service/go.mod\"}, {\"detail\": \"Locally replaced Go module\", \"line\": 9, \"path\": \"test/extension/pool-control-service/server/go.mod\"}], \"notes\": [\"Go dependency graph was not resolved.\", \"Local replacement is not present at the declared repository path; deployment may stage it.\", \"Local replacement: ../extension-sdk (declared requirement yuruna.com/test/extension/extension-sdk@v0.0.0).\", \"Transitive Go module selection was not resolved.\"], \"scope\": \"runtime\"}"
+        }
+      ],
+      "purl": "pkg:golang/yuruna.com/test/extension/extension-sdk"
+    },
+    {
+      "type": "application",
+      "bom-ref": "component-99fce750b9e0c923e887",
+      "name": "yuruna.com/test/extension/pool-aggregator-service",
+      "properties": [
+        {
+          "name": "yuruna:declaration",
+          "value": "{\"completeness\": \"declared\", \"ecosystem\": \"go\", \"evidence\": [{\"detail\": \"Go module declaration\", \"line\": 3, \"path\": \"test/extension/pool-aggregator-service/go.mod\"}], \"notes\": [\"Go dependency graph was not resolved.\"], \"scope\": \"runtime\"}"
+        }
+      ],
+      "purl": "pkg:golang/yuruna.com/test/extension/pool-aggregator-service"
+    },
+    {
+      "type": "application",
+      "bom-ref": "component-d554a81a5a8e7741aa3b",
+      "name": "global/resources/aws/eks-cluster",
+      "properties": [
+        {
+          "name": "yuruna:declaration",
+          "value": "{\"completeness\": \"declared\", \"ecosystem\": \"opentofu-config\", \"evidence\": [{\"detail\": \"OpenTofu/Terraform configuration directory\", \"line\": 12, \"path\": \"global/resources/aws/eks-cluster/cluster.tf\"}, {\"detail\": \"OpenTofu/Terraform configuration directory\", \"line\": 5, \"path\": \"global/resources/aws/eks-cluster/versions.tf\"}], \"notes\": [], \"scope\": \"build\"}"
+        }
+      ]
+    },
+    {
+      "type": "application",
+      "bom-ref": "component-a61f0e12e70e2e59d861",
+      "name": "global/resources/aws/registry",
+      "properties": [
+        {
+          "name": "yuruna:declaration",
+          "value": "{\"completeness\": \"declared\", \"ecosystem\": \"opentofu-config\", \"evidence\": [{\"detail\": \"OpenTofu/Terraform configuration directory\", \"line\": 7, \"path\": \"global/resources/aws/registry/versions.tf\"}], \"notes\": [], \"scope\": \"build\"}"
+        }
+      ]
+    },
+    {
+      "type": "application",
+      "bom-ref": "component-ae191d8df8d3085693f6",
+      "name": "global/resources/azure/aks-cluster",
+      "properties": [
+        {
+          "name": "yuruna:declaration",
+          "value": "{\"completeness\": \"declared\", \"ecosystem\": \"opentofu-config\", \"evidence\": [{\"detail\": \"OpenTofu/Terraform configuration directory\", \"line\": 7, \"path\": \"global/resources/azure/aks-cluster/versions.tf\"}], \"notes\": [], \"scope\": \"build\"}"
+        }
+      ]
+    },
+    {
+      "type": "application",
+      "bom-ref": "component-40a7db3a530a7e4c4531",
+      "name": "global/resources/azure/postgresql",
+      "properties": [
+        {
+          "name": "yuruna:declaration",
+          "value": "{\"completeness\": \"declared\", \"ecosystem\": \"opentofu-config\", \"evidence\": [{\"detail\": \"OpenTofu/Terraform configuration directory\", \"line\": 7, \"path\": \"global/resources/azure/postgresql/versions.tf\"}], \"notes\": [], \"scope\": \"build\"}"
+        }
+      ]
+    },
+    {
+      "type": "application",
+      "bom-ref": "component-48d9ec1f813835e178d9",
+      "name": "global/resources/azure/registry",
+      "properties": [
+        {
+          "name": "yuruna:declaration",
+          "value": "{\"completeness\": \"declared\", \"ecosystem\": \"opentofu-config\", \"evidence\": [{\"detail\": \"OpenTofu/Terraform configuration directory\", \"line\": 7, \"path\": \"global/resources/azure/registry/versions.tf\"}], \"notes\": [], \"scope\": \"build\"}"
+        }
+      ]
+    },
+    {
+      "type": "application",
+      "bom-ref": "component-22cdaecada1415d26fa9",
+      "name": "global/resources/azure/resource-group",
+      "properties": [
+        {
+          "name": "yuruna:declaration",
+          "value": "{\"completeness\": \"declared\", \"ecosystem\": \"opentofu-config\", \"evidence\": [{\"detail\": \"OpenTofu/Terraform configuration directory\", \"line\": 7, \"path\": \"global/resources/azure/resource-group/versions.tf\"}], \"notes\": [], \"scope\": \"build\"}"
+        }
+      ]
+    },
+    {
+      "type": "application",
+      "bom-ref": "component-a6726f896a788aa23d0c",
+      "name": "global/resources/azure/storage-share",
+      "properties": [
+        {
+          "name": "yuruna:declaration",
+          "value": "{\"completeness\": \"declared\", \"ecosystem\": \"opentofu-config\", \"evidence\": [{\"detail\": \"OpenTofu/Terraform configuration directory\", \"line\": 7, \"path\": \"global/resources/azure/storage-share/versions.tf\"}], \"notes\": [], \"scope\": \"build\"}"
+        }
+      ]
+    },
+    {
+      "type": "application",
+      "bom-ref": "component-70532f4e1158659fd728",
+      "name": "global/resources/azure/vm-linux",
+      "properties": [
+        {
+          "name": "yuruna:declaration",
+          "value": "{\"completeness\": \"declared\", \"ecosystem\": \"opentofu-config\", \"evidence\": [{\"detail\": \"OpenTofu/Terraform configuration directory\", \"line\": 7, \"path\": \"global/resources/azure/vm-linux/versions.tf\"}], \"notes\": [], \"scope\": \"build\"}"
+        }
+      ]
+    },
+    {
+      "type": "application",
+      "bom-ref": "component-93ef0133b7121038f806",
+      "name": "global/resources/localhost/context-copy",
+      "properties": [
+        {
+          "name": "yuruna:declaration",
+          "value": "{\"completeness\": \"declared\", \"ecosystem\": \"opentofu-config\", \"evidence\": [{\"detail\": \"OpenTofu/Terraform configuration directory\", \"line\": 9, \"path\": \"global/resources/localhost/context-copy/versions.tf\"}], \"notes\": [], \"scope\": \"build\"}"
+        }
+      ]
+    },
+    {
+      "type": "application",
+      "bom-ref": "component-5f3c88a73f01f726a9af",
+      "name": "global/resources/localhost/registry",
+      "properties": [
+        {
+          "name": "yuruna:declaration",
+          "value": "{\"completeness\": \"declared\", \"ecosystem\": \"opentofu-config\", \"evidence\": [{\"detail\": \"OpenTofu/Terraform configuration directory\", \"line\": 9, \"path\": \"global/resources/localhost/registry/versions.tf\"}], \"notes\": [], \"scope\": \"build\"}"
+        }
+      ]
+    },
+    {
+      "type": "platform",
+      "bom-ref": "component-d4da385fc11f7e9f7d15",
+      "name": "Python",
+      "properties": [
+        {
+          "name": "yuruna:declaration",
+          "value": "{\"completeness\": \"declared\", \"ecosystem\": \"python\", \"evidence\": [{\"detail\": \"SBOM collector uses Python 3.11 tomllib and the standard library\", \"line\": 12, \"path\": \"tools/sbom_dependencies.py\"}], \"notes\": [\"No Python package installation is required.\"], \"scope\": \"build\", \"versionConstraint\": \">=3.11\"}"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "component-c04377f548d4f48dc896",
+      "name": "terraform-aws-modules/eks/aws",
+      "properties": [
+        {
+          "name": "yuruna:declaration",
+          "value": "{\"completeness\": \"unresolved\", \"ecosystem\": \"terraform-module\", \"evidence\": [{\"detail\": \"Module eks; declared source=terraform-aws-modules/eks/aws\", \"line\": 12, \"path\": \"global/resources/aws/eks-cluster/cluster.tf\"}], \"notes\": [\"Declared source only; no provider/module restore, lock selection, or transitive graph was resolved.\"], \"scope\": \"build\", \"versionConstraint\": \"~> 21.24\"}"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "component-bee70e6aa0b7eb181c62",
+      "name": "terraform-aws-modules/vpc/aws",
+      "properties": [
+        {
+          "name": "yuruna:declaration",
+          "value": "{\"completeness\": \"unresolved\", \"ecosystem\": \"terraform-module\", \"evidence\": [{\"detail\": \"Module vpc; declared source=terraform-aws-modules/vpc/aws\", \"line\": 65, \"path\": \"global/resources/aws/eks-cluster/cluster.tf\"}], \"notes\": [\"Declared source only; no provider/module restore, lock selection, or transitive graph was resolved.\"], \"scope\": \"build\", \"versionConstraint\": \"~> 6.6\"}"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "component-8907942691304a312548",
+      "name": "hashicorp/aws",
+      "properties": [
+        {
+          "name": "yuruna:declaration",
+          "value": "{\"completeness\": \"unresolved\", \"ecosystem\": \"terraform-provider\", \"evidence\": [{\"detail\": \"Required provider aws; declared source=hashicorp/aws\", \"line\": 10, \"path\": \"global/resources/aws/registry/versions.tf\"}, {\"detail\": \"Required provider aws; declared source=hashicorp/aws\", \"line\": 8, \"path\": \"global/resources/aws/eks-cluster/versions.tf\"}], \"notes\": [\"Declared source only; no provider/module restore, lock selection, or transitive graph was resolved.\"], \"scope\": \"build\", \"versionConstraint\": \"~> 6.54\"}"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "component-4d77f6ff156b2106610f",
+      "name": "hashicorp/azurerm",
+      "properties": [
+        {
+          "name": "yuruna:declaration",
+          "value": "{\"completeness\": \"unresolved\", \"ecosystem\": \"terraform-provider\", \"evidence\": [{\"detail\": \"Required provider azurerm; declared source=hashicorp/azurerm\", \"line\": 10, \"path\": \"global/resources/azure/aks-cluster/versions.tf\"}, {\"detail\": \"Required provider azurerm; declared source=hashicorp/azurerm\", \"line\": 10, \"path\": \"global/resources/azure/postgresql/versions.tf\"}, {\"detail\": \"Required provider azurerm; declared source=hashicorp/azurerm\", \"line\": 10, \"path\": \"global/resources/azure/registry/versions.tf\"}, {\"detail\": \"Required provider azurerm; declared source=hashicorp/azurerm\", \"line\": 10, \"path\": \"global/resources/azure/resource-group/versions.tf\"}, {\"detail\": \"Required provider azurerm; declared source=hashicorp/azurerm\", \"line\": 10, \"path\": \"global/resources/azure/storage-share/versions.tf\"}, {\"detail\": \"Required provider azurerm; declared source=hashicorp/azurerm\", \"line\": 10, \"path\": \"global/resources/azure/vm-linux/versions.tf\"}], \"notes\": [\"Declared source only; no provider/module restore, lock selection, or transitive graph was resolved.\"], \"scope\": \"build\", \"versionConstraint\": \"~> 4.80\"}"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "component-acf55bb12a36b9aad4cf",
+      "name": "hashicorp/external",
+      "properties": [
+        {
+          "name": "yuruna:declaration",
+          "value": "{\"completeness\": \"unresolved\", \"ecosystem\": \"terraform-provider\", \"evidence\": [{\"detail\": \"Required provider external; declared source=hashicorp/external\", \"line\": 14, \"path\": \"global/resources/azure/aks-cluster/versions.tf\"}], \"notes\": [\"Declared source only; no provider/module restore, lock selection, or transitive graph was resolved.\"], \"scope\": \"build\", \"versionConstraint\": \"~> 2.4\"}"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "component-e179ad6c61206e1ec441",
+      "name": "hashicorp/kubernetes",
+      "properties": [
+        {
+          "name": "yuruna:declaration",
+          "value": "{\"completeness\": \"unresolved\", \"ecosystem\": \"terraform-provider\", \"evidence\": [{\"detail\": \"Required provider kubernetes; declared source=hashicorp/kubernetes\", \"line\": 14, \"path\": \"global/resources/aws/registry/versions.tf\"}, {\"detail\": \"Required provider kubernetes; declared source=hashicorp/kubernetes\", \"line\": 14, \"path\": \"global/resources/azure/postgresql/versions.tf\"}, {\"detail\": \"Required provider kubernetes; declared source=hashicorp/kubernetes\", \"line\": 14, \"path\": \"global/resources/azure/registry/versions.tf\"}, {\"detail\": \"Required provider kubernetes; declared source=hashicorp/kubernetes\", \"line\": 14, \"path\": \"global/resources/azure/resource-group/versions.tf\"}, {\"detail\": \"Required provider kubernetes; declared source=hashicorp/kubernetes\", \"line\": 14, \"path\": \"global/resources/azure/storage-share/versions.tf\"}, {\"detail\": \"Required provider kubernetes; declared source=hashicorp/kubernetes\", \"line\": 14, \"path\": \"global/resources/azure/vm-linux/versions.tf\"}, {\"detail\": \"Required provider kubernetes; declared source=hashicorp/kubernetes\", \"line\": 18, \"path\": \"global/resources/azure/aks-cluster/versions.tf\"}, {\"detail\": \"Required provider kubernetes; declared source=hashicorp/kubernetes\", \"line\": 33, \"path\": \"global/resources/aws/eks-cluster/versions.tf\"}], \"notes\": [\"Declared source only; no provider/module restore, lock selection, or transitive graph was resolved.\"], \"scope\": \"build\", \"versionConstraint\": \"~> 3.2\"}"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "component-f704f01136396457f74f",
+      "name": "hashicorp/local",
+      "properties": [
+        {
+          "name": "yuruna:declaration",
+          "value": "{\"completeness\": \"unresolved\", \"ecosystem\": \"terraform-provider\", \"evidence\": [{\"detail\": \"Required provider local; declared source=hashicorp/local\", \"line\": 18, \"path\": \"global/resources/aws/eks-cluster/versions.tf\"}, {\"detail\": \"Required provider local; declared source=hashicorp/local\", \"line\": 18, \"path\": \"global/resources/aws/registry/versions.tf\"}, {\"detail\": \"Required provider local; declared source=hashicorp/local\", \"line\": 18, \"path\": \"global/resources/azure/postgresql/versions.tf\"}, {\"detail\": \"Required provider local; declared source=hashicorp/local\", \"line\": 18, \"path\": \"global/resources/azure/registry/versions.tf\"}, {\"detail\": \"Required provider local; declared source=hashicorp/local\", \"line\": 18, \"path\": \"global/resources/azure/resource-group/versions.tf\"}, {\"detail\": \"Required provider local; declared source=hashicorp/local\", \"line\": 18, \"path\": \"global/resources/azure/storage-share/versions.tf\"}, {\"detail\": \"Required provider local; declared source=hashicorp/local\", \"line\": 18, \"path\": \"global/resources/azure/vm-linux/versions.tf\"}, {\"detail\": \"Required provider local; declared source=hashicorp/local\", \"line\": 22, \"path\": \"global/resources/azure/aks-cluster/versions.tf\"}], \"notes\": [\"Declared source only; no provider/module restore, lock selection, or transitive graph was resolved.\"], \"scope\": \"build\", \"versionConstraint\": \"~> 2.9\"}"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "component-33c624824b422a1e743b",
+      "name": "hashicorp/null",
+      "properties": [
+        {
+          "name": "yuruna:declaration",
+          "value": "{\"completeness\": \"unresolved\", \"ecosystem\": \"terraform-provider\", \"evidence\": [{\"detail\": \"Required provider null; declared source=hashicorp/null\", \"line\": 22, \"path\": \"global/resources/aws/registry/versions.tf\"}, {\"detail\": \"Required provider null; declared source=hashicorp/null\", \"line\": 22, \"path\": \"global/resources/azure/postgresql/versions.tf\"}, {\"detail\": \"Required provider null; declared source=hashicorp/null\", \"line\": 22, \"path\": \"global/resources/azure/registry/versions.tf\"}, {\"detail\": \"Required provider null; declared source=hashicorp/null\", \"line\": 22, \"path\": \"global/resources/azure/resource-group/versions.tf\"}, {\"detail\": \"Required provider null; declared source=hashicorp/null\", \"line\": 22, \"path\": \"global/resources/azure/storage-share/versions.tf\"}, {\"detail\": \"Required provider null; declared source=hashicorp/null\", \"line\": 22, \"path\": \"global/resources/azure/vm-linux/versions.tf\"}, {\"detail\": \"Required provider null; declared source=hashicorp/null\", \"line\": 23, \"path\": \"global/resources/aws/eks-cluster/versions.tf\"}, {\"detail\": \"Required provider null; declared source=hashicorp/null\", \"line\": 26, \"path\": \"global/resources/azure/aks-cluster/versions.tf\"}], \"notes\": [\"Declared source only; no provider/module restore, lock selection, or transitive graph was resolved.\"], \"scope\": \"build\", \"versionConstraint\": \"~> 3.3\"}"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "component-54a84111d206a61715b9",
+      "name": "hashicorp/random",
+      "properties": [
+        {
+          "name": "yuruna:declaration",
+          "value": "{\"completeness\": \"unresolved\", \"ecosystem\": \"terraform-provider\", \"evidence\": [{\"detail\": \"Required provider random; declared source=hashicorp/random\", \"line\": 13, \"path\": \"global/resources/aws/eks-cluster/versions.tf\"}, {\"detail\": \"Required provider random; declared source=hashicorp/random\", \"line\": 26, \"path\": \"global/resources/aws/registry/versions.tf\"}, {\"detail\": \"Required provider random; declared source=hashicorp/random\", \"line\": 26, \"path\": \"global/resources/azure/postgresql/versions.tf\"}, {\"detail\": \"Required provider random; declared source=hashicorp/random\", \"line\": 26, \"path\": \"global/resources/azure/registry/versions.tf\"}, {\"detail\": \"Required provider random; declared source=hashicorp/random\", \"line\": 26, \"path\": \"global/resources/azure/resource-group/versions.tf\"}, {\"detail\": \"Required provider random; declared source=hashicorp/random\", \"line\": 26, \"path\": \"global/resources/azure/storage-share/versions.tf\"}, {\"detail\": \"Required provider random; declared source=hashicorp/random\", \"line\": 26, \"path\": \"global/resources/azure/vm-linux/versions.tf\"}, {\"detail\": \"Required provider random; declared source=hashicorp/random\", \"line\": 30, \"path\": \"global/resources/azure/aks-cluster/versions.tf\"}], \"notes\": [\"Declared source only; no provider/module restore, lock selection, or transitive graph was resolved.\"], \"scope\": \"build\", \"versionConstraint\": \"~> 3.9\"}"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "component-8a08acbe6e5b8e2c3e2c",
+      "name": "hashicorp/tls",
+      "properties": [
+        {
+          "name": "yuruna:declaration",
+          "value": "{\"completeness\": \"unresolved\", \"ecosystem\": \"terraform-provider\", \"evidence\": [{\"detail\": \"Required provider tls; declared source=hashicorp/tls\", \"line\": 28, \"path\": \"global/resources/aws/eks-cluster/versions.tf\"}], \"notes\": [\"Declared source only; no provider/module restore, lock selection, or transitive graph was resolved.\"], \"scope\": \"build\", \"versionConstraint\": \"~> 4.3\"}"
+        }
+      ]
+    },
+    {
+      "type": "platform",
+      "bom-ref": "component-f178c1a1ebf07b0b8ac8",
+      "name": "Go",
+      "properties": [
+        {
+          "name": "yuruna:declaration",
+          "value": "{\"completeness\": \"declared\", \"ecosystem\": \"toolchain\", \"evidence\": [{\"detail\": \"Declared Go toolchain\", \"line\": 7, \"path\": \"test/extension/caching-proxy-parser-service/go.mod\"}, {\"detail\": \"Declared Go toolchain\", \"line\": 7, \"path\": \"test/extension/caching-proxy-service/go.mod\"}, {\"detail\": \"Declared Go toolchain\", \"line\": 7, \"path\": \"test/extension/download-agent-service/server/go.mod\"}, {\"detail\": \"Declared Go toolchain\", \"line\": 7, \"path\": \"test/extension/extension-sdk/go.mod\"}, {\"detail\": \"Declared Go toolchain\", \"line\": 7, \"path\": \"test/extension/pool-aggregator-service/go.mod\"}, {\"detail\": \"Declared Go toolchain\", \"line\": 7, \"path\": \"test/extension/pool-control-service/server/go.mod\"}, {\"detail\": \"Declared Go toolchain\", \"line\": 7, \"path\": \"test/extension/stash-service/server/go.mod\"}], \"notes\": [], \"scope\": \"build\"}"
+        }
+      ],
+      "version": "1.27.2"
+    },
+    {
+      "type": "platform",
+      "bom-ref": "component-9eb226995ec7055df6c9",
+      "name": "OpenTofu/Terraform",
+      "properties": [
+        {
+          "name": "yuruna:declaration",
+          "value": "{\"completeness\": \"unresolved\", \"ecosystem\": \"toolchain\", \"evidence\": [{\"detail\": \"Compatible HCL engine requirement\", \"line\": 5, \"path\": \"global/resources/aws/eks-cluster/versions.tf\"}, {\"detail\": \"Compatible HCL engine requirement\", \"line\": 7, \"path\": \"global/resources/aws/registry/versions.tf\"}, {\"detail\": \"Compatible HCL engine requirement\", \"line\": 7, \"path\": \"global/resources/azure/aks-cluster/versions.tf\"}, {\"detail\": \"Compatible HCL engine requirement\", \"line\": 7, \"path\": \"global/resources/azure/postgresql/versions.tf\"}, {\"detail\": \"Compatible HCL engine requirement\", \"line\": 7, \"path\": \"global/resources/azure/registry/versions.tf\"}, {\"detail\": \"Compatible HCL engine requirement\", \"line\": 7, \"path\": \"global/resources/azure/resource-group/versions.tf\"}, {\"detail\": \"Compatible HCL engine requirement\", \"line\": 7, \"path\": \"global/resources/azure/storage-share/versions.tf\"}, {\"detail\": \"Compatible HCL engine requirement\", \"line\": 7, \"path\": \"global/resources/azure/vm-linux/versions.tf\"}, {\"detail\": \"Compatible HCL engine requirement\", \"line\": 9, \"path\": \"global/resources/localhost/context-copy/versions.tf\"}, {\"detail\": \"Compatible HCL engine requirement\", \"line\": 9, \"path\": \"global/resources/localhost/registry/versions.tf\"}], \"notes\": [\"Declared source only; no provider/module restore, lock selection, or transitive graph was resolved.\"], \"scope\": \"build\", \"versionConstraint\": \">= 1.13.0\"}"
+        }
+      ]
+    }
+  ],
+  "dependencies": [
+    {
+      "ref": "repository-repository",
+      "dependsOn": [
+        "component-000139009e3b0ea2cb06",
+        "component-005aa61133bce55cb8bf",
+        "component-02ff4d3b302990f322d7",
+        "component-0600ffc08ebfcd4ae0d8",
+        "component-070ba5f14e1b7ce30bbc",
+        "component-08a7725ec86fb430317b",
+        "component-0b3df35735774198d7c1",
+        "component-15946024bda4ba341768",
+        "component-15b2521b5bd7ca8b0e67",
+        "component-22cdaecada1415d26fa9",
+        "component-280432a44173be6af224",
+        "component-332c942aae4f99c9df8b",
+        "component-33c624824b422a1e743b",
+        "component-34ce8531c1ad8f3a8b0f",
+        "component-40a7db3a530a7e4c4531",
+        "component-467244424de7eae1e3f9",
+        "component-47c58c7aab9f26416fb2",
+        "component-487136d8901acfa9844f",
+        "component-48d9ec1f813835e178d9",
+        "component-4d77f6ff156b2106610f",
+        "component-54a84111d206a61715b9",
+        "component-582446bc32876fcbf5fe",
+        "component-58f0d150aafb90b4ff7b",
+        "component-5b86315870921f109bf2",
+        "component-5f3c88a73f01f726a9af",
+        "component-70532f4e1158659fd728",
+        "component-7909813fb9c6b99a751b",
+        "component-80c86ce33a8a398b5681",
+        "component-8699244ea528baa8914d",
+        "component-877085193e9afb3a3c38",
+        "component-882d4bb41cb57da0b374",
+        "component-8907942691304a312548",
+        "component-8a08acbe6e5b8e2c3e2c",
+        "component-8bd068a161452022ed8c",
+        "component-93ef0133b7121038f806",
+        "component-9756508f804a7e5f5603",
+        "component-99fce750b9e0c923e887",
+        "component-9ad44d7925eeabd7ab5f",
+        "component-9eb226995ec7055df6c9",
+        "component-a61f0e12e70e2e59d861",
+        "component-a6726f896a788aa23d0c",
+        "component-a918c6f303ac3cfdd0e8",
+        "component-acf55bb12a36b9aad4cf",
+        "component-ae191d8df8d3085693f6",
+        "component-b53018f6fcafa440a222",
+        "component-bee70e6aa0b7eb181c62",
+        "component-c04377f548d4f48dc896",
+        "component-c740ff745f2883ebf5be",
+        "component-d177cf988c867818ae63",
+        "component-d36496760373c18829bb",
+        "component-d4da385fc11f7e9f7d15",
+        "component-d554a81a5a8e7741aa3b",
+        "component-d6cf248cd102be5ff0e7",
+        "component-da5d0b169766af760a32",
+        "component-dbd34b0681ab6c5792e1",
+        "component-de651c013a28496d53d7",
+        "component-e179ad6c61206e1ec441",
+        "component-e1fcb9ec435a341b7c8a",
+        "component-e5a7521992c856e1013d",
+        "component-ec815c737a818436c6b5",
+        "component-ecb0e3f352e3a0cc6452",
+        "component-f178c1a1ebf07b0b8ac8",
+        "component-f704f01136396457f74f",
+        "component-f9b42cdcad718e5a0d9f",
+        "component-fabca1cfebfad94a1fbe",
+        "component-fc9c99298f7eb5eee5f8",
+        "component-fcc09a389055123ca453"
+      ]
+    },
+    {
+      "ref": "component-d177cf988c867818ae63",
+      "dependsOn": [
+        "component-7909813fb9c6b99a751b",
+        "component-f178c1a1ebf07b0b8ac8"
+      ]
+    },
+    {
+      "ref": "component-070ba5f14e1b7ce30bbc",
+      "dependsOn": [
+        "component-7909813fb9c6b99a751b",
+        "component-f178c1a1ebf07b0b8ac8"
+      ]
+    },
+    {
+      "ref": "component-f9b42cdcad718e5a0d9f",
+      "dependsOn": [
+        "component-000139009e3b0ea2cb06",
+        "component-02ff4d3b302990f322d7",
+        "component-0b3df35735774198d7c1",
+        "component-280432a44173be6af224",
+        "component-34ce8531c1ad8f3a8b0f",
+        "component-47c58c7aab9f26416fb2",
+        "component-582446bc32876fcbf5fe",
+        "component-7909813fb9c6b99a751b",
+        "component-80c86ce33a8a398b5681",
+        "component-8699244ea528baa8914d",
+        "component-8bd068a161452022ed8c",
+        "component-d36496760373c18829bb",
+        "component-d6cf248cd102be5ff0e7",
+        "component-e1fcb9ec435a341b7c8a",
+        "component-ec815c737a818436c6b5",
+        "component-f178c1a1ebf07b0b8ac8",
+        "component-fcc09a389055123ca453"
+      ]
+    },
+    {
+      "ref": "component-9756508f804a7e5f5603",
+      "dependsOn": [
+        "component-7909813fb9c6b99a751b",
+        "component-f178c1a1ebf07b0b8ac8"
+      ]
+    },
+    {
+      "ref": "component-882d4bb41cb57da0b374",
+      "dependsOn": [
+        "component-7909813fb9c6b99a751b",
+        "component-f178c1a1ebf07b0b8ac8"
+      ]
+    },
+    {
+      "ref": "component-7909813fb9c6b99a751b",
+      "dependsOn": [
+        "component-f178c1a1ebf07b0b8ac8"
+      ]
+    },
+    {
+      "ref": "component-99fce750b9e0c923e887",
+      "dependsOn": [
+        "component-7909813fb9c6b99a751b",
+        "component-f178c1a1ebf07b0b8ac8"
+      ]
+    },
+    {
+      "ref": "component-d554a81a5a8e7741aa3b",
+      "dependsOn": [
+        "component-33c624824b422a1e743b",
+        "component-54a84111d206a61715b9",
+        "component-8907942691304a312548",
+        "component-8a08acbe6e5b8e2c3e2c",
+        "component-9eb226995ec7055df6c9",
+        "component-bee70e6aa0b7eb181c62",
+        "component-c04377f548d4f48dc896",
+        "component-e179ad6c61206e1ec441",
+        "component-f704f01136396457f74f"
+      ]
+    },
+    {
+      "ref": "component-a61f0e12e70e2e59d861",
+      "dependsOn": [
+        "component-33c624824b422a1e743b",
+        "component-54a84111d206a61715b9",
+        "component-8907942691304a312548",
+        "component-9eb226995ec7055df6c9",
+        "component-e179ad6c61206e1ec441",
+        "component-f704f01136396457f74f"
+      ]
+    },
+    {
+      "ref": "component-ae191d8df8d3085693f6",
+      "dependsOn": [
+        "component-33c624824b422a1e743b",
+        "component-4d77f6ff156b2106610f",
+        "component-54a84111d206a61715b9",
+        "component-9eb226995ec7055df6c9",
+        "component-acf55bb12a36b9aad4cf",
+        "component-e179ad6c61206e1ec441",
+        "component-f704f01136396457f74f"
+      ]
+    },
+    {
+      "ref": "component-40a7db3a530a7e4c4531",
+      "dependsOn": [
+        "component-33c624824b422a1e743b",
+        "component-4d77f6ff156b2106610f",
+        "component-54a84111d206a61715b9",
+        "component-9eb226995ec7055df6c9",
+        "component-e179ad6c61206e1ec441",
+        "component-f704f01136396457f74f"
+      ]
+    },
+    {
+      "ref": "component-48d9ec1f813835e178d9",
+      "dependsOn": [
+        "component-33c624824b422a1e743b",
+        "component-4d77f6ff156b2106610f",
+        "component-54a84111d206a61715b9",
+        "component-9eb226995ec7055df6c9",
+        "component-e179ad6c61206e1ec441",
+        "component-f704f01136396457f74f"
+      ]
+    },
+    {
+      "ref": "component-22cdaecada1415d26fa9",
+      "dependsOn": [
+        "component-33c624824b422a1e743b",
+        "component-4d77f6ff156b2106610f",
+        "component-54a84111d206a61715b9",
+        "component-9eb226995ec7055df6c9",
+        "component-e179ad6c61206e1ec441",
+        "component-f704f01136396457f74f"
+      ]
+    },
+    {
+      "ref": "component-a6726f896a788aa23d0c",
+      "dependsOn": [
+        "component-33c624824b422a1e743b",
+        "component-4d77f6ff156b2106610f",
+        "component-54a84111d206a61715b9",
+        "component-9eb226995ec7055df6c9",
+        "component-e179ad6c61206e1ec441",
+        "component-f704f01136396457f74f"
+      ]
+    },
+    {
+      "ref": "component-70532f4e1158659fd728",
+      "dependsOn": [
+        "component-33c624824b422a1e743b",
+        "component-4d77f6ff156b2106610f",
+        "component-54a84111d206a61715b9",
+        "component-9eb226995ec7055df6c9",
+        "component-e179ad6c61206e1ec441",
+        "component-f704f01136396457f74f"
+      ]
+    },
+    {
+      "ref": "component-93ef0133b7121038f806",
+      "dependsOn": [
+        "component-9eb226995ec7055df6c9"
+      ]
+    },
+    {
+      "ref": "component-5f3c88a73f01f726a9af",
+      "dependsOn": [
+        "component-9eb226995ec7055df6c9"
+      ]
+    }
+  ],
+  "compositions": [
+    {
+      "aggregate": "incomplete",
+      "assemblies": [
+        "repository-repository"
+      ]
+    }
+  ]
+}

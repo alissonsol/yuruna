@@ -1,0 +1,154 @@
+<#PSScriptInfo
+.VERSION 2026.10.14
+.GUID 42708dea-607b-47cf-bf37-876b347859d2
+.AUTHOR Alisson Sol et al.
+.COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
+.TAGS yuruna test hostio dispatch pester
+.LICENSEURI https://yuruna.link/license
+.PROJECTURI https://yuruna.com
+.ICONURI
+.EXTERNALMODULEDEPENDENCIES
+.REQUIREDSCRIPTS
+.EXTERNALSCRIPTDEPENDENCIES
+.RELEASENOTES
+.PRIVATEDATA
+#>
+
+#requires -version 7
+
+<#
+.SYNOPSIS
+    Behavioral + structural guards on Test.HostIO.psm1's Invoke-HostIOAction
+    dispatch.
+.DESCRIPTION
+    Invoke-HostIOAction runs on the hot send path (every Send-Key / Send-Text /
+    Send-Click). It must do a SINGLE registry lookup and branch on the local
+    reference, not call Test-HostIOActionAvailable (its own lookup) and then look
+    the host map up again. The behavioral tests pin the observable contract that
+    must survive that optimization:
+      * a registered (HostType, Action) dispatches to its scriptblock, forwarding
+        the arguments hashtable, and returns the block's value;
+      * an unregistered Action on a known host throws, listing the available
+        actions;
+      * an unknown host throws with the '<host not registered>' marker.
+    The AST guards pin the optimization itself (exactly one registry Get; no
+    Test-HostIOActionAvailable call) -- both fail if the dispatch path
+    regresses to the double-lookup shape.
+
+    The throw-based Assert-* helpers live in the file's BeforeAll, which is the
+    scope Pester 5 shares with the It blocks; defining them at script scope
+    instead makes every It fail on a missing command rather than on an
+    assertion.
+#>
+
+BeforeAll {
+$here       = Split-Path -Parent $PSCommandPath
+$modulePath = Join-Path $here 'Test.HostIO.psm1'
+
+Import-Module (Join-Path (Split-Path -Parent $PSCommandPath) 'Test.Assert.psm1') -Force -Global -DisableNameChecking
+
+Import-Module $modulePath -Force -DisableNameChecking -ErrorAction SilentlyContinue
+
+# A test-only provider on a namespaced host type so a live registry (if this runs
+# in-session) is not disturbed. The block echoes an argument so the test can also
+# prove the arguments hashtable is forwarded.
+$script:HostIOStore = Get-Variable -Name 'YurunaHostIOProviders' -Scope Global -ValueOnly
+$script:HadHostIOFixture = $script:HostIOStore.Contains('test.hostio.unit')
+$script:OriginalHostIOFixture = $script:HostIOStore['test.hostio.unit']
+$script:HostIOStore.Remove('test.hostio.unit')
+Register-HostIOProvider -HostType 'test.hostio.unit' -Action 'Send-Probe' -Implementation {
+    param([hashtable]$a)
+    return [bool]$a.ok
+}
+
+function Get-FunctionAst {
+    [CmdletBinding()]
+    [OutputType([System.Management.Automation.Language.FunctionDefinitionAst])]
+    param([Parameter(Mandatory)][string]$Path, [Parameter(Mandatory)][string]$FunctionName)
+    $func = Get-YurunaTestFunctionAst -Path $Path -Name $FunctionName
+    if (-not $func) { throw "Function '$FunctionName' not found in $Path" }
+    return $func
+}
+
+# Count `<var>.<Member>` accesses inside a function -- e.g. $script:HostIORegistry.Get.
+function Get-MemberAccessCount {
+    [CmdletBinding()]
+    [OutputType([int])]
+    param([Parameter(Mandatory)]$FuncAst, [Parameter(Mandatory)][string]$BaseVar, [Parameter(Mandatory)][string]$Member)
+    Write-Verbose "Counting '$BaseVar.$Member' accesses"
+    $hits = $FuncAst.FindAll({
+        param($n)
+        $n -is [System.Management.Automation.Language.MemberExpressionAst] -and
+        $n.Member -is [System.Management.Automation.Language.StringConstantExpressionAst] -and
+        $n.Member.Value -eq $Member -and
+        $n.Expression -is [System.Management.Automation.Language.VariableExpressionAst] -and
+        ($n.Expression.VariablePath.UserPath -match ("(^|:)" + [regex]::Escape($BaseVar) + "$"))
+    }, $true)
+    return @($hits).Count
+}
+
+function Test-AstCallsCommand {
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param([Parameter(Mandatory)]$Ast, [Parameter(Mandatory)][string]$CommandName)
+    return ((Get-YurunaTestCommandCallCount -Ast $Ast -CommandName $CommandName) -gt 0)
+}
+
+# The parsed dispatch function the AST guards below inspect. It is resolved at
+# FILE scope because a Describe body is executed during discovery and its
+# variables are discarded before any It runs -- an in-Describe $script:invokeAst would
+# arrive at the guards as $null.
+$script:invokeAst = Get-FunctionAst -Path $modulePath -FunctionName 'Invoke-HostIOAction'
+
+}
+
+Describe 'Invoke-HostIOAction dispatch contract (behavioral)' {
+    # Drop the namespaced test provider on the way out so the suite leaves the
+    # ambient $global:YurunaHostIOProviders registry as it found it.
+    AfterAll {
+        if ($script:HadHostIOFixture) {
+            $script:HostIOStore['test.hostio.unit'] = $script:OriginalHostIOFixture
+        } else {
+            $script:HostIOStore.Remove('test.hostio.unit')
+        }
+    }
+
+    It 'dispatches to the registered scriptblock and forwards the arguments hashtable' {
+        Assert-True  (Invoke-HostIOAction -HostType 'test.hostio.unit' -Action 'Send-Probe' -Arguments @{ ok = $true })  'a truthy arg returns the block value'
+        Assert-Equal -Expected $false -Actual (Invoke-HostIOAction -HostType 'test.hostio.unit' -Action 'Send-Probe' -Arguments @{ ok = $false }) -Because 'the arguments hashtable reaches the block'
+    }
+    It 'throws listing the available actions when the action is unregistered on a known host' {
+        $threw = $false
+        try { Invoke-HostIOAction -HostType 'test.hostio.unit' -Action 'No-Such' }
+        catch { $threw = $true; $msg = $_.Exception.Message }
+        Assert-True $threw 'an unavailable action must throw'
+        Assert-True ($msg -match "not available on 'test\.hostio\.unit'") 'the message names the host'
+        Assert-True ($msg -match 'available actions: Send-Probe') 'the message lists the known actions from the single lookup'
+    }
+    # Angle brackets in an It name are not decoration: Pester expands <...> as a
+    # data placeholder, so the contents have to parse as a PowerShell expression.
+    # A single identifier (<server>, <uuid>) survives that, which is why the
+    # brackets look safe elsewhere in the suite; several words do not. Spelling
+    # the marker as '<host not registered>' made Pester parse `host not registered`,
+    # which fails on the token `not` -- and a name that will not parse takes the
+    # whole test with it, so the body never runs and the guard silently stops
+    # guarding. Keep multi-word markers out of the brackets.
+    It 'throws with the host-not-registered marker when the host is unknown' {
+        $threw = $false
+        try { Invoke-HostIOAction -HostType 'test.hostio.absent-xyz' -Action 'Send-Probe' }
+        catch { $threw = $true; $msg = $_.Exception.Message }
+        Assert-True $threw 'an unknown host must throw'
+        Assert-True ($msg -match 'host not registered') 'the null host map yields the not-registered marker'
+    }
+}
+
+Describe 'Invoke-HostIOAction does a single hot-path registry lookup' {
+    It 'performs exactly one registry Get (no redundant re-lookup on the send path)' {
+        Assert-Equal -Expected 1 -Actual (Get-MemberAccessCount -FuncAst $script:invokeAst -BaseVar 'HostIORegistry' -Member 'Get') -Because `
+            'the availability decision and the invoke both derive from one $hostMap reference'
+    }
+    It 'does not call Test-HostIOActionAvailable from the dispatch path' {
+        Assert-True (-not (Test-AstCallsCommand -Ast $script:invokeAst -CommandName 'Test-HostIOActionAvailable')) `
+            'the duplicate availability check (its own registry Get) is inlined as a local Contains branch'
+    }
+}

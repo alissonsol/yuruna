@@ -1,0 +1,341 @@
+<#PSScriptInfo
+.VERSION 2026.10.14
+.GUID 4202eb15-d68a-475f-9f7f-9e84da9b500a
+.AUTHOR Alisson Sol et al.
+.COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
+.TAGS
+.LICENSEURI https://yuruna.link/license
+.PROJECTURI https://yuruna.com
+.ICONURI
+.EXTERNALMODULEDEPENDENCIES
+.REQUIREDSCRIPTS
+.EXTERNALSCRIPTDEPENDENCIES
+.RELEASENOTES
+.PRIVATEDATA
+#>
+
+<#
+.SYNOPSIS
+    Updates Windows 11 system packages.
+.DESCRIPTION
+    Installs Windows updates, updates winget packages, and performs system cleanup.
+    Run this script in an elevated PowerShell terminal.
+#>
+
+# --- REGION: Ensure running as Administrator
+if (-not ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole] "Administrator")) {
+    Write-Output ""
+    Write-Output "========"
+    Write-Output "|  This script requires elevation (Run as Administrator)    |"
+    Write-Output "|  Right-click PowerShell and select 'Run as Administrator' |"
+    Write-Output "========"
+    Write-Output ""
+    throw 'Guest update failed; review the preceding error.'
+}
+
+# See https://yuruna.link/42e220c4-0005
+# --- REGION: Invoke-GuestWingetInstall
+function Invoke-GuestWingetInstall {
+    <#
+    .SYNOPSIS
+        Install a prerequisite or accept its documented already-present outcome.
+    #>
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][string]$PackageId)
+    $ErrorActionPreference = 'Stop'
+    $PSNativeCommandUseErrorActionPreference = $false
+    $global:LASTEXITCODE = $null
+    try {
+        & winget install --id $PackageId --accept-source-agreements --accept-package-agreements --silent
+        $wingetSucceeded = $?
+        $wingetNativeExitCode = $global:LASTEXITCODE
+    } catch {
+        throw
+    }
+    $wingetExitCode = 0L
+    if ($null -eq $wingetNativeExitCode -or -not [long]::TryParse([string]$wingetNativeExitCode, [ref]$wingetExitCode) -or $wingetExitCode -lt -2147483648 -or $wingetExitCode -gt 4294967295) {
+        throw "Package installation failed for $PackageId without a valid native exit code."
+    }
+    if ($wingetExitCode -ge 2147483648) { $wingetExitCode -= 4294967296 }
+    if ($wingetExitCode -notin @(0, -1978335189, -1978335135) -or ($wingetExitCode -eq 0 -and -not $wingetSucceeded)) {
+        throw "Package installation failed for $PackageId (winget exit code $wingetExitCode)."
+    }
+}
+
+# --- REGION: Ensure execution policy allows scripts
+$ProgressPreference = 'SilentlyContinue'
+Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser -Force
+
+# --- REGION: Detect architecture
+# See https://yuruna.link/42e220c4-0015
+$nativeProcessor = Get-CimInstance -ClassName Win32_Processor -Property Architecture -ErrorAction Stop | Select-Object -First 1
+if ($null -eq $nativeProcessor -or $null -eq $nativeProcessor.Architecture) { throw 'Cannot determine the native processor architecture for the guest update.' }
+$arch = switch ($nativeProcessor.Architecture) {
+    9 { 'AMD64' }
+    12 { 'ARM64' }
+    default { "Unknown ($($nativeProcessor.Architecture))" }
+}
+Write-Output "Detected architecture: $arch"
+switch ($arch) {
+    'AMD64' { Write-Output 'Environment: x86_64/amd64' }
+    'ARM64' { Write-Output 'Environment: aarch64/arm64' }
+    default {
+        Write-Output "WARNING: Unsupported architecture: $arch"
+        Write-Output "This script supports AMD64 and ARM64."
+        throw 'Guest update failed; review the preceding error.'
+    }
+}
+
+# --- REGION: Ensure PowerShell is installed
+# See https://yuruna.link/42d69dfa-0036
+Write-Output ""
+Write-Output ">>> Checking for PowerShell 7..."
+$pwshPath = Get-Command pwsh -ErrorAction SilentlyContinue
+if (-not $pwshPath) {
+    Write-Output "PowerShell 7 not found. Installing..."
+    Invoke-GuestWingetInstall -PackageId 'Microsoft.PowerShell'
+    # Refresh PATH so the newly installed pwsh is discoverable
+    $env:Path = [System.Environment]::GetEnvironmentVariable("Path", "Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path", "User")
+    Write-Output "<<< PowerShell 7 installation complete."
+} else {
+    Write-Output "PowerShell 7 found at $($pwshPath.Source)"
+}
+
+# --- REGION: Install powershell-yaml module
+# See https://yuruna.link/42d69dfa-0038
+Write-Output ""
+Write-Output ">>> Installing PowerShell module: powershell-yaml..."
+# 2.8.5.201 is Microsoft's documented TLS-1.2-capable NuGet provider
+# bootstrap floor, not a workload pin.
+$yamlInstall = "if (-not (Get-PackageProvider -Name NuGet -ErrorAction SilentlyContinue)) { Install-PackageProvider -Name NuGet -MinimumVersion 2.8.5.201 -Force -Scope AllUsers | Out-Null }; Set-PSRepository -Name PSGallery -InstallationPolicy Trusted; Install-Module -Name powershell-yaml -Scope AllUsers -Force -Confirm:`$false"
+$yamlOk = $false
+for ($attempt = 1; $attempt -le 3 -and -not $yamlOk; $attempt++) {
+    pwsh -NoProfile -Command $yamlInstall
+    pwsh -NoProfile -Command "Import-Module powershell-yaml -ErrorAction Stop; if ((ConvertFrom-Yaml 'k: v').k -ne 'v') { exit 1 }"
+    if ($LASTEXITCODE -eq 0) { $yamlOk = $true }
+    else { Write-Output "powershell-yaml install/import attempt $attempt/3 failed; retrying..."; Start-Sleep -Seconds ($attempt * 5) }
+}
+if (-not $yamlOk) {
+    Write-Error "powershell-yaml failed to install/import after 3 attempts; it is required by the in-guest sequence planner and Get-SystemDiagnostic.ps1."
+    throw 'Guest update failed; review the preceding error.'
+}
+Write-Output "<<< PowerShell module: powershell-yaml installation complete."
+
+# --- REGION: Early yuruna framework extraction
+# See https://yuruna.link/42d69dfa-0037
+# Tarball-only here; the git-clone fallback lives in the Materialize section below.
+Write-Output ""
+Write-Output ">>> Pre-fetching yuruna framework tarball (for diagnostic availability)..."
+$yurunaRoot = Join-Path $env:USERPROFILE 'yuruna'
+$frameworkVersion = Join-Path $yurunaRoot 'VERSION'
+$hostEnv    = 'C:\ProgramData\yuruna\host.env'
+if (Test-Path -LiteralPath $hostEnv -PathType Leaf) {
+    Get-Content -LiteralPath $hostEnv | ForEach-Object {
+        if ($_ -match '^\s*([A-Z_]+)\s*=\s*"?([^"]*)"?\s*$') {
+            Set-Item -Path "env:$($Matches[1])" -Value $Matches[2]
+        }
+    }
+}
+if ($env:YURUNA_STATUS_SERVICE_IP -and $env:YURUNA_STATUS_SERVICE_PORT -and -not (Test-Path -LiteralPath $yurunaRoot -PathType Container)) {
+    $livecheckUrl = "http://$($env:YURUNA_STATUS_SERVICE_IP):$($env:YURUNA_STATUS_SERVICE_PORT)/livecheck"
+    $tarballUrl   = "http://$($env:YURUNA_STATUS_SERVICE_IP):$($env:YURUNA_STATUS_SERVICE_PORT)/yuruna-archive.tar.gz"
+    try {
+        # Probe liveness without downloading a response body.
+        $null = Invoke-WebRequest -Uri $livecheckUrl -Method Head -UseBasicParsing -TimeoutSec 2 -ErrorAction Stop
+        New-Item -ItemType Directory -Path $yurunaRoot -Force | Out-Null
+        $tarPath = Join-Path $env:TEMP 'yuruna-archive.tar.gz'
+        Invoke-WebRequest -Uri $tarballUrl -UseBasicParsing -OutFile $tarPath -ErrorAction Stop
+        # tar.exe (bsdtar) ships in-box since Windows 10 1803 and reads .tar.gz directly.
+        tar.exe -xzf $tarPath -C $yurunaRoot
+        if ($LASTEXITCODE -ne 0) { throw "Framework archive extraction failed (tar exit code $LASTEXITCODE)." }
+        if (-not (Test-Path -LiteralPath $frameworkVersion -PathType Leaf) -or (Get-Item -LiteralPath $frameworkVersion).Length -eq 0) {
+            throw 'Framework archive lacks a nonempty VERSION file.'
+        }
+        Remove-Item -LiteralPath $tarPath -Force -ErrorAction SilentlyContinue
+        Write-Output "<<< Yuruna framework available at $yurunaRoot (early extract)."
+    } catch {
+        if (Test-Path -LiteralPath $yurunaRoot) { Remove-Item -LiteralPath $yurunaRoot -Recurse -Force -ErrorAction SilentlyContinue }
+        Write-Output "yuruna: early tarball fetch failed -- $($_.Exception.Message)"
+    }
+} else {
+    Write-Output "yuruna: host.env not present or yuruna already extracted -- skipping early extract."
+}
+
+# --- REGION: Disable services that may suspend the machine
+# Match the Linux no-sleep contract; powercfg updates the active scheme.
+# Suppress harmless output when firmware already disabled hibernation.
+Write-Output ""
+Write-Output "TESTHACK: Disabling services that may suspend the machine."
+powercfg /change standby-timeout-ac 0 | Out-Null
+powercfg /change standby-timeout-dc 0 | Out-Null
+powercfg /change hibernate-timeout-ac 0 | Out-Null
+powercfg /change hibernate-timeout-dc 0 | Out-Null
+powercfg /change monitor-timeout-ac 0 | Out-Null
+powercfg /change monitor-timeout-dc 0 | Out-Null
+powercfg /hibernate off 2>$null
+
+# --- REGION: Update system packages
+Write-Output ""
+Write-Output ">>> Updating winget packages..."
+winget upgrade --all --accept-source-agreements --accept-package-agreements --silent
+Write-Output "<<< winget package update complete."
+
+Write-Output ""
+Write-Output ">>> Installing Windows Update module..."
+if (-not (Get-PackageProvider -Name NuGet -ErrorAction SilentlyContinue)) {
+    # 2.8.5.201 is Microsoft's documented TLS-1.2-capable NuGet provider
+    # bootstrap floor, not a workload pin.
+    Install-PackageProvider -Name NuGet -MinimumVersion 2.8.5.201 -Force -Scope AllUsers | Out-Null
+}
+Set-PSRepository -Name PSGallery -InstallationPolicy Trusted
+if (-not (Get-Module -ListAvailable -Name PSWindowsUpdate)) {
+    Install-Module -Name PSWindowsUpdate -Force -Scope AllUsers -Confirm:$false
+}
+Import-Module PSWindowsUpdate
+Write-Output "<<< Windows Update module ready."
+
+Write-Output ""
+Write-Output ">>> Checking for Windows updates..."
+# See https://yuruna.link/42e220c4-0005
+# Bound Windows Update; the child job must import its own module.
+$wuTimeoutSeconds = 1800
+$wuJob = Start-Job -ScriptBlock { Import-Module PSWindowsUpdate; Get-WindowsUpdate -AcceptAll -Install -AutoReboot:$false -Verbose }
+if (Wait-Job -Job $wuJob -Timeout $wuTimeoutSeconds) {
+    Receive-Job -Job $wuJob
+} else {
+    Write-Warning "Get-WindowsUpdate exceeded ${wuTimeoutSeconds}s; stopping the update job and continuing provisioning."
+    Stop-Job -Job $wuJob -ErrorAction SilentlyContinue
+}
+Remove-Job -Job $wuJob -Force -ErrorAction SilentlyContinue
+Write-Output "<<< Windows update check complete."
+
+# --- REGION: Ensure Git is installed
+Write-Output ""
+Write-Output ">>> Ensuring Git is installed..."
+if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
+    Invoke-GuestWingetInstall -PackageId 'Git.Git'
+    # Refresh PATH so the newly installed Git is discoverable in this session.
+    $env:Path = [System.Environment]::GetEnvironmentVariable('Path', 'Machine') + ';' + [System.Environment]::GetEnvironmentVariable('Path', 'User')
+}
+git --version
+Write-Output "<<< Git ready."
+
+# --- REGION: Resolve framework and project URLs
+# See https://yuruna.link/42fa6f45-000c
+$frameworkUrl = ''
+$projectUrl   = ''
+if ($env:YURUNA_STATUS_SERVICE_IP -and $env:YURUNA_STATUS_SERVICE_PORT) {
+    $cfgUrl = "http://$($env:YURUNA_STATUS_SERVICE_IP):$($env:YURUNA_STATUS_SERVICE_PORT)/control/test-config"
+    try {
+        $cfg = Invoke-RestMethod -Uri $cfgUrl -UseBasicParsing -TimeoutSec 5 -ErrorAction Stop
+        if ($cfg.repositories.frameworkUrl) { $frameworkUrl = [string]$cfg.repositories.frameworkUrl }
+        if ($cfg.repositories.projectUrl)   { $projectUrl   = [string]$cfg.repositories.projectUrl }
+    } catch {
+        Write-Output "yuruna: /control/test-config unreachable -- using seeded clone URLs when available."
+    }
+}
+
+# host.env keeps clone URLs available while the status service is unreachable.
+if (-not $frameworkUrl) { $frameworkUrl = [string]$env:YURUNA_FRAMEWORK_URL }
+if (-not $projectUrl) { $projectUrl = [string]$env:YURUNA_PROJECT_URL }
+
+# --- REGION: Keep git non-interactive
+# See https://yuruna.link/4220a755-004f
+# See https://yuruna.link/42e220c4-0005
+$env:GIT_TERMINAL_PROMPT = '0'
+$env:GCM_INTERACTIVE = 'never'
+$gitAskpassShim = 'C:\ProgramData\yuruna\git-askpass.cmd'
+if (Test-Path -LiteralPath $gitAskpassShim -PathType Leaf) {
+    $env:GIT_ASKPASS = $gitAskpassShim
+}
+
+# --- REGION: Materialize the yuruna framework and project repos
+# See https://yuruna.link/42e220c4-000e
+if (-not (Test-Path -LiteralPath $yurunaRoot -PathType Container)) {
+    $hostOk = $false
+    if ($env:YURUNA_STATUS_SERVICE_IP -and $env:YURUNA_STATUS_SERVICE_PORT) {
+        $livecheckUrl = "http://$($env:YURUNA_STATUS_SERVICE_IP):$($env:YURUNA_STATUS_SERVICE_PORT)/livecheck"
+        $tarballUrl   = "http://$($env:YURUNA_STATUS_SERVICE_IP):$($env:YURUNA_STATUS_SERVICE_PORT)/yuruna-archive.tar.gz"
+        try {
+            $null = Invoke-WebRequest -Uri $livecheckUrl -Method Head -UseBasicParsing -TimeoutSec 2 -ErrorAction Stop
+            Write-Output "yuruna: fetching committed tarball from $tarballUrl"
+            New-Item -ItemType Directory -Path $yurunaRoot -Force | Out-Null
+            $tarPath = Join-Path $env:TEMP 'yuruna-archive.tar.gz'
+            Invoke-WebRequest -Uri $tarballUrl -UseBasicParsing -OutFile $tarPath -ErrorAction Stop
+            tar.exe -xzf $tarPath -C $yurunaRoot
+            if ($LASTEXITCODE -ne 0) { throw "Framework archive extraction failed (tar exit code $LASTEXITCODE)." }
+            if (-not (Test-Path -LiteralPath $frameworkVersion -PathType Leaf) -or (Get-Item -LiteralPath $frameworkVersion).Length -eq 0) {
+                throw 'Framework archive lacks a nonempty VERSION file.'
+            }
+            Remove-Item -LiteralPath $tarPath -Force -ErrorAction SilentlyContinue
+            $hostOk = $true
+        } catch {
+            Write-Output "yuruna: tarball fetch/extract failed - falling back to git clone"
+            if (Test-Path -LiteralPath $yurunaRoot) { Remove-Item -LiteralPath $yurunaRoot -Recurse -Force -ErrorAction SilentlyContinue }
+        }
+    }
+    if (-not $hostOk) {
+        if (-not $frameworkUrl) {
+            Write-Error 'yuruna: repositories.frameworkUrl missing from test.config.yml - cannot clone framework'
+            throw 'Guest update failed; review the preceding error.'
+        }
+        $cloned = $false
+        for ($attempt = 1; $attempt -le 3 -and -not $cloned; $attempt++) {
+            git -c http.lowSpeedLimit=1024 -c http.lowSpeedTime=60 clone $frameworkUrl $yurunaRoot
+            if ($LASTEXITCODE -eq 0 -and (Test-Path -LiteralPath $frameworkVersion -PathType Leaf) -and (Get-Item -LiteralPath $frameworkVersion).Length -gt 0) { $cloned = $true; break }
+            Write-Output "git clone attempt $attempt failed"
+            if (Test-Path -LiteralPath $yurunaRoot) { Remove-Item -LiteralPath $yurunaRoot -Recurse -Force -ErrorAction SilentlyContinue }
+            if ($attempt -lt 3) { Start-Sleep -Seconds 60 }
+        }
+        if (-not $cloned) {
+            Write-Error 'git clone failed after 3 attempts'
+            throw 'Guest update failed; review the preceding error.'
+        }
+    }
+}
+
+$yurunaProject = Join-Path $yurunaRoot 'project'
+if (-not (Test-Path -LiteralPath $yurunaProject -PathType Container)) {
+    $projectHostOk = $false
+    if ($env:YURUNA_STATUS_SERVICE_IP -and $env:YURUNA_STATUS_SERVICE_PORT) {
+        $projectTarballUrl = "http://$($env:YURUNA_STATUS_SERVICE_IP):$($env:YURUNA_STATUS_SERVICE_PORT)/yuruna-project-archive.tar.gz"
+        Write-Output "yuruna: trying project tarball at $projectTarballUrl"
+        try {
+            New-Item -ItemType Directory -Path $yurunaProject -Force | Out-Null
+            $tarPath = Join-Path $env:TEMP 'yuruna-project-archive.tar.gz'
+            Invoke-WebRequest -Uri $projectTarballUrl -UseBasicParsing -OutFile $tarPath -ErrorAction Stop
+            tar.exe -xzf $tarPath -C $yurunaProject
+            if ($LASTEXITCODE -ne 0) { throw "Project archive extraction failed (tar exit code $LASTEXITCODE)." }
+            Remove-Item -LiteralPath $tarPath -Force -ErrorAction SilentlyContinue
+            if (Get-ChildItem -LiteralPath $yurunaProject -Force -ErrorAction SilentlyContinue) {
+                $projectHostOk = $true
+            } else {
+                throw 'tarball produced empty project directory'
+            }
+        } catch {
+            Write-Output "yuruna: project tarball not served (or empty) - falling back to git clone"
+            if (Test-Path -LiteralPath $yurunaProject) { Remove-Item -LiteralPath $yurunaProject -Recurse -Force -ErrorAction SilentlyContinue }
+        }
+    }
+    if (-not $projectHostOk -and $projectUrl) {
+        $cloned = $false
+        for ($attempt = 1; $attempt -le 3 -and -not $cloned; $attempt++) {
+            git -c http.lowSpeedLimit=1024 -c http.lowSpeedTime=60 clone $projectUrl $yurunaProject
+            if ($LASTEXITCODE -eq 0) { $cloned = $true; break }
+            Write-Output "project git clone attempt $attempt failed"
+            if (Test-Path -LiteralPath $yurunaProject) { Remove-Item -LiteralPath $yurunaProject -Recurse -Force -ErrorAction SilentlyContinue }
+            if ($attempt -lt 3) { Start-Sleep -Seconds 60 }
+        }
+        if (-not $cloned) {
+            Write-Error 'project git clone failed after 3 attempts'
+            throw 'Guest update failed; review the preceding error.'
+        }
+    }
+}
+
+# --- REGION: Clean up temporary files
+Write-Output ""
+Write-Output ">>> Cleaning up temporary files..."
+Remove-Item -Path "$env:TEMP\*" -Recurse -Force -ErrorAction SilentlyContinue
+cleanmgr /sagerun:1 2>$null
+Write-Output "<<< Cleanup complete."

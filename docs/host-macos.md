@@ -1,0 +1,591 @@
+<a id="42885ada-0001"></a>
+
+# macOS UTM host -- troubleshooting
+
+**Warning:** Instructions are intentionally brief -- don't follow them unless you know what you are doing.
+
+<a id="42885ada-0002"></a>
+
+## Packages, PATH, and Homebrew issues
+
+- Non-Homebrew packages (e.g. PowerShell) aren't covered by `brew update`/`upgrade`.
+- Different install methods can shadow each other via PATH order.
+- For most cases, use `brew-doctor-fix.sh`; occasionally you'll need manual steps like `brew uninstall powershell && brew install powershell`.
+
+<a id="42885ada-0012"></a>
+
+## After a macOS major upgrade
+
+A major upgrade -- 26 to 27, not 27.0 to 27.1 -- rebuilds parts of the surface
+the harness configures. App preference domains come back at their defaults, and
+the privacy grants are re-asked. Settings that were applied months ago are then
+gone, and the gate reports each of them separately, so one event arrives as a
+handful of unrelated-looking failures.
+
+The knobs in UTM's own domain are the ones that go quietly, because nothing
+about UTM looks different afterwards:
+
+```
+defaults read com.utmapp.UTM NSAppSleepDisabled                  # want: 1
+defaults read com.utmapp.UTM KeepRunningAfterLastWindowClosed    # want: 1
+```
+
+Unset, the first lets macOS throttle UTM until its window leaves the capture
+list while the VM keeps running, and the second makes closing any VM window
+quit UTM -- which saves the state of every VM still up, so the service VMs come
+back `suspended`. Neither needs sudo.
+
+**Check first whether they are unset or unreadable.** UTM is sandboxed, so that
+domain resolves into its container, and macOS gates one app's access to
+another's container data behind a grant the terminal application holds. Without
+it both reads and both writes fail and the exit code alone cannot say why:
+
+```
+defaults write com.utmapp.UTM NSAppSleepDisabled -bool YES
+# Error: Could not write domain .../com.utmapp.UTM; exiting
+```
+
+That is a file-access refusal, not a switch that is off, and no amount of
+re-running the host setup changes it -- the write is refused the same way each
+time. The POSIX mode is not the signal either: the plist is owned by the
+account at `-rw-------` and still will not open. Grant **Full Disk Access** to
+the terminal application, then fully quit it (Cmd-Q) and relaunch -- macOS does
+not honor that grant in an already-running process. Rename-VM edits the same
+container, so it is blocked by the same missing grant.
+
+With the container readable, re-run the host setup, which re-applies all of it
+and re-requests the grants:
+
+```
+pwsh test/lab/Enable-TestAutomation.ps1
+```
+
+Quit and reopen UTM afterwards: it reads both of those preferences at launch,
+so a UTM that was running while they were written keeps its old behavior until
+it is next started. Stop the service VMs first rather than quitting UTM under
+them (`test/service/Stop-CachingProxyServiceVM.ps1`,
+`test/service/Stop-StashServiceVM.ps1`) -- see
+[Service VMs come back `suspended` after UTM is quit](#service-vms-come-back-suspended-after-utm-is-quit).
+
+`pwsh test/Test-Config.ps1` reports the upgrade under **Host setup freshness**
+when the host was set up on an earlier major version, so the shared cause is
+named once before the sections that report its consequences.
+
+<a id="42885ada-0003"></a>
+
+## The unified screen lock asks for your account password, not sudo's
+
+`sysadminctl -screenLock` is backed by a secure-keyring entry, so it wants the
+**macOS account password** on top of sudo. `Enable-TestAutomation.ps1` asks for
+it separately from the sudo prompt, and it is masked.
+
+Do **not** run the shape that looks obvious:
+
+```
+sudo sysadminctl -screenLock off -password -     # DON'T
+```
+
+`-password -` makes sysadminctl read the password from stdin with a plain
+stream read -- it never turns terminal echo off, so every character you type
+appears on screen and stays in the scrollback. Passing `-password <plaintext>`
+is worse: `ps` shows it to every account on the machine while the call runs.
+
+To set it by hand, pipe a silently-read password in (works in both zsh and
+bash -- `read -p` is bash-only and means something else in zsh):
+
+```
+printf 'macOS account password: ' && read -rs YPW && echo && \
+  printf '%s\n' "$YPW" | sudo sysadminctl -screenLock off -password -; unset YPW
+```
+
+The state persists across reboots, so this is a one-time step. The same
+command with a number instead of `off` restores a delay in seconds -- which is
+what `Disable-TestAutomation.ps1` does from the captured pre-automation state.
+
+<a id="42885ada-0004"></a>
+
+## The permissions only a person can give (and why no password replaces them)
+
+Four macOS privacy grants gate the harness. They are held by the **terminal
+application**, not by `pwsh`:
+
+| Grant | Pane | Needed for |
+| --- | --- | --- |
+| Accessibility | Privacy & Security > Accessibility | posting keystrokes into UTM guest windows without holding focus |
+| Screen Recording | Privacy & Security > Screen Recording | window **titles** from `CGWindowList` and `screencapture -l <windowId>` |
+| Automation -> UTM | Privacy & Security > Automation | `utmctl`, which drives UTM over Apple Events |
+| Full Disk Access | Privacy & Security > Full Disk Access | reading and writing UTM's preferences, which live inside its sandbox container |
+
+**No script can grant these, with or without an administrator password.** macOS
+keeps them in the TCC databases; System Integrity Protection guards those
+against every writer including root, and `tccutil` can only *reset* a decision,
+never make one. The only supported way to pre-authorize them is a **Privacy
+Preferences Policy Control (PPPC) payload delivered by an MDM server** the Mac
+is enrolled with -- a profile installed by hand is not honored for PPPC. On a
+fleet, that is the route: ship a PPPC profile that grants
+`kTCCServiceAccessibility`, `kTCCServiceScreenCapture` and
+`kTCCServiceAppleEvents` (target `com.utmapp.UTM`) to your terminal's bundle id.
+Anything short of MDM means a human clicks once per grant per machine.
+
+So the harness does everything short of that:
+
+- **Detection without prompting.** `AXIsProcessTrusted` and
+  `CGPreflightScreenCaptureAccess` read the current state and never raise a
+  dialog, so the pre-cycle gate can report them.
+- **`Enable-TestAutomation.ps1` raises each dialog, opens the exact pane, and
+  then waits and re-reads**, so the run confirms the grant rather than telling
+  you to re-run and find out.
+- **One registry, one wording.** Detection and instructions live in
+  `Get-MacOperatorGrant` (`test/modules/Test.HostCondition.Mac.psm1`). Both
+  `Test-Config.ps1` and the per-cycle `Assert-HostConditionSet` render from it,
+  so the gate and the runner cannot describe the same permission differently.
+  Adding a fourth grant is one entry in that registry and nothing else.
+
+Automation -> UTM is the one exception to "the gate reports it": macOS offers no
+way to *read* that grant that does not itself raise the dialog, and a gate that
+pops a modal before every cycle would hang an unattended host on a question
+nobody is there to answer. `Test-Config.ps1` lists it so the prompt is expected;
+`Enable-TestAutomation.ps1` triggers it while you are at the machine.
+
+If a grant is toggled ON and the check still refuses, the usual causes are: the
+entry is for `pwsh` rather than the terminal app; Screen Recording was granted
+without fully quitting the terminal afterward; or the check is running in an
+SSH session, which cannot hold these grants at all (the gate says so instead of
+failing, since it is describing the wrong session).
+
+<a id="42885ada-0005"></a>
+
+## `utmctl missing on PATH` -- the gate fails on a Mac where UTM is installed
+
+`Test-Config.ps1` reports `[PASS] UTM.app installed.` and, one line later,
+`[FAIL] utmctl missing on PATH`; `Start-TestRunner.ps1` then refuses with
+**Pre-cycle config gate FAILED**. Nothing is broken about the UTM install --
+UTM keeps its command line **inside the app bundle**, at
+`/Applications/UTM.app/Contents/MacOS/utmctl`, and no UTM installer puts that
+directory on anyone's `PATH`. Every VM operation in the harness shells out to
+`utmctl`, so the gate is right to refuse.
+
+Either repair works:
+
+```
+pwsh host/macos.utm/Enable-TestAutomation.ps1
+```
+
+or, for a session that already has a warm `sudo` timestamp:
+
+```
+sudo mkdir -p /usr/local/bin && sudo ln -sfn /Applications/UTM.app/Contents/MacOS/utmctl /usr/local/bin/utmctl
+```
+
+`install/macos.utm.sh` creates this link and refuses to report success without
+it, so a host installed with the current bootstrapper never reaches this state.
+A host provisioned before that, or one where UTM was installed by hand from the
+`.dmg`, needs one of the two commands above.
+
+`/usr/local/bin` and not Homebrew's `bin`: the stock `/etc/paths` lists
+`/usr/local/bin`, so a login shell, a LaunchAgent and an `ssh host command` all
+see it. Homebrew's `bin` only reaches shells that ran `brew shellenv`, which the
+status service and the runner's own children do not.
+
+If the link is in place and `utmctl` *still* does not resolve, the shell profile
+on this account is replacing `PATH` rather than adding to it -- check
+`~/.zprofile` and `~/.zshrc` for a bare `export PATH=...`.
+
+<a id="42885ada-0006"></a>
+
+## PowerShell, .NET, and nested `sudo pwsh`
+
+`install/macos.utm.sh` prefers the Homebrew **formula** for PowerShell, which is
+framework-dependent on brew's `dotnet` and locates its runtime through
+`DOTNET_ROOT`, exported by the wrapper on `PATH`. Any `pwsh` started without
+that environment -- notably a nested `sudo pwsh`, whose `env_reset` strips it --
+fails to find `libhostfxr` and exits **131** before running a line of script.
+The error names .NET, never the caller, so it surfaces far from its cause -- for
+example `New-LocalLabStorage.ps1` dying at step 5/8.
+
+Two things make this go away, and the installer does both:
+`/etc/dotnet/install_location_$(uname -m)` records the runtime location
+machine-wide, read regardless of who starts `pwsh` or with what environment; and
+`Get-SudoPwshArgumentList` (`automation/Yuruna.Common.psm1`) adds `-E` on macOS
+for every nested launch. To repair a host that predates both:
+
+```
+echo "$(brew --prefix dotnet)/libexec" | sudo tee /etc/dotnet/install_location_$(uname -m)
+```
+
+`-E` is macOS-only on purpose: Linux ships a self-contained PowerShell that
+needs nothing preserved, and a `NOSETENV` sudoers rule there rejects `-E`
+outright.
+
+<a id="42885ada-0007"></a>
+
+## Do not run the harness scripts under `sudo`
+
+They are built to run unelevated and to elevate individual operations. Under
+`sudo` the failure is not (mainly) file ownership -- it is that **root has no
+Aqua session**: `open -g -a UTM`, `utmctl`, and the `osascript` dialog watchdog
+are per-GUI-session, so a root run dies at "UTM did not register `<vm>`" long
+before anything mounts. Plain `sudo` also resets `HOME` to `/var/root`, so
+bundles, images, the harness SSH key and the vault land in root's home.
+
+Recovery: `sudo chown -R "$USER" ~/yuruna` (the whole tree -- removing a
+directory needs write permission on its *parent*, and `guest.nosync` is shared
+by every builder), then re-run unelevated.
+
+<a id="42885ada-0008"></a>
+
+## Cleaning up old files
+
+Run `Remove-OrphanedVMFiles.ps1`. It removes per-VM artifacts (bundles, ISOs, etc.) for any VM that no longer exists. Downloaded base images are KEPT so later `Get-Image.ps1` runs don't re-download them; refresh one with the matching `Get-Image.ps1`.
+
+<a id="42885ada-0009"></a>
+
+## `tapOn` loops on "UTM window for `<vm>` not found"
+
+Symptom: the first OCR step (e.g. "Try or Install Ubuntu") matches and
+steps succeed, then a later `tapOn` warns repeatedly:
+
+```
+WARNING: UTM window for 'test-...' not found (CG query returned: not_found).
+  Open the VM in UTM.app before using tapOn.
+DEBUG:   Window capture unavailable -- retrying
+```
+
+Two possible causes:
+
+1. **Terminal lacks Screen Recording permission.**
+   `CGWindowListCopyWindowInfo` strips window titles without this TCC
+   grant. Region-capture OCR still works via the AppleScript /
+   Accessibility fallback (a different TCC bucket).
+
+2. **UTM's VM window has `NSWindowSharingNone`** (some UTM + Apple
+   Virtualization builds). Reachable via the Accessibility API but
+   omits `kCGWindowName` from CGWindowList regardless of Screen
+   Recording. The harness automatically falls back to AppleScript bounds --
+   debug output shows `CG window query: not_found` then
+   `Window bounds query (fallback): <x>,<y>,<w>,<h>`.
+
+Fix for (1):
+
+1. System Settings -> Privacy & Security -> **Screen Recording** ->
+   enable your terminal.
+2. **Fully quit** the terminal (Cmd-Q) and relaunch -- TCC grants don't
+   apply to a running process.
+3. Re-run the harness.
+
+Case (2) needs no action. If `Window bounds query (fallback)` also
+returns `not_found`, UTM's window isn't open: double-click the `.utm`
+bundle or click the VM in UTM's sidebar.
+
+<a id="42885ada-000a"></a>
+
+## `screencapture -l` returns black, or "UTM window for `<vm>` not found", on a different macOS Space
+
+If you switched Spaces and the runner started failing screen captures
+or window-id lookups, verify:
+
+- The window-finder JXA in
+  [`Yuruna.Host.psm1`](../host/macos.utm/modules/Yuruna.Host.psm1)
+  uses `kCGWindowListOptionAll` (not `OnScreenOnly`) -- only `OptionAll`
+  enumerates UTM windows on another Space.
+- `Enable-TestAutomation.ps1` flipped `AppleSpacesSwitchOnActivation` to
+  `false`:
+
+  ```bash
+  defaults read NSGlobalDomain AppleSpacesSwitchOnActivation
+  ```
+
+  Returns `1` or "does not exist" -> re-run `pwsh ./Enable-TestAutomation.ps1`.
+
+- Right-click UTM in the Dock -> Options -> Assign To -> All Desktops.
+  Pins UTM windows on every Space. (Not scripted -- Dock plist edits are
+  fragile.)
+
+QEMU+VNC guests (any guest opting into `-vnc` in `AdditionalArguments`)
+are Space-independent and need none of the above.
+
+<a id="42885ada-000b"></a>
+
+## `Assert-ScreenRecording` false positive -- toggle is on but harness refuses to start
+
+System Settings shows the toggle ON, you've fully quit and relaunched,
+yet `Start-TestRunner.ps1` still rejects with "Screen Recording is
+not granted" -- the probe is misreporting.
+
+Ground-truth JXA call:
+
+```
+osascript -l JavaScript -e '
+ObjC.import("CoreGraphics");
+ObjC.bindFunction("CGPreflightScreenCaptureAccess", ["bool", []]);
+$.CGPreflightScreenCaptureAccess();'
+```
+
+If that prints `true`, the grant is in place. Workaround:
+
+```
+export YURUNA_SKIP_SCREEN_RECORDING_CHECK=1
+pwsh test/Start-TestRunner.ps1
+```
+
+Open an issue with:
+- `sw_vers -productVersion`
+- `echo $TERM_PROGRAM $TERM_PROGRAM_VERSION`
+- The JXA command above
+- And:
+  ```bash
+  osascript -l JavaScript -e '
+  ObjC.import("CoreGraphics"); ObjC.import("Foundation");
+  $.CFArrayGetCount($.CGWindowListCopyWindowInfo(1, 0));'
+  ```
+
+<a id="42885ada-000c"></a>
+
+## Unrelated UTM VMs split test guests onto a second vmnet-shared bridge
+
+**Limitation:** before starting a `Start-TestRunner.ps1` cycle, stop
+(or pause) every other UTM VM in the library. Leaving an unrelated VM
+running is a known-bad state -- cloud-init in the test guests will fail
+to reach the host caching-proxy-service and the cycle will fail at the first
+`fetch-and-execute` step.
+
+Symptom in the cycle log:
+
+```
+cachingProxyIp: 192.168.7.46
+guest.<os> Start-VM: PASS ==> IP: 192.168.64.4
+Failure pattern matched: 'NONZERO SCRIPT EXIT:' -- aborting wait early
+```
+
+OCR of the failing console shows the guest cloud-init retrying:
+
+```
+cloud-init[...]: --... (try: N) http://192.168.64.1:8080/yuruna-repo/usr/local/lib/yuruna/fetch-and-execute.sh
+cloud-init[...]: Connecting to 192.168.64.1:8080... failed: Connection timed out.
+```
+
+Root cause: macOS `vmnet-shared` allocates **one bridge interface per
+vmnet "session"**. The first running VM owns `bridge100` (host side
+`192.168.64.1/24`); the second is pushed onto `bridge101` (host side
+`192.168.65.1/24`). The two bridges do not route to each other, and
+yuruna only observes the first bridge at cycle start -- so the host
+proxy IP it bakes into the test guests' cloud-init seed.iso is the
+bridge100 host IP. When the guests land on bridge101 (an unrelated UTM
+VM already claimed bridge100), `192.168.64.1:8080` is unreachable from
+inside the guest.
+
+Confirm:
+
+```
+ifconfig | grep -E '^bridge|inet 192\.168\.6[45]'
+# Two bridges present => second one is the trap. Stop the
+# unrelated VM and rerun:
+utmctl list
+utmctl stop <unrelated-vm-name>
+```
+
+A persisted snapshot-renamed VM (e.g. `k8s.text-to-sql`) is safe while
+stopped -- only **running** UTM VMs occupy a vmnet-shared session and
+trigger the split.
+
+<a id="42885ada-000d"></a>
+
+## `pmset` guards keep UTM visible across multi-hour runs
+
+Even with `sleep=0`, macOS can blank the display or suspend UTM via
+Power Nap (dark wake for Mail/Backup), `standby` (deep sleep),
+`autopoweroff` (power-off after N hours of sleep), or
+`hibernatemode` (RAM-to-disk). Any of these during a multi-hour cycle
+hides the UTM window from CoreGraphics enumeration; the symptom is
+`"UTM window for '<vm>' not found. CG: not_found, bounds: not_found"`.
+
+`Set-MacHostConditionSet` therefore asserts an extended set of `pmset`
+keys (Test.HostCondition.Mac.psm1, `$pmsetGuards`):
+
+| Key | Want | Why |
+|-----|------|-----|
+| `disablesleep` | 1 | Closing a MacBook's lid suspends the host, and every guest running on it, unless this is 1. Also belt-and-suspenders against another subsystem re-enabling idle-sleep on battery. `-a` covers AC + battery + UPS. |
+| `powernap` | 0 | Stops dark-wake Mail/Backup cycles. |
+| `standby`, `standbydelay*`, `autopoweroff`, `hibernatemode` | 0 | Stops deep sleep / RAM-to-disk transitions that hide UTM. |
+| `ttyskeepawake` | 1 | Active tty (SSH, screen capture) keeps the system awake. |
+| `tcpkeepalive` | 1 | Sockets stay responsive across idle. |
+| `proximitywake` | 0 | Apple-Watch proximity wake can flip lock state. |
+
+Every guard is treated as `OptionalKey` because macOS evolves these
+names across major versions (Sonoma split `standbydelay` into
+`standbydelaylow`/`standbydelayhigh`; later releases rename or remove
+more). The host setup step (`Set-MacHostConditionSet`, run by
+`host/macos.utm/Enable-TestAutomation.ps1`) applies them all using the
+legacy names, which `pmset` accepts as compatibility aliases. The install
+script does not apply `pmset` settings; it only primes the sudo cache
+for that step. The precheck reads `pmset -g custom` (no sudo) and invokes
+`sudo pmset` only if a key is present AND has the wrong value, so correct
+values cost no sudo prompt; a missing key is treated as "macOS no longer
+surfaces it under that name", not as a verification failure.
+
+`disablesleep` is the one key exempt from that rule (`AlwaysApply` in
+`Get-MacPmsetGuardList`). macOS does not list it in `pmset -g custom`
+until it has been written at least once, so on a Mac that never had it
+set -- precisely the host that needs it -- absence would read as "already
+1" and `sudo pmset -a disablesleep 1` would never run. Closing the lid
+then suspends the host mid-cycle. `Set-MacHostConditionSet` therefore
+writes it unconditionally. `Assert-ScreenLock` still skips it when
+absent: a Mac with no lid never surfaces the key, and failing the gate
+on a setting that host cannot have would block a working desktop test
+host. A laptop that drifts back to 0 does list the key, so the gate
+still catches it.
+
+<a id="42885ada-000e"></a>
+
+## Service VMs come back `suspended` after UTM is quit
+
+Symptom: `yuruna-caching-proxy-service` and `yuruna-stash-service` show
+`suspended` in the UTM library (`utmctl status` agrees), and every guest
+that consumes them fails -- package installs time out against the proxy,
+the build cannot upload to the stash. Nothing resumes them until someone
+presses play.
+
+Root cause: **quitting UTM saves the state of every VM still running.**
+UTM's termination handler returns `NSTerminateLater`, writes each running
+VM's RAM to disk, and only then lets the app exit. What was `started`
+before the quit is `suspended` after it. In the unified log the sequence
+shows as a `Handling Quit AppleEvent` /
+`applicationShouldTerminate: NSTerminateLater` pair followed seconds
+later by `replyToApplicationShouldTerminate:YES` -- the gap is the state
+being written.
+
+Two things quit UTM, and each has its own guard:
+
+1. **Closing the last window.** UTM's default is to terminate with it.
+   `Set-MacHostConditionSet` writes
+   `com.utmapp.UTM KeepRunningAfterLastWindowClosed = YES` so the app
+   stays resident instead, and `Assert-HostConditionSet` fails a host
+   where it drifts back off. UTM reads the key at launch, so a UTM
+   already running keeps its old behavior until it is next started.
+2. **The framework quitting it on purpose.** `Rename-VM` has to take UTM
+   down to edit its Registry plist (`utmctl` has no rename verb), and
+   `install/macos.utm.sh` has to take it down to upgrade the cask. The
+   rename path captures the running service VMs first and calls
+   `Resume-YurunaServiceVM` after the relaunch on every path out; the
+   installer refuses to quit while any service VM is running
+   (`is_service_vm_running`, which also reports running when `utmctl`
+   cannot be reached -- Apple Events are denied over SSH, and reading that as
+   "nothing is running" would quit on exactly the unattended hosts that
+   can least afford it).
+
+Side effect: QEMU writes the saved state into the first qcow2 on its
+command line, which for these bundles is `Data/efi_vars.fd` -- a 64 MiB
+UEFI variable store. Each suspend inflates it by roughly the VM's RAM,
+and resuming deletes the snapshot without shrinking the file, so a
+bundle suspended a few times carries gigabytes of dead space:
+
+```
+qemu-img info -U ~/yuruna/guest.nosync/<vm>.utm/Data/efi_vars.fd
+# virtual size: 64 MiB   disk size: 7.55 GiB   <- leaked suspend state
+```
+
+Reclaim it with the VM stopped (never while it runs -- QEMU holds a write
+lock, and `qemu-img info -U` bypasses that lock for *reading* only):
+
+```
+qemu-img convert -O qcow2 efi_vars.fd efi_vars.fd.new && mv efi_vars.fd.new efi_vars.fd
+```
+
+<a id="42885ada-000f"></a>
+
+## A service VM answers, but the dashboard links to a dead address
+
+Symptom: the stash service is up and reachable at its real address, the
+Extension hosts row is present, and the deep-link off it goes nowhere.
+`runtime/stash-service.json` and `runtime/host.registration.json` disagree
+about `stashBaseUrl` / `extensionTargets`.
+
+Root cause is the lease store. macOS files every DHCP lease under the name
+the guest sent and never prunes, and a rebuilt guest presents a fresh client
+identity -- systemd derives its DHCP DUID from a machine-id the rebuild
+regenerates -- so it gets a **new** address instead of its predecessor's.
+One name therefore accumulates one block per incarnation:
+
+```
+grep -c 'name=yuruna-stash-service' /var/db/dhcpd_leases     # 3, on a host rebuilt twice
+```
+
+`Get-VMIp` falls back to that file keyed on the guest name, and
+`Select-DhcpLeaseIpAddress` picks the largest `lease=` expiry among the
+matches. That is right once the live guest has taken its lease, and wrong for
+the seconds before it does -- the only blocks bearing the name then belong to
+guests that no longer exist, so the address handed back parses, sits on-link,
+and is dead.
+
+Two things follow, and both are guarded:
+
+- **Advertising it.** `Update-StashServiceMarkerAddress` confirms a candidate
+  against `/healthz` before publishing it, and keeps polling while it does not
+  answer, so the boot-window reply cannot end a 180 s budget on its first tick.
+  A budget that expires with nothing confirmed still publishes the last address
+  reported -- by then the stale window is long past, and refusing a
+  correct-but-slow-to-serve address would trade this bug for its opposite -- and
+  warns that it is unconfirmed.
+- **The duplication itself.** `host/macos.utm/Remove-StaleDhcpLease.ps1`
+  collapses each name down to its live block. It keeps the largest-expiry block
+  of every name, every name carrying only one block, and any block whose
+  address still answers ARP or ping -- so it is safe to run with guests up.
+  `-WhatIf` reports without changing anything; a timestamped backup is written
+  first, and a lease file that the DHCP server rewrote mid-run is left alone.
+
+`extensionTargets` in `host.registration.json` is a snapshot taken when the
+registration was last written, and the runner writes it *before* it refreshes
+the marker (the refresh needs `Get-VMIp`, wired later in startup). A corrected
+address therefore reaches the dashboard on the next cycle, not the current one.
+
+<a id="42885ada-0010"></a>
+
+## macOS guest install: embedded Swift VZMacOSInstaller helper
+
+The macOS 26 guest is restored by an embedded Swift helper
+(`host/macos.utm/guest.macos.26/New-VM.ps1`) that drives
+`VZMacOSInstaller`: it loads the IPSW (`VZMacOSRestoreImage.load(from:)`),
+picks `mostFeaturefulSupportedConfiguration` (VZ rejects an install
+requesting a hardwareModel the host cannot run), sanity-checks the
+requested CPU/memory against
+`minimumSupportedCPUCount`/`minimumSupportedMemorySize`, creates a fresh
+`VZMacMachineIdentifier`, `VZMacAuxiliaryStorage` at `aux.img` and a
+sparse raw `disk.img`, builds a minimal `VZVirtualMachineConfiguration`
+(graphics/network are deferred to UTM at runtime via the generated
+`config.plist`), restores the IPSW with progress on stderr, and finally
+emits `MAC_PLATFORM<TAB>{hardwareModel-base64}<TAB>{machineId-base64}`
+for PowerShell to place into the UTM plist. `defer { sema.signal() }`
+keeps the wait deterministic in every code path; an unhandled crash
+inside the install handler would otherwise hang forever.
+
+<a id="42885ada-0011"></a>
+
+## Why the UTM dialog watchdog is narrowly scoped
+
+The launch watchdog in `host/macos.utm/modules/Yuruna.Host.psm1` clicks a
+small allowlist of affirmative button titles on UTM sheets. It cannot inspect
+the meaning of a sheet, so every accepted label must mean "continue the
+requested operation" wherever UTM uses it. `Close` is intentionally excluded:
+although it is a localized UTM button title, a synthetic click correlated with
+QEMU teardown and saved-state growth in `efi_vars.fd`, leaving the bring-up
+loop waiting on a VM that was no longer executing. The exact sheet was not
+captured, so that observation is a safety bound rather than a claimed causal
+mechanism.
+
+The remaining list is still not intrinsically safe. In particular, `OK` is
+required by the custom-QEMU-arguments warning but is also affirmative on a
+generic confirmation sheet. The real protection is therefore the watchdog's
+lifetime: callers arm it only around the launch operation that can raise the
+known modal and stop it immediately afterward. `Okay` and `Open` do not match
+current UTM-localized titles; they cover macOS-supplied sheets attached to a
+UTM window without broadening the list to cancellation or destructive labels.
+
+---
+
+LICENSEURI https://yuruna.link/license
+
+Copyright (c) 2019-2026 by Alisson Sol et al.
+
+Last review: 2026.10.14
+
+Back to [Yuruna](../README.md)

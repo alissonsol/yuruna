@@ -1,0 +1,892 @@
+<a id="42ad660e-0001"></a>
+
+# Yuruna operator guide
+
+Bring-up runbook for a single Yuruna test machine: OS baseline to a
+passing test cycle, plus the two service VMs a standalone machine
+benefits from (caching-proxy, stash).
+
+[Section A: Quickstart](#section-a-quickstart) is the complete command
+sequence -- run it top to bottom, or let
+[A.0](#a0-shortcut-the-standalone-setup-script) run its middle
+(A.3-A.7). [Section B: Deep dive](#section-b-deep-dive) explains each
+step; read it when a step needs judgment or fails.
+For a lab -- several machines sharing one caching-proxy-service,
+NAS-backed storage, and pool-control service -- complete A.1-A.2 on
+each machine, then continue with the
+[Lab operator guide](lab-operator.md).
+
+---
+
+<a id="42ad660e-0002"></a>
+
+## Section A: Quickstart
+
+Start from a freshly installed Windows 11 Pro/Enterprise/Education (or
+Windows Server), macOS 26+, or Ubuntu 26+ host: 32 GB RAM, 512 GB free
+disk, 16+ physical cores, virtualization enabled in firmware, OS
+activated and updated, network access to github.com
+([B.1](#b1-operating-system-baseline-assumed)-[B.2](#b2-preflight-dependencies)).
+"Elevated" means an Administrator PowerShell on Windows, `sudo` on
+macOS / Ubuntu. Follow each step's platform instructions: on macOS and
+Ubuntu, run `install/setup.ps1` without `sudo`; it requests elevation
+only for the operations that need it.
+
+<a id="42ad660e-0003"></a>
+
+### A.0 Shortcut: the standalone setup script
+
+**Do [A.1](#a1-install-the-framework) and [A.2](#a2-create-the-test-user)
+first** -- `setup.ps1` installs nothing, clones nothing, and creates
+no test user. Then, signed in as the test account, from the
+framework folder:
+
+```
+pwsh install/setup.ps1
+```
+
+It asks what it cannot infer (standalone or lab, host settings, where
+storage lives), then runs
+[A.3](#a3-enable-test-automation)-[A.7](#a7-start-the-stash-service) in
+order, ending on the `Test-Config` gate. On Windows it relaunches
+itself elevated once. It runs no cycles --
+[A.8](#a8-run-one-test-cycle)-[A.9](#a9-run-continuous-cycles) are
+still yours. Re-running is safe and adopts healthy service VMs;
+`-Rebuild` forces their replacement (~15 minutes for the caching-proxy).
+Parameters, `-WhatIf`, unattended runs, coverage, and failure behavior:
+[B.0](#b0-the-guided-setup-script).
+
+The steps below are the by-hand path -- read them when a step needs
+judgment, fails under `setup.ps1`, or you are repairing a host.
+
+<a id="42ad660e-0004"></a>
+
+### A.1 Install the framework
+
+Paste the one-liner for the host OS ([B.3](#b3-install-the-framework)).
+
+Windows (PowerShell, self-elevates):
+
+```
+irm "https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/main/install/windows.hyper-v.ps1?nocache=$(Get-Date -Format yyyyMMddHHmmss)" | iex
+```
+
+macOS (Terminal):
+
+```
+/bin/bash -c "$(curl -fsSL "https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/main/install/macos.utm.sh?nocache=$(date +%Y%m%d%H%M%S)")"
+```
+
+Ubuntu (Terminal):
+
+```
+bash <(curl -fsSL "https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/main/install/ubuntu.kvm.sh?nocache=$(date +%Y%m%d%H%M%S)")
+```
+
+**Reboot if the installer says RESTART REQUIRED.** The framework lands
+in `~/git/yuruna` (`%USERPROFILE%\git\yuruna` on Windows); run every
+command below from that folder.
+
+<a id="42ad660e-0005"></a>
+
+### A.2 Create the test user
+
+Elevated ([B.4](#b4-create-the-yuruna-test-user)):
+
+```
+pwsh test/New-LocalTestUser.ps1 -Admin
+```
+
+Keep `-Admin`: without it the account cannot elevate, and the
+installer stops before it starts. See [B.4](#b4-create-the-yuruna-test-user)
+to repair an account created without it.
+
+**Sign in as the new account (default `yurunatest`) for everything
+that follows**, and repeat the [A.1](#a1-install-the-framework)
+one-liner in that session -- the clone is per-user, and the second run
+is quick.
+
+> **Lab?** Switch to the [Lab operator guide](lab-operator.md) now --
+> it picks up after this step.
+
+<a id="42ad660e-0006"></a>
+
+### A.3 Enable test automation
+
+Elevated on Windows; without `sudo` on macOS and Ubuntu
+([B.5](#b5-enable-test-automation)):
+
+```
+pwsh test/lab/Enable-TestAutomation.ps1
+```
+
+On Windows, sign out and back in if it reports display-scaling
+changes.
+
+*Run for you by [A.0](#a0-shortcut-the-standalone-setup-script),
+unless this machine only hosts services.*
+
+<a id="42ad660e-0007"></a>
+
+### A.4 Configure and validate
+
+Edit `test/test.config.yml` -- at minimum `repositories.projectUrl`
+(and `GH_TOKEN` if private) and `guestSequence` -- then validate
+([B.6](#b6-configure-and-validate)):
+
+```
+pwsh test/Test-Config.ps1
+```
+
+Fix every FAIL before moving on.
+
+*[A.0](#a0-shortcut-the-standalone-setup-script) creates the file and
+runs this validation, but the edits are still yours -- it never touches
+`guestSequence` or `GH_TOKEN`.*
+
+<a id="42ad660e-0008"></a>
+
+### A.5 Create pool and stash storage
+
+**Storage on this machine (no NAS)** -- elevated on Windows, without
+`sudo` on macOS and Ubuntu. One idempotent command creates the folders,
+accounts, shares, mounts, and config
+([B.7](#b7-local-shares-for-pool-and-stash-storage)):
+
+```
+pwsh test/lab/New-LocalLabStorage.ps1
+```
+
+It asks only where storage should live (suggesting a per-OS default),
+writes `networkStorage.*` and both vault entries, and calls `New-Lab`
+for you. Add `-EnableReplication` to archive finished cycles to the
+pool share. A later lab on the same machine needs only
+`pwsh test/lab/New-Lab.ps1 -Name <lab-name>` -- it reuses the folders and
+accounts already here.
+
+*[A.0](#a0-shortcut-the-standalone-setup-script) runs this when you
+answer `local`. `nas` only mounts what `networkStorage.*` already
+names; `none` skips shared storage and, with it, the stash service.*
+
+**Storage on a NAS or a separate file server** -- this machine cannot
+create accounts there. Create the folders and the lab vault here, then
+grant the share permissions on the device itself:
+
+```
+pwsh test/lab/New-Lab.ps1 -Name <lab-name> -Root <storage-root>
+```
+
+`<lab-name>` is lowercase (letters, digits, hyphens); `<storage-root>`
+is e.g. `D:\work` or `/srv/yuruna`. Share the two folders it created --
+one dedicated account per share, using the passwords `New-Lab` just
+generated into the lab vault:
+
+```powershell
+# Elevated, Windows example
+New-LocalUser yuruna-pool  -Password (Read-Host -AsSecureString 'yuruna-pool password')
+New-LocalUser yuruna-stash -Password (Read-Host -AsSecureString 'yuruna-stash password')
+New-SmbShare -Name yuruna.pool  -Path D:\work\yuruna.pool  -FullAccess yuruna-pool
+New-SmbShare -Name yuruna.stash -Path D:\work\yuruna.stash -FullAccess yuruna-stash
+icacls D:\work\yuruna.pool  /grant 'yuruna-pool:(OI)(CI)M'
+icacls D:\work\yuruna.stash /grant 'yuruna-stash:(OI)(CI)M'
+```
+
+Then fill `networkStorage.*` in `test.config.yml` and store both share
+passwords in the host vault
+([Setting the SMB passwords in the vault](test-config.md#setting-the-smb-passwords-in-the-vault)).
+
+<a id="42ad660e-0009"></a>
+
+### A.6 Start the caching-proxy service
+
+Elevated on Windows, unelevated on macOS
+([B.8](#b8-start-the-caching-proxy-service--dashboards)):
+
+```
+pwsh test/service/Start-CachingProxyServiceVM.ps1
+```
+
+Set `vmStart.cachingProxyIp` in `test.config.yml` to the proxy VM's
+IP, then re-run `pwsh test/Test-Config.ps1`.
+
+*[A.0](#a0-shortcut-the-standalone-setup-script) does all of that,
+including writing the IP.*
+
+<a id="42ad660e-000a"></a>
+
+### A.7 Start the stash service
+
+Elevated on Windows ([B.9](#b9-start-the-stash-service)):
+
+```
+pwsh test/service/Start-StashServiceVM.ps1
+```
+
+*Run for you by [A.0](#a0-shortcut-the-standalone-setup-script),
+unless storage was skipped.*
+
+<a id="42ad660e-000b"></a>
+
+### A.8 Run one test cycle
+
+Debug here until green ([B.10](#b10-run-one-test-cycle)):
+
+```
+pwsh test/Invoke-TestProject.ps1
+```
+
+<a id="42ad660e-000c"></a>
+
+### A.9 Run continuous cycles
+
+([B.11](#b11-run-continuous-cycles)):
+
+```
+pwsh test/Start-TestRunner.ps1
+```
+
+Watch progress on the status dashboard it starts at
+`http://<host>:8080/`.
+
+---
+
+<a id="42ad660e-000d"></a>
+
+## Section B: Deep dive
+
+The quickstart order is deliberate: each step validates the one before
+it, and cheap checks run before expensive ones (config validation
+before the caching-proxy-service VM build). Every step below names its
+script and links the reference doc owning the details.
+
+<a id="42ad660e-000e"></a>
+
+### B.0 The guided setup script
+
+Reference for [A.0](#a0-shortcut-the-standalone-setup-script).
+`install/setup.ps1` runs *after* the OS bootstrapper
+(`install/windows.hyper-v.ps1`, `install/macos.utm.sh`,
+`install/ubuntu.kvm.sh`) has put the dependencies and the clone in
+place. It needs pwsh 7; its preflight fails the run if
+`powershell-yaml` is missing and points at the bootstrapper.
+
+**What it covers, step by step:**
+
+| Quickstart step | Does `setup.ps1` do it? |
+| --------------- | ----------------------- |
+| [A.1](#a1-install-the-framework) install the framework | No -- bootstrapper, by hand, first |
+| [A.2](#a2-create-the-test-user) create the test user | No -- `New-LocalTestUser.ps1`, by hand, first |
+| [A.3](#a3-enable-test-automation) enable test automation | Yes -- runs `Enable-TestAutomation -SkipPoolStorage`, unless `runTests: false` |
+| [A.4](#a4-configure-and-validate) configure and validate | Partly -- creates or refreshes `test/test.config.yml` from the template and ends on the `Test-Config` gate; the edits in between are still yours |
+| [A.5](#a5-create-pool-and-stash-storage) pool and stash storage | Yes for `kind: local` -- runs `New-LocalLabStorage`. For `kind: nas` it only **mounts** what `networkStorage.*` already names |
+| [A.6](#a6-start-the-caching-proxy-service) caching-proxy-service | Yes -- adopts a healthy VM; otherwise replaces it, waits up to 15 minutes for the pool-aggregator service, then writes `vmStart.cachingProxyIp`. `-Rebuild` forces replacement |
+| [A.7](#a7-start-the-stash-service) stash service | Yes -- adopts a healthy VM or replaces an unhealthy one, unless storage was skipped. `-Rebuild` forces replacement |
+| [A.8](#a8-run-one-test-cycle) one test cycle | No |
+| [A.9](#a9-run-continuous-cycles) continuous cycles | No -- the closing message points you at `pwsh test/Start-TestRunner.ps1` |
+
+It also creates the image, VM, log and runtime folders. `setup.ps1`
+*itself* edits exactly two keys in `test.config.yml`, by
+comment-preserving line replacement: `projectUrl` (when you supply one)
+and `vmStart.cachingProxyIp`. The scripts it runs write more --
+answering `local` runs `New-LocalLabStorage.ps1`, which writes the six
+`networkStorage.*` keys and both vault entries
+([A.5](#a5-create-pool-and-stash-storage)). Nothing touches
+`guestSequence` or `GH_TOKEN`.
+
+<a id="42ad660e-000f"></a>
+
+#### Re-running, and the service-VM exception
+
+Every step runs in a child `pwsh`, and a step that can tell it is
+already done -- config file present, pool storage mounted,
+`cachingProxyIp` matching -- is skipped, so re-running is safe.
+
+**The service VMs are the exception:** their bring-up scripts make the
+reuse decision. A healthy VM is adopted in seconds; an unhealthy,
+half-removed, or missing VM is replaced. Use `-Rebuild` to force the
+replacement that applies changed seed-time configuration. Budget roughly
+15 minutes for rebuilding the proxy. A run only removes a service it will
+rebuild, so a standalone re-run leaves a former lab's pool-control service
+running.
+
+<a id="42ad660e-0010"></a>
+
+#### What ends a run
+
+These failures end the run: preflight, the config file, storage
+(whenever `storage.kind` is `local` or `nas`), the caching-proxy
+service, the aggregator wait, and an unmountable NAS when
+`storage.onFailure` is `stop`.
+
+Storage stops the run because everything after it either needs the
+shares or writes host state that presumes them -- the hosts-file
+aliases, the stash and download-agent services, a lab's pool.
+
+`storage.onFailure` decides what an unmountable NAS means, attended
+or not. The default is `stop`; set it to `local` (with
+`storage.localRoot`) to stand up real local shares instead.
+
+Anything else that fails is warned about, recorded in the closing
+Failed list, and the run continues. **A non-empty Failed list exits
+non-zero** -- including a failed `Test-Config` gate -- so the exit code
+never calls a broken host ready. Fix what the list names and re-run.
+
+A step that could not run because something it needs failed is
+reported as `BLOCK` and listed under **Blocked** in the closing
+report, separately from **Skipped**: skipped is a decision, blocked
+is a consequence. Blocked steps do not add to the exit code -- the
+failure they came from already did.
+
+<a id="42ad660e-0011"></a>
+
+#### Parameters
+
+The script declares `-AnswerFile`, `-logLevel`, `-LogPath` and
+`-Rebuild`; `-WhatIf` and `-Confirm` come from
+`SupportsShouldProcess`.
+
+`-WhatIf` previews the ordered task list: nothing changes, no
+elevation is needed, and the answers file is not written (the
+questions are still asked).
+
+`-Rebuild` tears down and rebuilds every service VM this run touches
+instead of adopting a healthy one. It is how a changed address or
+credential reaches a guest, because the seed is baked at build time.
+It also makes a re-run expensive -- roughly 15 minutes for the proxy,
+plus a cold Squid cache -- so drop it when re-running to fix something
+the proxy does not bake in. The run
+log's header records the switches each run was invoked with.
+
+`-logLevel` is the [shared cascade](loglevels.md) and reaches every
+script the run starts, so re-run with `-logLevel Debug` when a step
+failed inside a child script. The run log is always written in full;
+the level only decides what also reaches the terminal. `-LogPath`
+continues an existing run log (used by the Windows elevated
+relaunch).
+
+<a id="42ad660e-0012"></a>
+
+#### Unattended runs: the answer file
+
+A run without `-AnswerFile` saves what you answered to
+`install/setup.answers.standalone.yml`. Feed that back to repeat the
+run without prompts:
+
+```
+pwsh install/setup.ps1 -AnswerFile install/setup.answers.standalone.yml
+```
+
+An unattended `storage.kind: local` run must include
+`storage.localRoot`. `New-LocalLabStorage.ps1` runs as a child with
+its stdin closed, so a question it asks reaches nobody -- the run stops
+in its first second and names the key rather than guessing a path and
+creating OS accounts and shares there. An interactive run does
+not ask either: it takes the platform's convention (`/srv/yuruna` on
+Ubuntu, `/Users/Shared/yuruna` on macOS, `<data drive>\Shares\yuruna`
+on Windows) and records in the run log that it did. Set the key to put
+storage anywhere else.
+
+The whole answer set is checked before anything on the machine
+changes: an unusable file is refused in the first second, with one
+message per problem naming the key that fixes it.
+
+The standalone keys it reads (anything else in the file is ignored,
+and a section this script does not read is warned about -- a mistyped
+`storages:` takes every key under it with it):
+
+```yaml
+setup:
+  type: standalone       # standalone | lab
+  runTests: true         # false = this machine only hosts services
+  projectUrl: ''         # '' keeps whatever test.config.yml has;
+                         # omit the key for the script's built-in default
+storage:
+  kind: local            # local | nas | none ('none' is standalone-only)
+  localRoot: '/srv/yuruna'   # kind: local -- required unattended (see above)
+  networkPath: '//ypool-nas/work/yuruna.pool'   # kind: nas only; required
+  networkUser: 'yuruna-pool'                    # kind: nas only
+  onFailure: stop        # stop | local -- if a NAS mount fails
+```
+
+`storage.localRoot` is where the local shares are created (the per-OS
+conventions above). It is also what
+`storage.onFailure: local` needs: a NAS that mounts never uses the
+key, so a file without it is accepted, and the run warns that the
+fallback it declares cannot actually run.
+
+The file a guided run writes carries the values it *resolved*, not the
+answers as typed -- so the storage root it settled on is in there, and
+the file can set up the next machine. If a key is missing for an
+unattended replay, the run says so when it writes the file rather than
+letting the next machine discover it.
+
+<a id="42ad660e-0013"></a>
+
+### B.1 Operating-system baseline (assumed)
+
+A freshly installed Windows 11 Pro/Enterprise/Education (or Windows
+Server), macOS 26+, or Ubuntu 26+ host. Tested baseline: 32 GB RAM,
+512 GB free disk, 16+ physical cores. The tool stack the framework
+expects is listed in [B.2](#b2-preflight-dependencies).
+
+<a id="42ad660e-0014"></a>
+
+### B.2 Preflight dependencies
+
+Before running the installer, confirm:
+
+- **License / activation** -- Windows must be activated and a
+  Hyper-V-capable edition (Pro or above; Home has no Hyper-V).
+- **OS updates applied** -- pending updates can force a reboot mid-install.
+- **Virtualization enabled in firmware** -- Intel VT-x / AMD-V
+  (Ubuntu: `grep -E 'vmx|svm' /proc/cpuinfo` must match).
+- **Network access to github.com** -- the installer clones the framework.
+
+The installer re-checks the hardware baselines and prompts before
+proceeding on an under-spec'd host -- except physical core count on
+Windows, which is reported as a recommendation and never prompts. Some
+examples also assume a registered domain whose DNS you control. Before
+installing certificates on localhost, run `mkcert -install` once (may
+require elevation).
+
+<a id="42ad660e-0015"></a>
+
+#### Required tools
+
+The host installer ([B.3](#b3-install-the-framework)) puts most of
+these in place; install them by hand when running without it, or to
+repair a partial install. Run
+`Test-Requirement.ps1` to compare present tools against the versions
+used in testing
+([`automation/Yuruna.Requirement.yml`](../automation/Yuruna.Requirement.yml)).
+
+- Install [PowerShell Core](https://github.com/powershell/powershell) 7.6.4+ -- the floor in [`Yuruna.Requirement.yml`](../automation/Yuruna.Requirement.yml); anything older fails `Test-Requirement.ps1`.
+  On Windows, from an Administrator PowerShell:
+  - Install it for all users: `winget install --id Microsoft.PowerShell --scope machine`. A per-user copy sits under `%LOCALAPPDATA%`, where no other account can execute it, so the test user from [B.4](#b4-create-the-yuruna-test-user) cannot run `pwsh` at all.
+  - `Set-ExecutionPolicy -ExecutionPolicy RemoteSigned` (see [execution policies](https://go.microsoft.com/fwlink/?LinkID=135170))
+  - `Install-Module -Name powershell-yaml`
+- Install [Git](https://git-scm.com/downloads)
+  - `git config --global user.name "Your Name"`
+  - `git config --global user.email "Your@email.address"`
+  - `git config --global core.autocrlf input`
+- Using a Hyper-V machine in Windows? Enable [nested virtualization](https://learn.microsoft.com/en-us/virtualization/hyper-v-on-windows/user-guide/nested-virtualization)
+- Using UTM on macOS? Nested virtualization (required for Docker Desktop
+  inside the VM) needs macOS 15 Sequoia+, Apple M3+ chip, UTM v4.6+, and
+  the Apple Virtualization backend (not QEMU).
+- Install [Docker Desktop](https://docs.docker.com/desktop/)
+  - Enable [Kubernetes](https://docs.docker.com/get-started/orchestration/)
+  - Install [Docker buildx](https://github.com/docker/buildx) in the path.
+- Install [Helm](https://helm.sh/docs/intro/install/) in the path.
+  - Download: [`https://github.com/helm/helm/releases`](https://github.com/helm/helm/releases)
+- Install [OpenTofu](https://opentofu.org/docs/intro/install/) in the path.
+- Install [wget](https://www.gnu.org/software/wget/) in the path.
+  - Binaries for Windows at [eternallybored.org](https://eternallybored.org/misc/wget/)
+- Install [mkcert](https://github.com/FiloSottile/mkcert) in the path.
+  - Run `mkcert -install`
+
+<a id="42ad660e-0016"></a>
+
+#### Cloud tools
+
+Needed only for the examples that deploy to a cloud; a local-only host
+can skip this list.
+
+- AWS
+  - Create an [AWS Account](https://aws.amazon.com/free)
+  - Install the [AWS CLI](https://aws.amazon.com/cli/)
+- Azure
+  - Create an [Azure Account](https://azure.microsoft.com/en-us/free/)
+  - Install the [Azure CLI](https://learn.microsoft.com/en-us/cli/azure/install-azure-cli)
+- Google Cloud SDK
+  - Create a [Google Cloud Account](https://console.cloud.google.com/freetrial)
+  - Install the [Google Cloud SDK CLI](https://cloud.google.com/sdk/docs/install)
+- DNS provider and instructions to create an A record
+  - Instructions for [Amazon Route 53](https://docs.aws.amazon.com/Route53/latest/DeveloperGuide/resource-record-sets-creating.html)
+  - Instructions for [Azure DNS](https://learn.microsoft.com/en-us/azure/dns/dns-getstarted-portal)
+  - Instructions for [Google Cloud DNS](https://cloud.google.com/dns/docs/records)
+
+<a id="42ad660e-0017"></a>
+
+#### Recommended tools
+
+- Install the latest version of [Visual Studio Code](https://code.visualstudio.com/)
+  - Install the [Docker](https://marketplace.visualstudio.com/items?itemName=ms-azuretools.vscode-docker) extension.
+  - Install the [Kubernetes](https://marketplace.visualstudio.com/items?itemName=ms-kubernetes-tools.vscode-kubernetes-tools) extension.
+- Install [Graphviz](https://graphviz.org/download/) in the path.
+- Install [K9S](https://k9scli.io/topics/install/) in the path.
+
+Scripts may work with older versions, but tests used the pinned ones.
+
+<a id="42ad660e-0018"></a>
+
+### B.3 Install the framework
+
+Commands: [A.1](#a1-install-the-framework); the one-liners are owned
+by [install/README.md](../install/README.md), also at
+<https://yuruna.link/420f54a5>. The installer installs dependencies,
+clones the framework, and seeds `test/test.config.yml` when absent.
+First-time Hyper-V enablement triggers RESTART REQUIRED -- reboot
+before continuing. Alternatively `git clone` and run the matching
+`install/<host>.{ps1,sh}` yourself; signature-checked installs and
+release pinning: [install/README.md](../install/README.md).
+
+<a id="42ad660e-0019"></a>
+
+### B.4 Create the Yuruna test user
+
+```
+pwsh test/New-LocalTestUser.ps1 -Admin
+```
+
+Elevated (Administrator / sudo). Creates a dedicated local OS account
+(default `yurunatest`) that owns test operation, so the harness never
+runs under your personal profile. `-Admin` makes it a local
+administrator -- required, because later steps elevate. Created
+without it, the account cannot elevate and the installer refuses. Two
+ways back: grant the rights from an administrator account -- `sudo
+dseditgroup -o edit -a yurunatest -t user admin` (macOS), `sudo
+usermod -aG sudo yurunatest` (Ubuntu), or `Add-LocalGroupMember` on
+the S-1-5-32-544 group (Windows) -- then sign that account out and
+back in, because a session keeps the group list it started with; or
+re-run with `-Admin`, which offers to delete the account and its home
+directory and create it again once you confirm; `-Force` answers that
+confirmation in advance, so an unattended run recreates the account
+in one call. That is the destructive path -- preview what it removes
+with `-Force -WhatIf` first, and note it refuses to delete the account
+you are running as, a system account, or an account with an open
+login session. The password is asked interactively (twice) and
+is immediately usable, unless the authentication vault already holds
+one for the account: that one is reused, so a re-created account still
+matches the credential Yuruna hands out (`-PromptForPassword` opts
+out). Add `-ForcePasswordChange` for a one-shot initial credential
+instead. The account is also registered under the default Yuruna
+authentication extension -- in the gitignored runtime `users.yml`,
+seeded from the committed template when the host has none yet; an
+entry that already declares the name is reused as-is, never
+overwritten. Cross-platform; details in `test/New-LocalTestUser.ps1`
+comment-based help.
+
+Sign in as this user for everything that follows, so the config,
+vault, and runtime state belong to the test account. The clone is
+per-user -- hence A.2 repeats the install one-liner in the test-user
+session; the heavyweight work is already done, so that run only
+clones and seeds the config.
+
+<a id="42ad660e-001a"></a>
+
+### B.5 Enable test automation
+
+```
+pwsh test/lab/Enable-TestAutomation.ps1
+```
+
+Explicit opt-in that turns this machine into a test host: display
+sleep, screen saver, screen lock, display scaling (Windows), TCC
+grants (macOS). Administrator on Windows; unelevated on macOS and
+Ubuntu -- the script requests `sudo` when needed. Idempotent; supports
+`-WhatIf`. On Windows, sign out and back in if it reports display-scaling
+changes -- OCR needs 100% scaling. Details:
+`host/<platform>/Enable-TestAutomation.ps1`. To undo it, see
+[Putting the machine back](#putting-the-machine-back).
+
+<a id="42ad660e-001b"></a>
+
+### B.6 Configure and validate
+
+Edit `test/test.config.yml` (created from
+`test/test.config.yml.template`; parameter reference:
+[test-config.md](test-config.md)). Minimum for a first run:
+`repositories.projectUrl` (and `GH_TOKEN` if private), `guestSequence`.
+Then validate:
+
+```
+pwsh test/Test-Config.ps1
+```
+
+Checks the config and the `test/extension/*` configs, probes GitHub and
+Resend reachability, and fires a smoke-test notification (`-SkipSend`
+to validate only). Fix every FAIL before moving on -- this takes seconds
+and the next step takes many minutes.
+
+<a id="42ad660e-001c"></a>
+
+### B.7 Local shares for pool and stash storage
+
+Durable storage ([pool-storage.md](pool-storage.md),
+[stash-guide.md](stash-guide.md)) is backed by two SMB3 shares. On a
+single machine both live here, and **`test/lab/New-LocalLabStorage.ps1`
+sets up the whole tier in one idempotent, `-WhatIf`-able command**;
+commands: [A.5](#a5-create-pool-and-stash-storage). It suggests a
+storage root of `/srv/yuruna` (Ubuntu), `/Users/Shared/yuruna`
+(macOS), or `<drive>\Shares\yuruna` (Windows, first non-system drive).
+It calls `New-Lab` for the folders, the lab vault, and the configuration
+repository, then does what `New-Lab` deliberately leaves alone:
+
+- **One local account per tier** -- `yuruna-pool` and `yuruna-stash`,
+  each scoped to its own share and nothing else: not an administrator,
+  no interactive shell, hidden from the macOS login window, and on
+  Ubuntu no OS password at all (the SMB credential lives in Samba's
+  own passdb).
+- **An SMB server** -- started on Windows, File Sharing enabled on
+  macOS, `samba` + `cifs-utils` installed on Ubuntu.
+- **One share per tier**, granting only that tier's account, so a
+  leaked pool credential cannot reach the stash share.
+- **The vault** -- each password stored under a non-empty `vaultKey`,
+  which keeps `Get-Password` off the auto-generate path (a random
+  password the share never had).
+- **The mount and the config** -- both shares mounted, the six
+  `networkStorage.*` keys written; `-EnableReplication` also sets
+  `networkStorage.moveLogsToPoolStorage`.
+
+The shares are local but consumed **as if remote**: each tier gets a
+hosts-file alias (`ypool-nas`, `ystash-nas`) resolving to loopback,
+and the mount runs over SMB through that name via the same
+`Connect-YurunaPoolStorage` the unattended cycle uses. A
+single-machine lab therefore exercises the same replication, gating,
+and mount code as a NAS-backed one; moving to real hardware later only
+changes what the alias resolves to. On Windows the two names are also
+registered as NTLM loopback exemptions (`BackConnectionHostNames`) and
+`EnableLinkedConnections` is set -- without them the machine refuses
+its own SMB connection or shows the mapped drives only to elevated
+processes; both apply at the next restart or sign-in.
+
+**More labs on the same machine.** Run `New-Lab` on its own; the share
+accounts are **machine-wide**, so it **reuses** what is already
+present rather than minting a second set:
+
+- `-Root` may be omitted -- the storage root is read back from an
+  existing lab's vault, so a typo cannot land a second lab's folders
+  elsewhere.
+- Credentials already in the host vault are **reused**, not
+  regenerated: a fresh password would leave the OS account, the SMB
+  server, and the lab's other machines holding the old one, so every
+  mount driven from the new vault would fail. `-Force` (which rewrites
+  the lab vault file) still reuses rather than rotates -- rotation must
+  also reach the OS account and the share, so it stays a deliberate,
+  separate act.
+
+The storage folders keep the operator as owner; the share account is
+added alongside (inherited ACE on Windows/macOS, group + setgid on
+Linux). That lets `New-Lab` create the next lab's configuration repository in
+the pool folder, and avoids git's "dubious ownership" refusal that
+chowning to the share account would trigger.
+
+**It is for local storage only.** A NAS or separate file server owns
+its own accounts -- create them **on that device**. Use
+`test/lab/New-Lab.ps1` for the folders and lab vault, share them there,
+then fill `networkStorage.*` and store the share passwords in the host
+vault
+([Setting the SMB passwords in the vault](test-config.md#setting-the-smb-passwords-in-the-vault)).
+The lab vault holds the generated values for copying between machines;
+the host vault is what the harness reads. Set
+the three `networkStorage.poolStorage*` paths to archive cycles to the share (add
+`moveLogsToPoolStorage: true` to have each cycle's local folder deleted once its
+copy is verified).
+
+<a id="42ad660e-001d"></a>
+
+### B.8 Start the caching-proxy service + dashboards
+
+```
+pwsh test/service/Start-CachingProxyServiceVM.ps1
+```
+
+Builds the `yuruna-caching-proxy-service` VM and exposes ports 80 (CA cert),
+3128/3129 (Squid), 3000 (Grafana), 9302 (metrics). Elevated on Windows;
+unelevated on macOS. Set `vmStart.cachingProxyIp` in
+`test.config.yml` to the proxy's IP so cycles find it. The cache VM
+survives framework reinstalls. Details: [caching.md](caching.md#caching-proxy-service--test-harness-operator-reference).
+
+<a id="42ad660e-001e"></a>
+
+### B.9 Start the stash service
+
+```
+pwsh test/service/Start-StashServiceVM.ps1
+```
+
+Brings up the `yuruna-stash-service` VM -- the shared drop box for files
+and snippets (web UI + scp). Elevated on Windows. It mounts the
+`yuruna.stash` share from
+[B.7](#b7-local-shares-for-pool-and-stash-storage), so set that up
+first. No login; trusted networks only. User guide:
+[stash-guide.md](stash-guide.md).
+
+<a id="42ad660e-001f"></a>
+
+### B.10 Run one test cycle
+
+```
+pwsh test/Invoke-TestProject.ps1
+```
+
+One-shot cycle: replaces `project/` with a fresh clone of
+`repositories.projectUrl`, runs a single cycle exactly as the runner would, and
+exits. The clone is built beside the old checkout and swapped in only once it
+is complete, so a failed or interrupted clone keeps the last good `project/`
+(a refresh that died mid-swap is recovered by the next one). Debug here
+until green -- one cycle with no loop around it is the cheapest place
+to debug.
+
+<a id="42ad660e-0020"></a>
+
+### B.11 Run continuous cycles
+
+```
+pwsh test/Start-TestRunner.ps1
+```
+
+The resilient outer loop: pulls the framework, runs a cycle in a fresh
+inner process, repeats; on failure it pauses until new commits land or
+a timeout passes ([runner-outer-loop.md](runner-outer-loop.md)). It auto-starts the
+status dashboard at `http://<host>:8080/` -- no separate
+`Start-StatusService.ps1` step.
+
+---
+
+<a id="42ad660e-0021"></a>
+
+## Bringing service VMs back after a host reboot
+
+A host reboot damages nothing: it leaves every service VM registered with
+the hypervisor and powered off. Nothing then turns them back on, and the
+two consequences are not alike --
+
+- the **caching-proxy-service** merely degrades: guests download direct,
+  slowly;
+- the **stash service** is fatal to a cycle: the warm-up resolves it,
+  finds nothing, and every workload stage is skipped.
+
+So a rebooted host can keep burning cycles that can never pass, looking
+healthy the whole time, until an operator notices.
+
+**The runner covers this by itself.** Every cycle start runs a sweep that
+starts any service VM that is registered but not running, and reports what
+it did. The sweep is cheap on a healthy host -- one state query per
+service -- which is why it runs at every cycle rather than only at boot: it
+also catches a service that died or was stopped mid-session. A service
+that is *absent* is not a failure and never triggers anything. A
+standalone host legitimately runs no stash service, so absent means "not
+this host's job"; only a registered-but-stopped VM is something this host
+owns and failed to start. The sweep's health wait is deliberately
+non-authoritative -- a freshly resumed guest can take a while to re-open
+its listener, and the real gates run afterward and own the verdict.
+
+**Start what is built; do not rebuild.** A rebuild costs ~15 minutes and
+throws away a warm Squid cache; a start costs seconds and preserves it.
+Rebuilding is the escalation for a VM that will not come up, never the
+first response to one that is merely off.
+
+On a host with no cycle running to do it for you -- a workstation used
+interactively, or a machine just rebooted before a manual run -- bring them
+up with the ordinary scripts from [A.6](#a6-start-the-caching-proxy-service)
+and [A.7](#a7-start-the-stash-service), which adopt a healthy VM rather
+than rebuilding it.
+
+---
+
+<a id="42ad660e-0022"></a>
+
+## Putting the machine back
+
+```
+pwsh test/lab/Disable-TestAutomation.ps1
+```
+
+The reverse of [B.5](#b5-enable-test-automation). It forwards whatever
+you pass to `host/<platform>/Disable-TestAutomation.ps1`, which takes
+`-StopServices` and `-WhatIf`. On Windows it requires an
+already-elevated PowerShell (it does **not** self-elevate); macOS and
+Ubuntu prime `sudo` once.
+
+Its closing report distinguishes three things:
+
+- **Restored.** Host settings are put back from
+  `status/runtime/host.pre-automation.json`, the snapshot
+  `Enable-TestAutomation` wrote before changing anything: display
+  sleep, screen lock, inactivity timeout, and display/text scaling on
+  Windows; `pmset`, screensaver/screen-lock, hot corners, auto-logout
+  and network time on macOS; the GNOME power/session/screensaver keys,
+  `timedatectl set-ntp`, and the `libvirtd`/`virtlogd` enabled state
+  on Ubuntu. A knob that was *unset* before automation is removed
+  where it can be, not written back as a zero. **No capture, no
+  restore** -- an uncaptured knob is listed under "Left as it is"
+  instead. The capture file is kept so the command can be re-run;
+  delete it yourself when done.
+- **Removed outright.** Only what is provably the framework's own, by
+  name: on Windows the status-port firewall rule and the rule
+  `Yuruna: Allow ICMPv4 Echo Request`; on Ubuntu the `ufw` allow rule
+  for the status port, plus `libvirt` / `kvm` group membership and the
+  `libvirt-qemu` ACL on `$HOME` -- those last two only when the capture
+  proves `Enable-TestAutomation` added them. macOS removes nothing.
+- **Only reported.** The closing `NOT reversed (deliberately)` list
+  names what it will not touch, most with the command to do it
+  yourself: packages and PSGallery modules, the credential vault
+  (never removed automatically), everything under `~/yuruna`, and the
+  `networkStorage.*` configuration with its credential and mounts.
+  Windows adds Hyper-V, `vmms` and W32Time (the bootstrapper enabled
+  those); macOS the TCC grants and UTM Dock assignment; Ubuntu the
+  libvirt default network, guests defined here, and the pool-storage
+  sudoers drop-in.
+
+The service VMs stay up unless you pass `-StopServices` -- restoring
+host settings and tearing down services are different intentions.
+`-WhatIf` restores nothing and still prints both lists.
+
+It refuses to run while a test runner owns this host's runtime
+directory, naming the live PID -- restoring screen lock under a running
+cycle would blank capture mid-run. Stop the runner first.
+
+---
+
+<a id="42ad660e-0023"></a>
+
+## VM administrator accounts
+
+Each service VM is seeded with its own administrator, and each password
+lives under its own vault key:
+
+| VM | Administrator |
+| -- | ------------- |
+| `yuruna-caching-proxy-service` | `caching-proxy-service-admin` |
+| `yuruna-pool-control-service` | `pool-control-service-admin` |
+| `yuruna-stash-service` | `stash-admin` |
+| `yuruna-download-agent-service` | `download-agent-service-admin` |
+
+(`yuruna-pool-control-service` appears when a lab builds that VM --
+[lab-operator.md](lab-operator.md).) One shared account would mean one
+vault entry: building any VM would overwrite the password the others
+were provisioned with, and their console logins would silently stop
+working.
+
+The download-agent service's board gates its mutating actions with the
+rotating 6-character **Lab token** from the Yuruna hosts dashboard --
+checked with the pool aggregator, never stored in the vault; nothing
+to mint or rotate by hand
+([download-agent.md](download-agent.md#unlocking-the-actions)). A
+stale `download-agent-service-passcode` entry from an earlier build
+can be deleted; nothing reads it.
+
+A VM whose seed named a different administrator keeps it until rebuilt
+-- the names above apply from each VM's next build.
+`Move-CachingProxyService.ps1` talks to two cache VMs at once, so pass
+`-OldUser` when the source VM's account differs from the default.
+Remove a superseded vault entry only after every VM provisioned with
+it has been rebuilt.
+
+`users.yml.template` declares all four. An existing `users.yml` is not
+re-bootstrapped -- new template entries are merged in one by one, and
+only while they carry no operator meaning (no vault key, no corporate
+mapping) -- so a `strict: true` host picks up a new service's
+administrator without hand-editing. See
+[test-config.md](test-config.md).
+
+---
+
+LICENSEURI https://yuruna.link/license
+
+Copyright (c) 2019-2026 by Alisson Sol et al.
+
+Last review: 2026.10.14
+
+Back to [Yuruna](../README.md)

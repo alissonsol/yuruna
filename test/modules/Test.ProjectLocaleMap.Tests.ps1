@@ -1,0 +1,899 @@
+<#PSScriptInfo
+.VERSION 2026.10.14
+.GUID 42a09e37-5c84-4b16-9d72-38ef61c0a4d5
+.AUTHOR Alisson Sol et al.
+.COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
+.TAGS yuruna test globalization project locale map compatibility pester
+.LICENSEURI https://yuruna.link/license
+.PROJECTURI https://yuruna.com
+.ICONURI
+.EXTERNALMODULEDEPENDENCIES
+.REQUIREDSCRIPTS
+.EXTERNALSCRIPTDEPENDENCIES
+.RELEASENOTES
+.PRIVATEDATA
+#>
+
+#requires -version 7
+
+<#
+.SYNOPSIS
+    Hold the project label contract to being additive across every pairing of
+    framework and project version.
+.DESCRIPTION
+    The framework and the projects it runs are separate repositories on
+    separate release cadences, and a lab is routinely running one of each from
+    different weeks. A label contract that only worked when both were current
+    would break the lab on the day either one moved.
+
+    So the English scalar never changes meaning and never goes away. A project
+    may add a sibling map keyed by locale, and only a framework that knows
+    about the map reads it. That gives three pairings, all of which have to
+    work, and all of which are asserted here:
+
+      an old framework reading a new project -- it does not know the key, so it
+      reads the scalar and behaves exactly as before;
+
+      a new framework reading an old project -- there is no map, so the scalar
+      is all there is;
+
+      both new -- the map decides, and the scalar is still the fallback for a
+      locale the project did not translate.
+
+    Publishing validates canonical tags, bounds, scalar ownership and the
+    source-hash sidecar. The live reader still never throws over an optional
+    field: it ignores an invalid map and keeps the English scalar.
+
+    Run: Invoke-Pester -Path test/modules/Test.ProjectLocaleMap.Tests.ps1
+#>
+
+BeforeAll {
+$here = Split-Path -Parent $PSCommandPath
+
+Import-Module (Join-Path $here 'Test.Assert.psm1') -Force -Global -DisableNameChecking
+Import-Module (Join-Path $here 'Test.SequencePlanner.psm1') -Force -Global -DisableNameChecking
+
+$script:RepoRoot = Get-YurunaTestRepoRoot -SuiteDirectory $here
+$script:ProjectRoot = Join-Path (Split-Path -Parent $script:RepoRoot) 'yuruna-project'
+$script:Validator = Join-Path $script:RepoRoot 'tools/Invoke-ProjectLocaleMap.ps1'
+$script:Sandbox = Join-Path ([IO.Path]::GetTempPath()) ('yuruna-project-map-' + [Guid]::NewGuid().ToString('N'))
+New-Item -ItemType Directory -Path $script:Sandbox -Force | Out-Null
+
+# The tests that call this read the shipped project itself. A workspace
+# without that checkout has nothing to read, and that has to fail: skipped, a
+# project nobody opened would count as publishable.
+function Confirm-ProjectCheckout {
+    [CmdletBinding()]
+    param()
+    Assert-True (Test-Path -LiteralPath $script:ProjectRoot -PathType Container) `
+        "the yuruna-project checkout has to sit beside this one; there is none at '$script:ProjectRoot'. Clone it there and run this suite again."
+}
+
+function Invoke-MapGate {
+    param([Parameter(Mandatory)][string]$Root, [string[]]$Extra = @())
+    $output = & pwsh -NoProfile -File $script:Validator -ProjectRoot $Root -Quiet @Extra 2>&1 | Out-String
+    return @{ ExitCode = $LASTEXITCODE; Output = $output }
+}
+
+function New-ProjectMapSandbox {
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+        Justification = 'Test fixture creates files only beneath the suite-owned temporary directory.')]
+    param([Parameter(Mandatory)][string]$Name)
+    $root = Join-Path $script:Sandbox $Name
+    New-Item -ItemType Directory -Path (Join-Path $root 'test') -Force | Out-Null
+    New-Item -ItemType Directory -Path (Join-Path $root 'globalization') -Force | Out-Null
+    # The project file is written here, not copied from a project checkout, so
+    # the gate is held to its contract whatever a real project carries. The
+    # cases below edit it by exact line, so its text and indentation are part
+    # of the fixture.
+    $yaml = @'
+steps:
+  - name: smoke
+    displayName: Quick smoke test
+    displayNameLocalized:
+      pt-BR: Teste rapido
+    description: Website only -- the fastest signal that the lab is healthy.
+    descriptionLocalized:
+      pt-BR: Apenas o site -- o sinal mais rapido de que o laboratorio esta saudavel.
+'@
+    [IO.File]::WriteAllText((Join-Path $root 'test/smoke.yml'), $yaml.Replace("`r`n", "`n") + "`n",
+        [Text.UTF8Encoding]::new($false))
+    # Every row is an accepted translation of the current English; a case
+    # that needs a machine draft marks one itself.
+    $entries = foreach ($field in @(
+            @{ Pointer = '/steps/name=smoke/description'; English = 'Website only -- the fastest signal that the lab is healthy.' }
+            @{ Pointer = '/steps/name=smoke/displayName'; English = 'Quick smoke test' }
+        )) {
+        [ordered]@{
+            path = 'test/smoke.yml'
+            fieldPath = $field.Pointer
+            locale = 'pt-BR'
+            sourceHash = Get-FixtureSourceHash -Text $field.English
+        }
+    }
+    $sidecar = [ordered]@{
+        schema = 'yuruna.project-locale-source-hashes/v1'
+        hashAlgorithm = 'sha256-utf8-nfc-scalar-v1'
+        entries = @($entries)
+    }
+    [IO.File]::WriteAllText((Join-Path $root 'globalization/project-locale-source-hashes.json'),
+        (ConvertTo-Json -InputObject $sidecar -Depth 6).Replace("`r`n", "`n").TrimEnd() + "`n",
+        [Text.UTF8Encoding]::new($false))
+    return $root
+}
+
+# The sidecar hash the gate expects: SHA-256 over the UTF-8 bytes of the
+# NFC-normalized English scalar, as lowercase hex.
+function Get-FixtureSourceHash {
+    [CmdletBinding()]
+    [OutputType([string])]
+    param([Parameter(Mandatory)][string]$Text)
+    $bytes = [Text.UTF8Encoding]::new($false).GetBytes($Text.Normalize([Text.NormalizationForm]::FormC))
+    return [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($bytes)).ToLowerInvariant()
+}
+
+function Set-SandboxMachineRow {
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+        Justification = 'Marks rows of a disposable sidecar under TestDrive.')]
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][string]$SidecarPath, [Parameter(Mandatory)][string[]]$FieldPath)
+    $sidecar = ConvertFrom-Json -InputObject ([IO.File]::ReadAllText($SidecarPath)) -AsHashtable
+    foreach ($entry in $sidecar.entries) {
+        if ([string]$entry['fieldPath'] -cin $FieldPath) { $entry['origin'] = 'machine' }
+    }
+    $text = ($sidecar | ConvertTo-Json -Depth 10).Replace("`r`n", "`n").TrimEnd() + "`n"
+    [IO.File]::WriteAllText($SidecarPath, $text, [Text.UTF8Encoding]::new($false))
+}
+
+# An entry as the YAML reader hands it over.
+function New-Entry {
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+        Justification = 'Builds and returns a value; changes nothing. New- is the right verb for a factory.')]
+    [CmdletBinding()]
+    [OutputType([System.Collections.Specialized.OrderedDictionary])]
+    param([hashtable]$Values)
+    $d = [ordered]@{}
+    foreach ($k in $Values.Keys) { $d[$k] = $Values[$k] }
+    return $d
+}
+
+AfterAll {
+    if ($script:Sandbox -and (Test-Path -LiteralPath $script:Sandbox)) {
+        Remove-Item -LiteralPath $script:Sandbox -Recurse -Force -ErrorAction SilentlyContinue
+    }
+}
+}
+
+Describe 'a project label survives every pairing of framework and project' {
+
+    It 'reads the scalar when the project offers no map' {
+        # New framework, old project. The overwhelmingly common case, and the
+        # one that must cost nothing.
+        $entry = New-Entry @{ displayName = 'Quick smoke test' }
+        Assert-StringEqual -Expected 'Quick smoke test' `
+            -Actual (Resolve-ProjectLabel -Entry $entry -ScalarKey 'displayName' -Locale 'pt-BR') `
+            'a project with no map must read exactly as it always did'
+    }
+
+    It 'reads the map when both sides know about it' {
+        $entry = New-Entry @{
+            displayName = 'Quick smoke test'
+            displayNameLocalized = [ordered]@{ 'pt-BR' = 'Teste rapido'; 'de-DE' = 'Schneller Test' }
+        }
+        Assert-StringEqual -Expected 'Teste rapido' `
+            -Actual (Resolve-ProjectLabel -Entry $entry -ScalarKey 'displayName' -Locale 'pt-BR') `
+            'the map did not decide for a locale it declares'
+    }
+
+    It 'carries the manifest-authoritative mirrored pseudo tag through the live reader' {
+        $entry = New-Entry @{
+            displayName = 'Quick smoke test'
+            displayNameLocalized = [ordered]@{ 'qps-Plocm' = 'Mirrored fixture' }
+        }
+        $map = Get-ProjectLabelMap -Entry $entry -ScalarKey 'displayName'
+        Assert-StringEqual -Expected 'Mirrored fixture' -Actual $map['qps-Plocm'] `
+            'the registration projection dropped the manifest-declared pseudo tag'
+        Assert-StringEqual -Expected 'Mirrored fixture' `
+            -Actual (Resolve-ProjectLabel -Entry $entry -ScalarKey 'displayName' -Locale 'qps-Plocm') `
+            'the live selector rejected the manifest-declared pseudo tag'
+    }
+
+    It 'preserves schema-valid surrounding whitespace consistently across readers' {
+        $expected = '  Teste rapido  '
+        $entry = New-Entry @{
+            displayName = 'Quick smoke test'
+            displayNameLocalized = [ordered]@{ 'pt-BR' = $expected }
+        }
+        $map = Get-ProjectLabelMap -Entry $entry -ScalarKey 'displayName'
+        Assert-StringEqual -Expected $expected -Actual $map['pt-BR'] `
+            'the PowerShell transport changed a value the schema, publisher, and Go reader preserve'
+        Assert-StringEqual -Expected $expected `
+            -Actual (Resolve-ProjectLabel -Entry $entry -ScalarKey 'displayName' -Locale 'pt-BR') `
+            'the selected localized value changed between the transport and live reader'
+    }
+
+    It 'keeps the scalar for a locale the project did not translate' {
+        # A partial map is the normal state of a translation in progress. The
+        # untranslated label reads in English rather than disappearing.
+        $entry = New-Entry @{
+            displayName = 'Quick smoke test'
+            displayNameLocalized = [ordered]@{ 'pt-BR' = 'Teste rapido' }
+        }
+        Assert-StringEqual -Expected 'Quick smoke test' `
+            -Actual (Resolve-ProjectLabel -Entry $entry -ScalarKey 'displayName' -Locale 'de-DE') `
+            'an untranslated label must fall back rather than render empty'
+    }
+
+    It 'keeps the scalar readable by a framework that knows no locale' {
+        # An old framework passes no locale at all. It must get the scalar,
+        # which is the same value it read before the map existed.
+        $entry = New-Entry @{
+            displayName = 'Quick smoke test'
+            displayNameLocalized = [ordered]@{ 'pt-BR' = 'Teste rapido' }
+        }
+        Assert-StringEqual -Expected 'Quick smoke test' `
+            -Actual (Resolve-ProjectLabel -Entry $entry -ScalarKey 'displayName' -Locale '') `
+            'the scalar is what an older framework reads, and it must be untouched'
+    }
+
+    It 'uses only the exact canonical resolved tag handed down by LocaleContext' {
+        $entry = New-Entry @{
+            displayName = 'Quick smoke test'
+            displayNameLocalized = [ordered]@{ 'PT-br' = 'Teste rapido' }
+        }
+        Assert-StringEqual -Expected 'Quick smoke test' `
+            -Actual (Resolve-ProjectLabel -Entry $entry -ScalarKey 'displayName' -Locale 'pt-BR') `
+            'the reader repaired a project tag and became a second locale matcher'
+    }
+
+    It 'fails the whole optional map closed when it contains en-US' {
+        # The English label lives in the scalar, and only the scalar. A map
+        # entry for the default locale would create two places to edit one
+        # string -- and an older framework reads the scalar, so the two would
+        # drift with nothing to say which was current.
+        $entry = New-Entry @{
+            displayName = 'Quick smoke test'
+            displayNameLocalized = [ordered]@{ 'en-US' = 'Something else entirely'; 'pt-BR' = 'Teste rapido' }
+        }
+        Assert-StringEqual -Expected 'Quick smoke test' `
+            -Actual (Resolve-ProjectLabel -Entry $entry -ScalarKey 'displayName' -Locale 'en-US') `
+            'an en-US map entry overrode the scalar, so the English label now has two owners'
+        Assert-StringEqual -Expected 'Quick smoke test' `
+            -Actual (Resolve-ProjectLabel -Entry $entry -ScalarKey 'displayName' -Locale 'pt-BR') `
+            'an invalid en-US sibling left part of the untrusted map active'
+    }
+
+    It 'counts normalized Unicode scalars at the live map boundary' {
+        $emoji = [char]::ConvertFromUtf32(0x1F642)
+        $combining = [char]0x0301
+        $astralBoundary = $emoji * 160
+        $decomposedBoundary = ("e$combining") * 160
+        $entry = New-Entry @{
+            displayName = 'Quick smoke test'
+            displayNameLocalized = [ordered]@{
+                'pt-BR' = $astralBoundary
+                'de-DE' = $decomposedBoundary
+            }
+        }
+        $map = Get-ProjectLabelMap -Entry $entry -ScalarKey 'displayName'
+        Assert-StringEqual -Expected $astralBoundary -Actual $map['pt-BR'] `
+            'a valid 160-scalar astral translation was counted as UTF-16 code units'
+        Assert-True ([string]::Equals($decomposedBoundary.Normalize([Text.NormalizationForm]::FormC), $map['de-DE'], [StringComparison]::Ordinal)) `
+            'the accepted translation must be normalized to NFC'
+
+        $entry.displayNameLocalized['pt-BR'] = $emoji * 161
+        Assert-Equal -Expected 0 -Actual (Get-ProjectLabelMap -Entry $entry -ScalarKey 'displayName').Count `
+            'a translation over the 160-scalar display bound remained active'
+    }
+
+    It 'carries no en-US entry in any shipped project' {
+        # The rule is enforced at read time; this is the other half, so a
+        # project that writes one is told rather than silently ignored.
+        $repoRoot = Get-YurunaTestRepoRoot -SuiteDirectory (Split-Path -Parent $PSCommandPath)
+        $projectRoot = Join-Path (Split-Path -Parent $repoRoot) 'yuruna-project'
+        Confirm-ProjectCheckout
+        $findings = @()
+        foreach ($file in (Get-ChildItem -LiteralPath $projectRoot -Recurse -File -Include '*.yml', '*.yaml' -ErrorAction SilentlyContinue)) {
+            $text = [IO.File]::ReadAllText($file.FullName)
+            if ($text -notmatch 'Localized:') { continue }
+            foreach ($m in [regex]::Matches($text, '(?m)^\s*\w+Localized:\s*\n((?:\s+\S.*\n)+)')) {
+                if ($m.Groups[1].Value -match '(?m)^\s*[''"]?en-US[''"]?\s*:') {
+                    $rel = [IO.Path]::GetRelativePath($projectRoot, $file.FullName)
+                    $findings += "$rel declares an en-US entry in a localized map; the English label belongs in the scalar"
+                }
+            }
+        }
+        Assert-NoFinding $findings 'a project has two places to edit one English label'
+    }
+
+    It 'never fails a cycle over a malformed optional field' {
+        # A project is somebody else's repository. A label that cannot be read
+        # is a label that is not used, not a reason to stop a test run.
+        $findings = @()
+        $cases = @(
+            @{ Name = 'the map is a string';    Entry = New-Entry @{ displayName = 'Scalar'; displayNameLocalized = 'not a map' } }
+            @{ Name = 'the map is a list';      Entry = New-Entry @{ displayName = 'Scalar'; displayNameLocalized = @('a', 'b') } }
+            @{ Name = 'the map is empty';       Entry = New-Entry @{ displayName = 'Scalar'; displayNameLocalized = [ordered]@{} } }
+            @{ Name = 'the entry has no label'; Entry = New-Entry @{ sequences = @('x') } }
+        )
+        foreach ($case in $cases) {
+            try {
+                $got = Resolve-ProjectLabel -Entry $case.Entry -ScalarKey 'displayName' -Locale 'pt-BR'
+                if ($case.Name -ne 'the entry has no label' -and $got -ne 'Scalar') {
+                    $findings += "$($case.Name): got '$got', expected the scalar"
+                }
+            } catch {
+                $findings += "$($case.Name): threw -- $($_.Exception.Message)"
+            }
+        }
+        # And a value that is not an entry at all.
+        try {
+            $null = Resolve-ProjectLabel -Entry $null -ScalarKey 'displayName' -Locale 'pt-BR'
+            $null = Resolve-ProjectLabel -Entry 'a string' -ScalarKey 'displayName' -Locale 'pt-BR'
+        } catch {
+            $findings += "a non-entry threw -- $($_.Exception.Message)"
+        }
+        Assert-NoFinding $findings 'a malformed optional label can stop a cycle'
+    }
+
+    It 'is additive in the shipped reader, not only in the helper' {
+        # The sequence engine is what prints a project's sequence and step
+        # descriptions, so the contract has to hold where the label actually
+        # comes from: the engine asks the operator adapter, and the adapter
+        # hands its resolved locale to Resolve-ProjectLabel.
+        $engine = [IO.File]::ReadAllText((Join-Path (Split-Path -Parent $PSCommandPath) 'Test.SequenceEngine.psm1'))
+        Assert-True ($engine.Contains('Resolve-YurunaOperatorProjectLabel -Entry $sequence')) `
+            'the engine prints the sequence description scalar directly, so a project map would never be seen'
+        Assert-True ($engine.Contains('Resolve-YurunaOperatorProjectLabel -Entry $step')) `
+            'a step description is not resolved the same way as the sequence description'
+        $adapter = [IO.File]::ReadAllText((Join-Path $script:RepoRoot 'automation/Yuruna.Globalization.psm1'))
+        Assert-True ($adapter.Contains('Resolve-ProjectLabel -Entry $Entry -ScalarKey $ScalarKey -Locale $context.ResolvedTag')) `
+            'the operator adapter does not hand its resolved locale to the project label reader'
+    }
+
+    It 'carries the complete maps from project YAML while leaving the scalar unresolved' {
+        # A reader gets the English scalar untouched plus the whole canonical
+        # map, and the language is chosen where the reader's locale is known,
+        # never from a background runner's process culture.
+        $root = New-ProjectMapSandbox -Name 'reader-carry'
+        $document = ConvertFrom-Yaml -Yaml ([IO.File]::ReadAllText((Join-Path $root 'test/smoke.yml'))) -Ordered
+        $smoke = @($document['steps'] | Where-Object { $_['name'] -eq 'smoke' })[0]
+        Assert-StringEqual -Expected 'Quick smoke test' -Actual $smoke['displayName'] `
+            'reading the project entry changed its English scalar'
+        Assert-StringEqual -Expected 'Teste rapido' `
+            -Actual (Get-ProjectLabelMap -Entry $smoke -ScalarKey 'displayName')['pt-BR'] `
+            'the display-name map was dropped between the YAML and the reader'
+        Assert-StringEqual -Expected 'Apenas o site -- o sinal mais rapido de que o laboratorio esta saudavel.' `
+            -Actual (Get-ProjectLabelMap -Entry $smoke -ScalarKey 'description')['pt-BR'] `
+            'the description map was dropped between the YAML and the reader'
+    }
+}
+
+Describe 'the project publisher validates maps and source hashes' {
+
+    It 'makes canonical locale-key spelling part of the JSON Schema contract' {
+        $schemaPath = Join-Path $script:RepoRoot 'globalization/schema/project-locale-map.schema.json'
+        $record = [ordered]@{
+            schema = 'yuruna.project-locale-map/v1'
+            path = 'test/smoke.yml'
+            fieldPath = '/steps/name=smoke/displayName'
+            scalarField = 'displayName'
+            scalar = 'Quick smoke test'
+            localized = [ordered]@{ 'pt-BR' = 'Teste rapido' }
+        }
+        $json = $record | ConvertTo-Json -Depth 10 -Compress
+        Assert-True (Test-Json -Json $json -SchemaFile $schemaPath -ErrorAction Stop) `
+            'the canonical project-map control record does not satisfy its schema'
+
+        # qps-Plocm is the manifest-declared spelling of Yuruna's mirrored
+        # test-only locale; the manifest key is its canonical authority even
+        # though a generic five-letter variant would otherwise lowercase.
+        $record.localized = [ordered]@{ 'qps-Plocm' = 'Mirrored fixture' }
+        Assert-True (Test-Json -Json ($record | ConvertTo-Json -Depth 10 -Compress) `
+                -SchemaFile $schemaPath -ErrorAction Stop) `
+            'the manifest-declared mirrored pseudo tag was rejected by the shared schema'
+
+        $overlongTag = 'abc-abcdefgh-abcdefgh-abcdefgh-abcde'
+        foreach ($tag in @('PT-br', 'pt-br', 'EN-us', 'en-US', $overlongTag)) {
+            $record.localized = [ordered]@{ $tag = 'Mutation' }
+            Assert-False (Test-Json -Json ($record | ConvertTo-Json -Depth 10 -Compress) `
+                    -SchemaFile $schemaPath -ErrorAction SilentlyContinue) `
+                "project-locale-map.schema.json accepted noncanonical/forbidden key '$tag'"
+        }
+    }
+
+    It 'caps locale identities in the shipped source-hash sidecar schema' {
+        $overlongTag = 'abc-abcdefgh-abcdefgh-abcdefgh-abcde'
+        Assert-Equal -Expected 36 -Actual $overlongTag.Length `
+            'the mutation no longer isolates the 35-character schema bound'
+        $schemaPath = Join-Path $script:RepoRoot 'globalization/schema/project-locale-source-hashes.schema.json'
+        foreach ($case in @(
+                @{ Locale = 'pt-BR'; Valid = $true }
+                @{ Locale = 'qps-Plocm'; Valid = $true }
+                @{ Locale = $overlongTag; Valid = $false }
+                @{ Locale = 'pt_BR'; Valid = $false }
+            )) {
+            $record = [ordered]@{
+                schema = 'yuruna.project-locale-source-hashes/v1'
+                hashAlgorithm = 'sha256-utf8-nfc-scalar-v1'
+                entries = @([ordered]@{
+                        path = 'test/smoke.yml'; fieldPath = '/steps/name=smoke/displayName'
+                        locale = $case.Locale; sourceHash = ('0' * 64)
+                    })
+            }
+            $json = ConvertTo-Json -InputObject $record -Depth 6 -Compress
+            $accepted = [bool](Test-Json -Json $json -SchemaFile $schemaPath -ErrorAction SilentlyContinue)
+            Assert-True ($accepted -eq $case.Valid) `
+                "the sidecar schema answered $accepted for locale '$($case.Locale)'"
+        }
+    }
+
+    It 'accepts the shipped project maps as schema-valid and source-current' {
+        Confirm-ProjectCheckout
+        $run = Invoke-MapGate -Root $script:ProjectRoot
+        Assert-Equal -Expected 0 -Actual $run.ExitCode "the shipped project map contract is not publishable: $($run.Output)"
+        # Every enabled target locale covers the same set of project maps.
+        # Machine drafts count toward delivery just like accepted translations.
+        $census = [regex]::Match($run.Output, '(\d+) map\(s\), (\d+) translation\(s\), 0 finding')
+        Assert-True $census.Success 'the shipped project maps were not inventoried'
+        Assert-True ([int]$census.Groups[1].Value -gt 0) 'no project map was inventoried'
+        $manifest = ConvertFrom-Json ([IO.File]::ReadAllText((Join-Path $script:RepoRoot 'globalization/locale-manifest.json')))
+        $targets = @($manifest.locales.PSObject.Properties | Where-Object { $_.Name -cne $manifest.default -and $_.Value.status -ceq 'supported' })
+        Assert-Equal -Expected ([int]$census.Groups[1].Value * $targets.Count) -Actual ([int]$census.Groups[2].Value) `
+            'every inventoried map needs a translation for each supported target locale'
+    }
+
+    It 'applies map bounds to NFC Unicode scalars rather than UTF-16 code units' {
+        $emoji = [char]::ConvertFromUtf32(0x1F642)
+        $combining = [char]0x0301
+        foreach ($case in @(
+                @{ Name = 'astral-boundary'; Value = $emoji * 160; ExitCode = 0 }
+                @{ Name = 'decomposed-normalizes-to-boundary'; Value = ("e$combining") * 160; ExitCode = 0 }
+                @{ Name = 'astral-over-bound'; Value = $emoji * 161; ExitCode = 1 }
+            )) {
+            $root = New-ProjectMapSandbox -Name $case.Name
+            $path = Join-Path $root 'test/smoke.yml'
+            $text = [IO.File]::ReadAllText($path).Replace(
+                '      pt-BR: Teste rapido', '      pt-BR: ' + $case.Value)
+            [IO.File]::WriteAllText($path, $text, [Text.UTF8Encoding]::new($false))
+            $run = Invoke-MapGate -Root $root
+            Assert-Equal -Expected $case.ExitCode -Actual $run.ExitCode `
+                "$($case.Name) produced the wrong publisher result: $($run.Output)"
+            if ($case.ExitCode -ne 0) {
+                Assert-Match -Pattern '160 Unicode scalars' -Actual $run.Output `
+                    'the over-bound translation was not rejected by the shared scalar rule'
+            }
+        }
+    }
+
+    It 'derives a deterministic ephemeral pseudo fixture from the current English scalar' {
+        $root = New-ProjectMapSandbox -Name 'pseudo-fixture'
+        $firstPath = Join-Path $script:Sandbox 'pseudo-first.json'
+        $secondPath = Join-Path $script:Sandbox 'pseudo-second.json'
+        $first = Invoke-MapGate -Root $root -Extra @('-PseudoFixturePath', $firstPath)
+        Assert-Equal -Expected 0 -Actual $first.ExitCode "pseudo fixture generation failed: $($first.Output)"
+
+        $fixture = ConvertFrom-Json -InputObject ([IO.File]::ReadAllText($firstPath)) -AsHashtable
+        Assert-StringEqual -Expected 'yuruna.project-locale-pseudo-fixture/v1' -Actual $fixture.schema `
+            'the ephemeral project fixture has no versioned contract'
+        Assert-StringEqual -Expected 'qps-Ploc|qps-Plocm' -Actual (@($fixture.locales) -join '|') `
+            'the project fixture did not declare both UI stress locales in stable order'
+        $display = @($fixture.entries | Where-Object fieldPath -EQ '/steps/name=smoke/displayName')[0]
+        Assert-StringEqual -Expected 'Quick smoke test' -Actual $display.scalar `
+            'the fixture did not retain the authoritative English scalar'
+        $sidecar = ConvertFrom-Json -InputObject ([IO.File]::ReadAllText(
+            (Join-Path $root 'globalization/project-locale-source-hashes.json'))) -AsHashtable
+        $expectedSource = @($sidecar.entries |
+            Where-Object fieldPath -EQ '/steps/name=smoke/displayName')[0].sourceHash
+        Assert-StringEqual -Expected $expectedSource -Actual $display.sourceHash `
+            'the pseudo map is not tied to the current English scalar bytes'
+        Assert-True ($display.localized.'qps-Ploc'.StartsWith('[')) `
+            'the expanded pseudo value was not derived'
+        Assert-True ($display.localized.'qps-Plocm'.Contains([char]0x202E)) `
+            'the mirrored pseudo value has no RTL stress marker'
+        Assert-False ($display.localized.'qps-Ploc' -eq 'Teste rapido') `
+            'the pseudo fixture copied a real translation'
+
+        # Translation wording has no role in a pseudo run. Changing it while
+        # retaining the same English source must leave the fixture byte-identical.
+        $yamlPath = Join-Path $root 'test/smoke.yml'
+        $yaml = [IO.File]::ReadAllText($yamlPath).Replace('Teste rapido', 'Traducao nao usada')
+        [IO.File]::WriteAllText($yamlPath, $yaml, [Text.UTF8Encoding]::new($false))
+        $second = Invoke-MapGate -Root $root -Extra @('-PseudoFixturePath', $secondPath)
+        Assert-Equal -Expected 0 -Actual $second.ExitCode $second.Output
+        Assert-StringEqual -Expected ([Convert]::ToBase64String([IO.File]::ReadAllBytes($firstPath))) `
+            -Actual ([Convert]::ToBase64String([IO.File]::ReadAllBytes($secondPath))) `
+            -Because 'a real translation influenced the pseudo project fixture'
+    }
+
+    It 'does not bless a translation during an ordinary validation run' {
+        $root = New-ProjectMapSandbox -Name 'read-only'
+        $sidecar = Join-Path $root 'globalization/project-locale-source-hashes.json'
+        $before = [IO.File]::ReadAllBytes($sidecar)
+        $run = Invoke-MapGate -Root $root
+        $after = [IO.File]::ReadAllBytes($sidecar)
+        Assert-Equal -Expected 0 -Actual $run.ExitCode $run.Output
+        Assert-StringEqual -Expected ([Convert]::ToBase64String($before)) -Actual ([Convert]::ToBase64String($after)) -Because 'the check advanced a source hash without an explicit acceptance'
+    }
+
+    It 'stales only the translated field whose English scalar changed' {
+        $root = New-ProjectMapSandbox -Name 'stale-one'
+        $path = Join-Path $root 'test/smoke.yml'
+        $text = [IO.File]::ReadAllText($path).Replace(
+            '    displayName: Quick smoke test',
+            '    displayName: Quick smoke test now')
+        [IO.File]::WriteAllText($path, $text, [Text.UTF8Encoding]::new($false))
+        $run = Invoke-MapGate -Root $root
+        Assert-Equal -Expected 1 -Actual $run.ExitCode 'a reworded scalar left its translation current'
+        Assert-Match -Pattern 'name=smoke/displayName\|pt-BR is stale' -Actual $run.Output 'the changed field was not identified'
+        Assert-False ($run.Output -match 'name=smoke/description\|pt-BR is stale') 'changing displayName staled the independent description translation'
+    }
+
+    It 'discovers quoted localized keys and still enforces their source hash' {
+        $root = New-ProjectMapSandbox -Name 'quoted-localized-key'
+        $path = Join-Path $root 'test/smoke.yml'
+        $text = [IO.File]::ReadAllText($path)
+        $text = $text.Replace('displayNameLocalized:', '"displayNameLocalized":')
+        $text = $text.Replace('descriptionLocalized:', '"descriptionLocalized":')
+        $text = $text.Replace('    displayName: Quick smoke test', '    displayName: Quick smoke test now')
+        [IO.File]::WriteAllText($path, $text, [Text.UTF8Encoding]::new($false))
+
+        $run = Invoke-MapGate -Root $root
+        Assert-Equal -Expected 1 -Actual $run.ExitCode 'quoted map keys bypassed project-map discovery'
+        Assert-Match -Pattern 'name=smoke/displayName\|pt-BR is stale' -Actual $run.Output `
+            'the quoted map was not held to its sidecar source hash'
+    }
+
+    It 'discovers flow-style locale maps and still enforces their source hash' {
+        $root = New-ProjectMapSandbox -Name 'flow-localized-key'
+        $path = Join-Path $root 'test/smoke.yml'
+        $flow = @'
+steps: [{name: smoke, displayName: Quick smoke test now, displayNameLocalized: {pt-BR: Teste rapido}}]
+'@
+        [IO.File]::WriteAllText($path, $flow, [Text.UTF8Encoding]::new($false))
+
+        $run = Invoke-MapGate -Root $root
+        Assert-Equal -Expected 1 -Actual $run.ExitCode 'a flow-style map bypassed project-map discovery'
+        Assert-Match -Pattern 'name=smoke/displayName\|pt-BR is stale' -Actual $run.Output `
+            'the flow-style map was not held to its sidecar source hash'
+    }
+
+    It 'rejects noncanonical tags and a map without its scalar' {
+        $root = New-ProjectMapSandbox -Name 'bad-map'
+        $path = Join-Path $root 'test/smoke.yml'
+        $text = [IO.File]::ReadAllText($path)
+        $text = $text.Replace('      pt-BR: Teste rapido', '      PT-br: Teste rapido')
+        $text = $text.Replace('    description: Website only -- the fastest signal that the lab is healthy.', '    oldDescription: Website only -- the fastest signal that the lab is healthy.')
+        [IO.File]::WriteAllText($path, $text, [Text.UTF8Encoding]::new($false))
+        $run = Invoke-MapGate -Root $root
+        Assert-Equal -Expected 1 -Actual $run.ExitCode 'invalid official metadata was publishable'
+        Assert-Match -Pattern "locale 'PT-br' is not canonical; write 'pt-BR'" -Actual $run.Output 'the tag rule is not explicit'
+        Assert-Match -Pattern 'has descriptionLocalized without its required English scalar' -Actual $run.Output 'the scalar ownership rule is not explicit'
+    }
+
+    It 'requires one sidecar row for every path, field and locale' {
+        $root = New-ProjectMapSandbox -Name 'no-sidecar'
+        Remove-Item -LiteralPath (Join-Path $root 'globalization/project-locale-source-hashes.json') -Force
+        $run = Invoke-MapGate -Root $root
+        Assert-Equal -Expected 1 -Actual $run.ExitCode 'maps with no source provenance were publishable'
+        Assert-Match -Pattern 'required source-hash sidecar is missing' -Actual $run.Output 'the missing authority is not named'
+    }
+
+    It 'validates an untracked nonignored YAML candidate before commit' {
+        $root = New-ProjectMapSandbox -Name 'untracked-candidate'
+        & git -C $root init --quiet
+        & git -C $root add -- test/smoke.yml globalization/project-locale-source-hashes.json
+        $candidate = @'
+steps:
+  - name: pending
+    displayName: Pending test
+    displayNameLocalized:
+      pt-BR: Teste pendente
+'@
+        [IO.File]::WriteAllText((Join-Path $root 'test/pending.yml'), $candidate,
+            [Text.UTF8Encoding]::new($false))
+
+        $run = Invoke-MapGate -Root $root
+        Assert-Equal -Expected 1 -Actual $run.ExitCode 'an untracked project map bypassed the pre-commit gate'
+        Assert-Match -Pattern 'source-hash sidecar has no row for test/pending.yml\|/steps/name=pending/displayName\|pt-BR' `
+            -Actual $run.Output 'the untracked translation was not inventoried by path, field and locale'
+    }
+
+    It 'advances exactly one row through explicit acceptance' {
+        $root = New-ProjectMapSandbox -Name 'accept-one-row'
+        $sidecarPath = Join-Path $root 'globalization/project-locale-source-hashes.json'
+        Set-SandboxMachineRow -SidecarPath $sidecarPath -FieldPath @('/steps/name=smoke/displayName', '/steps/name=smoke/description')
+        $extra = @(
+            '-AcceptTranslation',
+            '-ProjectPath', 'test/smoke.yml',
+            '-FieldPath', '/steps/name=smoke/displayName',
+            '-Locale', 'pt-BR'
+        )
+        $run = Invoke-MapGate -Root $root -Extra $extra
+        Assert-Equal -Expected 0 -Actual $run.ExitCode "explicit acceptance failed: $($run.Output)"
+        $sidecar = ConvertFrom-Json -InputObject ([IO.File]::ReadAllText($sidecarPath))
+        $name = @($sidecar.entries | Where-Object fieldPath -EQ '/steps/name=smoke/displayName')[0]
+        $description = @($sidecar.entries | Where-Object fieldPath -EQ '/steps/name=smoke/description')[0]
+        Assert-StringEqual -Expected 'path,fieldPath,locale,sourceHash' -Actual (@($name.PSObject.Properties.Name) -join ',') `
+            'the accepted row does not carry exactly the four recorded keys'
+        Assert-StringEqual -Expected 'machine' -Actual ([string]$description.origin) 'an unrelated row was accepted'
+    }
+
+    It 'a machine acceptance writes the origin marker and a later acceptance removes it' {
+        $root = New-ProjectMapSandbox -Name 'accept-machine'
+        $sidecarPath = Join-Path $root 'globalization/project-locale-source-hashes.json'
+        $target = @(
+            '-ProjectPath', 'test/smoke.yml',
+            '-FieldPath', '/steps/name=smoke/displayName',
+            '-Locale', 'pt-BR'
+        )
+        $run = Invoke-MapGate -Root $root -Extra (@('-AcceptTranslation', '-Machine') + $target)
+        Assert-Equal -Expected 0 -Actual $run.ExitCode "machine acceptance failed: $($run.Output)"
+        $row = @((ConvertFrom-Json -InputObject ([IO.File]::ReadAllText($sidecarPath))).entries |
+                Where-Object fieldPath -EQ '/steps/name=smoke/displayName')[0]
+        Assert-StringEqual -Expected 'machine' -Actual ([string]$row.origin) 'a machine acceptance did not mark the row'
+        $others = @((ConvertFrom-Json -InputObject ([IO.File]::ReadAllText($sidecarPath))).entries |
+                Where-Object { $_.PSObject.Properties['origin'] })
+        Assert-Equal -Expected 1 -Actual $others.Count 'a machine acceptance marked more than the selected row'
+
+        $run = Invoke-MapGate -Root $root -Extra (@('-AcceptTranslation') + $target)
+        Assert-Equal -Expected 0 -Actual $run.ExitCode "acceptance failed: $($run.Output)"
+        $row = @((ConvertFrom-Json -InputObject ([IO.File]::ReadAllText($sidecarPath))).entries |
+                Where-Object fieldPath -EQ '/steps/name=smoke/displayName')[0]
+        Assert-False -Condition ($null -ne $row.PSObject.Properties['origin']) `
+            -Because 'accepting the translation did not remove the machine-draft marker'
+    }
+
+    It 'accepts a mis-cased identity as the row the map spells, without a second row' {
+        $root = New-ProjectMapSandbox -Name 'accept-mis-cased'
+        $sidecarPath = Join-Path $root 'globalization/project-locale-source-hashes.json'
+        $run = Invoke-MapGate -Root $root -Extra @(
+            '-AcceptTranslation', '-Machine',
+            '-ProjectPath', 'test/smoke.yml',
+            '-FieldPath', '/steps/name=SMOKE/displayName',
+            '-Locale', 'pt-BR'
+        )
+        Assert-Equal -Expected 0 -Actual $run.ExitCode "mis-cased acceptance failed: $($run.Output)"
+        $rows = @((ConvertFrom-Json -InputObject ([IO.File]::ReadAllText($sidecarPath))).entries |
+                Where-Object { $_.fieldPath -eq '/steps/name=smoke/displayName' -and $_.locale -eq 'pt-BR' })
+        Assert-Equal -Expected 1 -Actual $rows.Count 'the acceptance wrote a second row for one identity'
+        Assert-StringEqual -Expected '/steps/name=smoke/displayName' -Actual ([string]$rows[0].fieldPath) `
+            'the row is not spelled the way the map spells it'
+        Assert-StringEqual -Expected 'machine' -Actual ([string]$rows[0].origin) 'the accepted row is not the one written'
+        $check = Invoke-MapGate -Root $root
+        Assert-Equal -Expected 0 -Actual $check.ExitCode "the sidecar no longer validates: $($check.Output)"
+    }
+
+    It 'rejects an invalid acceptance candidate without changing the sidecar bytes' {
+        $root = New-ProjectMapSandbox -Name 'invalid-accept-candidate'
+        $sidecarPath = Join-Path $root 'globalization/project-locale-source-hashes.json'
+        # A person field the schema does not define: the candidate built from
+        # this sidecar keeps it, so the write must be refused as a whole.
+        $sidecar = ConvertFrom-Json -InputObject ([IO.File]::ReadAllText($sidecarPath)) -AsHashtable
+        $sidecar.entries[0]['reviewer'] = 'Somebody'
+        $candidate = ($sidecar | ConvertTo-Json -Depth 10).Replace("`r`n", "`n").TrimEnd() + "`n"
+        [IO.File]::WriteAllText($sidecarPath, $candidate, [Text.UTF8Encoding]::new($false))
+        $before = [IO.File]::ReadAllBytes($sidecarPath)
+        $extra = @(
+            '-AcceptTranslation',
+            '-ProjectPath', 'test/smoke.yml',
+            '-FieldPath', '/steps/name=smoke/displayName',
+            '-Locale', 'pt-BR'
+        )
+        $run = Invoke-MapGate -Root $root -Extra $extra
+        $after = [IO.File]::ReadAllBytes($sidecarPath)
+        Assert-Equal -Expected 1 -Actual $run.ExitCode 'a sidecar carrying a person field accepted a write'
+        Assert-Match -Pattern "source-hash sidecar is invalid: .*'/entries/0/reviewer'" -Actual $run.Output `
+            'schema validation did not identify the field that refused the write'
+        Assert-StringEqual -Expected ([Convert]::ToBase64String($before)) `
+            -Actual ([Convert]::ToBase64String($after)) `
+            -Because 'an invalid candidate changed the persisted sidecar before schema validation'
+    }
+
+    It 'does not write an accepted target while an unrelated sidecar row is stale' {
+        $root = New-ProjectMapSandbox -Name 'accept-with-stale-sibling'
+        $sidecarPath = Join-Path $root 'globalization/project-locale-source-hashes.json'
+        $sidecar = ConvertFrom-Json -InputObject ([IO.File]::ReadAllText($sidecarPath)) -AsHashtable
+        $description = @($sidecar.entries |
+            Where-Object fieldPath -EQ '/steps/name=smoke/description')[0]
+        $description.sourceHash = '0' * 64
+        $candidate = ($sidecar | ConvertTo-Json -Depth 10).Replace("`r`n", "`n").TrimEnd() + "`n"
+        [IO.File]::WriteAllText($sidecarPath, $candidate, [Text.UTF8Encoding]::new($false))
+        $before = [IO.File]::ReadAllBytes($sidecarPath)
+
+        $run = Invoke-MapGate -Root $root -Extra @(
+            '-AcceptTranslation',
+            '-ProjectPath', 'test/smoke.yml',
+            '-FieldPath', '/steps/name=smoke/displayName',
+            '-Locale', 'pt-BR'
+        )
+        $after = [IO.File]::ReadAllBytes($sidecarPath)
+        Assert-Equal -Expected 1 -Actual $run.ExitCode 'acceptance ignored an unrelated stale authority row'
+        Assert-Match -Pattern 'description\|pt-BR is stale' -Actual $run.Output `
+            'the complete candidate sidecar was not validated before write'
+        Assert-StringEqual -Expected ([Convert]::ToBase64String($before)) `
+            -Actual ([Convert]::ToBase64String($after)) `
+            -Because 'a failed whole-sidecar acceptance mutated the authority bytes'
+    }
+}
+Describe 'production project and operator localization contracts' {
+    BeforeAll {
+        Import-Module (Join-Path $here 'Test.LocalizationExchange.psm1') -Force -DisableNameChecking
+        Import-Module (Join-Path $here 'Test.Catalog.psm1') -DisableNameChecking
+        Import-Module (Join-Path $script:RepoRoot 'automation/Yuruna.Globalization.psm1') -DisableNameChecking
+    }
+    It 'globalization acceptance: all reachable project display scalars' {
+        Confirm-ProjectCheckout
+        $enrolled = Get-LocalizationProjectSource -ProjectRoot $script:ProjectRoot -Locale 'pt-BR'
+        $rows = @(Get-LocalizationRow -Root $script:RepoRoot -ProjectRoot $script:ProjectRoot -Locale 'pt-BR' | Where-Object kind -EQ 'project-scalar')
+        $rows.Count | Should -Be $enrolled.entries.Count
+        # A floor, not a census: it catches a discovery change that drops whole
+        # files of display scalars without pinning the project's current count.
+        $rows.Count | Should -BeGreaterThan 80
+        foreach ($entry in $enrolled.entries) {
+            $row = @($rows | Where-Object { $_.context -ceq $entry.path -and $_.pointer -ceq $entry.fieldPath })
+            $row.Count | Should -Be 1 -Because ($entry.path + '#' + $entry.fieldPath)
+            $row[0].english | Should -Not -BeNullOrEmpty
+            $row[0].sourceSha256 | Should -Match '^[a-f0-9]{64}$'
+            $field = ($entry.fieldPath -split '/')[-1]
+            $object = @{ $field = $row[0].english; ($field + 'Localized') = @{ 'qps-Ploc' = ('FIXTURE ' + $row[0].english) } }
+            (Resolve-ProjectLabel -Entry $object -ScalarKey $field -Locale 'en-US') | Should -BeExactly $row[0].english
+            (Resolve-ProjectLabel -Entry $object -ScalarKey $field -Locale 'qps-Ploc') | Should -BeExactly ('FIXTURE ' + $row[0].english)
+        }
+        @($rows | Where-Object context -Like 'example/*').Count | Should -BeGreaterThan 0
+        @($rows | Where-Object pointer -Match '/0/description$').Count | Should -BeGreaterThan 0
+    }
+    It 'globalization acceptance: CLI host guest and automation catalog coverage' {
+        $plannerAst = [Management.Automation.Language.Parser]::ParseFile((Join-Path $here 'Test.SequenceResolve.psm1'), [ref]$null, [ref]$null)
+        $plannerFactory = $plannerAst.Find({ param($node) $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq 'New-SequencePlannerException' }, $true)
+        $plannerFactory | Should -Not -BeNullOrEmpty
+        $plannerCalls = @($plannerFactory.Body.FindAll({ param($node) $node -is [Management.Automation.Language.CommandAst] -and $node.GetCommandName() -eq 'Format-YurunaOperatorMessage' }, $true))
+        $plannerCalls.Count | Should -Be 1
+        $plannerCalls[0].Extent.Text | Should -Match '\-Key \$Key\b'
+        $plannerCalls[0].Extent.Text | Should -Match '\-Arguments \$Arguments\b'
+        $manifest = Get-Content -LiteralPath (Join-Path $script:RepoRoot 'globalization/manifests/operator-catalog-sources.json') -Raw | ConvertFrom-Json
+        $manifest.sources.Count | Should -BeGreaterThan 4000
+        $sources = @{}
+        $catalogs = @{}
+        foreach ($record in $manifest.sources) {
+            if (-not $sources.ContainsKey($record.path)) {
+                $errors = $null
+                $ast = [Management.Automation.Language.Parser]::ParseFile((Join-Path $script:RepoRoot $record.path), [ref]$null, [ref]$errors)
+                @($errors).Count | Should -Be 0 -Because $record.path
+                $sources[$record.path] = @($ast.FindAll({ param($node) $node -is [Management.Automation.Language.CommandAst] -and $node.GetCommandName() -in @('Format-YurunaOperatorMessage', 'New-SequencePlannerException') }, $true) | ForEach-Object { $_.Extent.Text }) -join "`n"
+            }
+            if ($sources[$record.path] -notmatch [regex]::Escape("-Key '$($record.key)'")) {
+                $path = Join-Path $script:RepoRoot $record.path
+                $ast = [Management.Automation.Language.Parser]::ParseFile($path, [ref]$null, [ref]$null)
+                $key = [string]$record.key
+                $literal = $ast.Find({ param($node) $node -is [Management.Automation.Language.StringConstantExpressionAst] -and $node.Value -ceq $key }, $true)
+                $literal | Should -Not -BeNullOrEmpty -Because $record.path
+                $parent = $literal.Parent
+                while ($parent -and $parent -isnot [Management.Automation.Language.AssignmentStatementAst] -and $parent -isnot [Management.Automation.Language.CommandAst]) { $parent = $parent.Parent }
+                if ($parent -is [Management.Automation.Language.AssignmentStatementAst]) {
+                    $binding = $parent.Left.Extent.Text
+                    $sources[$record.path] | Should -Match ([regex]::Escape('-Key ' + $binding)) -Because 'the assigned key must reach the formatter'
+                } else {
+                    $parent | Should -Not -BeNullOrEmpty
+                    $elements = $parent.CommandElements
+                    $index = 0
+                    while ($index -lt $elements.Count -and $elements[$index].Extent.StartOffset -ne $literal.Extent.StartOffset) { $index++ }
+                    $index | Should -BeGreaterThan 0
+                    $parameter = $elements[$index - 1]
+                    $parameter | Should -BeOfType ([Management.Automation.Language.CommandParameterAst])
+                    $binding = '$' + $parameter.ParameterName
+                    if ($parameter.ParameterName -eq 'EnvironmentErrorKey') {
+                        $sharedFile = if ([IO.Path]::GetFileName($path) -eq 'Get-Image.ps1') { 'Get-UbuntuServerImage.ps1' } else { 'New-UbuntuServerVM.ps1' }
+                        $sharedPath = Join-Path (Split-Path (Split-Path $path -Parent) -Parent) ('modules/' + $sharedFile)
+                        $shared = [IO.File]::ReadAllText($sharedPath)
+                    } else { $shared = $sources[$record.path] }
+                    $shared | Should -Match ([regex]::Escape('Format-YurunaOperatorMessage -Key ' + $binding)) -Because 'the forwarded key must reach the formatter'
+                }
+            }
+            $domain = ($record.key -split '\.')[0]
+            if (-not $catalogs.ContainsKey($domain)) { $catalogs[$domain] = Get-Content -LiteralPath (Join-Path $script:RepoRoot "globalization/catalogs/en-US/$domain.json") -Raw | ConvertFrom-Json -AsHashtable }
+            $message = $catalogs[$domain].messages[$record.key]
+            $message | Should -Not -BeNullOrEmpty
+            $variants = if ($message.ContainsKey('plural')) { @('one', 'other') }
+                        elseif ($message.ContainsKey('select')) { @($message.select.variants.Keys) }
+                        else { @('message') }
+            foreach ($variant in $variants) {
+                $arguments = @{}
+                foreach ($name in $record.arguments) {
+                    $message.placeholders.ContainsKey($name) | Should -BeTrue
+                    $arguments[$name] = switch ($message.placeholders[$name].type) {
+                        'integer' { 2 }
+                        'token' { 'future_token' }
+                        default { "`u{5916}`u{90e8} <detail> & caf`u{e9}" }
+                    }
+                }
+                $expected = if ($message.ContainsKey('plural')) {
+                    $arguments[$message.plural.selector] = if ($variant -eq 'one') { 1 } else { 2 }
+                    $message.plural.variants[$variant]
+                } elseif ($message.ContainsKey('select')) {
+                    $arguments[$message.select.selector] = if ($variant -eq 'other') { 'future_token' } else { $variant }
+                    $message.select.variants[$variant]
+                } else { $message.message }
+                foreach ($name in $arguments.Keys) { $expected = $expected.Replace('{' + $name + '}', [string]$arguments[$name]) }
+                (Format-CatalogMessage -Key $record.key -Arguments $arguments -Locale 'en-US') | Should -BeExactly $expected
+            }
+        }
+        foreach ($scope in @('automation/', 'host/', 'test/')) { @($manifest.sources | Where-Object path -Like "$scope*").Count | Should -BeGreaterThan 0 }
+        @($manifest.sources | Where-Object path -Match 'guest\.').Count | Should -BeGreaterThan 0
+    }
+    It 'globalization acceptance: sequence messages carry stable codes and labels' {
+        $file = Join-Path $here 'Test.SequenceEngine.psm1'
+        $ast = [Management.Automation.Language.Parser]::ParseFile($file, [ref]$null, [ref]$null)
+        $assignment = $ast.Find({ param($node) $node -is [Management.Automation.Language.AssignmentStatementAst] -and $node.Left.Extent.Text -eq '$writeCurrentAction' }, $true)
+        $writer = [scriptblock]::Create($assignment.Right.Extent.Text.Trim().TrimStart('{').TrimEnd('}'))
+        $currentActionFile = Join-Path $TestDrive 'current-action.json'
+        $GuestKey = 'guest.fixture'; $VMName = "vm.`u{5916}`u{90e8}"
+        Import-Module (Join-Path $here 'Test.StateFile.psm1') -DisableNameChecking
+        $states = @(
+            @{ code = 'sequence_paused_waiting_resume'; key = 'runner.sequence_paused'; arguments = @{ label = '[1/2]' }; label = '[1/2]' }
+            @{ code = 'sequence_restart_requested'; key = 'runner.sequence_restart'; arguments = @{ label = '[1/2]' }; label = '[1/2]' }
+            @{ code = 'sequence_step_active'; key = 'runner.sequence_step'; arguments = @{ index = 1; total = 2; action = 'waitForText'; description = "`u{5916}`u{90e8} <detail>" }; label = "`u{5916}`u{90e8} <detail>" }
+            @{ code = 'sequence_completed'; key = 'runner.sequence_completed'; arguments = @{ total = 2; duration = '1 min and 2 s' }; label = '' }
+        )
+        foreach ($state in $states) {
+            $line = Format-CatalogMessage -Key $state.key -Arguments $state.arguments -Locale 'en-US'
+            & $writer $line $state.code $state.label $state.arguments
+            $value = Get-Content -LiteralPath $currentActionFile -Raw | ConvertFrom-Json -AsHashtable
+            $value.code | Should -BeExactly $state.code
+            $value.label | Should -BeExactly $state.label
+            $value.line | Should -BeExactly $line
+            $value.arguments.Count | Should -Be $state.arguments.Count
+            $value.guestKey | Should -BeExactly $GuestKey
+            $value.vmName | Should -BeExactly $VMName
+            foreach ($name in $state.arguments.Keys) { $value.arguments[$name] | Should -Be $state.arguments[$name] }
+        }
+    }
+}
+
+Describe 'operator display formats follow the selected locale' {
+    It 'preserves alert punctuation while selecting complete state variants' {
+        Import-Module (Join-Path $script:RepoRoot 'automation/Yuruna.Globalization.psm1') -DisableNameChecking
+        $adapter = Get-Module Yuruna.Globalization
+        $priorContext = & $adapter { $script:OperatorContext }
+        $ast = [Management.Automation.Language.Parser]::ParseFile((Join-Path $here 'Test.RunnerInnerLoop.psm1'), [ref]$null, [ref]$null)
+        $calls = @($ast.FindAll({ param($node)
+                    $node -is [Management.Automation.Language.CommandAst] -and
+                    $node.GetCommandName() -eq 'Write-Output' -and
+                    $node.Extent.Text.Contains("-Key 'runner.failure_alert_state'")
+                }, $true))
+        $calls.Count | Should -Be 1
+        $emit = [scriptblock]::Create('param($GatingState)' + "`n" + $calls[0].Extent.Text)
+        try {
+            & $adapter { $script:OperatorContext = [pscustomobject]@{ ResolvedTag = 'en-US' } }
+            foreach ($armed in @($true, $false)) {
+                foreach ($count in @(0, 2, 1234)) {
+                    $stateBag = @{ ConsecutiveFailures = $count; FailuresBeforeAlert = 3; AlertArmed = $armed }
+                    $number = $count.ToString('N0', [Globalization.CultureInfo]::GetCultureInfo('en-US'))
+                    $state = if ($armed) { 'armed' } else { 'suppressed' }
+                    (& $emit $stateBag) | Should -BeExactly "  Alert:   $number/3 failures ($state)"
+                }
+            }
+        } finally { & $adapter { param($context) $script:OperatorContext = $context } $priorContext }
+    }
+    It 'keeps pinned English number formatting on a Portuguese host culture' {
+        Import-Module (Join-Path $script:RepoRoot 'automation/Yuruna.Globalization.psm1') -DisableNameChecking
+        $adapter = Get-Module Yuruna.Globalization
+        $priorCulture = [Globalization.CultureInfo]::CurrentCulture
+        $priorContext = & $adapter { $script:OperatorContext }
+        try {
+            [Globalization.CultureInfo]::CurrentCulture = [Globalization.CultureInfo]::GetCultureInfo('pt-BR')
+            & $adapter { $script:OperatorContext = [pscustomobject]@{ ResolvedTag = 'en-US' } }
+            $text = Format-YurunaOperatorMessage -Key 'automation.operator_890c2539295306b9' -FormatValues @(1.26) -FormatBindings @{ totalHours = '0:F1' }
+            $text | Should -BeExactly 'Uptime       : 1.3 hours'
+            $text | Should -Not -Match '1,3'
+            Import-Module (Join-Path $script:RepoRoot 'automation/Yuruna.Common.psm1') -DisableNameChecking
+            $memory = Get-ServiceVmMemoryVerdict -Service @([pscustomobject]@{ Name = 'caching-proxy'; MemoryMb = 4096 }) -HostMemoryMb 32768
+            $memory.Message | Should -Match '32\.0 GB; the 1 service VM this run starts commits 4\.0 GB'
+            $memory.Message | Should -Not -Match '32,0|4,0'
+
+        } finally {
+            [Globalization.CultureInfo]::CurrentCulture = $priorCulture
+            & $adapter { param($context) $script:OperatorContext = $context } $priorContext
+        }
+    }
+}

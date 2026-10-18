@@ -1,0 +1,299 @@
+<#PSScriptInfo
+.VERSION 2026.10.14
+.GUID 4224d5e4-9d07-4231-afd5-1a7a005a431d
+.AUTHOR Alisson Sol et al.
+.COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
+.TAGS
+.LICENSEURI https://yuruna.link/license
+.PROJECTURI https://yuruna.com
+.ICONURI
+.EXTERNALMODULEDEPENDENCIES
+.REQUIREDSCRIPTS
+.EXTERNALSCRIPTDEPENDENCIES
+.RELEASENOTES
+.PRIVATEDATA
+#>
+
+#requires -version 7
+
+param(
+    [string]$VMName = "windows11-01",
+    # Shared = UTM NAT (default). Use Bridged when the Mac host runs a VPN.
+    [ValidateSet("Shared", "Bridged")]
+    [string]$NetworkMode = "Shared",
+    # Physical interface to bridge to (e.g. en0, en1). Auto-detected when empty.
+    [string]$BridgeInterface = ""
+)
+
+Import-Module (Join-Path $PSScriptRoot '../../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
+$ErrorActionPreference = 'Stop'
+
+# --- REGION: Log level from environment
+# See https://yuruna.link/42e220c4-0003
+# Reuse the caller's log module; a forced reload discards its state.
+$_logLevelMod = Join-Path $PSScriptRoot '../../../test/modules/Test.LogLevel.psm1'
+if (-not (Get-Command Use-LogLevelFromEnv -ErrorAction SilentlyContinue) -and (Test-Path $_logLevelMod)) {
+    Import-Module $_logLevelMod -Global
+}
+if (Get-Command Use-LogLevelFromEnv -ErrorAction SilentlyContinue) { Use-LogLevelFromEnv }
+
+if ($VMName -notmatch '^[a-zA-Z0-9._-]+$') {
+    Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_e147c2f7708fdd27' -Arguments @{ vMName = "$VMName" })
+    exit 1
+}
+
+$ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
+
+$GuestDir = "$HOME/yuruna/guest.nosync"
+New-Item -ItemType Directory -Force -Path $GuestDir | Out-Null
+$UtmDir = "$GuestDir/$VMName.utm"
+$DataDir = "$UtmDir/Data"
+$downloadDir = "$HOME/yuruna/image/windows.env"
+
+# --- REGION: Environment checks
+$macosVersion = & sw_vers -productVersion 2>$null
+$macosMajor = [int]($macosVersion -split '\.')[0]
+if ($macosMajor -lt 12) {
+    Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_f51ff9819bafacb5' -Arguments @{ macosVersion = "$macosVersion" })
+    exit 1
+}
+Write-Verbose "macOS version: $macosVersion (OK)"
+
+$chipName = (& system_profiler SPHardwareDataType 2>$null | Select-String "Chip" | ForEach-Object { $_ -replace '.*Chip:\s*', '' }).Trim()
+if (-not $chipName) {
+    Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_5a985d0dcd1b4057')
+    exit 1
+}
+if ($chipName -notmatch 'Apple M\d') {
+    Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_6428deaf8329b8f4' -Arguments @{ chipName = "$chipName" })
+    exit 1
+}
+Write-Verbose "Chip: $chipName (OK)"
+
+# Check UTM version (requires v4.0.0 or later for ConfigurationVersion 4 / QEMU backend)
+$utmPlist = "/Applications/UTM.app/Contents/Info.plist"
+if (-not (Test-Path $utmPlist)) {
+    Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_b17b4a09c8f6f0f6')
+    exit 1
+}
+$utmVersion = (& /usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" $utmPlist 2>$null)
+if ($utmVersion) {
+    $utmParts = $utmVersion -split '\.'
+    $utmMajor = [int]$utmParts[0]
+    if ($utmMajor -lt 4) {
+        Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_ce8e82f0d1b545c8' -Arguments @{ utmVersion = "$utmVersion" })
+        Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_9c80476fdd14c462')
+        exit 1
+    }
+    Write-Verbose "UTM version: $utmVersion (OK)"
+} else {
+    Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_fa7ca00859916941')
+}
+
+Write-Verbose "All requirements met."
+
+# --- REGION: Resolve network interface for Bridged mode
+Import-Module (Join-Path (Split-Path -Parent $PSScriptRoot) 'modules/Yuruna.Host.psm1') -Force
+if ($NetworkMode -eq "Bridged") {
+    if (-not $BridgeInterface) {
+        $BridgeInterface = Get-MacDefaultRouteInterface
+        if (-not $BridgeInterface) {
+            Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_84b2ff2c0bf73bc0')
+            Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_a57c3a4beb072a46')
+            exit 1
+        }
+    }
+    Write-Verbose "Network mode: Bridged (interface: $BridgeInterface)"
+} else {
+    Write-Verbose "Network mode: Shared (NAT)"
+}
+Write-Output ""
+
+# --- REGION: Seek the base image
+# See https://yuruna.link/42e220c4-0003
+# Fetch missing media once; fail if manual-download requirements remain unmet.
+$baseImageName = "host.macos.utm.guest.windows.11"
+$baseImageFile = Join-Path $downloadDir "$baseImageName.iso"
+Import-Module -Name (Join-Path (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)) 'modules/Yuruna.Image.psm1') -Force
+if (-not (Assert-YurunaBaseImage -BaseImageFile $baseImageFile -GuestFolder $PSScriptRoot -ManualHint 'Run Get-Image.ps1 manually and follow its instructions.')) { exit 1 }
+
+Write-Verbose "Creating VM '$VMName' using image: $baseImageFile"
+# --- REGION: Base image provenance
+# Emit the source URL from a healthy sidecar; warn when provenance is incomplete.
+Import-Module (Join-Path (Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSScriptRoot))) 'test/modules/Test.Provenance.psm1') -Force
+Write-BaseImageProvenance -BaseImagePath $baseImageFile
+
+# --- REGION: Check UTM Guest Tools ISO exists
+# Needed after installation, not during.
+$spiceImageName = "host.macos.utm.guest.windows.11.spice.iso"
+$spiceImageFile = Join-Path $downloadDir $spiceImageName
+if (-not (Test-Path $spiceImageFile)) {
+    Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_944823b27b1c41f6' -Arguments @{ spiceImageFile = "$spiceImageFile" })
+    Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_c3ff4ddd33f28602')
+}
+
+# --- REGION: Remove existing VM
+# Runs AFTER the base image is confirmed so a failed image fetch never
+# destroys a working VM.
+if (-not (Remove-UtmTestVM -VMName $VMName -Confirm:$false)) {
+    Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_7565389d0d010c89' -Arguments @{ utmDir = "$UtmDir" })
+    exit 1
+}
+# --- REGION: Create copies and files for VM
+New-Item -ItemType Directory -Force -Path $DataDir | Out-Null
+
+$DestIso = "$DataDir/$VMName.iso"
+Copy-Item -Path $baseImageFile -Destination $DestIso
+Write-Verbose "Copied installer ISO as: $VMName.iso"
+
+$DiskImage = "$DataDir/disk.qcow2"
+Write-Verbose "Creating 512GB disk image (qcow2 format for QEMU backend)..."
+& qemu-img create -f qcow2 "$DiskImage" 512G 2>&1 | ForEach-Object { Write-Verbose $_ }
+if ($LASTEXITCODE -ne 0) {
+    Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_15c7a852ad128a63')
+    exit 1
+}
+
+# --- REGION: Render the autounattend.xml + build a CD with it
+# Generate autounattend seed ISO (Windows Setup scans all drives for autounattend.xml)
+$SeedDir = Join-Path $downloadDir "seed_temp/$VMName"
+if (Test-Path -LiteralPath $SeedDir) { Remove-Item -LiteralPath $SeedDir -Recurse -Force }
+New-Item -ItemType Directory -Force -Path $SeedDir | Out-Null
+
+$VmConfigDir = Join-Path $ScriptDir "vmconfig"
+$AnswerFileTemplate = Join-Path $VmConfigDir "autounattend.xml"
+if (-not (Test-Path $AnswerFileTemplate)) {
+    Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_659701d157b56883' -Arguments @{ answerFileTemplate = "$AnswerFileTemplate" })
+    exit 1
+}
+
+# --- REGION: https://yuruna.link/4220a755-002d
+# Shared NAT has a stable host gateway; bridged host addresses may need resolver repair.
+$_utmRepoRoot = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSScriptRoot))
+Import-Module (Join-Path (Split-Path -Parent $ScriptDir) 'modules/Yuruna.Host.psm1') -Force
+Import-Module (Join-Path $_utmRepoRoot 'automation/Yuruna.GitHubSource.psm1') -Force -DisableNameChecking
+Import-Module (Join-Path $_utmRepoRoot 'automation/Yuruna.GuestSeed.psm1') -Force -DisableNameChecking
+Import-Module (Join-Path $_utmRepoRoot 'test/modules/Test.Config.psm1') -Global -Force
+Import-Module (Join-Path $PSScriptRoot '../../../automation/Yuruna.Common.psm1') -Force -DisableNameChecking
+$YurunaHostIp = Get-GuestReachableHostIp -NetworkMode $NetworkMode
+if (-not $YurunaHostIp) { $YurunaHostIp = '' }
+$_statusSeed = Get-YurunaStatusServiceSeed -RepoRoot $_utmRepoRoot
+$YurunaHostPort = $_statusSeed.Port
+$ghSource = Get-YurunaGitHubSource -RepoRoot $_utmRepoRoot
+$_utmBootstrap = New-WindowsGuestBootstrap -RepoRoot $_utmRepoRoot `
+    -StatusServiceIp $YurunaHostIp -StatusServicePort $YurunaHostPort `
+    -GhToken $ghSource.Token `
+    -FrameworkUrl $ghSource.FrameworkUrl -ProjectUrl $ghSource.ProjectUrl
+
+foreach ($seedFile in $_utmBootstrap.Files.Keys) {
+    [IO.File]::WriteAllText((Join-Path $SeedDir $seedFile), $_utmBootstrap.Files[$seedFile], [Text.UTF8Encoding]::new($true))
+}
+
+$AnswerFile = (Get-Content -Raw $AnswerFileTemplate) `
+    -replace 'COMPUTERNAME_PLACEHOLDER', $VMName `
+    -replace 'GUEST_BOOTSTRAP_B64_PLACEHOLDER', $_utmBootstrap.EncodedCommand
+Set-Content -Path "$SeedDir/autounattend.xml" -Value $AnswerFile -NoNewline
+
+$SeedIso = "$DataDir/seed.iso"
+Write-Verbose "Generating seed.iso with autounattend configuration..."
+# OEMDRV volume label causes Windows Setup to automatically pick up autounattend.xml
+& hdiutil makehybrid -o "$SeedIso" -joliet -iso -default-volume-name OEMDRV "$SeedDir" 2>&1 | ForEach-Object { Write-Verbose $_ }
+if ($LASTEXITCODE -ne 0) {
+    Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_fea701fd46026b88')
+    exit 1
+}
+
+# --- REGION: Create and configure the UTM bundle (config.plist, QEMU backend)
+$TemplatePath = Join-Path $ScriptDir "config.plist.template"
+if (-not (Test-Path $TemplatePath)) {
+    Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_603b5ff75924a72c' -Arguments @{ templatePath = "$TemplatePath" })
+    exit 1
+}
+
+$VmUuid = [guid]::NewGuid().ToString().ToUpper()
+$DiskId = [guid]::NewGuid().ToString().ToUpper()
+$IsoId = [guid]::NewGuid().ToString().ToUpper()
+$SeedId = [guid]::NewGuid().ToString().ToUpper()
+# Deterministic per (host, VM name): a rebuilt guest presents the SAME MAC,
+# so the DHCP server returns the SAME lease instead of consuming a new one.
+$MacAddress = Get-YurunaGuestMacAddress -VMName $VMName
+
+# --- REGION: https://yuruna.link/42fa6f45-0015
+$hostCores = [int](& /usr/sbin/sysctl -n hw.physicalcpu)
+if ($hostCores -lt 4) {
+    Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_b35de16dca777b44' -Arguments @{ hostCores = "$hostCores" })
+    exit 1
+}
+$vmCores = [math]::Max(4, [math]::Floor($hostCores / 2))
+
+$plistValues = @{
+    '__VM_NAME__' = $VMName
+    '__VM_UUID__' = $VmUuid
+    '__MAC_ADDRESS__' = $MacAddress
+    '__DISK_IDENTIFIER__' = $DiskId
+    '__DISK_IMAGE_NAME__' = 'disk.qcow2'
+    '__ISO_IDENTIFIER__' = $IsoId
+    '__ISO_IMAGE_NAME__' = "$VMName.iso"
+    '__SEED_IDENTIFIER__' = $SeedId
+    '__SEED_IMAGE_NAME__' = 'seed.iso'
+    '__VNC_DISPLAY__' = "$(Get-VncDisplayForVm -VMName $VMName)"
+    '__CPU_COUNT__' = "$vmCores"
+    '__MEMORY_SIZE__' = '12288'
+}
+Write-UtmBundleConfiguration -TemplatePath $TemplatePath -BundlePath $UtmDir -Replacement $plistValues -Confirm:$false
+
+
+if ($NetworkMode -eq "Bridged") {
+    # Each plutil call needs its own exit-code test: a failed -replace leaves
+    # Mode at Shared, and only the -insert result would be seen otherwise, so
+    # the VM would come up on the wrong network while the script reports success.
+    & plutil -replace "Network.0.Mode" -string "Bridged" "$UtmDir/config.plist"
+    if ($LASTEXITCODE -ne 0) {
+        Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_b488eb4173bc6e6b')
+        exit 1
+    }
+    & plutil -insert "Network.0.BridgedInterface" -string $BridgeInterface "$UtmDir/config.plist"
+    if ($LASTEXITCODE -ne 0) {
+        Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_cd34e65cd33797fc')
+        exit 1
+    }
+    Write-Verbose "Network patched to Bridged (interface: $BridgeInterface)."
+}
+
+# --- REGION: Clean up temporary files
+Remove-Item -LiteralPath $SeedDir -Recurse -Force -ErrorAction SilentlyContinue
+
+# --- REGION: Start Windows installer
+# UTM can power on the guest before its startup call returns. Arm a separate
+# VNC worker first so the DVD prompt is accepted throughout that call.
+Import-Module (Join-Path $_utmRepoRoot 'host/modules/Yuruna.WindowsInstallerVnc.psm1') -DisableNameChecking
+Start-YurunaWindowsInstallerVnc -VMName $VMName -RepoRoot $_utmRepoRoot -StartVM {
+    param($KeyboardArmed)
+    $launchSignal = $KeyboardArmed
+    $armKeyboard = { $launchSignal.Set() }.GetNewClosure()
+    $startResult = Start-UtmVM -VMName $VMName -Confirm:$false -BeforeLaunch $armKeyboard
+    if (-not $startResult.success) { throw $startResult.errorMessage }
+}
+
+# --- REGION: Guidance
+Write-Verbose ""
+Write-Verbose "== VM created and started: $UtmDir =="
+Write-Verbose ""
+Write-Verbose "Network mode : $NetworkMode$(if ($NetworkMode -eq 'Bridged') { " ($BridgeInterface)" })"
+Write-Verbose ""
+Write-Verbose "The VM was imported into UTM and started; the DVD boot key was sent automatically."
+Write-Verbose "The Windows installer will then run automatically. Default credentials: ywuser1 / password"
+Write-Verbose ""
+Write-Verbose "After Windows installation completes (~15 min):"
+Write-Verbose "  1. Open UTM settings for this VM (VM must be stopped)."
+Write-Verbose "  2. Go to Drives and remove the two installer drives ($VMName.iso and seed.iso)."
+Write-Verbose "  3. Still in Drives, add a new USB CD drive and import:"
+Write-Verbose "     $spiceImageFile"
+Write-Verbose "  4. Start the VM. Open File Explorer and run the UTM Guest Tools installer"
+Write-Verbose "     from the CD drive. This installs SPICE and the virtio-net-pci network driver."
+Write-Verbose "     Network will be available after the installer reboots the VM."
+Write-Verbose "  5. After the reboot, stop the VM, remove the spice CD drive in UTM settings,"
+Write-Verbose "     and start the VM normally."
+Write-Verbose ""
+Write-Verbose "If the VM has no network (or Windows reports a VPN blockage), re-run with:"
+Write-Verbose "  pwsh ./New-VM.ps1 -VMName $VMName -NetworkMode Bridged"

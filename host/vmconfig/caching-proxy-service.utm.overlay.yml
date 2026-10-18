@@ -1,0 +1,35 @@
+# LICENSEURI https://yuruna.link/license
+# Copyright (c) 2019-2026 by Alisson Sol et al.
+# macOS/UTM (QEMU) overlay for caching-proxy-service.base.user-data.
+# Anchor sections in base-file order. An empty section emits nothing at that anchor.
+# === YURUNA_OVERLAY_HOST_AGENT_PKG ===
+# === YURUNA_OVERLAY_NIC_OFFLOAD ===
+  # See https://yuruna.link/42f6b05f-0025
+  - path: /etc/systemd/network/10-yuruna-no-offload.link
+    permissions: '0644'
+    owner: root:root
+    content: |
+      # --- REGION: [Match]
+      [Match]
+      Driver=virtio_net
+
+      # --- REGION: [Link]
+      [Link]
+      TCPSegmentationOffload=false
+      GenericSegmentationOffload=false
+      GenericReceiveOffload=false
+      TransmitChecksumOffload=false
+# === YURUNA_OVERLAY_RUNCMD_NET ===
+  # --- REGION: https://yuruna.link/42f6b05f-0025
+  - ethtool -K enp0s1 tx off gso off tso off gro off
+  # --- REGION: Alias the host gateway
+  # See https://yuruna.link/42f6b05f-0026
+  # Aliased to `macos-host` so access.log ops read without hardcoding the gateway IP.
+  - |
+    GW=$(ip -4 route show default 2>/dev/null | awk '/default/ {print $3; exit}')
+    if [ -n "$GW" ] && ! grep -q "^${GW}[[:space:]]" /etc/hosts; then
+      echo "${GW} macos-host" >> /etc/hosts
+    fi
+# === YURUNA_OVERLAY_RUNCMD_HOST_AGENT ===
+# === YURUNA_OVERLAY_FIRMWARE_PKGS ===
+    for pkg in linux-firmware linux-generic-hwe-24.04; do

@@ -1,0 +1,348 @@
+<#PSScriptInfo
+.VERSION 2026.10.14
+.GUID 42d985d1-8774-4cde-a9d4-deb5b4740d25
+.AUTHOR Alisson Sol et al.
+.COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
+.TAGS yuruna test status telemetry pester
+.LICENSEURI https://yuruna.link/license
+.PROJECTURI https://yuruna.com
+.ICONURI
+.EXTERNALMODULEDEPENDENCIES
+.REQUIREDSCRIPTS
+.EXTERNALSCRIPTDEPENDENCIES
+.RELEASENOTES
+.PRIVATEDATA
+#>
+
+#requires -version 7
+
+<#
+.SYNOPSIS
+    Pester coverage for the status.json lastFailure surface: Set-LastFailureSummary
+    writes the classified cause on the live doc, Initialize/Reset seed it null, and
+    Complete-Run snapshots it (+ per-guest failureClass/errorMessage) into history.
+.DESCRIPTION
+    Drives the real doc lifecycle through a temp status.json (Write-StatusJson is
+    the only side effect). Throw-based assertions (Pester 3.4 / 5+).
+#>
+
+BeforeAll {
+$here = Split-Path -Parent $PSCommandPath
+Import-Module (Join-Path $here 'Test.Status.psm1') -Force -DisableNameChecking -Global -ErrorAction SilentlyContinue
+
+Import-Module (Join-Path (Split-Path -Parent $PSCommandPath) 'Test.Assert.psm1') -Force -Global -DisableNameChecking
+
+function New-TempStatusDir {
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+        Justification = 'Test helper: creates a throwaway temp dir for the status.json fixture.')]
+    param()
+    $d = Join-Path ([System.IO.Path]::GetTempPath()) ("yrn-status-test-" + [System.IO.Path]::GetRandomFileName())
+    New-Item -ItemType Directory -Force -Path $d | Out-Null
+    return $d
+}
+
+# --- REGION: Structural guard: cycle-event emits must be Get-Command guarded
+# Test.Status does not import the cycle-event logger, so each
+# Send-CycleEventSafely emit must be gated on command existence or it throws in
+# a degraded context instead of leaving Write-Warning as the fallback. AST-only.
+#
+# These helpers and the parsed module AST sit at file scope, above every
+# Describe: file-level code only executes as far as the first Describe on the
+# run pass, and a Describe body is evaluated during discovery with its scope
+# discarded before any It runs. A helper or fixture declared after the first
+# Describe -- or inside one -- is therefore unresolvable from an It body.
+
+$statusModulePath = Join-Path $here 'Test.Status.psm1'
+
+function Get-StatusModuleAst {
+    [CmdletBinding()]
+    [OutputType([System.Management.Automation.Language.ScriptBlockAst])]
+    param([Parameter(Mandatory)][string]$Path)
+    $errs = $null
+    $ast = [System.Management.Automation.Language.Parser]::ParseFile($Path, [ref]$null, [ref]$errs)
+    if ($errs) { throw "Parse errors in ${Path}: $($errs[0].Message)" }
+    return $ast
+}
+
+function Get-CommandCallCount {
+    [CmdletBinding()]
+    [OutputType([int])]
+    param([Parameter(Mandatory)]$Ast, [Parameter(Mandatory)][string]$CommandName)
+    return (Get-YurunaTestCommandCallCount -Ast $Ast -CommandName $CommandName)
+}
+
+# True iff EVERY call to $CommandName has an ancestor if-statement whose
+# condition calls `Get-Command <CommandName>`.
+function Test-AllCallsGuardedByGetCommand {
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param([Parameter(Mandatory)]$Ast, [Parameter(Mandatory)][string]$CommandName)
+    Write-Verbose "Checking every '$CommandName' call is Get-Command guarded"
+    $emits = $Ast.FindAll({
+        param($n) $n -is [System.Management.Automation.Language.CommandAst] -and $n.GetCommandName() -eq $CommandName
+    }, $true)
+    if (@($emits).Count -eq 0) { return $false }
+    foreach ($emit in $emits) {
+        $guarded = $false
+        $anc = $emit.Parent
+        while ($anc) {
+            if ($anc -is [System.Management.Automation.Language.IfStatementAst]) {
+                foreach ($clause in $anc.Clauses) {
+                    $gc = $clause.Item1.FindAll({
+                        param($n)
+                        $n -is [System.Management.Automation.Language.CommandAst] -and
+                        $n.GetCommandName() -eq 'Get-Command' -and
+                        (@($n.CommandElements | Where-Object { $_.Extent.Text -eq $CommandName }).Count -gt 0)
+                    }, $true)
+                    if (@($gc).Count -gt 0) { $guarded = $true; break }
+                }
+            }
+            if ($guarded) { break }
+            $anc = $anc.Parent
+        }
+        if (-not $guarded) { return $false }
+    }
+    return $true
+}
+
+$script:rootAst = Get-StatusModuleAst -Path $statusModulePath
+
+}
+
+Describe 'status.json lastFailure surface' {
+    It 'normalizes mixed UTC dates and offset timestamps for history durations' {
+        $module = Get-Module Test.Status
+        $seconds = & $module {
+            Get-StepDurationSeconds -StartedAt ([datetime]::new(2026, 9, 27, 12, 0, 0, [DateTimeKind]::Utc)) -FinishedAt '2026-09-27T14:30:00+02:00'
+        }
+        $seconds | Should -Be 1800
+    }
+
+    It 'retains a completed history row when the configured count is absent' {
+        $dir = New-TempStatusDir
+        $saved = $env:YURUNA_RUNTIME_DIR
+        try {
+            $env:YURUNA_RUNTIME_DIR = $dir
+            $path = Join-Path $dir 'status.json'
+            Initialize-StatusDocument -StatusFilePath $path -HostType 'h' -Hostname 'host' -GitCommit 'abc' -GuestList @('guest.x') -StepNames @('Sequence')
+            Complete-Run -OverallStatus 'pass' -MaxHistoryRuns 0 -ErrorAction Stop
+            $doc = Get-Content -LiteralPath $path -Raw | ConvertFrom-Json
+            @($doc.history).Count | Should -Be 1
+        } finally {
+            $env:YURUNA_RUNTIME_DIR = $saved
+            Remove-Item -LiteralPath $dir -Recurse -Force
+        }
+    }
+
+    It 'Initialize seeds lastFailure null; Set-LastFailureSummary records the cause' {
+        $dir = New-TempStatusDir
+        $env:YURUNA_RUNTIME_DIR = $dir
+        $sf = Join-Path $dir 'status.json'
+        Initialize-StatusDocument -StatusFilePath $sf -HostType 'h' -Hostname 'host' -GitCommit 'abc' -GuestList @('guest.x') -StepNames @('Sequence')
+        $j = Get-Content -Raw $sf | ConvertFrom-Json
+        Assert-Null $j.lastFailure 'fresh doc has null lastFailure'
+
+        Set-LastFailureSummary -FailureClass 'ocr_timeout' -Severity 'hard' -StepNumber 3 -SequenceName 'wl.test' `
+            -ReproCommand 'pwsh test/Debug-TestSequence.ps1 -SequenceName "wl.test"' -RelPath 'last_failure.json' `
+            -GuestKey 'guest.x' -StepName 'Start-GuestWorkload' -ErrorMessage 'OCR timeout' -VmName 'vm1' -Confirm:$false
+        $j2 = Get-Content -Raw $sf | ConvertFrom-Json
+        Assert-Equal -Expected 'ocr_timeout' -Actual $j2.lastFailure.failureClass -Because 'cause recorded'
+        Assert-Equal -Expected 3 -Actual $j2.lastFailure.stepNumber -Because 'step recorded'
+        Assert-True ([string]$j2.lastFailure.reproCommand -match 'Debug-TestSequence') 'repro recorded'
+        Remove-Item -Recurse -Force $dir -ErrorAction SilentlyContinue
+    }
+
+    It 'Complete-Run snapshots the cause into the history row and per-guest summary' {
+        $dir = New-TempStatusDir
+        $env:YURUNA_RUNTIME_DIR = $dir
+        $sf = Join-Path $dir 'status.json'
+        Initialize-StatusDocument -StatusFilePath $sf -HostType 'h' -Hostname 'host' -GitCommit 'abc' -GuestList @('guest.x') -StepNames @('Sequence')
+        Set-StepStatus  -GuestKey 'guest.x' -StepName 'Sequence' -Status 'fail' -ErrorMessage 'boom' -Confirm:$false
+        Set-GuestStatus -GuestKey 'guest.x' -Status 'fail' -Confirm:$false
+        Set-LastFailureSummary -FailureClass 'provisioning_failure' -Severity 'hard' -GuestKey 'guest.x' -StepName 'New-VM' -ErrorMessage 'boom' -VmName 'vm1' -Confirm:$false
+        Complete-Run -OverallStatus 'fail' -MaxHistoryRuns 5
+        $j = Get-Content -Raw $sf | ConvertFrom-Json
+        Assert-Equal -Expected 'provisioning_failure' -Actual $j.history[0].lastFailure.failureClass -Because 'history row snapshots the cause'
+        Assert-Equal -Expected 'boom' -Actual $j.history[0].guestSummary.'guest.x'.errorMessage -Because 'per-guest errorMessage persisted'
+        Assert-Equal -Expected 'provisioning_failure' -Actual $j.history[0].guestSummary.'guest.x'.failureClass -Because 'per-guest failureClass persisted'
+        Remove-Item -Recurse -Force $dir -ErrorAction SilentlyContinue
+    }
+
+    It 'a passing cycle records a null history lastFailure' {
+        $dir = New-TempStatusDir
+        $env:YURUNA_RUNTIME_DIR = $dir
+        $sf = Join-Path $dir 'status.json'
+        Initialize-StatusDocument -StatusFilePath $sf -HostType 'h' -Hostname 'host' -GitCommit 'abc' -GuestList @('guest.x') -StepNames @('Sequence')
+        Set-GuestStatus -GuestKey 'guest.x' -Status 'pass' -Confirm:$false
+        Complete-Run -OverallStatus 'pass' -MaxHistoryRuns 5
+        $j = Get-Content -Raw $sf | ConvertFrom-Json
+        Assert-Null $j.history[0].lastFailure 'a pass row has null lastFailure'
+        Remove-Item -Recurse -Force $dir -ErrorAction SilentlyContinue
+    }
+}
+
+Describe 'Test.Status guards its Send-CycleEventSafely emits' {
+
+    It 'emits both cycle-event records (status_doc_corrupt and status_doc_write_failed)' {
+        Assert-Equal -Expected 2 -Actual (Get-CommandCallCount -Ast $script:rootAst -CommandName 'Send-CycleEventSafely') -Because `
+            'the read-path corrupt-doc event and the write-path write-failed event are both present'
+    }
+    It 'gates every Send-CycleEventSafely emit behind a Get-Command existence check' {
+        Assert-True (Test-AllCallsGuardedByGetCommand -Ast $script:rootAst -CommandName 'Send-CycleEventSafely') `
+            'the module does not import the logger; an absent Send-CycleEventSafely must fall back to Write-Warning, not throw'
+    }
+}
+
+Describe 'Test.Status nested-cycle support' {
+
+    It 'Reset + Initialize seed an empty nested map' {
+        $dir = New-TempStatusDir
+        $env:YURUNA_RUNTIME_DIR = $dir
+        $sf = Join-Path $dir 'status.json'
+        Reset-StatusDocumentForCycleStart -StatusFilePath $sf -Confirm:$false
+        $j = Get-Content -Raw $sf | ConvertFrom-Json
+        Assert-True ($null -ne $j.nested) 'reset doc carries a nested map'
+        Initialize-StatusDocument -StatusFilePath $sf -HostType 'h' -Hostname 'host' -GitCommit 'abc' -GuestList @('guest.x') -StepNames @('Sequence')
+        $j2 = Get-Content -Raw $sf | ConvertFrom-Json
+        Assert-True ($null -ne $j2.nested) 'initialized doc carries a nested map'
+        Remove-Item -Recurse -Force $dir -ErrorAction SilentlyContinue
+    }
+
+    It 'a nested node survives an owner flush (write-partitioning)' {
+        $dir = New-TempStatusDir
+        $env:YURUNA_RUNTIME_DIR = $dir
+        $sf = Join-Path $dir 'status.json'
+        $seqs = @([ordered]@{ name = 'set-resource'; guests = @('set-resource') })
+        Initialize-StatusDocument -StatusFilePath $sf -HostType 'h' -Hostname 'host' -GitCommit 'abc' -GuestList @('set-resource') -Sequences $seqs -StepNames @('Run')
+        # Owner declares it may spawn children (flips the preserve gate).
+        Publish-CycleContext -CycleStartUtc 'c1' -StatusPath $sf -RootCycleFolder $dir -CycleNumber 7 -ParentId 'set-resource'
+        # A "child" attaches a node + marks it pass (a separate process would do this).
+        Register-NestedRunNode -StatusPath $sf -NodeId 'set-resource/build' -ParentId 'set-resource' -Name 'build' -Kind 'guest' -LogRel 'nested/set-resource_build/set-resource_build.html' -CycleStartUtc 'c1'
+        Set-NestedRunStatus -StatusPath $sf -NodeId 'set-resource/build' -Status 'pass'
+        # Owner flushes again -- must NOT erase the child's node.
+        Set-GuestStatus -GuestKey 'set-resource' -Status 'pass' -Confirm:$false
+        $j = Get-Content -Raw $sf | ConvertFrom-Json
+        Assert-True ($null -ne $j.nested.'set-resource/build') 'nested node preserved across owner flush'
+        Assert-Equal -Expected 'pass' -Actual $j.nested.'set-resource/build'.status -Because 'nested node status kept'
+        Assert-Equal -Expected 'set-resource' -Actual $j.nested.'set-resource/build'.parentId -Because 'parentId links to the sequence card'
+        Assert-Equal -Expected 'pass' -Actual ($j.guests | Where-Object { $_.guestKey -eq 'set-resource' }).status -Because 'owner update also applied'
+        Remove-Item Env:\YURUNA_CYCLE_CONTEXT -ErrorAction SilentlyContinue
+        Remove-Item -Recurse -Force $dir -ErrorAction SilentlyContinue
+    }
+
+    It 'Set-NestedRunStep updates a step inside a node' {
+        $dir = New-TempStatusDir
+        $env:YURUNA_RUNTIME_DIR = $dir
+        $sf = Join-Path $dir 'status.json'
+        Initialize-StatusDocument -StatusFilePath $sf -HostType 'h' -Hostname 'host' -GitCommit 'abc' -GuestList @('x') -StepNames @('Run')
+        Register-NestedRunNode -StatusPath $sf -NodeId 'p/child' -ParentId 'p' -Name 'child' -Steps @('Sequence') -CycleStartUtc 'c1'
+        Set-NestedRunStep -StatusPath $sf -NodeId 'p/child' -StepName 'Sequence' -Status 'fail' -ErrorMessage 'boom'
+        $j = Get-Content -Raw $sf | ConvertFrom-Json
+        $step = $j.nested.'p/child'.steps | Where-Object { $_.name -eq 'Sequence' }
+        Assert-Equal -Expected 'fail' -Actual $step.status -Because 'nested step status updated'
+        Assert-Equal -Expected 'boom' -Actual $step.errorMessage -Because 'nested step error recorded'
+        Remove-Item -Recurse -Force $dir -ErrorAction SilentlyContinue
+    }
+
+    It 'cycle-context handle round-trips and clears' {
+        Remove-Item Env:\YURUNA_CYCLE_CONTEXT -ErrorAction SilentlyContinue
+        Assert-Null (Get-CycleContext) 'no handle => standalone owner'
+        Publish-CycleContext -CycleStartUtc 'c9' -StatusPath 'x' -RootCycleFolder 'r' -CycleNumber 3 -ParentId 'set-resource'
+        $ctx = Get-CycleContext
+        Assert-Equal -Expected 'c9' -Actual $ctx.cycleStartUtc -Because 'cycleStartUtc round-trips'
+        Assert-Equal -Expected 'set-resource' -Actual $ctx.parentId -Because 'parentId round-trips'
+        Clear-CycleContext
+        Assert-Null (Get-CycleContext) 'cleared handle => owner again'
+    }
+
+    It 'Enter/Exit-StatusLock acquires and releases the lock file' {
+        $dir = New-TempStatusDir
+        $sf = Join-Path $dir 'status.json'
+        Set-Content -LiteralPath $sf -Value '{}' -Encoding utf8NoBOM
+        $lock = Enter-StatusLock -Path $sf -TimeoutMs 1000
+        Assert-True $lock.Held 'lock acquired on a free path'
+        Assert-True (Test-Path "$sf.lock") 'lock file exists while held'
+        Exit-StatusLock -Lock $lock
+        Assert-True (-not (Test-Path "$sf.lock")) 'lock file removed on release'
+        Remove-Item -Recurse -Force $dir -ErrorAction SilentlyContinue
+    }
+}
+
+# --- REGION: No-document tolerance
+# The in-memory document is module state, so it does not survive the -Force
+# re-import the runner does every cycle, and a cycle whose top-level is an
+# orchestration sequence carries an empty guest list -- it never reaches
+# Initialize-StatusDocument, which is what rebuilds the document on a per-guest
+# cycle. Every helper the runner can reach in that window must no-op rather than
+# throw: a throw there aborts a whole cycle from a path that had nothing to
+# record in the first place, and on a freshly installed host that is the very
+# first cycle.
+Describe 'Test.Status with no status document loaded' {
+    It 'Set-LastGetImageTime and Write-StatusJson no-op instead of throwing' {
+        $dir = New-TempStatusDir
+        $mp  = Join-Path $here 'Test.Status.psm1'
+        # A virgin module instance IS the assertion, and $script:Doc is
+        # per-instance state the Describes above have already populated in this
+        # process -- so the calls have to happen in a fresh one.
+        $job = Start-Job -ScriptBlock {
+            $env:YURUNA_RUNTIME_DIR = $using:dir
+            Import-Module $using:mp -Force -DisableNameChecking
+            $out = @{}
+            try { Set-LastGetImageTime -Confirm:$false; $out.stamp = 'no-op' } catch { $out.stamp = "threw: $($_.Exception.Message)" }
+            try { Write-StatusJson;                     $out.flush = 'no-op' } catch { $out.flush = "threw: $($_.Exception.Message)" }
+            $out.files = @(Get-ChildItem -LiteralPath $using:dir -File).Count
+            $out
+        }
+        $r = $job | Wait-Job -Timeout 90 | Receive-Job
+        $job | Remove-Job -Force
+        Assert-Equal -Expected 'no-op' -Actual $r.stamp -Because 'stamping the Get-Image refresh window with no document must not abort the cycle'
+        Assert-Equal -Expected 'no-op' -Actual $r.flush -Because 'a flush with no document has nothing to serialize'
+        Assert-Equal -Expected 0 -Actual $r.files -Because 'with no document there is no status path either, so nothing may be written'
+        Remove-Item -Recurse -Force $dir -ErrorAction SilentlyContinue
+    }
+
+    It 'a document rebuilt from the shipped template is stampable (first cycle on a new host)' {
+        $dir = New-TempStatusDir
+        $env:YURUNA_RUNTIME_DIR = $dir
+        $sf  = Join-Path $dir 'status.json'
+        $tmpl = Join-Path -Path $here -ChildPath '..' -AdditionalChildPath 'status', 'status.json.template'
+        Copy-Item -LiteralPath $tmpl -Destination $sf
+        Reset-StatusDocumentForCycleStart -StatusFilePath $sf -Confirm:$false
+        Set-LastGetImageTime -Confirm:$false
+        # Assert on the raw text, not on ConvertFrom-Json output: the parser coerces
+        # an ISO 8601 string into a [datetime] and re-renders it in the current
+        # culture's format, which hides the shape actually written to disk.
+        $raw = Get-Content -Raw $sf
+        Assert-True ($raw -match '"lastGetImageAt"\s*:\s*"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z"') `
+            'the rebuilt document must carry a stampable lastGetImageAt -- the template seeds it null'
+        Remove-Item -Recurse -Force $dir -ErrorAction SilentlyContinue
+    }
+}
+
+Describe 'status JSON collection shapes' {
+    It 'keeps zero, one and multiple lab-hold areas as JSON arrays' {
+        $dir = New-TempStatusDir
+        $beforeRuntime = $env:YURUNA_RUNTIME_DIR
+        try {
+            $env:YURUNA_RUNTIME_DIR = $dir
+            $sf = Join-Path $dir 'status.json'
+            Initialize-StatusDocument -StatusFilePath $sf -HostType 'h' -Hostname 'host' -GitCommit 'abc' -GuestList @('guest.x') -StepNames @('Sequence')
+            foreach ($text in @('', 'stash-service', 'stash-service,pool-storage')) {
+                if ($text) { [IO.File]::WriteAllText((Join-Path $dir 'control.lab-hold'), $text) }
+                else { Remove-Item (Join-Path $dir 'control.lab-hold') -ErrorAction SilentlyContinue }
+                Write-StatusJson
+                $doc = Get-Content -Raw $sf | ConvertFrom-Json
+                Assert-True ($doc.labHoldAreas -is [array]) 'wire shape must be an array at every count'
+                $expected = if ($text) { $text.Split(',').Count } else { 0 }
+                Assert-Equal $expected $doc.labHoldAreas.Count
+            }
+            Complete-Run -OverallStatus 'pass' -MaxHistoryRuns 1
+            $doc = Get-Content -Raw $sf | ConvertFrom-Json
+            Assert-True ($doc.history -is [array]) 'one history row stays a JSON array'
+            Assert-Equal 1 $doc.history.Count
+        } finally {
+            if ($null -eq $beforeRuntime) { Remove-Item Env:YURUNA_RUNTIME_DIR -ErrorAction SilentlyContinue } else { $env:YURUNA_RUNTIME_DIR = $beforeRuntime }
+            Remove-Item -LiteralPath $dir -Recurse -Force
+        }
+    }
+}

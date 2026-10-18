@@ -1,0 +1,1267 @@
+<#PSScriptInfo
+.VERSION 2026.10.14
+.GUID 425af8de-0326-440d-a6ef-cfcf1c3376cb
+.AUTHOR Alisson Sol et al.
+.COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
+.TAGS Test.OcrEngine
+.LICENSEURI https://yuruna.link/license
+.PROJECTURI https://yuruna.com
+.ICONURI
+.EXTERNALMODULEDEPENDENCIES
+.REQUIREDSCRIPTS
+.EXTERNALSCRIPTDEPENDENCIES
+.RELEASENOTES
+.PRIVATEDATA
+#>
+
+#requires -version 7
+
+# ConvertTo-LowerHex (SHA-256 -> lowercase-hex) is the shared leaf converter.
+Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
+Import-Module (Join-Path $PSScriptRoot 'Test.Hash.psm1') -Global -Force
+
+# Resolve-OcrImagePath / Clear-OcrImagePath: WinRT's StorageFile rejects a path
+# past the Windows long-path ceiling, so the image goes through the shared leaf
+# helper before either the worker or the one-shot spawn sees it.
+Import-Module (Join-Path $PSScriptRoot 'Test.OcrPath.psm1') -Global -Force
+
+<#
+.SYNOPSIS
+    Pluggable OCR engine registry. Enables running multiple OCR providers on the
+    same image and combining their results.
+
+.DESCRIPTION
+    Provides a provider pattern for OCR engines. Each provider is registered with
+    a name, an invocation scriptblock (image path -> text), and an availability
+    check. Built-in providers: tesseract, winrt (Windows), macos-vision (macOS).
+
+    Configuration:
+      $env:YURUNA_OCR_ENGINES  -- comma-separated list of provider names to enable.
+                                  Default: "tesseract"
+                                  Example: "tesseract,winrt"
+
+    The combine mode for multi-engine results is controlled separately by the
+    caller (see Wait-ForText in Test.SequenceEngine.psm1).
+#>
+
+# --- REGION: Provider registry
+#
+# Backed by Test.Registry's New-YurunaRegistry primitive so the shape
+# matches Test.SequenceAction and Test.HostIO. An autonomous remediator
+# can introspect all three registries through the same closure-bundle
+# API (Register / Get / Has / GetMatrix / Clear) instead of three
+# different ad-hoc layouts. The $global:YurunaOcrProviders anchor name
+# is preserved so any cross-module reader keeps working.
+
+Import-Module (Join-Path $PSScriptRoot 'Test.Registry.psm1') -Force -DisableNameChecking -Global
+
+$script:OcrProviderRegistry = New-YurunaRegistry -Name 'OcrProvider' -AnchorVar 'YurunaOcrProviders' -Comparer 'OrdinalIgnoreCase'
+
+function Register-OcrProvider {
+    <#
+    .SYNOPSIS
+        Registers an OCR provider with the engine registry.
+    .PARAMETER Name
+        Unique name for this provider (e.g. 'tesseract', 'winrt', 'macos-vision').
+    .PARAMETER Invoke
+        Scriptblock that takes a single string parameter (image path) and returns
+        the recognized text as a string.
+    .PARAMETER IsAvailable
+        Scriptblock that returns $true if this provider can run on the current platform.
+    #>
+    param(
+        [Parameter(Mandatory)] [string]$Name,
+        [Parameter(Mandatory)] [scriptblock]$Invoke,
+        [Parameter(Mandatory)] [scriptblock]$IsAvailable
+    )
+    $entry = @{
+        Name        = $Name
+        Invoke      = $Invoke
+        IsAvailable = $IsAvailable
+    }
+    & $script:OcrProviderRegistry.Register $Name $entry
+}
+
+function Get-OcrProviderName {
+    <#
+    .SYNOPSIS
+        Returns the names of all registered OCR providers.
+    #>
+    return @($script:OcrProviderRegistry.Store[0].Keys)
+}
+
+function Test-OcrProviderAvailable {
+    <#
+    .SYNOPSIS
+        Tests whether a named OCR provider is available on the current platform.
+    #>
+    param([Parameter(Mandatory)] [string]$Name)
+    $provider = & $script:OcrProviderRegistry.Get $Name
+    if (-not $provider) { return $false }
+    return [bool](& $provider.IsAvailable)
+}
+
+# Recognition is the dominant cost of a wait poll -- a tesseract pass over a
+# full-HD console frame is seconds of CPU -- and consecutive polls often
+# capture the same frame. The same engine reading the same bytes gives the
+# same text, so a few recent answers are kept, keyed by engine and content
+# hash. Empty answers are never kept: an engine that came back empty may
+# have failed transiently, and the capture-feed repair counts empty polls.
+$script:OcrResultCache = [System.Collections.Generic.List[object]]::new()
+$script:OcrResultCacheLimit = 4
+
+function Clear-OcrResultCache {
+    <#
+    .SYNOPSIS
+        Drops the remembered OCR answers (test seam).
+    #>
+    $script:OcrResultCache.Clear()
+}
+
+function Invoke-OcrProvider {
+    <#
+    .SYNOPSIS
+        Runs a single named OCR provider on an image and returns the recognized text.
+    #>
+    param(
+        [Parameter(Mandatory)] [string]$Name,
+        [Parameter(Mandatory)] [string]$ImagePath
+    )
+    $provider = & $script:OcrProviderRegistry.Get $Name
+    if (-not $provider) { throw (Format-YurunaOperatorMessage -Key 'exceptions.runner_30370fb77a74bcc8' -Arguments @{ name = "$Name" }) }
+    $key = $null
+    try {
+        # Routed through the shared source-hash helper (Base64 round-trips the
+        # bytes losslessly) rather than a second raw SHA-256 call site.
+        $bytes = [System.IO.File]::ReadAllBytes($ImagePath)
+        $key = $Name.ToLowerInvariant() + '|' + (Get-OcrSourceHashKey -Source ([Convert]::ToBase64String($bytes)))
+    } catch {
+        # An unreadable image goes to the engine as before; it owns that error.
+        $key = $null
+    }
+    if ($key) {
+        foreach ($entry in $script:OcrResultCache) {
+            if ($entry.Key -ceq $key) { return $entry.Text }
+        }
+    }
+    $text = & $provider.Invoke $ImagePath
+    if ($key -and -not [string]::IsNullOrWhiteSpace(($text | Out-String))) {
+        $script:OcrResultCache.Add([pscustomobject]@{ Key = $key; Text = $text })
+        while ($script:OcrResultCache.Count -gt $script:OcrResultCacheLimit) { $script:OcrResultCache.RemoveAt(0) }
+    }
+    return $text
+}
+
+# Process-lifetime memo of the resolved enabled-provider list. Key is the raw
+# $env:YURUNA_OCR_ENGINES value (the platform branch is invariant within a
+# process), so an operator changing the env var still re-resolves. Without it the
+# availability probes (Test-OcrProviderAvailable -> & $provider.IsAvailable) run
+# on every OCR poll; mirrors the Find-Tesseract path cache in Test.Tesseract.psm1.
+$script:EnabledOcrProviderCache = $null
+$script:EnabledOcrProviderCacheKey = $null
+
+function Clear-EnabledOcrProviderCache {
+    <#
+    .SYNOPSIS
+        Drops the memoized enabled-provider list (test seam / env-change hook).
+    #>
+    $script:EnabledOcrProviderCache = $null
+    $script:EnabledOcrProviderCacheKey = $null
+}
+
+# Emit one best-effort soft-instrumentation event: stamp a UTC timestamp, default
+# failureClass/severity, merge the caller's extra fields, and route through
+# Send-CycleEventSafely. Guard: Test.OcrEngine does not import Test.Log, so in a
+# degraded context where the logger is absent this returns quietly and never throws
+# -- telemetry must never fail the cycle.
+function Send-SoftCycleEvent {
+    param(
+        [Parameter(Mandatory)][string]$EventName,
+        [hashtable]$Fields = @{},
+        [string]$FailureClass = 'instrumentation_failure'
+    )
+    if (-not (Get-Command Send-CycleEventSafely -ErrorAction SilentlyContinue)) { return }
+    $record = @{
+        timestamp    = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", [Globalization.CultureInfo]::InvariantCulture)
+        event        = $EventName
+        failureClass = $FailureClass
+        severity     = 'soft'
+    }
+    foreach ($key in $Fields.Keys) { $record[$key] = $Fields[$key] }
+    Send-CycleEventSafely -EventRecord $record
+}
+
+function Get-EnabledOcrProvider {
+    <#
+    .SYNOPSIS
+        Returns the list of OCR provider names that are enabled via configuration
+        AND available on the current platform.
+    .DESCRIPTION
+        Reads $env:YURUNA_OCR_ENGINES (comma-separated). Falls back to a
+        platform-dependent default when the env var is unset.
+        Filters out providers that are not available on the current platform.
+
+        Default ORDER matters: callers compose this list with combine mode
+        'Or' (see Get-OcrCombineMode in Test.OcrMatch.psm1), which
+        short-circuits on the first engine that finds the search pattern.
+        So the first engine listed here is the primary; later engines are
+        fallbacks invoked only when the primary's text didn't match.
+    #>
+    $envVal = $env:YURUNA_OCR_ENGINES
+    $cacheKey = if ($null -eq $envVal) { '<unset>' } else { [string]$envVal }
+    if (($script:EnabledOcrProviderCacheKey -eq $cacheKey) -and ($null -ne $script:EnabledOcrProviderCache)) {
+        return $script:EnabledOcrProviderCache
+    }
+    $requested = if ($envVal) {
+        $envVal -split ',' | ForEach-Object { $_.Trim() } | Where-Object { $_ }
+    } elseif ($IsMacOS) {
+        # See https://yuruna.link/4213a0b3-00ac
+        @('macos-vision', 'tesseract')
+    } elseif ($IsWindows) {
+        # host.windows.hyper-v -- WinRT (Windows.Media.Ocr) is native and
+        # available on every Windows 10+ machine. Tesseract is the cross-
+        # platform fallback. macos-vision is omitted (Apple framework,
+        # not available off macOS).
+        @('winrt', 'tesseract')
+    } elseif ($IsLinux) {
+        # host.ubuntu.kvm -- tesseract is the only OCR engine we ship for
+        # this host. macos-vision (Apple framework) and winrt (Windows
+        # framework) cannot run here.
+        @('tesseract')
+    } else {
+        # Unknown platform -- fall through to all three; Test-OcrProvider-
+        # Available will filter at runtime.
+        @('tesseract', 'winrt', 'macos-vision')
+    }
+
+    $available = @()
+    foreach ($name in $requested) {
+        if (Test-OcrProviderAvailable $name) {
+            $available += $name
+        } else {
+            Write-Verbose "OCR provider '$name' not available on this platform -- skipping."
+            # Structured drop signal so a remediator notices the OCR
+            # surface is degraded (e.g. tesseract uninstalled by an OS
+            # update) without having to diff -Verbose logs.
+            Send-SoftCycleEvent -EventName 'ocr_provider_unavailable' -Fields @{
+                provider  = [string]$name
+                requested = @($requested)
+            }
+        }
+    }
+    $script:EnabledOcrProviderCacheKey = $cacheKey
+    $script:EnabledOcrProviderCache = $available
+    return $available
+}
+
+function Invoke-AllEnabledOcr {
+    <#
+    .SYNOPSIS
+        Runs all enabled OCR providers on the given image.
+    .DESCRIPTION
+        Returns an ordered hashtable: provider-name -> recognized text.
+        Providers that fail are logged and their entry is set to empty string.
+    .PARAMETER ImagePath
+        Path to the image file to OCR.
+    .OUTPUTS
+        System.Collections.Specialized.OrderedDictionary. Keys are provider names,
+        values are the recognized text (string).
+    #>
+    param([Parameter(Mandatory)] [string]$ImagePath)
+
+    $results = [ordered]@{}
+    foreach ($name in (Get-EnabledOcrProvider)) {
+        try {
+            $results[$name] = Invoke-OcrProvider -Name $name -ImagePath $ImagePath
+        } catch {
+            $ocrErr = $_
+            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_73d10a49fd4c1b71' -Arguments @{ name = "$name"; ocrErr = "$ocrErr" })
+            $results[$name] = ''
+            # Structured failure signal so a remediator routes on
+            # `event=ocr_provider_failed` (vs the silent empty-string
+            # results entry that downstream waitForText consumers see).
+            Send-SoftCycleEvent -EventName 'ocr_provider_failed' -Fields @{
+                provider  = [string]$name
+                imagePath = [string]$ImagePath
+                error     = $ocrErr.Exception.Message
+            }
+        }
+    }
+    return $results
+}
+
+# --- REGION: Built-in provider: Tesseract
+# See https://yuruna.link/4213a0b3-00ad
+Import-Module (Join-Path $PSScriptRoot "Test.Tesseract.psm1") -Force -Global -Verbose:$false
+
+Register-OcrProvider -Name 'tesseract' `
+    -Invoke {
+        param([string]$ImagePath)
+        Invoke-TesseractOcr -ImagePath $ImagePath
+    } `
+    -IsAvailable {
+        [bool](Find-Tesseract)
+    }
+
+# --- REGION: Built-in provider: WinRT (Windows only, via powershell.exe 5.1)
+# Windows.Media.Ocr is available on all Windows 10+ machines but requires
+# PowerShell 5.1 (powershell.exe) because .NET 6+ removed WinRT projection.
+
+# The OCR helper script runs inside Windows PowerShell 5.1 which still has
+# WinRT interop. Stored once at module scope and written to a content-hashed
+# temp path on first use (see Get-WinRtOcrScriptPath); reused across every
+# Invoke-WinRtOcr call so we save the per-call Set-Content + random-name
+# overhead. The persistent path also means a new release of this module
+# (different script text -> different hash -> different path) coexists with
+# any older binary still cached from a prior cycle.
+$script:WinRtOcrInterop = @'
+Add-Type -AssemblyName System.Runtime.WindowsRuntime
+
+$asTaskGeneric = ([System.WindowsRuntimeSystemExtensions].GetMethods() |
+    Where-Object { $_.Name -eq 'AsTask' -and $_.GetParameters().Count -eq 1 -and
+                   $_.GetParameters()[0].ParameterType.Name -eq 'IAsyncOperation`1' })[0]
+
+function Await($WinRtTask, $ResultType) {
+    $asTask = $asTaskGeneric.MakeGenericMethod($ResultType)
+    $netTask = $asTask.Invoke($null, @($WinRtTask))
+    $netTask.Wait(-1) | Out-Null
+    $netTask.Result
+}
+
+[Windows.Storage.StorageFile, Windows.Storage, ContentType = WindowsRuntime] | Out-Null
+[Windows.Media.Ocr.OcrEngine, Windows.Foundation, ContentType = WindowsRuntime] | Out-Null
+[Windows.Graphics.Imaging.BitmapDecoder, Windows.Foundation, ContentType = WindowsRuntime] | Out-Null
+
+'@
+
+$script:WinRtOcrScript = $script:WinRtOcrInterop + "`n" + @'
+$imagePath = $args[0]
+$file = Await ([Windows.Storage.StorageFile]::GetFileFromPathAsync($imagePath)) ([Windows.Storage.StorageFile])
+$stream = Await ($file.OpenAsync([Windows.Storage.FileAccessMode]::Read)) ([Windows.Storage.Streams.IRandomAccessStream])
+$decoder = Await ([Windows.Graphics.Imaging.BitmapDecoder]::CreateAsync($stream)) ([Windows.Graphics.Imaging.BitmapDecoder])
+
+[Windows.Graphics.Imaging.SoftwareBitmap, Windows.Foundation, ContentType = WindowsRuntime] | Out-Null
+$rawBitmap = Await ($decoder.GetSoftwareBitmapAsync()) ([Windows.Graphics.Imaging.SoftwareBitmap])
+$bitmap = [Windows.Graphics.Imaging.SoftwareBitmap]::Convert(
+    $rawBitmap,
+    [Windows.Graphics.Imaging.BitmapPixelFormat]::Bgra8,
+    [Windows.Graphics.Imaging.BitmapAlphaMode]::Premultiplied)
+
+$ocrEngine = [Windows.Media.Ocr.OcrEngine]::TryCreateFromUserProfileLanguages()
+if (-not $ocrEngine) { throw 'WinRT OcrEngine not available' }
+$ocrResult = Await ($ocrEngine.RecognizeAsync($bitmap)) ([Windows.Media.Ocr.OcrResult])
+
+foreach ($line in $ocrResult.Lines) {
+    $line.Text
+}
+'@
+
+# Lazy-write cache for the WinRT helper script. The script body is in
+# $script:WinRtOcrScript; we hash it (first 16 hex chars of SHA-256) so a
+# source edit lands at a different path -- if the module is re-imported
+# mid-cycle after an edit, the next call writes a fresh file instead of
+# silently reusing stale content.
+$script:WinRtOcrScriptPath = $null
+
+# Content-addressed source-hash key: the first 16 hex chars of the lowercase SHA-256
+# of a source string. Deriving temp filenames from this makes a source edit land at a
+# fresh path instead of silently reusing stale on-disk content.
+function Get-OcrSourceHashKey {
+    param([Parameter(Mandatory)][AllowEmptyString()][string]$Source)
+    return (ConvertTo-LowerHex (
+        [System.Security.Cryptography.SHA256]::HashData(
+            [System.Text.Encoding]::UTF8.GetBytes($Source)
+        )
+    )).Substring(0, 16)
+}
+
+# Lazy content-addressed temp-file cache for a helper source string: reuse the memoized
+# path when it still exists, else write "<prefix><hash>.<ext>" (UTF8) under the temp dir
+# and return it. The caller owns the $script: memo variable -- it passes the current
+# value as -Cached and reassigns from the return -- so memoization lands on the right slot.
+function Resolve-CachedHashedScriptPath {
+    param(
+        [AllowEmptyString()][string]$Cached = '',
+        [Parameter(Mandatory)][AllowEmptyString()][string]$Source,
+        [Parameter(Mandatory)][string]$FilePrefix,
+        [string]$Extension = 'ps1'
+    )
+    if ($Cached -and (Test-Path $Cached)) {
+        return $Cached
+    }
+    $hash = Get-OcrSourceHashKey -Source $Source
+    $scriptFile = Join-Path ([System.IO.Path]::GetTempPath()) "$FilePrefix$hash.$Extension"
+    if (-not (Test-Path $scriptFile)) {
+        $Source | Set-Content -Path $scriptFile -Encoding UTF8
+    }
+    return $scriptFile
+}
+
+function Get-WinRtOcrScriptSource {
+    <#
+    .SYNOPSIS
+        Returns the Windows PowerShell OCR helper used by the runtime provider.
+    #>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param()
+    return $script:WinRtOcrScript
+}
+
+function Get-WinRtOcrScriptPath {
+    $script:WinRtOcrScriptPath = Resolve-CachedHashedScriptPath -Cached $script:WinRtOcrScriptPath -Source $script:WinRtOcrScript -FilePrefix 'yuruna-winrt-ocr-'
+    return $script:WinRtOcrScriptPath
+}
+
+# Persistent WinRT worker (default on; YURUNA_OCR_WORKER=0 disables it).
+# Timing rationale, wire protocol, and lifecycle: https://yuruna.link/42607283
+$script:WinRtOcrWorkerScript = @'
+[Console]::InputEncoding  = [System.Text.UTF8Encoding]::new($false)
+[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)
+
+'@
+$script:WinRtOcrWorkerScript += "`n" + $script:WinRtOcrInterop + "`n" + @'
+[Windows.Graphics.Imaging.SoftwareBitmap, Windows.Foundation, ContentType = WindowsRuntime] | Out-Null
+
+$ocrEngine = [Windows.Media.Ocr.OcrEngine]::TryCreateFromUserProfileLanguages()
+if (-not $ocrEngine) {
+    [Console]::Out.WriteLine('__YURUNA_EOR_ERR__ WinRT OcrEngine not available')
+    [Console]::Out.Flush()
+    exit 1
+}
+
+[Console]::Out.WriteLine('__YURUNA_READY__')
+[Console]::Out.Flush()
+
+while ($null -ne ($imagePath = [Console]::In.ReadLine())) {
+    if ($imagePath -eq '') { continue }
+    $stream = $rawBitmap = $bitmap = $null
+    try {
+        $file = Await ([Windows.Storage.StorageFile]::GetFileFromPathAsync($imagePath)) ([Windows.Storage.StorageFile])
+        $stream = Await ($file.OpenAsync([Windows.Storage.FileAccessMode]::Read)) ([Windows.Storage.Streams.IRandomAccessStream])
+        $decoder = Await ([Windows.Graphics.Imaging.BitmapDecoder]::CreateAsync($stream)) ([Windows.Graphics.Imaging.BitmapDecoder])
+        $rawBitmap = Await ($decoder.GetSoftwareBitmapAsync()) ([Windows.Graphics.Imaging.SoftwareBitmap])
+        $bitmap = [Windows.Graphics.Imaging.SoftwareBitmap]::Convert(
+            $rawBitmap,
+            [Windows.Graphics.Imaging.BitmapPixelFormat]::Bgra8,
+            [Windows.Graphics.Imaging.BitmapAlphaMode]::Premultiplied)
+        $ocrResult = Await ($ocrEngine.RecognizeAsync($bitmap)) ([Windows.Media.Ocr.OcrResult])
+        foreach ($line in $ocrResult.Lines) {
+            [Console]::Out.WriteLine($line.Text)
+        }
+        [Console]::Out.WriteLine('__YURUNA_EOR_OK__')
+    } catch {
+        $msg = $_.Exception.Message -replace "[\r\n]+", ' '
+        [Console]::Out.WriteLine("__YURUNA_EOR_ERR__ $msg")
+    } finally {
+        foreach ($resource in @($bitmap, $rawBitmap, $stream)) {
+            if ($resource) { try { $resource.Dispose() } catch { $null = $_ } }
+        }
+    }
+    [Console]::Out.Flush()
+}
+'@
+
+$script:WinRtOcrWorkerScriptPath = $null
+$script:WinRtOcrWorker = $null
+
+# Process-lifetime count of worker->one-shot fallbacks. A chronically broken
+# worker (falls back every poll) would otherwise surface only under -Verbose;
+# Invoke-WinRtOcr emits a structured, rate-limited event keyed off this counter
+# so a remediator sees the degraded OCR surface in the cycle event stream.
+$script:WinRtOcrWorkerFallbackCount = 0
+
+# Win32 Job Object bound to this pwsh process. Anything we
+# AssignProcessToJobObject into this job is killed by the OS when the
+# last handle to the job closes -- and the only handle exists in our
+# process, so process exit (orderly, crash, watchdog kill, Ctrl+C)
+# tears the worker down without relying on managed shutdown hooks.
+# OnRemove handles the graceful path; the job covers everything else.
+if ($IsWindows -and -not ('YurunaWinRtOcrJob' -as [type])) {
+    Add-Type -TypeDefinition @'
+using System;
+using System.ComponentModel;
+using System.Runtime.InteropServices;
+
+public static class YurunaWinRtOcrJob
+{
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    private static extern IntPtr CreateJobObject(IntPtr lpJobAttributes, string lpName);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern bool SetInformationJobObject(
+        IntPtr hJob, int infoClass, IntPtr lpJobObjectInfo, uint cbJobObjectInfoLength);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern bool AssignProcessToJobObject(IntPtr hJob, IntPtr hProcess);
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct IO_COUNTERS
+    {
+        public ulong ReadOperationCount;
+        public ulong WriteOperationCount;
+        public ulong OtherOperationCount;
+        public ulong ReadTransferCount;
+        public ulong WriteTransferCount;
+        public ulong OtherTransferCount;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct JOBOBJECT_BASIC_LIMIT_INFORMATION
+    {
+        public long PerProcessUserTimeLimit;
+        public long PerJobUserTimeLimit;
+        public uint LimitFlags;
+        public UIntPtr MinimumWorkingSetSize;
+        public UIntPtr MaximumWorkingSetSize;
+        public uint ActiveProcessLimit;
+        public UIntPtr Affinity;
+        public uint PriorityClass;
+        public uint SchedulingClass;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct JOBOBJECT_EXTENDED_LIMIT_INFORMATION
+    {
+        public JOBOBJECT_BASIC_LIMIT_INFORMATION BasicLimitInformation;
+        public IO_COUNTERS IoInfo;
+        public UIntPtr ProcessMemoryLimit;
+        public UIntPtr JobMemoryLimit;
+        public UIntPtr PeakProcessMemoryUsed;
+        public UIntPtr PeakJobMemoryUsed;
+    }
+
+    private const int JobObjectExtendedLimitInformation = 9;
+    private const uint JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE = 0x2000;
+
+    private static readonly object _gate = new object();
+    private static IntPtr _job = IntPtr.Zero;
+
+    private static IntPtr EnsureJob()
+    {
+        if (_job != IntPtr.Zero) return _job;
+        lock (_gate)
+        {
+            if (_job != IntPtr.Zero) return _job;
+            IntPtr job = CreateJobObject(IntPtr.Zero, null);
+            if (job == IntPtr.Zero)
+                throw new Win32Exception(Marshal.GetLastWin32Error(), "CreateJobObject failed");
+
+            var info = new JOBOBJECT_EXTENDED_LIMIT_INFORMATION();
+            info.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+            int size = Marshal.SizeOf(info);
+            IntPtr buf = Marshal.AllocHGlobal(size);
+            try
+            {
+                Marshal.StructureToPtr(info, buf, false);
+                if (!SetInformationJobObject(job, JobObjectExtendedLimitInformation, buf, (uint)size))
+                {
+                    throw new Win32Exception(Marshal.GetLastWin32Error(), "SetInformationJobObject failed");
+                }
+            }
+            finally { Marshal.FreeHGlobal(buf); }
+            _job = job;
+            return _job;
+        }
+    }
+
+    public static void Assign(IntPtr processHandle)
+    {
+        IntPtr job = EnsureJob();
+        if (!AssignProcessToJobObject(job, processHandle))
+            throw new Win32Exception(Marshal.GetLastWin32Error(), "AssignProcessToJobObject failed");
+    }
+}
+'@
+}
+
+function Get-WinRtOcrWorkerScriptPath {
+    $script:WinRtOcrWorkerScriptPath = Resolve-CachedHashedScriptPath -Cached $script:WinRtOcrWorkerScriptPath -Source $script:WinRtOcrWorkerScript -FilePrefix 'yuruna-winrt-ocr-worker-'
+    return $script:WinRtOcrWorkerScriptPath
+}
+
+# See https://yuruna.link/4213a0b3-00ae
+$script:WinRtOcrWorkerReadTimeoutSeconds = 30
+$envOcrTimeout = $env:YURUNA_OCR_WORKER_TIMEOUT_SECONDS -as [int]
+if ($envOcrTimeout -and $envOcrTimeout -gt 0) {
+    $script:WinRtOcrWorkerReadTimeoutSeconds = $envOcrTimeout
+}
+
+# Deadline-bounded StandardOutput.ReadLine for the persistent worker: ReadLine()
+# blocks with no timeout, so drive ReadLineAsync() and bound the WAIT with the
+# deadline. Returns the line, or $null on a clean stream close / faulted read
+# (worker exited). Throws [TimeoutException] on deadline expiry -- the caller
+# then kills the worker and throws so Invoke-WinRtOcr falls back to one-shot. A
+# timed-out read abandons a pending ReadLineAsync, which poisons the reader for
+# reuse; every caller honors this by killing the worker rather than reading again.
+function Read-WinRtOcrWorkerLine {
+    [CmdletBinding()]
+    [OutputType([string])]
+    param(
+        [Parameter(Mandatory)][System.Diagnostics.Process]$Worker,
+        [Parameter(Mandatory)][datetime]$DeadlineUtc
+    )
+    $readTask = $Worker.StandardOutput.ReadLineAsync()
+    # Clamp the wait to Task.Wait's int-millisecond range. Both bounds are typed
+    # [double] so overload resolution never coerces the TotalMilliseconds double
+    # down to Int32 (which would THROW for a > ~24.8-day deadline instead of
+    # clamping); the [int] cast then floors an already-in-range value.
+    $remainingMs = [int][Math]::Max([double]0, [Math]::Min([double]2147483647, ($DeadlineUtc - [DateTime]::UtcNow).TotalMilliseconds))
+    $completed = $false
+    try {
+        $completed = $readTask.Wait($remainingMs)
+    } catch {
+        # Faulted read (pipe broken / worker died mid-read): treat as a closed
+        # stream so the caller tears the worker down and falls back. Surface the
+        # real cause under -Verbose so a non-EOF fault is not silently read as a
+        # clean close.
+        Write-Verbose "WinRT OCR worker read faulted: $($_.Exception.Message)"
+        return $null
+    }
+    if (-not $completed) {
+        throw [System.TimeoutException]::new("WinRT OCR worker read exceeded its $($script:WinRtOcrWorkerReadTimeoutSeconds)s deadline.")
+    }
+    return $readTask.Result
+}
+
+function Start-WinRtOcrWorker {
+    [CmdletBinding(SupportsShouldProcess)]
+    [OutputType([System.Diagnostics.Process])]
+    param()
+    if ($script:WinRtOcrWorker -and -not $script:WinRtOcrWorker.HasExited) {
+        return $script:WinRtOcrWorker
+    }
+    if (-not $PSCmdlet.ShouldProcess('powershell.exe', (Format-YurunaOperatorMessage -Key 'runner.operator_abd1cb1d73ac3d65'))) { return $null }
+    $script:WinRtOcrWorker = $null
+    $scriptFile = Get-WinRtOcrWorkerScriptPath
+    $psi = [System.Diagnostics.ProcessStartInfo]::new()
+    $psi.FileName  = 'powershell.exe'
+    $psi.Arguments = '-NoLogo -NoProfile -ExecutionPolicy Bypass -File "' + $scriptFile + '"'
+    $psi.RedirectStandardInput  = $true
+    $psi.RedirectStandardOutput = $true
+    $psi.RedirectStandardError  = $true
+    $psi.UseShellExecute = $false
+    $psi.CreateNoWindow  = $true
+    $psi.StandardInputEncoding  = [System.Text.UTF8Encoding]::new($false)
+    $psi.StandardOutputEncoding = [System.Text.UTF8Encoding]::new($false)
+    $psi.StandardErrorEncoding  = [System.Text.UTF8Encoding]::new($false)
+    $p = [System.Diagnostics.Process]::Start($psi)
+
+    # Bind to the parent-owned Job Object before reading any output.
+    # If this fails we can't guarantee the worker dies with us, so we
+    # kill what we just spawned and throw -- Invoke-WinRtOcr's outer
+    # catch falls back to one-shot for the affected call. Better a
+    # slower call than an orphaned powershell.exe surviving Ctrl+C.
+    try {
+        [YurunaWinRtOcrJob]::Assign($p.Handle)
+    } catch {
+        try { $p.Kill() } catch { $null = $_ }
+        throw "WinRT OCR worker job-bind failed: $($_.Exception.Message)"
+    }
+
+    # Block until the worker prints __YURUNA_READY__. Cold-start cost
+    # (~150-300 ms) is paid here, on the first OCR call, instead of
+    # blocking the OCR call itself with no caller visibility. Anything
+    # else printed before READY (provider noise, Add-Type warnings) is
+    # logged Verbose so it surfaces with -Verbose without polluting
+    # normal output.
+    $startDeadlineUtc = [DateTime]::UtcNow.AddSeconds($script:WinRtOcrWorkerReadTimeoutSeconds)
+    while ($true) {
+        $line = $null
+        try {
+            $line = Read-WinRtOcrWorkerLine -Worker $p -DeadlineUtc $startDeadlineUtc
+        } catch [System.TimeoutException] {
+            try { $p.Kill() } catch { $null = $_ }
+            throw "WinRT OCR worker did not signal ready within $($script:WinRtOcrWorkerReadTimeoutSeconds)s (wedged during startup); killed."
+        }
+        if ($null -eq $line) {
+            $stderr = ''
+            try { $stderr = $p.StandardError.ReadToEnd() } catch { $null = $_ }
+            $exitCode = if ($p.HasExited) { $p.ExitCode } else { -1 }
+            throw "WinRT OCR worker exited before signaling ready (exit $exitCode). stderr: $stderr"
+        }
+        if ($line -eq '__YURUNA_READY__') {
+            $script:WinRtOcrWorker = $p
+            return $p
+        }
+        if ($line.StartsWith('__YURUNA_EOR_ERR__')) {
+            try { $p.Kill() } catch { $null = $_ }
+            throw "WinRT OCR worker startup failed: $line"
+        }
+        Write-Verbose "WinRT OCR worker pre-ready: $line"
+    }
+}
+
+function Stop-WinRtOcrWorker {
+    [CmdletBinding(SupportsShouldProcess)]
+    param()
+    $w = $script:WinRtOcrWorker
+    if (-not $w) { return }
+    if (-not $PSCmdlet.ShouldProcess("PID $($w.Id)", (Format-YurunaOperatorMessage -Key 'runner.operator_47b6aec9bf18e688'))) { return }
+    $script:WinRtOcrWorker = $null
+    try {
+        if (-not $w.HasExited) {
+            try { $w.StandardInput.Close() } catch { $null = $_ }
+            if (-not $w.WaitForExit(2000)) {
+                try { $w.Kill() } catch { $null = $_ }
+            }
+        }
+    } catch {
+        Write-Verbose "Stop-WinRtOcrWorker: $($_.Exception.Message)"
+    }
+}
+
+function Invoke-WinRtOcrViaWorker {
+    [CmdletBinding()]
+    [OutputType([System.String])]
+    param([Parameter(Mandatory)][string]$ImagePath)
+
+    $w = Start-WinRtOcrWorker -Confirm:$false
+    try {
+        $w.StandardInput.WriteLine($ImagePath)
+        $w.StandardInput.Flush()
+    } catch {
+        Stop-WinRtOcrWorker -Confirm:$false
+        throw "WinRT OCR worker stdin write failed: $($_.Exception.Message)"
+    }
+    # Bound the whole response with a deadline: a wedged worker (spawned fine but
+    # never emits the end-of-response marker) must fast-fail here instead of
+    # blocking the OCR call until the full Wait-ForText timeout. On expiry Kill the
+    # worker and throw so Invoke-WinRtOcr's catch falls back to a one-shot spawn.
+    $deadlineUtc = [DateTime]::UtcNow.AddSeconds($script:WinRtOcrWorkerReadTimeoutSeconds)
+    $lines = [System.Collections.Generic.List[string]]::new()
+    while ($true) {
+        $line = $null
+        try {
+            $line = Read-WinRtOcrWorkerLine -Worker $w -DeadlineUtc $deadlineUtc
+        } catch [System.TimeoutException] {
+            Stop-WinRtOcrWorker -Confirm:$false
+            throw "WinRT OCR worker read timed out after $($script:WinRtOcrWorkerReadTimeoutSeconds)s (worker wedged); killed."
+        }
+        if ($null -eq $line) {
+            Stop-WinRtOcrWorker -Confirm:$false
+            throw "WinRT OCR worker stdout closed mid-response"
+        }
+        if ($line -eq '__YURUNA_EOR_OK__') {
+            return ($lines -join "`n")
+        }
+        if ($line.StartsWith('__YURUNA_EOR_ERR__')) {
+            throw ('WinRT OCR worker error: ' + $line.Substring('__YURUNA_EOR_ERR__'.Length).TrimStart())
+        }
+        $lines.Add($line)
+    }
+}
+
+# Module-unload hook: close worker stdin so the worker exits its read
+# loop cleanly; Kill() after 2 s if it doesn't. Fires on Remove-Module
+# and on the next -Force import (which evicts the previous instance).
+$ExecutionContext.SessionState.Module.OnRemove = {
+    $w = $script:WinRtOcrWorker
+    if ($w -and -not $w.HasExited) {
+        try {
+            $w.StandardInput.Close()
+            $null = $w.WaitForExit(2000)
+            if (-not $w.HasExited) { $w.Kill() }
+        } catch { $null = $_ }
+    }
+}
+
+function Invoke-WinRtOcr {
+    <#
+    .SYNOPSIS
+        Runs Windows.Media.Ocr on an image by shelling out to powershell.exe (5.1).
+    .DESCRIPTION
+        Default: dispatches through a persistent powershell.exe worker kept
+        alive for the lifetime of this runspace (see Invoke-WinRtOcr-
+        ViaWorker), which collapses the per-call cold-spawn cost from
+        ~150-300 ms to ~5-15 ms after the first call. Set
+        YURUNA_OCR_WORKER=0 in the environment to disable the worker and
+        use a fresh powershell.exe spawn per call (reuses a persistent
+        script file via Get-WinRtOcrScriptPath). Worker failures fall
+        back to the one-shot path for the
+        affected call so a broken worker can never harden into a
+        permanent OCR outage.
+    .PARAMETER ImagePath
+        Path to a PNG image file.
+    .OUTPUTS
+        System.String. The recognized text.
+    #>
+    param([Parameter(Mandatory)] [string]$ImagePath)
+
+    # StorageFile.GetFileFromPathAsync rejects a path past the Windows long-path
+    # ceiling, and does it identically in the worker and in the one-shot spawn.
+    # The handle is released in the finally so both the worker's early return and
+    # the one-shot path below give a temporary copy back.
+    $pathHandle = Resolve-OcrImagePath -ImagePath $ImagePath
+    $absPath = [string]$pathHandle.Path
+    try {
+        # Worker is on by default. Operator opt-out: YURUNA_OCR_WORKER=0.
+        # Any other value (including unset / empty / '1' / 'true') keeps
+        # the worker engaged.
+        if ($env:YURUNA_OCR_WORKER -ne '0') {
+            try {
+                return (Invoke-WinRtOcrViaWorker -ImagePath $absPath)
+            } catch {
+                $workerErr = $_
+                $script:WinRtOcrWorkerFallbackCount++
+                Write-Verbose "WinRT OCR worker failed ($($workerErr.Exception.Message)); falling back to one-shot spawn for this call."
+                # Structured, rate-limited fallback signal (first occurrence, then
+                # every 10th) so chronic worker breakage surfaces in the cycle event
+                # stream instead of only under -Verbose -- without one event per poll
+                # when the worker is permanently broken.
+                if (($script:WinRtOcrWorkerFallbackCount -eq 1) -or ($script:WinRtOcrWorkerFallbackCount % 10 -eq 0)) {
+                    Send-SoftCycleEvent -EventName 'ocr_worker_fallback' -Fields @{
+                        fallbackCount = $script:WinRtOcrWorkerFallbackCount
+                        error         = $workerErr.Exception.Message
+                    }
+                }
+                # fall through to the one-shot path
+            }
+        }
+
+        $scriptFile = Get-WinRtOcrScriptPath
+        # Pin the native-command EAP so a non-zero powershell.exe exit reaches the
+        # explicit branch below instead of throwing a bare NativeCommandExitException
+        # on PS 7.4+ under EAP=Stop (feedback_winget_self_upgrade_kills_running_pwsh
+        # class). $LASTEXITCODE survives the 2>&1 variable assignment (no pipeline)
+        # and is snapshotted immediately.
+        $PSNativeCommandUseErrorActionPreference = $false
+        $output = & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $scriptFile $absPath 2>&1
+        $exitCode = $LASTEXITCODE
+        # Partitioned once: the exit-code branch and the empty-read branch below
+        # both need to know whether the helper wrote a diagnostic.
+        $errText = (@($output | Where-Object { $_ -is [System.Management.Automation.ErrorRecord] } | ForEach-Object { "$_" })) -join "`n"
+        $text    = (@($output | Where-Object { $_ -is [string] })) -join "`n"
+        if ($exitCode -ne 0) {
+            # Include BOTH stderr (ErrorRecord) and stdout (string) lines: a failing
+            # powershell.exe commonly writes its diagnostic to stdout, so filtering
+            # to ErrorRecord alone can throw with an empty detail. Join whatever is
+            # present so the failure is always diagnosable.
+            $detail  = (@($errText, $text) | Where-Object { $_ }) -join "`n"
+            throw (Format-YurunaOperatorMessage -Key 'exceptions.runner_aebd04afebf25aaf' -Arguments @{ exitCode = "$exitCode"; detail = "$detail" })
+        }
+        # See https://yuruna.link/4213a0b3-00af
+        if (-not $text -and $errText) {
+            throw (Format-YurunaOperatorMessage -Key 'exceptions.runner_8ab33e8dd3c14ea8' -Arguments @{ errText = "$errText" })
+        }
+        return $text
+    } finally {
+        Clear-OcrImagePath -Handle $pathHandle
+    }
+}
+
+Register-OcrProvider -Name 'winrt' `
+    -Invoke {
+        param([string]$ImagePath)
+        Invoke-WinRtOcr -ImagePath $ImagePath
+    } `
+    -IsAvailable {
+        $IsWindows -and [bool](Get-Command powershell.exe -ErrorAction SilentlyContinue)
+    }
+
+# macOS Vision provider (VNRecognizeTextRequest via Swift; macOS 10.15+).
+# Densest-row crop, PNG round-trip, and usesLanguageCorrection=false are
+# all load-bearing -- rationale at https://yuruna.link/42607283
+$script:VisionOcrSwift = @'
+import Vision
+import AppKit
+import CoreGraphics
+import ImageIO
+
+guard CommandLine.arguments.count > 1 else { exit(1) }
+let imagePath = CommandLine.arguments[1]
+
+guard let image = NSImage(contentsOfFile: imagePath),
+      let tiff  = image.tiffRepresentation,
+      let bitmap = NSBitmapImageRep(data: tiff),
+      let original = bitmap.cgImage else {
+    fputs("Failed to load image: \(imagePath)\n", stderr)
+    exit(1)
+}
+
+// --- REGION: Per-row lit-pixel count
+let w = bitmap.pixelsWide, h = bitmap.pixelsHigh
+let bpp = bitmap.bitsPerPixel, bpr = bitmap.bytesPerRow
+guard let data = bitmap.bitmapData else {
+    fputs("bitmapData nil -- cannot find content cluster\n", stderr); exit(1)
+}
+let pxBytes = bpp / 8
+var litPerRow = [Int](repeating: 0, count: h)
+for y in 0..<h {
+    let row = data + y * bpr
+    var c = 0
+    for x in 0..<w {
+        let p = row + x * pxBytes
+        if max(p[0], max(p[1], p[2])) > 96 { c += 1 }
+    }
+    litPerRow[y] = c
+}
+
+// Skip a leading "all-white" bar (UTM toolbar / window chrome when the
+// capture includes it). Threshold 90% of width AT high luma rejects normal
+// text rows and accepts only solid lit stripes.
+var topSkip = 0
+for y in 0..<h {
+    if litPerRow[y] > Int(Double(w) * 0.9) { topSkip = y + 1 } else { break }
+}
+
+// --- REGION: Lit-pixel row clusters
+// 80 px ~ 2 line-heights at this resolution; allows blank lines between
+// content lines (login prompt below "Ubuntu 24.04..." banner) to stay in
+// the same cluster, but separates content from later artifacts (cursor,
+// status bar) hundreds of rows away.
+let minRowLit = 8
+let maxGap    = 80
+var clusters: [(start: Int, end: Int, total: Int)] = []
+var cs = -1, ce = -1, ct = 0, gap = 0
+for y in topSkip..<h {
+    if litPerRow[y] > minRowLit {
+        if cs < 0 { cs = y }
+        ce = y; ct += litPerRow[y]; gap = 0
+    } else if cs >= 0 {
+        gap += 1
+        if gap > maxGap {
+            clusters.append((cs, ce, ct))
+            cs = -1; ce = -1; ct = 0; gap = 0
+        }
+    }
+}
+if cs >= 0 { clusters.append((cs, ce, ct)) }
+
+guard let best = clusters.max(by: { $0.total < $1.total }) else {
+    // No content -- exit cleanly with no output.
+    exit(0)
+}
+
+// --- REGION: Densest-cluster crop
+// See https://yuruna.link/42607283-0006
+// CGImage.cropping takes the top-left image-data origin, not the bottom-left
+// CGContext one, and both axes are trimmed: Vision reads nothing from a wide,
+// mostly black image.
+let pad = 16
+let cropY0 = max(0, best.start - pad)
+let cropH  = min(h - cropY0, (best.end - cropY0) + pad + 1)
+// X-bbox: leftmost and rightmost lit pixel inside the cluster's row range.
+// Same minLumThreshold (96) as the per-row count so the bbox lines up with
+// the cluster we already chose. If a row in [best.start, best.end] has no
+// lit pixels (a blank line between banner and prompt), we just skip it.
+var minLitX = w, maxLitX = -1
+for y in best.start...best.end {
+    let row = data + y * bpr
+    for x in 0..<w {
+        let p = row + x * pxBytes
+        if max(p[0], max(p[1], p[2])) > 96 {
+            if x < minLitX { minLitX = x }
+            if x > maxLitX { maxLitX = x }
+        }
+    }
+}
+let cropX0: Int
+let cropW: Int
+if maxLitX >= minLitX {
+    cropX0 = max(0, minLitX - pad)
+    cropW  = min(w - cropX0, (maxLitX - cropX0) + pad + 1)
+} else {
+    cropX0 = 0
+    cropW  = w
+}
+let cropped = original.cropping(to: CGRect(x: cropX0, y: cropY0, width: cropW, height: cropH))!
+
+// --- REGION: PNG metadata normalization
+// macOS screencapture writes DisplayP3-tagged 144-DPI PNGs. Vision's text
+// detector is reliable on sRGB/72-DPI inputs but returns 0 observations
+// on the wide-gamut originals -- empirically, on every UTM screen capture
+// of the login prompt -- so we route through CGImageDestination to drop
+// both tags. Use a per-PID temp path so concurrent OCR runs don't clobber
+// each other's intermediate file.
+let tmpURL = URL(fileURLWithPath: NSTemporaryDirectory())
+    .appendingPathComponent("yuruna-vision-\(getpid())-\(UUID().uuidString).png")
+defer { try? FileManager.default.removeItem(at: tmpURL) }
+let dest = CGImageDestinationCreateWithURL(tmpURL as CFURL, "public.png" as CFString, 1, nil)!
+CGImageDestinationAddImage(dest, cropped, nil)
+CGImageDestinationFinalize(dest)
+let reload = CGImageSourceCreateWithURL(tmpURL as CFURL, nil)!
+let cleanCG = CGImageSourceCreateImageAtIndex(reload, 0, nil)!
+
+// --- REGION: OCR
+let request = VNRecognizeTextRequest()
+request.recognitionLevel = .accurate
+// usesLanguageCorrection = false: terminal text (hostnames, cloud-init
+// timestamps, "ttyl"/"tty1", "@/0/1" punctuation) is not natural language.
+// Language correction was actively rewriting valid OCR into nonsense and
+// was the single most expensive accuracy hit on the engine.
+request.usesLanguageCorrection = false
+request.recognitionLanguages = ["en-US"]
+
+let handler = VNImageRequestHandler(cgImage: cleanCG)
+try handler.perform([request])
+
+// VNRecognizeTextRequest.results is typed [VNRecognizedTextObservation]? by some
+// SDKs and [Any]? by others, so the element type cannot be relied on at compile
+// time. Erasing each element to Any before the conditional cast compiles against
+// both spellings: cast straight from the array element and the compiler either
+// rejects it ("value of type 'Any' has no member 'boundingBox'") or flags it as a
+// cast that does nothing, depending on which SDK is in front of it.
+guard let rawResults = request.results, !rawResults.isEmpty else { exit(0) }
+let observations = rawResults.compactMap { ($0 as Any) as? VNRecognizedTextObservation }
+guard !observations.isEmpty else { exit(0) }
+
+// Sort top-to-bottom, group into rows, then left-to-right within each row.
+struct TextFragment {
+    let text: String
+    let x: CGFloat   // left edge (0..1)
+    let y: CGFloat   // top edge (1 - bottomY - height; smaller = higher on screen)
+    let h: CGFloat
+}
+var fragments: [TextFragment] = []
+for obs in observations {
+    guard let cand = obs.topCandidates(1).first else { continue }
+    let b = obs.boundingBox
+    let topY = 1.0 - b.origin.y - b.size.height
+    fragments.append(TextFragment(text: cand.string, x: b.origin.x, y: topY, h: b.size.height))
+}
+// An observation carrying no candidate string is skipped above, so a frame the
+// recognizer saw text in can still leave nothing to lay out. The median-height and
+// first-row reads below both index into these arrays unconditionally, which traps
+// on an empty one -- the same "no text on screen" answer the guards above give.
+guard !fragments.isEmpty else { exit(0) }
+fragments.sort { $0.y < $1.y }
+
+let heights = fragments.map { $0.h }.sorted()
+let medianH = heights[heights.count / 2]
+let tolerance = max(medianH * 0.5, 0.005)
+
+var rows: [[TextFragment]] = [[fragments[0]]]
+var curY = fragments[0].y
+for i in 1..<fragments.count {
+    let f = fragments[i]
+    if abs(f.y - curY) <= tolerance {
+        rows[rows.count - 1].append(f)
+    } else {
+        rows.append([f]); curY = f.y
+    }
+}
+for row in rows {
+    print(row.sorted { $0.x < $1.x }.map { $0.text }.joined(separator: " "))
+}
+'@
+
+# See https://yuruna.link/4213a0b3-00b0
+$script:VisionOcrBinaryPath = $null
+# Process-lifetime negative cache: once swiftc is found missing or a compile
+# fails, Get-VisionOcrBinaryPath returns $null without re-probing swiftc or
+# re-attempting the compile on every OCR poll (the `swift script.swift`
+# interpreter fallback costs ~1-2s per call). The runner is a per-cycle process,
+# so a newly-installed swiftc is re-probed on the next cycle.
+$script:VisionOcrBinaryProbeFailed = $false
+
+function Clear-VisionOcrBinaryCache {
+    <#
+    .SYNOPSIS
+        Drops the compiled-binary path and the negative probe cache (test seam /
+        env-change hook), mirroring Clear-EnabledOcrProviderCache.
+    #>
+    $script:VisionOcrBinaryPath = $null
+    $script:VisionOcrBinaryProbeFailed = $false
+}
+
+function Write-VisionOcrSlowPathEvent {
+    # Latch the negative cache and emit a ONE-TIME structured event so a
+    # remediator sees macOS OCR has dropped to the slow `swift script.swift`
+    # interpreter path. Idempotent: the flag both suppresses repeat events and
+    # short-circuits future probes. -Fields carries per-reason evidence (the
+    # compiler's own words, the on-disk transcript path) so the event is
+    # actionable on its own instead of just naming the fallback.
+    param(
+        [Parameter(Mandatory)][string]$Reason,
+        [hashtable]$Fields = @{}
+    )
+    if ($script:VisionOcrBinaryProbeFailed) { return }
+    $script:VisionOcrBinaryProbeFailed = $true
+    $eventFields = @{ reason = [string]$Reason }
+    foreach ($key in $Fields.Keys) { $eventFields[$key] = $Fields[$key] }
+    Send-SoftCycleEvent -EventName 'ocr_vision_slowpath' -Fields $eventFields
+}
+
+function Save-VisionOcrCompileDiagnostic {
+    # Persist the full swiftc transcript plus the toolchain facts needed to act
+    # on it (compiler path, active developer dir, swiftc --version). The
+    # structured event only carries a tail; the compiler's complete words --
+    # e.g. xcrun's "invalid active developer path" after an OS update removes
+    # the Command Line Tools -- are what turn the slow-path latch from a
+    # symptom into a fix. Returns the log path, or '' when even the write
+    # fails: a diagnostic must never fail its caller.
+    [CmdletBinding()]
+    [OutputType([string])]
+    param(
+        [Parameter(Mandatory)][string]$LogPath,
+        [Parameter(Mandatory)][int]$ExitCode,
+        [AllowEmptyCollection()][string[]]$CompileOutput = @()
+    )
+    try {
+        $lines = @(
+            "vision OCR helper compile failure"
+            "timestamp (UTC) : " + (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", [Globalization.CultureInfo]::InvariantCulture)
+            "swiftc exit code: $ExitCode"
+        )
+        $swiftcCmd = Get-Command swiftc -ErrorAction SilentlyContinue
+        if ($swiftcCmd -and $swiftcCmd.Source) { $lines += "swiftc path     : $($swiftcCmd.Source)" }
+        if (Get-Command xcode-select -ErrorAction SilentlyContinue) {
+            $devDir = @(& xcode-select -p 2>&1 | ForEach-Object { $_.ToString() }) -join ' '
+            $lines += "xcode-select -p : $devDir"
+        }
+        if ($swiftcCmd) {
+            $lines += "swiftc --version:"
+            $lines += @(& swiftc --version 2>&1 | ForEach-Object { "  $($_.ToString())" })
+        }
+        $lines += ""
+        $lines += "compiler output:"
+        $lines += @($CompileOutput | ForEach-Object { "  $_" })
+        Set-Content -LiteralPath $LogPath -Value ($lines -join [Environment]::NewLine) -Encoding utf8
+        return $LogPath
+    } catch {
+        Write-Verbose "Vision OCR compile-diagnostic write failed: $($_.Exception.Message)"
+        return ''
+    }
+}
+
+function Get-VisionOcrBinaryPath {
+    [CmdletBinding()]
+    [OutputType([System.String])]
+    param()
+
+    if ($script:VisionOcrBinaryPath -and (Test-Path $script:VisionOcrBinaryPath)) {
+        return $script:VisionOcrBinaryPath
+    }
+    $script:VisionOcrBinaryPath = $null
+
+    # Adopt a canonical binary already on disk (e.g. compiled by a concurrent
+    # cycle) BEFORE consulting the negative cache, so a process that latched the
+    # slow path on a transient compile failure can still recover the fast native
+    # binary. Hashing the few-KB source is microseconds; the expensive swiftc -O
+    # recompile below is still skipped once the negative cache is latched.
+    $hash = Get-OcrSourceHashKey -Source $script:VisionOcrSwift
+    $binPath = Join-Path ([System.IO.Path]::GetTempPath()) "yuruna-vision-ocr-$hash.bin"
+    if (Test-Path $binPath) {
+        $script:VisionOcrBinaryPath = $binPath
+        return $binPath
+    }
+
+    # Negative cache: don't re-probe swiftc or re-attempt the (expensive) compile
+    # on every OCR poll once known bad.
+    if ($script:VisionOcrBinaryProbeFailed) { return $null }
+    if (-not (Get-Command swiftc -ErrorAction SilentlyContinue)) {
+        Write-VisionOcrSlowPathEvent -Reason 'swiftc_unavailable'
+        return $null
+    }
+
+    # Compile into a sibling tmp path then Move-Item over the canonical
+    # name so a partial/aborted compile can't leave a half-written binary
+    # that subsequent calls would execute. -O is the standard optimization
+    # level; the Vision OCR work itself is the bulk of the runtime so a
+    # heavier -O level would not materially help.
+    $swiftFile = Join-Path ([System.IO.Path]::GetTempPath()) ('yuruna-vision-' + [guid]::NewGuid().ToString('N') + '.swift')
+    $tmpBin    = "$binPath.tmp.$PID"
+    # Pin the native-command EAP so a non-zero swiftc exit reaches the explicit
+    # branch below (and latches the negative cache with a precise reason) rather
+    # than throwing into the catch on PS 7.4+ under EAP=Stop.
+    $PSNativeCommandUseErrorActionPreference = $false
+    try {
+        $script:VisionOcrSwift | Set-Content -Path $swiftFile -Encoding UTF8
+        $compileOut = @(& swiftc -O $swiftFile -o $tmpBin 2>&1 | ForEach-Object { $_.ToString() })
+        $swiftcExit = $LASTEXITCODE
+        if ($swiftcExit -ne 0 -or -not (Test-Path $tmpBin)) {
+            Write-Verbose "Vision OCR swiftc compile failed (exit $swiftcExit); falling back to 'swift script.swift' invocation path."
+            # Keep the compiler's evidence: full transcript + toolchain state
+            # on disk (keyed like the binary, so the cycles sharing this
+            # source share one log), and a bounded tail on the event itself.
+            $compileLog = Save-VisionOcrCompileDiagnostic -LogPath "$binPath.compile-failure.log" `
+                -ExitCode $swiftcExit -CompileOutput $compileOut
+            $outputTail = (@($compileOut | Select-Object -Last 8) -join ' | ')
+            if ($outputTail.Length -gt 600) { $outputTail = $outputTail.Substring($outputTail.Length - 600) }
+            Write-VisionOcrSlowPathEvent -Reason 'swiftc_compile_failed' -Fields @{
+                swiftcExit         = [int]$swiftcExit
+                compilerOutputTail = [string]$outputTail
+                compileLogPath     = [string]$compileLog
+            }
+            return $null
+        }
+        Move-Item -Path $tmpBin -Destination $binPath -Force
+        $script:VisionOcrBinaryPath = $binPath
+        return $binPath
+    } catch {
+        Write-Verbose "Vision OCR swiftc compile threw: $($_.Exception.Message); using script-path fallback."
+        Write-VisionOcrSlowPathEvent -Reason 'swiftc_compile_threw' -Fields @{
+            detail = [string]$_.Exception.Message
+        }
+        return $null
+    } finally {
+        if (Test-Path $swiftFile) { Remove-Item $swiftFile -Force -ErrorAction SilentlyContinue }
+        if (Test-Path $tmpBin)    { Remove-Item $tmpBin    -Force -ErrorAction SilentlyContinue }
+    }
+}
+
+function Invoke-MacVisionOcr {
+    <#
+    .SYNOPSIS
+        Runs Apple Vision framework text recognition on an image via Swift.
+    .PARAMETER ImagePath
+        Path to a PNG image file.
+    .OUTPUTS
+        System.String. The recognized text.
+    #>
+    param([Parameter(Mandatory)] [string]$ImagePath)
+
+    # Fast path: invoke the pre-compiled native binary if Get-VisionOcr-
+    # BinaryPath has one (or can build one on first call). Saves the
+    # ~1-2s `swift script.swift` recompile cost on every OCR poll.
+    $binPath = Get-VisionOcrBinaryPath
+    if ($binPath) {
+        $output = & $binPath $ImagePath 2>&1
+        if ($LASTEXITCODE -ne 0) {
+            $errMsg = ($output | Where-Object { $_ -is [System.Management.Automation.ErrorRecord] }) -join "`n"
+            throw (Format-YurunaOperatorMessage -Key 'exceptions.runner_0d9384b17d6408a3' -Arguments @{ errMsg = "$errMsg" })
+        }
+        return ($output | Where-Object { $_ -is [string] }) -join "`n"
+    }
+
+    # Fallback: swiftc unavailable or compile failed -- invoke the script
+    # directly via `swift`.
+    $swiftFile = Join-Path ([System.IO.Path]::GetTempPath()) ('yuruna-vision-' + [guid]::NewGuid().ToString('N') + '.swift')
+    try {
+        $script:VisionOcrSwift | Set-Content -Path $swiftFile -Encoding UTF8
+        $output = & swift $swiftFile $ImagePath 2>&1
+        if ($LASTEXITCODE -ne 0) {
+            $errMsg = ($output | Where-Object { $_ -is [System.Management.Automation.ErrorRecord] }) -join "`n"
+            throw (Format-YurunaOperatorMessage -Key 'exceptions.runner_0d9384b17d6408a3' -Arguments @{ errMsg = "$errMsg" })
+        }
+        return ($output | Where-Object { $_ -is [string] }) -join "`n"
+    } finally {
+        if (Test-Path $swiftFile) { Remove-Item $swiftFile -Force }
+    }
+}
+
+Register-OcrProvider -Name 'macos-vision' `
+    -Invoke {
+        param([string]$ImagePath)
+        Invoke-MacVisionOcr -ImagePath $ImagePath
+    } `
+    -IsAvailable {
+        $IsMacOS -and [bool](Get-Command swift -ErrorAction SilentlyContinue)
+    }
+
+# --- REGION: Exports
+Export-ModuleMember -Function @(
+    'Get-WinRtOcrScriptSource',
+    'Register-OcrProvider'
+    'Get-OcrProviderName'
+    'Test-OcrProviderAvailable'
+    'Invoke-OcrProvider'
+    'Get-EnabledOcrProvider'
+    'Clear-EnabledOcrProviderCache'
+    'Clear-OcrResultCache'
+    'Clear-VisionOcrBinaryCache'
+    'Invoke-AllEnabledOcr'
+    'Invoke-WinRtOcr'
+    'Invoke-MacVisionOcr'
+)

@@ -1,0 +1,1593 @@
+<#PSScriptInfo
+.VERSION 2026.10.14
+.GUID 421fc09f-36ed-4d1d-872e-0167bfb4583f
+.AUTHOR Alisson Sol et al.
+.COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
+.TAGS yuruna lab storage smb share loopback local
+.LICENSEURI https://yuruna.link/license
+.PROJECTURI https://yuruna.com
+.ICONURI
+.EXTERNALMODULEDEPENDENCIES
+.REQUIREDSCRIPTS
+.EXTERNALSCRIPTDEPENDENCIES
+.RELEASENOTES
+.PRIVATEDATA
+#>
+
+#requires -version 7
+
+# See https://yuruna.link/4213a0b3-0093
+
+# Get-SudoPwshArgumentList (the nested-sudo argument vector) lives here.
+Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
+Import-Module (Join-Path -Path (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)) -ChildPath 'automation' -AdditionalChildPath 'Yuruna.Common.psm1') -Global -Force -DisableNameChecking
+
+# Server aliases the two tiers are reached under. They resolve to the loopback
+# address here, but the NAME is what test.config.yml and the guest seeds carry,
+# so repointing this lab at a real NAS later is a hosts-file edit and nothing
+# else. The address is deliberately host-local: the service VMs consume these
+# shares too, and they are handed a guest-reachable address at seed-bake time
+# by Get-YurunaPoolSeedValue / Get-YurunaStashSeedValue rather than this one.
+$script:LoopbackAddress = '127.0.0.1'
+
+<#
+.SYNOPSIS
+Returns 'windows', 'macos', or 'linux' for the running host, as the token the pure helpers in this module take. Throws on anything else, since there is no fourth SMB-server implementation here.
+#>
+function Get-LocalLabStoragePlatform {
+    [CmdletBinding()]
+    [OutputType([string])]
+    param()
+    if ($IsWindows) { return 'windows' }
+    if ($IsMacOS)   { return 'macos' }
+    if ($IsLinux)   { return 'linux' }
+    throw (Format-YurunaOperatorMessage -Key 'exceptions.runner_3f7582b4c254198f')
+}
+
+<#
+.SYNOPSIS
+Picks the drive lab storage should live on: the first fixed drive that is NOT the system drive, falling back to the system drive when the machine has only one. Pure -- the caller supplies the drive list -- so the selection rule is testable without a second physical disk.
+.DESCRIPTION
+Keeping cycle archives off the system drive is the reason to prefer another one: a pool share fills up over time (archives accrete, and pruning retired hosts is manual), and a full system drive takes the whole machine down with it, not just the lab. A single-drive machine still works -- the fallback is deliberate, not an error -- it just has no separation.
+
+Comparison is on the normalized 'X:' form so a system drive reported as 'C:\' and a volume reported as 'C:' are recognized as the same drive.
+#>
+function Select-LocalLabStorageDataDrive {
+    [CmdletBinding()]
+    [OutputType([string])]
+    param(
+        [Parameter()][AllowNull()][string[]]$Drive,
+        [Parameter(Mandatory)][string]$SystemDrive
+    )
+    $normalize = { param($d) "$d".Trim().TrimEnd('\', '/').ToUpperInvariant() }
+    $sys = & $normalize $SystemDrive
+    $candidates = @()
+    foreach ($d in @($Drive)) {
+        $n = & $normalize $d
+        if ($n) { $candidates += $n }
+    }
+    foreach ($c in $candidates) {
+        if ($c -ne $sys) { return $c }
+    }
+    return $sys
+}
+
+<#
+.SYNOPSIS
+Enumerates this Windows host's fixed drives and returns the one lab storage should use (see Select-LocalLabStorageDataDrive). Returns the system drive when the enumeration fails, so a CIM hiccup degrades to a usable answer instead of an exception.
+#>
+function Get-LocalLabStorageWindowsDataDrive {
+    [CmdletBinding()]
+    [OutputType([string])]
+    param()
+    $systemDrive = if ($env:SystemDrive) { $env:SystemDrive } else { 'C:' }
+    $drives = @()
+    try {
+        # DriveType 3 == local fixed disk: excludes removable media, optical, and
+        # already-mapped network drives, none of which may host a share.
+        $drives = @(Get-CimInstance -ClassName Win32_LogicalDisk -Filter 'DriveType = 3' -ErrorAction Stop |
+            Sort-Object -Property DeviceID |
+            Select-Object -ExpandProperty DeviceID)
+    } catch {
+        Write-Verbose "Get-LocalLabStorageWindowsDataDrive: drive enumeration failed ($($_.Exception.Message)); using the system drive."
+        return $systemDrive.TrimEnd('\', '/').ToUpperInvariant()
+    }
+    return (Select-LocalLabStorageDataDrive -Drive $drives -SystemDrive $systemDrive)
+}
+
+<#
+.SYNOPSIS
+Returns the suggested storage root for a platform -- /srv/yuruna (Ubuntu), /Users/Shared/yuruna (macOS), <DataDrive>\Shares\yuruna (Windows). Pure; the operator is always offered this as a default they can override.
+.DESCRIPTION
+Each location is the platform's conventional home for machine-wide, non-user data: /srv is FHS's "data served by this system", /Users/Shared is the macOS all-users folder that survives account changes, and a Windows data drive keeps growing archives off the system volume.
+#>
+function Get-LocalLabStorageDefaultRoot {
+    [CmdletBinding()]
+    [OutputType([string])]
+    param(
+        [Parameter(Mandatory)][ValidateSet('windows', 'macos', 'linux')][string]$Platform,
+        [Parameter()][AllowEmptyString()][string]$DataDrive = ''
+    )
+    switch ($Platform) {
+        'linux' { return '/srv/yuruna' }
+        'macos' { return '/Users/Shared/yuruna' }
+        default {
+            $d = if ([string]::IsNullOrWhiteSpace($DataDrive)) { 'C:' } else { $DataDrive.Trim().TrimEnd('\', '/') }
+            return "$d\Shares\yuruna"
+        }
+    }
+}
+
+<#
+.SYNOPSIS
+The local directory this machine publishes under $ShareName, or '' when it publishes no such share.
+.DESCRIPTION
+Reads the operating system's own share table, which is the only place the answer
+is not a guess: it is what the SMB server will actually serve. Each platform is
+asked in its native dialect -- Get-SmbShare on Windows, `sharing -l` on macOS,
+`testparm -s` on Ubuntu -- because none of them agree on a format and none of
+them can be derived from the others.
+
+Returns '' rather than throwing on every negative: a machine that has never
+stood up local storage has no such share, and that is an ordinary answer to
+this question, not a fault.
+#>
+function Get-LocalLabStorageSharePath {
+    [CmdletBinding()]
+    [OutputType([string])]
+    param(
+        [Parameter(Mandatory)][string]$ShareName,
+        [Parameter(Mandatory)][ValidateSet('windows', 'macos', 'linux')][string]$Platform
+    )
+    try {
+        switch ($Platform) {
+            'windows' {
+                $share = Get-SmbShare -Name $ShareName -ErrorAction SilentlyContinue
+                if ($share -and $share.Path) { return [string]$share.Path }
+                return ''
+            }
+            'macos' {
+                # `sharing -l` prints one record per share point as a `name:` line
+                # followed by its `path:` line. The name is matched on its own
+                # line rather than by a substring: share points here carry
+                # operator-facing names ("Yuruna Test's Public Folder") that can
+                # contain any other share's name as a fragment.
+                $listed = Get-LocalLabStorageMacShareListing
+                if (-not $listed -or -not $listed.Output) { return '' }
+                $text = ($listed.Output -join "`n")
+                $rx = [regex]::new('(?m)^\s*name:\s*' + [regex]::Escape($ShareName) + '\s*$\s*^\s*path:\s*(?<path>.+?)\s*$')
+                $m = $rx.Match($text)
+                if ($m.Success) { return [string]$m.Groups['path'].Value }
+                return ''
+            }
+            default {
+                # testparm resolves includes, so a share defined in the generated
+                # yuruna conf file is visible here even though smb.conf itself
+                # only carries the include line.
+                $conf = Invoke-LocalLabStorageNative -FilePath 'sudo' -ArgumentList @('testparm', '-s') -AllowFailure
+                if (-not $conf -or -not $conf.Output) { return '' }
+                $text = ($conf.Output -join "`n")
+                $rx = [regex]::new('(?ms)^\[' + [regex]::Escape($ShareName) + '\]\s*(?<body>.*?)(?=^\[|\z)')
+                $m = $rx.Match($text)
+                if (-not $m.Success) { return '' }
+                $pathMatch = [regex]::Match($m.Groups['body'].Value, '(?m)^\s*path\s*=\s*(?<path>.+?)\s*$')
+                if ($pathMatch.Success) { return [string]$pathMatch.Groups['path'].Value }
+                return ''
+            }
+        }
+    } catch {
+        Write-Verbose "Get-LocalLabStorageSharePath: $($_.Exception.Message)"
+        return ''
+    }
+}
+
+<#
+.SYNOPSIS
+The share name a network path names, but only when the path has the shape a local run publishes -- a server and exactly ONE share segment. '' for anything else. Pure.
+.DESCRIPTION
+Every question about "is this share ours" starts here, so the shape rule lives in
+one place. A path with more segments after the server (`//srv/work/yuruna.pool`)
+is a share with a directory layout inside it -- the shape a NAS carries and the
+shape this script never writes -- and reading its first segment as the share
+name would hand back 'work', which is a real share somewhere else entirely.
+Refusing is the only correct answer for a path this machine could not have
+published.
+
+A 'user@' in the server segment is left alone: it is part of the server field, so
+it never reaches the share name.
+#>
+function Get-LocalLabStorageShareName {
+    [CmdletBinding()]
+    [OutputType([string])]
+    param([Parameter(Mandatory)][AllowEmptyString()][string]$NetworkPath)
+    if ([string]::IsNullOrWhiteSpace($NetworkPath)) { return '' }
+    $segments = @(($NetworkPath -replace '\\', '/').Trim().TrimStart('/').Split('/', [StringSplitOptions]::RemoveEmptyEntries))
+    if ($segments.Count -ne 2) { return '' }
+    return [string]$segments[1]
+}
+
+<#
+.SYNOPSIS
+The directory THIS machine publishes for a configured network path, or '' when it publishes no such share.
+.DESCRIPTION
+The question is "does this machine serve the storage its config points at", and
+the OS share table is the only place that answers it with something no other
+machine and no name can forge. A host alias cannot: the same alias means the NAS
+on a machine that has one and this machine on a machine that serves its own
+shares, and whoever configured the host last decides which. A live mount cannot
+either: it proves a server somewhere answered, not which one.
+
+'' covers both negatives -- a path whose shape this machine never publishes, and
+a share the table does not carry -- because the caller does the same thing with
+either: it does not treat the storage as this machine's.
+#>
+function Get-LocalLabStorageServedPath {
+    [CmdletBinding()]
+    [OutputType([string])]
+    param(
+        [Parameter(Mandatory)][AllowEmptyString()][string]$NetworkPath,
+        [Parameter(Mandatory)][ValidateSet('windows', 'macos', 'linux')][string]$Platform
+    )
+    $shareName = Get-LocalLabStorageShareName -NetworkPath $NetworkPath
+    if (-not $shareName) { return '' }
+    return [string](Get-LocalLabStorageSharePath -ShareName $shareName -Platform $Platform)
+}
+
+<#
+.SYNOPSIS
+True when one storage tier is already stood up ON THIS MACHINE. Pure: the three facts are parameters, so the rule can be checked without a host that serves anything.
+.DESCRIPTION
+All three have to hold, and only one of them decides.
+
+WHAT THIS MACHINE PUBLISHES is the deciding evidence, and it is the only fact
+here that nothing else on the machine can forge. The config a machine carries
+for a NAS is identical in every key to the config for shares on this machine, so
+neither the paths nor the account can tell them apart; the host alias can be
+rewritten, and the run that rewrites it is this same setup, which makes an alias
+check answer "local" because an earlier run said so. The share table answers from
+what the SMB server will actually serve.
+
+THE ALIAS still has to agree, because it decides where the mount goes: a machine
+that publishes the share but resolves the name elsewhere mounts the other
+server's copy.
+
+THE MOUNT still has to be live and usable, because the tier is not stood up until
+it is reachable through the network stack the runner uses. It is never sufficient
+on its own -- a mount proves some server answered, and the whole point of the
+first check is that it need not have been this one.
+#>
+function Test-LocalLabStorageTierStoodUp {
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param(
+        [Parameter(Mandatory)][AllowEmptyString()][AllowNull()][string]$ServedPath,
+        [Parameter(Mandatory)][bool]$AliasIsLocal,
+        [Parameter(Mandatory)][bool]$Mounted
+    )
+    if ([string]::IsNullOrWhiteSpace($ServedPath)) { return $false }
+    if (-not $AliasIsLocal) { return $false }
+    return $Mounted
+}
+
+<#
+.SYNOPSIS
+The storage root a previously configured network path was built from, or '' when it cannot be established.
+.DESCRIPTION
+The root is not recorded anywhere, but it does not need to be: New-LocalLabStorageTier
+composes the shared directory as <root>/<folder> and publishes exactly that
+directory under the share the network path names. So the root is the PARENT of
+whatever the share resolves to, and the share table knows where that is.
+
+Deriving it beats recording it. A stored root is a second source of truth that
+can drift from the share it claims to describe, and when it drifts the run
+builds at a path nothing serves; the share table cannot drift, because it is
+what serves.
+
+Two things make this refuse rather than guess. Only a path of the shape this
+script writes is read at all (Get-LocalLabStorageShareName), so a NAS path
+carrying a deeper share layout is left alone instead of being reinterpreted.
+And the resolved directory's own leaf has to match the share it was found
+under, which is what stops an unrelated share of the same name on a machine
+that was never a lab from contributing its parent.
+#>
+function Get-LocalLabStorageRootFromShare {
+    [CmdletBinding()]
+    [OutputType([string])]
+    param(
+        [Parameter(Mandatory)][AllowEmptyString()][string]$NetworkPath,
+        [Parameter(Mandatory)][ValidateSet('windows', 'macos', 'linux')][string]$Platform
+    )
+    $shareName = Get-LocalLabStorageShareName -NetworkPath $NetworkPath
+    if (-not $shareName) { return '' }
+    $shared = Get-LocalLabStorageSharePath -ShareName $shareName -Platform $Platform
+    if (-not $shared) { return '' }
+    return (Get-LocalLabStorageShareRoot -SharePath $shared -ShareName $shareName -Platform $Platform)
+}
+
+<#
+.SYNOPSIS
+The parent directory a published share sits in -- the storage root -- or '' when the resolved path is not that share's. Pure + testable.
+.DESCRIPTION
+Split from Get-LocalLabStorageRootFromShare so the rule can be pinned without a
+share table: the OS half is one lookup, and everything that can be WRONG is
+here. Both refusals matter. A resolved directory whose own leaf is not the share
+it was found under belongs to an unrelated share of the same name on a machine
+that was never a lab, and its parent is not a storage root. A share published at
+a filesystem root leaves no parent to be one, and returning '' for that is
+honest where returning the empty prefix would read as "use the default" only by
+accident.
+#>
+function Get-LocalLabStorageShareRoot {
+    [CmdletBinding()]
+    [OutputType([string])]
+    param(
+        # The directory the share resolves to, as the OS share table reports it.
+        [Parameter(Mandatory)][AllowEmptyString()][string]$SharePath,
+        [Parameter(Mandatory)][AllowEmptyString()][string]$ShareName,
+        [Parameter(Mandatory)][ValidateSet('windows', 'macos', 'linux')][string]$Platform
+    )
+    if ([string]::IsNullOrWhiteSpace($SharePath) -or [string]::IsNullOrWhiteSpace($ShareName)) { return '' }
+    $sep  = if ($Platform -eq 'windows') { '\' } else { '/' }
+    $trim = $SharePath.Trim().TrimEnd('\', '/')
+    # [char[]] is required, not decoration. An untyped @('\', '/') binds to the
+    # Split(String, StringSplitOptions) overload instead of the char-array one:
+    # PowerShell flattens the array to the single separator '\ /', which occurs
+    # in no path, so the whole string comes back as one "part". The leaf then
+    # never equals the share name and every machine gets '' -- silently, since ''
+    # is also the honest answer for a share this does not recognize.
+    $leaf = $trim.Split([char[]]@('\', '/'), [StringSplitOptions]::RemoveEmptyEntries) | Select-Object -Last 1
+    if ($leaf -ne $ShareName) { return '' }
+    $parent = $trim.Substring(0, $trim.Length - $leaf.Length).TrimEnd('\', '/')
+    if (-not $parent -or $parent -eq $sep) { return '' }
+    return $parent
+}
+
+<#
+.SYNOPSIS
+Builds the complete descriptor for one storage tier (pool or stash): on-disk folder, share name, SMB path, local mount point, account, and vault key. Pure and platform-parameterized, so the Windows shape can be verified from a macOS test run.
+.DESCRIPTION
+Every later step reads its inputs from this one object, so the folder that is shared, the path written into test.config.yml, and the path that is mounted cannot drift apart.
+
+Paths are composed from the $Platform token rather than Join-Path: Join-Path uses the RUNNING host's separator, which would silently produce '/'-separated Windows paths whenever this is evaluated for a platform other than the current one (tests, and the operator preview).
+#>
+function New-LocalLabStorageTier {
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+        Justification = 'Pure value constructor; creates an in-memory descriptor and touches nothing.')]
+    [CmdletBinding()]
+    [OutputType([pscustomobject])]
+    param(
+        [Parameter(Mandatory)][ValidateSet('pool', 'stash')][string]$Kind,
+        [Parameter(Mandatory)][string]$Root,
+        [Parameter(Mandatory)][string]$Account,
+        [Parameter(Mandatory)][string]$Server,
+        [Parameter(Mandatory)][string]$FolderName,
+        [Parameter(Mandatory)][string]$ShareName,
+        [Parameter(Mandatory)][ValidateSet('windows', 'macos', 'linux')][string]$Platform,
+        [Parameter()][AllowEmptyString()][string]$DriveLetter = ''
+    )
+    $sep  = if ($Platform -eq 'windows') { '\' } else { '/' }
+    $base = $Root.Trim().TrimEnd('\', '/')
+    $folderPath = "$base$sep$FolderName"
+
+    $networkPath = if ($Platform -eq 'windows') { "\\$Server\$ShareName" } else { "//$Server/$ShareName" }
+
+    $localPath = switch ($Platform) {
+        'windows' { $DriveLetter.Trim().TrimEnd('\', '/') }
+        'macos'   { "~/Shares/$Server" }
+        default   { "/mnt/$Server" }
+    }
+
+    return [pscustomobject]@{
+        Kind         = $Kind
+        Account      = $Account
+        # The vault key is namespaced rather than being the bare account name:
+        # a non-empty vaultKey is what takes Get-Password off the auto-generate
+        # path, where a random password the SMB server never heard of would be
+        # minted and every mount would fail with a credential error.
+        VaultKey     = "smb.$Account"
+        Server       = $Server
+        ShareName    = $ShareName
+        FolderName   = $FolderName
+        FolderPath   = $folderPath
+        NetworkPath  = $networkPath
+        LocalPath    = $localPath
+        ConfigPrefix = if ($Kind -eq 'pool') { 'poolStorage' } else { 'stashStorage' }
+    }
+}
+
+<#
+.SYNOPSIS
+Renders the Samba share definitions for the supplied tiers as the text of a standalone conf file. Pure.
+.DESCRIPTION
+Written as its own file pulled in by an `include` rather than appended into smb.conf, so re-running edits one small generated file and never rewrites the distribution's config. `valid users` scopes each share to its own account, which is what keeps a leaked pool credential away from the stash share.
+#>
+function Get-LocalLabStorageSambaConfig {
+    [CmdletBinding()]
+    [OutputType([string])]
+    param([Parameter(Mandatory)][object[]]$Tier)
+    $lines = [System.Collections.Generic.List[string]]::new()
+    $lines.Add('# Generated by test/lab/New-LocalLabStorage.ps1 -- edits are overwritten on re-run.')
+    $lines.Add('# Shares the local yuruna storage folders so this machine can mount them')
+    $lines.Add('# over SMB the same way it would mount a NAS.')
+    foreach ($t in $Tier) {
+        $lines.Add('')
+        $lines.Add("[$($t.ShareName)]")
+        $lines.Add("   comment = Yuruna $($t.Kind) storage")
+        $lines.Add("   path = $($t.FolderPath)")
+        $lines.Add("   valid users = $($t.Account)")
+        $lines.Add("   force group = $($t.Account)")
+        $lines.Add('   read only = no')
+        $lines.Add('   guest ok = no')
+        $lines.Add('   browseable = yes')
+        $lines.Add('   create mask = 0660')
+        $lines.Add('   directory mask = 0770')
+    }
+    return (($lines -join "`n") + "`n")
+}
+
+<#
+.SYNOPSIS
+Returns smb.conf content with the yuruna include line appended, or $null when the line is already present so the caller writes nothing. Pure + idempotent.
+#>
+function Add-LocalLabStorageSambaInclude {
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+        Justification = 'Pure string transform; returns the new content for the caller to write.')]
+    [CmdletBinding()]
+    [OutputType([string])]
+    param(
+        [Parameter()][AllowNull()][AllowEmptyString()][string]$Content,
+        [Parameter(Mandatory)][string]$IncludePath
+    )
+    $body = "$Content"
+    $wanted = "include = $IncludePath"
+    foreach ($line in ($body -split '\r?\n')) {
+        # An `include` whose target matches is enough; the surrounding comment is
+        # cosmetic and its absence must not cause a duplicate include.
+        if (($line -replace '\s+', ' ').Trim() -ieq $wanted) { return $null }
+    }
+    $suffix = if ($body.Length -gt 0 -and -not $body.EndsWith("`n")) { "`n" } else { '' }
+    return $body + $suffix + "`n# Yuruna local lab storage shares.`n$wanted`n"
+}
+
+<#
+.SYNOPSIS
+Merges the wanted names into an existing BackConnectionHostNames list, or returns $null when every name is already present. Pure, case-insensitive, order-preserving.
+.DESCRIPTION
+Windows refuses NTLM authentication to itself under any name other than the machine's own -- the loopback check -- so a mount of \\ypool-nas\... on the machine that also serves it fails with access denied even when the credential is correct. BackConnectionHostNames is the targeted exemption (DisableLoopbackCheck disables the protection wholesale, which this never does).
+
+Existing entries are preserved: the value is shared with any other software on the host that registered its own alias, and dropping those would break it.
+#>
+function Merge-LocalLabStorageBackConnectionName {
+    [CmdletBinding()]
+    [OutputType([string[]])]
+    param(
+        [Parameter()][AllowNull()][string[]]$Existing,
+        [Parameter(Mandatory)][string[]]$Wanted
+    )
+    $merged = [System.Collections.Generic.List[string]]::new()
+    $seen = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+    foreach ($e in @($Existing)) {
+        $v = "$e".Trim()
+        if ($v -and $seen.Add($v)) { $merged.Add($v) }
+    }
+    $added = $false
+    foreach ($w in $Wanted) {
+        $v = "$w".Trim()
+        if ($v -and $seen.Add($v)) { $merged.Add($v); $added = $true }
+    }
+    if (-not $added) { return $null }
+    return $merged.ToArray()
+}
+
+# See https://yuruna.link/4213a0b3-0094
+function Invoke-LocalLabStorageNative {
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param(
+        [Parameter(Mandatory)][string]$FilePath,
+        [Parameter()][string[]]$ArgumentList = @(),
+        [Parameter()][AllowEmptyString()][AllowNull()][string]$Stdin,
+        [switch]$AllowFailure
+    )
+    # Pinned locally so THIS function's exit-code contract governs regardless of
+    # the caller's preferences. With $PSNativeCommandUseErrorActionPreference
+    # true (a profile or a wrapping script can set it) a non-zero exit becomes a
+    # terminating error, which would turn every -AllowFailure probe below -- "is
+    # the package installed", "is smbd running", "does this sharepoint exist" --
+    # into a thrown exception instead of the answer it is asking for.
+    $PSNativeCommandUseErrorActionPreference = $false
+    if ($FilePath -eq 'sudo') {
+        # No -TolerateBlocked: a blocked elevation throws, carrying the exact
+        # /etc/sudoers.d rule that repairs the host.
+        $sudoArgs = @{ Argument = $ArgumentList }
+        if ($PSBoundParameters.ContainsKey('Stdin')) { $sudoArgs['InputText'] = $Stdin }
+        $r = Invoke-YurunaSudo @sudoArgs
+        if ($r.ExitCode -ne 0 -and -not $AllowFailure) {
+            throw (Format-YurunaOperatorMessage -Key 'exceptions.runner_e5734bccf5e0076c' -Arguments @{ join = "$($ArgumentList -join ' ')"; exitCode = "$($r.ExitCode)"; output = "$($r.Output)" })
+        }
+        return @{ ExitCode = $r.ExitCode; Output = $r.Output }
+    }
+    $output = if ($PSBoundParameters.ContainsKey('Stdin')) {
+        $Stdin | & $FilePath @ArgumentList 2>&1
+    } else {
+        & $FilePath @ArgumentList 2>&1
+    }
+    $code = $LASTEXITCODE
+    $text = (@($output) | ForEach-Object { "$_" }) -join "`n"
+    if ($code -ne 0 -and -not $AllowFailure) {
+        throw "$FilePath $($ArgumentList -join ' ') exited $code`: $text"
+    }
+    return @{ ExitCode = $code; Output = $text }
+}
+
+<#
+.SYNOPSIS
+True when a local OS account with this name exists. Cross-platform.
+#>
+function Test-LocalLabStorageAccount {
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param([Parameter(Mandatory)][string]$Name)
+    if ($IsWindows) { return [bool](Get-LocalUser -Name $Name -ErrorAction SilentlyContinue) }
+    # `id` exits non-zero for an absent account, which IS the answer here -- see
+    # Invoke-LocalLabStorageNative for why the preference is pinned.
+    $PSNativeCommandUseErrorActionPreference = $false
+    & id $Name *> $null
+    return ($LASTEXITCODE -eq 0)
+}
+
+function Set-MacSmbCredential {
+<#
+.SYNOPSIS
+Gives a macOS local account the password record smbd authenticates against, and reports whether it now has one. macOS only.
+.DESCRIPTION
+smbd authenticates against the account's AuthenticationAuthority record, and `sysadminctl -addUser` does not always leave one. `pwpolicy -sethashtypes` cannot supply it: with no record to modify it exits 0 and changes nothing, so its exit code reports success either way. So the record is written first, then the hash type, then the password -- the hash list governs only hashes generated AFTER it changes, which makes those three one step rather than three.
+
+EVERY READ OF THE RECORD IS PRIVILEGED. macOS shows AuthenticationAuthority only to root and to the account itself: an ordinary user reading ANOTHER account's record gets "No such key" whether or not the attribute is there, and a real login account reads exactly like a broken one. A check built on an unprivileged read therefore reports failure always, and the "repair" it triggers deletes a perfectly good account.
+
+Nothing here reports whether the credential WORKS -- the directory record cannot answer that. Only the server can, via Test-LocalLabStorageSmbAuth, and only once a sharepoint exists to authenticate against.
+.OUTPUTS
+[hashtable] @{ Ok; Detail } -- Ok is $false only when a command failed outright; Detail carries the captured output.
+#>
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidUsingPlainTextForPassword', 'Password',
+        Justification = 'The value comes from the lab vault, which stores plaintext by design; SecureString cannot reach sysadminctl.')]
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidUsingUsernameAndPasswordParams', '',
+        Justification = 'Re-setting a specific account password inherently needs both.')]
+    [CmdletBinding(SupportsShouldProcess)]
+    [OutputType([hashtable])]
+    param(
+        [Parameter(Mandatory)][string]$Name,
+        [Parameter(Mandatory)][string]$Password
+    )
+    if (-not $PSCmdlet.ShouldProcess($Name, (Format-YurunaOperatorMessage -Key 'runner.operator_71f9073e5d5c9b21'))) {
+        return @{ Ok = $false; Detail = 'whatif' }
+    }
+    $detail = [System.Collections.Generic.List[string]]::new()
+    # Read under sudo, and only ADD the record when it is genuinely absent.
+    # Overwriting an existing one would strip whatever else it carries -- a
+    # SecureToken entry, the Kerberos LKDC identity a normal account gets -- and
+    # those are credentials too, so a blind write can take away the very thing
+    # that was working.
+    $authority = Invoke-LocalLabStorageNative -FilePath 'sudo' `
+        -ArgumentList @('dscl', '.', '-read', "/Users/$Name", 'AuthenticationAuthority') -AllowFailure
+    if ($authority.ExitCode -ne 0 -or $authority.Output -notmatch 'ShadowHash') {
+        Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_653e253d125d62b9' -Arguments @{ name = "$($Name)" })
+        $write = Invoke-LocalLabStorageNative -FilePath 'sudo' -ArgumentList @(
+            'dscl', '.', '-create', "/Users/$Name", 'AuthenticationAuthority',
+            ';ShadowHash;HASHLIST:<SALTED-SHA512-PBKDF2,SMB-NT>') -AllowFailure
+        if ($write.ExitCode -ne 0) { $detail.Add((Format-YurunaOperatorMessage -Key 'runner.operator_ff92239af931f841' -Arguments @{ exitCode = "$($write.ExitCode)"; output = "$($write.Output)" })) }
+    }
+    Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_c8264c34f40012d9' -Arguments @{ name = "$($Name)" })
+    $hashTypes = Invoke-LocalLabStorageNative -FilePath 'sudo' `
+        -ArgumentList @('pwpolicy', '-u', $Name, '-sethashtypes', 'SMB-NT', 'on') -AllowFailure
+    if ($hashTypes.ExitCode -ne 0) { $detail.Add((Format-YurunaOperatorMessage -Key 'runner.operator_d0b6acafc17b1594' -Arguments @{ exitCode = "$($hashTypes.ExitCode)"; output = "$($hashTypes.Output)" })) }
+    # See https://yuruna.link/4213a0b3-0095
+    Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_aac480322b602a63' -Arguments @{ name = "$($Name)" })
+    $passwd = Invoke-LocalLabStorageNative -FilePath 'sudo' `
+        -ArgumentList @('dscl', '.', '-passwd', "/Users/$Name", $Password) -AllowFailure
+    if ($passwd.ExitCode -ne 0) {
+        $detail.Add((Format-YurunaOperatorMessage -Key 'runner.operator_a8192b0dd54747ac' -Arguments @{ exitCode = "$($passwd.ExitCode)"; output = "$($passwd.Output)" }))
+        # Fall back rather than leave the account with no password at all: a
+        # correct password without an SMB hash is still better than a rejected
+        # one, and the share probe reports which of the two this ended as.
+        Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_92673f3b465a916a' -Arguments @{ name = "$($Name)" })
+        $reset = Invoke-LocalLabStorageNative -FilePath 'sudo' `
+            -ArgumentList @('sysadminctl', '-resetPasswordFor', $Name, '-newPassword', $Password) -AllowFailure
+        if ($reset.ExitCode -ne 0) { $detail.Add((Format-YurunaOperatorMessage -Key 'runner.operator_73b5ad8a6dda1ed0' -Arguments @{ exitCode = "$($reset.ExitCode)"; output = "$($reset.Output)" })) }
+    }
+    return @{ Ok = ($detail.Count -eq 0); Detail = ($detail -join "`n  ") }
+}
+
+function Reset-LocalLabStorageAccount {
+<#
+.SYNOPSIS
+Deletes a macOS storage account and builds it again from nothing, then re-applies its SMB credential. Returns $true when the account exists afterwards. macOS only.
+.DESCRIPTION
+The last repair available when the SMB server rejects an account whose password is otherwise correct. Nothing in a storage account is worth preserving -- the name, the password and the share grant are all re-derived from the lab vault -- so rebuilding costs nothing and clears whatever state the rejection came from.
+
+Called only after Test-LocalLabStorageSmbAuth has returned 'auth' against a PUBLISHED share, which is the one check that reflects what the server will actually do. Driving a delete from anything weaker (a directory-record read, an exit code) risks destroying a working account over a question that was never really asked.
+#>
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidUsingPlainTextForPassword', 'Password',
+        Justification = 'The value comes from the lab vault, which stores plaintext by design; SecureString cannot reach sysadminctl.')]
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidUsingUsernameAndPasswordParams', '',
+        Justification = 'Recreating a local account inherently needs both.')]
+    [CmdletBinding(SupportsShouldProcess)]
+    [OutputType([bool])]
+    param(
+        [Parameter(Mandatory)][string]$Name,
+        [Parameter(Mandatory)][string]$Password,
+        [Parameter(Mandatory)][string]$Description
+    )
+    if (-not $IsMacOS) { return $false }
+    if (-not $PSCmdlet.ShouldProcess($Name, (Format-YurunaOperatorMessage -Key 'runner.operator_a13f1fd58da879de'))) { return $false }
+    if (-not (Remove-MacLocalAccount -Name $Name -Confirm:$false)) {
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_2a6e3ced2286e160' -Arguments @{ name = "$Name" })
+        return $false
+    }
+    $null = Invoke-LocalLabStorageNative -FilePath 'sudo' -ArgumentList @(
+        'sysadminctl', '-addUser', $Name, '-fullName', $Description, '-password', $Password, '-shell', '/usr/bin/false') -AllowFailure
+    $null = Invoke-LocalLabStorageNative -FilePath 'sudo' -ArgumentList @('dscl', '.', '-create', "/Users/$Name", 'IsHidden', '1') -AllowFailure
+    $null = Set-MacSmbCredential -Name $Name -Password $Password -Confirm:$false
+    return (Test-LocalLabStorageAccount -Name $Name)
+}
+
+function Remove-MacLocalAccount {
+<#
+.SYNOPSIS
+Deletes a macOS local account, so it can be built again from nothing. Best-effort; returns $true when the account is gone afterwards. macOS only.
+.DESCRIPTION
+`sysadminctl -deleteUser` is the supported path and takes the home directory with it. `dscl -delete` is the fallback for a record sysadminctl will not own -- a half-created account, which is exactly the state worth recovering from here.
+#>
+    [CmdletBinding(SupportsShouldProcess)]
+    [OutputType([bool])]
+    param([Parameter(Mandatory)][string]$Name)
+    if (-not $PSCmdlet.ShouldProcess($Name, (Format-YurunaOperatorMessage -Key 'runner.operator_3d971e217f190072'))) { return $false }
+    $null = Invoke-LocalLabStorageNative -FilePath 'sudo' -ArgumentList @('sysadminctl', '-deleteUser', $Name) -AllowFailure
+    if (Test-LocalLabStorageAccount -Name $Name) {
+        $null = Invoke-LocalLabStorageNative -FilePath 'sudo' -ArgumentList @('dscl', '.', '-delete', "/Users/$Name") -AllowFailure
+    }
+    return (-not (Test-LocalLabStorageAccount -Name $Name))
+}
+
+<#
+.SYNOPSIS
+Creates -- or, when it already exists, re-synchronizes the password of -- the local service account an SMB share is scoped to. Returns 'created', 'updated', or 'whatif'.
+.DESCRIPTION
+The account is a storage account, not a login: no administrator group, no interactive shell, and on macOS hidden from the login window. If it is ever leaked it reaches one share and nothing else on the machine.
+
+Re-synchronizing an existing account's password is what makes a re-run converge. The vault is the source of truth for the value, so an account whose password drifted from the vault (or an account of the same name that predates this script) is brought back into agreement rather than left as a mount that fails with a credential error nobody can explain.
+
+On Ubuntu the OS password is left LOCKED and the SMB credential lives in Samba's own passdb -- the account cannot be used to log in at all. Windows and macOS have no separate SMB password store, so there the OS password IS the share password.
+#>
+function Set-LocalLabStorageAccount {
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidUsingPlainTextForPassword', 'Password',
+        Justification = 'The value comes from the lab vault, which stores plaintext by design; SecureString cannot reach smbpasswd stdin or sysadminctl.')]
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidUsingUsernameAndPasswordParams', '',
+        Justification = 'Creating a local OS account inherently needs both.')]
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidUsingConvertToSecureStringWithPlainText', '',
+        Justification = 'New-LocalUser requires a SecureString; the plaintext is already in memory.')]
+    [CmdletBinding(SupportsShouldProcess)]
+    [OutputType([string])]
+    param(
+        [Parameter(Mandatory)][string]$Name,
+        [Parameter(Mandatory)][string]$Password,
+        [Parameter(Mandatory)][string]$Description
+    )
+    $exists = Test-LocalLabStorageAccount -Name $Name
+    $verb = if ($exists) { 'Re-synchronize the password of the existing account' } else { 'Create the storage account' }
+    if (-not $PSCmdlet.ShouldProcess($Name, $verb)) { return 'whatif' }
+
+    if ($IsWindows) {
+        $secure = ConvertTo-SecureString -String $Password -AsPlainText -Force
+        if ($exists) {
+            Set-LocalUser -Name $Name -Password $secure -ErrorAction Stop
+        } else {
+            $null = New-LocalUser -Name $Name -Password $secure -FullName $Description `
+                -Description $Description -PasswordNeverExpires -UserMayNotChangePassword -ErrorAction Stop
+        }
+        # Membership in the built-in Users group carries the "access this computer
+        # from the network" right the share connection needs. Resolved by
+        # well-known SID because the group NAME is localized. Nothing beyond it is
+        # granted -- notably not Administrators.
+        $usersGroup = Get-LocalGroup | Where-Object { $_.SID.Value -eq 'S-1-5-32-545' } | Select-Object -First 1
+        if (-not $usersGroup) {
+            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_f0a05fc319da1050' -Arguments @{ name = "$Name" })
+        } else {
+            $already = $false
+            try {
+                $already = [bool](@(Get-LocalGroupMember -Group $usersGroup.Name -ErrorAction Stop) |
+                    Where-Object { $_.Name -eq $Name -or $_.Name -like "*\$Name" })
+            } catch {
+                Write-Verbose "Could not enumerate '$($usersGroup.Name)': $($_.Exception.Message)"
+            }
+            if (-not $already) {
+                Add-LocalGroupMember -Group $usersGroup.Name -Member $Name -ErrorAction SilentlyContinue
+            }
+        }
+    } elseif ($IsMacOS) {
+        # See https://yuruna.link/4213a0b3-0096
+        if ($Password.StartsWith('-')) {
+            throw (Format-YurunaOperatorMessage -Key 'exceptions.runner_0c36e11e9915d052' -Arguments @{ name = "$Name" })
+        }
+        # Each sudo call below is captured, so it prints nothing of its own while
+        # it runs, and sysadminctl in particular takes seconds. Narrated so the
+        # operator can see which one is in flight.
+        if ($exists) {
+            Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_e1f6225b3d8acb42' -Arguments @{ name = "$($Name)" })
+            $null = Invoke-LocalLabStorageNative -FilePath 'sudo' -ArgumentList @('sysadminctl', '-resetPasswordFor', $Name, '-newPassword', $Password)
+        } else {
+            Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_de71f77fc967a4e2' -Arguments @{ name = "$($Name)" })
+            $null = Invoke-LocalLabStorageNative -FilePath 'sudo' -ArgumentList @(
+                'sysadminctl', '-addUser', $Name, '-fullName', $Description, '-password', $Password, '-shell', '/usr/bin/false')
+            # A storage account has no business appearing at the login window.
+            $null = Invoke-LocalLabStorageNative -FilePath 'sudo' -ArgumentList @('dscl', '.', '-create', "/Users/$Name", 'IsHidden', '1') -AllowFailure
+        }
+        # Write the credential; do NOT try to judge here whether it works. There is
+        # no sharepoint yet at this point in the run, and without one the server
+        # refuses every credential -- so the only check available here cannot tell
+        # a bad password from a share that does not exist yet. The verdict, and
+        # the rebuild it may call for, belong to the caller once the shares are
+        # published (Test-LocalLabStorageSmbAuth, then Reset-LocalLabStorageAccount).
+        $credential = Set-MacSmbCredential -Name $Name -Password $Password -Confirm:$false
+        if (-not $credential.Ok) {
+            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_68154b4d5088b0e2' -Arguments @{ name = "$Name"; detail = "$($credential.Detail)" })
+        }
+    } else {
+        if (-not $exists) {
+            Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_c8edfda1fbe53988' -Arguments @{ name = "$($Name)" })
+            # --system: a service identity below the login UID range. No home, no
+            # shell, and no -p, so the Unix password stays LOCKED -- the account
+            # exists for Samba's file access and cannot be logged into.
+            $null = Invoke-LocalLabStorageNative -FilePath 'sudo' -ArgumentList @(
+                'useradd', '--system', '--user-group', '--no-create-home', '--shell', '/usr/sbin/nologin',
+                '--comment', $Description, $Name)
+        }
+        # smbpasswd reads the password twice from stdin, so it never enters an
+        # argument vector and a leading '-' cannot be mistaken for an option.
+        # -a is add-or-update, so this is the same call on a re-run.
+        Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_96343b6526214ba7' -Arguments @{ name = "$($Name)" })
+        $null = Invoke-LocalLabStorageNative -FilePath 'sudo' -ArgumentList @('smbpasswd', '-s', '-a', $Name) -Stdin "$Password`n$Password`n"
+        $null = Invoke-LocalLabStorageNative -FilePath 'sudo' -ArgumentList @('smbpasswd', '-e', $Name) -AllowFailure
+    }
+    return $(if ($exists) { 'updated' } else { 'created' })
+}
+
+<#
+.SYNOPSIS
+Classifies an `smbutil view` result into 'ok', 'auth', 'unreachable', or 'unknown'. Pure: takes the exit code and output, returns the verdict.
+.DESCRIPTION
+The two failures need different advice and look alike from the exit code alone, so the message is chosen from the OUTPUT: a refused credential means the account exists but has no SMB-NT hash (or the wrong password), while a refused connection means the SMB server is not up or not listening yet -- reporting the second as an authentication problem is the misdiagnosis this whole probe exists to prevent.
+#>
+function Get-LocalLabStorageSmbAuthVerdict {
+    [CmdletBinding()]
+    [OutputType([string])]
+    param(
+        [Parameter(Mandatory)][int]$ExitCode,
+        [Parameter()][AllowNull()][AllowEmptyString()][string]$Output
+    )
+    if ($ExitCode -eq 0) { return 'ok' }
+    $text = "$Output"
+    if ($text -match '(?i)authentication error|not permitted|permission denied|password') { return 'auth' }
+    if ($text -match '(?i)connection refused|can''t connect|unable to connect|no route to host|timed out|server connection') { return 'unreachable' }
+    return 'unknown'
+}
+
+<#
+.SYNOPSIS
+Proves a storage account can authenticate OVER SMB, which is the only authority that matters for the mount. Returns the Get-LocalLabStorageSmbAuthVerdict verdict; 'skipped' off macOS.
+.DESCRIPTION
+Directory Services accepts a password that smbd then rejects -- they consult different authentication authorities -- so `dscl -authonly` passes on exactly the account that cannot mount. Only an actual SMB conversation settles it. Run this AFTER the sharepoint exists: against a server with no share published yet, a refusal says nothing about the credential.
+#>
+function Test-LocalLabStorageSmbAuth {
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidUsingPlainTextForPassword', 'Password',
+        Justification = 'The value comes from the lab vault, which stores plaintext by design; SecureString cannot reach an smbutil URL.')]
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidUsingUsernameAndPasswordParams', '',
+        Justification = 'Authenticating a specific account inherently needs both.')]
+    [CmdletBinding()]
+    [OutputType([string])]
+    param(
+        [Parameter(Mandatory)][string]$Account,
+        [Parameter(Mandatory)][string]$Password
+    )
+    if (-not $IsMacOS) { return 'skipped' }
+    # Percent-encoded: a password carrying '@', '/' or ':' would otherwise split
+    # the URL authority and the probe would test a different (or malformed) target.
+    $user = [uri]::EscapeDataString($Account)
+    $pass = [uri]::EscapeDataString($Password)
+    $probe = Invoke-LocalLabStorageNative -FilePath 'smbutil' -ArgumentList @('view', "//${user}:${pass}@127.0.0.1") -AllowFailure
+    return (Get-LocalLabStorageSmbAuthVerdict -ExitCode $probe.ExitCode -Output $probe.Output)
+}
+
+<#
+.SYNOPSIS
+Makes sure this machine is running an SMB server, installing or enabling one as the platform requires. Returns 'present', 'enabled', 'installed', or 'whatif'.
+.DESCRIPTION
+Windows ships the server (LanmanServer) and only needs it running. macOS ships smbd but leaves it disabled until File Sharing is turned on. Ubuntu ships neither Samba nor the cifs client, so both are installed -- cifs-utils as well, because `mount -t cifs` execs the external /sbin/mount.cifs helper and without it every mount fails with "unknown filesystem type 'cifs'".
+
+On macOS the server is brought up BEFORE any account is created, so the shares can be published and probed in the same run. Note that this ordering is NOT what gives an account its SMB credential: this function only enables smbd (launchctl), which touches no user record. The SMB-NT hash is created by Set-LocalLabStorageAccount's explicit pwpolicy call, and nothing else creates it.
+#>
+function Enable-LocalLabStorageServer {
+    [CmdletBinding(SupportsShouldProcess)]
+    [OutputType([string])]
+    param()
+    if ($IsWindows) {
+        $svc = Get-Service -Name 'LanmanServer' -ErrorAction SilentlyContinue
+        if (-not $svc) { throw (Format-YurunaOperatorMessage -Key 'exceptions.runner_f4ad79f944023fe8') }
+        if ($svc.Status -eq 'Running') { return 'present' }
+        if (-not $PSCmdlet.ShouldProcess('LanmanServer', (Format-YurunaOperatorMessage -Key 'runner.operator_8b09d5f50c489da6'))) { return 'whatif' }
+        Set-Service -Name 'LanmanServer' -StartupType Automatic -ErrorAction SilentlyContinue
+        Start-Service -Name 'LanmanServer' -ErrorAction Stop
+        return 'enabled'
+    }
+    if ($IsMacOS) {
+        $probe = Invoke-LocalLabStorageNative -FilePath 'sudo' -ArgumentList @('launchctl', 'print', 'system/com.apple.smbd') -AllowFailure
+        if ($probe.ExitCode -eq 0) { return 'present' }
+        if (-not $PSCmdlet.ShouldProcess('com.apple.smbd', (Format-YurunaOperatorMessage -Key 'runner.operator_7f238877be5d182a'))) { return 'whatif' }
+        Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_22b8204649114e79')
+        $enable = Invoke-LocalLabStorageNative -FilePath 'sudo' -ArgumentList @('launchctl', 'enable', 'system/com.apple.smbd') -AllowFailure
+        $start  = Invoke-LocalLabStorageNative -FilePath 'sudo' -ArgumentList @('launchctl', 'kickstart', '-k', 'system/com.apple.smbd') -AllowFailure
+        if ($start.ExitCode -ne 0) {
+            # Releases before the launchctl subcommand rework only understand the
+            # plist form.
+            $start = Invoke-LocalLabStorageNative -FilePath 'sudo' `
+                -ArgumentList @('launchctl', 'load', '-w', '/System/Library/LaunchDaemons/com.apple.smbd.plist') -AllowFailure
+        }
+        $verify = Invoke-LocalLabStorageNative -FilePath 'sudo' -ArgumentList @('launchctl', 'print', 'system/com.apple.smbd') -AllowFailure
+        if ($verify.ExitCode -ne 0) {
+            throw (Format-YurunaOperatorMessage -Key 'exceptions.runner_b8accd7ac3900ef3' -Arguments @{ output = "$($enable.Output)"; output2 = "$($start.Output)" })
+        }
+        return 'enabled'
+    }
+    # Ubuntu / Debian.
+    $missing = @()
+    foreach ($pkg in @('samba', 'cifs-utils')) {
+        $q = Invoke-LocalLabStorageNative -FilePath 'dpkg-query' -ArgumentList @('-W', '-f=${Status}', $pkg) -AllowFailure
+        if ($q.ExitCode -ne 0 -or $q.Output -notmatch 'install ok installed') { $missing += $pkg }
+    }
+    if ($missing.Count -eq 0) { return 'present' }
+    if (-not $PSCmdlet.ShouldProcess(($missing -join ', '), (Format-YurunaOperatorMessage -Key 'runner.operator_c4724445e88b669f'))) { return 'whatif' }
+    # A machine whose package index predates the current release pocket cannot
+    # resolve the packages at all, so the index is refreshed first.
+    Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_ead629360c99f444')
+    $null = Invoke-LocalLabStorageNative -FilePath 'sudo' -ArgumentList @('apt-get', 'update') -AllowFailure
+    Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_3e4970318eadfc1b' -Arguments @{ join = "$($missing -join ', ')" })
+    $null = Invoke-LocalLabStorageNative -FilePath 'sudo' -ArgumentList (@(
+        'env', 'DEBIAN_FRONTEND=noninteractive', 'apt-get', 'install', '-y', '--no-install-recommends') + $missing)
+    return 'installed'
+}
+
+<#
+.SYNOPSIS
+Grants the tier's account write access to its storage folder, so the SMB server can write there as that account. ADDITIVE: the operator keeps ownership. Honors -WhatIf.
+.DESCRIPTION
+The grant never takes ownership away from the invoking operator, for two reasons that both surface on a machine that is its own storage server:
+
+  * `New-Lab.ps1` creates each lab's pool-configuration repository directly on disk under the pool folder. An operator locked out of that folder cannot add a second lab to the machine at all.
+  * git refuses to operate on a repository owned by a different user ("detected dubious ownership"), so chowning the pool folder would break every later git operation on an configuration repository already inside it.
+
+So the account is added alongside the existing owner -- an inherited ACE on Windows, an inherited ACL entry on macOS, and group ownership plus setgid on Linux, where the setgid bit is what makes files created under the share carry the tier's group instead of the creator's.
+#>
+function Set-LocalLabStorageFolderAccess {
+    [CmdletBinding(SupportsShouldProcess)]
+    [OutputType([bool])]
+    param([Parameter(Mandatory)][pscustomobject]$Tier)
+    if (-not (Test-Path -LiteralPath $Tier.FolderPath)) {
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_dc1eba818890bfe4' -Arguments @{ folderPath = "$($Tier.FolderPath)" })
+        return $false
+    }
+    if (-not $PSCmdlet.ShouldProcess($Tier.FolderPath, (Format-YurunaOperatorMessage -Key 'runner.operator_eac8ab7a3784e443' -Arguments @{ account = "$($Tier.Account)" }))) { return $false }
+    if ($IsWindows) {
+        # Modify, inherited by files (OI) and folders (CI) created later. Added
+        # to the existing ACL, so the inherited administrator and owner ACEs --
+        # the operator's own local access -- survive.
+        $null = Invoke-LocalLabStorageNative -FilePath 'icacls' -ArgumentList @($Tier.FolderPath, '/grant', "$($Tier.Account):(OI)(CI)M") -AllowFailure
+    } elseif ($IsMacOS) {
+        # An inherited ACL entry rather than a chown: file_inherit +
+        # directory_inherit carry the grant to everything created later, and the
+        # POSIX owner is untouched.
+        $ace = 'allow list,add_file,search,add_subdirectory,delete_child,readattr,writeattr,' +
+               'readextattr,writeextattr,readsecurity,file_inherit,directory_inherit'
+        $null = Invoke-LocalLabStorageNative -FilePath 'sudo' -ArgumentList @(
+            'chmod', '+a', "user:$($Tier.Account) $ace", $Tier.FolderPath) -AllowFailure
+    } else {
+        # Group ownership only -- the owning USER is left alone.
+        $null = Invoke-LocalLabStorageNative -FilePath 'sudo' -ArgumentList @('chgrp', '-R', $Tier.Account, $Tier.FolderPath) -AllowFailure
+        # setgid (2770) so everything created under the share inherits the tier's
+        # group; without it a file's group follows the creator and the SMB server
+        # can be denied its own archive.
+        $null = Invoke-LocalLabStorageNative -FilePath 'sudo' -ArgumentList @('chmod', '2770', $Tier.FolderPath) -AllowFailure
+        # Existing content predating the grant (a configuration repository New-Lab
+        # already created) needs the group bits too; X sets execute only where
+        # it already applies, so files do not become executable.
+        $null = Invoke-LocalLabStorageNative -FilePath 'sudo' -ArgumentList @('chmod', '-R', 'g+rwX', $Tier.FolderPath) -AllowFailure
+    }
+    return $true
+}
+
+function Install-LocalLabStorageText {
+    <# .SYNOPSIS
+        Installs UTF-8 configuration through one unique temporary file.
+    .PARAMETER Destination
+        The root-owned configuration destination.
+    .PARAMETER Text
+        Exact generated configuration text.
+    #>
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '', Justification = 'Private helper; callers own the ShouldProcess gate.')]
+    [CmdletBinding()]
+    param([string]$Destination, [string]$Text)
+    $temporary = Join-Path ([IO.Path]::GetTempPath()) ('yuruna-smb-' + [guid]::NewGuid().ToString('n') + '.conf')
+    try {
+        [IO.File]::WriteAllText($temporary, $Text, [Text.UTF8Encoding]::new($false))
+        $null = Invoke-LocalLabStorageNative -FilePath 'sudo' -ArgumentList @('install', '-m', '0644', '-o', 'root', '-g', 'root', $temporary, $Destination)
+    } finally { Remove-Item -LiteralPath $temporary -Force -ErrorAction SilentlyContinue }
+}
+
+function Get-LocalLabStorageMacShareListing {
+    <# .SYNOPSIS
+        Reads the authoritative macOS share listing under the same privilege.
+    #>
+    [CmdletBinding()]
+    param()
+    return Invoke-LocalLabStorageNative -FilePath 'sudo' -ArgumentList @('sharing', '-l') -AllowFailure
+}
+
+function New-LocalLabStorageShare {
+    <#
+    .SYNOPSIS
+        Publishes the tiers as SMB shares, each scoped to its own account.
+        Returns a hashtable of share name to 'created', 'present', or 'whatif'.
+        Windows and macOS act per share; Ubuntu writes one generated Samba
+        configuration for all of them and reloads smbd once.
+    #>
+    [CmdletBinding(SupportsShouldProcess)]
+    [OutputType([hashtable])]
+    param([Parameter(Mandatory)][object[]]$Tier)
+    $result = @{}
+
+    if ($IsLinux) {
+        $includePath = '/etc/samba/yuruna.conf'
+        $smbConf     = '/etc/samba/smb.conf'
+        if (-not $PSCmdlet.ShouldProcess($includePath, (Format-YurunaOperatorMessage -Key 'runner.operator_956e740d9733d35f'))) {
+            foreach ($t in $Tier) { $result[$t.ShareName] = 'whatif' }
+            return $result
+        }
+        # Written through a temp file owned by this user and moved into place with
+        # sudo: a here-string piped to `sudo tee` would be at the mercy of shell
+        # quoting for every path in the generated config.
+        $body = Get-LocalLabStorageSambaConfig -Tier $Tier
+        Install-LocalLabStorageText -Destination $includePath -Text $body
+
+        $current = ''
+        if (Test-Path -LiteralPath $smbConf) { $current = Get-Content -Raw -LiteralPath $smbConf }
+        $updated = Add-LocalLabStorageSambaInclude -Content $current -IncludePath $includePath
+        if ($null -ne $updated) {
+            Install-LocalLabStorageText -Destination $smbConf -Text $updated
+        }
+        # A config Samba rejects leaves smbd serving the PREVIOUS definitions, so
+        # the shares would appear to be missing with no error anywhere. testparm
+        # is the same parser smbd uses, so this catches it here.
+        Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_309d799a7c98d1ee')
+        $check = Invoke-LocalLabStorageNative -FilePath 'sudo' -ArgumentList @('testparm', '-s') -AllowFailure
+        if ($check.ExitCode -ne 0) {
+            throw (Format-YurunaOperatorMessage -Key 'exceptions.runner_511c60ef5e84a2bf' -Arguments @{ output = "$($check.Output)" })
+        }
+        Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_460ecc27a1509fd8')
+        $null = Invoke-LocalLabStorageNative -FilePath 'sudo' -ArgumentList @('systemctl', 'enable', '--now', 'smbd') -AllowFailure
+        $null = Invoke-LocalLabStorageNative -FilePath 'sudo' -ArgumentList @('systemctl', 'reload-or-restart', 'smbd')
+        foreach ($t in $Tier) { $result[$t.ShareName] = 'created' }
+        return $result
+    }
+
+    foreach ($t in $Tier) {
+        if ($IsWindows) {
+            $existing = Get-SmbShare -Name $t.ShareName -ErrorAction SilentlyContinue
+            if ($existing) {
+                if ($existing.Path -ne $t.FolderPath) {
+                    throw (Format-YurunaOperatorMessage -Key 'exceptions.runner_9d91512a828389cf' -Arguments @{ shareName = "$($t.ShareName)"; path = "$($existing.Path)"; folderPath = "$($t.FolderPath)" })
+                }
+                if (-not $PSCmdlet.ShouldProcess($t.ShareName, (Format-YurunaOperatorMessage -Key 'runner.operator_68c3f90736a1aa91' -Arguments @{ account = "$($t.Account)" }))) { $result[$t.ShareName] = 'whatif'; continue }
+                $null = Grant-SmbShareAccess -Name $t.ShareName -AccountName $t.Account -AccessRight Full -Force -ErrorAction SilentlyContinue
+                $result[$t.ShareName] = 'present'
+                continue
+            }
+            if (-not $PSCmdlet.ShouldProcess($t.ShareName, (Format-YurunaOperatorMessage -Key 'runner.operator_4af540084b24b3eb' -Arguments @{ folderPath = "$($t.FolderPath)" }))) { $result[$t.ShareName] = 'whatif'; continue }
+            # -FullAccess names the ONLY principal on the share ACL, so the
+            # default Everyone/Read grant a bare New-SmbShare would apply is
+            # never created.
+            $null = New-SmbShare -Name $t.ShareName -Path $t.FolderPath -FullAccess $t.Account `
+                -Description "Yuruna $($t.Kind) storage" -ErrorAction Stop
+            $result[$t.ShareName] = 'created'
+            continue
+        }
+        # macOS. A sharepoint that is already listed is REMOVED and published
+        # again rather than left alone: "a sharepoint by that name exists" and
+        # "the sharepoint this lab needs" are not the same statement, and the
+        # difference between them -- a stale path, a protocol mask that no longer
+        # includes SMB, a guest grant -- is invisible from the name alone. The
+        # definition is cheap to rebuild and is the only one that is known good.
+        $listed = Get-LocalLabStorageMacShareListing
+        $existed = ($listed.Output -match "(?m)^\s*name:\s*$([regex]::Escape($t.ShareName))\s*$")
+        if (-not $PSCmdlet.ShouldProcess($t.ShareName, (Format-YurunaOperatorMessage -Key 'runner.operator_203f3612d7d51d8c' -Arguments @{ create = "$(if ($existed) { 'Replace' } else { 'Create' })"; folderPath = "$($t.FolderPath)" }))) { $result[$t.ShareName] = 'whatif'; continue }
+        if ($existed) {
+            Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_ad407a07d1fd523b' -Arguments @{ shareName = "$($t.ShareName)" })
+            $null = Invoke-LocalLabStorageNative -FilePath 'sudo' -ArgumentList @('sharing', '-r', $t.ShareName) -AllowFailure
+        }
+        # -s 001 is the AFP/FTP/SMB protocol mask: SMB only. -g 000 refuses guest
+        # access on all three, so the share is reachable only with the tier's
+        # credential.
+        Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_0fea3eacdce256ad' -Arguments @{ shareName = "$($t.ShareName)" })
+        $null = Invoke-LocalLabStorageNative -FilePath 'sudo' -ArgumentList @('sharing', '-a', $t.FolderPath, '-S', $t.ShareName, '-n', $t.ShareName, '-s', '001', '-g', '000')
+        $result[$t.ShareName] = 'created'
+    }
+    return $result
+}
+
+<#
+.SYNOPSIS
+Registers the storage server aliases as Windows loopback-check exemptions so the machine will accept its own SMB connections under those names. Returns 'present', 'updated', 'whatif', or 'skipped'. No-op off Windows.
+.DESCRIPTION
+See Merge-LocalLabStorageBackConnectionName for why the exemption is needed at all. The value is read by LSA when the Server service starts, so the service is restarted; when a restart is refused, the operator is told a reboot applies it instead.
+#>
+function Set-LocalLabStorageLoopbackException {
+    [CmdletBinding(SupportsShouldProcess)]
+    [OutputType([string])]
+    param([Parameter(Mandatory)][string[]]$Name)
+    if (-not $IsWindows) { return 'skipped' }
+    $key = 'HKLM:\SYSTEM\CurrentControlSet\Control\Lsa\MSV1_0'
+    $existing = @()
+    try {
+        $existing = @((Get-ItemProperty -Path $key -Name 'BackConnectionHostNames' -ErrorAction Stop).BackConnectionHostNames)
+    } catch {
+        Write-Verbose "BackConnectionHostNames is not set yet: $($_.Exception.Message)"
+    }
+    $merged = Merge-LocalLabStorageBackConnectionName -Existing $existing -Wanted $Name
+    if ($null -eq $merged) { return 'present' }
+    if (-not $PSCmdlet.ShouldProcess("$key\BackConnectionHostNames", "Add $($Name -join ', ')")) { return 'whatif' }
+    if (-not (Test-Path -LiteralPath $key)) { $null = New-Item -Path $key -Force }
+    New-ItemProperty -Path $key -Name 'BackConnectionHostNames' -Value $merged -PropertyType MultiString -Force -ErrorAction Stop | Out-Null
+    try {
+        Restart-Service -Name 'LanmanServer' -Force -ErrorAction Stop
+    } catch {
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_5ca81891b9af15c2' -Arguments @{ message = "$($_.Exception.Message)" })
+    }
+    return 'updated'
+}
+
+<#
+.SYNOPSIS
+Sets EnableLinkedConnections so a drive mapped in an elevated session is also visible to the operator's ordinary session. Returns 'present', 'updated', or 'skipped'. Windows only; the change takes effect at the next sign-in.
+.DESCRIPTION
+UAC gives an administrator two logon tokens and mounts drive mappings on the token that created them. This script must run elevated to create accounts and shares, so without this the mapped Y:/Z: would exist for elevated processes and be missing from Explorer and from an ordinary shell -- looking like the mount silently failed.
+#>
+function Set-LocalLabStorageLinkedConnection {
+    [CmdletBinding(SupportsShouldProcess)]
+    [OutputType([string])]
+    param()
+    if (-not $IsWindows) { return 'skipped' }
+    $key = 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System'
+    $current = $null
+    try { $current = (Get-ItemProperty -Path $key -Name 'EnableLinkedConnections' -ErrorAction Stop).EnableLinkedConnections } catch { $null = $_ }
+    if (1 -eq $current) { return 'present' }
+    if (-not $PSCmdlet.ShouldProcess("$key\EnableLinkedConnections", (Format-YurunaOperatorMessage -Key 'runner.operator_8fd5ad229615ab0d'))) { return 'whatif' }
+    if (-not (Test-Path -LiteralPath $key)) { $null = New-Item -Path $key -Force }
+    New-ItemProperty -Path $key -Name 'EnableLinkedConnections' -Value 1 -PropertyType DWord -Force -ErrorAction Stop | Out-Null
+    return 'updated'
+}
+
+<#
+.SYNOPSIS
+Points the storage server aliases at the loopback address in the hosts file. Returns the number of aliases written.
+.DESCRIPTION
+The alias is the seam that keeps this lab's config identical in shape to a lab with a real NAS: test.config.yml and the guest seeds carry the NAME, so moving the storage to real hardware later changes the address this maps to and nothing else.
+#>
+function Set-LocalLabStorageHostAlias {
+    [CmdletBinding(SupportsShouldProcess)]
+    [OutputType([int])]
+    param(
+        [Parameter(Mandatory)][string]$RepoRoot,
+        [Parameter(Mandatory)][string[]]$Name
+    )
+    # Loopback because these names ARE this machine: the shares they resolve to
+    # are served here. An alias for something that lives elsewhere supplies its
+    # own address.
+    return Set-YurunaHostAlias -RepoRoot $RepoRoot -Name $Name -IPAddress $script:LoopbackAddress
+}
+
+<#
+.SYNOPSIS
+Waits, bounded, until every Name resolves to IPAddress on this machine. Returns the names that never did (empty when they all converged). Never throws.
+.DESCRIPTION
+A hosts-file write and a hosts-file OBSERVATION are two different events. The
+resolver answers from an in-memory cache and goes on serving a name's previous
+address after the line under it has changed; the writer flushes that cache, but
+the flush is a signal to a daemon, not a synchronous update, and the writer runs
+in a separate elevated process besides. So the only reliable way to know the new
+mapping is live is to ask the resolver until it agrees.
+
+Callers need this because the cost of skipping it is invisible: a name just
+repointed from a remote machine to this one still resolves to the remote one for
+a moment, and whatever dials it in that moment reaches the OLD server and fails
+there -- against a credential, a share, or a certificate that only exists
+locally -- while every visible detail of the attempt looks correct.
+
+Resolution goes through [System.Net.Dns], which delegates to the same system
+resolver the consumers use, so what this observes is what they will get. IPv6
+answers are tolerated: the question is whether the wanted address is among them,
+not whether it is the only one.
+#>
+function Wait-YurunaHostAliasResolution {
+    [CmdletBinding()]
+    [OutputType([string[]])]
+    param(
+        [Parameter(Mandatory)][string[]]$Name,
+        [Parameter(Mandatory)][string]$IPAddress,
+        [Parameter()][int]$TimeoutSeconds = 15
+    )
+    $stale = [System.Collections.Generic.List[string]]::new()
+    foreach ($n in $Name) {
+        $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
+        $resolved = $false
+        while (-not $resolved) {
+            try {
+                $addresses = @([System.Net.Dns]::GetHostAddresses($n) | ForEach-Object { $_.ToString() })
+                $resolved = $addresses -contains $IPAddress
+            } catch {
+                # A name that does not resolve at all is the same answer as one
+                # resolving elsewhere: not ready yet. Keep waiting.
+                Write-Verbose "Wait-YurunaHostAliasResolution($n): $($_.Exception.Message)"
+                $resolved = $false
+            }
+            if ($resolved -or (Get-Date) -ge $deadline) { break }
+            Start-Sleep -Milliseconds 250
+        }
+        if (-not $resolved) { $stale.Add($n) }
+    }
+    return $stale.ToArray()
+}
+
+<#
+.SYNOPSIS
+Writes one hosts-file alias per name, all pointing at IPAddress, via automation/Set-HostAlias.ps1 and whatever elevation this platform's hosts file needs, then waits until this machine actually resolves them that way. Returns the number written.
+.DESCRIPTION
+The hosts file is root-owned on macOS and Linux and needs an elevated session on Windows, so every writer in this repo needs the same platform dance and the same diagnosis when the nested pwsh cannot start. That belongs in one place: a second copy is a second thing to get right, and the failure it hides is a run that reports success while the hosts file never changed.
+
+Returning as soon as the file is written would hand back a promise the machine cannot yet keep, so the wait is part of the contract (see Wait-YurunaHostAliasResolution). Callers repoint a name and then immediately connect to it; without the wait, that connection is a coin flip between this machine and whatever the name meant before.
+#>
+function Set-YurunaHostAlias {
+    [CmdletBinding(SupportsShouldProcess)]
+    [OutputType([int])]
+    param(
+        [Parameter(Mandatory)][string]$RepoRoot,
+        [Parameter(Mandatory)][string[]]$Name,
+        [Parameter(Mandatory)][string]$IPAddress
+    )
+    $aliasScript = Join-Path -Path $RepoRoot -ChildPath 'automation' -AdditionalChildPath 'Set-HostAlias.ps1'
+    if (-not (Test-Path -LiteralPath $aliasScript)) {
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_0b2bee16d88f663e' -Arguments @{ aliasScript = "$aliasScript" })
+        return 0
+    }
+    $address = $IPAddress
+    $written = 0
+    $mapped = [System.Collections.Generic.List[string]]::new()
+    foreach ($n in $Name) {
+        if (-not $PSCmdlet.ShouldProcess($n, (Format-YurunaOperatorMessage -Key 'runner.operator_c650df7426c4ecc0' -Arguments @{ address = "$address" }))) { continue }
+        # The non-Windows arm below starts a whole nested pwsh under sudo, which
+        # is a second or two of silence per alias.
+        Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_cd7feeae4228289e' -Arguments @{ n = "$n"; address = "$address" })
+        if ($IsWindows) {
+            # Called in-process: this session is already elevated, and
+            # Set-HostAlias asserts elevation itself, so a nested launch would
+            # only add a second UAC prompt.
+            & $aliasScript -ComputerName $n -IPAddress $address
+        } else {
+            # See https://yuruna.link/4213a0b3-0097
+            $aliasArgs = Get-SudoPwshArgumentList -ScriptPath $aliasScript `
+                -ScriptArgument @('-ComputerName', $n, '-IPAddress', $address) `
+                -Prompt (Format-YurunaOperatorMessage -Key 'runner.operator_13113525af0647bd' -Arguments @{ n = "$n" })
+            $aliasRun = Invoke-LocalLabStorageNative -FilePath 'sudo' -ArgumentList $aliasArgs -AllowFailure
+            if ($aliasRun.ExitCode -ne 0) {
+                throw ((Format-YurunaOperatorMessage -Key 'exceptions.runner_171dd62b87249d01' -Arguments @{ n = "$n"; exitCode = "$($aliasRun.ExitCode)"; output = "$($aliasRun.Output)"; command = 'echo "$(brew --prefix dotnet)/libexec" | sudo tee /etc/dotnet/install_location_$(uname -m)' }))
+            }
+        }
+        $mapped.Add($n)
+        $written++
+    }
+    if ($mapped.Count -gt 0) {
+        $stale = @(Wait-YurunaHostAliasResolution -Name $mapped.ToArray() -IPAddress $address)
+        if ($stale.Count -gt 0) {
+            # A warning rather than a throw: the hosts file IS correct, and the
+            # resolver converges on its own eventually. What the caller must not
+            # do is treat the name as usable right now, so say which names are
+            # not yet safe to dial and what dialing one of them would reach.
+            Write-Warning ((Format-YurunaOperatorMessage -Key 'runner.operator_c4446d75c72cc1be' -Arguments @{ join = "$($stale -join ', ')"; address = "$address" }))
+        }
+    }
+    return $written
+}
+
+# --- REGION: Standing local storage back down
+# See https://yuruna.link/4213a0b3-0098
+
+function Remove-LocalLabStorageSambaInclude {
+    <#
+    .SYNOPSIS
+    Returns smb.conf content with the yuruna include line removed, or $null when no such line is present so the caller writes nothing. Pure + idempotent; the inverse of Add-LocalLabStorageSambaInclude.
+    .DESCRIPTION
+    The comment this module writes above its include is dropped with it, so a
+    re-added include does not accumulate a comment per cycle. Matching is on the
+    NORMALIZED line (whitespace collapsed) for the same reason the adder is: smb.conf
+    is hand-editable and an operator's re-indent must not turn removal into a no-op
+    that leaves smbd serving shares the machine no longer has accounts for.
+
+    Every other line survives verbatim, including an unrelated `include` -- Samba
+    configurations routinely carry more than one, and taking a foreign one down here
+    would break whatever wrote it.
+    #>
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+        Justification = 'Pure string transform; returns the new content for the caller to write.')]
+    [CmdletBinding()]
+    [OutputType([string])]
+    param(
+        [Parameter()][AllowNull()][AllowEmptyString()][string]$Content,
+        [Parameter(Mandatory)][string]$IncludePath
+    )
+    $body = "$Content"
+    if ([string]::IsNullOrEmpty($body)) { return $null }
+    $wanted  = "include = $IncludePath"
+    $comment = '# Yuruna local lab storage shares.'
+    $kept    = [System.Collections.Generic.List[string]]::new()
+    $dropped = $false
+    $lines = @($body -split '\r?\n')
+    for ($i = 0; $i -lt $lines.Count; $i++) {
+        $line = $lines[$i]
+        $normalized = ($line -replace '\s+', ' ').Trim()
+        if ($normalized -ieq $wanted) { $dropped = $true; continue }
+        # Only the marker immediately introducing our include belongs to us.
+        if ($normalized -ieq $comment -and $i + 1 -lt $lines.Count -and
+            (($lines[$i + 1] -replace '\s+', ' ').Trim() -ieq $wanted)) { continue }
+        [void]$kept.Add($line)
+    }
+    if (-not $dropped) { return $null }
+    # Trailing blank lines accumulate otherwise: the adder appends "\n\n# ...\n
+    # include ...\n", and removing the two content lines leaves its separator
+    # behind on every add/remove round trip.
+    while ($kept.Count -gt 0 -and [string]::IsNullOrWhiteSpace($kept[$kept.Count - 1])) {
+        $kept.RemoveAt($kept.Count - 1)
+    }
+    if ($kept.Count -eq 0) { return '' }
+    return (($kept -join "`n") + "`n")
+}
+
+<#
+.SYNOPSIS
+Returns a BackConnectionHostNames list with the named aliases removed, or $null when none of them is present so the caller writes nothing. Pure, case-insensitive, order-preserving; the inverse of Merge-LocalLabStorageBackConnectionName.
+.DESCRIPTION
+Entries this module never registered are preserved for the same reason the merge
+preserves them: the value is shared with any other software on the host that
+registered its own alias, and a teardown that emptied the list would break it.
+
+Returning $null rather than the unchanged list is what lets the caller skip the
+registry write AND the Server-service restart that follows it -- a restart drops
+every live SMB session on the machine, which is far too much to spend on a no-op.
+#>
+function Remove-LocalLabStorageBackConnectionName {
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseOutputTypeCorrectly', '',
+        Justification = 'Unary comma preserves the actual string array, including empty, as one pipeline object; the analyzer incorrectly infers object[] from that wrapper.')]
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+        Justification = 'Pure list transform; returns the new value for the caller to write, exactly like Merge-LocalLabStorageBackConnectionName.')]
+    [CmdletBinding()]
+    [OutputType([string[]])]
+    param(
+        [Parameter()][AllowNull()][string[]]$Existing,
+        [Parameter(Mandatory)][string[]]$Unwanted
+    )
+    $drop = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+    foreach ($u in $Unwanted) {
+        $v = "$u".Trim()
+        if ($v) { [void]$drop.Add($v) }
+    }
+    $kept    = [System.Collections.Generic.List[string]]::new()
+    $removed = $false
+    foreach ($e in @($Existing)) {
+        $v = "$e".Trim()
+        if (-not $v) { continue }
+        if ($drop.Contains($v)) { $removed = $true; continue }
+        [void]$kept.Add($v)
+    }
+    if (-not $removed) { return $null }
+    return ,$kept.ToArray()
+}
+
+<#
+.SYNOPSIS
+Withdraws the SMB shares this machine publishes for the named tiers. Returns a hashtable of share name to 'removed', 'absent', or 'whatif'. The shared FOLDERS and their contents are untouched.
+.DESCRIPTION
+Per-platform in the same dialects New-LocalLabStorageShare publishes in, and
+share-by-share on Windows and macOS. Ubuntu instead rewrites the one generated
+include file, because that file IS the share definitions: emptying it and
+reloading smbd withdraws them together, and the include line then comes out of
+smb.conf so a later `testparm` does not warn about a file that is no longer there.
+
+A share the machine does not publish reports 'absent' rather than failing. This
+runs on hosts in every state -- a standalone that never stood storage up, one
+part-way through an earlier teardown, one whose shares an operator already
+removed by hand -- and none of those is a fault.
+#>
+function Remove-LocalLabStorageShare {
+    [CmdletBinding(SupportsShouldProcess)]
+    [OutputType([hashtable])]
+    param([Parameter(Mandatory)][string[]]$ShareName)
+    $result = @{}
+    $names = @($ShareName | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | ForEach-Object { "$_".Trim() })
+    if ($names.Count -eq 0) { return $result }
+
+    if ($IsLinux) {
+        $includePath = '/etc/samba/yuruna.conf'
+        $smbConf     = '/etc/samba/smb.conf'
+        $present     = Test-Path -LiteralPath $includePath
+        if (-not $present) {
+            foreach ($n in $names) { $result[$n] = 'absent' }
+            return $result
+        }
+        if (-not $PSCmdlet.ShouldProcess($includePath, (Format-YurunaOperatorMessage -Key 'runner.operator_66329dec7254f2a6'))) {
+            foreach ($n in $names) { $result[$n] = 'whatif' }
+            return $result
+        }
+        $null = Invoke-LocalLabStorageNative -FilePath 'sudo' -ArgumentList @('rm', '-f', $includePath) -AllowFailure
+        $current = ''
+        if (Test-Path -LiteralPath $smbConf) { $current = Get-Content -Raw -LiteralPath $smbConf }
+        $updated = Remove-LocalLabStorageSambaInclude -Content $current -IncludePath $includePath
+        if ($null -ne $updated) {
+            # Same temp-file-then-install dance as the adder: a here-string piped
+            # to `sudo tee` would be at the mercy of shell quoting for every path
+            # the operator's own smb.conf carries.
+            Install-LocalLabStorageText -Destination $smbConf -Text $updated
+        }
+        # Reload rather than stop: smbd may serve shares this module never
+        # defined, and stopping it would take those down too. An operator who
+        # wants the server off does that separately.
+        $null = Invoke-LocalLabStorageNative -FilePath 'sudo' -ArgumentList @('systemctl', 'reload-or-restart', 'smbd') -AllowFailure
+        foreach ($n in $names) { $result[$n] = 'removed' }
+        return $result
+    }
+
+    foreach ($n in $names) {
+        if ($IsWindows) {
+            $existing = Get-SmbShare -Name $n -ErrorAction SilentlyContinue
+            if (-not $existing) { $result[$n] = 'absent'; continue }
+            if (-not $PSCmdlet.ShouldProcess($n, (Format-YurunaOperatorMessage -Key 'runner.operator_56df5838ba31cc1c' -Arguments @{ path = "$($existing.Path)" }))) { $result[$n] = 'whatif'; continue }
+            Remove-SmbShare -Name $n -Force -ErrorAction Stop
+            $result[$n] = 'removed'
+            continue
+        }
+        # macOS.
+        $listed = Get-LocalLabStorageMacShareListing
+        if (-not ($listed.Output -match "(?m)^\s*name:\s*$([regex]::Escape($n))\s*$")) { $result[$n] = 'absent'; continue }
+        if (-not $PSCmdlet.ShouldProcess($n, (Format-YurunaOperatorMessage -Key 'runner.operator_c4bfe6c236bd294c'))) { $result[$n] = 'whatif'; continue }
+        $null = Invoke-LocalLabStorageNative -FilePath 'sudo' -ArgumentList @('sharing', '-r', $n) -AllowFailure
+        $result[$n] = 'removed'
+    }
+    return $result
+}
+
+<#
+.SYNOPSIS
+Deletes a local storage account this module created. Returns 'removed', 'absent', 'whatif', or 'failed'. Cross-platform.
+.DESCRIPTION
+The account is a storage identity with no interactive shell and nothing of its
+own worth keeping -- its password lives in the lab vault and its only grant is a
+share that has just been withdrawn -- so deleting it is the honest end state for
+a machine that no longer serves storage. Leaving it behind is not neutral: the
+NAS this machine now mounts has an account of the SAME name, and a local account
+that shadows it is a credential the operator can spend hours believing is the
+one being rejected.
+
+Deliberately ordered AFTER the share withdrawal by every caller: deleting the
+account a live share is scoped to leaves a share nobody can reach, which reads
+as a broken mount rather than as a finished teardown.
+
+On Ubuntu the Samba passdb entry goes first and separately: `userdel` does not
+know about it, and a passdb entry outliving its Unix account is exactly the state
+`smbpasswd -a` later refuses to repair.
+#>
+function Remove-LocalLabStorageAccount {
+    [CmdletBinding(SupportsShouldProcess)]
+    [OutputType([string])]
+    param([Parameter(Mandatory)][string]$Name)
+    if (-not (Test-LocalLabStorageAccount -Name $Name)) { return 'absent' }
+    if (-not $PSCmdlet.ShouldProcess($Name, (Format-YurunaOperatorMessage -Key 'runner.operator_3d971e217f190072'))) { return 'whatif' }
+
+    if ($IsWindows) {
+        try {
+            Remove-LocalUser -Name $Name -ErrorAction Stop
+        } catch {
+            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_df80ecc783485314' -Arguments @{ name = "$Name"; message = "$($_.Exception.Message)" })
+            return 'failed'
+        }
+        return 'removed'
+    }
+    if ($IsMacOS) {
+        if (Remove-MacLocalAccount -Name $Name -Confirm:$false) { return 'removed' }
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_b72b045131679bb8' -Arguments @{ name = "$Name" })
+        return 'failed'
+    }
+    # Ubuntu / Debian.
+    $null = Invoke-LocalLabStorageNative -FilePath 'sudo' -ArgumentList @('smbpasswd', '-x', $Name) -AllowFailure
+    # --remove-home is deliberately NOT passed: the account was created with
+    # --no-create-home, so there is no home to remove, and asking for one on a
+    # system account whose home was defaulted to an existing directory is how a
+    # userdel takes a real directory with it.
+    $del = Invoke-LocalLabStorageNative -FilePath 'sudo' -ArgumentList @('userdel', $Name) -AllowFailure
+    if (Test-LocalLabStorageAccount -Name $Name) {
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_ceda6fed54c6e5a3' -Arguments @{ name = "$Name"; exitCode = "$($del.ExitCode)"; output = "$($del.Output)" })
+        return 'failed'
+    }
+    return 'removed'
+}
+
+<#
+.SYNOPSIS
+Withdraws the Windows loopback-check exemptions registered for the storage server aliases. Returns 'present' (nothing of ours was registered), 'updated', 'whatif', or 'skipped'. No-op off Windows.
+.DESCRIPTION
+The exemption tells LSA to accept NTLM to this machine under a name that is not
+its own, which is only ever correct while the machine serves the share behind
+that name. Once it does not, the entry is a standing weakening of the loopback
+check for a name that now belongs to another server -- so it comes out with the
+share.
+
+The Server service is restarted for the same reason Set-LocalLabStorageLoopbackException
+restarts it: LSA reads the value at service start. Only when something actually
+changed, because that restart drops every live SMB session on the machine.
+#>
+function Remove-LocalLabStorageLoopbackException {
+    [CmdletBinding(SupportsShouldProcess)]
+    [OutputType([string])]
+    param([Parameter(Mandatory)][string[]]$Name)
+    if (-not $IsWindows) { return 'skipped' }
+    $key = 'HKLM:\SYSTEM\CurrentControlSet\Control\Lsa\MSV1_0'
+    $existing = @()
+    try {
+        $existing = @((Get-ItemProperty -Path $key -Name 'BackConnectionHostNames' -ErrorAction Stop).BackConnectionHostNames)
+    } catch {
+        Write-Verbose "BackConnectionHostNames is not set: $($_.Exception.Message)"
+        return 'present'
+    }
+    $kept = Remove-LocalLabStorageBackConnectionName -Existing $existing -Unwanted $Name
+    if ($null -eq $kept) { return 'present' }
+    if (-not $PSCmdlet.ShouldProcess("$key\BackConnectionHostNames", "Remove $($Name -join ', ')")) { return 'whatif' }
+    if ($kept.Count -eq 0) {
+        # An empty MultiString and an absent value are not the same to LSA on
+        # every build; removing the value is the state the machine was in before
+        # this module ever ran, so that is what a full teardown restores.
+        Remove-ItemProperty -Path $key -Name 'BackConnectionHostNames' -Force -ErrorAction SilentlyContinue
+    } else {
+        New-ItemProperty -Path $key -Name 'BackConnectionHostNames' -Value $kept -PropertyType MultiString -Force -ErrorAction Stop | Out-Null
+    }
+    try {
+        Restart-Service -Name 'LanmanServer' -Force -ErrorAction Stop
+    } catch {
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_3e005e070aefee8b' -Arguments @{ message = "$($_.Exception.Message)" })
+    }
+    return 'updated'
+}
+
+<#
+.SYNOPSIS
+Reports what a storage folder holds and how much disk it occupies, for an operator deciding whether to delete it. Returns Path, Exists, FileCount, and Bytes; never throws.
+.DESCRIPTION
+The number is the whole point of this function: "delete the storage root" is a
+decision nobody can make from a path alone, and a teardown that prints the
+command without the size is asking the operator to guess whether it is worth
+running.
+
+Unreadable subtrees are counted as far as they can be walked rather than
+failing the report. A partial number with the folder named beats no number: the
+operator is choosing between "reclaim this" and "leave it", and either answer is
+better informed by a floor on the size than by an error.
+#>
+function Get-LocalLabStorageFolderReport {
+    [CmdletBinding()]
+    [OutputType([pscustomobject])]
+    param([Parameter(Mandatory)][AllowEmptyString()][string]$Path)
+    $report = [pscustomobject]@{ Path = $Path; Exists = $false; FileCount = 0; Bytes = [long]0 }
+    if ([string]::IsNullOrWhiteSpace($Path) -or -not (Test-Path -LiteralPath $Path)) { return $report }
+    $report.Exists = $true
+    try {
+        $files = @(Get-ChildItem -LiteralPath $Path -Recurse -File -Force -ErrorAction SilentlyContinue)
+        $report.FileCount = $files.Count
+        $sum = [long]0
+        foreach ($f in $files) { $sum += [long]$f.Length }
+        $report.Bytes = $sum
+    } catch {
+        Write-Verbose "Get-LocalLabStorageFolderReport($Path): $($_.Exception.Message)"
+    }
+    return $report
+}
+
+<#
+.SYNOPSIS
+Formats a byte count the way an operator reads a disk figure. Pure.
+#>
+function Format-LocalLabStorageSize {
+    [CmdletBinding()]
+    [OutputType([string])]
+    param([Parameter(Mandatory)][long]$Bytes)
+    if ($Bytes -lt 1KB) { return "$Bytes B" }
+    foreach ($unit in @(
+            @{ Name = 'TB'; Scale = 1TB }, @{ Name = 'GB'; Scale = 1GB },
+            @{ Name = 'MB'; Scale = 1MB }, @{ Name = 'KB'; Scale = 1KB })) {
+        if ($Bytes -ge $unit.Scale) { return ('{0:N1} {1}' -f ($Bytes / $unit.Scale), $unit.Name) }
+    }
+    return "$Bytes B"
+}
+
+<#
+.SYNOPSIS
+Writes the six networkStorage path/account keys (pool and stash) for the supplied tiers into test.config.yml, preserving every other setting. Optionally selects move mode for the pool tier. Returns $true when the file was written.
+.DESCRIPTION
+The document is round-tripped rather than templated, because test.config.yml is per-host and git-ignored: it already holds the operator's project URL, guest sequence, and service ports, none of which this may disturb.
+#>
+function Set-LocalLabStorageConfigValue {
+    [CmdletBinding(SupportsShouldProcess)]
+    [OutputType([bool])]
+    param(
+        [Parameter(Mandatory)][string]$ConfigPath,
+        [Parameter(Mandatory)][object[]]$Tier,
+        # Writing the pool paths already turns archiving on; this selects MOVE mode
+        # (copy, verify, then delete the local folder) over copy-and-keep.
+        [switch]$MoveLogs
+    )
+    if (-not $PSCmdlet.ShouldProcess($ConfigPath, (Format-YurunaOperatorMessage -Key 'runner.operator_e4221568eb65462c'))) { return $false }
+    if (-not (Get-Command ConvertFrom-Yaml -ErrorAction SilentlyContinue) -or -not (Get-Command ConvertTo-Yaml -ErrorAction SilentlyContinue)) {
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_973f6ff9d38d0fc8' -Arguments @{ configPath = "$ConfigPath" })
+        return $false
+    }
+    try {
+        $doc = $null
+        if (Test-Path -LiteralPath $ConfigPath) {
+            $doc = Get-Content -Raw -LiteralPath $ConfigPath | ConvertFrom-Yaml -Ordered
+        }
+        if (-not ($doc -is [System.Collections.IDictionary])) { $doc = [ordered]@{} }
+        if (-not ($doc['networkStorage'] -is [System.Collections.IDictionary])) { $doc['networkStorage'] = [ordered]@{} }
+        $ns = $doc['networkStorage']
+        foreach ($t in $Tier) {
+            $ns["$($t.ConfigPrefix)NetworkPath"] = $t.NetworkPath
+            $ns["$($t.ConfigPrefix)NetworkUser"] = $t.Account
+            $ns["$($t.ConfigPrefix)LocalPath"]   = $t.LocalPath
+        }
+        if (@($Tier | Where-Object { $_.ConfigPrefix -eq 'poolStorage' }).Count -gt 0) {
+            $ns['moveLogsToPoolStorage'] = [bool]$MoveLogs
+        }
+        # A leftover deprecated kill switch is dropped as the document is rewritten,
+        # so a host configured here does not keep tripping the config-gate advisory.
+        if ($doc['pool'] -is [System.Collections.IDictionary]) { $doc['pool'].Remove('networkReplicate') }
+        Import-Module (Join-Path $PSScriptRoot 'Test.ConfigSync.psm1') -Global -DisableNameChecking
+        if (-not (Write-DocumentedTestConfig -ConfigPath $ConfigPath -Config $doc -Confirm:$false)) { return $false }
+        if (Get-Command Clear-TestConfigCache -ErrorAction SilentlyContinue) { Clear-TestConfigCache }
+        return $true
+    } catch {
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_5423a5444e3f68bf' -Arguments @{ configPath = "$ConfigPath"; message = "$($_.Exception.Message)" })
+        return $false
+    }
+}
+
+# Reading a lab vault is Test.Lab's job (Get-YurunaLabVaultPassword) -- the lab
+# vault format has one owner, so a reader here could not drift from the writer
+# there.
+
+Export-ModuleMember -Function `
+    Get-LocalLabStorageSmbAuthVerdict, Test-LocalLabStorageSmbAuth, `
+    Get-LocalLabStoragePlatform, Select-LocalLabStorageDataDrive, Get-LocalLabStorageWindowsDataDrive, `
+    Get-LocalLabStorageDefaultRoot, Get-LocalLabStorageSharePath, Get-LocalLabStorageRootFromShare, `
+    Get-LocalLabStorageShareRoot, `
+    Get-LocalLabStorageShareName, Get-LocalLabStorageServedPath, Test-LocalLabStorageTierStoodUp, `
+    New-LocalLabStorageTier, Get-LocalLabStorageSambaConfig, `
+    Add-LocalLabStorageSambaInclude, Merge-LocalLabStorageBackConnectionName, `
+    Test-LocalLabStorageAccount, Set-LocalLabStorageAccount, Reset-LocalLabStorageAccount, Enable-LocalLabStorageServer, `
+    Set-LocalLabStorageFolderAccess, New-LocalLabStorageShare, Set-LocalLabStorageLoopbackException, `
+    Set-LocalLabStorageLinkedConnection, Set-LocalLabStorageHostAlias, Set-YurunaHostAlias, Wait-YurunaHostAliasResolution, Set-LocalLabStorageConfigValue, `
+    Remove-LocalLabStorageSambaInclude, Remove-LocalLabStorageBackConnectionName, Remove-LocalLabStorageShare, `
+    Remove-LocalLabStorageAccount, Remove-LocalLabStorageLoopbackException, `
+    Get-LocalLabStorageFolderReport, Format-LocalLabStorageSize
+
+# Copyright (c) 2019-2026 by Alisson Sol et al.

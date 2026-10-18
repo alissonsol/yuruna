@@ -1,0 +1,528 @@
+{
+  "uid": "yuruna-pool",
+  "title": "Yuruna hosts",
+  "tags": ["yuruna", "pool"],
+  "schemaVersion": 39,
+  "version": 11,
+  "editable": true,
+  "refresh": "30s",
+  "timezone": "utc",
+  "time": { "from": "now-24h", "to": "now" },
+  "templating": {
+    "list": [
+      {
+        "name": "pool",
+        "type": "constant",
+        "query": ".+",
+        "current": { "text": ".+", "value": ".+" },
+        "hide": 2
+      },
+      {
+        "name": "aggregator",
+        "type": "constant",
+        "query": "AGGREGATOR_BASE_PLACEHOLDER",
+        "current": { "text": "AGGREGATOR_BASE_PLACEHOLDER", "value": "AGGREGATOR_BASE_PLACEHOLDER" },
+        "hide": 2
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 18,
+      "type": "stat",
+      "title": "Lab token",
+      "description": "The lab connection token and the collector's health. Blue when enrollment is open: a joining host redeems the 6-character code (pwsh test/lab/Set-LabToken.ps1 -LabToken CODE); the code is select-and-copy text -- there is no need to retype it. It omits i, l, o, 0 and 1, and a code you have just read stays valid for about three minutes, so there is no need to rush it. Red when the collector behind this dashboard has stopped: every panel may be stale. Gray when the token exchange is off. Details: <a href=\"https://yuruna.link/422226cb\" target=\"_blank\" rel=\"noopener\">Hosts dashboard</a> guide.",
+      "gridPos": { "h": 4, "w": 4, "x": 0, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "yuruna-prometheus" },
+      "targets": [
+        { "refId": "A", "expr": "yuruna_pool_lab_token{pool=~\".+\"}", "instant": true, "legendFormat": "{{token}}", "datasource": { "type": "prometheus", "uid": "yuruna-prometheus" } },
+        { "refId": "B", "expr": "absent(yuruna_pool_collector_up) * 0", "instant": true, "legendFormat": "Collector down", "datasource": { "type": "prometheus", "uid": "yuruna-prometheus" } }
+      ],
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "colorMode": "background", "graphMode": "none", "textMode": "name" },
+      "fieldConfig": { "defaults": { "color": { "mode": "thresholds" }, "noValue": "off", "thresholds": { "mode": "absolute", "steps": [ { "color": "#6b7280", "value": null }, { "color": "red", "value": 0 }, { "color": "blue", "value": 1 } ] } }, "overrides": [] }
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "Hosts total",
+      "description": "Distinct pool hosts seen within the aggregator's host TTL (24h by default, -host-ttl), keyed on the stable hostId (reachable or not). Driven by yuruna_pool_hosts_total from the pool-aggregator-service. Details: <a href=\"https://yuruna.link/422226cb\" target=\"_blank\" rel=\"noopener\">Hosts dashboard</a> guide.",
+      "gridPos": { "h": 4, "w": 4, "x": 4, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "yuruna-prometheus" },
+      "targets": [
+        { "refId": "A", "expr": "sum(yuruna_pool_hosts_total) or vector(0)", "instant": true, "datasource": { "type": "prometheus", "uid": "yuruna-prometheus" } }
+      ],
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "colorMode": "none", "graphMode": "none", "textMode": "value" },
+      "fieldConfig": { "defaults": {}, "overrides": [] }
+    },
+    {
+      "id": 19,
+      "type": "stat",
+      "title": "Success%",
+      "description": "Share of terminal cycles lab-wide that passed, within the selected time range (top-right). Includes historical cycles from hosts no longer in the live table. Shows 'n/a' when no cycle finished in range -- deliberately not 100%, so an idle pool cannot look healthy. Red below 95%, amber below 100%, green at 100%. Details: <a href=\"https://yuruna.link/422226cb\" target=\"_blank\" rel=\"noopener\">Hosts dashboard</a> guide.",
+      "gridPos": { "h": 4, "w": 4, "x": 8, "y": 0 },
+      "datasource": { "type": "loki", "uid": "yuruna-loki" },
+      "targets": [
+        { "refId": "A", "expr": "100 * ((sum(count_over_time({pool=~\".+\"} | json | overallStatus=\"pass\" [$__range])) or (sum(count_over_time({pool=~\".+\"} | json | overallStatus=~\"pass|fail\" [$__range])) * 0)) / sum(count_over_time({pool=~\".+\"} | json | overallStatus=~\"pass|fail\" [$__range])))", "instant": true, "datasource": { "type": "loki", "uid": "yuruna-loki" } }
+      ],
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "colorMode": "background", "graphMode": "none", "textMode": "value" },
+      "fieldConfig": { "defaults": { "unit": "percent", "decimals": 2, "min": 0, "max": 100, "noValue": "n/a", "thresholds": { "mode": "absolute", "steps": [ { "color": "red", "value": null }, { "color": "orange", "value": 95 }, { "color": "green", "value": 100 } ] } }, "overrides": [] }
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "Failed cycles",
+      "description": "Cycles that finished 'fail' across the whole LAB within the dashboard's selected time range (top-right), including hosts no longer in the live table. Counted from the Loki transition log (exact; reaches back to Loki retention, unlike a Prometheus counter window). Green when zero; red when any. Details: <a href=\"https://yuruna.link/422226cb\" target=\"_blank\" rel=\"noopener\">Hosts dashboard</a> guide.",
+      "gridPos": { "h": 4, "w": 4, "x": 12, "y": 0 },
+      "datasource": { "type": "loki", "uid": "yuruna-loki" },
+      "targets": [
+        { "refId": "A", "expr": "sum(count_over_time({pool=~\".+\"} | json | overallStatus=\"fail\" [$__range]))", "instant": true, "datasource": { "type": "loki", "uid": "yuruna-loki" } }
+      ],
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "colorMode": "background", "graphMode": "none", "textMode": "value" },
+      "fieldConfig": { "defaults": { "decimals": 0, "noValue": "0", "thresholds": { "mode": "absolute", "steps": [ { "color": "green", "value": null }, { "color": "red", "value": 1 } ] } }, "overrides": [] }
+    },
+    {
+      "id": 20,
+      "type": "stat",
+      "title": "Total cycles",
+      "description": "Terminal cycles lab-wide within the selected time range, including hosts no longer in the live table; also the denominator behind Success%. A still-running cycle has no terminal status and is not counted. The dashboard is lab-wide -- per-pool figures live on the pool-control board. Details: <a href=\"https://yuruna.link/422226cb\" target=\"_blank\" rel=\"noopener\">Hosts dashboard</a> guide.",
+      "gridPos": { "h": 4, "w": 4, "x": 16, "y": 0 },
+      "datasource": { "type": "loki", "uid": "yuruna-loki" },
+      "targets": [
+        { "refId": "A", "expr": "sum(count_over_time({pool=~\".+\"} | json | overallStatus=~\"pass|fail\" [$__range]))", "instant": true, "datasource": { "type": "loki", "uid": "yuruna-loki" } }
+      ],
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "colorMode": "none", "graphMode": "none", "textMode": "value" },
+      "fieldConfig": { "defaults": { "decimals": 0, "noValue": "0" }, "overrides": [] }
+    },
+    {
+      "id": 21,
+      "type": "stat",
+      "title": "Addresses in use",
+      "description": "MEASURED count of IPv4 addresses the lab holds now: the proxy's observed clients plus registered hosts' addresses, deduplicated. A FLOOR, not a ceiling -- whatever is invisible to both sources is not counted. It says nothing about the DHCP pool: scope size and free leases live on the DHCP server; read those before concluding exhaustion. Details: <a href=\"https://yuruna.link/422226cb\" target=\"_blank\" rel=\"noopener\">Hosts dashboard</a> guide.",
+      "gridPos": { "h": 4, "w": 4, "x": 20, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "yuruna-prometheus" },
+      "targets": [
+        { "refId": "A", "expr": "yuruna_pool_lab_addresses_in_use", "instant": true, "datasource": { "type": "prometheus", "uid": "yuruna-prometheus" } }
+      ],
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "colorMode": "none", "graphMode": "none", "textMode": "value" },
+      "fieldConfig": { "defaults": { "decimals": 0, "noValue": "n/a" }, "overrides": [] }
+    },
+    {
+      "id": 17,
+      "type": "table",
+      "title": "Extension hosts",
+      "description": "Hosts self-reporting an extension function (e.g. stash, pool-control, download-agent) -- the same Host ID namespace as Pool hosts. The Extension link opens that service's UI, already unlocked unless the proxy mints no token. Extension-only hosts have no status page: open hosts from the Pool hosts table instead. Click a Host ID for its full GUID form. Details: <a href=\"https://yuruna.link/422226cb\" target=\"_blank\" rel=\"noopener\">Hosts dashboard</a> guide.",
+      "gridPos": { "h": 4, "w": 24, "x": 0, "y": 22 },
+      "datasource": { "type": "prometheus", "uid": "yuruna-prometheus" },
+      "targets": [
+        { "refId": "A", "expr": "yuruna_pool_host_extension{pool=~\".+\"}", "instant": true, "format": "table", "datasource": { "type": "prometheus", "uid": "yuruna-prometheus" } }
+      ],
+      "transformations": [
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": { "Time": true, "pool": true, "__name__": true, "job": true, "instance": true, "Value": true, "Value #A": true },
+            "renameByName": { "hostId": "Host ID", "area": "Extension" },
+            "indexByName": { "hostId": 0, "area": 1, "hostIdDashed": 2 }
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { "custom": { "align": "left", "cellOptions": { "type": "auto" } } },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "Host ID" },
+            "properties": [
+              { "id": "custom.width", "value": 110 },
+              { "id": "custom.align", "value": "left" },
+              { "id": "mappings", "value": [ { "type": "regex", "options": { "pattern": "^(.{8}).*$", "result": { "text": "$1" } } } ] },
+              { "id": "links", "value": [
+                { "title": "${__data.fields.hostIdDashed}", "url": "#" },
+                { "title": "Open extension service UI", "url": "${aggregator}${__data.fields.goPath}", "targetBlank": true }
+              ] }
+            ]
+          },
+          {
+            "matcher": { "id": "byName", "options": "Extension" },
+            "properties": [
+              { "id": "custom.width", "value": 240 },
+              { "id": "mappings", "value": [ { "type": "value", "options": { "stash-service": { "text": "Stash service", "index": 0 }, "pool-control-service": { "text": "Pool-control service", "index": 1 }, "download-agent-service": { "text": "Download-agent service", "index": 2 }, "caching-proxy-service": { "text": "Caching-proxy service", "index": 3 } } } ] },
+              { "id": "links", "value": [ { "title": "Open extension service UI", "url": "${aggregator}${__data.fields.goPath}", "targetBlank": true } ] }
+            ]
+          },
+          { "matcher": { "id": "byName", "options": "baseUrl" }, "properties": [ { "id": "custom.hidden", "value": true } ] },
+          { "matcher": { "id": "byName", "options": "target" }, "properties": [ { "id": "custom.hidden", "value": true } ] },
+          { "matcher": { "id": "byName", "options": "goPath" }, "properties": [ { "id": "custom.hidden", "value": true } ] },
+          { "matcher": { "id": "byName", "options": "hostIdDashed" }, "properties": [ { "id": "custom.hidden", "value": true } ] }
+        ]
+      },
+      "options": { "showHeader": true, "cellHeight": "sm", "footer": { "show": false }, "sortBy": [ { "displayName": "Host ID", "desc": false } ] }
+    },
+    {
+      "id": 6,
+      "type": "table",
+      "title": "Pool hosts",
+      "description": "One row per discovered host, named only by its opaque Host ID -- hostname-free, safe to expose unauthenticated. Pass and Fail combine cycles from this ID and any prior ID handed over to it within the selected time range. Watch Status first: 'runner stopped' means the results below are a record, not a live reading. Control says whether the host link will let you drive the host ('remote' works; 'onsite' will 403); the link always opens read-only. Details: <a href=\"https://yuruna.link/422226cb\" target=\"_blank\" rel=\"noopener\">Hosts dashboard</a> guide.",
+      "gridPos": { "h": 9, "w": 24, "x": 0, "y": 13 },
+      "datasource": { "type": "datasource", "uid": "-- Mixed --" },
+      "targets": [
+        { "refId": "A", "expr": "topk(1, yuruna_pool_host_info{pool=~\".+\"}) by (hostId) unless on(hostId) yuruna_pool_host_retired", "instant": true, "format": "table", "datasource": { "type": "prometheus", "uid": "yuruna-prometheus" } },
+        { "refId": "B", "expr": "(time() - yuruna_pool_host_last_seen_seconds{pool=~\".+\"}) unless on(hostId) yuruna_pool_host_retired", "instant": true, "format": "table", "datasource": { "type": "prometheus", "uid": "yuruna-prometheus" } },
+        { "refId": "C", "expr": "sum by (hostId) (count_over_time({pool=~\".+\"} | json | overallStatus=\"pass\" [$__range])) or (sum by (hostId) (count_over_time({pool=~\".+\"} | json | overallStatus=~\"pass|fail\" [$__range])) * 0)", "instant": true, "format": "table", "datasource": { "type": "loki", "uid": "yuruna-loki" } },
+        { "refId": "D", "expr": "sum by (hostId) (count_over_time({pool=~\".+\"} | json | overallStatus=\"fail\" [$__range])) or (sum by (hostId) (count_over_time({pool=~\".+\"} | json | overallStatus=~\"pass|fail\" [$__range])) * 0)", "instant": true, "format": "table", "datasource": { "type": "loki", "uid": "yuruna-loki" } },
+        { "refId": "E", "expr": "(topk(1, yuruna_pool_host_canonical_info) by (hostId)) * 1", "instant": true, "format": "table", "datasource": { "type": "prometheus", "uid": "yuruna-prometheus" } }
+      ],
+      "transformations": [
+        { "id": "merge", "options": {} },
+        { "id": "groupBy", "options": { "fields": {
+          "canonicalHostId": { "aggregations": [], "operation": "groupby" },
+          "control": { "aggregations": ["lastNotNull"], "operation": "aggregate" },
+          "version": { "aggregations": ["lastNotNull"], "operation": "aggregate" },
+          "commit": { "aggregations": ["lastNotNull"], "operation": "aggregate" },
+          "status": { "aggregations": ["lastNotNull"], "operation": "aggregate" },
+          "hostType": { "aggregations": ["lastNotNull"], "operation": "aggregate" },
+          "Value #D": { "aggregations": ["sum"], "operation": "aggregate" },
+          "Value #C": { "aggregations": ["sum"], "operation": "aggregate" },
+          "Value #B": { "aggregations": ["lastNotNull"], "operation": "aggregate" },
+          "cycleStartUtc": { "aggregations": ["lastNotNull"], "operation": "aggregate" },
+          "baseUrl": { "aggregations": ["lastNotNull"], "operation": "aggregate" },
+          "cycleFolderUrl": { "aggregations": ["lastNotNull"], "operation": "aggregate" },
+          "commitUrl": { "aggregations": ["lastNotNull"], "operation": "aggregate" },
+          "projectCommitUrl": { "aggregations": ["lastNotNull"], "operation": "aggregate" },
+          "hostIdDashed": { "aggregations": ["lastNotNull"], "operation": "aggregate" }
+        } } },
+        { "id": "filterByValue", "options": { "filters": [ { "config": { "id": "isNotNull", "options": {} }, "fieldName": "baseUrl (lastNotNull)" } ], "match": "all", "type": "include" } },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {},
+            "renameByName": {
+              "canonicalHostId": "Host ID",
+              "control (lastNotNull)": "Control",
+              "hostType (lastNotNull)": "Type",
+              "version (lastNotNull)": "Version",
+              "commit (lastNotNull)": "Commit",
+              "status (lastNotNull)": "Status",
+              "cycleStartUtc (lastNotNull)": "Last cycle",
+              "Value #B (lastNotNull)": "Last seen",
+              "Value #C (sum)": "Pass",
+              "Value #D (sum)": "Fail",
+              "baseUrl (lastNotNull)": "baseUrl",
+              "cycleFolderUrl (lastNotNull)": "cycleFolderUrl",
+              "commitUrl (lastNotNull)": "commitUrl",
+              "projectCommitUrl (lastNotNull)": "projectCommitUrl",
+              "hostIdDashed (lastNotNull)": "hostIdDashed"
+            },
+            "indexByName": {
+              "canonicalHostId": 0,
+              "control (lastNotNull)": 1,
+              "version (lastNotNull)": 2,
+              "commit (lastNotNull)": 3,
+              "status (lastNotNull)": 4,
+              "hostType (lastNotNull)": 5,
+              "Value #D (sum)": 6,
+              "Value #C (sum)": 7,
+              "Value #B (lastNotNull)": 8,
+              "cycleStartUtc (lastNotNull)": 9,
+              "baseUrl (lastNotNull)": 10,
+              "cycleFolderUrl (lastNotNull)": 11,
+              "commitUrl (lastNotNull)": 12,
+              "projectCommitUrl (lastNotNull)": 13,
+              "hostIdDashed (lastNotNull)": 14
+            }
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { "custom": { "align": "left", "cellOptions": { "type": "auto" } } },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "Status" },
+            "properties": [
+              { "id": "custom.width", "value": 240 },
+              { "id": "custom.cellOptions", "value": { "type": "color-background", "mode": "basic" } },
+              {
+                "id": "mappings",
+                "value": [
+                  { "type": "value", "options": {
+                    "pass": { "color": "#16a34a", "index": 0 },
+                    "fail": { "color": "#dc2626", "index": 1 },
+                    "running": { "color": "#2563eb", "index": 2 },
+                    "idle": { "text": "not running", "color": "#6b7280", "index": 3 },
+                    "unreachable": { "color": "#374151", "index": 4 },
+                    "paused": { "color": "#ca8a04", "index": 5 },
+                    "pausing-cycle": { "text": "pausing (after cycle)", "color": "#eab308", "index": 6 },
+                    "pausing-step": { "text": "pausing (after step)", "color": "#f59e0b", "index": 7 },
+                    "stopped": { "text": "runner stopped", "color": "#475569", "index": 8 }
+                  } }
+                ]
+              }
+            ]
+          },
+          {
+            "matcher": { "id": "byName", "options": "Host ID" },
+            "properties": [
+              { "id": "custom.width", "value": 110 },
+              { "id": "custom.align", "value": "left" },
+              { "id": "mappings", "value": [ { "type": "regex", "options": { "pattern": "^(.{8}).*$", "result": { "text": "$1" } } } ] },
+              { "id": "links", "value": [
+                { "title": "${__data.fields.hostIdDashed}", "url": "#" },
+                { "title": "Open host status page", "url": "${aggregator}/go/host?host=${__data.fields.hostIdDashed}&pool=${pool}", "targetBlank": true }
+              ] }
+            ]
+          },
+          {
+            "matcher": { "id": "byName", "options": "Control" },
+            "properties": [
+              { "id": "custom.width", "value": 100 },
+              { "id": "custom.cellOptions", "value": { "type": "color-text" } },
+              { "id": "mappings", "value": [ { "type": "value", "options": {
+                "ready": { "text": "remote", "color": "#16a34a", "index": 0 },
+                "none": { "text": "onsite", "color": "#9ca3af", "index": 1 },
+                "mismatch": { "text": "onsite (token mismatch)", "color": "#eab308", "index": 2 },
+                "skew": { "text": "onsite (clock skew)", "color": "#eab308", "index": 3 },
+                "unknown": { "text": "unknown", "color": "#9ca3af", "index": 4 }
+              } } ] },
+              { "id": "links", "value": [ { "title": "Open host status page", "url": "${aggregator}/go/host?host=${__data.fields.hostIdDashed}&pool=${pool}", "targetBlank": true } ] }
+            ]
+          },
+          {
+            "matcher": { "id": "byName", "options": "Type" },
+            "properties": [ { "id": "custom.width", "value": 180 } ]
+          },
+          {
+            "matcher": { "id": "byName", "options": "Last cycle" },
+            "properties": [
+              { "id": "custom.width", "value": 180 },
+              { "id": "links", "value": [ { "title": "Open cycle folder", "url": "${__data.fields.baseUrl}/${__data.fields.cycleFolderUrl}", "targetBlank": true } ] }
+            ]
+          },
+          {
+            "matcher": { "id": "byName", "options": "Version" },
+            "properties": [ { "id": "custom.width", "value": 100 } ]
+          },
+          {
+            "matcher": { "id": "byName", "options": "Commit" },
+            "properties": [
+              { "id": "custom.width", "value": 150 },
+              { "id": "links", "value": [
+                { "title": "Open framework commit", "url": "${__data.fields.commitUrl}", "targetBlank": true },
+                { "title": "Open project commit", "url": "${__data.fields.projectCommitUrl}", "targetBlank": true }
+              ] }
+            ]
+          },
+          {
+            "matcher": { "id": "byName", "options": "Last seen" },
+            "properties": [ { "id": "unit", "value": "s" }, { "id": "decimals", "value": 0 }, { "id": "custom.align", "value": "right" }, { "id": "custom.width", "value": 100 } ]
+          },
+          {
+            "matcher": { "id": "byName", "options": "Pass" },
+            "properties": [ { "id": "unit", "value": "short" }, { "id": "decimals", "value": 0 }, { "id": "noValue", "value": "0" }, { "id": "custom.align", "value": "right" }, { "id": "custom.width", "value": 100 } ]
+          },
+          {
+            "matcher": { "id": "byName", "options": "Fail" },
+            "properties": [ { "id": "unit", "value": "short" }, { "id": "decimals", "value": 0 }, { "id": "noValue", "value": "0" }, { "id": "custom.align", "value": "right" }, { "id": "custom.width", "value": 100 }, { "id": "custom.cellOptions", "value": { "type": "color-text" } }, { "id": "thresholds", "value": { "mode": "absolute", "steps": [ { "color": "text", "value": null }, { "color": "red", "value": 1 } ] } } ]
+          },
+          {
+            "matcher": { "id": "byName", "options": "baseUrl" },
+            "properties": [ { "id": "custom.hidden", "value": true } ]
+          },
+          {
+            "matcher": { "id": "byName", "options": "cycleFolderUrl" },
+            "properties": [ { "id": "custom.hidden", "value": true } ]
+          },
+          {
+            "matcher": { "id": "byName", "options": "commitUrl" },
+            "properties": [ { "id": "custom.hidden", "value": true } ]
+          },
+          {
+            "matcher": { "id": "byName", "options": "projectCommitUrl" },
+            "properties": [ { "id": "custom.hidden", "value": true } ]
+          },
+          {
+            "matcher": { "id": "byName", "options": "hostIdDashed" },
+            "properties": [ { "id": "custom.hidden", "value": true } ]
+          }
+        ]
+      },
+      "options": { "showHeader": true, "cellHeight": "sm", "footer": { "show": false }, "sortBy": [ { "displayName": "Status", "desc": true } ] }
+    },
+    {
+      "id": 7,
+      "type": "state-timeline",
+      "title": "Cycle outcome over time (host x UTC time)",
+      "description": "One row per host, one color per observed cycle status; times are UTC. Click a block for that host's actions: its full GUID id, 'open cycle results' (follows the host's current address, and still works after logs moved to the share), 'share cycle results' (packs the cycle into a tar.gz on the host to mail -- that page uploads nothing). Details: <a href=\"https://yuruna.link/422226cb\" target=\"_blank\" rel=\"noopener\">Hosts dashboard</a> guide.",
+      "gridPos": { "h": 9, "w": 24, "x": 0, "y": 4 },
+      "datasource": { "type": "prometheus", "uid": "yuruna-prometheus" },
+      "targets": [
+        { "refId": "A", "expr": "yuruna_pool_host_status{pool=~\"$pool\", hostname=\"\"}", "legendFormat": "{{hostId}}", "range": true, "datasource": { "type": "prometheus", "uid": "yuruna-prometheus" } }
+      ],
+      "transformations": [
+        { "id": "renameByRegex", "options": { "regex": ".*?([0-9a-fA-F]{8})[0-9a-fA-F]{24}.*", "renamePattern": "$1" } }
+      ],
+      "options": { "mergeValues": true, "showValue": "auto", "alignValue": "left", "rowHeight": 0.9, "tooltip": { "mode": "single" }, "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true } },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "links": [
+            {
+              "title": "${__field.labels.hostIdDashed}",
+              "url": "#"
+            },
+            {
+              "title": "Open cycle results for this host at this time",
+              "url": "${aggregator}/go/cycle?host=${__field.labels.hostId}&t=${__value.time}&pool=${pool}",
+              "targetBlank": true
+            },
+            {
+              "title": "Open host status page",
+              "url": "${aggregator}/go/host?host=${__field.labels.hostId}&pool=${pool}",
+              "targetBlank": true
+            },
+            {
+              "title": "Share cycle results",
+              "url": "${aggregator}/go/cycle-share?host=${__field.labels.hostId}&t=${__value.time}&pool=${pool}",
+              "targetBlank": true
+            }
+          ],
+          "mappings": [
+            { "type": "value", "options": {
+              "0": { "text": "unreachable", "color": "#cbd5e1", "index": 0 },
+              "1": { "text": "running", "color": "#3b82f6", "index": 1 },
+              "2": { "text": "pass", "color": "#16a34a", "index": 2 },
+              "3": { "text": "fail", "color": "#ef4444", "index": 3 },
+              "4": { "text": "not running", "color": "#94a3b8", "index": 4 },
+              "5": { "text": "paused", "color": "#ca8a04", "index": 5 },
+              "6": { "text": "pausing (after cycle)", "color": "#eab308", "index": 6 },
+              "7": { "text": "pausing (after step)", "color": "#f59e0b", "index": 7 },
+              "8": { "text": "runner stopped", "color": "#64748b", "index": 8 }
+            } }
+          ],
+          "thresholds": { "mode": "absolute", "steps": [ { "color": "#cbd5e1", "value": null }, { "color": "#3b82f6", "value": 1 }, { "color": "#16a34a", "value": 2 }, { "color": "#ef4444", "value": 3 }, { "color": "#94a3b8", "value": 4 }, { "color": "#ca8a04", "value": 5 }, { "color": "#eab308", "value": 6 }, { "color": "#f59e0b", "value": 7 }, { "color": "#64748b", "value": 8 } ] }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 8,
+      "type": "row",
+      "title": "Drill-down: incidents & cycle events",
+      "collapsed": true,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 26 },
+      "panels": [
+        {
+          "id": 13,
+          "type": "logs",
+          "title": "Incidents (open / resolved)",
+          "description": "Incident lifecycle: a host opens an incident at N or more failed cycles within a trailing window (default 3 in 2h) and resolves once the window clears. Each line carries the incident's failure class; a cross-host incident requires the same class on every host. From the aggregator's incident correlation (src=incident in Loki). Details: <a href=\"https://yuruna.link/422226cb\" target=\"_blank\" rel=\"noopener\">Hosts dashboard</a> guide.",
+          "gridPos": { "h": 8, "w": 24, "x": 0, "y": 24 },
+          "datasource": { "type": "loki", "uid": "yuruna-loki" },
+          "targets": [
+            { "refId": "A", "expr": "{pool=~\"$pool\", src=\"incident\"} | json", "datasource": { "type": "loki", "uid": "yuruna-loki" } }
+          ],
+          "options": { "showTime": true, "showLabels": false, "sortOrder": "Descending", "wrapLogMessage": true, "dedupStrategy": "none", "enableLogDetails": true }
+        },
+        {
+          "id": 15,
+          "type": "table",
+          "title": "Failures by class & severity (window)",
+          "description": "The failure-class histogram: step_failure events over the dashboard time range, grouped by failureClass + severity. Driven by the per-step NDJSON tailed into Loki (src=event, event=step_failure). Sorted by count -- the dominant failure modes across the pool. Details: <a href=\"https://yuruna.link/422226cb\" target=\"_blank\" rel=\"noopener\">Hosts dashboard</a> guide.",
+          "gridPos": { "h": 8, "w": 24, "x": 0, "y": 32 },
+          "datasource": { "type": "loki", "uid": "yuruna-loki" },
+          "targets": [
+            { "refId": "A", "expr": "sum by (failureClass, severity) (count_over_time({pool=~\"$pool\", src=\"event\"} | json | event=\"step_failure\" [$__range]))", "instant": true, "format": "table", "datasource": { "type": "loki", "uid": "yuruna-loki" } }
+          ],
+          "transformations": [
+            { "id": "organize", "options": { "excludeByName": { "Time": true }, "renameByName": { "failureClass": "Failure class", "severity": "Severity", "Value": "Count", "Value #A": "Count" } } }
+          ],
+          "options": { "showHeader": true, "cellHeight": "sm", "footer": { "show": false }, "sortBy": [ { "displayName": "Count", "desc": true } ] }
+        },
+        {
+          "id": 10,
+          "type": "logs",
+          "title": "Recent step failures across the pool (which step failed)",
+          "description": "step_failure events tailed from each host's per-cycle NDJSON: the failing step's action, number, failure class, severity and reason, per host/cycle. Expand a line for full detail; the table's deep-links open that host's full cycle artifacts. Details: <a href=\"https://yuruna.link/422226cb\" target=\"_blank\" rel=\"noopener\">Hosts dashboard</a> guide.",
+          "gridPos": { "h": 9, "w": 24, "x": 0, "y": 40 },
+          "datasource": { "type": "loki", "uid": "yuruna-loki" },
+          "targets": [
+            { "refId": "A", "expr": "{pool=~\"$pool\", src=\"event\"} | json | event=\"step_failure\"", "datasource": { "type": "loki", "uid": "yuruna-loki" } }
+          ],
+          "options": { "showTime": true, "showLabels": false, "sortOrder": "Descending", "wrapLogMessage": true, "dedupStrategy": "none", "enableLogDetails": true }
+        },
+        {
+          "id": 11,
+          "type": "logs",
+          "title": "Cycle event stream across the pool (all steps)",
+          "description": "Every per-cycle NDJSON event (cycle_start / step_end / step_failure / typed sub-events) tailed from each host. Use the Grafana log search to filter, e.g. cycleStartUtc=... or event=step_end. Details: <a href=\"https://yuruna.link/422226cb\" target=\"_blank\" rel=\"noopener\">Hosts dashboard</a> guide.",
+          "gridPos": { "h": 10, "w": 24, "x": 0, "y": 49 },
+          "datasource": { "type": "loki", "uid": "yuruna-loki" },
+          "targets": [
+            { "refId": "A", "expr": "{pool=~\"$pool\", src=\"event\"} | json", "datasource": { "type": "loki", "uid": "yuruna-loki" } }
+          ],
+          "options": { "showTime": true, "showLabels": false, "sortOrder": "Descending", "wrapLogMessage": true, "dedupStrategy": "none", "enableLogDetails": true }
+        },
+        {
+          "id": 9,
+          "type": "logs",
+          "title": "Cycle status transitions across the pool (24h)",
+          "description": "One line each time a host's cycle changes state (running -> pass/fail), from the status.json poll: hostId, cycleStartUtc, overallStatus and a baseUrl for drill-down. The cycle-level audit trail behind the table and timeline above. Details: <a href=\"https://yuruna.link/422226cb\" target=\"_blank\" rel=\"noopener\">Hosts dashboard</a> guide.",
+          "gridPos": { "h": 9, "w": 24, "x": 0, "y": 59 },
+          "datasource": { "type": "loki", "uid": "yuruna-loki" },
+          "targets": [
+            { "refId": "A", "expr": "{pool=~\"$pool\"} | json | overallStatus=~\".+\"", "datasource": { "type": "loki", "uid": "yuruna-loki" } }
+          ],
+          "options": { "showTime": true, "showLabels": true, "sortOrder": "Descending", "wrapLogMessage": true, "dedupStrategy": "none", "enableLogDetails": true }
+        },
+        {
+          "id": 16,
+          "type": "table",
+          "title": "Incidents by failure class (window)",
+          "description": "Per-host incidents over the dashboard time range, grouped by the dominant failure class carried ON the incident object (dominantClass on the src=incident open line). Distinct from 'Failures by class & severity' above, which counts step_failure events regardless of whether they formed an incident -- this counts the incidents themselves. Sorted by count. Details: <a href=\"https://yuruna.link/422226cb\" target=\"_blank\" rel=\"noopener\">Hosts dashboard</a> guide.",
+          "gridPos": { "h": 8, "w": 24, "x": 0, "y": 68 },
+          "datasource": { "type": "loki", "uid": "yuruna-loki" },
+          "targets": [
+            { "refId": "A", "expr": "sum by (dominantClass) (count_over_time({pool=~\"$pool\", src=\"incident\"} | json | event=\"incident_open\" [$__range]))", "instant": true, "format": "table", "datasource": { "type": "loki", "uid": "yuruna-loki" } }
+          ],
+          "transformations": [
+            { "id": "organize", "options": { "excludeByName": { "Time": true }, "renameByName": { "dominantClass": "Failure class", "Value": "Incidents", "Value #A": "Incidents" } } }
+          ],
+          "options": { "showHeader": true, "cellHeight": "sm", "footer": { "show": false }, "sortBy": [ { "displayName": "Incidents", "desc": true } ] }
+        }
+      ]
+    },
+    {
+      "id": 22,
+      "type": "row",
+      "title": "Drill-down: host memory",
+      "collapsed": true,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 27 },
+      "panels": [
+        {
+          "id": 23,
+          "type": "timeseries",
+          "title": "Available memory per host",
+          "description": "Physical memory each pool host has free, read from the metrics exporter running on the host itself; only hosts that run one appear. Series are keyed on hostId -- the identity the tables above use -- so a host keeps one line across an address change.",
+          "gridPos": { "h": 8, "w": 12, "x": 0, "y": 28 },
+          "datasource": { "type": "prometheus", "uid": "yuruna-prometheus" },
+          "targets": [
+            { "refId": "A", "expr": "windows_memory_available_bytes{pool=~\"$pool\"}", "legendFormat": "{{hostId}}", "range": true, "datasource": { "type": "prometheus", "uid": "yuruna-prometheus" } }
+          ],
+          "fieldConfig": { "defaults": { "unit": "bytes", "custom": { "lineWidth": 1, "fillOpacity": 5, "showPoints": "never" } }, "overrides": [] },
+          "options": { "legend": { "displayMode": "table", "placement": "right", "calcs": [ "min", "lastNotNull" ] }, "tooltip": { "mode": "multi", "sort": "desc" } }
+        },
+        {
+          "id": 24,
+          "type": "timeseries",
+          "title": "Commit headroom per host",
+          "description": "Commit limit minus committed bytes: how much more memory a host can still promise before an allocation is refused outright. A virtual machine asks for its whole allocation at once, so this floor -- not free physical memory -- is what such a request is measured against, and it moves while the paging file is being resized.",
+          "gridPos": { "h": 8, "w": 12, "x": 12, "y": 28 },
+          "datasource": { "type": "prometheus", "uid": "yuruna-prometheus" },
+          "targets": [
+            { "refId": "A", "expr": "windows_memory_commit_limit{pool=~\"$pool\"} - windows_memory_committed_bytes{pool=~\"$pool\"}", "legendFormat": "{{hostId}}", "range": true, "datasource": { "type": "prometheus", "uid": "yuruna-prometheus" } }
+          ],
+          "fieldConfig": { "defaults": { "unit": "bytes", "custom": { "lineWidth": 1, "fillOpacity": 5, "showPoints": "never" } }, "overrides": [] },
+          "options": { "legend": { "displayMode": "table", "placement": "right", "calcs": [ "min", "lastNotNull" ] }, "tooltip": { "mode": "multi", "sort": "desc" } }
+        }
+      ]
+    }
+  ]
+}

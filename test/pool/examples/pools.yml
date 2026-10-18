@@ -1,0 +1,24 @@
+# LICENSEURI https://yuruna.link/license
+# Copyright (c) 2019-2026 by Alisson Sol et al.
+# See https://yuruna.link/42010605-0004
+schemaVersion: 4
+pools:
+  - poolId: lab
+    poolGuid: 42a1b2c3-d4e5-4f60-8a1b-2c3d4e5f6071
+    displayName: Lab pool
+    members:
+      - 42abcdef0123456789abcdef01234567
+      - 4200112233445566778899aabbccddee
+    repositories:
+      frameworkUrl: https://github.com/alissonsol/yuruna
+      projectUrl: https://github.com/alissonsol/yuruna-project
+    config:
+      testCycle:
+        stepTimeoutSeconds: 45
+    gating:
+      failuresBeforeAlert: 3
+      successesBeforeRearm: 2
+      quorum:
+        healthyThreshold: 0.5
+        degradedAfterSeconds: 1800
+    configuredState: run

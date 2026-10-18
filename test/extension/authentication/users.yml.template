@@ -1,0 +1,74 @@
+# yaml-language-server: $schema=../../schemas/users.schema.yml
+
+# See https://yuruna.link/42e220c4-0013
+
+# --- REGION: strict
+strict: false
+
+# --- REGION: users
+users:
+
+  # Default Yuruna test users -- one per bundled guest OS. Out of the
+  # box, no corporate mapping: cloud-init creates these as local OS
+  # accounts with vault-auto-generated passwords.
+
+  yuuser24:
+    localOsUser: yuuser24
+    corporate:   { domain: "", sam: "", upn: "" }
+    vaultKey:           ""
+    localOsPasswordRef: ""
+
+  yuuser26:
+    localOsUser: yuuser26
+    corporate:   { domain: "", sam: "", upn: "" }
+    vaultKey:           ""
+    localOsPasswordRef: ""
+
+  yauser1:
+    localOsUser: yauser1
+    corporate:   { domain: "", sam: "", upn: "" }
+    vaultKey:           ""
+    localOsPasswordRef: ""
+
+  ywuser1:
+    localOsUser: ywuser1
+    corporate:   { domain: "", sam: "", upn: "" }
+    vaultKey:           ""
+    localOsPasswordRef: ""
+
+  # Administrators of the service VMs a host brings up. Each VM family has its
+  # OWN account so the vault entries stay independent: with a shared name there
+  # is one vault password, and the most recently built VM invalidates the console
+  # credential of the others. Declared here so strict mode does not refuse a
+  # cycle that references them. Cross-cycle persistence of the cache VM's password
+  # is owned by Test.CachingProxyService (status/runtime/yuruna-caching-proxy-service.yml).
+  caching-proxy-service-admin:
+    localOsUser: caching-proxy-service-admin
+    corporate:   { domain: "", sam: "", upn: "" }
+    vaultKey:           ""
+    localOsPasswordRef: ""
+
+  pool-control-service-admin:
+    localOsUser: pool-control-service-admin
+    corporate:   { domain: "", sam: "", upn: "" }
+    vaultKey:           ""
+    localOsPasswordRef: ""
+
+  stash-admin:
+    localOsUser: stash-admin
+    corporate:   { domain: "", sam: "", upn: "" }
+    vaultKey:           ""
+    localOsPasswordRef: ""
+
+  download-agent-service-admin:
+    localOsUser: download-agent-service-admin
+    corporate:   { domain: "", sam: "", upn: "" }
+    vaultKey:           ""
+    localOsPasswordRef: ""
+
+  # See https://yuruna.link/42e220c4-0013
+  internal-auth-key:
+    localOsUser: ""
+    corporate:   { domain: "", sam: "", upn: "" }
+    vaultKey:           ""
+    localOsPasswordRef: ""

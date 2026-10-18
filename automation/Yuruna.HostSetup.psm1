@@ -1,0 +1,163 @@
+<#PSScriptInfo
+.VERSION 2026.10.14
+.GUID 42f9c804-966c-4de0-8a8d-1919e7a84b1a
+.AUTHOR Alisson Sol et al.
+.COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
+.TAGS yuruna host bootstrap enable-test-automation
+.LICENSEURI https://yuruna.link/license
+.PROJECTURI https://yuruna.com
+.ICONURI
+.EXTERNALMODULEDEPENDENCIES
+.REQUIREDSCRIPTS
+.EXTERNALSCRIPTDEPENDENCIES
+.RELEASENOTES
+.PRIVATEDATA
+#>
+
+#requires -version 7
+
+Import-Module (Join-Path $PSScriptRoot 'Yuruna.Globalization.psm1') -DisableNameChecking
+
+
+<#
+.SYNOPSIS
+    Shared bootstrap for every host-platform Enable-TestAutomation.ps1.
+.DESCRIPTION
+    Three platform scripts ([host/windows.hyper-v/Enable-TestAutomation.ps1](../host/windows.hyper-v/Enable-TestAutomation.ps1),
+    [host/macos.utm/Enable-TestAutomation.ps1](../host/macos.utm/Enable-TestAutomation.ps1),
+    [host/ubuntu.kvm/Enable-TestAutomation.ps1](../host/ubuntu.kvm/Enable-TestAutomation.ps1))
+    otherwise each hand-roll the same 10-line bootstrap: locate Test.HostContract.psm1
+    two folders up, suppress -Verbose echo during the import, then install
+    powershell-yaml + PSScriptAnalyzer so the cycle planner and the lint gate can
+    resolve their dependencies. This module collapses that bootstrap into a single
+    call, so a new prerequisite is one edit instead of three identical ones.
+
+    Unix callers also need to prime sudo BEFORE the long
+    `Install-PowerShellYamlIfMissing` step so the password prompt fires
+    early (with reason banner) instead of after a silent 30-second wait
+    -- the `-SudoCacheReason` parameter wires that in without forcing
+    every caller to know about Initialize-SudoCache.
+#>
+
+function Select-HostSetupForwardParameter {
+    <#
+    .SYNOPSIS
+        The subset of a caller's bound parameters that a target command can
+        actually bind.
+    .DESCRIPTION
+        A caller hands over its whole $PSBoundParameters, which carries its OWN
+        parameters as well as the common ones -- the platform scripts declare
+        -SkipPoolStorage, and the install helpers have never heard of it.
+        Splatting the lot is a terminating "a parameter cannot be found that
+        matches parameter name" that kills host setup before a single setting is
+        applied, and the failure names an install helper the operator never
+        called.
+
+        Filtering against the target's own parameter metadata, rather than a
+        list of names to drop kept here, keeps this correct when either side
+        gains a parameter. -WhatIf and -Confirm still pass through: a
+        ShouldProcess-supporting target declares them.
+    .OUTPUTS
+        System.Collections.Hashtable
+    #>
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param(
+        [hashtable]$BoundParameters = @{},
+        [Parameter(Mandatory)][string]$CommandName
+    )
+    $forwarded = @{}
+    $target = Get-Command -Name $CommandName -ErrorAction SilentlyContinue
+    if (-not $target) { return $forwarded }
+    foreach ($name in $BoundParameters.Keys) {
+        if ($target.Parameters.ContainsKey($name)) { $forwarded[$name] = $BoundParameters[$name] }
+    }
+    return $forwarded
+}
+
+function Initialize-HostSetupModule {
+    <#
+    .SYNOPSIS
+        Import Test.HostContract.psm1, optionally prime sudo, then install
+        powershell-yaml and PSScriptAnalyzer.
+    .PARAMETER RepoRoot
+        Absolute path to the repository root. Callers compute this as
+        `Split-Path -Parent (Split-Path -Parent $PSScriptRoot)` because
+        every Enable-TestAutomation.ps1 lives at
+        host/<short>/Enable-TestAutomation.ps1.
+    .PARAMETER BoundParameters
+        Caller's $PSBoundParameters. Forwarded to the Install-* helpers so
+        -WhatIf reaches the install step (otherwise -WhatIf on the entry
+        point script wouldn't suppress the actual Install-Module call).
+        Only the parameters a helper can bind are passed on -- see
+        Select-HostSetupForwardParameter.
+    .PARAMETER SudoCacheReason
+        When set, Initialize-SudoCache runs after the contract import and
+        before the install pair. The reasons list shows in the prompt
+        banner so the operator sees WHAT will need sudo before they
+        consent. Linux and macOS callers pass this before installing modules;
+        a platform without Initialize-SudoCache skips the call.
+    .PARAMETER SkipModuleInstall
+        Install nothing from PSGallery: each of the two modules that is
+        missing gets a warning naming the command that installs it, and
+        nothing else happens. For a caller that must finish without a
+        network download or a repository-trust prompt -- a run with nobody
+        watching, or one that has to stay inside a bounded budget. The
+        contract import still happens; it changes nothing on the host.
+    #>
+    [CmdletBinding(SupportsShouldProcess)]
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+        Justification = 'Forwards to Install-* helpers that gate writes via their own ShouldProcess.')]
+    param(
+        [Parameter(Mandatory)][string]$RepoRoot,
+        [hashtable]$BoundParameters = @{},
+        [string[]]$SudoCacheReason,
+        [switch]$SkipModuleInstall
+    )
+    if (-not $PSCmdlet.ShouldProcess((Format-YurunaOperatorMessage -Key 'automation.operator_1718072c6cf398d4'), (Format-YurunaOperatorMessage -Key 'automation.operator_60e4e2f2dbcc4366'))) {
+        return
+    }
+    $modulePath = Join-Path $RepoRoot (Join-Path 'test' (Join-Path 'modules' 'Test.HostContract.psm1'))
+    if (-not (Test-Path -LiteralPath $modulePath)) {
+        throw (Format-YurunaOperatorMessage -Key 'automation.operator_edef6b8e8e995aea' -Arguments @{ modulePath = "$modulePath" })
+    }
+    # The contract facade re-imports four siblings with -Global; without
+    # silencing -Verbose here, each one prints "Importing module..." and
+    # buries Enable-TestAutomation's per-setting action lines under
+    # framework noise.
+    $savedVerbose = $global:VerbosePreference
+    $global:VerbosePreference = 'SilentlyContinue'
+    try {
+        Import-Module -Name $modulePath -Force
+    } finally {
+        $global:VerbosePreference = $savedVerbose
+    }
+    if ($SudoCacheReason -and $SudoCacheReason.Count -gt 0) {
+        if (Get-Command Initialize-SudoCache -ErrorAction SilentlyContinue) {
+            [void](Initialize-SudoCache -Reasons $SudoCacheReason)
+        }
+    }
+    # Cycle planner reads project/test/test.runner.yml + every per-
+    # sequence baseline via powershell-yaml. Missing it -> Resolve-CyclePlan
+    # throws -> inner runner falls back to legacy guestSequence -> Start-
+    # GuestOS runs with an empty sequence list and is recorded as
+    # "skipped" with no log trace. PSScriptAnalyzer is the pre-commit
+    # lint gate so the same enable step bootstraps both runtime and CI.
+    if ($SkipModuleInstall) {
+        # The same two modules the install pair below ensures. Only the
+        # discovery half of their policy runs here: a missing module is
+        # reported with the command that installs it, never installed.
+        foreach ($galleryModule in @('powershell-yaml', 'PSScriptAnalyzer')) {
+            if (-not (Get-Module -ListAvailable -Name $galleryModule -ErrorAction SilentlyContinue)) {
+                Write-Warning (Format-YurunaOperatorMessage -Key 'automation.host_setup_module_install_skipped' -Arguments @{ module = "$galleryModule" })
+            }
+        }
+        return
+    }
+    $yamlArgs = Select-HostSetupForwardParameter -BoundParameters $BoundParameters -CommandName 'Install-PowerShellYamlIfMissing'
+    [void](Install-PowerShellYamlIfMissing @yamlArgs)
+    $analyzerArgs = Select-HostSetupForwardParameter -BoundParameters $BoundParameters -CommandName 'Install-PSScriptAnalyzerIfMissing'
+    [void](Install-PSScriptAnalyzerIfMissing @analyzerArgs)
+}
+
+Export-ModuleMember -Function Initialize-HostSetupModule, Select-HostSetupForwardParameter

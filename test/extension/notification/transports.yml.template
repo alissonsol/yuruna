@@ -1,0 +1,14 @@
+transports:
+  resend:
+    apiKey: ""
+    fromEmail: ""
+subscribers:
+  cycle.failure:
+    - transport: email
+      address: ""
+  config.smoke: []
+  # pool.alert -- the advisory pool DEGRADED alert delivered by the host-side pool
+  # notifier (Test.PoolNotifier). Configure it on the ONE host that runs the
+  # caching-proxy-service + dashboards: a host self-elects as pool notifier because
+  # the transport is configured here. Leave empty elsewhere (the notifier no-ops).
+  pool.alert: []

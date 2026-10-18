@@ -1,0 +1,6467 @@
+<#PSScriptInfo
+.VERSION 2026.10.14
+.GUID 425e6973-60a5-43b1-90b8-194b4331c1f8
+.AUTHOR Alisson Sol et al.
+.COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
+.TAGS yuruna host windows hyperv
+.LICENSEURI https://yuruna.link/license
+.PROJECTURI https://yuruna.com
+.RELEASENOTES
+    Yuruna host driver for Windows + Hyper-V. Implements the Yuruna.Host
+    driver contract defined in host/Yuruna.Host.Contract.psm1 (rationale in docs/host-io.md).
+#>
+
+# ZLibStream in the capture encoder is .NET 6, which arrives with PowerShell 7.2.
+#requires -version 7.2
+
+<#
+.SYNOPSIS
+    Yuruna host driver for Windows + Hyper-V.
+
+.DESCRIPTION
+    Self-contained host driver: contract surface plus the Hyper-V /
+    Windows helpers it consumes. Cross-host helpers live in
+    automation/Yuruna.Common.psm1 and test/modules/Test.Ssh.psm1, imported below.
+
+    Module-qualified calls (e.g. `Yuruna.HostDownload\Save-CachedHttpUri`) appear
+    where an external helper shares its name with the contract function
+    -- without the qualifier the call would re-enter our own definition
+    and recurse.
+#>
+
+# --- REGION: Module setup
+Import-Module (Join-Path $PSScriptRoot '../../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
+$script:HostTag        = 'host.windows.hyper-v'
+$script:RepoRoot       = (Resolve-Path (Join-Path $PSScriptRoot '..\..\..')).Path
+$script:TestModulesDir = Join-Path $script:RepoRoot 'test\modules'
+$script:HostFolder     = Join-Path $script:RepoRoot 'host\windows.hyper-v'
+
+# --- REGION: Resolve-HostTag
+function Resolve-HostTag {
+    <#
+    .SYNOPSIS
+        Returns this driver's host tag, repairing it if module state was lost.
+    .DESCRIPTION
+        Uses the driver's literal tag when a retained function reference has
+        lost its module state after a forced re-import.
+    .LINK
+        https://yuruna.link/42e5cdfd-0002
+    #>
+    [OutputType([string])]
+    param()
+    if ([string]::IsNullOrWhiteSpace($script:HostTag)) { $script:HostTag = 'host.windows.hyper-v' }
+    return $script:HostTag
+}
+
+# See https://yuruna.link/42e5cdfd-0002
+Import-Module (Join-Path $script:RepoRoot 'automation\Yuruna.Common.psm1') -Force -DisableNameChecking -Global
+Import-Module (Join-Path $script:TestModulesDir 'Test.Ssh.psm1')          -Force -DisableNameChecking -Global
+Import-Module (Join-Path $script:TestModulesDir 'Test.CachingProxyService.psm1') -Force -DisableNameChecking -Global
+# --- REGION: Shared host modules
+# See https://yuruna.link/42ec97cd-0018
+Import-Module (Join-Path $script:RepoRoot 'host\modules\Yuruna.HostDownload.psm1') -Force -DisableNameChecking -Global
+# Get-Image discovers the agent by name, so its import must be global.
+# See https://yuruna.link/42ec97cd-001a
+Import-Module (Join-Path $script:RepoRoot 'host\modules\Yuruna.DownloadAgent.psm1') -Force -DisableNameChecking -Global
+# See https://yuruna.link/42ec97cd-0017
+Import-Module (Join-Path $script:RepoRoot 'host\modules\Yuruna.HostProvision.psm1') -Force -DisableNameChecking -Global
+# --- REGION: Hyper-V host helpers
+# See https://yuruna.link/42e5cdfd-0026
+$script:OscdimgToolsRoot = "C:\Program Files (x86)\Windows Kits\10\Assessment and Deployment Kit\Deployment Tools"
+
+function Resolve-OscdimgPath {
+    <#
+    .SYNOPSIS
+        Full path to the ADK's Oscdimg.exe for this host, native build first.
+    .OUTPUTS
+        [string] -- an existing path, or the native candidate so a caller that
+        finds nothing can name the directory the operator should be looking at.
+    #>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param()
+    # OSArchitecture, not $env:PROCESSOR_ARCHITECTURE: an x64 pwsh running
+    # under emulation on an ARM64 host reports AMD64 in that variable, which
+    # would pick the emulated build on the one host class that has a native one.
+    $native = switch ([System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture) {
+        'Arm64' { 'arm64' }
+        default { 'amd64' }
+    }
+    # See https://yuruna.link/42e5cdfd-0027
+    $isWindowsHost = [System.Runtime.InteropServices.RuntimeInformation]::IsOSPlatform(
+        [System.Runtime.InteropServices.OSPlatform]::Windows)
+    if (-not $isWindowsHost) {
+        return "$script:OscdimgToolsRoot\$native\Oscdimg\Oscdimg.exe"
+    }
+
+    $nativePath = Join-Path $script:OscdimgToolsRoot "$native\Oscdimg\Oscdimg.exe"
+    foreach ($archDir in (@($native, 'amd64', 'x86') | Select-Object -Unique)) {
+        $candidate = Join-Path $script:OscdimgToolsRoot "$archDir\Oscdimg\Oscdimg.exe"
+        if (Test-Path -LiteralPath $candidate) { return $candidate }
+    }
+    return $nativePath
+}
+
+$OscdimgPath = Resolve-OscdimgPath
+
+<#
+.SYNOPSIS
+Build an ISO image from a directory tree using Oscdimg.exe.
+
+.DESCRIPTION
+Wraps the Windows ADK Oscdimg utility to package $SourceDir into a
+single-track ISO at $OutputFile with the supplied volume id (default
+"cidata", used for cloud-init NoCloud seed disks). Resolves relative
+paths against the current location, creates the output directory if
+needed, and throws if Oscdimg.exe is missing.
+#>
+function CreateIso {
+    param(
+        [Parameter(Mandatory = $true)][string]$SourceDir,
+        [Parameter(Mandatory = $true)][string]$OutputFile,
+        [string]$VolumeId = "cidata"
+    )
+
+    $cwd = (Get-Location).ProviderPath
+
+    if (-not [System.IO.Path]::IsPathRooted($SourceDir)) {
+        $SourceDir = Join-Path $cwd $SourceDir
+    }
+    $SourceDir = [System.IO.Path]::GetFullPath($SourceDir)
+
+    if (-not (Test-Path -Path $SourceDir)) {
+        Throw (Format-YurunaOperatorMessage -Key 'exceptions.host_34a5ef05cab6ab38' -Arguments @{ sourceDir = "$SourceDir" })
+    }
+
+    if (-not [System.IO.Path]::IsPathRooted($OutputFile)) {
+        $OutputFile = Join-Path $cwd $OutputFile
+    }
+    $OutputFile = [System.IO.Path]::GetFullPath($OutputFile)
+
+    $outDir = Split-Path -Path $OutputFile -Parent
+    if ($outDir -and -not (Test-Path -Path $outDir)) {
+        New-Item -ItemType Directory -Path $outDir -Force | Out-Null
+    }
+
+    if (-not (Test-Path -Path $OscdimgPath)) {
+        Throw (Format-YurunaOperatorMessage -Key 'exceptions.host_ba52b7b4134e8e12' -Arguments @{ oscdimgPath = "$OscdimgPath" })
+    }
+
+    Write-Verbose "Creating ISO `nfrom '$SourceDir' `nto '$OutputFile' `nwith Volume ID '$VolumeId'..."
+    # Capture oscdimg's chatty banner+progress so it's silent at logLevel
+    # Information; replay each line via Write-Verbose so logLevel Verbose
+    # still gets the full transcript.
+    $oscOutput = & $OscdimgPath "$SourceDir" "$OutputFile" -n -h -m -l"$VolumeId" 2>&1
+    $oscExit = $LASTEXITCODE
+    if ($oscExit -ne 0 -or -not (Test-Path -LiteralPath $OutputFile)) {
+        throw ("ISO creation failed (exit {0}) for '{1}': {2}" -f $oscExit, $OutputFile, ($oscOutput -join ' '))
+    }
+    foreach ($line in $oscOutput) {
+        $text = "$line".TrimEnd()
+        if ($text) { Write-Verbose $text }
+    }
+
+    Write-Verbose "ISO created successfully at: $OutputFile"
+}
+
+# --- REGION: Caching-proxy service IP discovery
+# See https://yuruna.link/42e5cdfd-0028
+
+function Get-CacheVmCandidateIp {
+    <#
+    .SYNOPSIS
+        Candidate IPv4 addresses for a running Hyper-V VM.
+    .DESCRIPTION
+        Combines two lookups, dedup, KVP first:
+          1. Hyper-V KVP (Get-VMNetworkAdapter.IPAddresses) -- needs
+             hv_kvp_daemon inside the guest; empty until hyperv-daemons
+             is installed and the daemon running. Once it's up, the
+             single source of truth regardless of which vSwitch the VM
+             is attached to (Default Switch or External).
+          2. ARP-cache fallback for the early-boot window before KVP is
+             populated. Filtered by the VM's MAC across ALL host
+             interfaces (Default Switch's vEthernet for guests on the
+             internal NAT, plus the External-vSwitch vEthernet for the
+             caching-proxy-service VM on the External vSwitch). The MAC filter
+             is sufficient -- it can only match neighbors of this
+             specific VM. Stale 'Permanent' entries across VM
+             rebuilds can map one MAC to multiple IPs; all returned so
+             the caller's :3128 probe picks the live one.
+    .OUTPUTS
+        System.String[] -- zero or more IPv4, KVP entries first.
+    #>
+    [CmdletBinding()]
+    [OutputType([System.String])]
+    param(
+        [Parameter(Mandatory)]
+        [ValidateNotNull()]
+        $VM
+    )
+
+    # See https://yuruna.link/42e5cdfd-0028
+    $kvpIps = @($VM | Get-VMNetworkAdapter |
+        ForEach-Object { $_.IPAddresses } |
+        Where-Object { Test-IpAddress $_ } |
+        Where-Object { $_ -notmatch '^(127\.|169\.254\.)' -and $_ -inotmatch '^(::1$|fe80:)' })
+
+    $arpIps = @()
+    $vmMac = ($VM | Get-VMNetworkAdapter | Select-Object -First 1).MacAddress
+    if ($vmMac -match '^[0-9A-Fa-f]{12}$' -and $vmMac -ne '000000000000') {
+        $vmMacDashed = (($vmMac -replace '(..)(?!$)', '$1-')).ToUpper()
+        # No InterfaceIndex filter: the MAC is the VM's MAC and only that
+        # VM can populate the ARP cache with it. This catches both Default
+        # Switch (172.x) and External vSwitch (real LAN IP) entries.
+        $arpIps = @(Get-NetNeighbor -AddressFamily IPv4 -ErrorAction SilentlyContinue |
+            Where-Object {
+                $_.LinkLayerAddress -eq $vmMacDashed -and
+                (Test-Ipv4Address $_.IPAddress) -and
+                $_.State -ne 'Unreachable'
+            } | ForEach-Object { $_.IPAddress })
+    }
+
+    # --- REGION: https://yuruna.link/42d69dfa-0023
+    ($kvpIps + $arpIps) | Select-Object -Unique
+}
+
+<#
+.SYNOPSIS
+    $true when the host's default-route uplink cannot carry a bridged
+    guest MAC -- the signal to build guests on NAT instead of a bridge.
+.DESCRIPTION
+    A Hyper-V External vSwitch L2-bridges the guest's own MAC onto the
+    host's physical uplink. Two uplink classes cannot forward frames for
+    that guest MAC, so a bridged guest never gets a DHCP lease and boots
+    with eth0 DOWN:
+
+      * Wi-Fi (Native 802.11) -- the AP refuses to forward frames for a
+        MAC it never authenticated.
+      * USB Ethernet adapters (PnP bus 'USB') -- the miniport does not
+        support the promiscuous / MAC-spoofing mode Hyper-V bridging
+        needs, so the guest MAC never reaches the wire even though the
+        host itself uses the adapter normally.
+
+    When either holds the caller must fall back to the Default Switch
+    (NAT + DHCP, the equivalent of UTM Shared NAT) and export any service
+    via host port-forwarders rather than a bridged LAN IP. This is the
+    Windows counterpart of host.macos.utm Test-MacUplinkNotBridgeable,
+    but the criteria differ by hypervisor: macOS/vmnet and Linux/KVM
+    bridge USB Ethernet fine (it is plain wired Ethernet to them), so
+    only Hyper-V's External vSwitch rejects it.
+
+    Resolves the physical NIC behind the default route. With
+    -AllowManagementOS the route rides a `vEthernet (<switch>)` virtual
+    adapter, so when the default-route adapter is a Hyper-V vEthernet we
+    follow the External vSwitch back to its underlying physical NIC and
+    test that adapter -- otherwise a Wi-Fi- or USB-backed External switch
+    would masquerade as a bridgeable wired NIC and defeat the whole check.
+.OUTPUTS
+    [bool] -- $false on non-Windows, no default route, or a bridgeable
+    (PCI-attached, wired) uplink.
+#>
+function Get-WindowsDefaultIPv4Route {
+    <#
+    .SYNOPSIS
+        Select the lowest-metric usable default IPv4 route.
+    #>
+    [CmdletBinding()]
+    [OutputType([object])]
+    param()
+    return Get-NetRoute -AddressFamily IPv4 -DestinationPrefix '0.0.0.0/0' -ErrorAction SilentlyContinue |
+        Where-Object { $_.NextHop -ne '0.0.0.0' -and $_.NextHop -ne '::' } |
+        Sort-Object RouteMetric, InterfaceMetric | Select-Object -First 1
+}
+
+function Get-WindowsDefaultRoutePhysicalAdapter {
+    <#
+    .SYNOPSIS
+        Resolve the default route through an external switch, including team members.
+    #>
+    [CmdletBinding()]
+    [OutputType([object[]])]
+    param()
+    $route = Get-WindowsDefaultIPv4Route
+    if (-not $route) { return @() }
+    $nic = Get-NetAdapter -InterfaceIndex $route.InterfaceIndex -ErrorAction SilentlyContinue
+    if (-not $nic) { return @() }
+    if ($nic.InterfaceDescription -notmatch 'Hyper-V Virtual Ethernet') { return @($nic) }
+    $switch = Get-VMSwitch -ErrorAction SilentlyContinue |
+        Where-Object { $_.SwitchType -eq 'External' -and "vEthernet ($($_.Name))" -eq $nic.InterfaceAlias } | Select-Object -First 1
+    if (-not $switch) { return @() }
+    $descriptions = @(Get-YurunaSwitchUplinkDescription -SwitchRecord $switch)
+    return @(Get-NetAdapter -ErrorAction SilentlyContinue | Where-Object { $descriptions -contains $_.InterfaceDescription })
+}
+
+function Test-WindowsUplinkNotBridgeable {
+    <#
+    .SYNOPSIS
+        Identifies Wi-Fi and USB uplinks behind the default route.
+    #>
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param()
+    if (-not $IsWindows) { return $false }
+    $adapters = @(Get-WindowsDefaultRoutePhysicalAdapter)
+    return @($adapters | Where-Object { $_.PhysicalMediaType -eq 'Native 802.11' -or $_.PnPDeviceID -like 'USB\*' }).Count -gt 0
+}
+
+# Uplink verdicts a caller may treat as "the bridge is fine". 'unknown' is
+# in the list on purpose: the classifier can only ever demote a host to
+# NAT, so anything it could not evaluate has to read as OK.
+$script:UplinkVerdictOk = @('healthy', 'unknown')
+
+# Get-VMSwitch reports a Switch Embedded Team / LBFO team on the PLURAL
+# NetAdapterInterfaceDescriptions, and on such a switch the singular
+# property matches no single adapter -- so both are read everywhere a
+# switch has to be resolved back to the NIC(s) it bridges, and a match on
+# any team member counts.
+function Test-YurunaAdapterUp {
+    <#
+    .SYNOPSIS
+        Whether an adapter is operationally up, read from the value rather than
+        from the word Windows chose to display.
+    .DESCRIPTION
+        Get-NetAdapter's Status is a display string, and Windows translates it:
+        the same healthy NIC reads 'Up' in English and something else in every
+        other install language, so a comparison against 'Up' calls a working
+        uplink down on a host whose operator did not install in English.
+
+        ifOperStatus is the IF-MIB value underneath it and is 1 for up in every
+        language. It is read by name because a record that does not carry it --
+        a management-OS vNIC, or a test double standing in for one -- answers
+        $null for a missing property rather than raising, and $null is
+        indistinguishable from "down" once it has been compared.
+    .OUTPUTS
+        System.Boolean
+    #>
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param([Parameter(Mandatory)][AllowNull()][object]$Adapter)
+
+    if ($null -eq $Adapter) { return $false }
+    foreach ($name in @('ifOperStatus', 'InterfaceOperationalStatus')) {
+        $property = $Adapter.PSObject.Properties[$name]
+        if ($property -and $null -ne $property.Value) {
+            $value = 0
+            if ([int]::TryParse([string]$property.Value, [ref]$value)) { return ($value -eq 1) }
+        }
+    }
+    # Nothing numeric to read. The display string is all that is left, and on a
+    # non-English host it will not match -- which is why every real adapter path
+    # above has to resolve first.
+    return ("$($Adapter.Status)" -eq 'Up')
+}
+
+function Get-YurunaSwitchUplinkDescription {
+    [CmdletBinding()]
+    [OutputType([string[]])]
+    param([Parameter(Mandatory)][AllowNull()][object]$SwitchRecord)
+
+    if (-not $SwitchRecord) { return [string[]]@() }
+    $description = @()
+    foreach ($d in (@($SwitchRecord.NetAdapterInterfaceDescriptions) + @($SwitchRecord.NetAdapterInterfaceDescription))) {
+        if ("$d".Trim()) { $description += [string]$d }
+    }
+    return [string[]]@($description | Select-Object -Unique)
+}
+
+# $true when $Adapter sits on the same L2 segment a guest bridged to
+# $SwitchRecord lands on: either it is the switch's management-OS vNIC
+# ('vEthernet (<switch>)'), or it is a NIC the switch itself bridges --
+# the -AllowManagementOS:$false topology, where the host keeps its own
+# address on the bridged NIC and shares the guest's segment through it.
+function Test-YurunaAdapterOnSwitchSegment {
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param(
+        [Parameter(Mandatory)][AllowNull()][object]$SwitchRecord,
+        [Parameter(Mandatory)][AllowNull()][object]$Adapter,
+        [string]$SwitchName
+    )
+
+    if (-not $Adapter) { return $false }
+    if (-not $SwitchName -and $SwitchRecord) { $SwitchName = [string]$SwitchRecord.Name }
+    if ($SwitchName -and ("$($Adapter.InterfaceAlias)" -eq "vEthernet ($SwitchName)")) { return $true }
+    $description = @(Get-YurunaSwitchUplinkDescription -SwitchRecord $SwitchRecord)
+    if ($description.Count -eq 0) { return $false }
+    return ($description -contains [string]$Adapter.InterfaceDescription)
+}
+
+# $true when the host's IPv4 default route rides this switch's own
+# segment. Used only to rank equally-usable External switches, so every
+# unresolvable step answers $false rather than guessing.
+function Test-YurunaSwitchOnDefaultRoute {
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param([Parameter(Mandatory)][AllowNull()][object]$SwitchRecord)
+
+    if (-not $SwitchRecord) { return $false }
+    $route = Get-WindowsDefaultIPv4Route
+    if (-not $route) { return $false }
+    $routeAdapter = Get-NetAdapter -InterfaceIndex $route.InterfaceIndex -ErrorAction SilentlyContinue
+    return (Test-YurunaAdapterOnSwitchSegment -SwitchRecord $SwitchRecord -Adapter $routeAdapter)
+}
+
+# See https://yuruna.link/4220a755-0021
+# --- REGION: Test-YurunaExternalSwitchUplink
+function Test-YurunaExternalSwitchUplink {
+    <#
+    .SYNOPSIS
+        One-word verdict on whether an External vSwitch's bridge can still
+        carry a guest.
+
+    .DESCRIPTION
+        A Hyper-V vSwitch object outlives its uplink binding across a host
+        reboot: the switch keeps its name, its SwitchType and the description
+        of the NIC it was bridged to, while the host's IP stack sits back on
+        the bare physical adapter and nothing forwards frames for a guest MAC.
+        The object's survival is therefore not evidence that the bridge works,
+        and nothing else in this driver asks the question -- the switch record
+        is read for its name and type only, and AllowManagementOS is written
+        at creation and never read back.
+
+        Verdicts, first match wins:
+          'not-external'              SwitchType is no longer External.
+          'uplink-missing'            the switch names no uplink adapter at all.
+          'uplink-down'               every named uplink adapter reports not Up.
+          'management-os-detached'    the switch is set to share its NIC with
+                                      the management OS, yet Hyper-V reports no
+                                      management-OS vNIC on it.
+          'management-os-unaddressed' that vNIC exists but holds no usable
+                                      IPv4, so a seed built now would carry no
+                                      host address the guest could reach.
+          'healthy'                   nothing above matched.
+          'unknown'                   not evaluable: non-Windows, a probe
+                                      cmdlet missing, a throw, no switch
+                                      record, or an ambiguous binding.
+
+        Failing open is a hard rule -- every unevaluable probe yields
+        'unknown', and callers treat 'unknown' exactly like 'healthy'. A false
+        unhealthy verdict demotes a whole host to NAT (its cache VM loses its
+        LAN IP, ARP discovery no-ops), which costs far more than missing one
+        degraded switch.
+
+        Management-OS presence is resolved from Hyper-V itself
+        (Get-VMNetworkAdapter -ManagementOS) rather than by looking for an
+        adapter named 'vEthernet (<switch>)': that alias is only a default,
+        and Rename-NetAdapter or a disambiguating enumeration suffix breaks
+        the shape on a perfectly working bridge.
+
+    .PARAMETER SwitchName
+        vSwitch to classify.
+
+    .PARAMETER SwitchRecord
+        Test seam, Get-VMSwitch shape. Binding it selects injected mode for
+        ALL THREE record parameters together, so a partially-bound call can
+        never fall through to live cmdlets on a host with no Hyper-V.
+
+    .PARAMETER AdapterRecord
+        Test seam. Adapter records in the Get-NetAdapter shape
+        (InterfaceDescription, InterfaceAlias, Status, MacAddress,
+        InterfaceIndex), plus the switch's management-OS vNICs in the
+        Get-VMNetworkAdapter -ManagementOS shape (IsManagementOs, SwitchName,
+        MacAddress) -- live mode reads both and concatenates them here. A
+        record counts as a management vNIC when it is flagged IsManagementOs
+        or simply carries no InterfaceDescription, so injecting an adapter
+        with neither shape reads as "management OS present".
+
+    .PARAMETER HostIpRecord
+        Test seam. Host IPv4 records in the Get-NetIPAddress shape
+        (IPAddress, InterfaceAlias, InterfaceIndex).
+
+    .OUTPUTS
+        [string] exactly one verdict from the closed list above.
+    #>
+        [CmdletBinding()]
+    [OutputType([string])]
+    param(
+        [Parameter(Mandatory)][string]$SwitchName,
+        [Parameter()][AllowNull()][object]$SwitchRecord,
+        [Parameter()][AllowNull()][object[]]$AdapterRecord,
+        [Parameter()][AllowNull()][object[]]$HostIpRecord
+    )
+
+    if (-not $PSBoundParameters.ContainsKey('SwitchRecord')) {
+        if (-not $IsWindows) { return 'unknown' }
+        foreach ($probe in @('Get-VMSwitch', 'Get-NetAdapter', 'Get-VMNetworkAdapter', 'Get-NetIPAddress')) {
+            if (-not (Get-Command $probe -ErrorAction SilentlyContinue)) { return 'unknown' }
+        }
+        try {
+            $SwitchRecord  = Get-VMSwitch -Name $SwitchName -ErrorAction SilentlyContinue | Select-Object -First 1
+            $AdapterRecord = @(Get-NetAdapter -ErrorAction SilentlyContinue) +
+                             @(Get-VMNetworkAdapter -ManagementOS -SwitchName $SwitchName -ErrorAction SilentlyContinue)
+            $HostIpRecord  = @(Get-NetIPAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue)
+        } catch {
+            Write-Verbose "Uplink classification of '$SwitchName' could not run ($($_.Exception.Message)) -- reporting 'unknown'."
+            return 'unknown'
+        }
+    }
+
+    if (-not $SwitchRecord) { return 'unknown' }
+    if ("$($SwitchRecord.SwitchType)" -ne 'External') { return 'not-external' }
+
+    $description = @(Get-YurunaSwitchUplinkDescription -SwitchRecord $SwitchRecord)
+    if ($description.Count -eq 0) { return 'uplink-missing' }
+
+    $adapter = @($AdapterRecord | Where-Object { $null -ne $_ })
+    $bound = @($adapter | Where-Object { $_.InterfaceDescription -and ($description -contains [string]$_.InterfaceDescription) })
+    # A named binding that resolves to no adapter is ambiguous rather than
+    # broken -- a team member list, a driver-supplied description change or
+    # an enumeration in flight all land here -- so it fails open.
+    if ($bound.Count -eq 0) { return 'unknown' }
+    if (@($bound | Where-Object { Test-YurunaAdapterUp -Adapter $_ }).Count -eq 0) { return 'uplink-down' }
+
+    # A switch deliberately created without -AllowManagementOS has no
+    # management vNIC by design; the host keeps its address on the bridged
+    # NIC and the bridge is fine.
+    if ($SwitchRecord.AllowManagementOS -ne $true) { return 'healthy' }
+
+    # See https://yuruna.link/42e220c4-0004
+    $management = @($adapter | Where-Object {
+        (($_.IsManagementOs -eq $true) -or ($null -eq $_.InterfaceDescription)) -and
+        ((-not $_.SwitchName) -or ("$($_.SwitchName)" -eq $SwitchName))
+    })
+    if ($management.Count -eq 0) { return 'management-os-detached' }
+
+    # Match the management vNIC by MAC, then alias; ambiguous matches stay unresolved.
+    # See https://yuruna.link/42e220c4-0004
+    $hostNic = $null
+    foreach ($vnic in $management) {
+        $mac = ("$($vnic.MacAddress)" -replace '[^0-9A-Fa-f]', '')
+        if (-not $mac) { continue }
+        $candidate = @($adapter | Where-Object {
+            $_.MacAddress -and (("$($_.MacAddress)" -replace '[^0-9A-Fa-f]', '') -eq $mac) -and
+            ("$($_.InterfaceDescription)" -match 'Hyper-V Virtual Ethernet')
+        })
+        if ($candidate.Count -gt 1) {
+            $alias = @("vEthernet ($SwitchName)")
+            if ($vnic.Name) { $alias += "vEthernet ($($vnic.Name))" }
+            $candidate = @($candidate | Where-Object { $alias -contains "$($_.InterfaceAlias)" })
+        }
+        if ($candidate.Count -eq 1) { $hostNic = $candidate[0]; break }
+    }
+    if (-not $hostNic) {
+        $hostNic = @($adapter | Where-Object { "$($_.InterfaceAlias)" -eq "vEthernet ($SwitchName)" }) | Select-Object -First 1
+    }
+    if (-not $hostNic) { return 'unknown' }
+
+    $isUsable = { param($Address) $Address -and ($Address -notmatch '^(127\.|169\.254\.)') }
+    $address = @($HostIpRecord | Where-Object {
+        $null -ne $_ -and (& $isUsable $_.IPAddress) -and (
+            (($null -ne $_.InterfaceIndex) -and ($null -ne $hostNic.InterfaceIndex) -and
+                ("$($_.InterfaceIndex)" -eq "$($hostNic.InterfaceIndex)")) -or
+            ($_.InterfaceAlias -and ("$($_.InterfaceAlias)" -eq "$($hostNic.InterfaceAlias)"))
+        )
+    })
+    if ($address.Count -eq 0) { return 'management-os-unaddressed' }
+
+    return 'healthy'
+}
+
+# $true only when Hyper-V positively reports that the switch has no
+# management-OS vNIC. Every unresolvable case answers $false: an unknown
+# state must keep a caller polling, never cut its wait short.
+function Test-YurunaManagementVnicAbsent {
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param([Parameter(Mandatory)][string]$SwitchName)
+
+    if (-not (Get-Command Get-VMNetworkAdapter -ErrorAction SilentlyContinue)) { return $false }
+    try {
+        $vnic = @(Get-VMNetworkAdapter -ManagementOS -SwitchName $SwitchName -ErrorAction Stop)
+    } catch {
+        return $false
+    }
+    return ($vnic.Count -eq 0)
+}
+
+<#
+.SYNOPSIS
+    Poll until the host holds an IPv4 a guest bridged onto $SwitchName
+    can reach it at, or the timeout expires.
+
+.DESCRIPTION
+    Binding a physical NIC to an External vSwitch tears the host's own
+    IP stack off that NIC and re-attaches it to `vEthernet (<switch>)`,
+    which then has to re-DHCP. For several seconds in the middle the
+    host holds NO default IPv4 route and no LAN address on either
+    adapter. A single-shot lookup inside that window reads as "this
+    host is not on a LAN", and whatever the caller substitutes for the
+    missing answer gets baked into a guest seed that cannot be changed
+    afterwards -- so wait the window out instead of answering from it.
+
+    Two sources, in order of precision:
+      1. the IPv4 on `vEthernet (<switch>)` -- by construction an
+         address on the very segment a bridged guest lands on;
+      2. the IPv4 on the default-route interface, but ONLY when that
+         interface is on the switch's own segment: either the switch's
+         management vNIC, or a NIC the switch bridges (the
+         -AllowManagementOS:$false topology, where the host keeps its
+         address on the bridged NIC). A default-route address on any
+         other adapter belongs to a segment the bridged guest holds no
+         route to, which is not a degraded answer but a wrong one -- and
+         it is wrong in a way the guest can only discover after the seed
+         carrying it has been burned.
+    APIPA (169.254/16) and loopback are rejected: an adapter sitting at
+    APIPA has not been answered by DHCP yet, so it is still mid-bind.
+
+    Waiting only helps while an address is still arriving. When Hyper-V
+    reports that the switch has no management vNIC at all, source 1 can
+    never produce an answer, so the poll is abandoned within one interval
+    instead of spending the whole budget on an adapter that cannot appear.
+
+.PARAMETER SwitchName
+    External vSwitch the guest will attach to. Used to look up
+    `vEthernet (<SwitchName>)`; when empty only the default route is
+    consulted.
+
+.PARAMETER TimeoutSeconds
+    How long to keep polling before giving up.
+
+.PARAMETER PollSeconds
+    Delay between attempts.
+
+.OUTPUTS
+    [string] IPv4 address, or $null if the host never regained one.
+#>
+function Wait-ExternalSwitchHostIpv4 {
+    [CmdletBinding()]
+    [OutputType([string])]
+    param(
+        [string]$SwitchName,
+        [int]$TimeoutSeconds = 60,
+        [int]$PollSeconds = 2
+    )
+
+    $isUsable = { param($Address) $Address -and ($Address -notmatch '^(127\.|169\.254\.)') }
+
+    $switchRecord = $null
+    if ($SwitchName) {
+        $switchRecord = Get-VMSwitch -Name $SwitchName -ErrorAction SilentlyContinue | Select-Object -First 1
+    }
+
+    $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
+    $pass = 0
+    while ($true) {
+        $pass++
+        if ($SwitchName) {
+            $switchIp = Get-NetIPAddress -AddressFamily IPv4 -InterfaceAlias "vEthernet ($SwitchName)" -ErrorAction SilentlyContinue |
+                Where-Object { & $isUsable $_.IPAddress } |
+                Select-Object -First 1
+            if ($switchIp) { return [string]$switchIp.IPAddress }
+        }
+
+        $offSegment = $null
+        $route = Get-WindowsDefaultIPv4Route
+        if ($route) {
+            $routeAdapter = Get-NetAdapter -InterfaceIndex $route.InterfaceIndex -ErrorAction SilentlyContinue
+            # No -SwitchName is the legacy no-arg contract (any host IPv4
+            # will do), and a route whose adapter cannot be resolved is not
+            # evidence of a foreign segment -- both stay accepted.
+            $qualified = (-not $SwitchName) -or (-not $routeAdapter) -or
+                (Test-YurunaAdapterOnSwitchSegment -SwitchRecord $switchRecord -Adapter $routeAdapter -SwitchName $SwitchName)
+            if ($qualified) {
+                $routeIp = Get-NetIPAddress -AddressFamily IPv4 -InterfaceIndex $route.InterfaceIndex -ErrorAction SilentlyContinue |
+                    Where-Object { & $isUsable $_.IPAddress } |
+                    Select-Object -First 1
+                if ($routeIp) { return [string]$routeIp.IPAddress }
+            } else {
+                $offSegment = " (default route rides '$($routeAdapter.InterfaceAlias)', which is neither 'vEthernet ($SwitchName)' nor a NIC '$SwitchName' bridges, so its address is on a segment the guest cannot route to)"
+            }
+        }
+
+        if ((Get-Date) -ge $deadline) { return $null }
+
+        # Re-checked one interval in rather than on the first pass, so a
+        # management vNIC that vmms is still materializing right after a
+        # bind is not mistaken for one that will never exist.
+        if ($pass -ge 2 -and $SwitchName -and (Test-YurunaManagementVnicAbsent -SwitchName $SwitchName)) {
+            Write-Verbose "vSwitch '$SwitchName' has no management-OS vNIC, so no address can appear on its segment$offSegment -- reporting no host IPv4 instead of waiting out the timeout."
+            return $null
+        }
+
+        Write-Verbose "No usable host IPv4 yet (vSwitch bind still settling)$offSegment -- retrying in ${PollSeconds}s."
+        Start-Sleep -Seconds $PollSeconds
+    }
+}
+
+# A confirmed degraded External switch returns $null so guest builders can
+# select a validated fallback; latch the diagnosis once per switch and verdict.
+# See https://yuruna.link/4220a755-0021
+function Resolve-DegradedExternalSwitchFallback {
+    [CmdletBinding()]
+    [OutputType([string])]
+    param(
+        [Parameter(Mandatory)][string]$SwitchName,
+        [Parameter(Mandatory)][string]$Verdict,
+        [string]$Detail
+    )
+
+    $remedy = switch ($Verdict) {
+        'not-external' {
+            (Format-YurunaOperatorMessage -Key 'host.operator_710de7288caf79e4' -Arguments @{ switchName = "$SwitchName" })
+        }
+        'uplink-missing' {
+            (Format-YurunaOperatorMessage -Key 'host.operator_8508b39a41d150f0' -Arguments @{ switchName = "$SwitchName" })
+        }
+        'uplink-down' {
+            (Format-YurunaOperatorMessage -Key 'host.operator_7e71105ad8861eb3')
+        }
+        'management-os-detached' {
+            (Format-YurunaOperatorMessage -Key 'host.operator_f6be3a6bb731458d' -Arguments @{ switchName = "$SwitchName" })
+        }
+        'management-os-unaddressed' {
+            (Format-YurunaOperatorMessage -Key 'host.operator_38cd6d99f2d7616b' -Arguments @{ switchName = "$SwitchName" })
+        }
+        default {
+            (Format-YurunaOperatorMessage -Key 'host.operator_dc75df94eaaa9e40' -Arguments @{ switchName = "$SwitchName" })
+        }
+    }
+
+    $haveDefaultSwitch = [bool](Get-VMSwitch -Name 'Default Switch' -ErrorAction SilentlyContinue)
+    $latchKey = "$SwitchName/$Verdict/$haveDefaultSwitch"
+    if ($script:DegradedSwitchLatch -ne $latchKey) {
+        $script:DegradedSwitchLatch = $latchKey
+        $detailText = if ($Detail) { "; $Detail" } else { '' }
+        $consequence = if ($haveDefaultSwitch) {
+            'Guests attached to it come up with no carrier, so they are built on the Default Switch instead (NAT + DHCP); LAN-exposed services ride host port-forwarders rather than a bridged LAN IP.'
+        } else {
+            "Guests attached to it come up with no carrier, and this host has no 'Default Switch', so they are built on whichever vSwitch this host does have (non-External preferred); LAN-exposed services ride host port-forwarders rather than a bridged LAN IP."
+        }
+        Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_a4149a26e3a5fd3f' -Arguments @{ switchName = "$SwitchName"; verdict = "$Verdict"; detailText = "$detailText"; consequence = "$consequence"; remedy = "$remedy" })
+    }
+
+    return $null
+}
+
+function Get-YurunaBridgeableRouteAdapter {
+    <#
+    .SYNOPSIS
+        The PHYSICAL adapter currently carrying the default IPv4 route, when
+        Hyper-V could bridge it. $null when there is none worth binding to.
+    .DESCRIPTION
+        Resolves through a vEthernet: once an External switch exists with a
+        management-OS vNIC, the host's default route usually rides
+        'vEthernet (<switch>)' rather than the physical NIC underneath it, and
+        binding a switch to its own management adapter is not a thing that can
+        work. Wi-Fi and USB adapters are excluded for the reason
+        Test-WindowsUplinkNotBridgeable exists: Hyper-V cannot carry a bridged
+        guest MAC over either, so "repairing" onto one would trade a dead
+        bridge for a bridge that is dead in a subtler way.
+    .OUTPUTS
+        The Get-NetAdapter record, or $null.
+    #>
+    [CmdletBinding()]
+    [OutputType([object])]
+    param()
+    if (-not $IsWindows) { return $null }
+    return Get-WindowsDefaultRoutePhysicalAdapter | Where-Object {
+        $_.PhysicalMediaType -ne 'Native 802.11' -and $_.PnPDeviceID -notlike 'USB\*' -and (Test-YurunaAdapterUp -Adapter $_)
+    } | Select-Object -First 1
+}
+
+function Test-YurunaSwitchRepairable {
+    <#
+    .SYNOPSIS
+        Split a bad uplink verdict into "stale binding, rebinding fixes it" and
+        "the link is genuinely down, rebinding changes nothing".
+    .DESCRIPTION
+        The distinction is the whole safety argument. 'uplink-down' today means
+        only "no bound NIC reports Up", which covers two opposite situations:
+
+          * the switch names an adapter that is down or gone WHILE a different
+            bridgeable adapter carries the default route -- a stale binding,
+            which a rebind repairs; and
+          * the bound adapter IS the one the host routes over and its link is
+            down, or nothing bridgeable has a route at all -- a real fault,
+            where a rebind accomplishes nothing and still costs the host a
+            networking drop.
+
+        Repairing the second class per cycle is how a degraded-but-working host
+        becomes an unreachable one, so it is refused here rather than left to a
+        guard further down.
+
+        'management-os-unaddressed' is a third class and gets a different, far
+        smaller remedy. The bridge itself is intact there -- switch External,
+        uplink Up, management vNIC present -- and only the host leg's DHCP
+        lease is missing, so rebinding would re-plumb a NIC that has nothing
+        wrong with it. A lease renew touches exactly what is absent and leaves
+        the binding alone; if it does not answer, the host is no worse off than
+        it already was. Note what is still NOT repaired here:
+        'management-os-detached' is mechanically fixable by the same cmdlet
+        that rebinds, but re-adding a management vNIC is the operation most
+        likely to leave the host with no address at all when DHCP does not come
+        back, so it stays an operator decision.
+    .OUTPUTS
+        pscustomobject -- Repairable (bool), Remedy ('rebind' | 'renew-dhcp' |
+        'none'), Adapter (record or $null), Reason.
+    #>
+    [CmdletBinding()]
+    [OutputType([pscustomobject])]
+    param(
+        [Parameter(Mandatory)][string]$SwitchName,
+        [Parameter(Mandatory)][string]$Verdict
+    )
+    $no = { param($why) [pscustomobject]@{ Repairable = $false; Remedy = 'none'; Adapter = $null; Reason = $why } }
+    if ($Verdict -eq 'management-os-unaddressed') {
+        return [pscustomobject]@{
+            Repairable = $true
+            Remedy     = 'renew-dhcp'
+            Adapter    = $null
+            Reason     = (Format-YurunaOperatorMessage -Key 'host.operator_c57bb9bc8d0199f8' -Arguments @{ switchName = "$SwitchName" })
+        }
+    }
+    if ($Verdict -notin @('uplink-down', 'uplink-missing')) {
+        return (& $no "verdict '$Verdict' is not a binding fault")
+    }
+    $target = Get-YurunaBridgeableRouteAdapter
+    if (-not $target) {
+        return (& $no 'no bridgeable adapter currently carries the default route, so there is nothing to bind to')
+    }
+    $existing = Get-VMSwitch -Name $SwitchName -ErrorAction SilentlyContinue
+    if ($existing) {
+        $bound = @(Get-YurunaSwitchUplinkDescription -SwitchRecord $existing)
+        if ($bound -contains $target.InterfaceDescription) {
+            # Already bound to the adapter that holds the route, and the verdict
+            # is still bad: the link itself is the problem. Rebinding to the same
+            # NIC would drop host networking to achieve exactly nothing.
+            return (& $no "already bound to '$($target.InterfaceDescription)', which holds the route -- the link itself is down")
+        }
+    }
+    return [pscustomobject]@{
+        Repairable = $true
+        Remedy     = 'rebind'
+        Adapter    = $target
+        Reason     = (Format-YurunaOperatorMessage -Key 'host.operator_cdbc1c26789f6f1b' -Arguments @{ name = "$($target.Name)" })
+    }
+}
+
+function Invoke-YurunaManagementVnicDhcpRenew {
+    <#
+    .SYNOPSIS
+        Renew the DHCP lease on a switch's management-OS vNIC. $true only when
+        the vNIC ends up holding a usable IPv4.
+    .DESCRIPTION
+        The bounded remedy for 'management-os-unaddressed'. A renew, not a
+        Restart-NetAdapter: restarting re-runs the entire bind -- carrier,
+        802.1X, the lot -- on the adapter the host's own leg lives on, which is
+        a far bigger hammer than a missing lease deserves and can leave the
+        host down if any of those stages stall. RenewDHCPLease asks for exactly
+        the thing that is absent, and a host that was unaddressed before a
+        failed renew is still only unaddressed after it.
+
+        Declines rather than guesses on a statically-addressed vNIC: there is
+        no lease to renew, so an operator set that address and the verdict is
+        reporting a configuration, not a fault.
+    .OUTPUTS
+        [bool] the vNIC holds a usable IPv4 afterwards.
+    #>
+    [CmdletBinding(SupportsShouldProcess)]
+    [OutputType([bool])]
+    param(
+        [Parameter(Mandatory)][string]$SwitchName,
+        [int]$TimeoutSeconds = 60
+    )
+    if (-not $IsWindows) { return $false }
+    foreach ($probe in @('Get-CimInstance', 'Invoke-CimMethod', 'Get-NetAdapter')) {
+        if (-not (Get-Command $probe -ErrorAction SilentlyContinue)) { return $false }
+    }
+
+    $alias = "vEthernet ($SwitchName)"
+    $nic = Get-NetAdapter -Name $alias -ErrorAction SilentlyContinue | Select-Object -First 1
+    if (-not $nic) {
+        Write-Verbose "No adapter named '$alias' to renew."
+        return $false
+    }
+    $config = Get-CimInstance -ClassName Win32_NetworkAdapterConfiguration `
+        -Filter "InterfaceIndex=$($nic.InterfaceIndex)" -ErrorAction SilentlyContinue | Select-Object -First 1
+    if (-not $config) {
+        Write-Verbose "No IP configuration for '$alias' (interface $($nic.InterfaceIndex))."
+        return $false
+    }
+    if ($config.DHCPEnabled -ne $true) {
+        Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_8ca5971160cae12e' -Arguments @{ alias = "$alias" })
+        return $false
+    }
+    if (-not $PSCmdlet.ShouldProcess($alias, (Format-YurunaOperatorMessage -Key 'host.operator_b4ff57c817c9c679'))) { return $false }
+
+    try {
+        $result = Invoke-CimMethod -InputObject $config -MethodName 'RenewDHCPLease' -ErrorAction Stop
+        if ($result.ReturnValue -ne 0) {
+            Write-Verbose "RenewDHCPLease on '$alias' returned $($result.ReturnValue); waiting for the lease anyway in case it lands late."
+        }
+    } catch {
+        Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_4a92938eff3fa2e3' -Arguments @{ alias = "$alias"; message = "$($_.Exception.Message)" })
+        return $false
+    }
+
+    # The lease arrives asynchronously, so the answer comes from the same
+    # poller the create path uses rather than from the method's return value.
+    return [bool](Wait-ExternalSwitchHostIpv4 -SwitchName $SwitchName -TimeoutSeconds $TimeoutSeconds)
+}
+
+function Test-YurunaRunnerSessionRemote {
+    <#
+    .SYNOPSIS
+        True when THIS process is running inside a remote (RDP) session.
+    .DESCRIPTION
+        The repair re-plumbs the NIC it is reached over. A runner started from
+        an RDP session would sever its own connection mid-rebind and take the
+        cycle down with it, so that case declines. An operator merely watching
+        from a second session is not detected here on purpose: refusing
+        whenever anyone is connected is how a lab host with a forgotten idle
+        session quietly never self-repairs.
+    #>
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param()
+    if (-not $IsWindows) { return $false }
+    # SESSIONNAME is 'Console' for the physical/autologin session and
+    # 'RDP-Tcp#<n>' for a remote one.
+    return ("$env:SESSIONNAME" -like 'RDP-*')
+}
+
+function Get-YurunaSwitchRepairStatePath {
+    <#
+    .SYNOPSIS
+        Where the per-host repair attempt counter lives.
+    #>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param()
+    $dir = if ($env:YURUNA_RUNTIME_DIR) { $env:YURUNA_RUNTIME_DIR } else { [System.IO.Path]::GetTempPath() }
+    return (Join-Path $dir 'hyperv-switch-repair.json')
+}
+
+function Repair-YurunaExternalSwitch {
+    <#
+    .SYNOPSIS
+        Repair a degraded External vSwitch with the smallest remedy its verdict
+        allows, and return $true only when the switch ends healthy.
+    .DESCRIPTION
+        Two remedies, chosen by Test-YurunaSwitchRepairable rather than by the
+        caller, because they carry very different risk:
+
+          * REBIND (a stale binding) -- move the switch onto the adapter that
+            currently carries the default route. Verified against the host's own
+            route and rolled back if that route does not come back.
+          * RENEW (an unaddressed management vNIC) -- ask DHCP for the host
+            leg's missing lease. The binding is already correct there, so
+            re-plumbing it would be the wrong tool; nothing needs undoing when
+            a renew goes unanswered.
+
+        CALL THIS AT CYCLE START ONLY, before any guest exists. A rebind takes
+        carrier away from every guest already on the switch, and it drops host
+        networking on the target NIC for a moment -- both are acceptable at a
+        cycle boundary and neither is acceptable between two guest builds.
+
+        Set-VMSwitch rather than Remove + New: recreating loses the switch GUID,
+        so every VM attached to it needs re-attaching and any static config on
+        'vEthernet (<name>)' is gone. The rebind is the smaller hammer for the
+        same fault.
+
+        Bounded three ways, because the failure this guards against is a host
+        that cannot be reached to fix:
+          * only a stale binding is repaired (Test-YurunaSwitchRepairable);
+          * a verify-and-roll-back window -- if the host has no default route
+            after the rebind, the switch is put back the way it was, so a failed
+            repair costs a cycle rather than the machine;
+          * an attempt cap, so a permanent fault cannot become a permanent
+            re-plumb loop. The counter clears the moment the switch reports
+            healthy and ages out after a day, so a replaced cable recovers
+            without anyone editing a state file.
+    .PARAMETER SwitchName
+        External switch to repair. Default: Yuruna-External.
+    .PARAMETER MaxAttempts
+        Repairs tried before latching to the reported fallback.
+    .PARAMETER VerifySeconds
+        How long the host is given to get its default route back before the
+        repair is judged to have failed and is undone.
+    #>
+    [CmdletBinding(SupportsShouldProcess)]
+    [OutputType([bool])]
+    param(
+        [string]$SwitchName    = 'Yuruna-External',
+        [int]$MaxAttempts      = 3,
+        [int]$VerifySeconds    = 60,
+        [int]$ResetAfterHours  = 24
+    )
+    if (-not $IsWindows) { return $false }
+
+    $verdict = Test-YurunaExternalSwitchUplink -SwitchName $SwitchName
+    $statePath = Get-YurunaSwitchRepairStatePath
+    $state = $null
+    if (Test-Path -LiteralPath $statePath) {
+        try { $state = Get-Content -Raw -LiteralPath $statePath | ConvertFrom-Json -ErrorAction Stop } catch {
+            Write-Verbose "switch repair state unreadable ($($_.Exception.Message)); starting a fresh count."
+        }
+    }
+    # Healthy clears the count immediately: whatever was wrong is not wrong now,
+    # and the next fault deserves its own full budget rather than the remains of
+    # an older one.
+    if ($verdict -in $script:UplinkVerdictOk) {
+        if ($state) { Remove-Item -LiteralPath $statePath -Force -ErrorAction SilentlyContinue }
+        return $true
+    }
+
+    $attempts = 0
+    $firstUtc = [datetime]::MinValue
+    if ($state -and $state.switchName -eq $SwitchName) {
+        $attempts = [int]$state.attempts
+        $parsedFirstUtc = $false
+        if ($state.firstAttemptUtc -is [datetime]) {
+            $firstUtc = $state.firstAttemptUtc.ToUniversalTime()
+            $parsedFirstUtc = $true
+        } elseif ($state.firstAttemptUtc) {
+            $parsedFirstUtc = [datetime]::TryParse([string]$state.firstAttemptUtc,
+                [System.Globalization.CultureInfo]::InvariantCulture,
+                [System.Globalization.DateTimeStyles]::AdjustToUniversal -bor [System.Globalization.DateTimeStyles]::AssumeUniversal,
+                [ref]$firstUtc)
+        }
+        if ($parsedFirstUtc) {
+            if (((Get-Date).ToUniversalTime() - $firstUtc).TotalHours -ge $ResetAfterHours) {
+                Write-Verbose "switch repair budget aged out after $ResetAfterHours h; trying again."
+                $attempts = 0
+            }
+        }
+    }
+    if ($attempts -ge $MaxAttempts) {
+        Write-Verbose "'$SwitchName' repair already tried $attempts time(s) without success; leaving the reported fallback in place."
+        return $false
+    }
+
+    $r = Test-YurunaSwitchRepairable -SwitchName $SwitchName -Verdict $verdict
+    if (-not $r.Repairable) {
+        Write-Verbose "'$SwitchName' verdict '$verdict' is not repairable at cycle start: $($r.Reason)"
+        return $false
+    }
+    $renewing = ($r.Remedy -eq 'renew-dhcp')
+    # Both remedies act on the adapter the host's own leg lives on, so both can
+    # cut a runner that is reached over it, and both need Administrator.
+    $action = if ($renewing) { "a DHCP renew on 'vEthernet ($SwitchName)'" } else { "a rebind onto '$($r.Adapter.Name)'" }
+    if (Test-YurunaRunnerSessionRemote) {
+        $byHand = if ($renewing) { "ipconfig /renew `"vEthernet ($SwitchName)`"" }
+                  else { "Set-VMSwitch -Name '$SwitchName' -NetAdapterName '$($r.Adapter.Name)' -AllowManagementOS `$true" }
+        Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_a74a594d6e7c15a4' -Arguments @{ switchName = "$SwitchName"; action = "$action"; byHand = "$byHand" })
+        return $false
+    }
+    if (-not ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]'Administrator')) {
+        Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_a31c1b64d4b949a8' -Arguments @{ switchName = "$SwitchName"; action = "$action" })
+        return $false
+    }
+    # A rebind pulls carrier from anything already attached. At a cycle boundary
+    # there should be nothing; if there is, the cycle is not where we thought it
+    # was and re-plumbing under a live guest is not worth the recovery it buys.
+    # A renew is exempt: it asks DHCP for the host leg's own lease and never
+    # touches the switch's forwarding path, so attached guests do not notice it.
+    if (-not $renewing) {
+        $live = @(Get-VM -ErrorAction SilentlyContinue | Where-Object { $_.State -eq 'Running' } |
+                  Get-VMNetworkAdapter -ErrorAction SilentlyContinue | Where-Object { $_.SwitchName -eq $SwitchName })
+        if ($live.Count -gt 0) {
+            Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_15a6309222839c03' -Arguments @{ switchName = "$SwitchName"; count = "$($live.Count)" })
+            return $false
+        }
+    }
+    # Gated before the attempt counter is written, so a declined or -WhatIf run
+    # leaves no state behind and does not spend part of the repair budget.
+    $intent = if ($renewing) { "Renew the DHCP lease on 'vEthernet ($SwitchName)'" }
+              else { "Rebind External vSwitch to '$($r.Adapter.Name)'" }
+    if (-not $PSCmdlet.ShouldProcess($SwitchName, $intent)) { return $false }
+
+    $priorAdapterName = $null
+    if (-not $renewing) {
+        $existing = Get-VMSwitch -Name $SwitchName -ErrorAction SilentlyContinue
+        $priorDescriptions = if ($existing) { @(Get-YurunaSwitchUplinkDescription -SwitchRecord $existing) } else { @() }
+        if ($priorDescriptions.Count -gt 0) {
+            $priorAdapterName = (Get-NetAdapter -ErrorAction SilentlyContinue |
+                Where-Object { $priorDescriptions -contains $_.InterfaceDescription } |
+                Select-Object -First 1).Name
+        }
+    }
+
+    $attempts++
+    $record = [ordered]@{
+        switchName      = $SwitchName
+        attempts        = $attempts
+        firstAttemptUtc = if ($firstUtc -ne [datetime]::MinValue -and $attempts -gt 1) { $firstUtc.ToUniversalTime().ToString('o', [System.Globalization.CultureInfo]::InvariantCulture) }
+                          else { [datetime]::UtcNow.ToString('o', [System.Globalization.CultureInfo]::InvariantCulture) }
+        lastVerdict     = $verdict
+    }
+    try {
+        [System.IO.File]::WriteAllText($statePath, ($record | ConvertTo-Json), [System.Text.UTF8Encoding]::new($false))
+    } catch { Write-Verbose "switch repair state not written: $($_.Exception.Message)" }
+
+    if ($renewing) {
+        # No rollback window here, unlike the rebind below: a renew that does
+        # not answer leaves the vNIC exactly as unaddressed as it already was,
+        # so there is no prior state worth restoring.
+        Write-Information -MessageData (Format-YurunaOperatorMessage -Key 'host.operator_700059c0fbee589a' -Arguments @{ switchName = "$SwitchName"; attempts = "$attempts"; maxAttempts = "$MaxAttempts"; reason = "$($r.Reason)" }) -InformationAction Continue
+        $null = Invoke-YurunaManagementVnicDhcpRenew -SwitchName $SwitchName -TimeoutSeconds $VerifySeconds -Confirm:$false
+        $renewVerdict = Test-YurunaExternalSwitchUplink -SwitchName $SwitchName
+        if ($renewVerdict -in $script:UplinkVerdictOk) {
+            Remove-Item -LiteralPath $statePath -Force -ErrorAction SilentlyContinue
+            Write-Information -MessageData (Format-YurunaOperatorMessage -Key 'host.operator_74adb6c89d5b326d' -Arguments @{ switchName = "$SwitchName" }) -InformationAction Continue
+            return $true
+        }
+        Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_56774322cef868bc' -Arguments @{ switchName = "$SwitchName"; verifySeconds = "${VerifySeconds}"; renewVerdict = "$renewVerdict" })
+        return $false
+    }
+
+    Write-Information -MessageData (Format-YurunaOperatorMessage -Key 'host.operator_0a90ff42da4c208c' -Arguments @{ switchName = "$SwitchName"; name = "$($r.Adapter.Name)"; attempts = "$attempts"; maxAttempts = "$MaxAttempts"; reason = "$($r.Reason)" }) -InformationAction Continue
+    try {
+        Set-VMSwitch -Name $SwitchName -NetAdapterName $r.Adapter.Name -AllowManagementOS $true -ErrorAction Stop
+    } catch {
+        Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_ab1fcde57a7857c8' -Arguments @{ switchName = "$SwitchName"; name = "$($r.Adapter.Name)"; message = "$($_.Exception.Message)" })
+        return $false
+    }
+
+    # Verify the host still has a way out, and undo if it does not. This window
+    # is the difference between self-healing and self-destroying: DHCP on the new
+    # management vNIC can take a few seconds, and can also never arrive.
+    $deadline = (Get-Date).AddSeconds([Math]::Max(5, $VerifySeconds))
+    $routeBack = $false
+    while ((Get-Date) -lt $deadline) {
+        Start-Sleep -Seconds 2
+        if (Get-NetRoute -AddressFamily IPv4 -DestinationPrefix '0.0.0.0/0' -ErrorAction SilentlyContinue |
+            Where-Object { $_.NextHop -ne '0.0.0.0' }) { $routeBack = $true; break }
+    }
+    if (-not $routeBack) {
+        Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_a06c9a13a89841f7' -Arguments @{ switchName = "$SwitchName"; name = "$($r.Adapter.Name)"; verifySeconds = "${VerifySeconds}" })
+        try {
+            if ($priorAdapterName) {
+                Set-VMSwitch -Name $SwitchName -NetAdapterName $priorAdapterName -AllowManagementOS $true -ErrorAction Stop
+            } else {
+                Remove-VMSwitch -Name $SwitchName -Force -ErrorAction Stop
+            }
+        } catch {
+            Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_44815e503565a001' -Arguments @{ switchName = "$SwitchName"; message = "$($_.Exception.Message)" })
+        }
+        return $false
+    }
+
+    $after = Test-YurunaExternalSwitchUplink -SwitchName $SwitchName
+    if ($after -in $script:UplinkVerdictOk) {
+        Remove-Item -LiteralPath $statePath -Force -ErrorAction SilentlyContinue
+        Write-Information -MessageData (Format-YurunaOperatorMessage -Key 'host.operator_da3d2f1f78ad6fd4' -Arguments @{ switchName = "$SwitchName"; name = "$($r.Adapter.Name)" }) -InformationAction Continue
+        return $true
+    }
+    Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_4843e747d7df16f4' -Arguments @{ switchName = "$SwitchName"; name = "$($r.Adapter.Name)"; after = "$after" })
+    return $false
+}
+
+<#
+.SYNOPSIS
+    Idempotently create (or return) the Yuruna External vSwitch bridged
+    to the host's primary physical NIC.
+.DESCRIPTION
+    The caching-proxy-service VM rides on this switch (instead of the built-in
+    Default Switch) so it gets a real LAN IP via DHCP and is reachable
+    by remote LAN clients without any host-side port forwarding. squid
+    sees the actual LAN client IP at TCP level -- no PROXY-protocol
+    forwarder needed and no Defender per-program filtering layer to
+    fight (which is what blocked the user-mode forwarder path on
+    Hyper-V hosts; see test/service/Start-CachingProxyServiceVM.ps1 for the long note).
+
+    Picks the NIC carrying the default IPv4 route (the one with actual
+    LAN connectivity, by definition). An uplink that can't carry a
+    bridged guest MAC is diverted to NAT instead: Wi-Fi APs reject a MAC
+    they never authenticated, and USB Ethernet miniports lack the
+    promiscuous/MAC-spoofing support bridging needs, so a bridged guest
+    fails DHCP and boots with eth0 DOWN. In those cases this returns
+    $null (see Test-WindowsUplinkNotBridgeable) so the caller falls back
+    to the Default Switch.
+
+    -AllowManagementOS:$true keeps the host's own networking on the
+    same physical NIC after the bridge -- without it, creating the
+    External vSwitch would strand the host until the operator manually
+    re-binds protocols. Brief (~5s) network blip during creation is
+    inherent to Hyper-V vSwitch reconfiguration.
+
+    Idempotent: re-runs return the existing switch. Removing it
+    requires explicit Remove-VMSwitch (we don't auto-clean -- operators
+    may have other VMs on the same External vSwitch).
+
+    Requires admin (vmms calls). Returns $null on any failure so the
+    caller can decide whether to fall back to Default Switch.
+.OUTPUTS
+    [string] switch name (typically 'Yuruna-External'), or $null on failure.
+#>
+function Get-OrCreateYurunaExternalSwitch {
+    [CmdletBinding(SupportsShouldProcess)]
+    [OutputType([string])]
+    param(
+        [string]$SwitchName = 'Yuruna-External'
+    )
+
+    # Emit only a switch name or $null; diagnostics must stay off the pipeline.
+    # See https://yuruna.link/42e220c4-0004
+
+    # --- REGION: https://yuruna.link/4220a755-0020
+    # 0. Not-bridgeable-uplink divert: return $null so the caller falls back to the Default Switch (NAT + DHCP).
+    if (Test-WindowsUplinkNotBridgeable) {
+        Write-Verbose "Host default-route uplink is not bridgeable (Wi-Fi 802.11, or a USB Ethernet adapter) -- Hyper-V can't carry a bridged guest MAC over it, so guests fail DHCP and boot with eth0 DOWN. Using the Default Switch (NAT); LAN export rides host port-forwarders."
+        return $null
+    }
+
+    # 1. Preferred name (default 'Yuruna-External'): use as-is when its
+    # bridge still works. A vSwitch object outlives its uplink binding
+    # across a host reboot, so finding the object is not evidence that a
+    # guest attached to it would get a carrier.
+    $existing = Get-VMSwitch -Name $SwitchName -ErrorAction SilentlyContinue
+    if ($existing) {
+        # No -SwitchRecord: binding any record parameter puts the
+        # classifier in fully-injected mode, where it must not reach for
+        # the adapter and address facts it needs to say anything but
+        # 'unknown'. Live callers pass the name and let it read all of
+        # them together.
+        $verdict = Test-YurunaExternalSwitchUplink -SwitchName $SwitchName
+        if ($verdict -in $script:UplinkVerdictOk) {
+            Write-Verbose "Reusing existing vSwitch '$SwitchName' (uplink verdict '$verdict')."
+            return $SwitchName
+        }
+        $uplink  = @(Get-YurunaSwitchUplinkDescription -SwitchRecord $existing) -join ', '
+        $detail  = if ($uplink) { "bound NIC: $uplink" } else { 'no bound NIC' }
+        $declined = Resolve-DegradedExternalSwitchFallback -SwitchName $SwitchName -Verdict $verdict -Detail $detail
+        return $declined
+    }
+
+    # See https://yuruna.link/42e5cdfd-0029
+    $external = @(Get-VMSwitch -ErrorAction SilentlyContinue | Where-Object { $_.SwitchType -eq 'External' })
+    if ($external.Count -gt 0) {
+        $candidate = @($external | ForEach-Object {
+            [pscustomobject]@{
+                Name           = [string]$_.Name
+                Verdict        = (Test-YurunaExternalSwitchUplink -SwitchName $_.Name)
+                OnDefaultRoute = (Test-YurunaSwitchOnDefaultRoute -SwitchRecord $_)
+            }
+        })
+        # Deterministic pick: the switch carrying the host's own default
+        # route is the one whose segment the host is demonstrably on;
+        # name order breaks any remaining tie so repeated runs on the
+        # same host agree with each other.
+        $usable = @($candidate |
+            Where-Object { $_.Verdict -in $script:UplinkVerdictOk } |
+            Sort-Object -Property @{ Expression = 'OnDefaultRoute'; Descending = $true }, @{ Expression = 'Name'; Descending = $false })
+        if ($usable.Count -gt 0) {
+            $picked = $usable[0]
+            Write-Information (Format-YurunaOperatorMessage -Key 'host.operator_4770215bffdbd75c' -Arguments @{ name = "$($picked.Name)"; switchName = "$SwitchName" })
+            return $picked.Name
+        }
+        $fallback = @($candidate | Sort-Object -Property Name)[0]
+        $detail   = (Format-YurunaOperatorMessage -Key 'host.operator_ebb334b20c14e63c' -Arguments @{ join = [string](((@($candidate | ForEach-Object { "'$($_.Name)' -> $($_.Verdict)" })) -join ', ')) })
+        $declined = Resolve-DegradedExternalSwitchFallback -SwitchName $fallback.Name -Verdict $fallback.Verdict -Detail $detail
+        return $declined
+    }
+
+    # 3. No External vSwitch exists -- create one bridged on the NIC
+    # carrying the default IPv4 route. Filter routes that are
+    # themselves through a vEthernet (Default Switch / Hyper-V internal
+    # switches) to avoid feedback if a prior bad bridge state left a
+    # vEthernet as default.
+    $defaultRoute = Get-WindowsDefaultIPv4Route
+    if (-not $defaultRoute) {
+        Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_56b61ac1fd231932')
+        return $null
+    }
+
+    $nic = Get-NetAdapter -InterfaceIndex $defaultRoute.InterfaceIndex -ErrorAction SilentlyContinue
+    if (-not $nic) {
+        Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_26843e669bc191ba' -Arguments @{ interfaceIndex = "$($defaultRoute.InterfaceIndex)" })
+        return $null
+    }
+
+    if (-not (Test-YurunaAdapterUp -Adapter $nic)) {
+        Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_cf17af079799e5c1' -Arguments @{ interfaceAlias = "$($nic.InterfaceAlias)"; status = "$($nic.Status)" })
+        return $null
+    }
+
+    # A Wi-Fi default route was already diverted to NAT at step 0, so the
+    # NIC reached here is wired -- safe to bridge.
+
+    if (-not $PSCmdlet.ShouldProcess($SwitchName, (Format-YurunaOperatorMessage -Key 'host.operator_1cc226961160e63b' -Arguments @{ interfaceAlias = "$($nic.InterfaceAlias)" }))) {
+        return $null
+    }
+
+    Write-Information (Format-YurunaOperatorMessage -Key 'host.operator_f1828451620bc0f7' -Arguments @{ switchName = "$SwitchName"; interfaceAlias = "$($nic.InterfaceAlias)" })
+    try {
+        New-VMSwitch -Name $SwitchName -NetAdapterName $nic.InterfaceAlias -AllowManagementOS:$true -ErrorAction Stop | Out-Null
+    } catch {
+        Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_3aa815d3eed4c968' -Arguments @{ message = "$($_.Exception.Message)" })
+        return $null
+    }
+
+    # Wait for host DHCP before seeding the guest with its reachable host address.
+    # See https://yuruna.link/42e220c4-0004
+    $settleSeconds = 60
+    if (-not (Wait-ExternalSwitchHostIpv4 -SwitchName $SwitchName -TimeoutSeconds $settleSeconds)) {
+        Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_6526c96616af3782' -Arguments @{ switchName = "$SwitchName"; settleSeconds = "${settleSeconds}" })
+    }
+
+    Write-Information (Format-YurunaOperatorMessage -Key 'host.operator_2eafe07b6f1ae191' -Arguments @{ switchName = "$SwitchName" })
+    return $SwitchName
+}
+
+<#
+.SYNOPSIS
+    Populate the host's ARP cache on the Yuruna-External subnet by
+    sweep-pinging it in parallel. Cheap fallback for IP discovery when
+    the cache VM has DHCP'd a LAN address but hv_kvp_daemon hasn't
+    started yet.
+.DESCRIPTION
+    On the Default Switch path, the host is the NAT/DHCP server so the
+    cache VM's MAC<->IP mapping lands in the ARP cache the moment DHCP
+    completes. On External vSwitch the LAN's DHCP server (not the host)
+    answers, so the host has no reason to ARP for the VM's IP and
+    `Get-NetNeighbor` returns nothing -- even though the VM is up,
+    has its lease, and is happily installing apt packages. KVP would
+    eventually fill this gap, but `hv_kvp_daemon` only starts late in
+    cloud-init's runcmd (after grafana / prometheus / loki / squid have
+    all installed) -- that's 5-15 minutes of "not discovered yet" while
+    the VM is actually fine.
+
+    This active sweep ARP-resolves every IP on the host's
+    Yuruna-External subnet (parallel `Test-Connection -Count 1
+    -TimeoutSeconds 1`, throttle 64). Responses populate the host's
+    neighbor cache; subsequent `Get-NetNeighbor` calls then find the
+    cache VM at its DHCP'd IP within seconds of boot, not minutes.
+
+    No-op on non-Windows or when the host has no Yuruna-External
+    vEthernet (e.g., Default-Switch fallback path). Only handles /24
+    subnets -- the common home/office LAN size; wider subnets fall back
+    to KVP-only discovery.
+
+.OUTPUTS
+    [void]
+#>
+function Invoke-YurunaExternalArpProbe {
+    [CmdletBinding()]
+    param([string]$SwitchName = 'Yuruna-External')
+
+    if (-not $IsWindows) { return }
+
+    $hostIp = Get-NetIPAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue |
+        Where-Object { $_.InterfaceAlias -like "*$SwitchName*" } |
+        Select-Object -First 1
+    if (-not $hostIp) { return }
+    if ($hostIp.PrefixLength -ne 24) {
+        # Sweeping a /16 (65k hosts) or larger is impractical in this
+        # loop. Most home/office LANs are /24; if the host is on a
+        # different prefix the operator can fall back to KVP-only
+        # discovery (slower but works once hv_kvp_daemon is up).
+        Write-Verbose "Invoke-YurunaExternalArpProbe: host /$($hostIp.PrefixLength) -- skipping sweep (only /24 supported)."
+        return
+    }
+
+    $ipBytes = ([System.Net.IPAddress]::Parse($hostIp.IPAddress)).GetAddressBytes()
+    $base    = "$($ipBytes[0]).$($ipBytes[1]).$($ipBytes[2])"
+    $hostLast = [int]$ipBytes[3]
+
+    # Parallel sweep: 254 hosts at ThrottleLimit=64 with a 1s ICMP
+    # timeout completes in ~5s on a healthy LAN. Skip the host's own
+    # last octet (no value pinging ourselves) and .0/.255 (network +
+    # broadcast). Pipe to Out-Null so any timing/error noise doesn't
+    # reach the caller's progress display.
+    1..254 |
+        Where-Object { $_ -ne $hostLast } |
+        ForEach-Object -ThrottleLimit 64 -Parallel {
+            $null = Test-Connection -ComputerName "$using:base.$_" -Count 1 -TimeoutSeconds 1 -Quiet -ErrorAction SilentlyContinue
+        } | Out-Null
+}
+
+function Test-CacheVmOnYurunaExternalSwitch {
+    <#
+    .SYNOPSIS
+        $true if the caching-proxy-service VM is attached to an External-type
+        vSwitch whose bridge still has a live uplink (LAN-bridged, has a
+        real LAN IP, no host forwarders needed).
+    .DESCRIPTION
+        Used by the cross-platform test/ scripts to decide whether
+        Add-PortMap is needed on Windows. When the cache VM
+        is bridged to LAN, remote clients reach it directly at its own
+        LAN IP and squid sees real client IPs natively -- netsh portproxy
+        adds nothing useful and would only register a redundant alternate
+        path that loses source IP through kernel NAT. When the cache VM
+        is on Default Switch (or any internal/private switch), netsh
+        portproxy is the LAN-reachability mechanism and must run.
+
+        The fast path therefore means bridged AND the bridge has a live
+        uplink: a vSwitch object outlives its uplink binding across a host
+        reboot, and a cache attached to such a switch holds no LAN address
+        at all, so answering $true for it would remove the forwarders that
+        are the only remaining way to reach the cache. An uplink the
+        classifier cannot evaluate answers $true, keeping the inverse --
+        installing forwarders in front of a healthy bridged cache, where
+        Add-PortMap's clear-all-first behavior would darken any port left
+        off the list -- reachable only on a positive fault.
+
+        Function name retains the historical 'Yuruna' reference for
+        call-site stability, but the check is by SwitchType=External --
+        operators who pre-create an External vSwitch under a different
+        name (e.g., 'External', 'LAN-Bridge') get the same fast path.
+    .OUTPUTS
+        [bool] -- $false on non-Windows, missing VM, no NIC, a non-External
+        switch, or an External switch whose uplink is positively degraded.
+    #>
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param([string]$VMName = 'yuruna-caching-proxy-service')
+
+    if (-not $IsWindows) { return $false }
+    $vm = Get-VM -Name $VMName -ErrorAction SilentlyContinue
+    if (-not $vm) { return $false }
+    $switchName = ($vm | Get-VMNetworkAdapter -ErrorAction SilentlyContinue |
+        Select-Object -First 1).SwitchName
+    if (-not $switchName) { return $false }
+    $switch = Get-VMSwitch -Name $switchName -ErrorAction SilentlyContinue
+    if (-not $switch -or $switch.SwitchType -ne 'External') { return $false }
+    $verdict = Test-YurunaExternalSwitchUplink -SwitchName $switchName
+    if ($verdict -notin $script:UplinkVerdictOk) {
+        Write-Verbose "Cache VM '$VMName' is on External vSwitch '$switchName', but its uplink is '$verdict' -- treating the cache as not LAN-bridged."
+    }
+    return ($verdict -in $script:UplinkVerdictOk)
+}
+
+function Get-WorkingCachingProxyServiceUrl {
+    <#
+    .SYNOPSIS
+        "http://<ip>:3128" of a caching-proxy-service VM that answers on :3128,
+        or $null if none of the candidate IPs respond.
+    .DESCRIPTION
+        One-shot helper for consumers (ubuntu guests) and
+        Start-CachingProxyServiceVM.ps1's summary. Does NOT wait for the cache VM
+        to boot or for squid to come up -- callers expect the VM already
+        running and squid listening. The producer
+        (guest.caching-proxy-service/New-VM.ps1) uses Get-CacheVmCandidateIp
+        directly because it provisions the cache and must poll while
+        cloud-init runs.
+    .OUTPUTS
+        System.String or $null.
+    #>
+    [CmdletBinding()]
+    [OutputType([System.String])]
+    param(
+        [string]$VMName = "yuruna-caching-proxy-service",
+        [int]$ProbeTimeoutMs = 500
+    )
+
+    $cacheVM = Get-VM -Name $VMName -ErrorAction SilentlyContinue
+    if (-not $cacheVM -or $cacheVM.State -ne 'Running') { return $null }
+
+    $httpPort = Get-CachingProxyServicePort -Scheme http
+    foreach ($ip in (Get-CacheVmCandidateIp -VM $cacheVM)) {
+        if (Test-CachingProxyServicePort -IpAddress $ip -Port $httpPort -TimeoutMs $ProbeTimeoutMs) {
+            return "http://$(Format-IpUrlHost $ip):${httpPort}"
+        }
+    }
+    return $null
+}
+
+# --- REGION: Resolve-CacheHostIp
+function Resolve-CacheHostIp {
+    <#
+    .SYNOPSIS
+        Returns a reachable caching-proxy-service IP, or $null when unavailable.
+    .DESCRIPTION
+        Honors the explicit remote-cache override before local discovery.
+        An unreachable override returns $null rather than using a local cache.
+    .OUTPUTS
+        [string] Reachable cache IP address, or $null.
+    .LINK
+        https://yuruna.link/42ec97cd-0018
+    #>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param([string]$VMName = 'yuruna-caching-proxy-service')
+    $httpPort = Get-CachingProxyServicePort -Scheme http
+    if ($Env:YURUNA_CACHING_PROXY_SERVICE_IP) {
+        $externIp = $Env:YURUNA_CACHING_PROXY_SERVICE_IP.Trim()
+        if ((Test-IpAddress $externIp) -and (Test-CachingProxyServicePort -IpAddress $externIp -Port $httpPort -TimeoutMs 500)) {
+            return $externIp
+        }
+        return $null
+    }
+    $vm = Get-VM -Name $VMName -ErrorAction SilentlyContinue
+    if (-not $vm -or $vm.State -ne 'Running') { return $null }
+    foreach ($ip in (Get-CacheVmCandidateIp -VM $vm)) {
+        if (Test-CachingProxyServicePort -IpAddress $ip -Port $httpPort -TimeoutMs 500) {
+            return $ip
+        }
+    }
+    return $null
+}
+
+# --- REGION: Save-CachedHttpUri
+function Save-CachedHttpUri {
+    <#
+    .SYNOPSIS
+        Downloads $Uri to $OutFile through the cache, with a direct fallback.
+    .DESCRIPTION
+        Binds this driver's cache discovery to the shared download pipeline.
+    .LINK
+        https://yuruna.link/42ec97cd-0018
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][string]$Uri,
+        [Parameter(Mandatory)][string]$OutFile
+    )
+    Yuruna.HostDownload\Save-CachedHttpUri -Uri $Uri -OutFile $OutFile -ResolveCacheHostIp { Resolve-CacheHostIp }
+}
+
+function Assert-HyperVEnabled {
+    <#
+    .SYNOPSIS
+        Returns $true when Hyper-V is enabled AND vmms is running; $false
+        with a diagnostic Write-Information otherwise.
+
+    .DESCRIPTION
+        Verifies the Hyper-V preconditions every New-VM and tear-down
+        script depends on. Bypasses Get-WindowsOptionalFeature: that
+        cmdlet dispatches through a COM shim (CompatiblePSEdition proxy
+        in pwsh 7) that, on fresh Windows 11 installs or right after
+        Enable-WindowsOptionalFeature completes, can fail with "Class
+        not registered" (HRESULT 0x80040154) even when Hyper-V is
+        enabled and healthy. Seen on the first post-install run of
+        Start-CachingProxyServiceVM -> guest.caching-proxy-service/New-VM.ps1. dism.exe is
+        the plain Win32 tool the cmdlet wraps; calling it directly
+        sidesteps the COM failure (same workaround as
+        install/windows.hyper-v.ps1). The call goes through
+        Get-HyperVFeatureState, which bounds it: a servicing stack busy
+        with an update can leave dism.exe waiting far longer than any
+        caller of this check is prepared to.
+
+        Home editions: if Microsoft-Hyper-V-All isn't on the SKU at all,
+        dism.exe emits 0x800f080c / "Feature name ... is unknown". We
+        surface that as a distinct message so the operator knows the
+        issue is the edition, not transient state.
+
+    .OUTPUTS
+        [bool]
+    #>
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param()
+
+    $featureTimeoutSeconds = 120
+    $feature = Get-HyperVFeatureState -TimeoutSeconds $featureTimeoutSeconds
+    switch ($feature.Probe) {
+        'missing-client' {
+            Write-Information (Format-YurunaOperatorMessage -Key 'host.operator_683db69e0f21153d' -Arguments @{ dismExe = "$($feature.Path)" })
+            return $false
+        }
+        'unknown-to-sku' {
+            Write-Information (Format-YurunaOperatorMessage -Key 'host.operator_3993337ab1c4f142')
+            return $false
+        }
+        'timeout' {
+            Write-Information (Format-YurunaOperatorMessage -Key 'host.hyperv_dism_timed_out' -Arguments @{ seconds = "$featureTimeoutSeconds" })
+            return $false
+        }
+    }
+    if ($feature.Probe -notin @('ok', 'invalid-response') -or $feature.ExitCode -ne 0) {
+        Write-Information (Format-YurunaOperatorMessage -Key 'host.operator_ea0434e09c4fc728' -Arguments @{ infoExit = "$($feature.ExitCode)" })
+        Write-Information ([string]$feature.Output)
+        return $false
+    }
+    if ($feature.State -ne 'Enabled') {
+        Write-Information (Format-YurunaOperatorMessage -Key 'host.operator_5956121984632a78' -Arguments @{ state = "$($feature.State)" })
+        return $false
+    }
+
+    $service = Get-Service -Name vmms -ErrorAction SilentlyContinue
+    if (-not $service) {
+        Write-Information (Format-YurunaOperatorMessage -Key 'host.operator_32c598c080522dc9')
+        return $false
+    }
+    if ($service.Status -ne 'Running') {
+        Write-Information (Format-YurunaOperatorMessage -Key 'host.operator_d7a37d0b142d440c' -Arguments @{ status = "$($service.Status)" })
+        return $false
+    }
+
+    return $true
+}
+
+# --- REGION: VM lifecycle helpers
+# Hyper-V-internal helpers consumed by Yuruna.Host's contract entry
+# points below. Not part of the test-facing host driver contract; test
+# code calls the contract verbs (New-VM / Start-VM / ...) which
+# delegate here.
+
+function Resolve-HyperVVM {
+    <#
+    .SYNOPSIS
+    Decide whether a Hyper-V VM is present, absent, or cannot be established,
+    without reading the text of any exception.
+
+    .DESCRIPTION
+    `Hyper-V\Get-VM -Name` fails the same way for a VM that does not exist and for
+    a provider that could not answer (VMMS down, a denied call, a busy host), and
+    its message is localized. So a failed or empty name lookup is never read as
+    absence on its own: a full inventory is taken, and only an inventory that
+    succeeds and does not list the name proves the VM is absent. An inventory that
+    lists the name after the lookup missed it, or an inventory that fails, is
+    'unknown'. Hyper-V allows duplicate names, so two exact matches are 'unknown'
+    as well -- acting on one of them could touch the other. A name holding a
+    wildcard or escape character ([ ] * ? `) skips the -Name lookup and is decided
+    by an exact match against the inventory alone.
+
+    Presence 'absent' is what callers treat as permission to build, reuse a name
+    or delete files, which is why every doubtful case answers 'unknown'.
+
+    .OUTPUTS
+    [pscustomobject] @{ Presence = present|absent|unknown; VM; Cause = ok|
+    missing-client|ambiguous|lookup-failed|inventory-failed }
+    #>
+        [CmdletBinding()]
+    [OutputType([pscustomobject])]
+    param([Parameter(Mandatory)][string]$VMName)
+    if (-not (Get-Command -Name 'Hyper-V\Get-VM' -ErrorAction SilentlyContinue)) {
+        return [pscustomobject]@{ Presence = 'unknown'; VM = $null; Cause = 'missing-client' }
+    }
+    # See https://yuruna.link/42e220c4-0004
+    $lookupByName = $VMName -notmatch '[\[\]*?`]'
+    if ($lookupByName) {
+        $candidates = @()
+        try {
+            $candidates = @(Hyper-V\Get-VM -Name $VMName -ErrorAction Stop)
+        } catch {
+            Write-Verbose "Resolve-HyperVVM: lookup of '$VMName' failed; deciding from the inventory: $($_.Exception.Message)"
+            $candidates = @()
+        }
+        $exact = @($candidates | Where-Object { $null -ne $_ -and [string]$_.Name -eq $VMName })
+        if ($exact.Count -eq 1) { return [pscustomobject]@{ Presence = 'present'; VM = $exact[0]; Cause = 'ok' } }
+        if ($exact.Count -gt 1) { return [pscustomobject]@{ Presence = 'unknown'; VM = $null; Cause = 'ambiguous' } }
+    }
+    $listed = @()
+    try {
+        $listed = @(Hyper-V\Get-VM -ErrorAction Stop | Where-Object { $null -ne $_ -and [string]$_.Name -eq $VMName })
+    } catch {
+        Write-Verbose "Resolve-HyperVVM: inventory failed: $($_.Exception.Message)"
+        return [pscustomobject]@{ Presence = 'unknown'; VM = $null; Cause = 'inventory-failed' }
+    }
+    if ($listed.Count -gt 1) { return [pscustomobject]@{ Presence = 'unknown'; VM = $null; Cause = 'ambiguous' } }
+    if ($listed.Count -eq 1) {
+        if (-not $lookupByName) { return [pscustomobject]@{ Presence = 'present'; VM = $listed[0]; Cause = 'ok' } }
+        return [pscustomobject]@{ Presence = 'unknown'; VM = $null; Cause = 'lookup-failed' }
+    }
+    return [pscustomobject]@{ Presence = 'absent'; VM = $null; Cause = 'ok' }
+}
+
+<#
+.SYNOPSIS
+Verify that a Hyper-V VM with the given name is registered.
+
+.DESCRIPTION
+Returns $true and writes a verification line when Hyper-V\Get-VM finds
+the VM (in any state); returns $false and writes an error otherwise.
+Used by the test harness right after New-VM to fail fast when the VM
+did not actually register.
+#>
+function Confirm-HyperVVMCreated {
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param([Parameter(Mandatory)][string]$VMName)
+    $vm = Hyper-V\Get-VM -Name $VMName -ErrorAction SilentlyContinue
+    if ($vm) {
+        Write-Information (Format-YurunaOperatorMessage -Key 'host.operator_352afab56bf6c9c5' -Arguments @{ vMName = "$VMName"; state = "$($vm.State)" })
+        return $true
+    }
+    Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_fb588d98fea5af35' -Arguments @{ vMName = "$VMName" })
+    return $false
+}
+
+<#
+.SYNOPSIS
+Force a Hyper-V VM to the 'Off' state, escalating to a vmwp.exe kill if
+Stop-VM -TurnOff doesn't take effect.
+
+.DESCRIPTION
+Stop-VM -TurnOff can hang indefinitely on a stuck VM (any transient
+state where vmms can't complete the transition). Each running VM is
+hosted by a `vmwp.exe` worker process whose command line contains the
+VM's Id GUID; killing that process deallocates the VM and lets
+Remove-VM proceed.
+
+Presence comes from Resolve-HyperVVM: a VM positively absent is already
+stopped, and one whose presence cannot be established is never reported
+stopped -- the function returns $false before touching anything, and a poll
+that reads 'unknown' keeps waiting rather than counting it as Off.
+
+Returns $true when the VM is gone or 'Off'; $false when even the
+vmwp.exe kill didn't clear it, or when its state is unknown.
+#>
+function Stop-HyperVVMForce {
+    [CmdletBinding(SupportsShouldProcess)]
+    [OutputType([bool])]
+    param(
+        [Parameter(Mandatory)][string]$VMName,
+        [int]$StopTimeoutSeconds = 20
+    )
+    $resolved = Resolve-HyperVVM -VMName $VMName
+    if ($resolved.Presence -eq 'absent') { return $true }
+    if ($resolved.Presence -ne 'present') {
+        Write-Warning (Format-YurunaOperatorMessage -Key 'host.hyperv_vm_state_unknown' -Arguments @{ operation = 'Stop-VMForce'; vMName = "$VMName" })
+        return $false
+    }
+    $vm = $resolved.VM
+    if ($vm.State -in @('Off', 'Saved', 'OffCritical')) { return $true }
+    if (-not $PSCmdlet.ShouldProcess($VMName, (Format-YurunaOperatorMessage -Key 'host.operator_53198937e6a2855f'))) {
+        return $false
+    }
+
+    # First attempt: graceful-ish TurnOff in a background job so a hung
+    # vmms can't block us.
+    $stopJob = Start-Job -ScriptBlock {
+        Hyper-V\Stop-VM -Name $using:VMName -Force -TurnOff -ErrorAction SilentlyContinue -WarningAction SilentlyContinue
+    }
+
+    $deadline = (Get-Date).AddSeconds($StopTimeoutSeconds)
+    while ((Get-Date) -lt $deadline) {
+        $poll = Resolve-HyperVVM -VMName $VMName
+        if ($poll.Presence -eq 'absent' -or ($poll.Presence -eq 'present' -and $poll.VM.State -eq 'Off')) {
+            Stop-Job   -Job $stopJob -ErrorAction SilentlyContinue
+            Remove-Job -Job $stopJob -Force -ErrorAction SilentlyContinue
+            return $true
+        }
+        if ($poll.Presence -eq 'present') { $vm = $poll.VM }
+        Start-Sleep -Milliseconds 500
+    }
+    Stop-Job   -Job $stopJob -ErrorAction SilentlyContinue
+    Remove-Job -Job $stopJob -Force -ErrorAction SilentlyContinue
+
+    # Escalate: kill the vmwp.exe worker process hosting this VM.
+    $vmId = $vm.Id.Guid
+    Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_79b3a3b71b34f01c' -Arguments @{ vMName = "$VMName"; stopTimeoutSeconds = "${StopTimeoutSeconds}"; state = "$($vm.State)"; vmId = "$vmId" })
+    # vmwp.exe workers run under the per-VM virtual account 'NT VIRTUAL MACHINE\<vmId>', so
+    # Win32_Process.CommandLine is frequently empty (the process is owned by another account)
+    # and a CommandLine-only match silently skips the worker, defeating the force-stop. Match on
+    # the command line when it is readable, and otherwise on the owning account, whose user name
+    # is the VM GUID.
+    $workers = @(Get-CimInstance -ClassName Win32_Process -Filter "Name='vmwp.exe'" -ErrorAction SilentlyContinue |
+        Where-Object {
+            ($_.CommandLine -and ($_.CommandLine -match [regex]::Escape($vmId))) -or
+            (($_ | Invoke-CimMethod -MethodName GetOwner -ErrorAction SilentlyContinue).User -eq $vmId)
+        })
+    if (-not $workers) {
+        Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_631642be837a8711' -Arguments @{ vmId = "$vmId" })
+        $retryJob = Start-Job -ScriptBlock {
+            Hyper-V\Stop-VM -Name $using:VMName -Force -TurnOff -ErrorAction SilentlyContinue -WarningAction SilentlyContinue
+        }
+        Wait-Job   -Job $retryJob -Timeout 10 | Out-Null
+        Stop-Job   -Job $retryJob -ErrorAction SilentlyContinue
+        Remove-Job -Job $retryJob -Force -ErrorAction SilentlyContinue
+    } else {
+        foreach ($w in $workers) {
+            try {
+                Stop-Process -Id $w.ProcessId -Force -ErrorAction Stop
+                Write-Information (Format-YurunaOperatorMessage -Key 'host.operator_60cb175cc471b1fe' -Arguments @{ processId = "$($w.ProcessId)"; vMName = "$VMName" })
+            } catch {
+                Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_c00f98d8832e6542' -Arguments @{ processId = "$($w.ProcessId)"; value = "$_" })
+            }
+        }
+    }
+
+    $deadline = (Get-Date).AddSeconds(10)
+    while ((Get-Date) -lt $deadline) {
+        $poll = Resolve-HyperVVM -VMName $VMName
+        if ($poll.Presence -eq 'absent' -or ($poll.Presence -eq 'present' -and $poll.VM.State -eq 'Off')) { return $true }
+        Start-Sleep -Milliseconds 500
+    }
+
+    $final = Resolve-HyperVVM -VMName $VMName
+    $finalState = if ($final.Presence -eq 'present') { [string]$final.VM.State } else { [string]$final.Presence }
+    Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_23fb4d89d4ecb64b' -Arguments @{ vMName = "$VMName"; finalState = "$finalState" })
+    return $false
+}
+
+<#
+.SYNOPSIS
+Force-stop and delete a Hyper-V VM along with its disk directory.
+
+.DESCRIPTION
+Brings the VM to Off via Stop-HyperVVMForce, closes any vmconnect
+viewer attached to the VM (deleting a VM with its viewer open leaves a
+modal "has been deleted" dialog that blocks until dismissed by hand),
+calls Remove-VM, and then removes the per-VM subdirectory under
+Get-VMHost.VirtualHardDiskPath.
+
+Presence comes from Resolve-HyperVVM. When it cannot be established the
+function removes nothing -- not the registration and not the disk directory
+-- and returns $false. After Remove-VM the VM must read positively 'absent';
+a VM still listed, or one whose presence is again unknown, counts as not
+removed. The disk directory is deleted only once the registration is
+positively gone: files deleted from under a VM that still exists would leave
+a registered VM that can never boot, and the next run would find it "already
+there". Returns $true only when the VM is positively not registered;
+disk-cleanup failures are warned but do not flip the result.
+#>
+function Remove-HyperVTestVM {
+    [CmdletBinding(SupportsShouldProcess)]
+    [OutputType([bool])]
+    param([Parameter(Mandatory)][string]$VMName)
+    if (-not $PSCmdlet.ShouldProcess($VMName, (Format-YurunaOperatorMessage -Key 'host.operator_12924e738438f274'))) { return $false }
+    $resolved = Resolve-HyperVVM -VMName $VMName
+    if ($resolved.Presence -eq 'unknown') {
+        Write-Warning (Format-YurunaOperatorMessage -Key 'host.hyperv_vm_state_unknown' -Arguments @{ operation = 'Remove-VM'; vMName = "$VMName" })
+        return $false
+    }
+    $registryRemoved = $true
+    if ($resolved.Presence -eq 'present') {
+        $null = Stop-HyperVVMForce -VMName $VMName -Confirm:$false
+        # See https://yuruna.link/42e220c4-0004
+        Get-Process -Name "vmconnect" -ErrorAction SilentlyContinue |
+            Where-Object { $_.MainWindowTitle -match [regex]::Escape($VMName) } |
+            Stop-Process -Force -ErrorAction SilentlyContinue
+        try {
+            Hyper-V\Remove-VM -Name $VMName -Force -Confirm:$false -ErrorAction Stop 6>$null
+            $after = Resolve-HyperVVM -VMName $VMName
+            if ($after.Presence -eq 'absent') {
+                Write-Information (Format-YurunaOperatorMessage -Key 'host.operator_9c763f8a46614503' -Arguments @{ vMName = "$VMName" })
+            } elseif ($after.Presence -eq 'present') {
+                $registryRemoved = $false
+                Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_d660ea14d5a1e764' -Arguments @{ vMName = "$VMName" })
+            } else {
+                $registryRemoved = $false
+                Write-Warning (Format-YurunaOperatorMessage -Key 'host.hyperv_vm_removal_unconfirmed' -Arguments @{ vMName = "$VMName" })
+            }
+        } catch {
+            $registryRemoved = $false
+            Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_be96c470ac033b2c' -Arguments @{ vMName = "$VMName"; value = "$_" })
+        }
+    }
+    if (-not $registryRemoved) { return $false }
+    $vhdPath = (Hyper-V\Get-VMHost -ErrorAction SilentlyContinue).VirtualHardDiskPath
+    if ($vhdPath) {
+        $vmDir = Join-Path $vhdPath $VMName
+        if (Test-Path $vmDir) {
+            try {
+                Remove-Item -LiteralPath $vmDir -Recurse -Force -ErrorAction Stop 6>$null
+                Write-Verbose "Removed VM disk directory: $vmDir"
+            } catch {
+                Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_06870ad7a1059861' -Arguments @{ vmDir = "$vmDir"; value = "$_" })
+            }
+        }
+    }
+    return $registryRemoved
+}
+
+<#
+.SYNOPSIS
+This host's memory position: physical memory available now, plus the system
+commit charge and the limit that charge is drawn against.
+
+.DESCRIPTION
+A VM's startup memory is charged against the SYSTEM COMMIT LIMIT -- physical
+memory plus the current size of the page file -- and not against free physical
+memory, so commit is the quantity that decides whether a start is admitted.
+With a system-managed page file that limit is not a constant: Windows grows and
+shrinks the file as the total charge moves, and while a growth is in flight the
+limit is momentarily too low to admit a fresh multi-gigabyte reservation. That
+is why a start can be refused for want of system resources at the very moment
+free physical memory is at its highest: the two readings answer different
+questions, and only one of them is the question the hypervisor asked.
+
+Win32_OperatingSystem is the primary source because it answers whenever WMI
+does, and it states the whole position on its own: TotalVirtualMemorySize IS
+the commit limit and FreeVirtualMemory IS the headroom under it, both in KB.
+Win32_PerfRawData_PerfOS_Memory is consulted only when that query fails -- it
+is served by the performance-counter subsystem, which can be broken on a host
+whose WMI is healthy.
+
+The four value keys are named for the quantity rather than for this platform's
+counters, so another host driver can fill the same shape from its own source
+(on Linux, /proc/meminfo MemAvailable / Committed_AS / CommitLimit) and a
+failure record keeps one meaning whichever driver wrote it.
+
+Never throws. $null means "not knowable on this host", and a caller must carry
+that through as an absent reading rather than substituting zeros -- a fabricated
+memory figure in a failure record is worse than none, because it reads as a
+measurement.
+
+.OUTPUTS
+[hashtable] with availableMb, committedBytes, commitLimitBytes,
+commitAvailableBytes and source; $null when the host will not answer.
+#>
+function Get-HostMemoryStatus {
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param()
+    try {
+        $os = Get-CimInstance -ClassName Win32_OperatingSystem -ErrorAction Stop
+        if ($os -and ([int64]$os.TotalVirtualMemorySize) -gt 0) {
+            $limit = [int64]$os.TotalVirtualMemorySize * 1KB
+            $free  = [int64]$os.FreeVirtualMemory * 1KB
+            return @{
+                availableMb          = [int64]([int64]$os.FreePhysicalMemory / 1KB)
+                committedBytes       = $limit - $free
+                commitLimitBytes     = $limit
+                commitAvailableBytes = $free
+                source               = 'Win32_OperatingSystem'
+            }
+        }
+    } catch {
+        Write-Verbose "Get-HostMemoryStatus: Win32_OperatingSystem did not answer: $($_.Exception.Message)"
+    }
+    try {
+        $perf = Get-CimInstance -ClassName Win32_PerfRawData_PerfOS_Memory -ErrorAction Stop
+        if ($perf -and ([int64]$perf.CommitLimit) -gt 0) {
+            return @{
+                availableMb          = [int64]$perf.AvailableMBytes
+                committedBytes       = [int64]$perf.CommittedBytes
+                commitLimitBytes     = [int64]$perf.CommitLimit
+                commitAvailableBytes = [int64]$perf.CommitLimit - [int64]$perf.CommittedBytes
+                source               = 'Win32_PerfRawData_PerfOS_Memory'
+            }
+        }
+    } catch {
+        Write-Verbose "Get-HostMemoryStatus: performance counters did not answer: $($_.Exception.Message)"
+    }
+    return $null
+}
+
+<#
+.SYNOPSIS
+One line describing a memory reading, for a log an operator reads at a glance.
+
+.DESCRIPTION
+Commit is stated first because commit is what admits or refuses a start, and
+physical last because it is the figure that misleads when read on its own.
+
+.OUTPUTS
+[string]
+#>
+function Format-HostMemoryStatus {
+    [CmdletBinding()]
+    [OutputType([string])]
+    param([AllowNull()][hashtable]$Status)
+    if (-not $Status) { return 'host memory position unreadable' }
+    return ('commit {0:N1} of {1:N1} GB charged, {2:N1} GB uncharged; {3:N1} GB physical available' -f `
+        ($Status.committedBytes / 1GB), ($Status.commitLimitBytes / 1GB),
+        ($Status.commitAvailableBytes / 1GB), ($Status.availableMb / 1KB))
+}
+
+<#
+.SYNOPSIS
+True when a failure is the host refusing an allocation for want of system
+resources, rather than anything about the VM being started.
+
+.DESCRIPTION
+ERROR_NO_SYSTEM_RESOURCES surfaces as HRESULT 0x800705AA, which is -2147023446
+as a signed Int32 -- the value the numeric checks compare against, taken from
+HResult anywhere in the exception chain and from NativeErrorCode on a
+Win32Exception, whichever wrapper the failing call happened to produce.
+
+The rendered text is the LAST resort and is matched on the hex literal alone.
+Every word around that literal is translated on a localized host, so a match on
+the English sentence would quietly stop recognizing the condition on exactly
+the machines least likely to be watched; the digits are not translated. A
+refusal stating neither the code nor the literal is simply not recognized, and
+the caller then treats it as it treats any other start failure -- the narrow
+match can cost a retry, never a misclassification.
+
+.OUTPUTS
+[bool]
+#>
+function Test-HostResourceExhaustionError {
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param([Parameter(Mandatory)][AllowNull()]$ErrorRecord)
+    if (-not $ErrorRecord) { return $false }
+    $noSystemResources = -2147023446
+    $text = ''
+    $ex   = $null
+    if ($ErrorRecord -is [System.Management.Automation.ErrorRecord]) {
+        $text = "$ErrorRecord"
+        $ex   = $ErrorRecord.Exception
+    } else {
+        $ex = $ErrorRecord -as [System.Exception]
+    }
+    # Depth-bounded: an exception whose InnerException chain loops back on
+    # itself would otherwise hang the classifier inside a failure path.
+    $depth = 0
+    while ($ex -and $depth -lt 8) {
+        if ($ex.HResult -eq $noSystemResources) { return $true }
+        if (($ex -is [System.ComponentModel.Win32Exception]) -and ($ex.NativeErrorCode -eq 1450)) { return $true }
+        $text += " $($ex.Message)"
+        $ex = $ex.InnerException
+        $depth++
+    }
+    return ($text -match '0x800705AA')
+}
+
+<#
+.SYNOPSIS
+The startup memory, in bytes, that starting the named VM will charge the host.
+
+.DESCRIPTION
+Read from the VM definition rather than passed in by the caller: the size is
+set by the per-guest builder and by the planner's sizing override, and a second
+statement of it here would drift from whichever one actually shaped the VM.
+Dynamic memory changes what a running guest keeps, not what its start has to
+find, so startup memory is the figure either way.
+
+0 when the VM cannot be read; the caller treats that as "size unknown" and
+skips the arithmetic that would need it rather than guessing at a size.
+
+.OUTPUTS
+[int64] bytes, or 0.
+#>
+function Get-HyperVVMStartupMemory {
+    [CmdletBinding()]
+    [OutputType([int64])]
+    param([Parameter(Mandatory)][string]$VMName)
+    try {
+        $vm = Hyper-V\Get-VM -Name $VMName -ErrorAction Stop
+        if ($vm) { return [int64]$vm.MemoryStartup }
+    } catch {
+        Write-Verbose "Get-HyperVVMStartupMemory: '$VMName' did not answer: $($_.Exception.Message)"
+    }
+    return [int64]0
+}
+
+<#
+.SYNOPSIS
+Wait -- briefly, and only while the host is actually giving memory back -- for
+the uncharged commit to cover an allocation that is about to be made.
+
+.DESCRIPTION
+A teardown returns from Remove-VM before the departing VM worker process has
+exited and handed its commit back, so "the previous VM is no longer running" is
+not the same fact as "its memory is available again". The gap between the two
+runs to tens of seconds on a loaded host, and a start issued inside that gap is
+the one that gets refused.
+
+Two hosts can fail the same predicate for opposite reasons, and they deserve
+opposite treatment. A host mid-teardown is RELEASING: its uncharged commit
+climbs in gigabyte steps as the departing worker exits, and waiting there is
+productive because the request is usually met within seconds. A host that is
+simply over-subscribed is releasing nothing, its reading does not climb, and no
+amount of waiting will satisfy the request -- there a wait is pure cost, paid
+on every start, forever. So the budget is not what ends this wait in the common
+case: the absence of upward movement is. While the reading keeps climbing the
+wait runs on toward the budget; once it has failed to climb for a few
+consecutive polls the host is taken to be releasing nothing and the wait
+returns.
+
+"Climbing" has to clear a floor, because uncharged commit on a live host is
+never still. It moves by hundreds of megabytes between polls as ordinary
+processes allocate and release, and with a system-managed page file the LIMIT
+itself steps as Windows resizes the file, which moves the headroom with no
+allocation changing at all. So progress is measured against the HIGHEST reading
+seen so far, never against the previous one -- a dip followed by a recovery is
+not progress and must not ratchet the wait forward -- and only a gain of at
+least ProgressBytes counts. The floor sits well above the churn a busy host
+shows while it is releasing nothing, and well below what any guest teardown
+hands back, so a real release is unmissable and ordinary noise is invisible.
+
+Neither a stall nor a timeout is a failure, and neither may ever become one.
+The wait returns Satisfied = $false and the caller proceeds with the start it
+was going to make anyway: the hypervisor's own answer is the authoritative one
+and the only one that carries a diagnosable error, and a synthetic preemptive
+failure would replace it with a guess about a start nobody attempted. The same
+holds when the counters stop answering, and the whole body is guarded so that
+even an unforeseen fault in here ends the wait instead of the start. The only
+thing this function can do to a start is delay it; it can never prevent one.
+
+Bounded twice over -- each poll sleep is clipped to what is left of the budget
+-- so the worst case is the budget plus one reading however the host behaves.
+
+.OUTPUTS
+[hashtable] with Satisfied, WaitedSeconds, Reason and Status (the last reading,
+or $null when the host stopped answering). Reason is one of 'satisfied',
+'no-predicate', 'unreadable', 'stalled' or 'timeout', and is what tells an
+operator whether a short wait meant a healthy host or a saturated one.
+#>
+function Wait-HostMemoryHeadroom {
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param(
+        [Parameter(Mandatory)][int64]$RequiredBytes,
+        [string]$Label = '',
+        [int]$TimeoutSeconds = 20,
+        [int]$PollSeconds = 2,
+        # A gigabyte is well above the poll-to-poll movement a busy host shows
+        # while it is releasing nothing, and well below what a multi-gigabyte
+        # guest hands back when its worker exits. A smaller floor reads ordinary
+        # churn as a teardown in flight and keeps waiting on a host that is
+        # merely full, which is the cost this early exit exists to avoid.
+        [int64]$ProgressBytes = 1GB,
+        # Three polls, not one: a departing worker can hold flat for a beat
+        # before its pages are reclaimed. Being wrong in this direction costs a
+        # few seconds; being wrong in the other costs the whole budget on every
+        # start for the life of the host.
+        [int]$StallPolls = 3
+    )
+    $sw = [System.Diagnostics.Stopwatch]::StartNew()
+    # Guarded as a whole. This function exists to spare a start a refusal it
+    # would otherwise take, so the one outcome it must never produce is a start
+    # that never happened: any fault in here -- a counter source that throws
+    # instead of returning nothing, a host stating a value in an unexpected
+    # shape -- ends the wait and leaves the attempt to the caller.
+    try {
+        $status = Get-HostMemoryStatus
+        $result = @{ Satisfied = $true; WaitedSeconds = 0; Reason = 'satisfied'; Status = $status }
+        # No predicate, no wait: an unreadable host or an unknown allocation size
+        # gives nothing to wait FOR, and such a wait can only spend its budget.
+        if (-not $status) { $result.Reason = 'unreadable'; return $result }
+        if ($RequiredBytes -le 0) { $result.Reason = 'no-predicate'; return $result }
+        if ($status.commitAvailableBytes -ge $RequiredBytes) { return $result }
+        Write-Information -MessageData ((Format-YurunaOperatorMessage -Key 'host.operator_5a62ca9dd9977b94' -Arguments @{ label = "$Label"; status = "$(Format-HostMemoryStatus -Status $status)"; timeoutSeconds = "${TimeoutSeconds}" } -FormatValues @(($RequiredBytes / 1GB)) -FormatBindings @{ requiredGB = '0:N1' })) -InformationAction Continue
+        $bestSeenBytes = [int64]$status.commitAvailableBytes
+        $flatPolls = 0
+        $exitReason = 'timeout'
+        while ($sw.Elapsed.TotalSeconds -lt $TimeoutSeconds) {
+            $remaining = $TimeoutSeconds - $sw.Elapsed.TotalSeconds
+            Start-Sleep -Milliseconds ([int]([Math]::Min([double]$PollSeconds, $remaining) * 1000))
+            $status = Get-HostMemoryStatus
+            $result.Status = $status
+            if (-not $status) { $exitReason = 'unreadable'; break }
+            if ($status.commitAvailableBytes -ge $RequiredBytes) {
+                $result.WaitedSeconds = [int]$sw.Elapsed.TotalSeconds
+                Write-Information -MessageData (Format-YurunaOperatorMessage -Key 'host.operator_04fd116620ef7962' -Arguments @{ label = "$Label"; waitedSeconds = "$($result.WaitedSeconds)"; status = "$(Format-HostMemoryStatus -Status $status)" }) -InformationAction Continue
+                return $result
+            }
+            if ([int64]$status.commitAvailableBytes -ge ($bestSeenBytes + $ProgressBytes)) {
+                $bestSeenBytes = [int64]$status.commitAvailableBytes
+                $flatPolls = 0
+            } else {
+                $flatPolls++
+                if ($flatPolls -ge $StallPolls) { $exitReason = 'stalled'; break }
+            }
+        }
+        $result.Satisfied     = $false
+        $result.Reason        = $exitReason
+        $result.WaitedSeconds = [int]$sw.Elapsed.TotalSeconds
+        $why = switch ($exitReason) {
+            'stalled'    { 'the host handed nothing back while this watched, so it is over-subscribed rather than mid-teardown' }
+            'unreadable' { 'the host stopped stating its memory position' }
+            default      { 'the headroom never arrived' }
+        }
+        Write-Information -MessageData (Format-YurunaOperatorMessage -Key 'host.operator_dbb1034060435dc0' -Arguments @{ label = "$Label"; waitedSeconds = "$($result.WaitedSeconds)"; why = "$why"; status = "$(Format-HostMemoryStatus -Status $status)" }) -InformationAction Continue
+        return $result
+    } catch {
+        Write-Verbose "Wait-HostMemoryHeadroom: the host's memory position could not be watched: $($_.Exception.Message)"
+        return @{ Satisfied = $true; WaitedSeconds = [int]$sw.Elapsed.TotalSeconds; Reason = 'unreadable'; Status = $null }
+    }
+}
+
+<#
+.SYNOPSIS
+Start a Hyper-V VM and open a vmconnect window in basic mode.
+
+.DESCRIPTION
+Waits -- briefly, and only while the host is still handing memory back -- for
+the host to hold the commit this guest is about to charge, calls
+Hyper-V\Start-VM, then launches vmconnect.exe against localhost\$VMName
+so screenshots and keystroke delivery work without guest integration tools.
+After spawn it dismisses the "Another user is connected" dialog if vmconnect
+raises it.
+
+A start refused for want of system resources is retried ONCE, after a further
+bounded wait, and ONLY that error is retried: the condition is transient by
+nature -- the host is between releasing one guest's reservation and being able
+to grant the next -- while every other start failure is a standing fault that a
+second attempt merely delays the report of.
+
+Returns a hashtable @{ success; errorMessage; hostMemory } so callers can
+branch on transport failures separately from PowerShell exceptions. hostMemory
+is the reading taken immediately before the attempt that decided the outcome,
+so a failure record can state what the machine held at the instant it refused;
+it is $null when the host would not state it. Read it with the indexer
+($result['hostMemory']) rather than as a property -- the other host drivers do
+not set the key, and under StrictMode a missing key read as a property throws.
+#>
+function Start-HyperVVM {
+    [CmdletBinding(SupportsShouldProcess)]
+    [OutputType([hashtable])]
+    param(
+        [Parameter(Mandatory)][string]$VMName,
+        [int]$MemoryWaitSeconds = 20
+    )
+    # A VM costs the host more than the guest's own RAM: the worker process,
+    # device emulation and the virtualization stack's own pages are charged
+    # alongside it. Asking for the guest size alone would clear a preflight that
+    # the start then fails; the margin only ever costs a wait that ends in a
+    # start either way.
+    $overheadBytes = 512MB
+    $memory = $null
+    try {
+        if ($PSCmdlet.ShouldProcess($VMName, (Format-YurunaOperatorMessage -Key 'host.operator_a3da8d2bcc4b8ff7'))) {
+            # A VM that is already running holds its commit and a start against
+            # it is a no-op, so there is nothing to wait for; asking anyway would
+            # spend the whole budget before a call that was always going to
+            # return immediately.
+            $required = [int64]0
+            try {
+                if ((Get-VMState -VMName $VMName) -ne 'running') {
+                    $required = Get-HyperVVMStartupMemory -VMName $VMName
+                    if ($required -gt 0) { $required += $overheadBytes }
+                }
+            } catch {
+                # Sizing the preflight is an optimization and nothing more. If
+                # the VM will not state its size, there is simply nothing to
+                # wait for -- the start still goes ahead and the hypervisor
+                # still gets to state the outcome.
+                Write-Verbose "Start-HyperVVM: '$VMName' would not state a size for the memory preflight: $($_.Exception.Message)"
+                $required = [int64]0
+            }
+            $attempt = 0
+            while ($true) {
+                $null   = Wait-HostMemoryHeadroom -RequiredBytes $required -Label "'$VMName'" -TimeoutSeconds $MemoryWaitSeconds
+                # Taken after the wait and before the attempt, so the reading a
+                # failure record carries is the position the refusal was made in.
+                $memory = Get-HostMemoryStatus
+                try {
+                    Hyper-V\Start-VM -Name $VMName -ErrorAction Stop -WarningAction SilentlyContinue 6>$null
+                    break
+                } catch {
+                    if ($attempt -ge 1 -or -not (Test-HostResourceExhaustionError -ErrorRecord $_)) { throw }
+                    $attempt++
+                    Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_4c797db53595bac6' -Arguments @{ vMName = "$VMName"; memory = "$(Format-HostMemoryStatus -Status $memory)" })
+                    # A fixed pause before the wait re-reads: the refusal can
+                    # arrive before the host's own accounting has caught up, and
+                    # a reading taken in that same instant looks healthy enough
+                    # to end the wait immediately and retry into the same state.
+                    Start-Sleep -Seconds 5
+                }
+            }
+            # Open a vmconnect window in basic mode for screenshots / keystroke
+            # delivery without requiring guest integration tools.
+            $vmconnect = "$env:SystemRoot\System32\vmconnect.exe"
+            if (Test-Path $vmconnect) {
+                Start-Process -FilePath $vmconnect -ArgumentList "localhost", $VMName
+                # No blind sleep here: the poll below already tolerates a
+                # vmconnect that has not started yet (an empty Get-Process
+                # match is just a 'pending' observation).
+                [void](Resolve-VMConnectAnotherUserDialog -VMName $VMName -TimeoutSeconds 8)
+            }
+        }
+        return @{ success = $true; errorMessage = $null; hostMemory = $memory }
+    } catch {
+        # The reading from just before the failed attempt is the one that
+        # describes the refusal; the fallback covers only a throw raised before
+        # any attempt was made.
+        if (-not $memory) { $memory = Get-HostMemoryStatus }
+        return @{ success = $false; errorMessage = (Format-YurunaOperatorMessage -Key 'host.operator_b97fb4abbfde180c' -Arguments @{ vMName = "$VMName"; value = "$_" }); hostMemory = $memory }
+    }
+}
+
+<#
+.SYNOPSIS
+Ask the guest OS to shut itself down, and wait for the VM to reach Off.
+
+.DESCRIPTION
+Hyper-V's Stop-VM WITHOUT -TurnOff is served by the Shutdown integration
+component, so the guest unmounts and flushes before the disk stops
+changing. -Force here only suppresses the logged-on-user confirmation
+prompt; it does NOT turn the semantics into a power cut.
+
+That distinction is load-bearing whenever the stop is followed by a
+checkpoint. A -TurnOff is a virtual power cut: an ext4 guest with delayed
+allocation loses every write still inside its writeback window (30s by
+default), and files created in that window come back with their metadata
+intact and size 0 -- while the same files' data blocks were never
+allocated. Those zero-length files are then baked into the checkpoint and
+reappear on every later restore. A 0-byte file with the +x bit still
+executes as an empty script under bash (exit 0, no output), so a truncated
+tool can survive a whole provisioning run without anything complaining.
+
+The shutdown request runs in a background job so a hung vmms cannot block
+the caller. A guest that cannot answer (no integration services, stuck at a
+firmware prompt) makes Stop-VM return quickly without ever reaching Off; the
+job-completed check below stops waiting out the full timeout in that case.
+
+Returns $true when the VM is positively gone or reached Off, $false when the
+guest did not follow through or its presence could not be established -- the
+caller decides whether to escalate.
+#>
+function Request-HyperVVMShutdown {
+    [CmdletBinding(SupportsShouldProcess)]
+    [OutputType([bool])]
+    param(
+        [Parameter(Mandatory)][string]$VMName,
+        [int]$ShutdownTimeoutSeconds = 120
+    )
+    # A VM whose presence cannot be established is not stopped: returning
+    # $false sends the caller to its escalation, which refuses the same way.
+    $resolved = Resolve-HyperVVM -VMName $VMName
+    if ($resolved.Presence -eq 'absent') { return $true }
+    if ($resolved.Presence -ne 'present') {
+        Write-Warning (Format-YurunaOperatorMessage -Key 'host.hyperv_vm_state_unknown' -Arguments @{ operation = 'Stop-VM'; vMName = "$VMName" })
+        return $false
+    }
+    $vm = $resolved.VM
+    if ($vm.State -in @('Off', 'Saved', 'OffCritical')) { return $true }
+    if (-not $PSCmdlet.ShouldProcess($VMName, (Format-YurunaOperatorMessage -Key 'host.operator_8cb88c0dfdc75d37'))) { return $false }
+
+    $shutdownJob = Start-Job -ScriptBlock {
+        Hyper-V\Stop-VM -Name $using:VMName -Force -ErrorAction SilentlyContinue -WarningAction SilentlyContinue
+    }
+    try {
+        $deadline    = (Get-Date).AddSeconds($ShutdownTimeoutSeconds)
+        $jobDoneAt   = $null
+        # Grace after the request returns: Stop-VM can hand back before the VM's
+        # state has settled to Off, so a completed job is not by itself a refusal.
+        $graceSeconds = 5
+        while ((Get-Date) -lt $deadline) {
+            $poll = Resolve-HyperVVM -VMName $VMName
+            if ($poll.Presence -eq 'absent' -or ($poll.Presence -eq 'present' -and $poll.VM.State -eq 'Off')) { return $true }
+            if ($poll.Presence -eq 'present') { $vm = $poll.VM }
+            if ($shutdownJob.State -notin @('NotStarted', 'Running')) {
+                if ($null -eq $jobDoneAt) { $jobDoneAt = Get-Date }
+                elseif (((Get-Date) - $jobDoneAt).TotalSeconds -gt $graceSeconds) {
+                    Write-Verbose "Request-HyperVVMShutdown: shutdown request for '$VMName' completed but the VM is '$($vm.State)'; the guest is not honoring it."
+                    return $false
+                }
+            }
+            Start-Sleep -Milliseconds 500
+        }
+    } finally {
+        Stop-Job   -Job $shutdownJob -ErrorAction SilentlyContinue
+        Remove-Job -Job $shutdownJob -Force -ErrorAction SilentlyContinue
+    }
+    return $false
+}
+
+<#
+.SYNOPSIS
+Stop a Hyper-V VM cleanly and close any matching vmconnect window.
+
+.DESCRIPTION
+Asks the guest to shut itself down first (Request-HyperVVMShutdown) so its
+filesystem is flushed and consistent, and only escalates to
+Stop-HyperVVMForce -- a -TurnOff plus vmwp.exe kill -- when the guest does
+not reach Off in time. Callers that genuinely want the power cut (teardown,
+where the disk is about to be deleted) call Stop-HyperVVMForce directly.
+
+Then kills any vmconnect process whose window title references this VM so
+the desktop doesn't accumulate stale viewer windows. Returns whether the VM
+actually reached Off.
+#>
+function Stop-HyperVVM {
+    [CmdletBinding(SupportsShouldProcess)]
+    [OutputType([bool])]
+    param(
+        [Parameter(Mandatory)][string]$VMName,
+        [int]$ShutdownTimeoutSeconds = 120,
+        [switch]$NoForce
+    )
+    if (-not $PSCmdlet.ShouldProcess($VMName, (Format-YurunaOperatorMessage -Key 'host.operator_1809ac610f9f348c'))) { return $true }
+    $stopped = $false
+    try {
+        $stopped = [bool](Request-HyperVVMShutdown -VMName $VMName -ShutdownTimeoutSeconds $ShutdownTimeoutSeconds -Confirm:$false)
+        # -NoForce: the guest ignored the request and the caller wants to look
+        # at it before it is turned off, so the viewer is left in place too.
+        if (-not $stopped -and $NoForce) {
+            Write-Verbose "Stop-HyperVVM: '$VMName' did not stop within ${ShutdownTimeoutSeconds}s; -NoForce leaves it running."
+            return $false
+        }
+        if (-not $stopped) {
+            Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_f3ac8c54b3ef36d7' -Arguments @{ vMName = "$VMName"; shutdownTimeoutSeconds = "${ShutdownTimeoutSeconds}" })
+            $stopped = [bool](Stop-HyperVVMForce -VMName $VMName -StopTimeoutSeconds 20 -Confirm:$false)
+        }
+    } catch {
+        Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_57c0e651cba9b6ec' -Arguments @{ vMName = "$VMName"; value = "$_" })
+        $stopped = $false
+    }
+    Get-Process -Name "vmconnect" -ErrorAction SilentlyContinue |
+        Where-Object { $_.MainWindowTitle -match [regex]::Escape($VMName) } |
+        Stop-Process -Force -ErrorAction SilentlyContinue
+    if ($stopped) {
+        Write-Information (Format-YurunaOperatorMessage -Key 'host.operator_f62df16b646f2313' -Arguments @{ vMName = "$VMName" })
+    } else {
+        Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_df85cfa2ce176e71' -Arguments @{ vMName = "$VMName" })
+    }
+    return $stopped
+}
+
+<#
+.SYNOPSIS
+Wait for a Hyper-V VM to reach the Running state.
+
+.DESCRIPTION
+Polls Hyper-V\Get-VM every 5 seconds for up to $TimeoutSeconds
+(default 120) and returns $true when State is Running. On timeout it
+writes an error and returns $false so the caller can decide whether
+to retry, stop the VM, or treat this as a fatal harness failure.
+#>
+function Confirm-HyperVVMStarted {
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param([Parameter(Mandatory)][string]$VMName, [int]$TimeoutSeconds = 120)
+    # See https://yuruna.link/42e220c4-0004
+    $deadlineUtc = [DateTime]::UtcNow.AddSeconds($TimeoutSeconds)
+    while ([DateTime]::UtcNow -lt $deadlineUtc) {
+        $vm = Hyper-V\Get-VM -Name $VMName -ErrorAction SilentlyContinue
+        if ($vm -and $vm.State -eq 'Running') {
+            Write-Information (Format-YurunaOperatorMessage -Key 'host.operator_651f84ee3d7b34f4' -Arguments @{ vMName = "$VMName"; state = "$($vm.State)" })
+            return $true
+        }
+        Start-Sleep -Seconds 1
+    }
+    Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_df84c7ed1226f405' -Arguments @{ vMName = "$VMName"; timeoutSeconds = "${TimeoutSeconds}" })
+    return $false
+}
+
+# See https://yuruna.link/42e220c4-0004
+$script:VMConnectSettleSeconds = 3.0
+
+<#
+.SYNOPSIS
+    Auto-dismiss vmconnect's "Another user is connected" prompt.
+.DESCRIPTION
+    Polls for the dialog and posts WM_COMMAND IDYES so the runner
+    stays unattended. Returns $true if a dialog was dismissed,
+    $false if none appeared (the healthy path).
+#>
+function Resolve-VMConnectAnotherUserDialog {
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param(
+        [Parameter(Mandatory)][string]$VMName,
+        [int]$TimeoutSeconds = 8
+    )
+    if (-not $IsWindows) { return $false }
+    if (-not ('YurunaVMConnectDialog' -as [type])) {
+        Add-Type -TypeDefinition @"
+using System;
+using System.Runtime.InteropServices;
+using System.Text;
+
+public class YurunaVMConnectDialog {
+    public delegate bool EnumWindowsProc(IntPtr hWnd, IntPtr lParam);
+    [DllImport("user32.dll")] public static extern bool EnumWindows(EnumWindowsProc cb, IntPtr lParam);
+    [DllImport("user32.dll")] public static extern bool EnumChildWindows(IntPtr hParent, EnumWindowsProc cb, IntPtr lParam);
+    [DllImport("user32.dll", CharSet=CharSet.Auto)] public static extern int GetWindowText(IntPtr hWnd, StringBuilder sb, int max);
+    [DllImport("user32.dll", CharSet=CharSet.Auto)] public static extern int GetClassName(IntPtr hWnd, StringBuilder sb, int max);
+    [DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr hWnd);
+    [DllImport("user32.dll")] public static extern bool IsWindowEnabled(IntPtr hWnd);
+    [DllImport("user32.dll")] public static extern bool IsIconic(IntPtr hWnd);
+    [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint pid);
+    [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr hWnd);
+    [DllImport("user32.dll")] public static extern IntPtr SendMessage(IntPtr hWnd, uint Msg, IntPtr wParam, IntPtr lParam);
+
+    const uint WM_COMMAND = 0x0111;
+    const uint BM_CLICK   = 0x00F5;
+    const int IDOK  = 1;
+    const int IDYES = 6;
+
+    private static string ChildText(IntPtr hWnd) {
+        StringBuilder agg = new StringBuilder();
+        EnumChildWindows(hWnd, (h, lp) => {
+            var sb = new StringBuilder(512);
+            GetWindowText(h, sb, 512);
+            agg.Append(sb.ToString()); agg.Append('\n');
+            return true;
+        }, IntPtr.Zero);
+        return agg.ToString();
+    }
+
+    public static IntPtr FindDialog(uint[] vmconnectPids, string vmName) {
+        IntPtr found = IntPtr.Zero;
+        EnumWindows((hWnd, lp) => {
+            if (!IsWindowVisible(hWnd)) return true;
+            uint pid; GetWindowThreadProcessId(hWnd, out pid);
+            bool ours = false;
+            for (int i = 0; i < vmconnectPids.Length; i++) {
+                if (vmconnectPids[i] == pid) { ours = true; break; }
+            }
+            if (!ours) return true;
+            var cls = new StringBuilder(64);
+            GetClassName(hWnd, cls, 64);
+            if (cls.ToString() != "#32770") return true;
+            if (ChildText(hWnd).IndexOf(vmName, StringComparison.OrdinalIgnoreCase) >= 0) {
+                found = hWnd; return false;
+            }
+            return true;
+        }, IntPtr.Zero);
+        return found;
+    }
+
+    public static bool IsMainWindowReady(uint[] vmconnectPids, string vmName) {
+        bool ready = false;
+        EnumWindows((hWnd, lp) => {
+            if (!IsWindowVisible(hWnd) || IsIconic(hWnd) || !IsWindowEnabled(hWnd)) return true;
+            uint pid; GetWindowThreadProcessId(hWnd, out pid);
+            bool ours = false;
+            for (int i = 0; i < vmconnectPids.Length; i++) {
+                if (vmconnectPids[i] == pid) { ours = true; break; }
+            }
+            if (!ours) return true;
+            var sb = new StringBuilder(512);
+            GetWindowText(hWnd, sb, 512);
+            if (sb.ToString().IndexOf(vmName, StringComparison.OrdinalIgnoreCase) >= 0) {
+                ready = true; return false;
+            }
+            return true;
+        }, IntPtr.Zero);
+        return ready;
+    }
+
+    public static bool Dismiss(IntPtr hWnd) {
+        SetForegroundWindow(hWnd);
+        System.Threading.Thread.Sleep(120);
+        SendMessage(hWnd, WM_COMMAND, (IntPtr)IDYES, IntPtr.Zero);
+        System.Threading.Thread.Sleep(200);
+        if (IsWindowVisible(hWnd)) {
+            SendMessage(hWnd, WM_COMMAND, (IntPtr)IDOK, IntPtr.Zero);
+        }
+        System.Threading.Thread.Sleep(200);
+        if (IsWindowVisible(hWnd)) {
+            EnumChildWindows(hWnd, (h, lp) => {
+                var cls = new StringBuilder(64);
+                GetClassName(h, cls, 64);
+                if (string.Equals(cls.ToString(), "Button", StringComparison.OrdinalIgnoreCase)) {
+                    var t = new StringBuilder(128);
+                    GetWindowText(h, t, 128);
+                    string text = t.ToString();
+                    if (text.IndexOf("Yes",     StringComparison.OrdinalIgnoreCase) >= 0 ||
+                        text.IndexOf("Connect", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                        text.IndexOf("OK",      StringComparison.OrdinalIgnoreCase) >= 0) {
+                        SendMessage(h, BM_CLICK, IntPtr.Zero, IntPtr.Zero);
+                    }
+                }
+                return true;
+            }, IntPtr.Zero);
+        }
+        return true;
+    }
+}
+"@
+    }
+    $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
+    $readyStreak = 0
+    $neededStreak = [Math]::Ceiling($script:VMConnectSettleSeconds / 0.25)
+    while ((Get-Date) -lt $deadline) {
+        $observation = Get-VMConnectWindowState -VMName $VMName
+        if ($observation.State -eq 'dialog') {
+            Write-Information (Format-YurunaOperatorMessage -Key 'host.operator_94dcd74cd5ca1780' -Arguments @{ vMName = "$VMName" })
+            [void][YurunaVMConnectDialog]::Dismiss($observation.Handle)
+            Start-Sleep -Milliseconds 600
+            return $true
+        }
+        if ($observation.State -eq 'ready') {
+            $readyStreak++
+            # A dialog can still appear after the main window first settles; a
+            # streak (not a one-shot check) is what step 1's measured/fallback D
+            # is sized against, so this must count observations, not stop early.
+            if ($readyStreak -ge $neededStreak) { return $false }
+        } else {
+            $readyStreak = 0
+        }
+        Start-Sleep -Milliseconds 250
+    }
+    return $false
+}
+
+function Get-VMConnectWindowState {
+<#
+.SYNOPSIS
+    One observation of the vmconnect viewer for $VMName: a dialog (with its
+    handle), a settled main window, or neither yet.
+.DESCRIPTION
+    Separated from Resolve-VMConnectAnotherUserDialog's wait loop so the
+    settle streak can be driven by a scripted sequence of states without a
+    desktop.
+.OUTPUTS
+    [pscustomobject] State ('dialog' | 'ready' | 'pending'), Handle (IntPtr,
+    set only for 'dialog').
+#>
+    [CmdletBinding()]
+    [OutputType([pscustomobject])]
+    param([Parameter(Mandatory)][string]$VMName)
+    $vmconnectPids = @(Get-Process -Name "vmconnect" -ErrorAction SilentlyContinue |
+        ForEach-Object { [uint32]$_.Id })
+    if ($vmconnectPids.Count -eq 0) { return [pscustomobject]@{ State = 'pending'; Handle = [IntPtr]::Zero } }
+    $hWnd = [YurunaVMConnectDialog]::FindDialog([uint32[]]$vmconnectPids, $VMName)
+    if ($hWnd -ne [IntPtr]::Zero) { return [pscustomobject]@{ State = 'dialog'; Handle = $hWnd } }
+    if ([YurunaVMConnectDialog]::IsMainWindowReady([uint32[]]$vmconnectPids, $VMName)) {
+        return [pscustomobject]@{ State = 'ready'; Handle = [IntPtr]::Zero }
+    }
+    return [pscustomobject]@{ State = 'pending'; Handle = [IntPtr]::Zero }
+}
+
+<#
+.SYNOPSIS
+Close and re-open the vmconnect viewer for a Hyper-V VM.
+
+.DESCRIPTION
+Closes any vmconnect.exe whose main window title matches $VMName
+(graceful CloseMainWindow, then Stop-Process -Force after a 3-second
+wait), then re-launches vmconnect against localhost\$VMName and
+auto-dismisses the "Another user is connected" prompt. Used to refresh
+a stalled viewer mid-run when keystroke delivery or screenshot capture
+starts failing.
+#>
+function Restart-HyperVConnect {
+    [CmdletBinding(SupportsShouldProcess)]
+    [OutputType([bool])]
+    param([Parameter(Mandatory)][string]$VMName)
+    $vmconnect = "$env:SystemRoot\System32\vmconnect.exe"
+    if (-not (Test-Path $vmconnect)) { return $false }
+    if (-not $PSCmdlet.ShouldProcess($VMName, (Format-YurunaOperatorMessage -Key 'host.operator_00df328f839cec6c'))) { return $false }
+    $existing = @(Get-Process -Name "vmconnect" -ErrorAction SilentlyContinue |
+        Where-Object { $_.MainWindowTitle -match [regex]::Escape($VMName) })
+    foreach ($p in $existing) {
+        try { [void]$p.CloseMainWindow() } catch { Write-Verbose "CloseMainWindow failed for vmconnect pid $($p.Id): $_" }
+    }
+    foreach ($p in $existing) {
+        if (-not $p.WaitForExit(3000)) {
+            try { Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue } catch { Write-Verbose "Force-kill of vmconnect pid $($p.Id) failed: $_" }
+        }
+    }
+    if ($existing.Count -gt 0) { Start-Sleep -Seconds 3 }
+    Start-Process -FilePath $vmconnect -ArgumentList "localhost", $VMName
+    # No blind sleep here either: see the matching comment at the other call site.
+    [void](Resolve-VMConnectAnotherUserDialog -VMName $VMName -TimeoutSeconds 8)
+    Write-Verbose "    Reconnected vmconnect for '$VMName'"
+    return $true
+}
+
+# --- REGION: Host proxy helpers
+# Registry keys and marker semantics: https://yuruna.link/42fa6f45-000e
+
+$script:WinInetRegPath    = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Internet Settings'
+$script:WinInetMarkerName = 'YurunaProxyManaged'
+$script:EnvMarkerName     = 'YURUNA_PROXY_MANAGED'
+
+<#
+.SYNOPSIS
+Indicate whether the current host proxy state was set by Yuruna.
+
+.DESCRIPTION
+Returns $true when either the WinINet YurunaProxyManaged DWORD or the
+HKCU\Environment YURUNA_PROXY_MANAGED variable equals 1. The marker
+prevents a re-promotion across a missing snapshot file from capturing
+our own proxy URL as if it were the user's original setting.
+#>
+function Test-WindowsProxyIsYurunaManaged {
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param()
+    if (Test-Path -LiteralPath $script:WinInetRegPath) {
+        try {
+            $val = Get-ItemPropertyValue -LiteralPath $script:WinInetRegPath -Name $script:WinInetMarkerName -ErrorAction Stop
+            if ([int]$val -eq 1) { return $true }
+        } catch {
+            Write-Verbose "WinINet marker not present: $($_.Exception.Message)"
+        }
+    }
+    $envMarker = [Environment]::GetEnvironmentVariable($script:EnvMarkerName, 'User')
+    return ($envMarker -eq '1')
+}
+
+<#
+.SYNOPSIS
+Snapshot the current Windows host proxy state for later restore.
+
+.DESCRIPTION
+Reads HKCU\...\Internet Settings (ProxyEnable / ProxyServer /
+ProxyOverride) and the user-scope HTTP_PROXY / HTTPS_PROXY / NO_PROXY
+environment variables and returns them as a hashtable suitable for
+Restore-WindowsHostProxy. When the marker reports the state is already
+yuruna-managed it returns a sentinel "reset" snapshot
+(yurunaResetSnapshot=$true) so callers can avoid re-capturing our own
+proxy URL.
+#>
+function Read-WindowsProxyState {
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param()
+    if (Test-WindowsProxyIsYurunaManaged) {
+        return @{
+            platform            = 'windows'
+            winInet             = @{ ProxyEnable = 0; ProxyServer = $null; ProxyOverride = $null }
+            envVars             = @{ HTTP_PROXY  = $null; HTTPS_PROXY = $null; NO_PROXY = $null }
+            yurunaResetSnapshot = $true
+        }
+    }
+    $wi = @{ ProxyEnable = 0; ProxyServer = $null; ProxyOverride = $null }
+    if (Test-Path -LiteralPath $script:WinInetRegPath) {
+        $props = Get-ItemProperty -LiteralPath $script:WinInetRegPath -ErrorAction SilentlyContinue
+        if ($props) {
+            if ($null -ne $props.ProxyEnable)   { $wi.ProxyEnable   = [int]$props.ProxyEnable }
+            if ($null -ne $props.ProxyServer)   { $wi.ProxyServer   = [string]$props.ProxyServer }
+            if ($null -ne $props.ProxyOverride) { $wi.ProxyOverride = [string]$props.ProxyOverride }
+        }
+    }
+    $env = @{
+        HTTP_PROXY  = [Environment]::GetEnvironmentVariable('HTTP_PROXY',  'User')
+        HTTPS_PROXY = [Environment]::GetEnvironmentVariable('HTTPS_PROXY', 'User')
+        NO_PROXY    = [Environment]::GetEnvironmentVariable('NO_PROXY',    'User')
+    }
+    return @{ platform = 'windows'; winInet = $wi; envVars = $env }
+}
+
+<#
+.SYNOPSIS
+Broadcast WinINet INTERNET_OPTION_SETTINGS_CHANGED + REFRESH.
+
+.DESCRIPTION
+Notifies already-running WinINet clients (Edge, Invoke-WebRequest,
+etc.) to reload proxy settings from the registry without restarting
+the user session. Adds a small Add-Type once per session for the
+wininet.dll P/Invoke and is a no-op on non-Windows hosts when the
+type compiles (the runtime call simply returns $false).
+#>
+function Invoke-WinInetRefresh {
+    $sig = @'
+using System;
+using System.Runtime.InteropServices;
+public static class YurunaWinInet {
+    [DllImport("wininet.dll", SetLastError = true)]
+    public static extern bool InternetSetOption(IntPtr hInternet, int dwOption, IntPtr lpBuffer, int dwBufferLength);
+}
+'@
+    if (-not ('YurunaWinInet' -as [type])) {
+        Add-Type -TypeDefinition $sig -Language CSharp | Out-Null
+    }
+    [void][YurunaWinInet]::InternetSetOption([IntPtr]::Zero, 39, [IntPtr]::Zero, 0)
+    [void][YurunaWinInet]::InternetSetOption([IntPtr]::Zero, 37, [IntPtr]::Zero, 0)
+}
+
+<#
+.SYNOPSIS
+Point the Windows host at a Yuruna-managed HTTP proxy.
+
+.DESCRIPTION
+Writes ProxyEnable=1, ProxyServer=$ProxyParts.HostPort, and a
+localhost+<local> bypass list into HKCU WinINet, then mirrors the
+values into HKCU\Environment as HTTP_PROXY / HTTPS_PROXY / NO_PROXY
+via setx and updates the current process Env: drive. Also stamps the
+YurunaProxyManaged DWORD and YURUNA_PROXY_MANAGED env marker so a
+later Read-WindowsProxyState knows the state belongs to us, then
+broadcasts an Invoke-WinInetRefresh so live clients pick it up.
+#>
+function Set-WindowsHostProxy {
+    [CmdletBinding(SupportsShouldProcess = $true)]
+    param([Parameter(Mandatory)][hashtable]$ProxyParts)
+    $hostPort   = $ProxyParts.HostPort
+    $proxyUrl   = $ProxyParts.Url
+    $bypassWi   = 'localhost;127.0.0.1;<local>'
+    $bypassEnv  = 'localhost,127.0.0.1,::1'
+    if (-not $PSCmdlet.ShouldProcess((Format-YurunaOperatorMessage -Key 'host.operator_bee8709211e28c63'), (Format-YurunaOperatorMessage -Key 'host.operator_87e79790981d47af' -Arguments @{ proxyUrl = "$proxyUrl" }))) {
+        return
+    }
+    if (-not (Test-Path -LiteralPath $script:WinInetRegPath)) {
+        New-Item -Path $script:WinInetRegPath -Force | Out-Null
+    }
+    Set-ItemProperty -LiteralPath $script:WinInetRegPath -Name 'ProxyEnable'   -Value 1          -Type DWord
+    Set-ItemProperty -LiteralPath $script:WinInetRegPath -Name 'ProxyServer'   -Value $hostPort  -Type String
+    Set-ItemProperty -LiteralPath $script:WinInetRegPath -Name 'ProxyOverride' -Value $bypassWi  -Type String
+    Set-ItemProperty -LiteralPath $script:WinInetRegPath -Name $script:WinInetMarkerName -Value 1 -Type DWord
+    & setx HTTP_PROXY  $proxyUrl  | Out-Null
+    & setx HTTPS_PROXY $proxyUrl  | Out-Null
+    & setx NO_PROXY    $bypassEnv | Out-Null
+    & setx $script:EnvMarkerName 1 | Out-Null
+    $env:HTTP_PROXY  = $proxyUrl
+    $env:HTTPS_PROXY = $proxyUrl
+    $env:NO_PROXY    = $bypassEnv
+    Set-Item "Env:$($script:EnvMarkerName)" -Value '1'
+    Invoke-WinInetRefresh
+}
+
+<#
+.SYNOPSIS
+Restore Windows host proxy state from a Read-WindowsProxyState snapshot.
+
+.DESCRIPTION
+Replays the WinINet ProxyEnable / ProxyServer / ProxyOverride values
+from $State.winInet, restores the user-scope HTTP_PROXY / HTTPS_PROXY
+/ NO_PROXY env vars from $State.envVars (clearing those that were
+absent), strips the YurunaProxyManaged + YURUNA_PROXY_MANAGED markers,
+and broadcasts Invoke-WinInetRefresh so live clients reload. Used by
+the test harness to undo a prior Set-WindowsHostProxy.
+#>
+function Restore-WindowsHostProxy {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][hashtable]$State)
+    $wi  = $State.winInet
+    $env = $State.envVars
+    if (-not (Test-Path -LiteralPath $script:WinInetRegPath)) {
+        New-Item -Path $script:WinInetRegPath -Force | Out-Null
+    }
+    Set-ItemProperty -LiteralPath $script:WinInetRegPath -Name 'ProxyEnable' -Value ([int]$wi.ProxyEnable) -Type DWord
+    if ($null -ne $wi.ProxyServer) {
+        Set-ItemProperty -LiteralPath $script:WinInetRegPath -Name 'ProxyServer' -Value $wi.ProxyServer -Type String
+    } else {
+        Remove-ItemProperty -LiteralPath $script:WinInetRegPath -Name 'ProxyServer' -ErrorAction SilentlyContinue
+    }
+    if ($null -ne $wi.ProxyOverride) {
+        Set-ItemProperty -LiteralPath $script:WinInetRegPath -Name 'ProxyOverride' -Value $wi.ProxyOverride -Type String
+    } else {
+        Remove-ItemProperty -LiteralPath $script:WinInetRegPath -Name 'ProxyOverride' -ErrorAction SilentlyContinue
+    }
+    Remove-ItemProperty -LiteralPath $script:WinInetRegPath -Name $script:WinInetMarkerName -ErrorAction SilentlyContinue
+    foreach ($name in 'HTTP_PROXY','HTTPS_PROXY','NO_PROXY') {
+        $val = $env[$name]
+        if ([string]::IsNullOrEmpty($val)) {
+            [Environment]::SetEnvironmentVariable($name, $null, 'User')
+            Remove-Item "Env:$name" -ErrorAction SilentlyContinue
+        } else {
+            [Environment]::SetEnvironmentVariable($name, $val, 'User')
+            Set-Item "Env:$name" -Value $val
+        }
+    }
+    [Environment]::SetEnvironmentVariable($script:EnvMarkerName, $null, 'User')
+    Remove-Item "Env:$($script:EnvMarkerName)" -ErrorAction SilentlyContinue
+    Invoke-WinInetRefresh
+}
+
+<#
+.SYNOPSIS
+Turn the Windows host proxy off without losing the user's proxy URL.
+
+.DESCRIPTION
+Sets WinINet ProxyEnable to 0; if the marker says yuruna owns the
+state it also clears ProxyServer and ProxyOverride so a stale Yuruna
+URL isn't left behind. Always strips the YurunaProxyManaged DWORD,
+clears HTTP_PROXY / HTTPS_PROXY / NO_PROXY in user scope and the
+current process, drops the YURUNA_PROXY_MANAGED env marker, and
+broadcasts Invoke-WinInetRefresh.
+#>
+function Disable-WindowsHostProxy {
+    if (Test-Path -LiteralPath $script:WinInetRegPath) {
+        $yurunaManaged = Test-WindowsProxyIsYurunaManaged
+        Set-ItemProperty -LiteralPath $script:WinInetRegPath -Name 'ProxyEnable' -Value 0 -Type DWord -ErrorAction SilentlyContinue
+        if ($yurunaManaged) {
+            Remove-ItemProperty -LiteralPath $script:WinInetRegPath -Name 'ProxyServer'   -ErrorAction SilentlyContinue
+            Remove-ItemProperty -LiteralPath $script:WinInetRegPath -Name 'ProxyOverride' -ErrorAction SilentlyContinue
+        }
+        Remove-ItemProperty -LiteralPath $script:WinInetRegPath -Name $script:WinInetMarkerName -ErrorAction SilentlyContinue
+    }
+    foreach ($name in 'HTTP_PROXY','HTTPS_PROXY','NO_PROXY') {
+        [Environment]::SetEnvironmentVariable($name, $null, 'User')
+        Remove-Item "Env:$name" -ErrorAction SilentlyContinue
+    }
+    [Environment]::SetEnvironmentVariable($script:EnvMarkerName, $null, 'User')
+    Remove-Item "Env:$($script:EnvMarkerName)" -ErrorAction SilentlyContinue
+    Invoke-WinInetRefresh
+}
+
+<#
+.SYNOPSIS
+Aggressively wipe Windows host proxy state regardless of marker.
+
+.DESCRIPTION
+Module-private helper invoked by the contract Remove-HostProxy entry
+point: zeroes ProxyEnable and unconditionally removes ProxyServer +
+ProxyOverride, the YurunaProxyManaged DWORD, and the user/process
+HTTP_PROXY / HTTPS_PROXY / NO_PROXY values plus the
+YURUNA_PROXY_MANAGED env marker, then broadcasts Invoke-WinInetRefresh.
+ShouldProcess is intentionally suppressed because the public
+Remove-HostProxy already gates the prompt; calling it here would
+double-prompt the user.
+#>
+function Remove-WindowsHostProxy {
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute(
+        'PSUseShouldProcessForStateChangingFunctions', '',
+        Justification = 'Module-private helper; public Remove-HostProxy gates ShouldProcess.')]
+    [CmdletBinding()]
+    param()
+    if (Test-Path -LiteralPath $script:WinInetRegPath) {
+        Set-ItemProperty -LiteralPath $script:WinInetRegPath -Name 'ProxyEnable' -Value 0 -Type DWord -ErrorAction SilentlyContinue
+        Remove-ItemProperty -LiteralPath $script:WinInetRegPath -Name 'ProxyServer'   -ErrorAction SilentlyContinue
+        Remove-ItemProperty -LiteralPath $script:WinInetRegPath -Name 'ProxyOverride' -ErrorAction SilentlyContinue
+        Remove-ItemProperty -LiteralPath $script:WinInetRegPath -Name $script:WinInetMarkerName -ErrorAction SilentlyContinue
+    }
+    foreach ($name in 'HTTP_PROXY','HTTPS_PROXY','NO_PROXY') {
+        [Environment]::SetEnvironmentVariable($name, $null, 'User')
+        Remove-Item "Env:$name" -ErrorAction SilentlyContinue
+    }
+    [Environment]::SetEnvironmentVariable($script:EnvMarkerName, $null, 'User')
+    Remove-Item "Env:$($script:EnvMarkerName)" -ErrorAction SilentlyContinue
+    Invoke-WinInetRefresh
+}
+
+# --- REGION: Port-map helpers
+$script:FirewallRulePrefix        = 'Yuruna-CachingProxyService-Port-'
+$script:FirewallProgramRulePrefix = 'Yuruna-CachingProxyService-Pwsh-'
+
+<#
+.SYNOPSIS
+Return the path to the shared caching-proxy-service TCP forwarder script.
+
+.DESCRIPTION
+Resolves host/macos.utm/Start-CachingProxyServiceForwarder.ps1 against the
+repository root inferred from $PSScriptRoot. The forwarder script
+lives under host/macos.utm/ as the canonical copy but is pure
+PowerShell and runs unchanged on Windows.
+#>
+function Get-CachingProxyServiceForwarderScriptPath {
+    [CmdletBinding()]
+    [OutputType([string])]
+    param()
+    # $PSScriptRoot is host/windows.hyper-v/modules, so three levels up is repo root.
+    $repoRoot = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSScriptRoot))
+    return (Join-Path $repoRoot 'host/macos.utm/Start-CachingProxyServiceForwarder.ps1')
+}
+
+<#
+.SYNOPSIS
+Return the path to pwsh.exe for use in firewall per-program rules.
+
+.DESCRIPTION
+Best-guess via Get-Command -CommandType Application. The result may
+point at the WindowsApps App Execution Alias stub (a zero-byte
+reparse point); Defender filters on the post-resolution path so the
+caller should re-read Get-Process .Path after spawning the forwarder
+and rewrite the rule when the loaded binary differs. Returns $null
+when pwsh.exe is not on PATH.
+#>
+function Get-PwshExePath {
+    [CmdletBinding()]
+    [OutputType([string])]
+    param()
+    $repoRoot = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSScriptRoot))
+    Import-Module (Join-Path $repoRoot 'test/modules/Test.InnerSpawn.psm1') -Global -DisableNameChecking
+    return (Test.InnerSpawn\Get-PwshExePath)
+}
+
+<#
+.SYNOPSIS
+Return the pidfile path for the per-port caching-proxy-service forwarder.
+
+.DESCRIPTION
+Composes ~/virtual/caching-proxy-service/forwarder.<Port>.pid. The pidfile is
+the canonical handle Stop-WindowsCachingProxyServiceForwarder uses to find
+and kill the detached pwsh worker that owns a given listen port.
+#>
+function Get-WindowsForwarderPidPath {
+    [CmdletBinding()]
+    [OutputType([string])]
+    param([Parameter(Mandatory)][int]$Port)
+    $stateDir = Join-Path $HOME 'virtual\caching-proxy-service'
+    return (Join-Path $stateDir "forwarder.$Port.pid")
+}
+
+<#
+.SYNOPSIS
+Stop a detached pwsh caching-proxy-service forwarder by listen port.
+
+.DESCRIPTION
+Reads ~/virtual/caching-proxy-service/forwarder.<Port>.pid, validates the pid
+belongs to a pwsh/powershell process, and calls Stop-Process -Force.
+Removes the pidfile in all cases (including missing pid, non-pwsh
+owner, or successful kill) so a stale file doesn't trip later starts.
+No-op on non-Windows hosts; -Quiet suppresses the per-port summary
+line.
+#>
+function Stop-WindowsCachingProxyServiceForwarder {
+    [CmdletBinding(SupportsShouldProcess)]
+    [OutputType([bool])]
+    param([Parameter(Mandatory)][int]$Port, [switch]$Quiet)
+    if (-not $IsWindows) { return $true }
+    $pidFile = Get-WindowsForwarderPidPath -Port $Port
+    if (-not (Test-Path $pidFile)) { return $true }
+    $forwarderPid = (Get-Content $pidFile -Raw -ErrorAction SilentlyContinue).Trim()
+    if (-not ($forwarderPid -as [int])) {
+        Remove-Item -LiteralPath $pidFile -Force -ErrorAction SilentlyContinue
+        return $true
+    }
+    $proc = Get-Process -Id ([int]$forwarderPid) -ErrorAction SilentlyContinue
+    if ($proc) {
+        if ($proc.ProcessName -match '^(pwsh|powershell)$') {
+            if ($PSCmdlet.ShouldProcess("pid $forwarderPid (port :${Port})", (Format-YurunaOperatorMessage -Key 'host.operator_8681ed98b32ff086'))) {
+                if (-not $Quiet) { Write-Information (Format-YurunaOperatorMessage -Key 'host.operator_e9d71dbc40aa4cf9' -Arguments @{ forwarderPid = "$forwarderPid"; port = "${Port}" }) }
+                Stop-Process -Id ([int]$forwarderPid) -Force -ErrorAction SilentlyContinue
+            }
+        } elseif (-not $Quiet) {
+            Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_1eec727cf63db6d8' -Arguments @{ forwarderPid = "$forwarderPid"; processName = "$($proc.ProcessName)" })
+        }
+    }
+    Remove-Item -LiteralPath $pidFile -Force -ErrorAction SilentlyContinue
+    return $true
+}
+
+<#
+.SYNOPSIS
+Launch a detached pwsh TCP forwarder for the squid caching-proxy service.
+
+.DESCRIPTION
+Stops any prior forwarder for the same $Port, then spawns
+Start-CachingProxyServiceForwarder.ps1 hidden, wired to redirect stdout /
+stderr to per-port logs under ~/virtual/caching-proxy-service/. Polls
+127.0.0.1:$Port for up to 3 s; on success returns a PSCustomObject
+@{ Success=$true; Pid; PwshPath } where PwshPath is the post-spawn
+loaded binary (used by callers to rewrite the Defender per-program
+firewall rule when the WindowsApps alias differs). $VMPort defaults
+to $Port. -PrependProxyV1 forwards a HAProxy v1 PROXY header so the
+upstream cache can see the original LAN client IP.
+#>
+function Start-WindowsCachingProxyServiceForwarder {
+    [CmdletBinding(SupportsShouldProcess)]
+    [OutputType([PSCustomObject])]
+    param(
+        [Parameter(Mandatory)][string]$CacheIp,
+        [Parameter(Mandatory)][int]$Port,
+        [int]$VMPort = 0,
+        [switch]$PrependProxyV1
+    )
+    if (-not $IsWindows) {
+        Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_1e70ed145bb5ab5f')
+        return [PSCustomObject]@{ Success = $false; Pid = $null; PwshPath = $null }
+    }
+    if ($VMPort -eq 0) { $VMPort = $Port }
+    $forwarderScript = Get-CachingProxyServiceForwarderScriptPath
+    if (-not (Test-Path $forwarderScript)) {
+        Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_7055bf70ab553d9b' -Arguments @{ forwarderScript = "$forwarderScript" })
+        return [PSCustomObject]@{ Success = $false; Pid = $null; PwshPath = $null }
+    }
+    $stateDir = Join-Path $HOME 'virtual\caching-proxy-service'
+    if (-not (Test-Path $stateDir)) { New-Item -ItemType Directory -Path $stateDir -Force | Out-Null }
+    $pidFile = Get-WindowsForwarderPidPath -Port $Port
+    $logFile = Join-Path $stateDir "forwarder.$Port.log"
+    $stdoutLog = Join-Path $stateDir "forwarder.$Port.stdout.log"
+    $stderrLog = Join-Path $stateDir "forwarder.$Port.stderr.log"
+    Stop-WindowsCachingProxyServiceForwarder -Port $Port -Quiet
+    $proxyTag = if ($PrependProxyV1) { ' [PROXY v1]' } else { '' }
+    $action   = "0.0.0.0:${Port} -> ${CacheIp}:${VMPort}${proxyTag}"
+    if (-not $PSCmdlet.ShouldProcess($action, (Format-YurunaOperatorMessage -Key 'host.operator_872f663e1444d15e'))) {
+        return [PSCustomObject]@{ Success = $false; Pid = $null; PwshPath = $null }
+    }
+    Write-Information (Format-YurunaOperatorMessage -Key 'host.operator_20be2f035272a5ea' -Arguments @{ action = "${action}" })
+    # Start-Process joins arguments without quoting; quote paths containing spaces.
+    # See https://yuruna.link/42e220c4-0004
+    $forwarderScriptQuoted = '"' + $forwarderScript + '"'
+    $pidFileQuoted         = '"' + $pidFile + '"'
+    $logFileQuoted         = '"' + $logFile + '"'
+    $procArgs = @(
+        '-NoProfile','-NoLogo','-File', $forwarderScriptQuoted,
+        '-CacheIp', $CacheIp,
+        '-Port', $Port,
+        '-VMPort', $VMPort,
+        '-PidFile', $pidFileQuoted,
+        '-LogFile', $logFileQuoted
+    )
+    if ($PrependProxyV1) { $procArgs += '-PrependProxyV1' }
+    try {
+        # See https://yuruna.link/42e5cdfd-002a
+        $stdinSink = Join-Path $stateDir 'stdin.empty'
+        if (-not (Test-Path -LiteralPath $stdinSink)) {
+            [System.IO.File]::WriteAllBytes($stdinSink, [byte[]]@())
+        }
+        $proc = Start-Process -FilePath 'pwsh' `
+            -ArgumentList $procArgs `
+            -RedirectStandardInput  $stdinSink `
+            -RedirectStandardOutput $stdoutLog `
+            -RedirectStandardError  $stderrLog `
+            -WindowStyle Hidden `
+            -PassThru
+    } catch {
+        Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_368bbdea275958b3' -Arguments @{ message = "$($_.Exception.Message)" })
+        return [PSCustomObject]@{ Success = $false; Pid = $null; PwshPath = $null }
+    }
+    $deadline = (Get-Date).AddSeconds(3)
+    while ((Get-Date) -lt $deadline) {
+        $tcp = [System.Net.Sockets.TcpClient]::new()
+        try {
+            $h = $tcp.BeginConnect('127.0.0.1', $Port, $null, $null)
+            if ($h.AsyncWaitHandle.WaitOne(150) -and $tcp.Connected) {
+                $tcp.Close()
+                $actualPid = if (Test-Path $pidFile) { [int]((Get-Content $pidFile -Raw).Trim()) } else { [int]$proc.Id }
+                $loadedPath = $null
+                try { $loadedPath = (Get-Process -Id $actualPid -ErrorAction Stop).Path } catch { $null = $_ }
+                Write-Information (Format-YurunaOperatorMessage -Key 'host.operator_da31f377a43264d3' -Arguments @{ actualPid = "$actualPid"; action = "${action}" })
+                if ($loadedPath) { Write-Information (Format-YurunaOperatorMessage -Key 'host.operator_39c802c10067031a' -Arguments @{ loadedPath = "$loadedPath" }) }
+                return [PSCustomObject]@{ Success = $true; Pid = $actualPid; PwshPath = $loadedPath }
+            }
+        } catch { $null = $_ } finally { $tcp.Close() }
+        Start-Sleep -Milliseconds 100
+    }
+    Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_957af0b7e5a09c03' -Arguments @{ id = "$($proc.Id)"; port = "${Port}"; stderrLog = "$stderrLog" })
+    return [PSCustomObject]@{ Success = $false; Pid = [int]$proc.Id; PwshPath = $null }
+}
+
+<#
+.SYNOPSIS
+Install Yuruna-tagged inbound firewall rules for a caching-proxy-service port.
+
+.DESCRIPTION
+Removes any existing rules with the Yuruna-CachingProxyService-Port-<Port>
+display name, then creates a fresh Allow rule on that TCP port across
+all profiles. When -IncludeProgram is set it also (re)creates a
+Yuruna-CachingProxyService-Pwsh-<Port> per-program rule scoped to
+$ProgramPath (or Get-PwshExePath when omitted). The per-program rule
+guards against Defender silently dropping LAN traffic when the
+WindowsApps App Execution Alias resolves to a different binary than
+the loaded pwsh.exe; if no path is resolvable the rule is skipped
+with a warning.
+#>
+function Add-CachingProxyServiceFirewallRule {
+    [CmdletBinding(SupportsShouldProcess)]
+    param(
+        [Parameter(Mandatory)][int]$Port,
+        [Parameter(Mandatory)][string]$Description,
+        [switch]$IncludeProgram,
+        [string]$ProgramPath
+    )
+    if (-not $IsWindows) { return }
+    $portRule = "${script:FirewallRulePrefix}${Port}"
+    if ($PSCmdlet.ShouldProcess($portRule, (Format-YurunaOperatorMessage -Key 'host.operator_a9163573316af907'))) {
+        Get-NetFirewallRule -DisplayName $portRule -ErrorAction SilentlyContinue |
+            Remove-NetFirewallRule -ErrorAction SilentlyContinue
+        New-NetFirewallRule -DisplayName $portRule -Direction Inbound `
+            -Protocol TCP -LocalPort $Port -Action Allow `
+            -Profile Any `
+            -Description $Description `
+            -ErrorAction SilentlyContinue | Out-Null
+    }
+    if (-not $IncludeProgram) { return }
+    $programRule = "${script:FirewallProgramRulePrefix}${Port}"
+    if ($PSCmdlet.ShouldProcess($programRule, (Format-YurunaOperatorMessage -Key 'host.operator_a6547fddd359850a'))) {
+        Get-NetFirewallRule -DisplayName $programRule -ErrorAction SilentlyContinue |
+            Remove-NetFirewallRule -ErrorAction SilentlyContinue
+        $pwshPath = if ($ProgramPath) { $ProgramPath } else { Get-PwshExePath }
+        if (-not $pwshPath) {
+            Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_b21a8288b21cbc12' -Arguments @{ programRule = "${programRule}"; port = "${Port}" })
+            return
+        }
+        New-NetFirewallRule -DisplayName $programRule -Direction Inbound `
+            -Protocol TCP -LocalPort $Port -Action Allow `
+            -Profile Any `
+            -Program $pwshPath `
+            -Description "${Description} (per-program: $pwshPath)" `
+            -ErrorAction SilentlyContinue | Out-Null
+    }
+}
+
+<#
+.SYNOPSIS
+List ports that currently have a forwarder pidfile on disk.
+
+.DESCRIPTION
+Walks ~/virtual/caching-proxy-service/ for forwarder.<port>.pid files and
+returns the parsed integer port numbers as an array (always wrapped
+with the unary comma so a single-element result still flows as an
+array). Empty array on non-Windows hosts or when the state directory
+is missing.
+#>
+function Get-WindowsForwarderPidPort {
+    [CmdletBinding()]
+    [OutputType([int[]], [System.Object[]])]
+    param()
+    if (-not $IsWindows) { return @() }
+    $stateDir = Join-Path $HOME 'virtual\caching-proxy-service'
+    if (-not (Test-Path $stateDir)) { return @() }
+    $ports = @()
+    Get-ChildItem -LiteralPath $stateDir -Filter 'forwarder.*.pid' -File -ErrorAction SilentlyContinue |
+        ForEach-Object {
+            if ($_.BaseName -match '^forwarder\.(\d+)$') { $ports += [int]$matches[1] }
+        }
+    return ,$ports
+}
+
+<#
+.SYNOPSIS
+Discover Yuruna caching-proxy-service ports from existing firewall rules.
+
+.DESCRIPTION
+Scans Get-NetFirewallRule for display names that begin with
+Yuruna-CachingProxyService-Port- or Yuruna-CachingProxyService-Pwsh- and returns
+the parsed integer ports, sorted and de-duplicated. Used by
+Clear-AllCachingProxyServicePortMapping to clean up rules left behind when
+a state file was deleted out of band.
+#>
+function Get-YurunaMappedPortFromFirewall {
+    [CmdletBinding()]
+    [OutputType([int[]], [System.Object[]])]
+    param()
+    if (-not $IsWindows) { return @() }
+    $ports = @()
+    $prefixPattern = '^(?:' +
+        [regex]::Escape($script:FirewallRulePrefix) + '|' +
+        [regex]::Escape($script:FirewallProgramRulePrefix) +
+        ')(\d+)$'
+    Get-NetFirewallRule -ErrorAction SilentlyContinue |
+        Where-Object {
+            $_.DisplayName -like "${script:FirewallRulePrefix}*" -or
+            $_.DisplayName -like "${script:FirewallProgramRulePrefix}*"
+        } |
+        ForEach-Object {
+            if ($_.DisplayName -match $prefixPattern) {
+                $ports += [int]$matches[1]
+            }
+        }
+    return ,($ports | Sort-Object -Unique)
+}
+
+<#
+.SYNOPSIS
+Remove the portproxy, forwarder, and firewall rules for one port.
+
+.DESCRIPTION
+Deletes the netsh interface portproxy v4tov4 entry on 0.0.0.0:$Port,
+stops the matching detached pwsh forwarder, and removes both the
+Yuruna-CachingProxyService-Port-<Port> and Yuruna-CachingProxyService-Pwsh-<Port>
+firewall rules if present. Idempotent: missing pieces are silently
+skipped so callers can issue a blanket sweep.
+#>
+function Remove-SinglePortMap {
+    [CmdletBinding(SupportsShouldProcess)]
+    param([Parameter(Mandatory)][int]$Port)
+    if (-not $PSCmdlet.ShouldProcess("host:${Port}", (Format-YurunaOperatorMessage -Key 'host.operator_4ad9fc4774e8be4d'))) { return }
+    & netsh interface portproxy delete v4tov4 listenport=$Port listenaddress=0.0.0.0 2>&1 | Out-Null
+    $null = Stop-WindowsCachingProxyServiceForwarder -Port $Port -Quiet
+    foreach ($prefix in @($script:FirewallRulePrefix, $script:FirewallProgramRulePrefix)) {
+        $ruleName = "${prefix}${Port}"
+        Get-NetFirewallRule -DisplayName $ruleName -ErrorAction SilentlyContinue |
+            Remove-NetFirewallRule -ErrorAction SilentlyContinue
+    }
+}
+
+<#
+.SYNOPSIS
+Tear down every Yuruna caching-proxy-service port mapping on this host.
+
+.DESCRIPTION
+Builds the union of ports recorded in the optional $StatePath JSON,
+ports discovered via Get-YurunaMappedPortFromFirewall, and ports with
+a live forwarder pidfile (Get-WindowsForwarderPidPort), then calls
+Remove-SinglePortMap on each. Deletes $StatePath when present and
+returns the de-duplicated, sorted port list as an array. The triple
+union is the safety net that keeps state, firewall, and pidfile in
+sync even when one of them has drifted.
+#>
+function Clear-AllCachingProxyServicePortMapping {
+    [CmdletBinding(SupportsShouldProcess)]
+    [OutputType([int[]], [System.Object[]])]
+    param([string]$StatePath)
+    $ports = @()
+    if ($StatePath -and (Test-Path $StatePath)) {
+        try {
+            $prev = Get-Content -Raw $StatePath | ConvertFrom-Json
+            foreach ($p in @($prev.ports)) {
+                if ($p -is [int] -or $p -match '^\d+$') { $ports += [int]$p }
+            }
+        } catch {
+            Write-Verbose "Clear-AllCachingProxyServicePortMapping: could not read state ($StatePath): $_"
+        }
+    }
+    foreach ($p in (Get-YurunaMappedPortFromFirewall)) { $ports += $p }
+    foreach ($p in (Get-WindowsForwarderPidPort)) { $ports += $p }
+    $unique = @($ports | Sort-Object -Unique)
+    foreach ($p in $unique) {
+        if ($PSCmdlet.ShouldProcess("host:${p}", (Format-YurunaOperatorMessage -Key 'host.operator_87d1543cf3bfdad9'))) {
+            Remove-SinglePortMap -Port $p -Confirm:$false
+        }
+    }
+    if ($StatePath -and (Test-Path $StatePath)) {
+        Remove-Item -Path $StatePath -Force -ErrorAction SilentlyContinue
+    }
+    return ,$unique
+}
+
+# --- REGION: Screenshot helpers
+# See https://yuruna.link/42e220c4-0004
+
+function Get-HyperVThumbnailByte {
+    <#
+    .SYNOPSIS
+    Capture a screenshot of a Hyper-V VM via the WMI thumbnail API.
+
+    .DESCRIPTION
+    Uses Msvm_VirtualSystemManagementService.GetVirtualSystemThumbnailImage
+    to grab the VM's framebuffer at its configured resolution, falling back to
+    smaller supported thumbnail sizes during boot, and writes the returned size
+    to $OutputPath as a PNG. Does not require a vmconnect window and runs
+    even when the host is headless. Use the PrintWindow path (separate
+    helper) when click-by-OCR needs coordinates that match vmconnect's
+    client area.
+    #>
+        <#
+    .SYNOPSIS
+        Reads a realized VM thumbnail with an escaped and unambiguous WQL lookup.
+    .PARAMETER VMName
+        The VM display name.
+    .PARAMETER Width
+        Requested pixel width.
+    .PARAMETER Height
+        Requested pixel height.
+    #>
+    [CmdletBinding()]
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseOutputTypeCorrectly', '', Justification = 'Unary comma preserves the byte array as one pipeline value.')]
+    [OutputType([byte[]])]
+    param([string]$VMName, [uint16]$Width = 640, [uint16]$Height = 480)
+    $literal = $VMName.Replace('\', '\\').Replace("'", "\'")
+    $settings = @(Get-CimInstance -Namespace root/virtualization/v2 -ClassName Msvm_VirtualSystemSettingData -Filter "ElementName='$literal'" |
+        Where-Object { $_.VirtualSystemType -eq 'Microsoft:Hyper-V:System:Realized' })
+    if ($settings.Count -ne 1) { return $null }
+    $service = Get-CimInstance -Namespace root/virtualization/v2 -ClassName Msvm_VirtualSystemManagementService
+    $result = Invoke-CimMethod -InputObject $service -MethodName GetVirtualSystemThumbnailImage -Arguments @{
+        TargetSystem = $settings[0]; WidthPixels = $Width; HeightPixels = $Height
+    }
+    if ($result.ReturnValue -ne 0 -or -not $result.ImageData -or $result.ImageData.Length -eq 0) { return $null }
+    return ,([byte[]]$result.ImageData)
+}
+
+function Get-HyperVScreenshot {
+    <# .SYNOPSIS
+        Captures a Hyper-V console through the shared thumbnail or viewer fallback.
+    #>
+    param([string]$VMName, [string]$OutputPath)
+
+    # --- REGION: Load C# type (once per session)
+    try {
+        if (-not ('HyperVCapture' -as [type])) {
+            Add-Type -TypeDefinition @"
+using System;
+using System.IO;
+using System.Runtime.InteropServices;
+using System.Text;
+
+public class HyperVCapture {
+    public delegate bool EnumWindowsProc(IntPtr hWnd, IntPtr lParam);
+    [DllImport("user32.dll")] public static extern bool EnumWindows(EnumWindowsProc cb, IntPtr lParam);
+    [DllImport("user32.dll")] public static extern int GetWindowText(IntPtr hWnd, StringBuilder sb, int max);
+    [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr hWnd, out RECT r);
+    [DllImport("user32.dll")] public static extern bool GetClientRect(IntPtr hWnd, out RECT r);
+    [DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr hWnd);
+    [DllImport("user32.dll")] public static extern bool PrintWindow(IntPtr hWnd, IntPtr hdc, uint flags);
+    [DllImport("user32.dll")] public static extern bool SetProcessDPIAware();
+    [DllImport("user32.dll")] public static extern IntPtr SetThreadDpiAwarenessContext(IntPtr dpiContext);
+    [DllImport("user32.dll")] public static extern uint GetDpiForWindow(IntPtr hWnd);
+    [DllImport("gdi32.dll")]  public static extern IntPtr CreateCompatibleDC(IntPtr hdc);
+    [DllImport("gdi32.dll")]  public static extern IntPtr CreateCompatibleBitmap(IntPtr hdc, int w, int h);
+    [DllImport("gdi32.dll")]  public static extern IntPtr SelectObject(IntPtr hdc, IntPtr obj);
+    [DllImport("gdi32.dll")]  public static extern bool DeleteObject(IntPtr obj);
+    [DllImport("gdi32.dll")]  public static extern bool DeleteDC(IntPtr hdc);
+    [DllImport("gdi32.dll")]  public static extern int GetDIBits(IntPtr hdc, IntPtr hbmp, uint start, uint lines, byte[] bits, ref BITMAPINFO bi, uint usage);
+    [DllImport("user32.dll")] public static extern IntPtr GetDC(IntPtr hWnd);
+    [DllImport("user32.dll")] public static extern int ReleaseDC(IntPtr hWnd, IntPtr hdc);
+    static bool dpiAware = false;
+    [StructLayout(LayoutKind.Sequential)] public struct RECT { public int Left, Top, Right, Bottom; }
+    [StructLayout(LayoutKind.Sequential)] public struct BITMAPINFOHEADER {
+        public uint biSize; public int biWidth; public int biHeight; public ushort biPlanes;
+        public ushort biBitCount; public uint biCompression; public uint biSizeImage;
+        public int biXPelsPerMeter; public int biYPelsPerMeter; public uint biClrUsed; public uint biClrImportant;
+    }
+    [StructLayout(LayoutKind.Sequential)] public struct BITMAPINFO { public BITMAPINFOHEADER bmiHeader; }
+
+    public static IntPtr FindWindow(string titleContains) {
+        IntPtr found = IntPtr.Zero;
+        EnumWindows((hWnd, lp) => {
+            if (!IsWindowVisible(hWnd)) return true;
+            var sb = new StringBuilder(256);
+            GetWindowText(hWnd, sb, 256);
+            if (sb.ToString().Contains(titleContains)) { found = hWnd; return false; }
+            return true;
+        }, IntPtr.Zero);
+        return found;
+    }
+
+    const uint PW_CLIENT_RENDER = 3;
+
+    public static void EnsureDpiAware() {
+        if (!dpiAware) { SetProcessDPIAware(); dpiAware = true; }
+    }
+
+    // Per-Monitor-V2 keeps PrintWindow and the click mapping in physical pixels.
+    // A system-DPI-aware capture on a scaled display renders only the top-left
+    // of the window, and OCR times out silently. See https://yuruna.link/4222e5f2-000c
+    static readonly IntPtr DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2 = new IntPtr(-4);
+    static IntPtr EnterPerMonitorV2() {
+        try { return SetThreadDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2); }
+        catch { return IntPtr.Zero; }
+    }
+    static void RestoreThreadDpiContext(IntPtr prev) {
+        if (prev == IntPtr.Zero) return;
+        try { SetThreadDpiAwarenessContext(prev); } catch { }
+    }
+
+    static bool GetClientSize(IntPtr hWnd, out int w, out int h) {
+        EnsureDpiAware();
+        RECT r; GetClientRect(hWnd, out r);
+        w = r.Right; h = r.Bottom;
+        return w > 0 && h > 0;
+    }
+
+    static FileStream OpenWriteWithRetry(string path) {
+        IOException last = null;
+        for (int attempt = 0; attempt < 5; attempt++) {
+            try {
+                return new FileStream(path, FileMode.Create, FileAccess.Write, FileShare.Read);
+            } catch (IOException ex) {
+                last = ex;
+                if (attempt < 4) System.Threading.Thread.Sleep(200);
+            }
+        }
+        throw last;
+    }
+
+    public static bool CaptureToFile(IntPtr hWnd, string path) {
+        IntPtr prevDpiCtx = EnterPerMonitorV2();
+        try {
+            int w, h;
+            if (!GetClientSize(hWnd, out w, out h)) return false;
+            IntPtr screenDC = GetDC(IntPtr.Zero);
+            IntPtr memDC = CreateCompatibleDC(screenDC);
+            IntPtr hBmp = CreateCompatibleBitmap(screenDC, w, h);
+            IntPtr old = SelectObject(memDC, hBmp);
+            PrintWindow(hWnd, memDC, PW_CLIENT_RENDER);
+            var bi = new BITMAPINFO();
+            bi.bmiHeader.biSize = 40; bi.bmiHeader.biWidth = w; bi.bmiHeader.biHeight = -h;
+            bi.bmiHeader.biPlanes = 1; bi.bmiHeader.biBitCount = 32;
+            byte[] pixels = new byte[w * h * 4];
+            GetDIBits(memDC, hBmp, 0, (uint)h, pixels, ref bi, 0);
+            SelectObject(memDC, old); DeleteObject(hBmp); DeleteDC(memDC); ReleaseDC(IntPtr.Zero, screenDC);
+            using (var fs = OpenWriteWithRetry(path)) {
+                WritePng(fs, w, h, pixels);
+            }
+            return true;
+        } finally {
+            RestoreThreadDpiContext(prevDpiCtx);
+        }
+    }
+
+    // Detects a fully-rendered framebuffer that came back essentially
+    // black -- the Hyper-V "headless host" symptom (DWM not rendering
+    // because no monitor is connected). Returns true when the fraction
+    // of "dark" pixels (every channel below `byteThreshold`) meets or
+    // exceeds `darkFraction`. Used by Get-HyperVScreenshot to surface a
+    // clear warning when the WMI thumbnail comes back all-black so the
+    // operator gets pointed at the troubleshooting page instead of
+    // chasing a silent OCR-times-out failure.
+    public static bool IsImageMostlyBlack(byte[] imageData, int w, int h, double darkFraction) {
+        if (imageData == null || w <= 0 || h <= 0) return false;
+        int expected16 = w * h * 2;
+        int expected24 = w * h * 3;
+        int expected32 = w * h * 4;
+        long total = (long)w * h;
+        if (total <= 0) return false;
+        long dark = 0;
+        const int byteThreshold = 16;
+        if (imageData.Length >= expected32) {
+            for (int i = 0; i < total; i++) {
+                int p = i * 4;
+                if (imageData[p] < byteThreshold && imageData[p+1] < byteThreshold && imageData[p+2] < byteThreshold) dark++;
+            }
+        } else if (imageData.Length >= expected24) {
+            for (int i = 0; i < total; i++) {
+                int p = i * 3;
+                if (imageData[p] < byteThreshold && imageData[p+1] < byteThreshold && imageData[p+2] < byteThreshold) dark++;
+            }
+        } else if (imageData.Length >= expected16) {
+            // RGB565: pack-value < 0x1083 ~= every channel below ~16/255.
+            for (int i = 0; i < total; i++) {
+                ushort pixel = (ushort)(imageData[i*2] | (imageData[i*2+1] << 8));
+                if (pixel < 0x1083) dark++;
+            }
+        } else {
+            return false;
+        }
+        return ((double)dark / total) >= darkFraction;
+    }
+
+    public static bool SaveRawImageAsPng(byte[] imageData, int w, int h, string path) {
+        if (imageData == null || w <= 0 || h <= 0) return false;
+        int expected32 = w * h * 4;
+        int expected16 = w * h * 2;
+        int expected24 = w * h * 3;
+        byte[] bgra;
+        if (imageData.Length >= expected32) {
+            bgra = imageData;
+        } else if (imageData.Length >= expected24) {
+            bgra = new byte[expected32];
+            for (int i = 0; i < w * h; i++) {
+                bgra[i*4]   = imageData[i*3+2]; // B
+                bgra[i*4+1] = imageData[i*3+1]; // G
+                bgra[i*4+2] = imageData[i*3];   // R
+                bgra[i*4+3] = 255;
+            }
+        } else if (imageData.Length >= expected16) {
+            bgra = new byte[expected32];
+            for (int i = 0; i < w * h; i++) {
+                ushort pixel = (ushort)(imageData[i*2] | (imageData[i*2+1] << 8));
+                byte r = (byte)(((pixel >> 11) & 0x1F) << 3);
+                byte g = (byte)(((pixel >> 5) & 0x3F) << 2);
+                byte b = (byte)((pixel & 0x1F) << 3);
+                bgra[i*4] = b; bgra[i*4+1] = g; bgra[i*4+2] = r; bgra[i*4+3] = 255;
+            }
+        } else {
+            return false;
+        }
+        using (var fs = OpenWriteWithRetry(path)) {
+            WritePng(fs, w, h, bgra);
+        }
+        return true;
+    }
+
+    static void WritePng(Stream s, int w, int h, byte[] bgra) {
+        s.Write(new byte[]{137,80,78,71,13,10,26,10}, 0, 8);
+        var ihdr = new byte[13];
+        WriteInt32BE(ihdr, 0, w); WriteInt32BE(ihdr, 4, h);
+        ihdr[8]=8; ihdr[9]=2;
+        WriteChunk(s, "IHDR", ihdr);
+        using (var ms = new MemoryStream()) {
+            // One Write per scanline rather than three per pixel. The compression
+            // streams do not override WriteByte, so each of those calls allocates
+            // a single-element array -- six million of them for one 1920x1080
+            // frame, which costs far more than the compression itself.
+            var row = new byte[1 + w * 3];
+            using (var zs = new System.IO.Compression.ZLibStream(ms, System.IO.Compression.CompressionLevel.Optimal, true)) {
+                for (int y = 0; y < h; y++) {
+                    row[0] = 0;
+                    int rowOff = y * w * 4;
+                    int o = 1;
+                    for (int x = 0; x < w; x++) {
+                        int p = rowOff + x * 4;
+                        row[o++] = bgra[p+2];
+                        row[o++] = bgra[p+1];
+                        row[o++] = bgra[p];
+                    }
+                    zs.Write(row, 0, row.Length);
+                }
+            }
+            // ZLibStream emits the zlib header and the Adler-32 trailer itself,
+            // and only flushes its final deflate block on dispose. Reading the
+            // buffer before that produces a stream some decoders accept and
+            // others reject outright -- so this must stay outside the using.
+            WriteChunk(s, "IDAT", ms.ToArray());
+        }
+        WriteChunk(s, "IEND", new byte[0]);
+    }
+    static void WriteChunk(Stream s, string type, byte[] data) {
+        var len = new byte[4]; WriteInt32BE(len, 0, data.Length); s.Write(len,0,4);
+        var t = Encoding.ASCII.GetBytes(type); s.Write(t,0,4);
+        s.Write(data, 0, data.Length);
+        uint crc = Crc32(t, data);
+        var c = new byte[4]; WriteInt32BE(c, 0, (int)crc); s.Write(c,0,4);
+    }
+    static void WriteInt32BE(byte[] b, int off, int v) {
+        b[off]=(byte)(v>>24); b[off+1]=(byte)(v>>16); b[off+2]=(byte)(v>>8); b[off+3]=(byte)v;
+    }
+    // Table-driven CRC: the IDAT chunk for one 1920x1080 frame is large enough
+    // that a per-bit loop costs more than building this table once ever.
+    static readonly uint[] CrcTable = BuildCrcTable();
+    static uint[] BuildCrcTable() {
+        var t = new uint[256];
+        for (uint n = 0; n < 256; n++) {
+            uint c = n;
+            for (int k = 0; k < 8; k++) c = (c & 1) != 0 ? (c >> 1) ^ 0xEDB88320 : c >> 1;
+            t[n] = c;
+        }
+        return t;
+    }
+    static uint Crc32(byte[] type, byte[] data) {
+        uint c = 0xFFFFFFFF;
+        foreach (byte b in type) c = CrcTable[(c ^ b) & 0xFF] ^ (c >> 8);
+        foreach (byte b in data) c = CrcTable[(c ^ b) & 0xFF] ^ (c >> 8);
+        return c ^ 0xFFFFFFFF;
+    }
+}
+"@
+        }
+    } catch {
+        Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_f06b7d9e3317cbea' -Arguments @{ value = "$_" })
+    }
+
+    Import-Module (Join-Path (Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSScriptRoot))) 'test/modules/Test.YurunaDir.psm1') -Force -Global -ErrorAction SilentlyContinue -Verbose:$false
+    $debugDir = Join-Path (Initialize-YurunaLogDir) "Screenshot"
+    if (-not (Test-Path $debugDir)) { New-Item -ItemType Directory -Force -Path $debugDir | Out-Null }
+
+    # --- REGION: Primary: WMI GetVirtualSystemThumbnailImage
+    try {
+        $vmVideo = Hyper-V\Get-VMVideo -VMName $VMName -ErrorAction SilentlyContinue
+        $reqW = $vmVideo ? [uint16]$vmVideo.HorizontalResolution : [uint16]1920
+        $reqH = $vmVideo ? [uint16]$vmVideo.VerticalResolution : [uint16]1080
+        # See https://yuruna.link/42e5cdfd-002b
+        $thumbnailSizes = @(@{ Width = $reqW; Height = $reqH })
+        foreach ($fallbackSize in @(@{ Width = 1024; Height = 768 }, @{ Width = 640; Height = 480 })) {
+            if ($fallbackSize.Width -le $reqW -and $fallbackSize.Height -le $reqH -and
+                ($fallbackSize.Width -lt $reqW -or $fallbackSize.Height -lt $reqH)) {
+                $thumbnailSizes += $fallbackSize
+            }
+        }
+        foreach ($size in $thumbnailSizes) {
+            $captureW = [uint16]$size.Width
+            $captureH = [uint16]$size.Height
+            try {
+                $bytes = Get-HyperVThumbnailByte -VMName $VMName -Width $captureW -Height $captureH
+                if (-not $bytes) { continue }
+                # See https://yuruna.link/42e5cdfd-002b
+                if (-not $script:__YurunaHyperVBlankWarned -and
+                    [HyperVCapture]::IsImageMostlyBlack(
+                        [byte[]]$bytes, [int]$captureW, [int]$captureH, 0.99)) {
+                    Write-Verbose "Hyper-V WMI thumbnail came back all-black for '$VMName' -- DWM is not painting the synthetic GPU (likely no monitor / RDP session on this host)."
+                    Write-Verbose "See https://yuruna.link/monitorless"
+                    $script:__YurunaHyperVBlankWarned = $true
+                }
+                $ok = [HyperVCapture]::SaveRawImageAsPng(
+                    [byte[]]$bytes, [int]$captureW, [int]$captureH, $OutputPath)
+                if ($ok -and (Test-Path $OutputPath)) {
+                    # A duplicate of every frame, on a path polled for the whole
+                    # length of a wait. Its value is comparing this capture with
+                    # the fallback's, which only matters while debugging -- and
+                    # a locked destination here raises a non-terminating error
+                    # into the transcript an operator is reading at the time.
+                    if ($global:DebugPreference -ne 'SilentlyContinue') {
+                        Copy-Item -Path $OutputPath -Destination (Join-Path $debugDir "wmi_full.png") -Force
+                    }
+                    Write-Debug "Screenshot saved (WMI ${captureW}x${captureH}): $OutputPath"
+                    return $OutputPath
+                }
+                [System.IO.File]::WriteAllText((Join-Path $debugDir "wmi_debug.txt"),
+                    "size=${captureW}x${captureH} dataLen=$($bytes.Length) expected16=$(${captureW}*${captureH}*2) expected24=$(${captureW}*${captureH}*3) expected32=$(${captureW}*${captureH}*4)")
+            } catch {
+                Write-Verbose "Hyper-V WMI thumbnail ${captureW}x${captureH} failed for '$VMName': $($_.Exception.Message)"
+            }
+        }
+        [System.IO.File]::WriteAllText((Join-Path $debugDir "wmi_debug.txt"), "No usable WMI thumbnail at configured ${reqW}x${reqH} or smaller fallback sizes.")
+    } catch {
+        [System.IO.File]::WriteAllText((Join-Path $debugDir "wmi_debug.txt"), "exception: $_")
+    }
+
+    # --- REGION: Fallback: PrintWindow via vmconnect window
+    try {
+        [HyperVCapture]::EnsureDpiAware()
+        $hWnd = [HyperVCapture]::FindWindow($VMName)
+        if ($hWnd -eq [IntPtr]::Zero) {
+            Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_54ea5d7934b12c17' -Arguments @{ vMName = "$VMName" })
+            return $null
+        }
+        $dpi = [HyperVCapture]::GetDpiForWindow($hWnd)
+        $ok = [HyperVCapture]::CaptureToFile($hWnd, $OutputPath)
+        if ($ok -and (Test-Path $OutputPath)) {
+            # Gated for the same reason as the WMI branch above. Both are gated
+            # rather than just one: this host takes the fallback path whenever
+            # the WMI thumbnail comes back empty, so gating only the primary
+            # would leave the duplicate running on the branch that is actually
+            # hot while losing the comparison the pair exists to provide.
+            if ($global:DebugPreference -ne 'SilentlyContinue') {
+                Copy-Item -Path $OutputPath -Destination (Join-Path $debugDir "printwindow_full.png") -Force
+            }
+            $imgSize = (Get-Item $OutputPath).Length
+            [System.IO.File]::WriteAllText((Join-Path $debugDir "printwindow_debug.txt"),
+                "dpi=$dpi fileSize=$imgSize")
+            Write-Debug "Screenshot saved (PrintWindow): $OutputPath"
+            return $OutputPath
+        }
+    } catch {
+        Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_76032954131178ae' -Arguments @{ value = "$_" })
+    }
+    Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_46fe17589543a111' -Arguments @{ vMName = "$VMName" })
+    return $null
+}
+
+function Get-HyperVWindowScreenshot {
+    <#
+    .SYNOPSIS
+        Captures the vmconnect client area via PrintWindow and returns hWnd
+        + dimensions. Used by click-by-OCR -- the WMI thumbnail path from
+        Get-HyperVScreenshot does NOT share vmconnect's coord space.
+    .OUTPUTS
+        Hashtable @{ ImagePath; HWnd; Width; Height } on success, or $null.
+    #>
+    param([string]$VMName, [string]$OutputPath)
+    if (-not ('HyperVCapture' -as [type])) {
+        $warmupPath = Join-Path ([System.IO.Path]::GetTempPath()) "yuruna_warmup_${VMName}.png"
+        Get-HyperVScreenshot -VMName $VMName -OutputPath $warmupPath | Out-Null
+        Remove-Item $warmupPath -Force -ErrorAction SilentlyContinue
+    }
+    if (-not ('HyperVCapture' -as [type])) {
+        Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_cf8e95c1480fece8')
+        return $null
+    }
+    try {
+        [HyperVCapture]::EnsureDpiAware()
+        $hWnd = [HyperVCapture]::FindWindow($VMName)
+        if ($hWnd -eq [IntPtr]::Zero) {
+            Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_4b760cb1106fa1f1' -Arguments @{ vMName = "$VMName" })
+            return $null
+        }
+        $ok = [HyperVCapture]::CaptureToFile($hWnd, $OutputPath)
+        if (-not $ok -or -not (Test-Path $OutputPath)) {
+            Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_0481de2c867ab7b9' -Arguments @{ vMName = "$VMName" })
+            return $null
+        }
+        Add-Type -AssemblyName System.Drawing -ErrorAction SilentlyContinue
+        $bmp = [System.Drawing.Bitmap]::new($OutputPath)
+        try {
+            return @{
+                ImagePath = $OutputPath
+                HWnd      = $hWnd
+                Width     = $bmp.Width
+                Height    = $bmp.Height
+            }
+        } finally { $bmp.Dispose() }
+    } catch {
+        Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_b87fb2bbf66827b8' -Arguments @{ value = "$_" })
+        return $null
+    }
+}
+
+# --- REGION: VM lifecycle
+# --- REGION: New-VM
+function New-VM {
+    <#
+    .SYNOPSIS
+        Create a guest VM by running the per-guest New-VM.ps1 script.
+    #>
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSShouldProcess', '',
+        Justification = 'ShouldProcess is delegated to Invoke-PerGuestNewVm, which declares SupportsShouldProcess and calls it; -WhatIf/-Confirm propagate via the splatted PSBoundParameters.')]
+    [CmdletBinding(SupportsShouldProcess)]
+    [OutputType([hashtable])]
+    param(
+        [Parameter(Mandatory)][string]$GuestKey,
+        [Parameter(Mandatory)][string]$RepoRoot,
+        [Parameter(Mandatory)][string]$VMName,
+        [string]$CachingProxyServiceUrl,
+        # Forward bound overrides only when the per-guest script declares them.
+        # See https://yuruna.link/42ec97cd-0017
+        [string]$Username,
+        [string]$Hostname,
+        [string]$MemoryStartupBytes,
+        [string]$Cores,
+        # Nested virtualization remains opt-in and Hyper-V validates host support.
+        [string]$ExposeVirtualizationExtensions
+    )
+    # Preserve bound overrides and -WhatIf/-Confirm in the shared runner.
+    # See https://yuruna.link/42ec97cd-0017
+    Invoke-PerGuestNewVm -HostSubdir 'host\windows.hyper-v' @PSBoundParameters
+}
+
+# --- REGION: Start-VM
+function Start-VM {
+    <#
+    .SYNOPSIS
+        Start a guest VM previously created by New-VM.
+    #>
+    [CmdletBinding(SupportsShouldProcess)]
+    [OutputType([hashtable])]
+    param([Parameter(Mandatory)][string]$VMName)
+    if (-not $PSCmdlet.ShouldProcess($VMName, (Format-YurunaOperatorMessage -Key 'host.operator_5115fc3aa0fb34ef'))) { return @{ success = $false; errorMessage = 'WhatIf' } }
+    $result = Start-HyperVVM -VMName $VMName -Confirm:$false
+    # Arm the DHCP wire capture the moment the guest exists on the switch:
+    # its first DISCOVER lands seconds after firmware, before any sequence
+    # step runs, so no later hook could catch it. Armed on every start
+    # because whether THIS boot's lease goes wrong is not knowable up front;
+    # the capture is discarded unless a failure collects it.
+    if ($result -and $result.success) {
+        [void](Start-VMDhcpCapture -VMName $VMName)
+        [void](Start-VMSerialCapture -VMName $VMName)
+    }
+    return $result
+}
+
+# --- REGION: Stop-VM
+function Stop-VM {
+    <#
+    .SYNOPSIS
+        Stop a running guest VM (graceful by default; -Force uses Stop-VMForce).
+    .DESCRIPTION
+        -ShutdownTimeoutSeconds bounds the graceful request (0 keeps the driver
+        default). -NoForce returns $false when the guest ignores the request
+        instead of turning it off, so a caller can record what the guest was
+        doing before deciding to force it.
+    #>
+    [CmdletBinding(SupportsShouldProcess)]
+    [OutputType([bool])]
+    param(
+        [Parameter(Mandatory)][string]$VMName,
+        [switch]$Force,
+        [int]$ShutdownTimeoutSeconds = 0,
+        [switch]$NoForce
+    )
+    if (-not $PSCmdlet.ShouldProcess($VMName, ($Force ? (Format-YurunaOperatorMessage -Key 'host.operator_872a5355019f83c5') : (Format-YurunaOperatorMessage -Key 'host.operator_156e139837bd477d')))) { return $false }
+    if ($Force) {
+        return [bool](Stop-HyperVVMForce -VMName $VMName -Confirm:$false)
+    }
+    $graceful = @{ VMName = $VMName; NoForce = $NoForce }
+    if ($ShutdownTimeoutSeconds -gt 0) { $graceful.ShutdownTimeoutSeconds = $ShutdownTimeoutSeconds }
+    return [bool](Stop-HyperVVM @graceful -Confirm:$false)
+}
+
+# --- REGION: Stop-VMForce
+function Stop-VMForce {
+    <#
+    .SYNOPSIS
+        Force-stop a guest VM, escalating to vmwp.exe kill on Windows when graceful stop hangs.
+    #>
+    [CmdletBinding(SupportsShouldProcess)]
+    [OutputType([bool])]
+    param(
+        [Parameter(Mandatory)][string]$VMName,
+        [int]$StopTimeoutSeconds = 20
+    )
+    if (-not $PSCmdlet.ShouldProcess($VMName, (Format-YurunaOperatorMessage -Key 'host.operator_c6326e5af9fb01ff'))) { return $false }
+    return [bool](Stop-HyperVVMForce -VMName $VMName -StopTimeoutSeconds $StopTimeoutSeconds -Confirm:$false)
+}
+
+# --- REGION: Remove-VM
+function Remove-VM {
+    <#
+    .SYNOPSIS
+        Remove a guest VM and its on-disk artifacts.
+    #>
+    [CmdletBinding(SupportsShouldProcess)]
+    [OutputType([bool])]
+    param([Parameter(Mandatory)][string]$VMName)
+    if (-not $PSCmdlet.ShouldProcess($VMName, (Format-YurunaOperatorMessage -Key 'host.operator_12924e738438f274'))) { return $false }
+    # Discard only a capture this VM owns: the cycle-start sweep removes
+    # leftover VMs by prefix, and an unowned discard there would kill the
+    # capture just armed for the guest actually under test. A failure path
+    # collects (and clears) the capture before removal, so this fires only
+    # on the no-failure teardown.
+    if ($script:YurunaDhcpCapture -and $script:YurunaDhcpCapture.VMName -eq $VMName) {
+        [void](Stop-VMDhcpCapture)
+    }
+    if ($script:YurunaSerialCapture -and $script:YurunaSerialCapture.VMName -eq $VMName) {
+        [void](Stop-VMSerialCapture)
+    }
+    return [bool](Remove-HyperVTestVM -VMName $VMName -Confirm:$false)
+}
+
+# --- REGION: Rename-VM
+function Rename-VM {
+    <#
+    .SYNOPSIS
+        Rename a stopped VM and relocate its on-disk storage to a folder
+        matching the new name.
+    .DESCRIPTION
+        Hyper-V's Rename-VM only renames the registry entry; the VHDX files
+        stay at <vhdPath>\<oldName>\. Leaving them there would let
+        Remove-OrphanedVMFiles.ps1 reclaim the directory on the next cycle
+        because the dir name no longer matches any registered VM, killing
+        the persisted snapshot. Move-VMStorage relocates VHDX + .vmcx +
+        snapshot data into a fresh <vhdPath>\<NewName>\ tree so the new
+        name owns the disk layout.
+
+        Requires the VM to be stopped; the caller (Save-VMDiskSnapshot) is
+        responsible for the stop. Returns $false on rename or storage-move
+        failure -- a partial rename (registry succeeded, move failed) is
+        surfaced rather than swallowed so the operator sees the broken state.
+    #>
+    [CmdletBinding(SupportsShouldProcess)]
+    [OutputType([bool])]
+    param(
+        [Parameter(Mandatory)][string]$VMName,
+        [Parameter(Mandatory)][string]$NewName
+    )
+    if (-not $PSCmdlet.ShouldProcess($VMName, (Format-YurunaOperatorMessage -Key 'host.operator_e9e1683d4b60f469' -Arguments @{ newName = "$NewName" }))) { return $false }
+    if ($VMName -eq $NewName) { return $true }
+    # The source must be positively present and stopped, and the destination
+    # positively absent. Hyper-V allows duplicate names, so a destination that
+    # only reads as missing because the provider failed would create one, and
+    # an ambiguous source could rename the wrong VM; the storage move that
+    # follows is only safe for a guest that is not running.
+    $source = Resolve-HyperVVM -VMName $VMName
+    if ($source.Presence -eq 'absent') {
+        Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_5104cefeb7625d7d' -Arguments @{ vMName = "$VMName" })
+        return $false
+    }
+    if ($source.Presence -ne 'present') {
+        Write-Warning (Format-YurunaOperatorMessage -Key 'host.hyperv_vm_state_unknown' -Arguments @{ operation = 'Rename-VM'; vMName = "$VMName" })
+        return $false
+    }
+    if ([string]$source.VM.State -notin @('Off', 'Saved', 'OffCritical')) {
+        Write-Warning (Format-YurunaOperatorMessage -Key 'host.hyperv_rename_source_not_stopped' -Arguments @{ vMName = "$VMName"; state = "$($source.VM.State)" })
+        return $false
+    }
+    $destination = Resolve-HyperVVM -VMName $NewName
+    if ($destination.Presence -eq 'present') {
+        Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_f69adb6b2f614a13' -Arguments @{ newName = "$NewName" })
+        return $false
+    }
+    if ($destination.Presence -ne 'absent') {
+        Write-Warning (Format-YurunaOperatorMessage -Key 'host.hyperv_vm_state_unknown' -Arguments @{ operation = 'Rename-VM'; vMName = "$NewName" })
+        return $false
+    }
+    try {
+        Hyper-V\Rename-VM -Name $VMName -NewName $NewName -Confirm:$false -ErrorAction Stop
+    } catch {
+        Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_08e327b03f39d8c6' -Arguments @{ message = "$($_.Exception.Message)" })
+        return $false
+    }
+    # --- REGION: https://yuruna.link/4220a755-000a
+    # See https://yuruna.link/42e5cdfd-002c
+    $renameAdapter = $null
+    try {
+        $renameAdapter = Hyper-V\Get-VMNetworkAdapter -VMName $NewName -ErrorAction Stop | Select-Object -First 1
+    } catch {
+        Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_9828b6c9013ab31e' -Arguments @{ newName = "$NewName"; message = "$($_.Exception.Message)" })
+    }
+    if ($renameAdapter -and (Test-YurunaGuestMacMatchesName -MacAddress ([string]$renameAdapter.MacAddress) -VMName $VMName)) {
+        try {
+            $renameAdapter | Hyper-V\Set-VMNetworkAdapter `
+                -StaticMacAddress ((Get-YurunaGuestMacAddress -VMName $NewName) -replace ':', '') -ErrorAction Stop
+        } catch {
+            Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_73ba8ba1e410fa99' -Arguments @{ newName = "$NewName"; vMName = "$VMName"; message = "$($_.Exception.Message)" })
+            return $false
+        }
+    }
+    # Relocate storage so the on-disk dir-name matches the new VM-name.
+    # Without this, Remove-OrphanedVMFiles' "dir name with no matching
+    # VM" sweep would later wipe the persisted snapshot's files.
+    $vhdRoot = (Hyper-V\Get-VMHost -ErrorAction SilentlyContinue).VirtualHardDiskPath
+    if ($vhdRoot) {
+        $destDir = Join-Path $vhdRoot $NewName
+        try {
+            Hyper-V\Move-VMStorage -VMName $NewName -DestinationStoragePath $destDir -Confirm:$false -ErrorAction Stop
+        } catch {
+            Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_e69fb2b8940dab5a' -Arguments @{ newName = "$NewName"; destDir = "$destDir"; message = "$($_.Exception.Message)"; vMName = "$VMName" })
+            return $false
+        }
+    }
+    return $true
+}
+
+# --- REGION: Get-VMState
+function Get-VMState {
+    <#
+    .SYNOPSIS
+        Returns 'absent', 'stopped', 'running', or 'unknown' for the given VM.
+    .DESCRIPTION
+        Presence comes from Resolve-HyperVVM, which proves absence from a
+        successful inventory rather than from the text of a lookup failure, so the
+        answer does not depend on the host's display language. A provider fault
+        (VMMS unreachable, a denied call, a busy host) and a duplicate name are
+        'unknown', never 'absent': callers treat 'absent' as permission to build or
+        reuse a name. A present VM maps Running/Saving to 'running',
+        Off/Saved/OffCritical to 'stopped', and every transitional or unrecognized
+        state to 'unknown'.
+    #>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param([Parameter(Mandatory)][string]$VMName)
+    $resolved = Resolve-HyperVVM -VMName $VMName
+    if ($resolved.Presence -ne 'present') { return [string]$resolved.Presence }
+    switch ([string]$resolved.VM.State) {
+        'Running'      { return 'running' }
+        'Saving'       { return 'running' }
+        'Off'          { return 'stopped' }
+        'Saved'        { return 'stopped' }
+        'OffCritical'  { return 'stopped' }
+        default        { return 'unknown' }
+    }
+}
+
+# --- REGION: VM inventory
+# --- REGION: Get-VMName
+function Get-VMName {
+    <#
+    .SYNOPSIS
+        Return the names of every Hyper-V VM, optionally filtered to those
+        starting with one of $Prefix.
+    .DESCRIPTION
+        Host-neutral inventory call (see the contract's VM inventory block).
+        Every registered VM is returned regardless of run state, so a caller
+        sweeping by prefix removes stopped leftovers as well as running ones.
+
+        THROWS when Hyper-V itself cannot be queried rather than returning an
+        empty list: without elevation (or with vmms down) Get-VM fails, and a
+        caller that read that as "nothing registered" would report a clean
+        host and let the orphan-file pass delete VHDX directories that are
+        still in use.
+    .PARAMETER Prefix
+        Zero or more name prefixes. A VM is returned when its name starts
+        with any of them. Omit to return every VM.
+    .OUTPUTS
+        [string[]] matching VM names; empty when none match.
+    #>
+    [CmdletBinding()]
+    [OutputType([string[]])]
+    param([string[]]$Prefix)
+    try {
+        # Module-qualified: the unqualified Get-VM resolves to this
+        # driver's contract surface, which exposes Get-VMState instead.
+        $all = @(Hyper-V\Get-VM -ErrorAction Stop | ForEach-Object { $_.Name })
+    } catch {
+        throw (Format-YurunaOperatorMessage -Key 'exceptions.host_de8cc2205b118bfb' -Arguments @{ message = "$($_.Exception.Message)" })
+    }
+    return Select-NameByPrefix -Name $all -Prefix $Prefix
+}
+
+# --- REGION: Disk snapshots
+# --- REGION: Save-VMDiskSnapshot
+function Save-VMDiskSnapshot {
+    <#
+    .SYNOPSIS
+        Save a disk-only snapshot of the VM, then rename the VM (and
+        relocate its storage) so it persists across test-cycle cleanup.
+    .DESCRIPTION
+        Hyper-V's Checkpoint-VM captures runtime state by default. For a
+        disk-only point this function stops the VM first (graceful, then
+        Stop-VMForce on graceful timeout); with no RAM to checkpoint, the
+        resulting .avhdx differencing disk + .vmrs pair is effectively a
+        disk-only point. Leaves the VM stopped on return so the caller's
+        sequence can decide when to restart -- mirrors KVM and UTM
+        semantics where the underlying tool requires an offline VM.
+
+        After a successful checkpoint, the VM is renamed to $Id and its
+        storage is moved into <vhdPath>\<Id>\ so the next cycle's
+        Remove-TestVMFiles.ps1 (which sweeps every name matching the
+        test-* prefix) leaves the persisted VM and its snapshot alone.
+        Caller is expected to update its local $VMName reference to $Id;
+        the sequence engine does this automatically after a successful
+        saveDiskSnapshot step so subsequent steps target the persisted VM.
+    #>
+    [CmdletBinding(SupportsShouldProcess)]
+    [OutputType([bool])]
+    param(
+        [Parameter(Mandatory)][string]$VMName,
+        [Parameter(Mandatory)][string]$Id
+    )
+    if (-not $PSCmdlet.ShouldProcess($VMName, (Format-YurunaOperatorMessage -Key 'host.operator_dd94ac62ae57701c' -Arguments @{ id = "$Id" }))) { return $false }
+    # See https://yuruna.link/42e220c4-0004
+    $state = Resolve-HyperVVM -VMName $VMName
+    if ($state.Presence -ne 'present') { return $false }
+    if ([string]$state.VM.State -notin @('Off', 'OffCritical')) {
+        if (-not (Stop-VM -VMName $VMName)) {
+            Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_f14a8d0740e60f7c' -Arguments @{ vMName = "$VMName"; id = "$Id" })
+            if (-not (Stop-VMForce -VMName $VMName)) { return $false }
+        }
+        $state = Resolve-HyperVVM -VMName $VMName
+        if ($state.Presence -ne 'present' -or [string]$state.VM.State -notin @('Off', 'OffCritical')) { return $false }
+    }
+    $existing = Hyper-V\Get-VMCheckpoint -VMName $VMName -Name $Id -ErrorAction SilentlyContinue
+    if ($existing) {
+        try { Hyper-V\Remove-VMCheckpoint -VMName $VMName -Name $Id -Confirm:$false -ErrorAction Stop }
+        catch { Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_4b9f3935d5cddbc4' -Arguments @{ id = "$Id"; message = "$($_.Exception.Message)" }); return $false }
+    }
+    try {
+        Hyper-V\Checkpoint-VM -Name $VMName -SnapshotName $Id -Confirm:$false -ErrorAction Stop
+    } catch {
+        Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_653d2c6949f53ff7' -Arguments @{ vMName = "$VMName"; id = "$Id"; message = "$($_.Exception.Message)" })
+        return $false
+    }
+    # Promote the VM out of the test-* namespace so it survives the
+    # next cycle's Remove-TestVMFiles sweep. If the VM is already named
+    # $Id (re-running the same sequence against the persisted VM),
+    # Rename-VM is a $VMName -eq $NewName no-op.
+    if ($VMName -ne $Id) {
+        if (-not (Rename-VM -VMName $VMName -NewName $Id -Confirm:$false)) {
+            Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_dda22dc70c2dcb9f' -Arguments @{ id = "$Id"; vMName = "$VMName" })
+            return $false
+        }
+    }
+    return $true
+}
+
+# --- REGION: Restore-VMDiskSnapshot
+function Restore-VMDiskSnapshot {
+    <#
+    .SYNOPSIS
+        Restore $VMName to Hyper-V checkpoint $Id.
+    .DESCRIPTION
+        Verifies the checkpoint exists first so a typo'd Id does not
+        bounce a healthy guest, stops the VM if it is running, then
+        calls Hyper-V\Restore-VMCheckpoint. Returns the apply status as
+        a bool so callers can branch on success.
+    .OUTPUTS
+        [bool] $true on success; $false on missing checkpoint or restore failure.
+    #>
+    [CmdletBinding(SupportsShouldProcess)]
+    [OutputType([bool])]
+    param(
+        [Parameter(Mandatory)][string]$VMName,
+        [Parameter(Mandatory)][string]$Id
+    )
+    if (-not $PSCmdlet.ShouldProcess($VMName, (Format-YurunaOperatorMessage -Key 'host.operator_122c73a3a2052796' -Arguments @{ id = "$Id" }))) { return $false }
+    $cp = Hyper-V\Get-VMCheckpoint -VMName $VMName -Name $Id -ErrorAction SilentlyContinue
+    if (-not $cp) {
+        Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_b45c917f03c9cba3' -Arguments @{ id = "$Id"; vMName = "$VMName" })
+        return $false
+    }
+    # Rollback discards current writes; force-stop and confirm power-off first.
+    # See https://yuruna.link/42e220c4-0004
+    $state = Resolve-HyperVVM -VMName $VMName
+    if ($state.Presence -ne 'present') { return $false }
+    if ([string]$state.VM.State -notin @('Off', 'OffCritical')) {
+        if (-not (Stop-VMForce -VMName $VMName)) { return $false }
+        $state = Resolve-HyperVVM -VMName $VMName
+        if ($state.Presence -ne 'present' -or [string]$state.VM.State -notin @('Off', 'OffCritical')) { return $false }
+    }
+    try {
+        Hyper-V\Restore-VMCheckpoint -VMName $VMName -Name $Id -Confirm:$false -ErrorAction Stop
+        return $true
+    } catch {
+        Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_1b2ab5d91cb086fd' -Arguments @{ vMName = "$VMName"; id = "$Id"; message = "$($_.Exception.Message)" })
+        return $false
+    }
+}
+
+# --- REGION: Test-VMDiskSnapshot
+function Test-VMDiskSnapshot {
+    <#
+    .SYNOPSIS
+        Returns $true when checkpoint $Id is present on $VMName, $false
+        otherwise (including when the VM does not exist). Used by
+        Debug-TestSequence.ps1's requiresSnapshot warm-path probe before
+        deciding whether to walk the baseline chain.
+    #>
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param(
+        [Parameter(Mandatory)][string]$VMName,
+        [Parameter(Mandatory)][string]$Id
+    )
+    if ((Get-VMState -VMName $VMName) -eq 'absent') { return $false }
+    $cp = Hyper-V\Get-VMCheckpoint -VMName $VMName -Name $Id -ErrorAction SilentlyContinue
+    return [bool]$cp
+}
+
+# --- REGION: VM console
+# --- REGION: Test-VMConsoleOpen
+function Test-VMConsoleOpen {
+    <#
+    .SYNOPSIS
+        Returns true when a console window is open for the given VM.
+    #>
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param([Parameter(Mandatory)][string]$VMName)
+    # vmconnect's window title contains the VM name. A best-effort check;
+    # Test.SequenceEngine.psm1's Send-ClickHyperV uses similar logic.
+    $proc = Get-Process -Name 'vmconnect' -ErrorAction SilentlyContinue |
+        Where-Object { $_.MainWindowTitle -match [regex]::Escape($VMName) } |
+        Select-Object -First 1
+    return [bool]$proc
+}
+
+# --- REGION: Restart-VMConsole
+function Restart-VMConsole {
+    <#
+    .SYNOPSIS
+        Refresh or re-open the host-side console window for the given VM.
+    #>
+    [CmdletBinding(SupportsShouldProcess)]
+    [OutputType([bool])]
+    param([Parameter(Mandatory)][string]$VMName)
+    if (-not $PSCmdlet.ShouldProcess($VMName, (Format-YurunaOperatorMessage -Key 'host.operator_fd6bea70e855e2b8'))) { return $false }
+    return [bool](Restart-HyperVConnect -VMName $VMName -Confirm:$false)
+}
+
+# --- REGION: Set-VMInstallerMediaFirstBoot
+function Set-VMInstallerMediaFirstBoot {
+    <#
+    .SYNOPSIS
+        Put a stopped guest's installer DVD back at the head of its firmware boot order.
+    .DESCRIPTION
+        New-UbuntuServerVM.ps1 makes the installer DVD the first boot device,
+        but curtin's bootloader step registers the target disk in the guest's
+        UEFI NVRAM ahead of it. A guest cut off after that step and before the
+        installer's late-commands would otherwise boot a target that is missing
+        the late-command changes (the expired first-login password among them),
+        so a power-cycle meant to restart the install must reselect the DVD.
+        The seed ISO is the other DVD and is never the installer. Returns
+        $false unless exactly one installer DVD is attached and Hyper-V
+        accepted it as the first boot device.
+    #>
+    [CmdletBinding(SupportsShouldProcess)]
+    [OutputType([bool])]
+    param([Parameter(Mandatory)][string]$VMName)
+    if (-not $PSCmdlet.ShouldProcess($VMName, 'Boot the installer DVD first')) { return $false }
+    try {
+        $installerDvd = @(Hyper-V\Get-VMDvdDrive -VMName $VMName -ErrorAction Stop |
+            Where-Object { $_.Path -and (Split-Path -Leaf $_.Path) -ne 'seed.iso' })
+        if ($installerDvd.Count -ne 1) {
+            Write-Verbose "Set-VMInstallerMediaFirstBoot: '$VMName' has $($installerDvd.Count) installer DVD candidates; expected 1."
+            return $false
+        }
+        Hyper-V\Set-VMFirmware -VMName $VMName -FirstBootDevice $installerDvd[0] -ErrorAction Stop
+        return $true
+    } catch {
+        Write-Verbose "Set-VMInstallerMediaFirstBoot: '$VMName' boot order unchanged: $($_.Exception.Message)"
+        return $false
+    }
+}
+
+# --- REGION: Image
+# --- REGION: Get-Image
+function Get-Image {
+    <#
+    .SYNOPSIS
+        Run the per-guest Get-Image.ps1 to download or refresh the base image.
+    #>
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSShouldProcess', '',
+        Justification = 'ShouldProcess is delegated to Invoke-GetImage, which declares SupportsShouldProcess and calls it; -WhatIf/-Confirm propagate via the splatted PSBoundParameters.')]
+    [CmdletBinding(SupportsShouldProcess)]
+    [OutputType([hashtable])]
+    param(
+        [Parameter(Mandatory)][string]$GuestKey,
+        [Parameter(Mandatory)][string]$RepoRoot,
+        [switch]$Force
+    )
+    # Thin wrapper over the shared runner; the host subdir is the only platform
+    # variable and Get-ImagePath (the per-platform image table) is injected as a
+    # CommandInfo resolved in THIS driver's scope so the shared body binds ours.
+    Invoke-GetImage -HostSubdir 'host\windows.hyper-v' -ResolveImagePath (Get-Command Get-ImagePath) @PSBoundParameters
+}
+
+# --- REGION: Get-ImagePath
+function Get-ImagePath {
+    <#
+    .SYNOPSIS
+        Return the expected on-disk path of the base image for a guest.
+    #>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param([Parameter(Mandatory)][string]$GuestKey)
+    $fileNames = @{
+        'guest.amazon.linux.2023'    = 'host.windows.hyper-v.guest.amazon.linux.2023.vhdx'
+        'guest.ubuntu.server.24'   = 'host.windows.hyper-v.guest.ubuntu.server.24.iso'
+        'guest.ubuntu.server.26'   = 'host.windows.hyper-v.guest.ubuntu.server.26.iso'
+        'guest.windows.11'      = 'host.windows.hyper-v.guest.windows.11.iso'
+    }
+    $fileName = $fileNames[$GuestKey]
+    if (-not $fileName) { return $null }
+    try {
+        $vhdPath = (Hyper-V\Get-VMHost -ErrorAction Stop).VirtualHardDiskPath
+        return Join-Path $vhdPath $fileName
+    } catch { $null = $_; return $null }
+}
+
+# --- REGION: VM I/O
+# --- REGION: Send-Text
+function Send-Text {
+    <#
+    .SYNOPSIS
+        Type text into the guest VM via gui or ssh mechanism.
+    #>
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param(
+        [Parameter(Mandatory)][string]$VMName,
+        [Parameter(Mandatory)][string]$Text,
+        [ValidateSet('gui','ssh')][string]$Mechanism = 'gui',
+        # Required when -Mechanism ssh: maps to the SSH login user via
+        # Test.Ssh\Get-GuestSshUser (per-guest test user, ec2-user, root, ...).
+        [string]$GuestKey,
+        [int]$CharDelayMs = 10,
+        [switch]$Sensitive
+    )
+    # Sensitive is part of the contract for log redaction; current paths
+    # (SSH and the Invoke-Sequence GUI dispatcher) do not yet honor it.
+    if ($Sensitive) { Write-Debug "Send-Text: -Sensitive set on '$VMName'; log redaction not yet implemented on Hyper-V." }
+    if ($Mechanism -eq 'ssh') {
+        if (-not $GuestKey) {
+            Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_f4a1977247ebda51')
+            return $false
+        }
+        # Test.Ssh\Invoke-GuestSsh resolves both the user (from GuestKey)
+        # and the address (from VMName) internally; surface .success, not the
+        # hashtable itself -- [bool] of a non-null hashtable is always $true
+        # (truthy-hashtable trap).
+        $r = Invoke-GuestSsh -VMName $VMName -GuestKey $GuestKey -Command $Text
+        return [bool]$r.success
+    }
+    # See https://yuruna.link/42e220c4-0004
+    $sequenceEngine = Join-Path $script:TestModulesDir 'Test.SequenceEngine.psm1'
+    if (Test-Path $sequenceEngine) {
+        # Import once and reuse. When the outer loop already loaded Invoke-Sequence -Global we must
+        # NOT re-import per call: a -Force re-import evicts/reinitializes the global module (and its
+        # nested modules + $script: state) the outer loop still calls, and doing it on every
+        # keystroke is pure overhead (feedback_module_force_import_evicts_global,
+        # feedback_module_script_state_reset_by_force_reimport).
+        if (-not (Get-Module -Name Test.SequenceEngine)) { Import-Module $sequenceEngine -DisableNameChecking -Global }
+        return [bool](Test.SequenceEngine\Send-Text -HostType (Resolve-HostTag) -VMName $VMName -Text $Text -CharDelayMs $CharDelayMs)
+    }
+    Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_1e2f99261b1a1683' -Arguments @{ sequenceEngine = "$sequenceEngine" })
+    return $false
+}
+
+# --- REGION: Send-Key
+function Send-Key {
+    <#
+    .SYNOPSIS
+        Send a named key to the guest VM via gui or ssh mechanism.
+    #>
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param(
+        [Parameter(Mandatory)][string]$VMName,
+        [Parameter(Mandatory)][string]$Key,
+        [ValidateSet('gui','ssh')][string]$Mechanism = 'gui'
+    )
+    if ($Mechanism -eq 'ssh') {
+        Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_4ffbf7056dde8493')
+        return $false
+    }
+    # Defer to Invoke-Sequence's host-aware dispatcher (same reasoning as
+    # Send-Text above -- Send-KeyHyperV is private to Invoke-Sequence and
+    # not resolvable from this module's scope).
+    $sequenceEngine = Join-Path $script:TestModulesDir 'Test.SequenceEngine.psm1'
+    if (Test-Path $sequenceEngine) {
+        # Import once and reuse, never -Force per call -- same trap as Send-Text
+        # above (feedback_module_force_import_evicts_global,
+        # feedback_module_script_state_reset_by_force_reimport).
+        if (-not (Get-Module -Name Test.SequenceEngine)) { Import-Module $sequenceEngine -DisableNameChecking -Global }
+        return [bool](Test.SequenceEngine\Send-Key -HostType (Resolve-HostTag) -VMName $VMName -KeyName $Key)
+    }
+    Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_c53432cf9b294e69' -Arguments @{ sequenceEngine = "$sequenceEngine" })
+    return $false
+}
+
+# --- REGION: Send-Click
+function Send-Click {
+    <#
+    .SYNOPSIS
+        Send a mouse click at the given pixel coordinate.
+    #>
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param(
+        [Parameter(Mandatory)][string]$VMName,
+        [Parameter(Mandatory)][int]$X,
+        [Parameter(Mandatory)][int]$Y
+    )
+    $sequenceEngine = Join-Path $script:TestModulesDir 'Test.SequenceEngine.psm1'
+    if (Test-Path $sequenceEngine) {
+        # Import once and reuse, never -Force per call -- same trap as Send-Text
+        # above (feedback_module_force_import_evicts_global,
+        # feedback_module_script_state_reset_by_force_reimport).
+        if (-not (Get-Module -Name Test.SequenceEngine)) { Import-Module $sequenceEngine -DisableNameChecking -Global }
+        return [bool](Test.SequenceEngine\Send-Click -HostType (Resolve-HostTag) -VMName $VMName -X $X -Y $Y)
+    }
+    Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_0c2172f8af698467' -Arguments @{ sequenceEngine = "$sequenceEngine" })
+    return $false
+}
+
+# --- REGION: Get-VMScreenshot
+function Get-VMScreenshot {
+    <#
+    .SYNOPSIS
+        Capture a PNG of the VM display from frame or window source.
+    #>
+    [CmdletBinding()]
+    [OutputType([object])]
+    param(
+        [Parameter(Mandatory)][string]$VMName,
+        [ValidateSet('frame','window')][string]$Source = 'frame',
+        [string]$OutFile
+    )
+    if (-not $OutFile) {
+        $tmp = [System.IO.Path]::GetTempFileName()
+        $OutFile = [System.IO.Path]::ChangeExtension($tmp, '.png')
+        Remove-Item -LiteralPath $tmp -ErrorAction SilentlyContinue
+    }
+    if ($Source -eq 'window') {
+        return Get-HyperVWindowScreenshot -VMName $VMName -OutputPath $OutFile
+    }
+    # 'frame' source: WMI GetVirtualSystemThumbnailImage, with vmconnect PrintWindow fallback (Get-HyperVScreenshot).
+    return Get-HyperVScreenshot -VMName $VMName -OutputPath $OutFile
+}
+
+# --- REGION: Get-VMConsoleHandle
+function Get-VMConsoleHandle {
+    <#
+    .SYNOPSIS
+        Return a host-specific handle for the VM console window.
+    #>
+    [CmdletBinding()]
+    [OutputType([System.IntPtr])]
+    param([Parameter(Mandatory)][string]$VMName)
+    $proc = Get-Process -Name 'vmconnect' -ErrorAction SilentlyContinue |
+        Where-Object { $_.MainWindowTitle -match [regex]::Escape($VMName) } |
+        Select-Object -First 1
+    if (-not $proc) { return [System.IntPtr]::Zero }
+    return $proc.MainWindowHandle
+}
+
+<#
+.SYNOPSIS
+    Read the guest framebuffer twice through WMI and say whether it changed.
+.DESCRIPTION
+    A wait that exhausts its console-reconnect repairs ends on one ambiguous
+    fact: every captured frame was byte-identical. That has two causes with
+    opposite owners -- a guest whose framebuffer is truly static, and a
+    capture pipeline that lost the live feed while the guest kept drawing.
+    The capture path cannot arbitrate its own suspects (its viewer window and
+    its PrintWindow capture are the parts in question), so this reads the
+    framebuffer through GetVirtualSystemThumbnailImage alone -- no vmconnect,
+    no PrintWindow fallback -- twice, a few seconds apart. Differing bytes
+    mean the guest is still drawing and the capture path is at fault;
+    identical bytes mean the guest side is static too. A blinking cursor can
+    vanish in thumbnail downscaling, so an identical pair is reported as what
+    was observed, never as proof the guest is dead.
+.OUTPUTS
+    [pscustomobject] Verdict 'guest-static' | 'guest-live' | 'unavailable', Detail.
+#>
+function Get-VMConsoleSecondOpinion {
+    [CmdletBinding()]
+    [OutputType([pscustomobject])]
+    param(
+        [Parameter(Mandatory)][string]$VMName,
+        [int]$IntervalSeconds = 5
+    )
+    try {
+        $readFrame = { Get-HyperVThumbnailByte -VMName $VMName -Width 640 -Height 480 }
+        $first = & $readFrame
+        if (-not $first) {
+            return [pscustomobject]@{ Verdict = 'unavailable'; Detail = (Format-YurunaOperatorMessage -Key 'host.operator_540894cbcc3a0f70') }
+        }
+        Start-Sleep -Seconds $IntervalSeconds
+        $second = & $readFrame
+        if (-not $second) {
+            return [pscustomobject]@{ Verdict = 'unavailable'; Detail = (Format-YurunaOperatorMessage -Key 'host.operator_020a57eb5b872e90') }
+        }
+        $cpu = $null
+        try { $cpu = (Hyper-V\Get-VM -Name $VMName -ErrorAction Stop).CPUUsage } catch { $cpu = $null }
+        $cpuText = if ($null -ne $cpu) { "VM CPU ${cpu}%" } else { 'VM CPU unreadable' }
+        if ([System.Linq.Enumerable]::SequenceEqual([byte[]]$first, [byte[]]$second)) {
+            return [pscustomobject]@{
+                Verdict = 'guest-static'
+                Detail  = (Format-YurunaOperatorMessage -Key 'host.operator_fc02650ed15d14f2' -Arguments @{ intervalSeconds = "${IntervalSeconds}"; cpuText = "$cpuText" })
+            }
+        }
+        return [pscustomobject]@{
+            Verdict = 'guest-live'
+            Detail  = (Format-YurunaOperatorMessage -Key 'host.operator_e5ac91fd2fb33378' -Arguments @{ intervalSeconds = "${IntervalSeconds}"; cpuText = "$cpuText" })
+        }
+    } catch {
+        return [pscustomobject]@{ Verdict = 'unavailable'; Detail = $_.Exception.Message }
+    }
+}
+
+# --- REGION: DHCP evidence capture
+# See https://yuruna.link/42e5cdfd-002d
+
+# The one live capture, if any: @{ VMName; EtlPath }. Session state, not
+# durable state -- pktmon itself is the source of truth for whether a capture
+# is running; this only remembers which VM the current one belongs to so an
+# unrelated Remove-VM (the cycle-start sweep) cannot discard a capture it
+# does not own.
+$script:YurunaDhcpCapture = $null
+
+# --- REGION: Serial console capture
+# See https://yuruna.link/42e220c4-0007
+# A guest that stops servicing its VMBus devices answers neither SSH nor the
+# synthetic keyboard, and its framebuffer keeps showing the last frame it
+# drew. The kernel and journald still write to the serial port, which Hyper-V
+# exposes as a named pipe, so a host-side reader is the one guest-side record
+# of what happened while the guest went quiet. Armed when the VM starts,
+# saved on failure beside the DHCP capture, discarded on a clean teardown.
+function Get-VMSerialPipeName {
+    [CmdletBinding()]
+    [OutputType([string])]
+    param([Parameter(Mandatory)][string]$VMName)
+    return "yuruna-serial-$VMName"
+}
+<#
+.SYNOPSIS
+    Arm a reader on the VM's COM1 named pipe and keep what the guest writes there.
+.OUTPUTS
+    [bool] $true when a reader was started.
+#>
+function Start-VMSerialCapture {
+    [CmdletBinding()]
+    [OutputType([bool])]
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+        Justification = 'Diagnostic capture: reads a serial pipe into a temp file, changes no durable system state, and must never prompt inside a runner cycle.')]
+    param([Parameter(Mandatory)][string]$VMName)
+    try {
+        $port = Hyper-V\Get-VMComPort -VMName $VMName -Number 1 -ErrorAction Stop
+        if (-not $port -or -not $port.Path) {
+            Write-Verbose "Serial console capture: '$VMName' has no COM1 pipe; nothing to read."
+            return $false
+        }
+        [void](Stop-VMSerialCapture)
+        $logPath = Join-Path $env:TEMP "yuruna-serial-$VMName.log"
+        Remove-Item -LiteralPath $logPath -Force -ErrorAction SilentlyContinue
+        $pipeName = Get-VMSerialPipeName -VMName $VMName
+        # A separate process, so a reader blocked in Connect or Read can never
+        # stall the cycle, and so stopping it is one Stop-Job away. The pipe
+        # server is created by the VM worker when the VM is on and goes away
+        # with each restart, so the reader reconnects for as long as it runs.
+        $job = Start-Job -Name "yuruna-serial-$VMName" -ScriptBlock {
+            $PipeName = $using:pipeName
+            $LogPath = $using:logPath
+            $buffer = [byte[]]::new(4096)
+            while ($true) {
+                $client = $null
+                try {
+                    $client = [System.IO.Pipes.NamedPipeClientStream]::new('.', $PipeName, [System.IO.Pipes.PipeDirection]::In)
+                    $client.Connect(2000)
+                    $file = [System.IO.FileStream]::new($LogPath, [System.IO.FileMode]::Append, [System.IO.FileAccess]::Write, [System.IO.FileShare]::ReadWrite)
+                    try {
+                        while ($client.IsConnected) {
+                            $read = $client.Read($buffer, 0, $buffer.Length)
+                            if ($read -le 0) { break }
+                            $file.Write($buffer, 0, $read)
+                            $file.Flush()
+                        }
+                    } finally { $file.Dispose() }
+                } catch {
+                    Start-Sleep -Seconds 1
+                } finally {
+                    if ($client) { $client.Dispose() }
+                }
+            }
+        }
+        $script:YurunaSerialCapture = @{ VMName = $VMName; Job = $job; LogPath = $logPath; PipeName = $pipeName }
+        Write-Verbose "Serial console capture armed for '$VMName' -> $logPath"
+        return $true
+    } catch {
+        Write-Verbose "Start-VMSerialCapture failed: $($_.Exception.Message)"
+        return $false
+    }
+}
+<#
+.SYNOPSIS
+    Stop the live serial reader and discard its file (the no-failure path).
+.OUTPUTS
+    [bool] $true when nothing is left running or on disk.
+#>
+function Stop-VMSerialCapture {
+    [CmdletBinding()]
+    [OutputType([bool])]
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+        Justification = 'Diagnostic teardown: stops a reader job and deletes its temp file; must never prompt inside a runner cycle.')]
+    param()
+    try {
+        $capture = $script:YurunaSerialCapture
+        $script:YurunaSerialCapture = $null
+        if (-not $capture) { return $true }
+        if ($capture.Job) {
+            Stop-Job -Job $capture.Job -ErrorAction SilentlyContinue
+            Remove-Job -Job $capture.Job -Force -ErrorAction SilentlyContinue
+        }
+        if ($capture.LogPath) { Remove-Item -LiteralPath $capture.LogPath -Force -ErrorAction SilentlyContinue }
+        return $true
+    } catch {
+        Write-Verbose "Stop-VMSerialCapture failed: $($_.Exception.Message)"
+        return $false
+    }
+}
+<#
+.SYNOPSIS
+    Stop the serial reader and keep what it read as serial-console.log in the
+    failure folder (the failure path).
+.DESCRIPTION
+    An empty capture is reported in serial-console.info.txt rather than as an
+    empty log, so "the guest wrote nothing to its serial port" and "the capture
+    never ran" stay distinguishable.
+.OUTPUTS
+    [bool] $true when a log with content was saved.
+#>
+function Save-VMSerialCapture {
+    [CmdletBinding()]
+    [OutputType([bool])]
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+        Justification = 'Diagnostic collection: copies a capture into the failure folder and removes its temp file; must never prompt inside a runner cycle.')]
+    param(
+        [Parameter(Mandatory)][string]$VMName,
+        [Parameter(Mandatory)][string]$OutputDirectory
+    )
+    try {
+        $capture = $script:YurunaSerialCapture
+        if (-not $capture -or $capture.VMName -ne $VMName) { return $false }
+        $script:YurunaSerialCapture = $null
+        if ($capture.Job) {
+            Stop-Job -Job $capture.Job -ErrorAction SilentlyContinue
+            Remove-Job -Job $capture.Job -Force -ErrorAction SilentlyContinue
+        }
+        if (-not (Test-Path -LiteralPath $OutputDirectory)) {
+            New-Item -ItemType Directory -Force -Path $OutputDirectory | Out-Null
+        }
+        $bytes = 0L
+        if (Test-Path -LiteralPath $capture.LogPath) { $bytes = (Get-Item -LiteralPath $capture.LogPath).Length }
+        if ($bytes -gt 0) {
+            Copy-Item -LiteralPath $capture.LogPath -Destination (Join-Path $OutputDirectory 'serial-console.log') -Force
+        }
+        Set-Content -LiteralPath (Join-Path $OutputDirectory 'serial-console.info.txt') -Encoding utf8NoBOM -Value @(
+            "vmName:   $VMName"
+            "pipe:     \\.\pipe\$($capture.PipeName)"
+            "bytes:    $bytes"
+            "savedUtc: $([DateTime]::UtcNow.ToString('yyyy-MM-ddTHH:mm:ssZ', [System.Globalization.CultureInfo]::InvariantCulture))"
+            'reading:  serial-console.log holds everything the guest wrote to COM1 while the'
+            '          reader was connected: kernel messages at every level and the journal'
+            '          lines journald forwards there. 0 bytes with a configured pipe means the'
+            '          guest never opened its serial port (no console= argument, or the port'
+            '          is absent on this platform), not that the guest was silent.'
+        )
+        Remove-Item -LiteralPath $capture.LogPath -Force -ErrorAction SilentlyContinue
+        return ($bytes -gt 0)
+    } catch {
+        Write-Verbose "Save-VMSerialCapture failed: $($_.Exception.Message)"
+        return $false
+    }
+}
+<#
+.SYNOPSIS
+    Arm a bounded, DHCP-only pktmon capture for one guest VM.
+.OUTPUTS
+    [bool] $true when the capture is running.
+#>
+function Start-VMDhcpCapture {
+    [CmdletBinding()]
+    [OutputType([bool])]
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+        Justification = 'Diagnostic capture: records packets, changes no durable system state, and must never prompt inside a runner cycle.')]
+    param([Parameter(Mandatory)][string]$VMName)
+    try {
+        if (-not (Get-Command pktmon.exe -ErrorAction SilentlyContinue)) {
+            Write-Verbose 'pktmon not present; DHCP capture unavailable.'
+            return $false
+        }
+        & pktmon stop 2>$null | Out-Null
+        & pktmon filter remove 2>$null | Out-Null
+        $etl = Join-Path $env:TEMP "yuruna-dhcp-$VMName.etl"
+        Remove-Item -LiteralPath $etl -Force -ErrorAction SilentlyContinue
+        & pktmon filter add YurunaDhcpSrv -p 67 2>$null | Out-Null
+        & pktmon filter add YurunaDhcpCli -p 68 2>$null | Out-Null
+        $startOutput = & pktmon start --capture --pkt-size 0 --log-mode circular --file-size 50 -f $etl 2>&1
+        if ($LASTEXITCODE -ne 0) {
+            Write-Verbose "pktmon start failed: $startOutput"
+            & pktmon filter remove 2>$null | Out-Null
+            return $false
+        }
+        $script:YurunaDhcpCapture = @{ VMName = $VMName; EtlPath = $etl }
+        Write-Verbose "DHCP capture armed for '$VMName' -> $etl"
+        return $true
+    } catch {
+        Write-Verbose "Start-VMDhcpCapture failed: $($_.Exception.Message)"
+        return $false
+    }
+}
+
+<#
+.SYNOPSIS
+    Stop the live DHCP capture and discard its file (the no-failure path).
+.OUTPUTS
+    [bool] $true when nothing is left running or on disk.
+#>
+function Stop-VMDhcpCapture {
+    [CmdletBinding()]
+    [OutputType([bool])]
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+        Justification = 'Diagnostic teardown: stops a packet capture and deletes its temp file; must never prompt inside a runner cycle.')]
+    param()
+    try {
+        if (Get-Command pktmon.exe -ErrorAction SilentlyContinue) {
+            & pktmon stop 2>$null | Out-Null
+            & pktmon filter remove 2>$null | Out-Null
+        }
+        if ($script:YurunaDhcpCapture -and $script:YurunaDhcpCapture.EtlPath) {
+            Remove-Item -LiteralPath $script:YurunaDhcpCapture.EtlPath -Force -ErrorAction SilentlyContinue
+        }
+        $script:YurunaDhcpCapture = $null
+        return $true
+    } catch {
+        Write-Verbose "Stop-VMDhcpCapture failed: $($_.Exception.Message)"
+        return $false
+    }
+}
+
+<#
+.SYNOPSIS
+    Count, from pktmon's text rendering, the DHCP packets one guest MAC sent
+    and received during a capture.
+.DESCRIPTION
+    pktmon logs a packet once per component it crosses, each line with its
+    own group id, so a packet is counted once per source, destination and
+    length within half a second; DHCP retransmits are seconds apart. A
+    broadcast OFFER names its client only inside the payload, so replies are
+    counted when unicast to the guest's MAC -- a lower bound the .pcapng can
+    settle. Packets from other clients are counted because they show the
+    capture itself was live: zero from the guest means something only beside
+    a nonzero count there.
+
+    Drops are not counted: pktmon records a drop wherever a broadcast meets
+    a component it does not apply to, so nearly every packet carries one,
+    and where a guest's packet died is a per-component reading the .txt
+    already gives.
+.OUTPUTS
+    [ordered] guestMac, sentByGuest, unicastToGuest, fromOtherClients,
+    otherClients.
+#>
+function Get-DhcpCaptureSummary {
+    [CmdletBinding()]
+    [OutputType([System.Collections.Specialized.OrderedDictionary])]
+    param(
+        [Parameter(Mandatory)][string]$Path,
+        [Parameter(Mandatory)][string]$GuestMac
+    )
+    $guest = ($GuestMac -replace '[^0-9A-Fa-f]', '').ToUpperInvariant()
+    $header = [regex]'::(?<ts>\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})(?<frac>\.\d+)?.*?PktGroupId\s+\d+'
+    $frame = [regex]'^\s*(?:Drop:\s+)?(?<src>[0-9A-Fa-f]{2}(?:-[0-9A-Fa-f]{2}){5})\s*>\s*(?<dst>[0-9A-Fa-f]{2}(?:-[0-9A-Fa-f]{2}){5}).*?length\s+(?<len>\d+)'
+    $lastSeen = @{}
+    $previousKey = ''
+    $stamp = $null
+    $sent = 0; $replies = 0; $others = 0
+    $clients = [Collections.Generic.HashSet[string]]::new()
+    foreach ($line in [IO.File]::ReadLines($Path)) {
+        $h = $header.Match($line)
+        if ($h.Success) {
+            $fraction = if ($h.Groups['frac'].Success) { $h.Groups['frac'].Value.PadRight(8, '0').Substring(0, 8) } else { '' }
+            $parsed = [datetime]::MinValue
+            $stamp = if ([datetime]::TryParseExact($h.Groups['ts'].Value + $fraction, [string[]]@('yyyy-MM-dd HH:mm:ss', 'yyyy-MM-dd HH:mm:ss.fffffff'),
+                    [System.Globalization.CultureInfo]::InvariantCulture, [System.Globalization.DateTimeStyles]::None, [ref]$parsed)) { $parsed } else { $null }
+            continue
+        }
+        $f = $frame.Match($line)
+        if (-not $f.Success) { continue }
+        $src = $f.Groups['src'].Value.Replace('-', '').ToUpperInvariant()
+        $dst = $f.Groups['dst'].Value.Replace('-', '').ToUpperInvariant()
+        $key = "$src>$dst/$($f.Groups['len'].Value)"
+        $isNew = if ($stamp -and $lastSeen.ContainsKey($key)) { ($stamp - $lastSeen[$key]).TotalSeconds -gt 0.5 }
+            elseif ($stamp) { $true } else { $key -ne $previousKey }
+        if ($stamp) { $lastSeen[$key] = $stamp }
+        $previousKey = $key
+        if (-not $isNew) { continue }
+        if ($src -eq $guest) { $sent++ }
+        elseif ($dst -eq $guest) { $replies++ }
+        else { $others++; [void]$clients.Add($src) }
+    }
+    [ordered]@{
+        guestMac = $GuestMac; sentByGuest = $sent; unicastToGuest = $replies
+        fromOtherClients = $others; otherClients = $clients.Count
+    }
+}
+
+<#
+.SYNOPSIS
+    Stop the live DHCP capture and land its evidence next to the failure
+    diagnostics.
+.DESCRIPTION
+    Written in three forms because each answers a different question: the .etl
+    is the lossless original, the .txt carries pktmon's per-component
+    traversal (WHERE a packet stopped), and the .pcapng carries payloads
+    (WHICH identity asked). The converters are guarded separately -- a build
+    that lacks one still lands the others. An info file records the VM's MAC
+    so the reader knows what to grep without resolving it from Hyper-V later,
+    after the VM is gone.
+.OUTPUTS
+    [bool] $true when at least the .etl landed in OutputDirectory.
+#>
+function Save-VMDhcpCapture {
+    [CmdletBinding()]
+    [OutputType([bool])]
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+        Justification = 'Diagnostic collection: stops a packet capture and copies artifacts; must never prompt inside a runner cycle.')]
+    param(
+        [Parameter(Mandatory)][string]$VMName,
+        [Parameter(Mandatory)][string]$OutputDirectory
+    )
+    try {
+        $capture = $script:YurunaDhcpCapture
+        if (-not $capture -or $capture.VMName -ne $VMName) {
+            Write-Verbose "no live DHCP capture belongs to '$VMName'; nothing to save."
+            return $false
+        }
+        $guestMac = $null
+        try { $guestMac = Get-VMMac -VMName $VMName } catch { $guestMac = $null }
+        & pktmon stop 2>$null | Out-Null
+        & pktmon filter remove 2>$null | Out-Null
+        $script:YurunaDhcpCapture = $null
+        if (-not (Test-Path -LiteralPath $capture.EtlPath)) { return $false }
+        if (-not (Test-Path -LiteralPath $OutputDirectory)) {
+            New-Item -ItemType Directory -Force -Path $OutputDirectory | Out-Null
+        }
+        Copy-Item -LiteralPath $capture.EtlPath -Destination (Join-Path $OutputDirectory 'dhcp.capture.etl') -Force
+        $textPath = Join-Path $OutputDirectory 'dhcp.capture.txt'
+        & pktmon etl2txt $capture.EtlPath -o $textPath 2>$null | Out-Null
+        & pktmon etl2pcap $capture.EtlPath -o (Join-Path $OutputDirectory 'dhcp.capture.pcapng') 2>$null | Out-Null
+        $summaryLine = @()
+        if ($guestMac -and (Test-Path -LiteralPath $textPath)) {
+            try {
+                $summary = Get-DhcpCaptureSummary -Path $textPath -GuestMac $guestMac
+                $summary | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $OutputDirectory 'dhcp.capture.summary.json') -Encoding utf8NoBOM
+                $summaryLine = @(
+                    "summary:  the guest sent $($summary.sentByGuest) DHCP packet(s); $($summary.unicastToGuest) unicast reply(ies) were"
+                    "          seen addressed to its MAC at the captured components; $($summary.fromOtherClients) packet(s)"
+                    "          from $($summary.otherClients) other client(s) show whether the capture itself was live."
+                    "caution:  a reply count of 0 is not proof that no lease was granted. The capture"
+                    "          runs in the management OS; an OFFER or ACK the virtual switch delivers"
+                    "          straight to the VM port can be absent here while the guest holds an"
+                    "          address. A later SSH session or guest-side fetch outranks this count."
+                    "          Drops of the guest's broadcast DISCOVER by the management stack"
+                    "          (transport endpoint not found, port unreachable) are normal: this"
+                    "          host is not the DHCP server."
+                )
+            } catch { Write-Verbose "DHCP capture summary skipped: $($_.Exception.Message)" }
+        }
+        Set-Content -LiteralPath (Join-Path $OutputDirectory 'dhcp.capture.info.txt') -Encoding utf8NoBOM -Value (@(
+            "vmName:   $VMName"
+            "guestMac: $(if ($guestMac) { $guestMac } else { '(unresolved)' })"
+            "savedUtc: $([DateTime]::UtcNow.ToString('yyyy-MM-ddTHH:mm:ssZ', [System.Globalization.CultureInfo]::InvariantCulture))"
+        ) + $summaryLine + @(
+            'reading:  dhcp.capture.txt shows each packet at every component it crossed;'
+            '          a DISCOVER present on the VM switch port but absent at the NIC'
+            '          died on this host, present at the NIC with no OFFER back means'
+            '          the wire or the DHCP server, and no DISCOVER at all means the'
+            '          guest client never transmitted. dhcp.capture.pcapng carries the'
+            '          payloads (client-id, xid) for the same packets.'
+        ))
+        Remove-Item -LiteralPath $capture.EtlPath -Force -ErrorAction SilentlyContinue
+        return $true
+    } catch {
+        Write-Verbose "Save-VMDhcpCapture failed: $($_.Exception.Message)"
+        return $false
+    }
+}
+
+# --- REGION: Discovery
+# --- REGION: Wait-VMIp
+function Wait-VMIp {
+    <#
+    .SYNOPSIS
+        Poll Get-VMIp until an IPv4 address is discovered or timeout expires.
+    #>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param(
+        [Parameter(Mandatory)][string]$VMName,
+        [int]$TimeoutSeconds = 30,
+        [int]$PollSeconds    = 3,
+        # Forwarded so a caller can widen or waive the shared poller's settle
+        # window; its default applies when this is not bound.
+        [int]$StableForSeconds = 8
+    )
+    # Get-Command runs in THIS driver's scope, so the shared poller resolves
+    # our Get-VMIp; a bare name would resolve in the shared module's scope.
+    Invoke-WaitVmIp @PSBoundParameters -ResolveVmIp (Get-Command Get-VMIp)
+}
+
+# --- REGION: Get-VMIp
+function Get-VMIp {
+    <#
+    .SYNOPSIS
+        Return the guest's host-side IPv4, or null if not yet discoverable.
+    #>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param([Parameter(Mandatory)][string]$VMName)
+    # Read KVP first, then the VM's MAC-filtered neighbor entries without probing.
+    # See https://yuruna.link/42e220c4-0004
+    try {
+        $vmAdapter = Hyper-V\Get-VMNetworkAdapter -VMName $VMName -ErrorAction Stop
+        $addrs = $vmAdapter.IPAddresses
+        # See https://yuruna.link/42e220c4-0004
+        $ipv4 = Select-YurunaRoutableAddress -Address @($addrs | Where-Object { Test-Ipv4Address $_ })
+        if ($ipv4) { return [string]$ipv4 }
+
+        # KVP empty -- try the host's ARP cache for an entry matching
+        # this VM's MAC. Format-conversion mirrors Get-CacheVmCandidateIp
+        # (KVP MAC is bare hex; Get-NetNeighbor returns dash-separated).
+        $vmMac = ($vmAdapter | Select-Object -First 1).MacAddress
+        if ($vmMac -match '^[0-9A-Fa-f]{12}$' -and $vmMac -ne '000000000000') {
+            $vmMacDashed = (($vmMac -replace '(..)(?!$)', '$1-')).ToUpper()
+            # The MAC and the NUD state are this stage's own conditions; which of
+            # the surviving addresses is usable is the shared rule's.
+            $arpCandidate = @(Get-NetNeighbor -AddressFamily IPv4 -ErrorAction SilentlyContinue |
+                Where-Object {
+                    $_.LinkLayerAddress -eq $vmMacDashed -and
+                    $_.State -ne 'Unreachable'
+                } |
+                ForEach-Object { [string]$_.IPAddress })
+            $arpIp = Select-YurunaRoutableAddress -Address $arpCandidate
+            if ($arpIp) { return [string]$arpIp }
+        }
+
+        # Reached only when no v4 qualified above, so the shared selector's
+        # v4-first preference is a no-op here and it returns the v6 answer.
+        $ipv6 = Select-YurunaRoutableAddress -Address @($addrs)
+        if ($ipv6) { return [string]$ipv6 }
+    } catch {
+        Write-Debug "Get-VMIp: Get-VMNetworkAdapter failed for ${VMName}: $_"
+    }
+    return $null
+}
+
+# --- REGION: Get-VMMac
+function Get-VMMac {
+    <#
+    .SYNOPSIS
+        Return the guest's MAC address, or null if not available.
+    #>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param([Parameter(Mandatory)][string]$VMName)
+    $vm = Hyper-V\Get-VM -Name $VMName -ErrorAction SilentlyContinue
+    if (-not $vm) { return $null }
+    $mac = ($vm | Hyper-V\Get-VMNetworkAdapter | Select-Object -First 1).MacAddress
+    # Canonical form for the whole harness, so a MAC read on one host compares
+    # equal to the same MAC read on another. Platform-native notations are
+    # produced at the point of use, never stored.
+    $canonical = if ($mac) { ConvertTo-YurunaMacAddress -MacAddress $mac } else { $null }
+    if ($canonical) { return $canonical }
+    return $mac
+}
+
+# --- REGION: Neighbor cache refresh
+# --- REGION: Update-GuestNeighborCache
+function Update-GuestNeighborCache {
+    <#
+    .SYNOPSIS
+        Refresh the host neighbor cache so a passive MAC lookup can succeed.
+    .DESCRIPTION
+        Contract verb; on this host it is the existing External-vSwitch ARP sweep
+        under the shared name. Hyper-V's own discovery leans on KVP first, so the
+        sweep is the second stage rather than the only one -- but a caller that
+        needs the neighbor cache warm should not have to know that.
+    .PARAMETER VMName
+        Accepted for contract symmetry. The sweep covers the whole switch subnet,
+        so it warms the cache for every guest at once rather than per VM.
+    #>
+    [CmdletBinding(SupportsShouldProcess)]
+    [OutputType([bool])]
+    param(
+        [Parameter(Mandatory)][string]$VMName,
+        [int]$CooldownSeconds = 60
+    )
+    $null = $VMName
+    $null = $CooldownSeconds
+    if (-not $PSCmdlet.ShouldProcess((Format-YurunaOperatorMessage -Key 'host.operator_c287504e62bbfb0e'), (Format-YurunaOperatorMessage -Key 'host.operator_c75b8ce6370d1e89'))) {
+        return $false
+    }
+    Invoke-YurunaExternalArpProbe
+    return $true
+}
+
+# --- REGION: Networking
+# --- REGION: Get-ExternalNetwork
+function Get-ExternalNetwork {
+    <#
+    .SYNOPSIS
+        Return the name of the host-side External-type vSwitch or network.
+    #>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param()
+    # Don't create -- just discover. Get-OrCreateYurunaExternalSwitch's
+    # internal logic checks "preferred name" then "any External vSwitch"
+    # before creation; we emulate the no-create variant here by passing
+    # -WhatIf, which skips ShouldProcess and returns $null on the create
+    # branch.
+    return Get-OrCreateYurunaExternalSwitch -WhatIf 2>$null
+}
+
+# --- REGION: New-ExternalNetwork
+function New-ExternalNetwork {
+    <#
+    .SYNOPSIS
+        Create the host-side External-type vSwitch or network if missing.
+    #>
+    [CmdletBinding(SupportsShouldProcess)]
+    [OutputType([string])]
+    param()
+    if (-not $PSCmdlet.ShouldProcess('Yuruna-External', (Format-YurunaOperatorMessage -Key 'host.operator_17b5ae6b7de1d3d8'))) { return $null }
+    return Get-OrCreateYurunaExternalSwitch
+}
+
+# --- REGION: Test-CacheVMOnExternalNetwork
+function Test-CacheVMOnExternalNetwork {
+    <#
+    .SYNOPSIS
+        Returns true if the caching-proxy-service VM is on an External-type network.
+    #>
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param([string]$VMName = 'yuruna-caching-proxy-service')
+    return [bool](Test-CacheVmOnYurunaExternalSwitch -VMName $VMName)
+}
+
+# --- REGION: Port mapping
+# --- REGION: Add-PortMap
+function Add-PortMap {
+    <#
+    .SYNOPSIS
+        Install host to VM port forwarders for the caching-proxy service.
+    #>
+    [CmdletBinding(SupportsShouldProcess)]
+    [OutputType([bool])]
+    param(
+        [Parameter(Mandatory)][string]$VMIp,
+        [int[]]$Port = @(3000),
+        [hashtable]$PortRemap = @{},
+        [int[]]$ProxyProtocolPort = @(),
+        [string]$RuntimeDir
+    )
+    if (-not $PSCmdlet.ShouldProcess($VMIp, (Format-YurunaOperatorMessage -Key 'host.operator_768bdece9805bfb7' -Arguments @{ join = "$($Port -join ',')" }))) { return $false }
+    if (-not (Test-Ipv4Address $VMIp)) {
+        # Hyper-V Add-PortMap uses netsh portproxy v4tov4. v6 inputs (which
+        # Test-IpAddress accepts elsewhere as operator-facing values) are
+        # rejected here because the underlying mechanism is v4-only.
+        Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_0ecd062994307300' -Arguments @{ vMIp = "$VMIp" })
+        return $false
+    }
+    if (-not (Test-IsAdministrator)) {
+        Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_e91e5d5a5d4ac989')
+        return $false
+    }
+    $proxyProtoSet = @{}
+    foreach ($p in $ProxyProtocolPort) { $proxyProtoSet[[int]$p] = $true }
+    $remapHostPorts = @{}
+    foreach ($k in $PortRemap.Keys) { $remapHostPorts[[int]$k] = [int]$PortRemap[$k] }
+    $mappings = @()
+    foreach ($p in $Port) {
+        if ($remapHostPorts.ContainsKey([int]$p)) { continue }
+        $mappings += [PSCustomObject]@{ HostPort = [int]$p; VMPort = [int]$p }
+    }
+    foreach ($k in $remapHostPorts.Keys) {
+        $mappings += [PSCustomObject]@{ HostPort = [int]$k; VMPort = [int]$remapHostPorts[$k] }
+    }
+    $statePath = Get-PortMapStatePath -RuntimeDir $RuntimeDir
+    # Tear down every prior Yuruna mapping (state-file ports + firewall-
+    # rule ports + live forwarder pidfiles) before adding the new set.
+    [void](Clear-AllCachingProxyServicePortMapping -StatePath $statePath -Confirm:$false)
+    # Track which host ports actually came up so the state file records only live mappings and
+    # the caller can detect (and re-drive) a partial setup instead of trusting a complete state.
+    $launched = [System.Collections.Generic.List[int]]::new()
+    $failed   = [System.Collections.Generic.List[int]]::new()
+    foreach ($m in $mappings) {
+        $hostPort = $m.HostPort; $vmPort = $m.VMPort
+        $useProxy = $proxyProtoSet.ContainsKey([int]$hostPort)
+        $proxyTag = if ($useProxy) { ' [PROXY v1]' } else { '' }
+        if (-not $PSCmdlet.ShouldProcess("host:${hostPort} -> ${VMIp}:${vmPort}${proxyTag}", (Format-YurunaOperatorMessage -Key 'host.operator_33e4bdda661323b1'))) { continue }
+        $desc = "Yuruna caching-proxy service: forward host :${hostPort} to VM :${vmPort}${proxyTag}"
+        & netsh interface portproxy delete v4tov4 listenport=$hostPort listenaddress=0.0.0.0 2>&1 | Out-Null
+        $null = Stop-WindowsCachingProxyServiceForwarder -Port $hostPort -Quiet
+        Add-CachingProxyServiceFirewallRule -Port $hostPort -Description $desc -IncludeProgram:$useProxy -Confirm:$false
+        if ($useProxy) {
+            $spawn = Start-WindowsCachingProxyServiceForwarder -CacheIp $VMIp -Port $hostPort -VMPort $vmPort -PrependProxyV1
+            if (-not $spawn.Success) {
+                Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_b038c339b5d9669a' -Arguments @{ hostPort = "${hostPort}"; vMIp = "${VMIp}"; vmPort = "${vmPort}" })
+                $failed.Add($hostPort)
+                continue
+            }
+            # Self-heal the per-program rule if Get-PwshExePath's pre-spawn
+            # guess didn't match the binary the OS actually loaded (Microsoft
+            # Store App Execution Alias trap).
+            if ($spawn.PwshPath) {
+                $existingProgramPath = $null
+                try {
+                    $existingProgramPath = (Get-NetFirewallRule -DisplayName "Yuruna-CachingProxyService-Pwsh-${hostPort}" -ErrorAction Stop |
+                                            Get-NetFirewallApplicationFilter -ErrorAction Stop).Program
+                } catch { $null = $_ }
+                if ($existingProgramPath -ne $spawn.PwshPath) {
+                    if ($existingProgramPath) {
+                        Write-Information (Format-YurunaOperatorMessage -Key 'host.operator_297025349b1d260e' -Arguments @{ pwshPath = "$($spawn.PwshPath)"; existingProgramPath = "$existingProgramPath" })
+                    } else {
+                        Write-Information (Format-YurunaOperatorMessage -Key 'host.operator_9ad65918bbd86e4f' -Arguments @{ pwshPath = "$($spawn.PwshPath)" })
+                    }
+                    Add-CachingProxyServiceFirewallRule -Port $hostPort -Description $desc -IncludeProgram -ProgramPath $spawn.PwshPath -Confirm:$false
+                }
+            }
+        } else {
+            & netsh interface portproxy add v4tov4 listenport=$hostPort listenaddress=0.0.0.0 connectport=$vmPort connectaddress=$VMIp | Out-Null
+            if ($LASTEXITCODE -ne 0) {
+                Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_122a7f5c9946bd10' -Arguments @{ hostPort = "${hostPort}"; vMIp = "${VMIp}"; vmPort = "${vmPort}"; lASTEXITCODE = "$LASTEXITCODE" })
+                $failed.Add($hostPort)
+                continue
+            }
+        }
+        $launched.Add($hostPort)
+        Write-Information (Format-YurunaOperatorMessage -Key 'host.operator_906168be03f0bc02' -Arguments @{ hostPort = "${hostPort}"; vMIp = "${VMIp}"; vmPort = "${vmPort}"; proxyTag = "${proxyTag}" })
+    }
+    # Persist ONLY the ports that actually came up, so a later reader / self-heal never treats a
+    # partially-installed map as complete.
+    $liveMappings = @($mappings | Where-Object { $launched -contains $_.HostPort })
+    $state = [ordered]@{
+        vmIp      = $VMIp
+        ports     = @($liveMappings | ForEach-Object { $_.HostPort })
+        mappings  = @($liveMappings | ForEach-Object {
+            [ordered]@{
+                hostPort      = $_.HostPort
+                vmPort        = $_.VMPort
+                proxyProtocol = $proxyProtoSet.ContainsKey([int]$_.HostPort)
+            }
+        })
+        createdAt = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", [System.Globalization.CultureInfo]::InvariantCulture)
+    }
+    $tmp = "$statePath.tmp"
+    $state | ConvertTo-Json -Depth 5 | Set-Content -Path $tmp -Encoding utf8
+    Move-Item -Path $tmp -Destination $statePath -Force
+    if ($failed.Count -gt 0) {
+        Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_681c2451182fe9d4' -Arguments @{ count = "$($failed.Count)"; count2 = "$($mappings.Count)"; join = "$($failed -join ', ')" })
+        return $false
+    }
+    return $true
+}
+
+# --- REGION: Remove-PortMap
+function Remove-PortMap {
+    <#
+    .SYNOPSIS
+        Tear down all yuruna caching-proxy-service port forwarders.
+    #>
+    [CmdletBinding(SupportsShouldProcess)]
+    [OutputType([bool])]
+    param([string]$RuntimeDir)
+    if (-not $PSCmdlet.ShouldProcess((Format-YurunaOperatorMessage -Key 'host.operator_e5138cdd99be5619'), (Format-YurunaOperatorMessage -Key 'host.operator_eb750dccc700903d'))) { return $false }
+    if (-not (Test-IsAdministrator)) {
+        $pendingPorts = Get-YurunaMappedPortFromFirewall
+        if ($pendingPorts.Count -gt 0) {
+            Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_9fd9951d4cc1a81d' -Arguments @{ join = "$($pendingPorts -join ', ')" })
+        }
+        return $false
+    }
+    $statePath = Get-PortMapStatePath -RuntimeDir $RuntimeDir
+    $cleared = Clear-AllCachingProxyServicePortMapping -StatePath $statePath -Confirm:$false
+    foreach ($p in $cleared) {
+        Write-Information (Format-YurunaOperatorMessage -Key 'host.operator_4730b007bba5b6f7' -Arguments @{ p = "${p}" })
+    }
+    return ($cleared.Count -gt 0)
+}
+
+# --- REGION: Get-BestHostIp
+function Get-BestHostIp {
+    <#
+    .SYNOPSIS
+        Return the host's best LAN-routable IPv4 -- for browser-facing URLs, and
+        for the address this host publishes to the pool directory.
+    #>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param()
+    # See https://yuruna.link/42e5cdfd-002e
+    $externalVnic = @()
+    try {
+        $externalVnic = @(Get-VMSwitch -ErrorAction Stop |
+            Where-Object { $_.SwitchType -eq 'External' } |
+            ForEach-Object { "vEthernet ($($_.Name))" })
+    } catch {
+        Write-Verbose "Get-BestHostIp: could not enumerate External vSwitches ($($_.Exception.Message)); using the default route alone to tell a LAN vEthernet from an internal one."
+    }
+
+    # Resolved once rather than per address: the same answer for every
+    # candidate, and it decides both the filter and the ranking below.
+    $gatewayIndex = @(Get-NetRoute -AddressFamily IPv4 -DestinationPrefix '0.0.0.0/0' -ErrorAction SilentlyContinue |
+        Where-Object { $_.NextHop -ne '0.0.0.0' } |
+        Select-Object -ExpandProperty InterfaceIndex -Unique)
+
+    # PrefixOrigin 'WellKnown' drops loopback and APIPA together; an adapter
+    # sitting at 169.254 has not been answered by DHCP, so its address is the
+    # absence of one rather than a worse one.
+    $ranked = Get-NetIPAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue | Where-Object {
+        $_.PrefixOrigin -ne 'WellKnown' -and
+        $_.InterfaceAlias -notmatch 'Pseudo' -and
+        ($_.InterfaceAlias -notmatch 'vEthernet' -or
+         $externalVnic -contains $_.InterfaceAlias -or
+         $gatewayIndex -contains $_.InterfaceIndex)
+    } | ForEach-Object {
+        $interface      = Get-NetIPInterface -InterfaceIndex $_.InterfaceIndex -AddressFamily IPv4 -ErrorAction SilentlyContinue
+        $hasGateway     = $gatewayIndex -contains $_.InterfaceIndex
+        $isExternalVnic = $externalVnic -contains $_.InterfaceAlias
+        # See https://yuruna.link/42e5cdfd-002e
+        [PSCustomObject]@{
+            IPAddress     = $_.IPAddress
+            InterfaceName = $_.InterfaceAlias
+            Metric        = $interface.InterfaceMetric
+            HasGateway    = $hasGateway
+            Priority      = ($hasGateway ? 0 : 100000) + ($isExternalVnic ? 0 : 10000) + [int]($interface.InterfaceMetric)
+        }
+    } | Sort-Object Priority
+    return ($ranked | Select-Object -ExpandProperty IPAddress -First 1)
+}
+
+# --- REGION: Get-GuestReachableHostIp
+function Get-GuestReachableHostIp {
+    <#
+    .SYNOPSIS
+        Returns the host's IPv4 reachable from a guest VM, picked by the
+        guest's vSwitch attachment.
+
+    .DESCRIPTION
+        Two distinct topologies need two distinct answers:
+
+        * Default Switch (NAT-mode internal): the host has an auto-assigned
+          IPv4 on `vEthernet (Default Switch)` (e.g. 172.26.176.1). That's
+          the gateway the guest reaches the host at. Caveat: the IP CHANGES
+          across host reboots (Microsoft regenerates it from a 172.x.x.x
+          pool). A VM provisioned today and reused tomorrow may end up with
+          a stale IP baked into /etc/yuruna/host.env -- run
+          Test-YurunaHost.ps1 inside the guest to detect; remediation is to
+          rebuild the guest VM.
+
+        * External vSwitch (LAN-bridged): the guest gets a real LAN IP via
+          DHCP from the LAN router, so `vEthernet (Default Switch)`'s
+          172.x.x.x is unreachable from the guest -- it sees the host only
+          at the host's LAN IP (e.g. 192.168.7.13). Returning the Default
+          Switch IP for an External-attached guest is the bug behind the
+          "guest hammers 172.26.176.1:8080" symptom.
+
+        Pass -SwitchName to opt into the right answer. With no parameter,
+        legacy callers continue to receive the Default Switch IP for
+        backward compatibility.
+
+        An External switch that yields no host IPv4 returns $null rather
+        than the Default Switch address: the two are on segments that do not
+        route to each other, so the substitute is not a degraded answer but
+        a wrong one, and it is wrong in a way the guest can only discover
+        after it has booted with it burned into its seed. $null lets the
+        caller fall back to its off-LAN source instead.
+
+    .PARAMETER SwitchName
+        Hyper-V vSwitch name the guest will be attached to. 'Default Switch'
+        returns the Default-Switch host IP; any other name is looked up via
+        Get-VMSwitch and the host IPv4 on that switch's segment is returned
+        for External-type switches. Falls back to Default-Switch behavior
+        for unknown switches so a typo can't strand a guest with $null.
+
+    .PARAMETER SettleTimeoutSeconds
+        How long an External-switch lookup keeps polling for a host IPv4
+        before reporting none. Covers the address-less window while a
+        freshly bridged NIC re-DHCPs.
+
+    .OUTPUTS
+        [string] IPv4 address, or $null if no candidate adapter is found.
+    #>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param(
+        [string]$SwitchName,
+        [int]$SettleTimeoutSeconds = 30
+    )
+
+    # Default Switch path (also the legacy no-arg path).
+    $isDefault = (-not $SwitchName) -or ($SwitchName -eq 'Default Switch')
+    if (-not $isDefault) {
+        # Resolve switch type. Unknown switch -> fall back to Default
+        # Switch logic so a stale name in a New-VM script doesn't bake
+        # an empty value into the seed.iso.
+        $switch = Get-VMSwitch -Name $SwitchName -ErrorAction SilentlyContinue
+        if ($switch -and $switch.SwitchType -eq 'External') {
+            # Polls, because a switch bridged moments ago leaves the host
+            # briefly address-less while `vEthernet (<switch>)` re-DHCPs.
+            $lanIp = Wait-ExternalSwitchHostIpv4 -SwitchName $SwitchName -TimeoutSeconds $SettleTimeoutSeconds
+            if ($lanIp) { return $lanIp }
+            # Host really is off the LAN. The Default Switch's 172.x.x.x
+            # sits on an internal NAT segment this guest holds no route
+            # to, so offering it would hand back an address that cannot
+            # work rather than admitting there is none.
+            Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_90aa079d7950671d' -Arguments @{ switchName = "$SwitchName"; settleTimeoutSeconds = "${SettleTimeoutSeconds}" })
+            return $null
+        }
+        # See https://yuruna.link/42e220c4-0004
+        if ($switch) {
+            Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_f20ec6dc25a27749' -Arguments @{ switchName = "$SwitchName"; switchType = "$($switch.SwitchType)" })
+        } else {
+            Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_eb80b57d92f969a7' -Arguments @{ switchName = "$SwitchName" })
+        }
+    }
+
+    $defaultSwitchIp = Get-NetIPAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue |
+        Where-Object { $_.InterfaceAlias -like '*Default Switch*' } |
+        Select-Object -First 1
+    if ($defaultSwitchIp) { return [string]$defaultSwitchIp.IPAddress }
+    return $null
+}
+
+# --- REGION: Caching-proxy service
+# --- REGION: Test-CachingProxyServiceAvailable
+function Test-CachingProxyServiceAvailable {
+    <#
+    .SYNOPSIS
+        Probe and return the caching-proxy-service URL, or null if none is reachable.
+    .DESCRIPTION
+        Discovery is intentionally narrow -- only caches this host owns,
+        or a remote cache the operator explicitly named, are returned:
+          1. $Env:YURUNA_CACHING_PROXY_SERVICE_IP -- explicit remote cache override.
+          2. State file (Read-CachingProxyServiceState).ipAddress -- the cache VM's
+             IP written by Start-CachingProxyServiceVM.ps1 (our own VM).
+
+        No Hyper-V VM enumeration, no KVP/ARP discovery. Get-CacheVmCandidateIp
+        and Get-WorkingCachingProxyServiceUrl still exist for use by the producer
+        (guest.caching-proxy-service/New-VM.ps1) and Start-CachingProxyServiceVM.ps1 itself
+        while the cache VM is being brought up -- they are not part of the
+        steady-state discovery path. LAN-wide cache discovery is a separate
+        future feature.
+    #>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param([switch]$Quiet)
+    # Keep platform-specific verification advice in the shared discovery probe.
+    # See https://yuruna.link/42e220c4-0004
+    Invoke-CachingProxyServiceAvailableProbe -VerifyHint 'Test-NetConnection {0} -Port {1}' -Quiet:$Quiet
+}
+
+# --- REGION: Get-CachingProxyServiceVmIp
+function Get-CachingProxyServiceVmIp {
+    <#
+    .SYNOPSIS
+        Return the cache VM's real IP for downstream port-forwarder setup.
+    #>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param()
+    # A host-forwarded URL is not the guest address needed by port mapping.
+    # See https://yuruna.link/42e220c4-0004
+    $ip = (Read-CachingProxyServiceState).ipAddress
+    if ($ip -and (Test-Ipv4Address $ip)) { return $ip }
+    return $null
+}
+
+# --- REGION: Host config
+# --- REGION: Set-HostProxy
+function Set-HostProxy {
+    <#
+    .SYNOPSIS
+        Promote a proxy URL to the machine-wide host proxy with backup.
+    #>
+    [CmdletBinding(SupportsShouldProcess)]
+    [OutputType([bool])]
+    param([Parameter(Mandatory)][string]$ProxyUrl)
+    if (-not $PSCmdlet.ShouldProcess((Format-YurunaOperatorMessage -Key 'host.operator_5657b68f115e9443'), (Format-YurunaOperatorMessage -Key 'host.operator_1d67149dffd75755' -Arguments @{ proxyUrl = "$ProxyUrl" }))) { return $false }
+    $parts = ConvertTo-ProxyHostPort -Url $ProxyUrl
+    $backupPath = Get-HostProxyBackupPath
+    Save-YurunaHostProxyBackup -Path $backupPath -ReadState { Read-WindowsProxyState } -PromotedTo $parts.Url
+    Set-WindowsHostProxy -ProxyParts $parts -Confirm:$false
+    Write-Information (Format-YurunaOperatorMessage -Key 'host.operator_31ab5c2f0d63be27' -Arguments @{ url = "$($parts.Url)" })
+    return $true
+}
+
+# --- REGION: Clear-HostProxy
+function Clear-HostProxy {
+    <#
+    .SYNOPSIS
+        Restore the host proxy from the saved backup, or disable if none.
+    #>
+    [CmdletBinding(SupportsShouldProcess)]
+    [OutputType([bool])]
+    param()
+    if (-not $PSCmdlet.ShouldProcess((Format-YurunaOperatorMessage -Key 'host.operator_5657b68f115e9443'), (Format-YurunaOperatorMessage -Key 'host.operator_1bb9777911767c4b'))) { return $false }
+    $backupPath = Get-HostProxyBackupPath
+    $state = Read-YurunaHostProxyBackup -Path $backupPath
+    if ($state) {
+        Restore-WindowsHostProxy -State $state
+        Write-Information (Format-YurunaOperatorMessage -Key 'host.operator_eaa6f26f6eccca85')
+    } else {
+        Disable-WindowsHostProxy
+        Write-Information (Format-YurunaOperatorMessage -Key 'host.operator_0a0e99400cdc89b7')
+    }
+    Remove-YurunaHostProxyBackup -Path $backupPath -Confirm:$false
+    return $true
+}
+
+# --- REGION: Remove-HostProxy
+function Remove-HostProxy {
+    <#
+    .SYNOPSIS
+        Aggressively wipe every host-proxy reference and the backup file.
+    #>
+    [CmdletBinding(SupportsShouldProcess)]
+    [OutputType([bool])]
+    param()
+    if (-not $PSCmdlet.ShouldProcess((Format-YurunaOperatorMessage -Key 'host.operator_f95b24ace7630162'), (Format-YurunaOperatorMessage -Key 'host.operator_0b42b69cacf83715'))) { return $false }
+    Remove-WindowsHostProxy
+    Write-Information (Format-YurunaOperatorMessage -Key 'host.operator_06397ff6173863e8')
+    $backupPath = Get-HostProxyBackupPath
+    if (Test-Path -LiteralPath $backupPath) {
+        Remove-Item -LiteralPath $backupPath -Force -ErrorAction SilentlyContinue
+    }
+    return $true
+}
+
+# --- REGION: Get-HostProxyBackupPath
+function Get-HostProxyBackupPath {
+    <#
+    .SYNOPSIS
+        Return the path of the host-proxy backup JSON.
+    #>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param()
+    # Yuruna.Common.psm1's Get-HostProxyBackupPath is the authoritative
+    # implementation -- same path on every host. Module-qualified call
+    # avoids re-entering OUR function.
+    return Yuruna.Common\Get-HostProxyBackupPath
+}
+
+# --- REGION: Assert-Virtualization
+function Assert-Virtualization {
+    <#
+    .SYNOPSIS
+        Returns true if the host hypervisor is installed and ready.
+    #>
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param()
+    return [bool](Assert-HyperVEnabled)
+}
+
+# --- REGION: Virtualization repair
+# --- REGION: Test-VirtualizationResponsive
+function Test-VirtualizationResponsive {
+    <#
+    .SYNOPSIS
+        Bounded, read-only probe of Hyper-V. Returns the versioned
+        Yuruna.VirtualizationProbe record (schema version 1).
+    .DESCRIPTION
+        The DISM feature state and the vmms service being Running are
+        prerequisites, not proof Hyper-V answers a request, so the probe makes one
+        read-only provider round trip in a single bounded child pwsh
+        ($script:HyperVProbeScript): Get-Service vmms, an explicit
+        `Import-Module Hyper-V` (no reliance on autoload in a -NoProfile child),
+        then `Hyper-V\Get-VM`. The child reports what it saw as
+        `yuruna-probe <key>=<token>` lines written through [Console]::Out, which
+        flushes each line, so the evidence survives a kill at the cap. Status and
+        start-type tokens are .NET enum names and error categories are enum
+        values, so nothing here depends on the display language.
+
+        DISM runs only on unhealthy paths, through Get-HyperVFeatureState, inside
+        the probe's remaining time, and its answer is kept separate from the
+        service status: a feature that is not installed is a missing client, a
+        stopped vmms with the feature Enabled is 'app-stopped'.
+
+        Classification of the child:
+          * not launchable                       -> Undetermined/missing-client
+          * less than one second of budget left  -> Undetermined/deadline-exhausted
+                                                     (nothing is launched)
+          * no answer inside the cap after the   -> Unresponsive/timeout (the
+            child reported module=loaded             running-but-unresponsive VMMS
+                                                     case: the child was waiting on
+                                                     Hyper-V\Get-VM)
+          * no answer inside the cap before      -> Undetermined/timeout (a slow pwsh
+            module=loaded                            start, service query or first
+                                                     module load is not a hung VMMS)
+          * output not drained or truncated      -> Undetermined/invalid-response
+          * exit 0 with provider=ok              -> Responsive/responsive
+          * exit 2, vmms not installed           -> Undetermined/missing-client
+          * exit 5, vmms Stopped                 -> Unresponsive/app-stopped when the
+                                                     feature is Enabled; missing-client
+                                                     when it is Disabled, pending or
+                                                     unavailable; permission-denied when
+                                                     DISM needs elevation; otherwise
+                                                     provider-error
+          * exit 5, any other service status     -> Undetermined/provider-error
+          * exit 3, Hyper-V module missing       -> Undetermined/missing-client
+          * exit 4, PermissionDenied category or -> Undetermined/permission-denied
+            access-denied wording
+          * exit 4 otherwise, exit 6             -> Undetermined/provider-error
+          * any other exit                       -> Undetermined/invalid-response
+
+        Evidence keys, always present: serviceStatus, serviceStartType,
+        featureState, featureProbe, providerModule, elevated, exitCode,
+        drainTimedOut, outputTruncated. The diagnostic field is private.
+
+        Never throws, never prompts, changes nothing.
+    .PARAMETER TimeoutSeconds
+        Upper bound for the probe.
+    .PARAMETER Deadline
+        Optional shared deadline (New-YurunaDeadline / New-YurunaDeadlineFromExpiry);
+        the probe never outlives it.
+    .OUTPUTS
+        [pscustomobject] Yuruna.VirtualizationProbe
+    #>
+    [CmdletBinding()]
+    [OutputType([pscustomobject])]
+    param(
+        [ValidateRange(1, 600)][int]$TimeoutSeconds = 20,
+        [object]$Deadline
+    )
+    $stopwatch = [Diagnostics.Stopwatch]::StartNew()
+    $observedUtc = [DateTime]::UtcNow.ToString('o')
+    $clock = if ($null -ne $Deadline -and $Deadline.ClockTicks) { $Deadline.ClockTicks } else { { [Environment]::TickCount64 } }
+    $evidence = [ordered]@{
+        serviceStatus    = 'Unknown'
+        serviceStartType = 'Unknown'
+        featureState     = 'NotProbed'
+        featureProbe     = 'not-probed'
+        providerModule   = 'not-probed'
+        elevated         = [bool](Test-IsAdministrator)
+        exitCode         = -1
+        drainTimedOut    = $false
+        outputTruncated  = $false
+    }
+    $state = 'Undetermined'; $reason = 'invalid-response'
+    $started = $false; $timedOut = $false; $deadlineExhausted = $false; $diagnostic = ''
+    try {
+        do {
+            $capSeconds = $TimeoutSeconds
+            if ($null -ne $Deadline) {
+                $bounded = Get-YurunaDeadlineBoundedSeconds -Deadline $Deadline -Ceiling 600
+                if ($null -eq $bounded) { $reason = 'deadline-exhausted'; $deadlineExhausted = $true; break }
+                $capSeconds = [Math]::Min($TimeoutSeconds, [int]$bounded)
+            }
+            $probeDeadline = New-YurunaDeadlineFromExpiry -ExpiryTick ([long](& $clock) + [long]$capSeconds * 1000) -ClockTicks $clock
+            $result = Invoke-BoundedNativeCommand -FilePath (Get-PwshApplicationPath) `
+                -ArgumentList @('-NoLogo', '-NoProfile', '-NonInteractive', '-Command', $script:HyperVProbeScript) `
+                -TimeoutSeconds $capSeconds
+            $started = [bool]$result.Started
+            $evidence.exitCode        = [int]$result.ExitCode
+            $evidence.drainTimedOut   = [bool]$result['DrainTimedOut']
+            $evidence.outputTruncated = [bool]$result['OutputTruncated']
+            $facts = ConvertFrom-HyperVProbeOutput -Text ([string]$result.StdOut)
+            if ($facts.ContainsKey('service')) { $evidence.serviceStatus = ConvertTo-HyperVServiceToken -Value $facts['service'] }
+            if ($facts.ContainsKey('start')) { $evidence.serviceStartType = ConvertTo-HyperVStartTypeToken -Value $facts['start'] }
+            if ($facts.ContainsKey('module')) { $evidence.providerModule = if ($facts['module'] -eq 'loaded') { 'loaded' } else { 'missing' } }
+            $diagnostic = [string]$result.StdErr
+            if (-not $started) { $reason = 'missing-client'; break }
+            if ($result.TimedOut) {
+                $reason = 'timeout'; $timedOut = $true
+                # Only a child that had already loaded the Hyper-V module was
+                # waiting on VMMS itself. A slow pwsh start, service query or
+                # first module load says nothing about VMMS, so a timeout that
+                # never got that far is not evidence it is hung.
+                if ($facts['module'] -eq 'loaded') { $state = 'Unresponsive' }
+                break
+            }
+            if (-not (Test-DriverNativeResultComplete -Result $result)) { $reason = 'invalid-response'; break }
+            # The feature probe explains the unhealthy exits; it shares the budget.
+            $probeFeature = {
+                $featureCap = Get-YurunaDeadlineBoundedSeconds -Deadline $probeDeadline -Ceiling 120
+                if ($null -eq $featureCap) { return $false }
+                $feature = Get-HyperVFeatureState -TimeoutSeconds $featureCap
+                $evidence.featureState = [string]$feature.State
+                $evidence.featureProbe = if ($feature.Probe -eq 'unknown-to-sku') { 'ok' } else { [string]$feature.Probe }
+                return $true
+            }
+            switch ([int]$result.ExitCode) {
+                0 {
+                    if ($facts['provider'] -eq 'ok') { $state = 'Responsive'; $reason = 'responsive' }
+                    else { $reason = 'invalid-response' }
+                }
+                2 {
+                    $evidence.serviceStatus = 'Missing'
+                    $null = & $probeFeature
+                    $reason = 'missing-client'
+                }
+                3 {
+                    $evidence.providerModule = 'missing'
+                    $null = & $probeFeature
+                    $reason = 'missing-client'
+                }
+                4 {
+                    $category = [string]$facts['error-category']
+                    if ($category -eq 'PermissionDenied' -or $diagnostic -match '(?i)access is denied|required permission|not authorized') { $reason = 'permission-denied' }
+                    else { $reason = 'provider-error' }
+                }
+                5 {
+                    if ($evidence.serviceStatus -ne 'Stopped') { $reason = 'provider-error'; break }
+                    if (-not (& $probeFeature)) { $reason = 'deadline-exhausted'; $deadlineExhausted = $true; break }
+                    if ($evidence.featureState -eq 'Enabled') { $state = 'Unresponsive'; $reason = 'app-stopped' }
+                    elseif ($evidence.featureState -in @('Disabled', 'DisablePending', 'EnablePending', 'Unavailable')) { $reason = 'missing-client' }
+                    elseif ($evidence.featureProbe -eq 'not-elevated') { $reason = 'permission-denied' }
+                    else { $reason = 'provider-error' }
+                }
+                6 { $reason = 'provider-error' }
+                default { $reason = 'invalid-response' }
+            }
+        } while ($false)
+    } catch {
+        # The record is the contract: an unexpected fault (under a caller's
+        # ErrorActionPreference of Stop any non-terminating error is one)
+        # becomes an Undetermined answer, which authorizes nothing.
+        $state = 'Undetermined'; $reason = 'provider-error'
+        $diagnostic = "$diagnostic $($_.Exception.Message)"
+    }
+    return New-HyperVVirtualizationProbeRecord -State $state -Reason $reason -Started $started -TimedOut $timedOut `
+        -DeadlineExhausted $deadlineExhausted -ObservedUtc $observedUtc -ObservedTick ([long](& $clock)) `
+        -ElapsedMs $stopwatch.ElapsedMilliseconds -Evidence $evidence -Diagnostic $diagnostic
+}
+
+<#
+.SYNOPSIS
+    Build one Yuruna.VirtualizationProbe record (schema version 1).
+.DESCRIPTION
+    Every return path of the probe goes through here so the record always has
+    every field and every evidence key, whichever branch produced it.
+#>
+function New-HyperVVirtualizationProbeRecord {
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+        Justification = 'Builds an in-memory record only; nothing on disk or in process state changes.')]
+    [CmdletBinding()]
+    [OutputType([pscustomobject])]
+    param(
+        [Parameter(Mandatory)][string]$State,
+        [Parameter(Mandatory)][string]$Reason,
+        [bool]$Started,
+        [bool]$TimedOut,
+        [bool]$DeadlineExhausted,
+        [Parameter(Mandatory)][string]$ObservedUtc,
+        [long]$ObservedTick,
+        [long]$ElapsedMs,
+        [Parameter(Mandatory)][System.Collections.IDictionary]$Evidence,
+        [AllowEmptyString()][string]$Diagnostic = ''
+    )
+    $arguments = @{} + $PSBoundParameters
+    $arguments['Diagnostic'] = Format-VirtualizationProbeDiagnostic -Text $Diagnostic
+    New-YurunaVirtualizationProbeRecord @arguments -HostType (Resolve-HostTag)
+}
+
+# See https://yuruna.link/42e220c4-0004
+$script:HyperVProbeScript = @'
+    $ErrorActionPreference = 'Stop'
+    $ProgressPreference = 'SilentlyContinue'
+    function Write-ProbeFact([string]$Name, [string]$Value) { [Console]::Out.WriteLine('yuruna-probe ' + $Name + '=' + $Value) }
+    try {
+        $service = Get-Service -Name 'vmms' -ErrorAction Stop
+    } catch {
+        if ($_.CategoryInfo.Category -eq [System.Management.Automation.ErrorCategory]::ObjectNotFound) {
+            Write-ProbeFact 'service' 'Missing'
+            exit 2
+        }
+        Write-ProbeFact 'service' 'Unknown'
+        [Console]::Error.WriteLine($_.Exception.Message)
+        exit 6
+    }
+    Write-ProbeFact 'service' ([string]$service.Status)
+    Write-ProbeFact 'start' ([string]$service.StartType)
+    if ([string]$service.Status -ne 'Running') { exit 5 }
+    try {
+        Import-Module Hyper-V -ErrorAction Stop
+    } catch {
+        Write-ProbeFact 'module' 'missing'
+        [Console]::Error.WriteLine($_.Exception.Message)
+        exit 3
+    }
+    Write-ProbeFact 'module' 'loaded'
+    try {
+        $null = Hyper-V\Get-VM -ErrorAction Stop
+    } catch {
+        Write-ProbeFact 'error-category' ([string]$_.CategoryInfo.Category)
+        [Console]::Error.WriteLine($_.Exception.Message)
+        exit 4
+    }
+    Write-ProbeFact 'provider' 'ok'
+    exit 0
+'@
+$script:HyperVServiceScript = @'
+    $ErrorActionPreference = 'Stop'
+    $ProgressPreference = 'SilentlyContinue'
+    try {
+        $service = Get-Service -Name 'vmms' -ErrorAction Stop
+    } catch {
+        if ($_.CategoryInfo.Category -eq [System.Management.Automation.ErrorCategory]::ObjectNotFound) {
+            [Console]::Out.WriteLine('yuruna-probe service=Missing')
+            exit 2
+        }
+        [Console]::Out.WriteLine('yuruna-probe service=Unknown')
+        [Console]::Error.WriteLine($_.Exception.Message)
+        exit 6
+    }
+    [Console]::Out.WriteLine('yuruna-probe service=' + [string]$service.Status)
+    [Console]::Out.WriteLine('yuruna-probe start=' + [string]$service.StartType)
+    exit 0
+'@
+$script:HyperVStartScript = @'
+    $ErrorActionPreference = 'Stop'
+    $ProgressPreference = 'SilentlyContinue'
+    try {
+        Start-Service -Name vmms -ErrorAction Stop -WarningAction SilentlyContinue
+    } catch {
+        [Console]::Error.WriteLine($_.Exception.Message)
+        exit 1
+    }
+    exit 0
+'@
+# Tokens the probe and rung 2 accept from the child; anything else is Unknown.
+$script:HyperVServiceStatusToken = @('Running', 'Stopped', 'StartPending', 'StopPending', 'ContinuePending', 'PausePending', 'Paused', 'Missing', 'Unknown')
+$script:HyperVStartTypeToken = @('Boot', 'System', 'Automatic', 'Manual', 'Disabled')
+
+<#
+.SYNOPSIS
+    Parse the `yuruna-probe <key>=<token>` lines a child script printed into a
+    hashtable; any other line is ignored.
+#>
+function ConvertFrom-HyperVProbeOutput {
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param([AllowNull()][AllowEmptyString()][string]$Text)
+    $facts = @{}
+    if ([string]::IsNullOrEmpty($Text)) { return $facts }
+    foreach ($line in ($Text -split '\r?\n')) {
+        $m = [regex]::Match($line.Trim(), '^yuruna-probe (?<key>[a-z-]+)=(?<value>\S+)$')
+        if ($m.Success) { $facts[$m.Groups['key'].Value] = $m.Groups['value'].Value }
+    }
+    return $facts
+}
+
+<#
+.SYNOPSIS
+    Map a child-reported service status to its token, or 'Unknown'.
+#>
+function ConvertTo-HyperVServiceToken {
+    [CmdletBinding()]
+    [OutputType([string])]
+    param([AllowNull()][AllowEmptyString()][string]$Value)
+    $match = @($script:HyperVServiceStatusToken | Where-Object { $_ -ceq $Value }) | Select-Object -First 1
+    if ($match) { return [string]$match }
+    return 'Unknown'
+}
+
+<#
+.SYNOPSIS
+    Map a child-reported service start type to its token, or 'Unknown'.
+#>
+function ConvertTo-HyperVStartTypeToken {
+    [CmdletBinding()]
+    [OutputType([string])]
+    param([AllowNull()][AllowEmptyString()][string]$Value)
+    $match = @($script:HyperVStartTypeToken | Where-Object { $_ -ceq $Value }) | Select-Object -First 1
+    if ($match) { return [string]$match }
+    return 'Unknown'
+}
+
+<#
+.SYNOPSIS
+    $true when a bounded-command result is a complete answer: the process
+    launched and none of TimedOut, DrainTimedOut, OutputTruncated or KillFailed
+    is set. A missing key counts as not set.
+.DESCRIPTION
+    An exit code read from an incomplete result can describe a process whose
+    output was cut, so nothing positive (responsive, absent, stopped) is ever
+    concluded from one.
+#>
+function Test-DriverNativeResultComplete {
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param([Parameter(Mandatory)][AllowNull()][hashtable]$Result)
+    return (Test-BoundedNativeResultComplete -Result $Result)
+}
+
+<#
+.SYNOPSIS
+    Reduce captured native output to a single private diagnostic line of at most
+    1024 characters, with ANSI sequences and control characters removed.
+.DESCRIPTION
+    The probe record carries this for the worker's private log only. Stripping
+    control characters keeps a hostile or garbled tool from writing terminal
+    escapes or forged log lines through it.
+#>
+function Format-VirtualizationProbeDiagnostic {
+    [CmdletBinding()]
+    [OutputType([string])]
+    param([AllowNull()][AllowEmptyString()][string]$Text)
+    return (Format-YurunaVirtualizationProbeDiagnostic @PSBoundParameters)
+}
+
+<#
+.SYNOPSIS
+    Read the Microsoft-Hyper-V-All feature state through a bounded dism.exe
+    call, keeping a failed query apart from a feature that is not enabled.
+.DESCRIPTION
+    Runs `dism.exe /English /Online /Get-FeatureInfo
+    /FeatureName:Microsoft-Hyper-V-All` from %WINDIR%\System32 (C:\Windows when
+    WINDIR is unset) under Invoke-BoundedNativeCommand. /English keeps the
+    'State :' label and values parseable on any display language. The whole
+    value after 'State :' is read, so 'Enable Pending' is not mistaken for
+    'Enable'.
+
+    State: Enabled | Disabled (including 'Disabled with Payload Removed') |
+    EnablePending | DisablePending | Unavailable (the edition does not carry the
+    feature) | Unknown.
+    Probe: ok | timeout | not-elevated (exit 740 or the elevation wording) |
+    missing-client (dism.exe not launchable) | provider-error | invalid-response
+    (output not drained, truncated, or with no recognizable state) |
+    unknown-to-sku (0x800f080c: the feature does not exist on this edition).
+    Output is the raw captured text, capped, for a private log only.
+.PARAMETER TimeoutSeconds
+    Cap for the dism.exe call.
+.OUTPUTS
+    [pscustomobject] @{ State; Probe; ExitCode; ElapsedMs; Output; Path }
+#>
+function Get-HyperVFeatureState {
+    [CmdletBinding()]
+    [OutputType([pscustomobject])]
+    param([ValidateRange(1, 600)][int]$TimeoutSeconds = 120)
+    $windowsRoot = if ($env:WINDIR) { $env:WINDIR } else { 'C:\Windows' }
+    $dismExe = [IO.Path]::Combine($windowsRoot, 'System32', 'dism.exe')
+    $result = Invoke-BoundedNativeCommand -FilePath $dismExe `
+        -ArgumentList @('/English', '/Online', '/Get-FeatureInfo', '/FeatureName:Microsoft-Hyper-V-All') `
+        -TimeoutSeconds $TimeoutSeconds
+    $text = "$($result.StdOut)`n$($result.StdErr)".Trim()
+    if ($text.Length -gt 8192) { $text = $text.Substring(0, 8192) }
+    $emit = {
+        param([string]$State, [string]$Probe)
+        [pscustomobject]@{
+            State = $State; Probe = $Probe; ExitCode = [int]$result.ExitCode
+            ElapsedMs = [long]$result['ElapsedMs']; Output = $text; Path = $dismExe
+        }
+    }
+    if (-not $result.Started) { return (& $emit 'Unknown' 'missing-client') }
+    if ($result.TimedOut) { return (& $emit 'Unknown' 'timeout') }
+    if (-not (Test-DriverNativeResultComplete -Result $result)) { return (& $emit 'Unknown' 'invalid-response') }
+    if ($text -match '(?i)0x800f080c|Feature name .* is unknown') { return (& $emit 'Unavailable' 'unknown-to-sku') }
+    if ($result.ExitCode -eq 740 -or $text -match '(?i)Elevated permissions are required') { return (& $emit 'Unknown' 'not-elevated') }
+    if ($result.ExitCode -ne 0) { return (& $emit 'Unknown' 'provider-error') }
+    $value = $null
+    foreach ($line in ([string]$result.StdOut -split '\r?\n')) {
+        $m = [regex]::Match($line, '^\s*State\s*:\s*(?<value>.+?)\s*$')
+        if ($m.Success) { $value = $m.Groups['value'].Value; break }
+    }
+    if ($null -eq $value) { return (& $emit 'Unknown' 'invalid-response') }
+    switch -Regex ($value) {
+        '^Enabled$'         { return (& $emit 'Enabled' 'ok') }
+        '^Enable Pending$'  { return (& $emit 'EnablePending' 'ok') }
+        '^Disable Pending$' { return (& $emit 'DisablePending' 'ok') }
+        '^Disabled\b'       { return (& $emit 'Disabled' 'ok') }
+    }
+    return (& $emit 'Unknown' 'invalid-response')
+}
+
+<#
+.SYNOPSIS
+    Read the vmms service status and start type in a bounded child process.
+.DESCRIPTION
+    Get-Service against a wedged Service Control Manager has no timeout of its
+    own, so the read runs in a child pwsh under Invoke-BoundedNativeCommand.
+    Status is one of Running, Stopped, StartPending, StopPending,
+    ContinuePending, PausePending, Paused, Missing (vmms is not installed) or
+    Unknown (anything that is not a complete answer). StartType is Boot, System,
+    Automatic, Manual, Disabled or Unknown.
+.PARAMETER TimeoutSeconds
+    Cap for the child process.
+.OUTPUTS
+    [pscustomobject] @{ Status; StartType; TimedOut; Started; ExitCode; ElapsedMs }
+#>
+function Get-HyperVServiceEvidence {
+    [CmdletBinding()]
+    [OutputType([pscustomobject])]
+    param([ValidateRange(1, 600)][int]$TimeoutSeconds = 15)
+    $result = Invoke-BoundedNativeCommand -FilePath (Get-PwshApplicationPath) `
+        -ArgumentList @('-NoLogo', '-NoProfile', '-NonInteractive', '-Command', $script:HyperVServiceScript) `
+        -TimeoutSeconds $TimeoutSeconds
+    $status = 'Unknown'
+    $startType = 'Unknown'
+    if ((Test-DriverNativeResultComplete -Result $result) -and $result.ExitCode -in @(0, 2)) {
+        $facts = ConvertFrom-HyperVProbeOutput -Text ([string]$result.StdOut)
+        $status = ConvertTo-HyperVServiceToken -Value ([string]$facts['service'])
+        if ($result.ExitCode -eq 2 -and $status -ne 'Missing') { $status = 'Unknown' }
+        if ($result.ExitCode -eq 0 -and $status -eq 'Missing') { $status = 'Unknown' }
+        $startType = ConvertTo-HyperVStartTypeToken -Value ([string]$facts['start'])
+    }
+    return [pscustomobject]@{
+        Status    = $status
+        StartType = $startType
+        TimedOut  = [bool]$result.TimedOut
+        Started   = [bool]$result.Started
+        ExitCode  = [int]$result.ExitCode
+        ElapsedMs = [long]$result['ElapsedMs']
+    }
+}
+
+<#
+.SYNOPSIS
+    Build one action row of a Yuruna.VirtualizationStartResult.
+#>
+function New-VirtualizationStartAction {
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+        Justification = 'Builds an in-memory record only; nothing on disk or in process state changes.')]
+    [CmdletBinding()]
+    [OutputType([pscustomobject])]
+    param(
+        [Parameter(Mandatory)][string]$Target,
+        [Parameter(Mandatory)][ValidateSet('unit-start', 'service-start', 'network-start', 'wait', 'app-launch')][string]$Kind,
+        [AllowEmptyString()][string]$Before = '',
+        [AllowEmptyString()][string]$After = '',
+        [Parameter(Mandatory)][ValidateSet('started', 'already-running', 'socket-live', 'refused', 'failed', 'unknown', 'skipped', 'preview')][string]$Result,
+        [Parameter(Mandatory)][string]$Reason,
+        [AllowEmptyCollection()][string[]]$Command = @(),
+        [AllowNull()][Nullable[int]]$ExitCode = $null,
+        [bool]$TimedOut = $false,
+        [long]$ElapsedMs = 0
+    )
+    return (New-YurunaVirtualizationStartAction @PSBoundParameters)
+}
+
+<#
+.SYNOPSIS
+    Build a Yuruna.VirtualizationStartResult (schema version 1), deriving the
+    outcome from the actions unless one is given.
+.DESCRIPTION
+    Derived precedence: any failed action -> failed; else any unknown ->
+    unknown; else any started -> started; else any preview -> preview; else
+    already-running. The reason is the first matching action's reason.
+#>
+function New-VirtualizationStartResult {
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+        Justification = 'Builds an in-memory record only; nothing on disk or in process state changes.')]
+    [CmdletBinding()]
+    [OutputType([pscustomobject])]
+    param(
+        [ValidateSet('started', 'already-running', 'refused', 'failed', 'unknown', 'unavailable', 'preview', '')][string]$Outcome = '',
+        [AllowEmptyString()][string]$Reason = '',
+        [Parameter(Mandatory)][string]$Layout,
+        [AllowEmptyCollection()][object[]]$Action = @(),
+        [Parameter(Mandatory)][string]$ObservedUtc,
+        [long]$ElapsedMs
+    )
+    return (New-YurunaVirtualizationStartResult @PSBoundParameters -HostType (Resolve-HostTag))
+}
+
+<#
+.SYNOPSIS
+    Poll vmms through a pending state until it reports Running or the wait
+    runs out; returns the last evidence read.
+.DESCRIPTION
+    Polls every two seconds for at most min(MaximumSeconds, the budget's
+    remaining time), each read capped at min(remaining, 15) seconds.
+#>
+function Wait-HyperVServicePendingState {
+    [CmdletBinding()]
+    [OutputType([pscustomobject])]
+    param(
+        [Parameter(Mandatory)]$Budget,
+        [Parameter(Mandatory)]$Evidence,
+        [ValidateRange(1, 600)][int]$MaximumSeconds = 30
+    )
+    $clock = if ($Budget.ClockTicks) { $Budget.ClockTicks } else { { [Environment]::TickCount64 } }
+    $wait = New-YurunaDeadlineFromExpiry -ExpiryTick ([Math]::Min([long](& $clock) + [long]$MaximumSeconds * 1000, [long]$Budget.ExpiryTick)) -ClockTicks $clock
+    $last = $Evidence
+    while ($last.Status -in @('StartPending', 'ContinuePending')) {
+        $remaining = Get-YurunaDeadlineRemainingMs -Deadline $wait
+        if ($remaining -le 0) { break }
+        Start-Sleep -Milliseconds ([int][Math]::Min(2000, $remaining))
+        $readCap = Get-YurunaDeadlineBoundedSeconds -Deadline $wait -Ceiling 15
+        if ($null -eq $readCap) { break }
+        $last = Get-HyperVServiceEvidence -TimeoutSeconds $readCap
+    }
+    return $last
+}
+
+# --- REGION: Start-VirtualizationServiceIfStopped
+function Start-VirtualizationServiceIfStopped {
+    <#
+    .SYNOPSIS
+        Start the Hyper-V Virtual Machine Management service (vmms) only when this
+        function positively observes it Stopped and the process is elevated;
+        refuse on anything it cannot establish. Returns a
+        Yuruna.VirtualizationStartResult.
+    .DESCRIPTION
+        Runs its own bounded detection (Get-HyperVServiceEvidence) immediately
+        before acting and never trusts an earlier probe:
+          * status Unknown or a timed-out read     -> refused/service-state-unknown
+          * vmms not installed                     -> refused/service-missing, with
+                                                      the DISM feature state in the
+                                                      action's 'before'
+          * Running                                -> already-running
+          * start type Disabled                    -> refused/service-disabled (an
+                                                      operator's choice)
+          * StopPending                            -> refused/pending-stop: something
+                                                      is deliberately stopping it
+          * Paused or PausePending                 -> refused/service-paused
+          * StartPending or ContinuePending        -> a bounded wait; Running gives
+                                                      already-running, otherwise
+                                                      refused/pending-timeout
+          * Stopped                                -> start, when elevated; otherwise
+                                                      refused/not-elevated (no
+                                                      relaunch is attempted)
+        The start runs `Start-Service -Name vmms` in a bounded child and is
+        confirmed by a fresh read: Running is 'started'; a start still pending gets
+        the bounded wait; anything else is failed/start-failed after a failing
+        child, unknown/start-timed-out after a timeout, or
+        unknown/postcondition-unknown.
+
+        -WhatIf runs only the read-only detection and reports the planned start as
+        'preview'. Every child is capped by the remaining time of
+        min(TimeoutSeconds, -Deadline); with less than one second left nothing is
+        launched. -DependentVMName is accepted for contract parity and not used:
+        Hyper-V needs no per-guest network start here. Never throws and never
+        prompts.
+    .PARAMETER TimeoutSeconds
+        Upper bound for the whole call.
+    .PARAMETER Deadline
+        Optional shared deadline; the call never outlives it.
+    .PARAMETER DependentVMName
+        Guests whose restoration depends on this hypervisor (not used on Hyper-V).
+    .OUTPUTS
+        [pscustomobject] Yuruna.VirtualizationStartResult
+    #>
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter', 'DependentVMName',
+        Justification = 'Declared by the host contract on every driver; Hyper-V has no per-guest network to start.')]
+    [CmdletBinding(SupportsShouldProcess)]
+    [OutputType([pscustomobject])]
+    param(
+        [ValidateRange(1, 600)][int]$TimeoutSeconds = 120,
+        [object]$Deadline,
+        [AllowEmptyCollection()][string[]]$DependentVMName = @()
+    )
+    $stopwatch = [Diagnostics.Stopwatch]::StartNew()
+    $observedUtc = [DateTime]::UtcNow.ToString('o')
+    $clock = if ($null -ne $Deadline -and $Deadline.ClockTicks) { $Deadline.ClockTicks } else { { [Environment]::TickCount64 } }
+    $expiry = [long](& $clock) + [long]$TimeoutSeconds * 1000
+    if ($null -ne $Deadline) { $expiry = [Math]::Min($expiry, [long]$Deadline.ExpiryTick) }
+    $budget = New-YurunaDeadlineFromExpiry -ExpiryTick $expiry -ClockTicks $clock
+    $actions = [System.Collections.Generic.List[object]]::new()
+    $finish = {
+        param([string]$Outcome, [string]$Reason)
+        New-VirtualizationStartResult -Outcome $Outcome -Reason $Reason -Layout 'not-applicable' -Action $actions.ToArray() `
+            -ObservedUtc $observedUtc -ElapsedMs $stopwatch.ElapsedMilliseconds
+    }
+    $refuse = {
+        param([string]$Reason, [string]$Before, [string]$Kind = 'service-start')
+        $actions.Add((New-VirtualizationStartAction -Target 'vmms' -Kind $Kind -Before $Before -After $Before -Result 'refused' -Reason $Reason))
+        & $finish 'refused' $Reason
+    }
+
+    $mutated = $false
+    try {
+        $readCap = Get-YurunaDeadlineBoundedSeconds -Deadline $budget -Ceiling 15
+        if ($null -eq $readCap) { return (& $finish 'refused' 'deadline-exhausted') }
+        $service = Get-HyperVServiceEvidence -TimeoutSeconds $readCap
+        if ($service.TimedOut -or $service.Status -eq 'Unknown') { return (& $refuse 'service-state-unknown' 'Unknown') }
+        if ($service.Status -eq 'Missing') {
+            $featureWord = 'NotProbed'
+            $featureCap = Get-YurunaDeadlineBoundedSeconds -Deadline $budget -Ceiling 120
+            if ($null -ne $featureCap) { $featureWord = [string](Get-HyperVFeatureState -TimeoutSeconds $featureCap).State }
+            return (& $refuse 'service-missing' $featureWord)
+        }
+        if ($service.Status -eq 'Running') {
+            $actions.Add((New-VirtualizationStartAction -Target 'vmms' -Kind 'service-start' -Before 'Running' -After 'Running' -Result 'already-running' -Reason 'already-running'))
+            return (& $finish 'already-running' 'already-running')
+        }
+        if ($service.StartType -eq 'Disabled') { return (& $refuse 'service-disabled' $service.Status) }
+        switch ($service.Status) {
+            'StopPending' { return (& $refuse 'pending-stop' 'StopPending') }
+            { $_ -in @('Paused', 'PausePending') } { return (& $refuse 'service-paused' $service.Status) }
+            { $_ -in @('StartPending', 'ContinuePending') } {
+                $settled = Wait-HyperVServicePendingState -Budget $budget -Evidence $service
+                if ($settled.Status -eq 'Running') {
+                    $actions.Add((New-VirtualizationStartAction -Target 'vmms' -Kind 'wait' -Before $service.Status -After 'Running' -Result 'already-running' -Reason 'already-running'))
+                    return (& $finish 'already-running' 'already-running')
+                }
+                return (& $refuse 'pending-timeout' $service.Status 'wait')
+            }
+            'Stopped' { break }
+            default { return (& $refuse 'service-state-unknown' $service.Status) }
+        }
+
+        if (-not (Test-IsAdministrator)) { return (& $refuse 'not-elevated' 'Stopped') }
+        $startCap = Get-YurunaDeadlineBoundedSeconds -Deadline $budget -Ceiling 60
+        if ($null -eq $startCap) { return (& $refuse 'deadline-exhausted' 'Stopped') }
+        $command = @('Start-Service', '-Name', 'vmms')
+        if (-not $PSCmdlet.ShouldProcess('vmms', (Format-YurunaOperatorMessage -Key 'host.hyperv_start_vmms_action'))) {
+            $actions.Add((New-VirtualizationStartAction -Target 'vmms' -Kind 'service-start' -Before 'Stopped' -Result 'preview' -Reason 'preview' -Command $command))
+            return (& $finish 'preview' 'preview')
+        }
+        $start = Invoke-BoundedNativeCommand -FilePath (Get-PwshApplicationPath) `
+            -ArgumentList @('-NoLogo', '-NoProfile', '-NonInteractive', '-Command', $script:HyperVStartScript) `
+            -TimeoutSeconds $startCap
+        $mutated = [bool]$start.Started
+        $common = @{ Target = 'vmms'; Kind = 'service-start'; Before = 'Stopped'; Command = $command
+            ExitCode = [int]$start.ExitCode; TimedOut = [bool]$start.TimedOut; ElapsedMs = [long]$start['ElapsedMs'] }
+        if (-not $start.Started) {
+            $actions.Add((New-VirtualizationStartAction @common -Result 'refused' -Reason 'missing-client'))
+            return (& $finish 'refused' 'missing-client')
+        }
+        $after = [pscustomobject]@{ Status = 'Unknown' }
+        $postCap = Get-YurunaDeadlineBoundedSeconds -Deadline $budget -Ceiling 15
+        if ($null -ne $postCap) { $after = Get-HyperVServiceEvidence -TimeoutSeconds $postCap }
+        if ($after.Status -in @('StartPending', 'ContinuePending')) { $after = Wait-HyperVServicePendingState -Budget $budget -Evidence $after }
+        $afterWord = [string]$after.Status
+        if ($afterWord -eq 'Running') {
+            $actions.Add((New-VirtualizationStartAction @common -After $afterWord -Result 'started' -Reason 'started'))
+        } elseif ($start.TimedOut -or $afterWord -in @('StartPending', 'ContinuePending')) {
+            $actions.Add((New-VirtualizationStartAction @common -After $afterWord -Result 'unknown' -Reason 'start-timed-out'))
+        } elseif ($start.ExitCode -ne 0) {
+            $actions.Add((New-VirtualizationStartAction @common -After $afterWord -Result 'failed' -Reason 'start-failed'))
+        } else {
+            $actions.Add((New-VirtualizationStartAction @common -After $afterWord -Result 'unknown' -Reason 'postcondition-unknown'))
+        }
+        return (& $finish '' '')
+    } catch {
+        # Never throw: under a caller's ErrorActionPreference of Stop any
+        # non-terminating error is a throw. After the start child ran its
+        # outcome is unknown until a fresh probe; before, nothing changed.
+        Write-Verbose "Start-VirtualizationServiceIfStopped: $($_.Exception.Message)"
+        if ($mutated) { return (& $finish 'unknown' 'postcondition-unknown') }
+        return (& $finish 'refused' 'service-state-unknown')
+    }
+}
+
+function Get-YurunaVMAccountSid {
+    <#
+    .SYNOPSIS
+        The SID of a virtual machine's own virtual account, computed from its id.
+    .DESCRIPTION
+        Windows gives each VM an account under the NT VIRTUAL MACHINE authority,
+        and its SID is derived from the machine's GUID: S-1-5-83-1 followed by
+        the GUID's sixteen bytes read as four little-endian unsigned 32-bit
+        values. Computing it is exact and needs nothing from the machine.
+
+        The alternative -- asking Windows to translate the account NAME -- is
+        what this replaces. "NT VIRTUAL MACHINE" is a display name, and Windows
+        localizes it, so on a host installed in another language the lookup
+        throws, the caller cannot prove which entries are stale, and it skips
+        the cleanup entirely. That direction is safe, which is why nobody
+        noticed: the cleanup simply stopped happening, one warning at a time.
+    .OUTPUTS
+        System.String -- the SID in its S-1-5-... string form.
+    #>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param([Parameter(Mandatory)][guid]$VMId)
+
+    $bytes = $VMId.ToByteArray()
+    $parts = for ($i = 0; $i -lt 16; $i += 4) { [System.BitConverter]::ToUInt32($bytes, $i) }
+    return 'S-1-5-83-1-' + ($parts -join '-')
+}
+
+function Remove-OrphanedVMFileAccess {
+    <#
+    .SYNOPSIS
+        Strip stale per-VM access ACEs from a file's ACL, keeping only the
+        ACEs of VMs that still exist. Returns the number removed.
+    .DESCRIPTION
+        Guards against Hyper-V shared-image DACL bloat: each attach appends a
+        per-VM ACE (SID family S-1-5-83-1-*) that Remove-VM never revokes,
+        until the ~64 KB DACL cap fails the next attach with 0x8007053C /
+        0x80070005 regardless of caller elevation. Only stale per-VM ACEs are
+        removed -- inherited ACEs, admin/SYSTEM, the all-VMs group
+        (S-1-5-83-0), capability SIDs, and live VMs' own ACEs stay, so it is
+        safe to run while other VMs use the file. Set-Acl writes a SMALLER
+        descriptor, so it succeeds even when the on-disk ACL is already at
+        the limit. See https://yuruna.link/429f3d06-0093
+    .OUTPUTS
+        System.Int32 -- the number of stale per-VM ACEs removed.
+    #>
+    [CmdletBinding(SupportsShouldProcess)]
+    [OutputType([int])]
+    param([Parameter(Mandatory)][string]$Path)
+
+    if (-not $IsWindows) { return 0 }
+    if (-not (Test-Path -LiteralPath $Path)) { return 0 }
+
+    # A specific VM's virtual account is S-1-5-83-1-<RID derived from its
+    # GUID>; the all-VMs group is S-1-5-83-0 and must be preserved.
+    $perVmSidPrefix = 'S-1-5-83-1-'
+
+    # Live set: translate each existing VM's virtual-account name to its SID.
+    # If ANY translation fails we cannot prove which ACEs are stale, so we
+    # abort rather than risk purging a live VM's access.
+    $liveSids = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+    try {
+        foreach ($vm in (Hyper-V\Get-VM -ErrorAction Stop)) {
+            [void]$liveSids.Add((Get-YurunaVMAccountSid -VMId $vm.Id))
+        }
+    } catch {
+        Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_710526e17721aa1a' -Arguments @{ message = "$($_.Exception.Message)"; path = "$Path" })
+        return 0
+    }
+
+    $acl = Get-Acl -LiteralPath $Path
+    $staleSids = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+    foreach ($rule in $acl.Access) {
+        if ($rule.IsInherited) { continue }
+        # Normalize to a SID string -- the name form for a deleted VM still
+        # translates because the SID is derived from the GUID, not a lookup.
+        $sidVal = $null
+        try {
+            $sidVal = if ($rule.IdentityReference -is [System.Security.Principal.SecurityIdentifier]) {
+                $rule.IdentityReference.Value
+            } else {
+                $rule.IdentityReference.Translate([System.Security.Principal.SecurityIdentifier]).Value
+            }
+        } catch { continue }   # un-translatable, non-VM principal -- leave it
+        if ($sidVal -like "$perVmSidPrefix*" -and -not $liveSids.Contains($sidVal)) {
+            [void]$staleSids.Add($sidVal)
+        }
+    }
+
+    if ($staleSids.Count -eq 0) { return 0 }
+
+    if ($PSCmdlet.ShouldProcess($Path, (Format-YurunaOperatorMessage -Key 'host.operator_02eff2d9f27b202c' -Arguments @{ count = "$($staleSids.Count)" }))) {
+        foreach ($s in $staleSids) {
+            # Purge by SID so both stored forms (raw SID and resolved
+            # NT VIRTUAL MACHINE\<guid> name) for that account are removed.
+            $acl.PurgeAccessRules([System.Security.Principal.SecurityIdentifier]$s)
+        }
+        try {
+            Set-Acl -LiteralPath $Path -AclObject $acl
+        } catch {
+            Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_379851375f35c850' -Arguments @{ path = "$Path"; message = "$($_.Exception.Message)" })
+            return 0
+        }
+    }
+    return $staleSids.Count
+}
+
+function Disable-HyperVHeartbeatForLinuxGuest {
+    <#
+    .SYNOPSIS
+        Turn the Heartbeat integration service off for a Linux guest on an
+        ARM64 host. No-op on AMD64.
+    .DESCRIPTION
+        Disabling Heartbeat helped Linux guests pass early boot stalls on the
+        ARM64 lab host. Affected boots reported soft lockups in the shared
+        VMBus hypercall path and stopped near these utility-driver messages:
+
+            hv_utils: Heartbeat IC version 3.0
+            hv_utils: Shutdown IC version 3.2
+            hv_utils: TimeSync IC version 4.0
+
+        The workaround remains without attributing every VMBus
+        stall to Heartbeat. Storage requests share the hypercall path, and
+        timer-related overhead can persist with Heartbeat already disabled.
+        AMD64 is untouched. Callers gate Linux guest selection because this
+        function checks host architecture, not the guest operating system.
+
+        Nothing in the harness depends on the Hyper-V heartbeat. Only
+        guest.caching-proxy-service/New-VM.ps1 reads it, as one line of a
+        readiness summary, and Get-VMIp resolves addresses through KVP and ARP
+        -- neither of which this touches.
+    #>
+    [CmdletBinding(SupportsShouldProcess)]
+    [OutputType([bool])]
+    param([Parameter(Mandatory)][string]$VMName)
+
+    if ([System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture -ne [System.Runtime.InteropServices.Architecture]::Arm64) {
+        return $false
+    }
+    if (-not $PSCmdlet.ShouldProcess($VMName, (Format-YurunaOperatorMessage -Key 'host.operator_ce28ce6cce0e7f70'))) { return $false }
+    try {
+        Disable-VMIntegrationService -VMName $VMName -Name 'Heartbeat' -ErrorAction Stop
+        Write-Verbose "Heartbeat integration service disabled for '$VMName' (ARM64 Linux guest boot workaround)."
+        return $true
+    } catch {
+        # A guest that boots anyway is the good case, and one that wedges
+        # reports it as its own boot failure with the console signature above.
+        # Neither is worth failing VM creation over.
+        Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_8107fa04808ac8e9' -Arguments @{ vMName = "$VMName"; message = "$($_.Exception.Message)" })
+        return $false
+    }
+}
+
+function Limit-HyperVLinuxGuestCoreCount {
+    <#
+    .SYNOPSIS
+        Cap the vCPU count of a Linux guest on an ARM64 host. No-op on AMD64.
+    .DESCRIPTION
+        Stock Ubuntu's architectural timer produced high interrupt overhead on
+        the affected ARM64 Hyper-V host. A controlled 12 GB installer comparison
+        reached its confirmation prompt in about 115 seconds with one processor
+        and 554-564 seconds with two; another two-processor run was still making
+        progress at the 600-second observation limit. These are serial boot
+        measurements, not a general estimate of multicore workload capacity.
+
+        A same-kernel clockevent control isolated substantial overhead to the
+        architectural timer path. This conservative cap remains useful for
+        stock guests until a replacement kernel passes installed-system tests.
+
+        The default cap is two because kubeadm's preflight check refuses to
+        initialize a control plane on a single processor, and the guests this
+        applies to go on to run one. A provisioning caller may select a lower
+        temporary cap when its sequence includes an explicit, offline transition
+        back to two before kubeadm starts.
+
+        Explicit requests are also capped so callers share the same provisioning
+        policy on affected ARM64 hosts.
+    #>
+    [CmdletBinding()]
+    [OutputType([int])]
+    param(
+        [Parameter(Mandatory)][int]$RequestedCores,
+        [int]$MaximumCores = 2
+    )
+
+    if ([System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture -ne [System.Runtime.InteropServices.Architecture]::Arm64) {
+        return $RequestedCores
+    }
+    if ($RequestedCores -le $MaximumCores) { return $RequestedCores }
+    Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_c9cdde915a1c6b17' -Arguments @{ maximumCores = "$MaximumCores"; requestedCores = "$RequestedCores" })
+    return $MaximumCores
+}
+
+function Set-HyperVArm64LinuxGuestProcessorCount {
+    <#
+    .SYNOPSIS
+        Set the post-provisioning processor count of a stopped ARM64 Linux VM.
+    .DESCRIPTION
+        The Ubuntu ARM64 installer and package-update path is fastest with one
+        virtual processor on affected Hyper-V hosts, while kubeadm requires two.
+        This helper performs the offline transition between those phases. It is
+        deliberately a no-op on AMD64 so the shared Ubuntu sequence preserves
+        the normal host-sizing policy there.
+    .OUTPUTS
+        [bool] true when the requested state is established (or is not needed
+        on this architecture); false when the VM is absent, not stopped, or the
+        Hyper-V update cannot be confirmed.
+    #>
+    [CmdletBinding(SupportsShouldProcess)]
+    [OutputType([bool])]
+    param(
+        [Parameter(Mandatory)][string]$VMName,
+        [Parameter(Mandatory)][ValidateRange(1, 1024)][int]$Count
+    )
+
+    if ([System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture -ne [System.Runtime.InteropServices.Architecture]::Arm64) {
+        return $true
+    }
+    $resolved = Resolve-HyperVVM -VMName $VMName
+    if ($resolved.Presence -ne 'present' -or [string]$resolved.VM.State -ne 'Off') {
+        return $false
+    }
+    if (-not $PSCmdlet.ShouldProcess($VMName)) {
+        return $false
+    }
+    try {
+        Hyper-V\Set-VMProcessor -VMName $VMName -Count $Count -ErrorAction Stop
+        $processor = Hyper-V\Get-VMProcessor -VMName $VMName -ErrorAction Stop
+        return ([int]$processor.Count -eq $Count)
+    } catch {
+        Write-Verbose "Set-HyperVArm64LinuxGuestProcessorCount: $($_.Exception.Message)"
+        return $false
+    }
+}
+
+# --- REGION: Remove-HyperVGuestDefinition
+function Remove-HyperVGuestDefinition {
+    <#
+    .SYNOPSIS
+        Replace a known VM definition while leaving disk cleanup to the builder.
+    #>
+    [CmdletBinding(SupportsShouldProcess)]
+    param([Parameter(Mandatory)][string]$VMName)
+    $existing = Resolve-HyperVVM -VMName $VMName
+    if ($existing.Presence -eq 'unknown') { throw "Cannot determine whether VM '$VMName' exists; no VM or disk changes were made." }
+    if ($existing.Presence -eq 'absent') { return }
+    if (-not $PSCmdlet.ShouldProcess($VMName, 'Remove existing VM definition')) { return }
+    Write-Information (Format-YurunaOperatorMessage -Key 'host.operator_96658c0e8ad547f3' -Arguments @{ vMName = "$VMName" }) -InformationAction Continue
+    Hyper-V\Stop-VM -VM $existing.VM -Force -ErrorAction SilentlyContinue -WarningAction SilentlyContinue
+    try { Hyper-V\Remove-VM -VM $existing.VM -Force -ErrorAction Stop }
+    catch {
+        $diag = $existing.VM | Format-List Name, State, Status, Generation, Path | Out-String
+        throw (Format-YurunaOperatorMessage -Key 'exceptions.host_1c714189825ec0e2' -Arguments @{ vMName = "$VMName"; message = "$($_.Exception.Message)"; diag = "$diag" })
+    }
+    $after = Resolve-HyperVVM -VMName $VMName
+    if ($after.Presence -ne 'absent') {
+        throw (Format-YurunaOperatorMessage -Key 'exceptions.host_634b857addaa8df5' -Arguments @{ vMName = "$VMName" })
+    }
+    Write-Information (Format-YurunaOperatorMessage -Key 'host.operator_86f314067f7955de' -Arguments @{ vMName = "$VMName" }) -InformationAction Continue
+}
+
+# --- REGION: Resolve-HyperVGuestSwitch
+function Resolve-HyperVGuestSwitch {
+    <#
+    .SYNOPSIS
+        Resolve a usable external switch or an existing fallback.
+    #>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param()
+    $name = Get-OrCreateYurunaExternalSwitch
+    if ($name) { return $name }
+    $name = 'Default Switch'
+    if (-not (Get-VMSwitch -Name $name -ErrorAction SilentlyContinue)) {
+        $fallback = Get-VMSwitch -ErrorAction SilentlyContinue | Sort-Object @{ Expression = { $_.SwitchType -eq 'External' } }, Name | Select-Object -First 1
+        if (-not $fallback) { throw 'No Hyper-V switch is available for the guest.' }
+        $name = $fallback.Name
+        Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_38edbb4cc8da6eb6' -Arguments @{ switchName = "$name" })
+    }
+    Write-Information (Format-YurunaOperatorMessage -Key 'host.operator_6ec7fa5a08a2eb27' -Arguments @{ switchName = "$name" })
+    Write-Information (Format-YurunaOperatorMessage -Key 'host.operator_9bb7f114ca4530e9')
+    return $name
+}
+
+# --- REGION: New-HyperVServiceGuest
+function New-HyperVServiceGuest {
+    <#
+    .SYNOPSIS
+        Configure the fixed-memory Linux service guest before its first boot.
+    #>
+    [CmdletBinding(SupportsShouldProcess)]
+    param([Parameter(Mandatory)][string]$VMName, [Parameter(Mandatory)][string]$SwitchName,
+        [Parameter(Mandatory)][string]$DiskPath, [Parameter(Mandatory)][string]$SeedPath,
+        [Parameter(Mandatory)][int]$HostCores, [int]$MemoryMb = 2048, [string]$MacAddress)
+    if (-not $PSCmdlet.ShouldProcess($VMName, 'Create Linux service VM')) { return }
+    $memory = [int64]$MemoryMb * 1MB
+    $mac = if ($MacAddress) { $MacAddress } else { Get-YurunaGuestMacAddress -VMName $VMName }
+    Write-Information (Format-YurunaOperatorMessage -Key 'host.operator_b0bde9c66516dc8a' -Arguments @{ vMName = "$VMName"; switchName = "$SwitchName" }) -InformationAction Continue
+    Hyper-V\New-VM -Name $VMName -Generation 2 -MemoryStartupBytes $memory -SwitchName $SwitchName -VHDPath $DiskPath | Out-Null
+    Hyper-V\Set-VMNetworkAdapter -VMName $VMName -StaticMacAddress ($mac -replace ':', '')
+    Set-VM -Name $VMName -MemoryStartupBytes $memory -MemoryMinimumBytes $memory -MemoryMaximumBytes $memory -AutomaticCheckpointsEnabled $false | Out-Null
+    Set-VMMemory -VMName $VMName -DynamicMemoryEnabled $false
+    Set-VMFirmware -VMName $VMName -EnableSecureBoot Off | Out-Null
+    $null = Disable-HyperVHeartbeatForLinuxGuest -VMName $VMName -Confirm:$false
+    Add-VMDvdDrive -VMName $VMName -Path $SeedPath | Out-Null
+    $cores = Limit-HyperVLinuxGuestCoreCount -RequestedCores ([math]::Max(4, [math]::Floor($HostCores / 2)))
+    Set-VMProcessor -VMName $VMName -Count $cores | Out-Null
+}
+
+# --- REGION: Wait-HyperVServiceGuestAddress
+function Wait-HyperVServiceGuestAddress {
+    <#
+    .SYNOPSIS
+        Poll KVP and bridge neighbors for service guest addresses on a wall-clock deadline.
+    #>
+    [CmdletBinding()]
+    [OutputType([string[]], [object[]])]
+    param([Parameter(Mandatory)][string]$VMName, [Parameter(Mandatory)][string]$SwitchName,
+        [int]$TimeoutSeconds = 600, [string]$Activity, [scriptblock]$ProgressDetail)
+    $clock = [Diagnostics.Stopwatch]::StartNew()
+    $activityText = if ($Activity) { $Activity } else { "Waiting for '$VMName' to obtain an IP" }
+    $external = ((Get-VMSwitch -Name $SwitchName -ErrorAction SilentlyContinue).SwitchType -eq 'External')
+    $announced = $false
+    try {
+        while ($clock.Elapsed.TotalSeconds -lt $TimeoutSeconds) {
+            $record = Resolve-HyperVVM -VMName $VMName
+            $vm = $record.VM
+            if ($vm) {
+                $adapter = $vm | Get-VMNetworkAdapter -ErrorAction SilentlyContinue | Select-Object -First 1
+                if ($external -and $adapter.SwitchName -eq $SwitchName -and $clock.Elapsed.TotalSeconds -ge 30) {
+                    if (-not $announced) {
+                        Write-Information (Format-YurunaOperatorMessage -Key 'host.operator_86ae3482cd8932d7' -Arguments @{ switchName = "$SwitchName" }) -InformationAction Continue
+                        $announced = $true
+                    }
+                    Invoke-YurunaExternalArpProbe -SwitchName $SwitchName
+                }
+                $addresses = @(Get-CacheVmCandidateIp -VM $vm)
+                if ($addresses.Count -gt 0) {
+                    $mac = [string]$adapter.MacAddress
+                    $mac = if ($mac -match '^[0-9A-Fa-f]{12}$') { ($mac -replace '(..)(?!$)', '$1-').ToUpperInvariant() } else { '(unknown)' }
+                    Write-Information (Format-YurunaOperatorMessage -Key 'host.operator_711aec356a249726' -Arguments @{ vmMacDashed = "$mac" }) -InformationAction Continue
+                    Write-Information (Format-YurunaOperatorMessage -Key 'host.operator_c31ff5024871e3cc' -Arguments @{ vMName = "$VMName"; join = "$($addresses -join ', ')" }) -InformationAction Continue
+                    return $addresses
+                }
+            }
+            $elapsed = [int]$clock.Elapsed.TotalSeconds
+            $status = if ($ProgressDetail) { & $ProgressDetail $elapsed $vm } else { "elapsed ${elapsed}s" }
+            Write-Progress -Activity $activityText -Status $status -PercentComplete ([math]::Min(100, $elapsed * 100 / $TimeoutSeconds)) -SecondsRemaining ([math]::Max(0, $TimeoutSeconds - $elapsed))
+            Start-Sleep -Milliseconds ([int][math]::Min(5000, [math]::Max(1, ($TimeoutSeconds - $clock.Elapsed.TotalSeconds) * 1000)))
+        }
+        return @()
+    } finally { Write-Progress -Activity $activityText -Completed }
+}
+
+# --- REGION: Exports
+Export-ModuleMember -Function Remove-HyperVGuestDefinition, Resolve-HyperVGuestSwitch, New-HyperVServiceGuest, Wait-HyperVServiceGuestAddress, `
+    New-VM, Start-VM, Stop-VM, Stop-VMForce, Remove-VM, Rename-VM, Get-VMState, Get-VMName, Test-VirtualizationResponsive, Start-VirtualizationServiceIfStopped, `
+    Save-VMDiskSnapshot, Restore-VMDiskSnapshot, Test-VMDiskSnapshot, `
+    Test-VMConsoleOpen, Restart-VMConsole, Set-VMInstallerMediaFirstBoot, `
+    Get-Image, Get-ImagePath, `
+    Send-Text, Send-Key, Send-Click, Get-VMScreenshot, Get-VMConsoleHandle, `
+    Wait-VMIp, Get-VMIp, Get-VMMac, Update-GuestNeighborCache, `
+    Get-ExternalNetwork, New-ExternalNetwork, Test-CacheVMOnExternalNetwork, Repair-YurunaExternalSwitch, `
+    Add-PortMap, Remove-PortMap, Get-BestHostIp, Get-GuestReachableHostIp, `
+    Test-CachingProxyServiceAvailable, Get-CachingProxyServiceVmIp, `
+    Set-HostProxy, Clear-HostProxy, Remove-HostProxy, Get-HostProxyBackupPath, Assert-Virtualization, `
+    `
+    CreateIso, Get-CacheVmCandidateIp, `
+    Get-OrCreateYurunaExternalSwitch, Test-WindowsUplinkNotBridgeable, Test-YurunaExternalSwitchUplink, Test-CachingProxyServicePort, Invoke-YurunaExternalArpProbe, `
+    Test-CacheVmOnYurunaExternalSwitch, Get-WorkingCachingProxyServiceUrl, `
+    Test-DownloadAlreadyCurrent, Resolve-CacheHostIp, `
+    Save-CachedHttpUri, Assert-HyperVEnabled, Get-HyperVFeatureState, Get-HyperVServiceEvidence, Resolve-HyperVVM, `
+    Confirm-HyperVVMCreated, Stop-HyperVVMForce, Remove-HyperVTestVM, `
+    Start-HyperVVM, Stop-HyperVVM, Request-HyperVVMShutdown, Confirm-HyperVVMStarted, `
+    Get-HostMemoryStatus, Format-HostMemoryStatus, Test-HostResourceExhaustionError, Wait-HostMemoryHeadroom, Get-HyperVVMStartupMemory, `
+    Resolve-VMConnectAnotherUserDialog, Restart-HyperVConnect, `
+    Test-WindowsProxyIsYurunaManaged, Read-WindowsProxyState, Invoke-WinInetRefresh, `
+    Set-WindowsHostProxy, Restore-WindowsHostProxy, Disable-WindowsHostProxy, Remove-WindowsHostProxy, `
+    Get-CachingProxyServiceForwarderScriptPath, Get-WindowsForwarderPidPath, `
+    Stop-WindowsCachingProxyServiceForwarder, Start-WindowsCachingProxyServiceForwarder, Add-CachingProxyServiceFirewallRule, `
+    Get-WindowsForwarderPidPort, Get-YurunaMappedPortFromFirewall, `
+    Remove-SinglePortMap, Clear-AllCachingProxyServicePortMapping, `
+    Get-HyperVScreenshot, Get-HyperVWindowScreenshot, Get-VMConsoleSecondOpinion, `
+    Start-VMDhcpCapture, Save-VMDhcpCapture, Stop-VMDhcpCapture, `
+    Start-VMSerialCapture, Save-VMSerialCapture, Stop-VMSerialCapture, `
+    Remove-OrphanedVMFileAccess, Disable-HyperVHeartbeatForLinuxGuest, Limit-HyperVLinuxGuestCoreCount, Set-HyperVArm64LinuxGuestProcessorCount
+
+# --- REGION: Contract coverage
+# Validate actual exports against the common contract after publishing them.
+Import-Module (Join-Path -Path $PSScriptRoot -ChildPath '..' -AdditionalChildPath '..', 'Yuruna.Host.Contract.psm1') -Force -DisableNameChecking
+$null = Assert-YurunaHostContractCoverage -HostType 'windows.hyper-v' `
+    -Module $ExecutionContext.SessionState.Module -ExportedFunction @(
+    'New-VM','Start-VM','Stop-VM','Stop-VMForce','Remove-VM','Rename-VM','Get-VMState','Get-VMName',
+    'Save-VMDiskSnapshot','Restore-VMDiskSnapshot','Test-VMDiskSnapshot',
+    'Test-VMConsoleOpen','Restart-VMConsole',
+    'Get-Image','Get-ImagePath',
+    'Send-Text','Send-Key','Send-Click','Get-VMScreenshot','Get-VMConsoleHandle',
+    'Wait-VMIp','Get-VMIp','Get-VMMac','Update-GuestNeighborCache',
+    'Get-ExternalNetwork','New-ExternalNetwork','Test-CacheVMOnExternalNetwork',
+    'Add-PortMap','Remove-PortMap','Get-BestHostIp','Get-GuestReachableHostIp',
+    'Test-CachingProxyServiceAvailable','Get-CachingProxyServiceVmIp',
+    'Set-HostProxy','Clear-HostProxy','Remove-HostProxy','Get-HostProxyBackupPath','Assert-Virtualization',
+    'Test-VirtualizationResponsive','Start-VirtualizationServiceIfStopped'
+)
+
+# The driver wrapper must retain cache discovery when shared modules load.
+# See https://yuruna.link/42e220c4-0003
+$__yurunaCacheDownloadCmd = Get-Command -Name Save-CachedHttpUri -ErrorAction SilentlyContinue
+if (-not $__yurunaCacheDownloadCmd) {
+    Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_d190e255da2d0044')
+} elseif ($__yurunaCacheDownloadCmd.Parameters.ContainsKey('ResolveCacheHostIp')) {
+    Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_92893d28632002d2')
+}

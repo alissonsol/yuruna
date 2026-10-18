@@ -1,0 +1,383 @@
+{
+  "schema": "yuruna.terminology/v1",
+  "locale": "zh-CN",
+  "terms": [
+    {
+      "sourceTerm": "host",
+      "meaning": "The physical machine that runs Yuruna host automation, provisions guests, and exposes host-side services.",
+      "sourceHeadings": [
+        "Defining fetch-and-execute host environment variables",
+        "Defining the VM core-count policy"
+      ],
+      "decision": {
+        "status": "translated",
+        "targetTerm": "宿主机",
+        "origin": "machine"
+      }
+    },
+    {
+      "sourceTerm": "guest",
+      "meaning": "A virtual machine provisioned and driven by a host to run a test or service workload.",
+      "sourceHeadings": [
+        "Defining the VM memory policy"
+      ],
+      "decision": {
+        "status": "translated",
+        "targetTerm": "客户机",
+        "origin": "machine"
+      }
+    },
+    {
+      "sourceTerm": "pool",
+      "meaning": "The multi-host coordination scope in which consumers join cycles and shared services serve participating hosts.",
+      "sourceHeadings": [
+        "Defining the cycle.events.ndjson record shape",
+        "Defining the runner-state enum"
+      ],
+      "decision": {
+        "status": "translated",
+        "targetTerm": "池",
+        "origin": "machine"
+      }
+    },
+    {
+      "sourceTerm": "cycle",
+      "meaning": "One test-run lifecycle, identified by its start time and on-disk cycle folder, with ordered events and captured artifacts.",
+      "sourceHeadings": [
+        "Defining the cycle folder identity",
+        "Defining the cycle.events.ndjson event-name catalog"
+      ],
+      "decision": {
+        "status": "translated",
+        "targetTerm": "周期",
+        "origin": "machine"
+      }
+    },
+    {
+      "sourceTerm": "workload",
+      "meaning": "A Helm-driven deployment of one or more components.",
+      "sourceHeadings": [
+        "Canonical yuruna concepts"
+      ],
+      "decision": {
+        "status": "translated",
+        "targetTerm": "工作负载",
+        "origin": "machine"
+      }
+    },
+    {
+      "sourceTerm": "component",
+      "meaning": "A container image that Yuruna builds and pushes to a registry.",
+      "sourceHeadings": [
+        "Canonical yuruna concepts"
+      ],
+      "decision": {
+        "status": "translated",
+        "targetTerm": "组件",
+        "origin": "machine"
+      }
+    },
+    {
+      "sourceTerm": "resource",
+      "meaning": "Infrastructure deployed with OpenTofu that produces resources.output.yml for components to consume.",
+      "sourceHeadings": [
+        "Canonical yuruna concepts"
+      ],
+      "decision": {
+        "status": "translated",
+        "targetTerm": "资源",
+        "origin": "machine"
+      }
+    },
+    {
+      "sourceTerm": "stash",
+      "meaning": "The storage service that receives artifacts as streams and writes them beside its SQLite metadata.",
+      "sourceHeadings": [
+        "Defining the VM memory policy"
+      ],
+      "decision": {
+        "status": "translated",
+        "targetTerm": "存储服务",
+        "origin": "machine"
+      }
+    },
+    {
+      "sourceTerm": "pause",
+      "meaning": "An operator request that stops test progress at either the next step boundary or the next cycle boundary.",
+      "sourceHeadings": [
+        "Defining the status-page banner",
+        "Defining the runner-state enum"
+      ],
+      "decision": {
+        "status": "translated",
+        "targetTerm": "暂停",
+        "origin": "machine"
+      }
+    },
+    {
+      "sourceTerm": "drain",
+      "meaning": "To consume a child process's standard input completely before that process returns its response.",
+      "sourceHeadings": [
+        "Defining the tofu external hook shell choice"
+      ],
+      "decision": {
+        "status": "translated",
+        "targetTerm": "读取完毕",
+        "origin": "machine"
+      }
+    },
+    {
+      "sourceTerm": "cache",
+      "meaning": "The local container-registry mirror used as an optimization for image pulls; when configured it is part of the pull path.",
+      "sourceHeadings": [
+        "Defining containerd hosts.toml cache mirror"
+      ],
+      "decision": {
+        "status": "translated",
+        "targetTerm": "缓存",
+        "origin": "machine"
+      }
+    },
+    {
+      "sourceTerm": "operation",
+      "meaning": "One of the three umbrella CLI stages: resources, components, or workloads.",
+      "sourceHeadings": [
+        "Canonical yuruna concepts"
+      ],
+      "decision": {
+        "status": "translated",
+        "targetTerm": "操作",
+        "origin": "machine"
+      }
+    },
+    {
+      "sourceTerm": "forwarder",
+      "meaning": "The host-side Squid TCP forwarder used by the caching-proxy service.",
+      "sourceHeadings": [
+        "Canonical yuruna concepts"
+      ],
+      "decision": {
+        "status": "translated",
+        "targetTerm": "转发器",
+        "origin": "machine"
+      }
+    },
+    {
+      "sourceTerm": "lab token",
+      "meaning": "The six-character rotating code an operator redeems once for the internal authentication key.",
+      "sourceHeadings": [
+        "Defining the two lab secrets"
+      ],
+      "decision": {
+        "status": "translated",
+        "targetTerm": "实验室令牌",
+        "origin": "machine"
+      }
+    },
+    {
+      "sourceTerm": "internal authentication key",
+      "meaning": "The 48-character stable key used for control proofs, ingest authorization, and cross-host credential fetch.",
+      "sourceHeadings": [
+        "Defining the two lab secrets"
+      ],
+      "decision": {
+        "status": "translated",
+        "targetTerm": "内部身份验证密钥",
+        "origin": "machine"
+      }
+    },
+    {
+      "sourceTerm": "Baseline",
+      "meaning": "Ideal requirements: permitted outcomes and required outcomes, stated independently of explicit settings and observations.",
+      "sourceHeadings": [
+        "Defining Baseline, Configuration, Implementation, and Telemetry"
+      ],
+      "decision": {
+        "status": "translated",
+        "targetTerm": "基线",
+        "origin": "machine"
+      }
+    },
+    {
+      "sourceTerm": "Configuration",
+      "meaning": "Explicit settings recorded in code, files, and tools; distinct from ideal requirements and actual running behavior.",
+      "sourceHeadings": [
+        "Defining Baseline, Configuration, Implementation, and Telemetry"
+      ],
+      "decision": {
+        "status": "translated",
+        "targetTerm": "配置",
+        "origin": "machine"
+      }
+    },
+    {
+      "sourceTerm": "Implementation",
+      "meaning": "The running system and its effective behavior; source code or an SBOM alone does not establish this view.",
+      "sourceHeadings": [
+        "Defining Baseline, Configuration, Implementation, and Telemetry"
+      ],
+      "decision": {
+        "status": "explained",
+        "targetTerm": "实际运行状态",
+        "rationale": "Use a phrase meaning actual running state to distinguish this view from source-code implementation.",
+        "origin": "machine"
+      }
+    },
+    {
+      "sourceTerm": "Telemetry",
+      "meaning": "Observations and evidence collected from the system, which may cover only part of the Implementation.",
+      "sourceHeadings": [
+        "Defining Baseline, Configuration, Implementation, and Telemetry"
+      ],
+      "decision": {
+        "status": "translated",
+        "targetTerm": "遥测",
+        "origin": "machine"
+      }
+    },
+    {
+      "sourceTerm": "configured state",
+      "meaning": "A saved pool configuration setting: run, paused, or drain. It is separate from member-reported status and immediate pause/resume controls.",
+      "sourceHeadings": [
+        "Defining Baseline, Configuration, Implementation, and Telemetry"
+      ],
+      "decision": {
+        "status": "translated",
+        "targetTerm": "配置状态",
+        "origin": "machine"
+      }
+    },
+    {
+      "sourceTerm": "Authorized",
+      "meaning": "Access permitted by the Baseline; distinct from a tool authorization decision and not an incident classification.",
+      "sourceHeadings": [
+        "Defining access conditions and differences"
+      ],
+      "decision": {
+        "status": "translated",
+        "targetTerm": "授权访问",
+        "origin": "machine"
+      }
+    },
+    {
+      "sourceTerm": "Shortfall",
+      "meaning": "Configured outcomes outside the Baseline: C minus B, compared using the same scope, outcome representation, and observation period.",
+      "sourceHeadings": [
+        "Defining access conditions and differences"
+      ],
+      "decision": {
+        "status": "explained",
+        "targetTerm": "配置不足",
+        "rationale": "Use a configuration-specific phrase for configured outcomes beyond the Baseline, rather than a generic shortage.",
+        "origin": "machine"
+      }
+    },
+    {
+      "sourceTerm": "Patch",
+      "meaning": "A configured Shortfall absent from the Implementation: (C minus B) minus I. It may be beneficial but still needs reconciliation with Configuration.",
+      "sourceHeadings": [
+        "Defining access conditions and differences"
+      ],
+      "decision": {
+        "status": "explained",
+        "targetTerm": "直接修正",
+        "rationale": "This assessment term denotes a directly corrected configured Shortfall, not every software package update.",
+        "origin": "machine"
+      }
+    },
+    {
+      "sourceTerm": "Drift",
+      "meaning": "Implementation outside Configuration together with Patch: (I minus C) union Patch. It includes beneficial differences and is not automatically an incident.",
+      "sourceHeadings": [
+        "Defining access conditions and differences"
+      ],
+      "decision": {
+        "status": "translated",
+        "targetTerm": "漂移",
+        "origin": "machine"
+      }
+    },
+    {
+      "sourceTerm": "Finding",
+      "meaning": "Observed outcomes outside Configuration: T minus C. A missing declared namespace does not establish this condition.",
+      "sourceHeadings": [
+        "Defining access conditions and differences"
+      ],
+      "decision": {
+        "status": "translated",
+        "targetTerm": "发现项",
+        "origin": "machine"
+      }
+    },
+    {
+      "sourceTerm": "Unmonitored",
+      "meaning": "Implemented outcomes not represented in Telemetry: I minus T. Missing observations alone do not establish which outcomes are implemented.",
+      "sourceHeadings": [
+        "Defining access conditions and differences"
+      ],
+      "decision": {
+        "status": "translated",
+        "targetTerm": "未监测",
+        "origin": "machine"
+      }
+    },
+    {
+      "sourceTerm": "Nonconformity",
+      "meaning": "Observed outcomes outside the Baseline: T minus B. This assessment condition does not by itself classify an operational incident.",
+      "sourceHeadings": [
+        "Defining access conditions and differences"
+      ],
+      "decision": {
+        "status": "translated",
+        "targetTerm": "不符合项",
+        "origin": "machine"
+      }
+    },
+    {
+      "sourceTerm": "Exposure",
+      "meaning": "Implemented outcomes outside the Baseline: I minus B. This assessment condition does not by itself classify an operational incident.",
+      "sourceHeadings": [
+        "Defining access conditions and differences"
+      ],
+      "decision": {
+        "status": "translated",
+        "targetTerm": "暴露",
+        "origin": "machine"
+      }
+    },
+    {
+      "sourceTerm": "Unavailability",
+      "meaning": "Required outcomes absent from the Implementation: N minus I, where N is the Baseline required outcomes. This is more specific than a generic outage.",
+      "sourceHeadings": [
+        "Defining access conditions and differences"
+      ],
+      "decision": {
+        "status": "translated",
+        "targetTerm": "不可用",
+        "origin": "machine"
+      }
+    }
+  ],
+  "retiredNameRulings": [
+    {
+      "retired": "status server",
+      "current": "status service",
+      "translationPolicy": "preserve-exact-english"
+    },
+    {
+      "retired": "stash appliance",
+      "current": "stash service",
+      "translationPolicy": "preserve-exact-english"
+    },
+    {
+      "retired": "HostConfigService",
+      "current": "ConfigService",
+      "translationPolicy": "preserve-exact-english"
+    },
+    {
+      "retired": "stash-server",
+      "current": "stash-service",
+      "translationPolicy": "preserve-exact-english"
+    }
+  ]
+}

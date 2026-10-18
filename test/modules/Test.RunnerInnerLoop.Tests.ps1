@@ -1,0 +1,1355 @@
+<#PSScriptInfo
+.VERSION 2026.10.14
+.GUID 422a68fe-a953-4858-a4d5-e3de9fbbbaf8
+.AUTHOR Alisson Sol et al.
+.COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
+.TAGS yuruna test runner inner-loop pester
+.LICENSEURI https://yuruna.link/license
+.PROJECTURI https://yuruna.com
+.ICONURI
+.EXTERNALMODULEDEPENDENCIES
+.REQUIREDSCRIPTS
+.EXTERNALSCRIPTDEPENDENCIES
+.RELEASENOTES
+.PRIVATEDATA
+#>
+
+#requires -version 7
+
+<#
+.SYNOPSIS
+    Pester smoke harness for the inner runner's config-reload seam and the
+    cycle helpers in Test.RunnerInnerLoop.psm1 / Test.ConfigSync.psm1.
+.DESCRIPTION
+    Guards the regression-prone mechanics the inner runner depends on:
+      * the reloadable-knob resolution rules (defaults, int coercion, the
+        0/absent-falls-back-to-default behavior, the -CycleDelaySeconds fallback);
+      * Sync-RunnerCycleConfig's mtime parse-cache, its keep-previous-on-failure
+        contract, and the by-reference $State mutation the wrapped cycle body
+        will rely on (the scope-collapse risk);
+      * the pure config-merge / template-shape / secret-hiding contracts.
+
+    Assertions are throw-based inside It blocks so the file runs under Pester 5+.
+    Run with:  Invoke-Pester -Path test/modules/Test.RunnerInnerLoop.Tests.ps1
+#>
+
+# See https://yuruna.link/42e220c4-0014
+# Global stubs and state span the runner module and InModuleScope assertions.
+[Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidGlobalVars', '',
+    Justification = 'The global scope IS the cross-module contract under test: the runner resolves -Global-imported collaborators and its own __YurunaCycleFolder there, and the stub/assertion pair straddles an InModuleScope boundary that $script: cannot span.')]
+param()
+
+BeforeAll {
+
+$here = Split-Path -Parent $PSCommandPath
+Import-Module (Join-Path $here 'Test.Prelude.psm1')        -Force -DisableNameChecking -ErrorAction SilentlyContinue
+Import-Module (Join-Path $here 'Test.RunnerInnerLoop.psm1') -Force -DisableNameChecking
+Import-Module (Join-Path $here 'Test.ConfigSync.psm1')      -Force -DisableNameChecking
+Import-Module (Join-Path $here 'Test.LogLevel.psm1')        -Force -DisableNameChecking -Global
+# -Global: the runner resolves these two through the global command table, and
+# an InModuleScope body falls back to the global session state -- not to this
+# file's. Without -Global, Resolve-CleanupVmNamePrefix / Get-TestVMName are
+# invisible from inside the module under test.
+Import-Module (Join-Path $here 'Test.Config.psm1')          -Force -DisableNameChecking -Global
+Import-Module (Join-Path $here 'Test.HostDetection.psm1')   -Force -DisableNameChecking -Global
+try { Import-Module powershell-yaml -Force -ErrorAction Stop } catch { Write-Warning "powershell-yaml unavailable; YAML-dependent tests will fail." }
+
+Import-Module (Join-Path (Split-Path -Parent $PSCommandPath) 'Test.Assert.psm1') -Force -Global -DisableNameChecking
+function New-TempConfigFile {
+    [CmdletBinding()]
+    [OutputType([string])]
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+        Justification = 'Test helper: writes a throwaway temp config file the calling It block deletes in its finally.')]
+    param([string]$Content)
+    $p = Join-Path ([System.IO.Path]::GetTempPath()) ("yrn-cfg-" + [guid]::NewGuid().ToString('N') + ".yml")
+    [System.IO.File]::WriteAllText($p, $Content, [System.Text.UTF8Encoding]::new($false))
+    return $p
+}
+
+# --- REGION: Get-AstNearestLoop
+# See https://yuruna.link/42d69dfa-0015
+function Get-AstNearestLoop {
+    <#
+    .SYNOPSIS
+        Find the innermost loop targeted by a break or continue.
+    #>
+    param($Node)
+    $loopNames = @('ForEachStatementAst', 'ForStatementAst', 'WhileStatementAst', 'DoWhileStatementAst', 'DoUntilStatementAst')
+    $p = $Node.Parent
+    while ($null -ne $p) {
+        if ($loopNames -contains $p.GetType().Name) { return $p }
+        $p = $p.Parent
+    }
+    return $null
+}
+# --- REGION: Get-AstEnclosingBlock
+function Get-AstEnclosingBlock {
+    <#
+    .SYNOPSIS
+        Find the statement block containing a control-flow node.
+    #>
+    param($Node)
+    $p = $Node.Parent
+    while ($null -ne $p -and $p -isnot [System.Management.Automation.Language.StatementBlockAst]) { $p = $p.Parent }
+    return $p
+}
+# --- REGION: Get-InnerCycleControlFlow
+# See https://yuruna.link/42e220c4-0014
+function Get-InnerCycleControlFlow {
+    <#
+    .SYNOPSIS
+        Collect runner and guest-iteration control-flow facts from production source.
+    #>
+    [OutputType([hashtable])]
+    param([Parameter(Mandatory)][string]$Psm1Path)
+
+    $fileAst = [System.Management.Automation.Language.Parser]::ParseFile($Psm1Path, [ref]$null, [ref]$null)
+    $cyc = @($fileAst.FindAll({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq 'Invoke-RunnerInnerCycle' }, $true))[0]
+    if (-not $cyc) { throw 'Invoke-RunnerInnerCycle not found in the psm1' }
+    $helper = @($fileAst.FindAll({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq 'Invoke-GuestProvisionIteration' }, $true))[0]
+    if (-not $helper) { throw 'Invoke-GuestProvisionIteration helper not found (the guest iteration must be extracted)' }
+
+    $dwFalse = @($cyc.FindAll({ param($n) $n -is [System.Management.Automation.Language.DoWhileStatementAst] -and ($n.Condition.Extent.Text -match '\$false') }, $true))
+    if ($dwFalse.Count -ne 1) { throw "expected exactly 1 do{...}while(`$false), found $($dwFalse.Count)" }
+    $dw = $dwFalse[0]
+
+    $dispatch = @($cyc.FindAll({ param($n) $n -is [System.Management.Automation.Language.ForEachStatementAst] }, $true) | Where-Object {
+            @($_.FindAll({ param($c) $c -is [System.Management.Automation.Language.CommandAst] -and $c.GetCommandName() -eq 'Invoke-GuestProvisionIteration' }, $true)).Count -gt 0
+        })
+    if ($dispatch.Count -ne 1) { throw "expected exactly 1 guest-dispatch foreach, found $($dispatch.Count)" }
+    $disp = $dispatch[0]
+
+    $cycBreaks = @($cyc.FindAll({ param($n) $n -is [System.Management.Automation.Language.BreakStatementAst] }, $true))
+    $cycContinues = @($cyc.FindAll({ param($n) $n -is [System.Management.Automation.Language.ContinueStatementAst] }, $true))
+    $labeled = @(@($cycBreaks + $cycContinues) | Where-Object { $_.Label })
+    $dwBreaks = @($cycBreaks | Where-Object { (Get-AstNearestLoop $_) -eq $dw })
+    $dwContinues = @($cycContinues | Where-Object { (Get-AstNearestLoop $_) -eq $dw })
+    $dispBreaks = @($cycBreaks | Where-Object { (Get-AstNearestLoop $_) -eq $disp })
+    $dispContinues = @($cycContinues | Where-Object { (Get-AstNearestLoop $_) -eq $disp })
+
+    # The extracted iteration must signal via $IterState.Control, never a loop escape.
+    $helperBreaks = @($helper.FindAll({ param($n) $n -is [System.Management.Automation.Language.BreakStatementAst] }, $true))
+    $helperContinues = @($helper.FindAll({ param($n) $n -is [System.Management.Automation.Language.ContinueStatementAst] }, $true))
+    $helperReturns = @($helper.FindAll({ param($n) $n -is [System.Management.Automation.Language.ReturnStatementAst] }, $true))
+    $helperAssigns = @($helper.FindAll({ param($n) $n -is [System.Management.Automation.Language.AssignmentStatementAst] }, $true))
+    $helperControlSets = @($helperAssigns | Where-Object { $_.Left.Extent.Text -eq '$IterState.Control' })
+
+    # Carry-back mirror lives in the helper now: the entry init line + one re-read per Sync.
+    $helperSyncs = @($helper.FindAll({ param($n) $n -is [System.Management.Automation.Language.CommandAst] -and $n.GetCommandName() -eq 'Sync-RunnerStepConfig' }, $true))
+    $helperConfigReads = @($helperAssigns | Where-Object { $_.Left.Extent.Text -eq '$Config' -and $_.Right.Extent.Text -match '\$cfg\.Config' })
+    $helperStopReads = @($helperAssigns | Where-Object { $_.Left.Extent.Text -eq '$StopOnFailure' -and $_.Right.Extent.Text -match '\$cfg\.StopOnFailure' })
+
+    $stopIfs = @($helper.FindAll({ param($n) $n -is [System.Management.Automation.Language.IfStatementAst] }, $true) | Where-Object {
+            $_.Clauses[0].Item1.Extent.Text -match '^\$StopOnFailure$' -and
+            @($_.Clauses[0].Item2.FindAll({ param($b) $b -is [System.Management.Automation.Language.ReturnStatementAst] }, $false)).Count -gt 0
+        })
+    $stopIfsWithCopy = 0
+    foreach ($sif in $stopIfs) {
+        $blk = Get-AstEnclosingBlock $sif
+        if ($blk -and @($blk.FindAll({ param($x) $x -is [System.Management.Automation.Language.CommandAst] -and $x.GetCommandName() -eq 'Copy-FailureArtifactsToStatusLog' -and $x.Extent.EndOffset -le $sif.Extent.StartOffset }, $true)).Count -gt 0) { $stopIfsWithCopy++ }
+    }
+
+    # The thin dispatcher re-reads $Config from the shared $cfg bag and the four failure
+    # fields from the iteration bag after the call (in a finally, so a throw carries back).
+    $dispAssigns = @($disp.FindAll({ param($n) $n -is [System.Management.Automation.Language.AssignmentStatementAst] }, $true))
+    $callerConfigRehydrate = @($dispAssigns | Where-Object { $_.Left.Extent.Text -eq '$Config' -and $_.Right.Extent.Text -match '\$cfg\.Config' })
+    $callerFailureRehydrate = @($dispAssigns | Where-Object { ($_.Left.Extent.Text -in '$OverallPassed', '$FailedGuest', '$FailedStep', '$FailureMessage') -and $_.Right.Extent.Text -match '\$guestIterState\.' })
+
+    return @{
+        DoWhileBreaks             = $dwBreaks.Count
+        DoWhileContinues          = $dwContinues.Count
+        LabeledFlow               = $labeled.Count
+        DispatchBreaks            = $dispBreaks.Count
+        DispatchContinues         = $dispContinues.Count
+        HelperLoopBreaks          = $helperBreaks.Count
+        HelperLoopContinues       = $helperContinues.Count
+        HelperReturns             = $helperReturns.Count
+        HelperControlSets         = $helperControlSets.Count
+        HelperSyncCount           = $helperSyncs.Count
+        HelperConfigReads         = $helperConfigReads.Count
+        HelperStopReads           = $helperStopReads.Count
+        HelperStopReturns         = $stopIfs.Count
+        HelperStopReturnsWithCopy = $stopIfsWithCopy
+        CallerConfigRehydrate     = $callerConfigRehydrate.Count
+        CallerFailureRehydrate    = $callerFailureRehydrate.Count
+    }
+}
+
+# Drives a New-VM failure through the real Invoke-GuestProvisionIteration with its
+# collaborators stubbed (host-contract commands are unresolved in a unit run, so global
+# stubs resolve; the two module-internal collaborators that do real I/O are Mocked).
+# Returns the carried-back iteration bag plus the teardown call count.
+function Invoke-NewVmFailureIteration {
+    param([bool]$StopOnFailure)
+    $tmp = Join-Path ([IO.Path]::GetTempPath()) ("yrn-gpi-" + [guid]::NewGuid().ToString('N'))
+    New-Item -ItemType Directory -Path $tmp -Force | Out-Null
+    $oldLogDir = $env:YURUNA_LOG_DIR; $env:YURUNA_LOG_DIR = $tmp
+    $global:__gpiRm = 0
+    $global:__gpiIter = @{ OverallPassed = $true; FailedGuest = $null; FailedStep = $null; FailureMessage = $null; Control = 'proceed' }
+    $global:__gpiStop = $StopOnFailure
+    # Each stub mirrors the signature of the host-contract command the iteration calls by
+    # name; PowerShell binds those named arguments at the call site, so a parameter cannot
+    # be dropped just because this stub body has no use for its value.
+    function global:New-VM {
+        [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter', '',
+            Justification = 'Stub mirrors the host-contract New-VM signature the iteration binds by name; dropping a parameter breaks the call.')]
+        [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseSupportsShouldProcess', '',
+            Justification = '-Confirm is a plain pass-through switch in the real host-contract signature being mirrored; SupportsShouldProcess would add a real confirmation prompt and hang the unattended run.')]
+        param($GuestKey, $RepoRoot, $VMName, $Username, $CachingProxyServiceUrl, [switch]$Confirm)
+        @{ success = $false; errorMessage = 'boom' }
+    }
+    function global:Remove-GuestVMQuietly {
+        [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter', '',
+            Justification = 'Stub mirrors the teardown signature the iteration binds by name; the test asserts on the call COUNT, not the arguments.')]
+        param($VMName, [switch]$SkipStop)
+        $global:__gpiRm++
+    }
+    function global:Get-CycleGuestDataFolder {
+        [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter', '',
+            Justification = 'Stub mirrors the host-contract signature the iteration binds by name; it deliberately returns $null regardless of the VM.')]
+        param($VMName)
+        $null
+    }
+    function global:Set-GuestVMName {
+        [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter', '',
+            Justification = 'Status-sink stub: mirrors the signature the iteration binds by name and swallows the call so no status file is written.')]
+        param($GuestKey, $VMName)
+    }
+    function global:Set-GuestStatus {
+        [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter', '',
+            Justification = 'Status-sink stub: mirrors the signature the iteration binds by name and swallows the call so no status file is written.')]
+        param($GuestKey, $Status)
+    }
+    function global:Set-StepStatus {
+        [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter', '',
+            Justification = 'Status-sink stub: mirrors the signature the iteration binds by name and swallows the call so no status file is written.')]
+        param($GuestKey, $StepName, $Status, $ErrorMessage, [switch]$Skipped)
+    }
+    function global:Get-GuestProvenance {
+        [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter', '',
+            Justification = 'Stub mirrors the host-contract signature the iteration binds by name; it returns a fixed provenance record for any guest.')]
+        param($GuestKey)
+        @{ Filename = '' }
+    }
+    try {
+        InModuleScope Test.RunnerInnerLoop {
+            Mock Copy-FailureArtifactsToStatusLog {}
+            Mock Sync-RunnerStepConfig {}
+            $script:PoolCycle = $false; $script:CyclePlan = $null
+            $cfg = @{ Config = @{}; StopOnFailure = $global:__gpiStop; VmStartTimeoutSeconds = 1; VmBootDelaySeconds = 0; GetImageRefreshSeconds = 1; CycleDelaySeconds = 0 }
+            Invoke-GuestProvisionIteration -GuestKey 'g1' -IterState $global:__gpiIter -VMNames @{ g1 = 'vm1' } `
+                -RepoRoot 'r' -HostType 'h' -ModulesDir 'm' -LogFile 'l' -SequencesDir 's' -ScreenshotsDir 'sc' `
+                -hasScreenshots $false -hasExtensions $false -cachingProxyUrl '' -cfg $cfg -ConfigPath 'c' `
+                -FailedGuests ([System.Collections.Generic.HashSet[string]]::new()) -ShutdownState @{ Requested = $false } | Out-Null
+        }
+        return @{ Iter = $global:__gpiIter; Rm = $global:__gpiRm }
+    } finally {
+        Remove-Item function:New-VM, function:global:Remove-GuestVMQuietly, function:global:Get-CycleGuestDataFolder, function:global:Set-GuestVMName, function:global:Set-GuestStatus, function:global:Set-StepStatus, function:global:Get-GuestProvenance -ErrorAction SilentlyContinue
+        Remove-Variable __gpiRm, __gpiIter, __gpiStop -Scope Global -ErrorAction SilentlyContinue
+        if ($null -eq $oldLogDir) { Remove-Item Env:YURUNA_LOG_DIR -ErrorAction SilentlyContinue } else { $env:YURUNA_LOG_DIR = $oldLogDir }
+        Remove-Item -LiteralPath $tmp -Recurse -Force -ErrorAction SilentlyContinue
+    }
+}
+
+}
+
+Describe 'failure diagnostic invocation provenance' {
+    It 'uses leaf IDs for failed wrappers and outer IDs for a distinct crash' {
+        foreach ($reason in 'step','crash') {
+            @{ vmName='vm'; guestKey='guest'; reason=$reason; stepInvocationId='wrapper-step'; sequenceInvocationId='wrapper-sequence';
+                originatingStepInvocationId='leaf-step'; originatingSequenceInvocationId='leaf-sequence' } |
+                ConvertTo-Json | Set-Content (Join-Path $TestDrive 'last_failure.json')
+            $r = & (Get-Module Test.RunnerInnerLoop) {
+                param($folder) Get-FailureDiagnosticInvocation -GuestFolder $folder -VMName vm -GuestKey guest
+            } $TestDrive
+            $r.StepInvocationId | Should -Be ($reason -eq 'step' ? 'leaf-step' : 'wrapper-step')
+            $r.SequenceInvocationId | Should -Be ($reason -eq 'step' ? 'leaf-sequence' : 'wrapper-sequence')
+        }
+    }
+    It 'keeps the wrapper pair when the originating invocation pair is incomplete' {
+        @{ vmName='vm'; guestKey='guest'; reason='step'; stepInvocationId='wrapper-step'; sequenceInvocationId='wrapper-sequence';
+            originatingStepInvocationId='leaf-step' } | ConvertTo-Json | Set-Content (Join-Path $TestDrive 'last_failure.json')
+        $r = & (Get-Module Test.RunnerInnerLoop) {
+            param($folder) Get-FailureDiagnosticInvocation -GuestFolder $folder -VMName vm -GuestKey guest
+        } $TestDrive
+        $r.StepInvocationId | Should -Be 'wrapper-step'
+        $r.SequenceInvocationId | Should -Be 'wrapper-sequence'
+    }
+    It 'uses the original failed step IDs from the matching guest cycle record' {
+        foreach ($reason in 'step','crash') {
+            @{ vmName='vm'; guestKey='guest'; reason=$reason; stepInvocationId='failed-step'; sequenceInvocationId='failed-sequence' } |
+                ConvertTo-Json | Set-Content (Join-Path $TestDrive 'last_failure.json')
+            $r = & (Get-Module Test.RunnerInnerLoop) {
+                param($folder) Get-FailureDiagnosticInvocation -GuestFolder $folder -VMName vm -GuestKey guest
+            } $TestDrive
+            $r.StepInvocationId | Should -Be 'failed-step'
+            $r.SequenceInvocationId | Should -Be 'failed-sequence'
+        }
+    }
+    It 'does not attach stale guest IDs to infrastructure failures or unreadable records' {
+        foreach ($record in @(
+            '{"vmName":"another-vm","guestKey":"guest","reason":"step","stepInvocationId":"stale"}',
+            '{"vmName":"vm","guestKey":"another-guest","reason":"step","stepInvocationId":"stale"}',
+            '{"vmName":"vm","guestKey":"guest","reason":"infra","stepInvocationId":"stale"}',
+            'invalid json')) {
+            Set-Content (Join-Path $TestDrive 'last_failure.json') $record
+            $r = & (Get-Module Test.RunnerInnerLoop) {
+                param($folder) Get-FailureDiagnosticInvocation -GuestFolder $folder -VMName vm -GuestKey guest
+            } $TestDrive
+            $r.StepInvocationId | Should -Be ''
+            $r.SequenceInvocationId | Should -Be ''
+        }
+    }
+}
+
+Describe 'Get-RunnerReloadableConfig' {
+    It 'applies defaults when the parsed config is null' {
+        $r = Get-RunnerReloadableConfig -Config $null -CycleDelaySecondsFallback 30
+        Assert-Equal -Expected $false -Actual $r.StopOnFailure -Because 'default StopOnFailure'
+        Assert-Equal -Expected 120    -Actual $r.VmStartTimeoutSeconds -Because 'default VmStartTimeoutSeconds'
+        Assert-Equal -Expected 15     -Actual $r.VmBootDelaySeconds -Because 'default VmBootDelaySeconds'
+        Assert-Equal -Expected 86400  -Actual $r.GetImageRefreshSeconds -Because 'default GetImageRefreshSeconds'
+        Assert-Equal -Expected 30     -Actual $r.CycleDelaySeconds -Because 'CycleDelaySeconds falls back to -CycleDelaySecondsFallback'
+    }
+    It 'reads operator values and coerces strings to int' {
+        $cfg = @{
+            testCycle = @{ stopOnFailure = $true; cycleDelaySeconds = '45' }
+            vmStart   = @{ startTimeoutSeconds = '200'; bootDelaySeconds = 9 }
+            vmImage   = @{ refreshSeconds = 6 }
+        }
+        $r = Get-RunnerReloadableConfig -Config $cfg -CycleDelaySecondsFallback 30
+        Assert-Equal -Expected $true -Actual $r.StopOnFailure -Because 'operator StopOnFailure'
+        Assert-Equal -Expected 200   -Actual $r.VmStartTimeoutSeconds -Because 'operator VmStartTimeoutSeconds'
+        Assert-Equal -Expected 9     -Actual $r.VmBootDelaySeconds -Because 'operator VmBootDelaySeconds'
+        Assert-Equal -Expected 6     -Actual $r.GetImageRefreshSeconds -Because 'operator GetImageRefreshSeconds'
+        Assert-Equal -Expected 45    -Actual $r.CycleDelaySeconds -Because 'config cycleDelaySeconds wins over fallback'
+        Assert-True ($r.VmStartTimeoutSeconds -is [int]) 'VmStartTimeoutSeconds coerced to int'
+    }
+    It 'treats a 0/absent value as falling back to the default' {
+        $r = Get-RunnerReloadableConfig -Config @{ vmStart = @{ startTimeoutSeconds = 0 } } -CycleDelaySecondsFallback 30
+        Assert-Equal -Expected 120 -Actual $r.VmStartTimeoutSeconds -Because '0 is falsy -> default 120'
+    }
+    It 'defaults guest quarantine ON with a 3-failure / 5-cycle threshold' {
+        $r = Get-RunnerReloadableConfig -Config $null -CycleDelaySecondsFallback 30
+        Assert-Equal -Expected $true -Actual $r.GuestQuarantineEnabled -Because 'quarantine default ON'
+        Assert-Equal -Expected 3     -Actual $r.GuestQuarantineFailures -Because 'default failuresToQuarantine'
+        Assert-Equal -Expected 5     -Actual $r.GuestQuarantineSkipCycles -Because 'default skipCycles'
+    }
+    It 'honors an operator-disabled quarantine block and coerces its thresholds' {
+        $cfg = @{ testCycle = @{ guestQuarantine = @{ enabled = $false; failuresToQuarantine = '2'; skipCycles = '10' } } }
+        $r = Get-RunnerReloadableConfig -Config $cfg -CycleDelaySecondsFallback 30
+        Assert-Equal -Expected $false -Actual $r.GuestQuarantineEnabled -Because 'operator disabled quarantine'
+        Assert-Equal -Expected 2      -Actual $r.GuestQuarantineFailures -Because 'operator failuresToQuarantine (int-coerced)'
+        Assert-Equal -Expected 10     -Actual $r.GuestQuarantineSkipCycles -Because 'operator skipCycles (int-coerced)'
+    }
+    It 'defaults warm-resume ON with a 2-attempt budget' {
+        $r = Get-RunnerReloadableConfig -Config $null -CycleDelaySecondsFallback 30
+        Assert-Equal -Expected $true -Actual $r.WarmResumeEnabled -Because 'warm-resume default ON'
+        Assert-Equal -Expected 2     -Actual $r.WarmResumeMaxAttempts -Because 'default maxAttempts'
+    }
+    It 'honors an operator-disabled warm-resume block and coerces maxAttempts' {
+        $cfg = @{ testCycle = @{ warmResume = @{ enabled = $false; maxAttempts = '3' } } }
+        $r = Get-RunnerReloadableConfig -Config $cfg -CycleDelaySecondsFallback 30
+        Assert-Equal -Expected $false -Actual $r.WarmResumeEnabled -Because 'operator disabled warm-resume'
+        Assert-Equal -Expected 3      -Actual $r.WarmResumeMaxAttempts -Because 'operator maxAttempts (int-coerced)'
+    }
+}
+
+Describe 'New-RunnerConfigState' {
+    It 'seeds cache slots null and knobs to defaults' {
+        $s = New-RunnerConfigState -CmdLineLogLevel 'Debug' -CycleDelaySecondsFallback 42
+        Assert-Equal -Expected 'Debug' -Actual $s.CmdLineLogLevel -Because 'cmdline level captured'
+        Assert-Equal -Expected 42      -Actual $s.CycleDelaySecondsFallback -Because 'fallback captured'
+        Assert-True ($null -eq $s.CachedConfigMtime) 'mtime cache empty'
+        Assert-True ($null -eq $s.CachedConfigValue) 'value cache empty'
+        Assert-True ($null -eq $s.Config) 'config empty'
+        Assert-Equal -Expected 120 -Actual $s.VmStartTimeoutSeconds -Because 'knob default seeded'
+        Assert-Equal -Expected 42  -Actual $s.CycleDelaySeconds -Because 'CycleDelaySeconds seeded to fallback'
+    }
+}
+
+Describe 'Sync-RunnerCycleConfig' {
+    It 'resolves knobs from a real file and mutates $State by reference' {
+        $yaml = "testCycle:`n  stopOnFailure: true`n  cycleDelaySeconds: 55`nvmStart:`n  startTimeoutSeconds: 300`n  bootDelaySeconds: 20`nvmImage:`n  refreshSeconds: 12`n"
+        $p = New-TempConfigFile -Content $yaml
+        try {
+            $s = New-RunnerConfigState -CmdLineLogLevel $null -CycleDelaySecondsFallback 30
+            $alias = $s   # second reference to prove by-reference mutation (the scope-collapse guard)
+            $status = Sync-RunnerCycleConfig -State $s -ConfigPath $p
+            Assert-Equal -Expected 'resolved' -Actual $status -Because 'parsed + dict -> resolved'
+            Assert-Equal -Expected $true -Actual $s.StopOnFailure -Because 'StopOnFailure mirrored'
+            Assert-Equal -Expected 300   -Actual $s.VmStartTimeoutSeconds -Because 'VmStartTimeoutSeconds mirrored'
+            Assert-Equal -Expected 20    -Actual $s.VmBootDelaySeconds -Because 'VmBootDelaySeconds mirrored'
+            Assert-Equal -Expected 12    -Actual $s.GetImageRefreshSeconds -Because 'GetImageRefreshSeconds mirrored'
+            Assert-Equal -Expected 55    -Actual $s.CycleDelaySeconds -Because 'CycleDelaySeconds mirrored'
+            Assert-Equal -Expected 300   -Actual $alias.VmStartTimeoutSeconds -Because 'the other reference sees the same mutation'
+        } finally { Remove-Item $p -Force -ErrorAction SilentlyContinue }
+    }
+    It 'returns the cached Config object on an unchanged file (no re-parse)' {
+        $yaml = "vmStart:`n  startTimeoutSeconds: 150`n"
+        $p = New-TempConfigFile -Content $yaml
+        try {
+            $s = New-RunnerConfigState -CmdLineLogLevel $null -CycleDelaySecondsFallback 30
+            $null = Sync-RunnerCycleConfig -State $s -ConfigPath $p
+            $first = $s.Config
+            $null = Sync-RunnerCycleConfig -State $s -ConfigPath $p   # unchanged mtime -> cache hit
+            $second = $s.Config
+            Assert-True ([object]::ReferenceEquals($first, $second)) 'unchanged file returns the same cached parse object'
+        } finally { Remove-Item $p -Force -ErrorAction SilentlyContinue }
+    }
+    It 'keeps previously resolved values and returns failed when a later read fails' {
+        $yaml = "vmStart:`n  startTimeoutSeconds: 175`n"
+        $p = New-TempConfigFile -Content $yaml
+        $s = New-RunnerConfigState -CmdLineLogLevel $null -CycleDelaySecondsFallback 30
+        $null = Sync-RunnerCycleConfig -State $s -ConfigPath $p
+        Assert-Equal -Expected 175 -Actual $s.VmStartTimeoutSeconds -Because 'resolved good value first'
+        $prevConfig = $s.Config
+        Remove-Item $p -Force -ErrorAction SilentlyContinue   # force a read failure on the next sync
+        $status = Sync-RunnerCycleConfig -State $s -ConfigPath $p
+        Assert-Equal -Expected 'failed' -Actual $status -Because 'read failure -> failed'
+        Assert-Equal -Expected 175 -Actual $s.VmStartTimeoutSeconds -Because 'knob kept at last-known-good'
+        Assert-True ([object]::ReferenceEquals($prevConfig, $s.Config)) 'Config kept (not wiped) on failure'
+    }
+    It 'returns failed on malformed YAML without throwing' {
+        $p = New-TempConfigFile -Content "vmStart: [unterminated"
+        try {
+            $s = New-RunnerConfigState -CmdLineLogLevel $null -CycleDelaySecondsFallback 30
+            $status = Sync-RunnerCycleConfig -State $s -ConfigPath $p -WarningAction SilentlyContinue
+            Assert-Equal -Expected 'failed' -Actual $status -Because 'malformed yaml -> failed'
+            Assert-True ($null -eq $s.Config) 'Config stays null when first parse fails'
+        } finally { Remove-Item $p -Force -ErrorAction SilentlyContinue }
+    }
+    It 'returns nondict when the parsed value is a scalar' {
+        $p = New-TempConfigFile -Content "just-a-scalar-string"
+        try {
+            $s = New-RunnerConfigState -CmdLineLogLevel $null -CycleDelaySecondsFallback 30
+            $status = Sync-RunnerCycleConfig -State $s -ConfigPath $p
+            Assert-Equal -Expected 'nondict' -Actual $status -Because 'scalar config -> nondict'
+        } finally { Remove-Item $p -Force -ErrorAction SilentlyContinue }
+    }
+}
+
+Describe 'Convert-LocalRepoUrlToPath' {
+    It 'maps file:// URLs and bare drive paths, rejects remote/empty' {
+        Assert-Equal -Expected 'c:\git\yuruna-project' -Actual (Convert-LocalRepoUrlToPath -Url 'file:///c:/git/yuruna-project') -Because 'file:// stripped'
+        Assert-Equal -Expected 'c:\git\yuruna' -Actual (Convert-LocalRepoUrlToPath -Url 'c:\git\yuruna') -Because 'drive path passes through'
+        Assert-True ($null -eq (Convert-LocalRepoUrlToPath -Url 'https://github.com/x/y')) 'remote url -> null'
+        Assert-True ($null -eq (Convert-LocalRepoUrlToPath -Url '')) 'empty -> null'
+    }
+}
+
+Describe 'Assert-CachingProxyServiceStillReachable' {
+    It 'no-ops without warning on an empty or non-http URL' {
+        $out = @()
+        $out += Assert-CachingProxyServiceStillReachable -ProxyUrl '' -StepName 'New-VM' -GuestKey 'g' 3>&1
+        $out += Assert-CachingProxyServiceStillReachable -ProxyUrl 'not-a-url' -StepName 'New-VM' -GuestKey 'g' 3>&1
+        $warnings = @($out | Where-Object { $_ -is [System.Management.Automation.WarningRecord] })
+        Assert-Equal -Expected 0 -Actual $warnings.Count -Because 'no warnings on the no-op paths'
+    }
+    It 'warns when the proxy URL does not answer (1s probe to TEST-NET-1)' {
+        $out = Assert-CachingProxyServiceStillReachable -ProxyUrl 'http://192.0.2.1:3128' -StepName 'New-VM' -GuestKey 'g' 3>&1
+        $warnings = @($out | Where-Object { $_ -is [System.Management.Automation.WarningRecord] })
+        Assert-True ($warnings.Count -ge 1) 'unreachable proxy surfaces a warning'
+    }
+}
+
+Describe 'Write-InnerLog' {
+    It 'appends an [inner]-tagged line to outer.log under YURUNA_RUNTIME_DIR' {
+        $d = Join-Path ([System.IO.Path]::GetTempPath()) ("yrn-il-" + [guid]::NewGuid().ToString('N'))
+        $null = New-Item -ItemType Directory -Path $d
+        $old = $env:YURUNA_RUNTIME_DIR
+        $env:YURUNA_RUNTIME_DIR = $d
+        try {
+            Write-InnerLog 'hello-innerlog-test'
+            $log = Join-Path $d 'outer.log'
+            Assert-True (Test-Path $log) 'outer.log created'
+            Assert-True ([bool]((Get-Content $log -Raw) -match '\[inner\] hello-innerlog-test')) 'line is [inner]-tagged and present'
+        } finally {
+            $env:YURUNA_RUNTIME_DIR = $old
+            Remove-Item -LiteralPath $d -Recurse -Force -ErrorAction SilentlyContinue
+        }
+    }
+}
+
+Describe 'Inner-cycle child-script import discipline' {
+    # Regression guard for the eviction class: scripts the inner cycle &-invokes
+    # from inside the Test.RunnerInnerLoop module must import the host contract /
+    # driver with -Global, or a -Force import pulls it out of the global table
+    # and a later contract call from a foreign module (Invoke-Sequence) fails.
+    # AST-based so here-string content (the detached status-service child) is not
+    # mis-scanned -- only real Import-Module calls are checked.
+    It 'host-contract/driver -Force imports in the &-invoked cycle scripts use -Global' {
+        $testRoot = Split-Path -Parent $here
+        foreach ($rel in @('Remove-TestVMFiles.ps1', 'service/Start-StatusService.ps1')) {
+            $path = Join-Path $testRoot $rel
+            $name = Split-Path -Leaf $rel
+            Assert-True (Test-Path $path) "cycle script exists: $name"
+            $ast = [System.Management.Automation.Language.Parser]::ParseFile($path, [ref]$null, [ref]$null)
+            $imports = $ast.FindAll({ param($n)
+                $n -is [System.Management.Automation.Language.CommandAst] -and $n.GetCommandName() -eq 'Import-Module' }, $true)
+            foreach ($imp in $imports) {
+                $text = $imp.Extent.Text
+                if (($text -match 'Test\.HostContract|Yuruna\.Host') -and ($text -match '-Force')) {
+                    Assert-True ($text -match '-Global') "$name : host-contract/driver -Force import must use -Global -> $text"
+                }
+            }
+        }
+    }
+}
+
+Describe 'gitCommits array-shape (double-wrap regression guard)' {
+    # New-CycleGitCommitList returns its list via a unary comma (`return ,$list`)
+    # so a one-element list does not unroll -- the helper already hands back an
+    # array. The status doc's gitCommits must be a FLAT array of {sha,repoUrl}
+    # ([{...},{...}]); a nested array ([[{...}]]) is rejected by the status schema
+    # reader and by the pool-aggregator service (json: cannot unmarshal array into the
+    # gitCommits struct), which then cannot parse the whole status.json and drops
+    # the host from the pool view. Guards the array-double-wrap trap class.
+    It 'New-CycleGitCommitList assigned directly yields a flat array of {sha,repoUrl}' {
+        InModuleScope Test.RunnerInnerLoop {
+            $list = New-CycleGitCommitList -GitCommit 'aaaa111' -FrameworkUrl 'https://f/x' `
+                -ProjectGitCommit 'bbbb222' -ProjectUrl 'https://p/y'
+            if (@($list).Count -ne 2) { throw "expected 2 commits, got $(@($list).Count)" }
+            if ($null -eq $list[0].sha) { throw 'element 0 is not a {sha,...} object (nested/double-wrapped)' }
+            if ($list[0].sha -ne 'aaaa111') { throw "framework sha wrong: $($list[0].sha)" }
+        }
+    }
+    It 'one-element list (framework only) stays an array, not a bare dict' {
+        InModuleScope Test.RunnerInnerLoop {
+            $list = New-CycleGitCommitList -GitCommit 'aaaa111' -FrameworkUrl 'https://f/x' `
+                -ProjectGitCommit $null -ProjectUrl $null
+            if (@($list).Count -ne 1) { throw "expected 1 commit, got $(@($list).Count)" }
+            if ($null -eq $list[0].sha) { throw 'element 0 is not a {sha,...} object' }
+        }
+    }
+    It 'the call site assigns the helper directly, never wrapped in @() (the trap)' {
+        $src = Get-Content -LiteralPath (Join-Path $here 'Test.RunnerInnerLoop.psm1') -Raw
+        Assert-True ($src -match '\$GitCommitsList\s*=\s*New-CycleGitCommitList') `
+            'the call site must assign New-CycleGitCommitList directly'
+        Assert-True (-not ($src -match '=\s*@\(\s*New-CycleGitCommitList')) `
+            'New-CycleGitCommitList must NOT be wrapped in @() -- that double-wraps gitCommits to [[...]]'
+    }
+    It 'the call site passes the web-resolved project URL, not the raw configured value' {
+        # repositories.projectUrl may be a local clone path or an ssh remote --
+        # valid clone sources a browser cannot open. The status page and pool
+        # dashboard only link http(s) repoUrl values, so the call site must hand
+        # New-CycleGitCommitList the Resolve-GitRepositoryWebUrl output (which
+        # falls back to the raw value when nothing resolves) or the project
+        # commit renders unlinked on every status surface.
+        $src = Get-Content -LiteralPath (Join-Path $here 'Test.RunnerInnerLoop.psm1') -Raw
+        Assert-True ($src -match 'Resolve-GitRepositoryWebUrl\s+-Url\s+\$projUrl') `
+            'the runner must resolve repositories.projectUrl to a web URL for the commit link'
+        Assert-True ($src -match '-ProjectUrl\s+\$projLinkUrl') `
+            'New-CycleGitCommitList must receive the resolved $projLinkUrl'
+        Assert-True (-not ($src -match '-ProjectGitCommit\s+\$ProjectGitCommit\s+-ProjectUrl\s+\$projUrl\b')) `
+            'the raw $projUrl must not reach New-CycleGitCommitList directly'
+    }
+}
+
+Describe 'Cycle VM naming strategy (one naming prefix vs many sweep prefixes)' {
+    # Composing a VM name takes exactly ONE prefix; sweeping disposable VMs
+    # matches MANY. Feeding the sweep list to the name composer binds a
+    # [string[]] to a [string] parameter, which an advanced function refuses
+    # ("Cannot process argument transformation on parameter 'Prefix'. Cannot
+    # convert value to type System.String") -- a simple function would silently
+    # join the entries with a space instead and mis-name every guest. Either way
+    # the cycle dies before its first guest, and ANY config whose
+    # vmStart.cleanupVmNamePrefixes adds a second prefix reaches that state.
+    It 'keeps Prefix a single string while SweepPrefixes carries every disposable prefix' {
+        InModuleScope Test.RunnerInnerLoop {
+            $cfg = @{ vmStart = @{
+                testVmNamePrefix      = 'test-'
+                cleanupVmNamePrefixes = @('amisad-', 'test-')
+            } }
+            $strategy = Resolve-CycleVmNamingStrategy -Config $cfg -IsPoolCycle $false -HostId ''
+            if ($strategy.Prefix -isnot [string]) {
+                throw "Prefix must be a single string, got [$($strategy.Prefix.GetType().Name)]"
+            }
+            if ($strategy.Prefix -ne 'test-') { throw "naming prefix wrong: $($strategy.Prefix)" }
+            $sweep = @($strategy.SweepPrefixes)
+            # Two, not three: the sweep set always carries the naming prefix and
+            # de-duplicates, so the 'test-' repeated in cleanupVmNamePrefixes
+            # collapses into the one contributed by testVmNamePrefix.
+            if ($sweep.Count -ne 2) { throw "expected 2 sweep prefixes, got $($sweep.Count): $($sweep -join ',')" }
+            if ($sweep -notcontains 'amisad-') { throw 'the project prefix must stay in the sweep set' }
+        }
+    }
+    It 'composes the VM name map when several cleanup prefixes are configured' {
+        InModuleScope Test.RunnerInnerLoop {
+            $cfg = @{ vmStart = @{
+                testVmNamePrefix      = 'test-'
+                cleanupVmNamePrefixes = @('amisad-', 'test-')
+            } }
+            $strategy = Resolve-CycleVmNamingStrategy -Config $cfg -IsPoolCycle $false -HostId ''
+            $map = New-CycleVmNameMap -GuestList @('ubuntu2404') -Prefix $strategy.Prefix -HostId $strategy.PoolHostId
+            if ($map['ubuntu2404'] -ne 'test-ubuntu2404-01') {
+                throw "expected 'test-ubuntu2404-01', got '$($map['ubuntu2404'])'"
+            }
+        }
+    }
+    It 'the sweep call sites receive the sweep list, not the naming prefix' {
+        $src = Get-Content -LiteralPath (Join-Path $here 'Test.RunnerInnerLoop.psm1') -Raw
+        Assert-True ($src -match 'Remove-CycleStartOrphanVM\s+-TestRoot\s+\$TestRoot\s+-Prefix\s+\$_sweepPrefixes') `
+            'the cycle-start sweep must get every disposable prefix, not just the naming one'
+        Assert-True ($src -match 'Remove-CycleTeardownOrphanVM\s+.*-Prefix\s+\$_sweepPrefixes') `
+            'the teardown sweep must get every disposable prefix, not just the naming one'
+        Assert-True ($src -match 'New-CycleVmNameMap\s+-GuestList\s+\$GuestList\s+-Prefix\s+\$Prefix\b') `
+            'the name composer must get the single naming prefix, never the sweep list'
+    }
+}
+
+Describe 'Get-GitHubConnectivityDiagnostic' {
+    # The DNS/TCP probe lifted out of the git-pull-failure path. It does real
+    # network I/O, so the guard is on the STABLE contract shape (three typed
+    # keys) -- true both online (DnsOk/TcpOk true, empty Message) and offline
+    # (false + a message), so the assertion is network-independent.
+    It 'returns a hashtable with typed DnsOk/TcpOk/Message' {
+        InModuleScope Test.RunnerInnerLoop {
+            $r = Get-GitHubConnectivityDiagnostic
+            if ($r -isnot [hashtable]) { throw "expected hashtable, got $($r.GetType().Name)" }
+            foreach ($k in 'DnsOk', 'TcpOk', 'Message') {
+                if (-not $r.ContainsKey($k)) { throw "missing key: $k" }
+            }
+            if ($r.DnsOk -isnot [bool]) { throw 'DnsOk not [bool]' }
+            if ($r.TcpOk -isnot [bool]) { throw 'TcpOk not [bool]' }
+            if ($null -eq $r.Message) { throw 'Message is null' }
+            # Message is empty only when both probes pass; non-empty otherwise.
+            if (($r.DnsOk -and $r.TcpOk) -and $r.Message -ne '') { throw "Message should be empty on success: '$($r.Message)'" }
+            if ((-not ($r.DnsOk -and $r.TcpOk)) -and $r.Message -eq '') { throw 'Message should describe the failing probe' }
+        }
+    }
+}
+
+Describe 'Write-CycleInfraFailure' {
+    # See https://yuruna.link/42e220c4-0014
+    # Global builder stubs must resolve from the module before an infra record is written.
+    It 'resolves the -Global builders from module scope and writes last_failure.json' {
+        $tmp = Join-Path ([IO.Path]::GetTempPath()) ("yrn-infra-" + [guid]::NewGuid().ToString('N'))
+        New-Item -ItemType Directory -Path $tmp -Force | Out-Null
+        $oldLogDir = $env:YURUNA_LOG_DIR
+        $env:YURUNA_LOG_DIR = $tmp
+        $global:__yrnInfraEventSent = $false
+        # Each stub mirrors the signature of the -Global builder Write-CycleInfraFailure
+        # binds by name; a parameter cannot be dropped just because this body ignores it.
+        function global:New-InfraFailureRecord {
+            [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter', '',
+                Justification = 'Stub mirrors the -Global builder signature Write-CycleInfraFailure binds by name; the test asserts only on the fields it does thread through.')]
+            param($Stage, $FailureClass, $Severity, $GuestKey, $VMName, $HostType, $ErrorMessage)
+            @{ File  = [ordered]@{ stage = $Stage; failureClass = $FailureClass; hostType = $HostType; errorMessage = $ErrorMessage }
+               Event = [ordered]@{ stage = $Stage } }
+        }
+        function global:Write-YurunaStateFile {
+            [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter', '',
+                Justification = 'Stub mirrors the -Global writer signature bound by name; -Confirm is part of that contract even though this stub writes unconditionally.')]
+            [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseSupportsShouldProcess', '',
+                Justification = '-Confirm is a plain pass-through switch in the real builder signature being mirrored; SupportsShouldProcess would add a real confirmation prompt and hang the unattended run.')]
+            param($Path, $Content, [switch]$Confirm)
+            [System.IO.File]::WriteAllText($Path, $Content); $Path
+        }
+        function global:Send-CycleEventSafely {
+            [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter', '',
+                Justification = 'Stub mirrors the -Global event-sink signature bound by name; the test asserts the call HAPPENED, not the record contents.')]
+            param($EventRecord)
+            $global:__yrnInfraEventSent = $true
+        }
+        function global:Set-LastFailureSummary {
+            [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter', '',
+                Justification = 'Stub mirrors the -Global summary-sink signature bound by name; it deliberately swallows the call so no summary file is written.')]
+            [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseSupportsShouldProcess', '',
+                Justification = '-Confirm is a plain pass-through switch in the real builder signature being mirrored; SupportsShouldProcess would add a real confirmation prompt and hang the unattended run.')]
+            param($FailureClass, $Severity, $SequenceName, $GuestKey, $StepName, $ErrorMessage, $VmName, [switch]$Confirm)
+        }
+        try {
+            InModuleScope Test.RunnerInnerLoop {
+                Write-CycleInfraFailure -Stage 'TestStage' -FailureClass 'test_class' -Severity 'hard' `
+                    -GuestKey '(gk)' -VMName '(vm)' -ErrorMessage 'boom' -HostType 'host.test'
+            }
+            $failFile = Join-Path $tmp 'last_failure.json'
+            if (-not (Test-Path -LiteralPath $failFile)) {
+                throw 'last_failure.json was NOT written: Write-CycleInfraFailure could not resolve the -Global builders (silent-failure regression).'
+            }
+            $doc = Get-Content -LiteralPath $failFile -Raw | ConvertFrom-Json
+            if ($doc.failureClass -ne 'test_class') { throw "failureClass not recorded: '$($doc.failureClass)'" }
+            if ($doc.hostType -ne 'host.test') { throw "HostType not threaded into the record: '$($doc.hostType)'" }
+            if (-not $global:__yrnInfraEventSent) { throw 'Send-CycleEventSafely was not invoked.' }
+        } finally {
+            Remove-Item function:New-InfraFailureRecord, function:global:Write-YurunaStateFile, function:global:Send-CycleEventSafely, function:global:Set-LastFailureSummary -ErrorAction SilentlyContinue
+            Remove-Variable -Name __yrnInfraEventSent -Scope Global -ErrorAction SilentlyContinue
+            if ($null -eq $oldLogDir) { Remove-Item Env:YURUNA_LOG_DIR -ErrorAction SilentlyContinue } else { $env:YURUNA_LOG_DIR = $oldLogDir }
+            Remove-Item -LiteralPath $tmp -Recurse -Force -ErrorAction SilentlyContinue
+        }
+    }
+    It 'is a no-op (never throws) when no record dir is resolvable' {
+        $oldLogDir = $env:YURUNA_LOG_DIR
+        Remove-Item Env:YURUNA_LOG_DIR -ErrorAction SilentlyContinue
+        $oldCycleFolder = $global:__YurunaCycleFolder
+        $global:__YurunaCycleFolder = $null
+        try {
+            InModuleScope Test.RunnerInnerLoop {
+                Write-CycleInfraFailure -Stage 'S' -FailureClass 'C' -HostType 'H'
+            }
+            # reaching here == did not throw
+        } finally {
+            if ($null -ne $oldLogDir) { $env:YURUNA_LOG_DIR = $oldLogDir }
+            $global:__YurunaCycleFolder = $oldCycleFolder
+        }
+    }
+    It 'every call site threads -HostType $HostType and the closure is gone' {
+        $src = Get-Content -LiteralPath (Join-Path $here 'Test.RunnerInnerLoop.psm1') -Raw
+        Assert-True (-not ($src -match '\$writeInfraFailure')) 'the $writeInfraFailure closure must be fully removed'
+        $calls = [regex]::Matches($src, 'Write-CycleInfraFailure\s+-Stage[^\r\n]*')
+        Assert-True ($calls.Count -ge 10) "expected >=10 Write-CycleInfraFailure call sites, found $($calls.Count)"
+        foreach ($c in $calls) {
+            Assert-True ($c.Value -match '-HostType \$HostType') "call site missing -HostType `$HostType: $($c.Value)"
+        }
+    }
+
+    # The record is written to the SHARED log root, which the next guest's first
+    # sequence start clears. On a host that runs several guests per cycle and
+    # does not stop at the first failure, that clear lands between the record and
+    # anything that reads it, so the write is only half the job: the copy in the
+    # cycle folder is the one that survives. The real mirror is used here rather
+    # than a stand-in, because what is under test is that the two compose.
+    It 'mirrors the record into the cycle folder, out of reach of the next sequence start' {
+        $tmp = Join-Path ([IO.Path]::GetTempPath()) ("yrn-mirror-" + [guid]::NewGuid().ToString('N'))
+        $cycle = Join-Path $tmp 'cycle'
+        New-Item -ItemType Directory -Path $cycle -Force | Out-Null
+        $oldLogDir = $env:YURUNA_LOG_DIR
+        $oldCycleFolder = $global:__YurunaCycleFolder
+        $env:YURUNA_LOG_DIR = $tmp
+        $global:__YurunaCycleFolder = $cycle
+        Import-Module (Join-Path $here 'Test.Log.psm1') -Force -Global -DisableNameChecking
+        function global:New-InfraFailureRecord {
+            [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter', '',
+                Justification = 'Stub mirrors the -Global builder signature Write-CycleInfraFailure binds by name; the test asserts only on the fields it does thread through.')]
+            param($Stage, $FailureClass, $Severity, $GuestKey, $VMName, $HostType, $ErrorMessage, $HostMemory)
+            @{ File  = [ordered]@{ stage = $Stage; guestKey = $GuestKey; failureClass = $FailureClass }
+               Event = [ordered]@{ stage = $Stage } }
+        }
+        function global:Write-YurunaStateFile {
+            [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter', '',
+                Justification = 'Stub mirrors the -Global writer signature bound by name; -Confirm is part of that contract even though this stub writes unconditionally.')]
+            [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseSupportsShouldProcess', '',
+                Justification = '-Confirm is a plain pass-through switch in the real builder signature being mirrored; SupportsShouldProcess would add a real confirmation prompt and hang the unattended run.')]
+            param($Path, $Content, [switch]$Confirm)
+            [System.IO.File]::WriteAllText($Path, $Content); $Path
+        }
+        function global:Send-CycleEventSafely {
+            [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter', '',
+                Justification = 'Stub mirrors the -Global event-sink signature bound by name; this test asserts on the files, not the stream.')]
+            param($EventRecord)
+        }
+        function global:Set-LastFailureSummary {
+            [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter', '',
+                Justification = 'Stub mirrors the -Global summary-sink signature bound by name; it deliberately swallows the call so no summary file is written.')]
+            [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseSupportsShouldProcess', '',
+                Justification = '-Confirm is a plain pass-through switch in the real builder signature being mirrored; SupportsShouldProcess would add a real confirmation prompt and hang the unattended run.')]
+            param($FailureClass, $Severity, $SequenceName, $GuestKey, $StepName, $ErrorMessage, $VmName, [switch]$Confirm)
+        }
+        try {
+            InModuleScope Test.RunnerInnerLoop {
+                Write-CycleInfraFailure -Stage 'Start-VM' -FailureClass 'provisioning_failure' -Severity 'hard' `
+                    -GuestKey 'guest.a' -VMName '(vm)' -ErrorMessage 'refused' -HostType 'host.test'
+            }
+            $root = Join-Path $tmp 'last_failure.json'
+            $mirror = Join-Path $cycle 'last_failure.json'
+            Assert-True (Test-Path -LiteralPath $root) 'the record must still be written to the log root the routing consumers read'
+            Assert-True (Test-Path -LiteralPath $mirror) 'the record must also reach the cycle folder, or a later sequence start erases the only copy'
+            Assert-Equal -Expected 'guest.a' -Actual ((Get-Content -Raw -LiteralPath $mirror | ConvertFrom-Json).guestKey) `
+                -Because 'the mirror must be this failure, not an empty file'
+        } finally {
+            Remove-Item function:New-InfraFailureRecord, function:global:Write-YurunaStateFile, function:global:Send-CycleEventSafely, function:global:Set-LastFailureSummary -ErrorAction SilentlyContinue
+            Remove-Module Test.Log -Force -ErrorAction SilentlyContinue
+            $global:__YurunaCycleFolder = $oldCycleFolder
+            if ($null -eq $oldLogDir) { Remove-Item Env:YURUNA_LOG_DIR -ErrorAction SilentlyContinue } else { $env:YURUNA_LOG_DIR = $oldLogDir }
+            Remove-Item -LiteralPath $tmp -Recurse -Force -ErrorAction SilentlyContinue
+        }
+    }
+
+    # The never-clobber rule has to extend to the mirror. A record already at the
+    # log root is the engine's own, richer one; the suppressed write must not
+    # reach past it and overwrite the copy in the cycle folder either, or the
+    # cycle keeps a poorer account of the same failure than it already had.
+    It 'leaves the cycle folder copy alone when the write is suppressed' {
+        $tmp = Join-Path ([IO.Path]::GetTempPath()) ("yrn-mirror-" + [guid]::NewGuid().ToString('N'))
+        $cycle = Join-Path $tmp 'cycle'
+        New-Item -ItemType Directory -Path $cycle -Force | Out-Null
+        $oldLogDir = $env:YURUNA_LOG_DIR
+        $oldCycleFolder = $global:__YurunaCycleFolder
+        $env:YURUNA_LOG_DIR = $tmp
+        $global:__YurunaCycleFolder = $cycle
+        Import-Module (Join-Path $here 'Test.Log.psm1') -Force -Global -DisableNameChecking
+        function global:New-InfraFailureRecord {
+            [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter', '',
+                Justification = 'Stub mirrors the -Global builder signature Write-CycleInfraFailure binds by name; this branch must never reach the writer at all.')]
+            param($Stage, $FailureClass, $Severity, $GuestKey, $VMName, $HostType, $ErrorMessage, $HostMemory)
+            @{ File = [ordered]@{ guestKey = 'guest.late' }; Event = [ordered]@{ stage = $Stage } }
+        }
+        function global:Write-YurunaStateFile {
+            [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter', '',
+                Justification = 'Stub mirrors the -Global writer signature bound by name; -Confirm is part of that contract even though this stub writes unconditionally.')]
+            [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseSupportsShouldProcess', '',
+                Justification = '-Confirm is a plain pass-through switch in the real builder signature being mirrored; SupportsShouldProcess would add a real confirmation prompt and hang the unattended run.')]
+            param($Path, $Content, [switch]$Confirm)
+            [System.IO.File]::WriteAllText($Path, $Content); $Path
+        }
+        function global:Send-CycleEventSafely {
+            [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter', '',
+                Justification = 'Stub mirrors the -Global event-sink signature bound by name; this test asserts on the files, not the stream.')]
+            param($EventRecord)
+        }
+        function global:Set-LastFailureSummary {
+            [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter', '',
+                Justification = 'Stub mirrors the -Global summary-sink signature bound by name; it deliberately swallows the call so no summary file is written.')]
+            [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseSupportsShouldProcess', '',
+                Justification = '-Confirm is a plain pass-through switch in the real builder signature being mirrored; SupportsShouldProcess would add a real confirmation prompt and hang the unattended run.')]
+            param($FailureClass, $Severity, $SequenceName, $GuestKey, $StepName, $ErrorMessage, $VmName, [switch]$Confirm)
+        }
+        try {
+            [System.IO.File]::WriteAllText((Join-Path $tmp 'last_failure.json'), '{"guestKey":"guest.engine"}')
+            [System.IO.File]::WriteAllText((Join-Path $cycle 'last_failure.json'), '{"guestKey":"guest.engine"}')
+            InModuleScope Test.RunnerInnerLoop {
+                Write-CycleInfraFailure -Stage 'Start-VM' -FailureClass 'provisioning_failure' `
+                    -GuestKey 'guest.late' -ErrorMessage 'later' -HostType 'host.test'
+            }
+            Assert-Equal -Expected 'guest.engine' -Actual ((Get-Content -Raw -LiteralPath (Join-Path $cycle 'last_failure.json') | ConvertFrom-Json).guestKey) `
+                -Because 'the richer record already in the cycle folder must survive a suppressed write'
+        } finally {
+            Remove-Item function:New-InfraFailureRecord, function:global:Write-YurunaStateFile, function:global:Send-CycleEventSafely, function:global:Set-LastFailureSummary -ErrorAction SilentlyContinue
+            Remove-Module Test.Log -Force -ErrorAction SilentlyContinue
+            $global:__YurunaCycleFolder = $oldCycleFolder
+            if ($null -eq $oldLogDir) { Remove-Item Env:YURUNA_LOG_DIR -ErrorAction SilentlyContinue } else { $env:YURUNA_LOG_DIR = $oldLogDir }
+            Remove-Item -LiteralPath $tmp -Recurse -Force -ErrorAction SilentlyContinue
+        }
+    }
+
+    # Only the driver that made the failing call can measure the machine at the
+    # instant it failed, so the stage has to carry that reading through rather
+    # than take one of its own, a teardown and several seconds later.
+    It 'forwards the driver reading to the record builder untouched' {
+        $tmp = Join-Path ([IO.Path]::GetTempPath()) ("yrn-hostmem-" + [guid]::NewGuid().ToString('N'))
+        New-Item -ItemType Directory -Path $tmp -Force | Out-Null
+        $oldLogDir = $env:YURUNA_LOG_DIR
+        $env:YURUNA_LOG_DIR = $tmp
+        $global:__yrnSeenHostMemory = 'not called'
+        function global:New-InfraFailureRecord {
+            [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter', '',
+                Justification = 'Stub mirrors the -Global builder signature Write-CycleInfraFailure binds by name; the test asserts only on the reading it records.')]
+            param($Stage, $FailureClass, $Severity, $GuestKey, $VMName, $HostType, $ErrorMessage, $HostMemory)
+            $global:__yrnSeenHostMemory = $HostMemory
+            @{ File = [ordered]@{ stage = $Stage }; Event = [ordered]@{ stage = $Stage } }
+        }
+        function global:Write-YurunaStateFile {
+            [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter', '',
+                Justification = 'Stub mirrors the -Global writer signature bound by name; -Confirm is part of that contract even though this stub writes unconditionally.')]
+            [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseSupportsShouldProcess', '',
+                Justification = '-Confirm is a plain pass-through switch in the real builder signature being mirrored; SupportsShouldProcess would add a real confirmation prompt and hang the unattended run.')]
+            param($Path, $Content, [switch]$Confirm)
+            [System.IO.File]::WriteAllText($Path, $Content); $Path
+        }
+        try {
+            InModuleScope Test.RunnerInnerLoop {
+                Write-CycleInfraFailure -Stage 'Start-VM' -FailureClass 'provisioning_failure' -GuestKey 'guest.a' `
+                    -VMName '(vm)' -ErrorMessage 'refused' -HostType 'host.test' `
+                    -HostMemory @{ availableMb = 1192; committedBytes = 46236958720; commitLimitBytes = 48257269760
+                                   commitAvailableBytes = 2020311040; source = 'Win32_OperatingSystem' }
+            }
+            Assert-True ($global:__yrnSeenHostMemory -is [hashtable]) "the builder must receive the reading; got: $($global:__yrnSeenHostMemory)"
+            Assert-Equal -Expected 48257269760 -Actual $global:__yrnSeenHostMemory['commitLimitBytes'] `
+                -Because 'the reading must arrive unaltered'
+        } finally {
+            Remove-Item function:New-InfraFailureRecord, function:global:Write-YurunaStateFile -ErrorAction SilentlyContinue
+            Remove-Variable -Name __yrnSeenHostMemory -Scope Global -ErrorAction SilentlyContinue
+            if ($null -eq $oldLogDir) { Remove-Item Env:YURUNA_LOG_DIR -ErrorAction SilentlyContinue } else { $env:YURUNA_LOG_DIR = $oldLogDir }
+            Remove-Item -LiteralPath $tmp -Recurse -Force -ErrorAction SilentlyContinue
+        }
+    }
+
+    # The KVM and UTM drivers return a start result with no hostMemory key at
+    # all. Under Set-StrictMode -Version Latest an absent key read as a PROPERTY
+    # is a terminating error, and this read happens on the failure path -- where
+    # it would replace the real failure with its own. The indexer is the form
+    # that survives, so the call site is pinned to it.
+    It 'reads the driver reading with the indexer, which an absent key survives' {
+        $src = Get-Content -LiteralPath (Join-Path $here 'Test.RunnerInnerLoop.psm1') -Raw
+        $call = [regex]::Match($src, "Complete-GuestStepFailure [^\r\n]*-StepName 'Start-VM'[^\r\n]*")
+        Assert-True $call.Success 'the Start-VM failure path must record through the shared failure tail'
+        Assert-True ($call.Value.Contains("-HostMemory `$r['hostMemory']")) `
+            "the Start-VM call site must index the reading out of the driver result: $($call.Value)"
+        $probe = & ([scriptblock]::Create(@'
+Set-StrictMode -Version Latest
+$result = @{ success = $false; errorMessage = 'boom' }
+$threw = $false
+try { $null = $result.hostMemory } catch { $threw = $true }
+@{ Indexed = $result['hostMemory']; PropertyThrew = $threw }
+'@))
+        Assert-Null $probe.Indexed 'the indexer answers null for a key a driver did not set'
+        Assert-True $probe.PropertyThrew 'the property form is what strict mode turns into a terminating error, which is why the indexer is required'
+    }
+}
+
+Describe 'last_failure.json writers mirror into the cycle folder' {
+    # The root copy is cleared at every sequence start, so a writer that does not
+    # mirror leaves a cycle with no record of the failure it had. That is a
+    # whole-file rule rather than a property of any one writer, and a new writer
+    # added without the mirror would reintroduce the loss silently -- so it is
+    # asserted over the source of both modules that write the record.
+    It 'follows every record write with a mirror' {
+        $modules = @('Test.SequenceEngine.psm1', 'Test.RunnerInnerLoop.psm1')
+        $writers = 0
+        $offenders = [Collections.Generic.List[string]]::new()
+        foreach ($module in $modules) {
+            $lines = Get-Content -LiteralPath (Join-Path $here $module)
+            for ($i = 0; $i -lt $lines.Count; $i++) {
+                $call = [regex]::Match($lines[$i], 'Write-YurunaStateFile\s+-Path\s+(?<target>\$\w+|\(Join-Path[^)]*\))')
+                if (-not $call.Success) { continue }
+                $target = $call.Groups['target'].Value
+                if ($target -notmatch 'last_failure\.json') {
+                    # A variable target: read it back to the assignment that named the file.
+                    $assignment = $null
+                    for ($j = $i; $j -ge 0; $j--) {
+                        if ($lines[$j] -match ('^\s*' + [regex]::Escape($target) + '\s*=')) { $assignment = $lines[$j]; break }
+                    }
+                    if (-not $assignment -or $assignment -notmatch 'last_failure\.json') { continue }
+                }
+                $writers++
+                $mirrored = $false
+                for ($k = $i + 1; $k -lt [Math]::Min($i + 13, $lines.Count); $k++) {
+                    if ($lines[$k] -match 'Copy-CycleFailureRecord') { $mirrored = $true; break }
+                }
+                if (-not $mirrored) { $offenders.Add("${module}:$($i + 1)  $($lines[$i].Trim())") }
+            }
+        }
+        Assert-True ($writers -ge 5) "expected the known last_failure.json writers, found $writers -- a rule matching nothing passes vacuously"
+        Assert-True ($offenders.Count -eq 0) @"
+these writes of last_failure.json are not followed by a mirror into the cycle
+folder, so the next sequence start erases the record they just made:
+$($offenders -join "`n")
+"@
+    }
+}
+
+Describe 'Invoke-RunnerBootstrapFailureGate (shared bootstrap-failure gating)' {
+    # The GitPull + ProjectClone failure paths shared this consecutive-failure
+    # notification gating verbatim. It is the operator-facing alert path, so these
+    # tests stub Send-CycleFailureNotification (no real email) and assert the counter
+    # math + the armed/threshold/disarm rule across every branch -- a regression in
+    # WHEN alerts fire would fail loudly here. The helper mutates the passed gating
+    # bag in place; | Out-Null discards its console lines (the mutation is the contract).
+    It 'sends one notification when armed and the count reaches the threshold, then disarms' {
+        $global:__gateNotifyCount = 0; $global:__gateNotifyArgs = $null
+        # Mirrors the operator-alert signature the gate binds by name; the stub records the
+        # subset the assertions read, but every parameter must stay for the call to bind.
+        function global:Send-CycleFailureNotification {
+            [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter', '',
+                Justification = 'Stub mirrors the Send-CycleFailureNotification signature the gate binds by name; only the recorded subset is asserted, but dropping a parameter breaks the call.')]
+            param($HostType, $SubjectSuffix, $GuestKey, $StepName, $ErrorMessage, $CycleStartUtc, $GitCommit, $DefaultFailureClass, $DefaultSeverity)
+            $global:__gateNotifyCount++
+            $global:__gateNotifyArgs = @{ SubjectSuffix = $SubjectSuffix; FailureClass = $DefaultFailureClass; ErrorMessage = $ErrorMessage; GitCommit = $GitCommit }
+        }
+        try {
+            InModuleScope Test.RunnerInnerLoop {
+                $bag = @{ ConsecutiveFailures = 2; ConsecutiveSuccesses = 5; AlertArmed = $true; FailuresBeforeAlert = 3; SuccessesBeforeRearm = 2 }
+                Invoke-RunnerBootstrapFailureGate -GatingState $bag -Stage 'GitPull' -ErrorMessage 'boom' -GitCommit 'abc123' -FailureClass 'network_timeout' -HostType 'host.test' | Out-Null
+                if ($bag.ConsecutiveFailures -ne 3) { throw "ConsecutiveFailures not bumped: $($bag.ConsecutiveFailures)" }
+                if ($bag.ConsecutiveSuccesses -ne 0) { throw "ConsecutiveSuccesses not reset: $($bag.ConsecutiveSuccesses)" }
+                if ($bag.AlertArmed -ne $false) { throw 'AlertArmed must disarm after sending' }
+            }
+            if ($global:__gateNotifyCount -ne 1) { throw "expected 1 notification, got $($global:__gateNotifyCount)" }
+            if ($global:__gateNotifyArgs.SubjectSuffix -ne 'GitPull') { throw "wrong SubjectSuffix: $($global:__gateNotifyArgs.SubjectSuffix)" }
+            if ($global:__gateNotifyArgs.FailureClass -ne 'network_timeout') { throw "wrong FailureClass: $($global:__gateNotifyArgs.FailureClass)" }
+        } finally {
+            Remove-Item function:Send-CycleFailureNotification -ErrorAction SilentlyContinue
+            Remove-Variable __gateNotifyCount, __gateNotifyArgs -Scope Global -ErrorAction SilentlyContinue
+        }
+    }
+    It 'suppresses the notification below the threshold but still bumps counters' {
+        $global:__gateNotifyCount = 0
+        function global:Send-CycleFailureNotification {
+            [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter', '',
+                Justification = 'Stub mirrors the Send-CycleFailureNotification signature the gate binds by name; this case asserts only the call COUNT, but dropping a parameter breaks the call.')]
+            param($HostType, $SubjectSuffix, $GuestKey, $StepName, $ErrorMessage, $CycleStartUtc, $GitCommit, $DefaultFailureClass, $DefaultSeverity)
+            $global:__gateNotifyCount++
+        }
+        try {
+            InModuleScope Test.RunnerInnerLoop {
+                $bag = @{ ConsecutiveFailures = 0; ConsecutiveSuccesses = 3; AlertArmed = $true; FailuresBeforeAlert = 3; SuccessesBeforeRearm = 2 }
+                Invoke-RunnerBootstrapFailureGate -GatingState $bag -Stage 'ProjectClone' -ErrorMessage 'x' -GitCommit $null -FailureClass 'bootstrap_sync' -HostType 'h' | Out-Null
+                if ($bag.ConsecutiveFailures -ne 1) { throw "ConsecutiveFailures: $($bag.ConsecutiveFailures)" }
+                if ($bag.ConsecutiveSuccesses -ne 0) { throw "ConsecutiveSuccesses: $($bag.ConsecutiveSuccesses)" }
+                if ($bag.AlertArmed -ne $true) { throw 'AlertArmed must stay armed below threshold' }
+            }
+            if ($global:__gateNotifyCount -ne 0) { throw "expected 0 notifications below threshold, got $($global:__gateNotifyCount)" }
+        } finally {
+            Remove-Item function:Send-CycleFailureNotification -ErrorAction SilentlyContinue
+            Remove-Variable __gateNotifyCount -Scope Global -ErrorAction SilentlyContinue
+        }
+    }
+    It 'does not notify when disarmed even at/above threshold' {
+        $global:__gateNotifyCount = 0
+        function global:Send-CycleFailureNotification {
+            [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter', '',
+                Justification = 'Stub mirrors the Send-CycleFailureNotification signature the gate binds by name; this case asserts only the call COUNT, but dropping a parameter breaks the call.')]
+            param($HostType, $SubjectSuffix, $GuestKey, $StepName, $ErrorMessage, $CycleStartUtc, $GitCommit, $DefaultFailureClass, $DefaultSeverity)
+            $global:__gateNotifyCount++
+        }
+        try {
+            InModuleScope Test.RunnerInnerLoop {
+                $bag = @{ ConsecutiveFailures = 9; ConsecutiveSuccesses = 0; AlertArmed = $false; FailuresBeforeAlert = 3; SuccessesBeforeRearm = 2 }
+                Invoke-RunnerBootstrapFailureGate -GatingState $bag -Stage 'GitPull' -ErrorMessage 'y' -GitCommit 'c' -FailureClass 'network_timeout' -HostType 'h' | Out-Null
+                if ($bag.ConsecutiveFailures -ne 10) { throw "ConsecutiveFailures: $($bag.ConsecutiveFailures)" }
+                if ($bag.AlertArmed -ne $false) { throw 'AlertArmed must stay disarmed' }
+            }
+            if ($global:__gateNotifyCount -ne 0) { throw "expected 0 notifications when disarmed, got $($global:__gateNotifyCount)" }
+        } finally {
+            Remove-Item function:Send-CycleFailureNotification -ErrorAction SilentlyContinue
+            Remove-Variable __gateNotifyCount -Scope Global -ErrorAction SilentlyContinue
+        }
+    }
+    It 'every pre-cycle failure site uses the shared helper; the inline gating blocks are gone' {
+        $src = Get-Content -LiteralPath (Join-Path $here 'Test.RunnerInnerLoop.psm1') -Raw
+        $callCount = ([regex]::Matches($src, 'Invoke-RunnerBootstrapFailureGate\s+-GatingState')).Count
+        # One per pre-cycle stage that can end the cycle before its first guest:
+        # HostCondition, GitPull, ProjectAccess, ProjectClone. A deliberate
+        # golden -- bump it when a stage is added or removed, so a site that
+        # quietly re-inlines its own gating shows up here.
+        Assert-True ($callCount -eq 4) "expected 4 Invoke-RunnerBootstrapFailureGate call sites, found $callCount"
+        Assert-True (-not ($src -match "-SubjectSuffix\s+'GitPull'")) 'inline GitPull notification block must be gone (helper uses -SubjectSuffix $Stage)'
+        Assert-True (-not ($src -match "-SubjectSuffix\s+'ProjectClone'")) 'inline ProjectClone notification block must be gone'
+    }
+}
+
+Describe 'Inner-cycle control-flow shape (guest dispatch + single-pass invariant)' {
+    # The cycle body runs once via do{...}while($false); the per-guest work is a named
+    # helper (Invoke-GuestProvisionIteration) dispatched from a thin foreach. These
+    # counts are a deliberate golden -- bump them CONSCIOUSLY when adding/removing an
+    # early exit or a step-failure arm. The helper signals the caller through
+    # $IterState.Control instead of a break/continue that would (wrongly) return from
+    # the whole cycle; these assertions pin that discipline.
+    It 'runs the cycle body once via do{...}while($false): 16 unlabeled breaks, 0 continues' {
+        # Three of the sixteen are the host-refresh gate sites (cycle start,
+        # before the pull, before the cycle-start VM sweep): each ends the
+        # cycle before any change while a host refresh holds the runner.
+        $f = Get-InnerCycleControlFlow -Psm1Path (Join-Path $here 'Test.RunnerInnerLoop.psm1')
+        Assert-True ($f.DoWhileBreaks -eq 16) "do/while must have 16 break arms, found $($f.DoWhileBreaks)"
+        Assert-True ($f.DoWhileContinues -eq 0) "do/while must have 0 continue arms (a continue would re-run the single-pass body), found $($f.DoWhileContinues)"
+        Assert-True ($f.LabeledFlow -eq 0) "inner cycle must have 0 labeled break/continue, found $($f.LabeledFlow)"
+    }
+    It 'guest work dispatches to Invoke-GuestProvisionIteration via a 1-break + 2-continue foreach' {
+        $f = Get-InnerCycleControlFlow -Psm1Path (Join-Path $here 'Test.RunnerInnerLoop.psm1')
+        Assert-True ($f.DispatchBreaks -eq 1) "dispatch foreach must have exactly 1 break, found $($f.DispatchBreaks)"
+        # Two continues: the quarantine circuit-breaker skip-gate at the top of the
+        # foreach, and the $IterState.Control -eq 'continue' relay after the iteration.
+        Assert-True ($f.DispatchContinues -eq 2) "dispatch foreach must have exactly 2 continue, found $($f.DispatchContinues)"
+    }
+    It 'the extracted iteration signals via $IterState.Control, never a loop escape' {
+        $f = Get-InnerCycleControlFlow -Psm1Path (Join-Path $here 'Test.RunnerInnerLoop.psm1')
+        Assert-True ($f.HelperLoopBreaks -eq 0) "iteration must contain 0 break statements (escapes route through `$IterState.Control), found $($f.HelperLoopBreaks)"
+        Assert-True ($f.HelperLoopContinues -eq 0) "iteration must contain 0 continue statements, found $($f.HelperLoopContinues)"
+        Assert-True ($f.HelperReturns -eq 9) "iteration must have 9 signaled returns (1 shutdown + 1 skip + 6 delegated step failures + 1 cleanup-hazard), found $($f.HelperReturns)"
+        Assert-True ($f.HelperControlSets -eq 4) "iteration directly sets `$IterState.Control four times and delegates six failure exits, found $($f.HelperControlSets)"
+    }
+}
+
+Describe 'Inner-cycle status-document lifetime (the orchestration-cycle window)' {
+    # The status document lives in Test.Status module state, so the -Force
+    # re-import that propagates a mid-run `git pull` discards it. A per-guest
+    # cycle rebuilds it a few regions later at Initialize-StatusDocument; a cycle
+    # whose top-level is an orchestration sequence skips that block entirely and
+    # would run every status write -- infra-failure records included -- against no
+    # document until the orchestrator installs its own. These two guards pin the
+    # rebuild and the empty-guest-list gate that go with it; both are invisible to
+    # a green per-guest cycle, so only source text can hold them in place.
+    It 'rebuilds the status document after the per-cycle module re-import and before the first status write' {
+        # Position math, not a (?s) regex: the cycle-start Reset also matches the
+        # call text, so only "which one comes after the re-import" distinguishes
+        # the rebuild from it.
+        $src      = Get-Content -LiteralPath (Join-Path $here 'Test.RunnerInnerLoop.psm1') -Raw
+        $reimport = $src.IndexOf('Update-CycleModuleImport -RepoRoot')
+        Assert-True ($reimport -ge 0) 'the per-cycle module re-import call must be present'
+        $rebuild  = $src.IndexOf('Reset-StatusDocumentForCycleStart -StatusFilePath $StatusFile', $reimport)
+        $stamp    = $src.IndexOf('Set-LastGetImageTime', $reimport)
+        Assert-True ($rebuild -gt $reimport) `
+            'the re-import must be followed by a Reset-StatusDocumentForCycleStart, or the rest of the cycle mutates no document'
+        Assert-True ($stamp -gt $rebuild) `
+            'the rebuild must precede the first status mutator the cycle reaches'
+    }
+    It 'stamps the Get-Image refresh window only when the cycle actually had guests' {
+        $src = Get-Content -LiteralPath (Join-Path $here 'Test.RunnerInnerLoop.psm1') -Raw
+        Assert-True ($src -match 'if\s*\(\s*\$OverallPassed\s+-and\s+\$GuestList\.Count\s+-gt\s+0\s*\)') `
+            'Set-LastGetImageTime must be gated on a non-empty guest list'
+        Assert-True ($src -notmatch 'if\s*\(\s*\$OverallPassed\s*\)\s*\{\s*\r?\n\s*Set-LastGetImageTime') `
+            'an ungated stamp opens a fresh refresh window for images an orchestration cycle never fetched'
+    }
+}
+
+Describe 'Inner-cycle guest-iteration failure-path invariants (carry-back + artifact copy)' {
+    # See https://yuruna.link/42e220c4-0014
+    # Verify config carry-back on throws and artifact capture before stopOnFailure.
+    It 'the iteration re-reads $StopOnFailure after every per-step Sync (fresh stop-guard)' {
+        $f = Get-InnerCycleControlFlow -Psm1Path (Join-Path $here 'Test.RunnerInnerLoop.psm1')
+        Assert-True ($f.HelperSyncCount -ge 6) "expected >=6 per-step Sync-RunnerStepConfig in the iteration, found $($f.HelperSyncCount)"
+        Assert-True ($f.HelperStopReads -eq ($f.HelperSyncCount + 1)) "iteration must re-read `$StopOnFailure once per Sync plus the entry init (Sync=$($f.HelperSyncCount), reads=$($f.HelperStopReads))"
+        Assert-True ($f.HelperConfigReads -eq 0) "iteration must NOT keep a `$Config mirror -- `$Config carries back to the caller via the shared `$cfg (found $($f.HelperConfigReads))"
+    }
+    It 'cycle state carries back to caller scope after the iteration (pass + throw paths)' {
+        $f = Get-InnerCycleControlFlow -Psm1Path (Join-Path $here 'Test.RunnerInnerLoop.psm1')
+        Assert-True ($f.CallerConfigRehydrate -ge 1) "dispatcher must re-read `$Config from `$cfg after the iteration, found $($f.CallerConfigRehydrate)"
+        Assert-True ($f.CallerFailureRehydrate -eq 4) "dispatcher must carry back the 4 failure fields from the iteration bag, found $($f.CallerFailureRehydrate)"
+    }
+    It 'failure artifacts are copied before every stopOnFailure return (both paths)' {
+        $ast = [Management.Automation.Language.Parser]::ParseFile((Join-Path $here 'Test.RunnerInnerLoop.psm1'), [ref]$null, [ref]$null)
+        $iteration = $ast.Find({param($n) $n -is [Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq 'Invoke-GuestProvisionIteration'}, $true)
+        $calls = @($iteration.FindAll({param($n) $n -is [Management.Automation.Language.CommandAst] -and $n.GetCommandName() -eq 'Complete-GuestStepFailure'}, $true))
+        Assert-Equal 6 $calls.Count 'each failed provision step delegates to the shared failure tail'
+        foreach ($stage in @('New-VM','Start-VM','Start-GuestOS','New-VM.Resource','Screenshots','Start-GuestWorkload')) {
+            Assert-Equal 1 @($calls | Where-Object { $_.Extent.Text -match ("-StepName '" + [regex]::Escape($stage) + "'") }).Count "one failure delegation for $stage"
+        }
+        $failure = $ast.Find({param($n) $n -is [Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq 'Complete-GuestStepFailure'}, $true).Extent.Text
+        $stopExit = $failure.LastIndexOf('if ($StopOnFailure)')
+        Assert-True ($failure.IndexOf('Set-DiagnosticVmPreservation') -lt $failure.IndexOf('Copy-FailureArtifactsToStatusLog')) 'arm durable preservation before diagnostic capture can fail'
+        Assert-True ($failure.IndexOf('Copy-FailureArtifactsToStatusLog') -lt $stopExit) 'copy evidence before either exit'
+        Assert-True ($stopExit -lt $failure.IndexOf('Remove-GuestVMQuietly')) 'leave the failed guest for stopOnFailure investigation'
+        Assert-True ($failure.Contains("`$IterState.Control = 'break'") -and $failure.Contains("`$IterState.Control = 'continue'")) 'both paths carry their control result back'
+    }
+}
+
+Describe 'Invoke-GuestProvisionIteration failure dispatch (runtime -- the paths a green cycle never hits)' {
+    # A green pool cycle never fails a step, so the break-vs-continue dispatch on a
+    # step failure runs ONLY here. This drives a New-VM failure through the real helper
+    # with its collaborators stubbed (host-contract commands are unresolved in a unit
+    # run, so global stubs resolve; the two module-internal collaborators that do real
+    # I/O are Mocked). It asserts the control signal, the carried-back failure fields,
+    # and the teardown asymmetry: stopOnFailure=true leaves the VM for
+    # investigation (pre-cleanup only), false tears it down before the next guest.
+    # The driver itself is Invoke-NewVmFailureIteration, defined at file scope above.
+    It 'New-VM failure + stopOnFailure=true signals break, carries the failure back, leaves the VM' {
+        $o = Invoke-NewVmFailureIteration -StopOnFailure $true
+        Assert-True ($o.Iter.Control -eq 'break') "expected Control=break, got $($o.Iter.Control)"
+        Assert-True ($o.Iter.OverallPassed -eq $false) 'OverallPassed must carry back false'
+        Assert-True ($o.Iter.FailedStep -eq 'New-VM') "FailedStep must be New-VM, got $($o.Iter.FailedStep)"
+        Assert-True ($o.Iter.FailedGuest -eq 'g1') "FailedGuest must be g1, got $($o.Iter.FailedGuest)"
+        Assert-True ($o.Rm -eq 1) "stopOnFailure=true must NOT tear down (pre-cleanup only); Remove-GuestVMQuietly calls=$($o.Rm)"
+    }
+    It 'New-VM failure + stopOnFailure=false signals continue and tears the VM down' {
+        $o = Invoke-NewVmFailureIteration -StopOnFailure $false
+        Assert-True ($o.Iter.Control -eq 'continue') "expected Control=continue, got $($o.Iter.Control)"
+        Assert-True ($o.Iter.OverallPassed -eq $false) 'OverallPassed must carry back false'
+        Assert-True ($o.Iter.FailedStep -eq 'New-VM') "FailedStep must be New-VM, got $($o.Iter.FailedStep)"
+        Assert-True ($o.Rm -eq 2) "stopOnFailure=false must tear down (pre-cleanup + post-fail); Remove-GuestVMQuietly calls=$($o.Rm)"
+    }
+}
+
+Describe 'Warm-resume restart point (call-site wiring)' {
+
+    # The pure rewind is covered in Test.WarmResume; what cannot be asserted
+    # there is that the runner actually USES it. Reverting the call site to the
+    # raw checkpoint leaves every warm-resume unit test green while quietly
+    # restoring the behavior the rewind exists to prevent -- replaying a failed
+    # step onto the residue it left -- so the wiring is pinned against the source.
+    It 'restarts the workload at the rewound step, not the recorded checkpoint' {
+        $src = Get-Content -LiteralPath (Join-Path $here 'Test.RunnerInnerLoop.psm1') -Raw
+        # The rewind is part of the replay plan every entry point shares; the call
+        # site asks the plan and restarts where the plan says.
+        Assert-True ($src -match 'Resolve-CycleReplayStep -Decision \$wrDec -Checkpoint \$wrCp') `
+            'the call site must consult the shared replay plan before restarting'
+        Assert-True ($src -match '\$wrStep\s+= \[int\]\$wrPlan\.ResumeFromStep') `
+            'the restart step must come from the plan'
+        Assert-True ($src -match '-ResumeFromSequence \$wrDec\.ResumeSequence -ResumeFromStep \$wrStep') `
+            'Start-GuestWorkload must restart at the planned step'
+        Assert-True (-not ($src -match '-ResumeFromSequence \$wrDec\.ResumeSequence -ResumeFromStep \(\[int\]\$wrCp\.ResumeFromStep\)')) `
+            'restarting straight from the checkpoint is the behavior the rewind replaces'
+        $plan = Get-Content -LiteralPath (Join-Path $here 'Test.WarmResume.psm1') -Raw
+        Assert-True ($plan -match 'Get-WarmResumeRewindStep') `
+            'the replay plan must consult the rewind'
+    }
+
+    It 'strips a .yml suffix before resolving, since the resolver appends its own' {
+        # A workload-list entry may carry the extension, and Get-WarmResumeDecision
+        # returns that entry verbatim. Resolve-SequencePath builds <name>.yml, so a
+        # suffixed name looks for <name>.yml.yml and resolves to nothing -- which is
+        # indistinguishable from a sequence that has no restore point, so the rewind
+        # would be dropped in silence rather than reported.
+        # The plan owns the stripping now, so the call site must hand it the entry
+        # verbatim and the plan must strip it before it resolves.
+        $src = Get-Content -LiteralPath (Join-Path $here 'Test.RunnerInnerLoop.psm1') -Raw
+        $plan = Get-Content -LiteralPath (Join-Path $here 'Test.WarmResume.psm1') -Raw
+        # Exact substrings, not a regex: the line being pinned is itself full of
+        # regex punctuation, and escaping it twice is how a guard ends up matching
+        # nothing and passing for the wrong reason.
+        Assert-True ($src.Contains('Resolve-CycleReplayStep -Decision $wrDec')) `
+            'the call site must pass the decision, with the list entry as it came, to the replay plan'
+        Assert-True ($plan.Contains('$sequenceName = [string]$Decision.ResumeSequence -replace')) `
+            'the resume sequence name must have its extension stripped before resolution'
+        Assert-True ($plan.Contains('-Name $sequenceName')) `
+            'the resolver must receive the stripped name, not the raw list entry'
+    }
+
+    It 'records the original checkpoint on the event so a replay is queryable' {
+        $src = Get-Content -LiteralPath (Join-Path $here 'Test.RunnerInnerLoop.psm1') -Raw
+        Assert-True ($src -match '-CheckpointStep \(\[int\]\$wrCp\.ResumeFromStep\)') `
+            'the event must carry the pre-rewind checkpoint, or replayed work is invisible in telemetry'
+    }
+}
+
+Describe 'The cycle reports the guest set it resolved, not the fallback key' {
+
+    # test.config.yml's guestSequence is read only when no plan resolves from
+    # test/test.runner.yml in the project repository, so a transcript that
+    # echoes the config and nothing else can name guests the cycle never ran.
+    # Two halves stop that, and both are pinned here: the guest set carries
+    # which input produced it, and the config echo states that input.
+
+    It 'names the plan as the source when one resolved' {
+        InModuleScope Test.RunnerInnerLoop {
+            # Stand-ins for the planner helpers, so this asserts the labeling
+            # rather than a second copy of the planner's own behavior.
+            function Get-CyclePlanGuestList { param($Plan) , @(@($Plan) | ForEach-Object { "guest.$_" }) }
+            function Get-CyclePlanSequenceList { param($Plan) , @(@($Plan) | ForEach-Object { [ordered]@{ name = "workload.$_"; guests = @("guest.$_") } }) }
+            $r = Get-CycleGuestAndSequenceList -PlannerFatal $false -CyclePlan @('one', 'two') -Config $null 6>$null
+            Assert-True ($r.Source -eq 'plan') "expected Source 'plan', got '$($r.Source)'"
+            Assert-True ((@($r.GuestList) -join ',') -eq 'guest.one,guest.two') 'the resolved plan must supply the guest list'
+            Assert-True (@($r.SequenceList).Count -eq 2) 'the resolved plan must supply the sequence list'
+        }
+    }
+
+    It 'names the fallback key as the source when no plan resolved' {
+        InModuleScope Test.RunnerInnerLoop {
+            $cfg = @{ guestSequence = @('guest.ubuntu.server.24') }
+            $r = Get-CycleGuestAndSequenceList -PlannerFatal $false -CyclePlan @() -Config $cfg
+            Assert-True ($r.Source -eq 'guestSequence') "expected Source 'guestSequence', got '$($r.Source)'"
+            Assert-True ((@($r.GuestList) -join ',') -eq 'guest.ubuntu.server.24') 'the fallback list must supply the guest list'
+        }
+    }
+
+    It 'names neither when the plan could not be resolved at all' {
+        InModuleScope Test.RunnerInnerLoop {
+            $r = Get-CycleGuestAndSequenceList -PlannerFatal $true -CyclePlan @('e1') -Config $null
+            Assert-True ($r.Source -eq 'none') "expected Source 'none', got '$($r.Source)'"
+            Assert-True (@($r.GuestList).Count -eq 0) 'a cycle with no plan runs no guest'
+        }
+    }
+
+    Context 'the config echo' {
+        BeforeAll {
+            $script:Cfg = Join-Path $TestDrive 'test.config.yml'
+            Set-Content -LiteralPath $script:Cfg -Encoding utf8 -Value @(
+                'guestSequence:', '- guest.ubuntu.server.24', 'logLevel: Information')
+        }
+
+        It 'states that the fallback key was not read when a plan decided the cycle' {
+            $out = @(InModuleScope Test.RunnerInnerLoop -Parameters @{ p = $script:Cfg } {
+                    param($p)
+                    Write-CycleConfigLog -ConfigPath $p -GuestList @('guest.windows.11', 'guest.ubuntu.server.26') `
+                        -SequenceList @([ordered]@{ name = 'workload.one'; guests = @('guest.windows.11', 'guest.ubuntu.server.26') }) `
+                        -GuestSetSource 'plan' 3>$null
+                }) -join "`n"
+            Assert-True ($out -match 'guest set for this cycle: guest\.windows\.11, guest\.ubuntu\.server\.26') `
+                'the block must name the guests the cycle runs'
+            Assert-True ($out -match 'the guestSequence key above was not read') `
+                'a reader must be told the echoed key did not decide this cycle'
+            Assert-True ($out -match 'workload\.one -> guest\.windows\.11, guest\.ubuntu\.server\.26') `
+                'each top-level sequence must be shown with the guest(s) it drives'
+        }
+
+        It 'states that the fallback key decided the cycle when no plan resolved' {
+            $out = @(InModuleScope Test.RunnerInnerLoop -Parameters @{ p = $script:Cfg } {
+                    param($p)
+                    Write-CycleConfigLog -ConfigPath $p -GuestList @('guest.ubuntu.server.24') `
+                        -SequenceList @() -GuestSetSource 'guestSequence' 3>$null
+                }) -join "`n"
+            Assert-True ($out -match 'guest set for this cycle: guest\.ubuntu\.server\.24') `
+                'the block must name the guests the cycle runs'
+            Assert-True ($out -match 'the guestSequence key above is what this cycle runs') `
+                'the fallback path must say so, or the two paths read alike'
+        }
+
+        It 'never logs credentials even when YAML parsing fails' {
+            foreach ($text in @("repositories:`n  ghToken: PRIVATE_FIXTURE_TOKEN`nsecrets:`n  secret: PRIVATE_FIXTURE_SECRET", "secrets: [PRIVATE_FIXTURE_SECRET")) {
+                Set-Content -LiteralPath $script:Cfg -Value $text
+                $out = @(InModuleScope Test.RunnerInnerLoop -Parameters @{ p = $script:Cfg } {
+                    param($p) Write-CycleConfigLog -ConfigPath $p 3>&1
+                }) -join "`n"
+                Assert-False ($out -match 'PRIVATE_FIXTURE') 'neither config nor parser diagnostics may disclose secrets'
+            }
+        }
+
+        It 'adds nothing when the caller has no cycle to describe' {
+            $out = @(InModuleScope Test.RunnerInnerLoop -Parameters @{ p = $script:Cfg } {
+                    param($p) Write-CycleConfigLog -ConfigPath $p 3>$null
+                }) -join "`n"
+            Assert-True (-not ($out -match 'guest set for this cycle')) `
+                'the guest-set block belongs to a cycle, not to every config echo'
+        }
+    }
+
+    It 'emits the guest set after the transcript exists, not at plan resolution' {
+        # Plan resolution runs before Start-LogFile opens the cycle transcript,
+        # so a line written there reaches the console and nothing else. Moving
+        # the report back up would silently empty it out of every saved cycle.
+        $src = Get-Content -LiteralPath (Join-Path $here 'Test.RunnerInnerLoop.psm1') -Raw
+        $callIdx = $src.IndexOf('Write-CycleConfigLog -ConfigPath $ConfigPath -GuestList $GuestList')
+        $resolveIdx = $src.IndexOf('$guestSeqLists = Get-CycleGuestAndSequenceList')
+        Assert-True ($callIdx -gt 0) 'the config echo must receive the resolved guest set'
+        Assert-True ($resolveIdx -gt 0 -and $callIdx -gt $resolveIdx) `
+            'the guest-set report must run after the plan is resolved and the transcript is open'
+    }
+}
+
+Describe 'Runner config and exit safety' {
+    It 'keeps the last usable configuration when an edit temporarily empties the file' {
+        $path = New-TempConfigFile -Content "testCycle:`n  recentDisplayCount: 17`n  guestQuarantine:`n    enabled: false`n"
+        try {
+            $state = New-RunnerConfigState -CycleDelaySecondsFallback 0
+            Sync-RunnerStepConfig -State $state -ConfigPath $path
+            Assert-False $state.GuestQuarantineEnabled
+            Set-Content -LiteralPath $path -Value ' ' -NoNewline
+            $state.CachedConfigMtime = $null
+            Assert-Equal 'failed' (Sync-RunnerCycleConfig -State $state -ConfigPath $path)
+            Assert-Equal 17 $state.Config.testCycle.recentDisplayCount
+            Assert-False $state.GuestQuarantineEnabled
+        } finally { Remove-Item -LiteralPath $path -Force }
+    }
+    It 'does not expose malformed configuration content in reload warnings' {
+        $path = New-TempConfigFile -Content "secrets: [PRIVATE_FIXTURE_SECRET"
+        try {
+            $state = New-RunnerConfigState -CycleDelaySecondsFallback 0
+            $logged = (Sync-RunnerCycleConfig -State $state -ConfigPath $path 3>&1 | Out-String)
+            Assert-False ($logged.Contains('PRIVATE_FIXTURE_SECRET'))
+            Assert-True ($logged.Contains('failed'))
+        } finally { Remove-Item -LiteralPath $path -Force }
+    }
+    It 'retains a useful history limit for missing, empty and invalid configurations' {
+        InModuleScope Test.RunnerInnerLoop {
+            foreach ($config in @($null, @{}, @{testCycle=@{}}, @{testCycle=@{recentDisplayCount=0}}, @{testCycle=@{recentDisplayCount=-1}}, @{testCycle=@{recentDisplayCount='bad'}})) {
+                Assert-Equal 30 (Get-RunnerHistoryLimit -Config $config)
+            }
+            Assert-Equal 17 (Get-RunnerHistoryLimit -Config @{testCycle=@{recentDisplayCount=17}})
+        }
+    }
+    It 'refreshes the watchdog heartbeat on each inter-cycle delay tick' {
+        $ast = [System.Management.Automation.Language.Parser]::ParseFile((Join-Path $here 'Test.RunnerInnerLoop.psm1'), [ref]$null, [ref]$null)
+        $wait = $ast.Find({param($n) $n -is [System.Management.Automation.Language.CommandAst] -and $n.GetCommandName() -eq 'Wait-WithProgress' -and $n.Extent.Text.Contains('-TotalSeconds $effectiveDelay')}, $true)
+        Assert-NotNull $wait
+        $callback = @($wait.CommandElements | Where-Object { $_ -is [System.Management.Automation.Language.ScriptBlockExpressionAst] })[0]
+        $body = [scriptblock]::Create($callback.ScriptBlock.Extent.Text.Trim().Substring(1).TrimEnd('}'))
+        $StepHeartbeatFile = Join-Path $TestDrive 'heartbeat'
+        $cycleRestartFlagFile = Join-Path $TestDrive 'restart'
+        $null = $cycleRestartFlagFile # Read by the extracted production callback.
+        $ShutdownState = @{Requested=$false}
+        [IO.File]::WriteAllText($StepHeartbeatFile, [datetime]::UtcNow.AddHours(-2).ToString('o'))
+        Assert-False (& $body)
+        Assert-True (([datetime](Get-Content -Raw $StepHeartbeatFile)).ToUniversalTime() -gt [datetime]::UtcNow.AddSeconds(-10))
+        $ShutdownState.Requested=$true
+        Assert-Equal 'shutdown' (& $body)
+    }
+    It 'marks a previously passing cycle failed before handling an unexpected exception' {
+        $ast = [System.Management.Automation.Language.Parser]::ParseFile((Join-Path $here 'Test.RunnerInnerLoop.psm1'), [ref]$null, [ref]$null)
+        $branch = $ast.Find({param($n) $n -is [System.Management.Automation.Language.IfStatementAst] -and $n.Clauses[0].Item1.Extent.Text -eq '-not $script:CycleRestartHandled'}, $true)
+        Assert-NotNull $branch
+        $first = $branch.Clauses[0].Item2.Statements[0]
+        $OverallPassed = $true
+        . ([scriptblock]::Create($first.Extent.Text))
+        Assert-False $OverallPassed
+    }
+}

@@ -1,0 +1,56 @@
+# LICENSEURI https://yuruna.link/license
+# Copyright (c) 2019-2026 by Alisson Sol et al.
+# KVM/libvirt overlay for ubuntu.server.base.user-data.
+# Anchor sections in base-file order. An empty section emits nothing at that anchor.
+# === YURUNA_OVERLAY_HOST_AGENT_PKG ===
+    # See https://yuruna.link/429f3d06-0031
+    # Deliberately empty: a retrieval failure in `packages:` is FATAL and loses
+    # the whole build over an optimization.
+# === YURUNA_OVERLAY_NETWORK ===
+  # --- REGION: network
+  # See https://yuruna.link/4220a755-000b
+  # Pin the installer lease before /target exists.
+  network:
+    version: 2
+    ethernets:
+      yuruna-en:
+        match:
+          name: "en*"
+        dhcp4: true
+        dhcp-identifier: mac
+      yuruna-eth:
+        match:
+          name: "eth*"
+        dhcp4: true
+        dhcp-identifier: mac
+# === YURUNA_OVERLAY_EARLY_COMMANDS ===
+  # --- REGION: early-commands
+  early-commands:
+    # --- REGION: https://yuruna.link/429f3d06-0012
+    - setterm --blank 0 --powersave off --cursor on > /dev/tty1 2>/dev/null || true
+    # --- REGION: https://yuruna.link/429f3d06-0025
+    # Quiet the installer kernel; installed-system GRUB settings apply only after reboot.
+    - dmesg -n 1 2>/dev/null || true
+    # --- REGION: https://yuruna.link/429f3d06-009c
+    # The live system's 15-minute tmpfiles-clean timer otherwise races curtin's /target/run unmount.
+    - systemctl stop systemd-tmpfiles-clean.timer 2>/dev/null || true
+# === YURUNA_OVERLAY_LATE_HOST_AGENT ===
+    # --- REGION: Install qemu guest agent
+    # See https://yuruna.link/429f3d06-0031
+    # See https://yuruna.link/4220a755-0045
+    # Both commands tolerate failure by design: discovery degrades to the host
+    # neighbor rung, while an aborted late-command fails the entire install.
+    - curtin in-target --target=/target -- env DEBIAN_FRONTEND=noninteractive apt-get install -y qemu-guest-agent || true
+    - curtin in-target --target=/target -- systemctl enable qemu-guest-agent.service || true
+# === YURUNA_OVERLAY_GRUB_PRE_CONSOLE_QUIET ===
+    # --- REGION: https://yuruna.link/429f3d06-0024
+    - |
+      cat > /target/etc/default/grub.d/99-yuruna-consoleblank.cfg << 'GRUBCFG'
+      GRUB_CMDLINE_LINUX_DEFAULT="${GRUB_CMDLINE_LINUX_DEFAULT} consoleblank=0"
+      GRUBCFG
+# === YURUNA_OVERLAY_GRUB_POST_CONSOLE_QUIET ===
+    # --- REGION: https://yuruna.link/429f3d06-0026
+    - |
+      cat > /target/etc/default/grub.d/99-yuruna-fb-safe.cfg << 'GRUBCFG'
+      GRUB_CMDLINE_LINUX_DEFAULT="${GRUB_CMDLINE_LINUX_DEFAULT} nomodeset console=tty0 console=ttyS0,115200"
+      GRUBCFG

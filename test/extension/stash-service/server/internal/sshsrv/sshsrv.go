@@ -1,0 +1,811 @@
+// LICENSEURI https://yuruna.link/license
+// Copyright (c) 2019-2026 by Alisson Sol et al.
+
+// Package sshsrv hosts the crypto/ssh server and the per-connection
+// SCP session dispatch loop. Authentication is the section 4.3 pass-through
+// pattern, realized as the SSH "none" method: the daemon accepts the
+// connection with NO credentials so a standard scp/sftp client connects
+// with zero prompts. Public-key auth is intentionally NOT advertised --
+// accepting any key makes clients prompt for their local keys'
+// passphrases. The username is still captured (from the none/password
+// callback) into the connection's Permissions for the SCP/SFTP handler
+// to stamp on the metadata record.
+package sshsrv
+
+import (
+	"context"
+	"crypto/ed25519"
+	"crypto/rand"
+	"encoding/binary"
+	"encoding/pem"
+	"errors"
+	"fmt"
+	"log"
+	"net"
+	"os"
+	"path/filepath"
+	"strings"
+	"sync"
+	"syscall"
+	"time"
+
+	"golang.org/x/crypto/ssh"
+
+	"stash-service/internal/config"
+	"stash-service/internal/detect"
+	"stash-service/internal/meta"
+	"stash-service/internal/scp"
+	"stash-service/internal/store"
+)
+
+// IDSource hands out the section 7 upload ID. An interface rather than the
+// concrete allocator so a test can pin the exact IDs a session draws and
+// exercise the collision ladder without racing a random generator.
+type IDSource interface {
+	Allocate(t time.Time) (string, error)
+}
+
+// Server pulls together every layer the daemon needs: share + VM-local
+// buffer storage, metadata DB, ID allocator, the SSH host key, the
+// share-online probe, the flush trigger, and the network listener.
+type Server struct {
+	Store    *store.Store
+	Buffer   *store.Store
+	Meta     *meta.Store
+	IDs      IDSource
+	Detector detect.Detector
+	sshCfg   *ssh.ServerConfig
+	listener net.Listener
+
+	// ShareOnline reports whether the share is a live, writable network
+	// mount (section 8.4). Injectable so tests can drive the buffer/flush paths
+	// without a real cifs mount.
+	ShareOnline func() bool
+	// flushTrigger nudges the flush worker after a buffered upload; a
+	// buffered (cap 1) channel so a burst coalesces into one wake-up.
+	flushTrigger chan struct{}
+
+	// mutateMu serializes a per-artifact mutation (DeleteLocal) against the
+	// flush worker's move-to-share (flushRecord). Without it, a delete that
+	// snapshots a record as locallyBuffered can race a concurrent flush and
+	// orphan the on-share artifact + sidecar (the DB row goes, the share
+	// copy survives and is resurrected by the sidecar rebuild).
+	mutateMu sync.Mutex
+
+	// Graceful-shutdown drain. connMu guards conns + closing; wg tracks the
+	// live connection handlers. Close sets closing (so no newly-accepted
+	// connection is registered), then waits for in-flight handlers -- an active
+	// finalize/commit -- to finish, force-closing any straggler after a bounded
+	// deadline instead of letting process exit race a mid-write commit.
+	wg      sync.WaitGroup
+	connMu  sync.Mutex
+	conns   map[net.Conn]struct{}
+	closing bool
+}
+
+// New wires everything up. The host key is loaded from
+// <StashFolder>/hostkey/ (durable, section 4.4); if the share is offline at startup
+// it falls back to a VM-local key so the daemon still comes up (section 8.4).
+func New(s *store.Store, buffer *store.Store, m *meta.Store, ids IDSource) (*Server, error) {
+	localHostKey := filepath.Join(buffer.Folder, config.HostKeyDirName, config.HostKeyFileName)
+	hostKey, err := loadOrGenerateHostKey(s.HostKeyPath(), localHostKey)
+	if err != nil {
+		return nil, fmt.Errorf("host key: %w", err)
+	}
+	cfg := &ssh.ServerConfig{
+		// section 4.3: accept with NO credentials (SSH "none") so scp/sftp connect
+		// prompt-free; still capture the username as metadata.
+		NoClientAuth: true,
+		NoClientAuthCallback: func(conn ssh.ConnMetadata) (*ssh.Permissions, error) {
+			return permFor(conn), nil
+		},
+		// Fallback for a client that declines "none"; accepts any password.
+		// Public-key auth is deliberately NOT advertised: accepting any key
+		// makes clients prompt for their local keys' passphrases.
+		PasswordCallback: func(conn ssh.ConnMetadata, _ []byte) (*ssh.Permissions, error) {
+			return permFor(conn), nil
+		},
+	}
+	cfg.AddHostKey(hostKey)
+	return &Server{
+		Store:        s,
+		Buffer:       buffer,
+		Meta:         m,
+		IDs:          ids,
+		Detector:     detect.New(),
+		sshCfg:       cfg,
+		ShareOnline:  func() bool { return store.ShareOnline(s.Folder) },
+		flushTrigger: make(chan struct{}, 1),
+		conns:        make(map[net.Conn]struct{}),
+	}, nil
+}
+
+func permFor(conn ssh.ConnMetadata) *ssh.Permissions {
+	return &ssh.Permissions{
+		Extensions: map[string]string{
+			"captured-user": conn.User(),
+		},
+	}
+}
+
+// ListenAndServe binds to addr and runs the accept loop until ctx is
+// canceled. Connections are handled in their own goroutines.
+func (s *Server) ListenAndServe(ctx context.Context, addr string) error {
+	ln, err := net.Listen("tcp", addr)
+	if err != nil {
+		return err
+	}
+	s.listener = ln
+	log.Printf("stash-service listening on %s", addr)
+
+	go func() {
+		<-ctx.Done()
+		_ = ln.Close()
+	}()
+
+	var acceptDelay time.Duration
+	for {
+		nc, err := ln.Accept()
+		if err != nil {
+			if errors.Is(err, net.ErrClosed) {
+				return nil
+			}
+			// Back off with capped exponential delay on a transient accept error (e.g. EMFILE
+			// "too many open files") instead of hot-spinning the CPU until the condition clears,
+			// mirroring net/http.Server.Serve.
+			if acceptDelay == 0 {
+				acceptDelay = 5 * time.Millisecond
+			} else {
+				acceptDelay *= 2
+			}
+			if maxDelay := 1 * time.Second; acceptDelay > maxDelay {
+				acceptDelay = maxDelay
+			}
+			log.Printf("accept: %v; retrying in %v", err, acceptDelay)
+			time.Sleep(acceptDelay)
+			continue
+		}
+		acceptDelay = 0
+		if !s.trackConn(nc) {
+			// Shutting down: refuse the just-accepted connection.
+			_ = nc.Close()
+			continue
+		}
+		go s.handle(nc)
+	}
+}
+
+func (s *Server) handle(nc net.Conn) {
+	defer s.wg.Done()
+	defer s.untrackConn(nc)
+	defer nc.Close()
+	remote := nc.RemoteAddr().String()
+	conn, chans, reqs, err := ssh.NewServerConn(nc, s.sshCfg)
+	if err != nil {
+		log.Printf("ssh handshake from %s: %v", remote, err)
+		return
+	}
+	username := conn.User()
+	if conn.Permissions != nil {
+		if v, ok := conn.Permissions.Extensions["captured-user"]; ok && v != "" {
+			username = v
+		}
+	}
+	log.Printf("ssh handshake ok: user=%q remote=%s", username, remote)
+	defer conn.Close()
+	go ssh.DiscardRequests(reqs)
+
+	for newCh := range chans {
+		if newCh.ChannelType() != "session" {
+			_ = newCh.Reject(ssh.UnknownChannelType, "only session channels supported")
+			continue
+		}
+		ch, chReqs, err := newCh.Accept()
+		if err != nil {
+			log.Printf("accept channel: %v", err)
+			continue
+		}
+		s.handleSession(ch, chReqs, username, remote)
+	}
+}
+
+func (s *Server) handleSession(ch ssh.Channel, reqs <-chan *ssh.Request, username, remote string) {
+	defer ch.Close()
+	for req := range reqs {
+		switch req.Type {
+		case "exec":
+			cmd := parseExecPayload(req.Payload)
+			_ = req.Reply(true, nil)
+			s.runCommand(ch, cmd, username, remote)
+			return
+		case "env":
+			_ = req.Reply(true, nil)
+		case "subsystem":
+			// Modern OpenSSH scp (>= 9.0) defaults to the SFTP protocol and
+			// does NOT fall back to legacy scp, so serve the sftp subsystem
+			// too (routing writes into the stash). Any other subsystem is
+			// rejected.
+			if parseExecPayload(req.Payload) == "sftp" {
+				_ = req.Reply(true, nil)
+				s.serveSFTP(ch, username, remote)
+				return
+			}
+			_ = req.Reply(false, nil)
+			fmt.Fprintln(ch.Stderr(), "stash-service: only scp / sftp are supported.")
+			writeExit(ch, 1)
+			return
+		case "pty-req", "shell":
+			// section 4.2: no GUI / interactive shell. Reject cleanly so a stray
+			// `ssh` (no scp) gets a useful error instead of hanging.
+			_ = req.Reply(false, nil)
+			fmt.Fprintln(ch.Stderr(), "stash-service: only scp / sftp are supported (interactive shell rejected).")
+			writeExit(ch, 1)
+			return
+		default:
+			_ = req.Reply(false, nil)
+		}
+	}
+}
+
+func (s *Server) runCommand(ch ssh.Channel, rawCmd, username, remote string) {
+	parsed, ok := parseSCPCommand(rawCmd)
+	if !ok {
+		fmt.Fprintf(ch.Stderr(), "stash-service: only scp is supported (got: %q).\n", rawCmd)
+		writeExit(ch, 1)
+		return
+	}
+	now := time.Now().UTC()
+	clientIP := hostOnly(remote)
+	pending, failedAt, err := s.beginPending(now,
+		func(drawn string) {
+			// section 7: the ID is allocated before file content streams;
+			// section 9: it goes to stderr at the start of the SCP exchange so
+			// the client's terminal shows it even on a failed transfer. An
+			// attempt that loses its ID to a collision announced that ID too --
+			// the LAST of these lines names the artifact that was stored.
+			fmt.Fprintf(ch.Stderr(), config.StderrIDFormat, drawn)
+		},
+		func(drawn string, buffered bool) *meta.Record {
+			// section 8.2 step 2: pending record up front. storedPath and
+			// originalFilename are placeholder until FinalizeStaging produces
+			// the real values.
+			return pendingRecord(drawn, buffered, username, clientIP, parsed.DestPath, config.SourceSCP, now)
+		})
+	if err != nil {
+		log.Printf("begin upload (user=%s): %v", username, err)
+		fmt.Fprintln(ch.Stderr(), failedAt.clientReason(err))
+		writeExit(ch, 1)
+		return
+	}
+	allocated, target, buffered := pending.id, pending.target, pending.buffered
+	dayDir, stagingDir := pending.dayDir, pending.stagingDir
+
+	res, scpErr := scp.Receive(ch, ch, stagingDir)
+	if scpErr != nil {
+		log.Printf("scp receive (id=%s, user=%s): %v", allocated, username, scpErr)
+		_ = s.Meta.UpdateOnPartial(allocated, res.TotalBytes, time.Now().UTC())
+		writeExit(ch, 1)
+		return
+	}
+	if len(res.FileNames) == 0 && res.FirstDirName == "" {
+		// section 5.5: empty filename only -- nothing stored, no record kept.
+		if delErr := s.Meta.Delete(allocated); delErr != nil {
+			log.Printf("delete empty-name pending row id=%s: %v", allocated, delErr)
+		}
+		_ = os.RemoveAll(stagingDir)
+		log.Printf("scp session id=%s produced no files; pending row removed", allocated)
+		writeExit(ch, 0)
+		return
+	}
+
+	final, err := target.FinalizeStaging(stagingDir, dayDir, allocated, parsed.Recursive, res.FileNames, res.FirstDirName)
+	if err != nil {
+		log.Printf("finalize (id=%s): %v", allocated, err)
+		_ = os.RemoveAll(stagingDir) // don't leave an orphan <id>.staging tree on finalize failure
+		_ = s.Meta.UpdateOnPartial(allocated, res.TotalBytes, time.Now().UTC())
+		fmt.Fprintln(ch.Stderr(), "stash-service: storage unavailable (assembling the artifact); upload not stored.")
+		writeExit(ch, 1)
+		return
+	}
+	status := meta.StatusComplete
+	if res.Truncated {
+		status = meta.StatusTruncated
+	}
+	if err := s.commit(allocated, status, final, buffered, username); err != nil {
+		log.Printf("commit (id=%s): %v", allocated, err)
+		// The artifact itself is stored; what failed is the record that makes it
+		// findable and rebuildable. Say so, because the exit code alone reads as
+		// "nothing arrived" and would send the operator to re-upload.
+		fmt.Fprintln(ch.Stderr(), "stash-service: artifact stored, but its metadata record failed; report the ID above.")
+		writeExit(ch, 1)
+		return
+	}
+	writeExit(ch, 0)
+}
+
+// errBufferFull signals the VM-local buffer is at its ceiling while the
+// share is offline (section 8.4) -- the upload must be rejected.
+var errBufferFull = errors.New("local buffer full")
+
+// idCollisionAttempts bounds the redraw loop when the index refuses an ID it
+// already holds. The allocator marks a candidate as drawn before handing it
+// back, so every attempt gets a different ID and a short ladder is enough:
+// the loop covers a lost race between two sessions that drew and inserted
+// concurrently, not a saturated ID space, which no number of attempts saves.
+const idCollisionAttempts = 5
+
+// uploadStage names the opening step an upload failed at, so the SCP session
+// can tell its client which layer refused without the caller unwrapping a
+// driver error.
+type uploadStage int
+
+const (
+	stageNone uploadStage = iota
+	stageAllocate
+	stageTarget
+	stageDayDir
+	stageStaging
+	stageIndex
+)
+
+// clientReason is the one line the client is shown for a failure at this
+// stage. Categorical on purpose: filesystem paths and driver text describe
+// the server's insides to a party that cannot act on them and should not see
+// them, and the operator has the log line carrying the detail.
+func (u uploadStage) clientReason(err error) string {
+	switch u {
+	case stageAllocate:
+		return "stash-service: internal error (ID allocation)."
+	case stageTarget:
+		if errors.Is(err, errBufferFull) {
+			return "stash-service: storage offline and local buffer full; upload rejected."
+		}
+		return "stash-service: storage unavailable (no writable target)."
+	case stageDayDir:
+		return "stash-service: storage unavailable (day directory)."
+	case stageStaging:
+		return "stash-service: storage unavailable (staging directory)."
+	case stageIndex:
+		if errors.Is(err, meta.ErrDuplicateID) {
+			return "stash-service: could not reserve an ID; retry the upload."
+		}
+		return "stash-service: internal error (metadata index)."
+	}
+	return "stash-service: internal error."
+}
+
+// pendingUpload is the opening every ingest path shares once it succeeds: the
+// ID, the store the artifact lands in, and the two directories it is
+// assembled in, with the pending index row already written.
+type pendingUpload struct {
+	id         string
+	target     *store.Store
+	buffered   bool
+	dayDir     string
+	stagingDir string
+}
+
+// beginPending runs the allocate -> choose target -> create dirs -> insert
+// pending row sequence shared by the SCP, SFTP and UI ingest paths, and
+// returns the stage that refused when it cannot.
+//
+// newRecord builds the pending row for the ID that attempt drew. onID, when
+// non-nil, is called with each drawn ID before anything is staged under it,
+// for a path that announces the ID to its client up front.
+//
+// The redraw loop exists because the two namespaces an ID lives in are not
+// the same size: the allocator's day scan covers one yyyy/mm/dd folder while
+// the index's id column is a primary key over every day it holds. The
+// allocator consults the index too, so reaching the insert with a taken ID
+// now means only that another session claimed it in between -- recoverable by
+// drawing again, and never by failing the upload.
+func (s *Server) beginPending(now time.Time, onID func(id string), newRecord func(id string, buffered bool) *meta.Record) (*pendingUpload, uploadStage, error) {
+	var lastErr error
+	for attempt := 1; attempt <= idCollisionAttempts; attempt++ {
+		drawn, err := s.IDs.Allocate(now)
+		if err != nil {
+			return nil, stageAllocate, fmt.Errorf("alloc id: %w", err)
+		}
+		if onID != nil {
+			onID(drawn)
+		}
+		// section 8.4: stage on the share when it is a live writable network mount;
+		// otherwise fall back to the VM-local buffer and flush later. The
+		// target store is fixed before any bytes stream so a single upload
+		// never straddles the two.
+		target, buffered, err := s.chooseTarget(drawn)
+		if err != nil {
+			return nil, stageTarget, err
+		}
+		dayDir, err := target.DayDir(now)
+		if err != nil {
+			return nil, stageDayDir, fmt.Errorf("day dir: %w", err)
+		}
+		stagingDir, err := target.StagingDir(now, drawn)
+		if err != nil {
+			return nil, stageStaging, fmt.Errorf("staging dir: %w", err)
+		}
+		if err := s.Meta.InsertPending(newRecord(drawn, buffered)); err != nil {
+			// The staging tree is named by the ID, so an attempt that does not
+			// keep its ID must take the directory with it: the allocator's disk
+			// scan counts an orphan <id>.staging as a claim forever, holding that
+			// ID out of the day's pool for nothing.
+			_ = os.RemoveAll(stagingDir)
+			if !errors.Is(err, meta.ErrDuplicateID) {
+				return nil, stageIndex, fmt.Errorf("insert pending: %w", err)
+			}
+			lastErr = err
+			log.Printf("id %s already in the index; redrawing (attempt %d of %d)", drawn, attempt, idCollisionAttempts)
+			continue
+		}
+		return &pendingUpload{id: drawn, target: target, buffered: buffered, dayDir: dayDir, stagingDir: stagingDir}, stageNone, nil
+	}
+	return nil, stageIndex, fmt.Errorf("every one of %d ids collided with an existing index row: %w", idCollisionAttempts, lastErr)
+}
+
+// chooseTarget returns the store an upload should stage into: the share
+// when it is a live writable network mount, else the VM-local buffer
+// (unless the buffer is at its ceiling, then errBufferFull). Shared by the
+// legacy SCP and SFTP ingest paths so the share/buffer policy stays in one
+// place (section 8.4).
+func (s *Server) chooseTarget(id string) (target *store.Store, buffered bool, err error) {
+	if s.ShareOnline() {
+		return s.Store, false, nil
+	}
+	used, _ := store.DirSize(s.Buffer.Folder)
+	if used >= config.BufferCeilingBytes {
+		log.Printf("buffer full (%d bytes >= ceiling): rejecting id=%s", used, id)
+		return nil, false, errBufferFull
+	}
+	log.Printf("share offline; buffering id=%s locally", id)
+	return s.Buffer, true, nil
+}
+
+// commit writes the terminal metadata row and, for a share-side artifact,
+// the durable sidecar LAST (section 8.5); for a buffered artifact it nudges the
+// flush worker instead (the sidecar lands on the share at flush time,
+// section 8.4). Shared by the legacy SCP and SFTP ingest paths.
+func (s *Server) commit(id, status string, final *store.FinalizeResult, buffered bool, username string) error {
+	if err := s.Meta.UpdateOnComplete(id, final.StoredPath, final.OriginalFilename, final.IsArchive, status, final.SizeBytes, time.Now().UTC()); err != nil {
+		return err
+	}
+	// Detect the content type server-side, once, before the sidecar is written
+	// so SCP- and UI-created stashes classify identically and the type survives
+	// a reimage rebuild. The artifact exists locally now (share or buffer), so
+	// detection works either way; for a buffered upload the type lands in the
+	// DB row here and is carried onto the sidecar at flush time.
+	s.detectAndStore(id, final)
+	if buffered {
+		s.triggerFlush()
+	} else {
+		if rec, gerr := s.Meta.Get(id); gerr != nil {
+			log.Printf("sidecar: load record id=%s: %v", id, gerr)
+			return fmt.Errorf("sidecar: load record id=%s: %w", id, gerr)
+		} else if serr := writeSidecarWithRetry(rec); serr != nil {
+			log.Printf("sidecar: write id=%s failed after retries: %v", id, serr)
+			// The sidecar IS the reimage-rebuild guarantee (section 8.5), so a failure
+			// surviving the retries is returned rather than logged-and-swallowed
+			// -- otherwise the client/operator see a clean success while the
+			// artifact is un-reconstructable. The artifact itself is already
+			// stored; no commit() caller deletes it on this error.
+			return fmt.Errorf("sidecar write failed for id=%s (artifact stored but not durably reconstructable): %w", id, serr)
+		}
+	}
+	log.Printf("stash ok: id=%s user=%s path=%s archive=%v size=%d status=%s buffered=%v",
+		id, username, final.StoredPath, final.IsArchive, final.SizeBytes, status, buffered)
+	return nil
+}
+
+const (
+	sidecarWriteAttempts = 3
+	sidecarRetryBackoff  = 200 * time.Millisecond
+)
+
+// writeSidecarWithRetry writes the durable on-share sidecar with a short
+// bounded backoff so a transient share blip during the write does not silently
+// lose the reimage-rebuild record (section 8.5). Returns the last error if every
+// attempt fails.
+func writeSidecarWithRetry(rec *meta.Record) error {
+	var err error
+	for attempt := 1; attempt <= sidecarWriteAttempts; attempt++ {
+		if err = meta.WriteSidecar(rec); err == nil {
+			return nil
+		}
+		if attempt < sidecarWriteAttempts {
+			time.Sleep(time.Duration(attempt) * sidecarRetryBackoff)
+		}
+	}
+	return err
+}
+
+// detectAndStore classifies final's artifact and writes the section 10 type fields
+// onto the row. An archive (our own ZIP) is classed directly without running
+// the detector; everything else goes through the configured Detector. A
+// detection or DB error is logged, not fatal -- the upload still succeeds
+// (the UI just shows it as unclassified until a later backfill).
+func (s *Server) detectAndStore(id string, final *store.FinalizeResult) {
+	if final.IsArchive {
+		if err := s.Meta.UpdateType(id, "application/zip", config.ClassArchive, false, "", 0); err != nil {
+			log.Printf("detect: store archive type id=%s: %v", id, err)
+		}
+		return
+	}
+	if s.Detector == nil {
+		return
+	}
+	res := s.Detector.DetectFile(final.StoredPath, final.OriginalFilename)
+	if err := s.Meta.UpdateType(id, res.MimeType, res.ContentClass, res.IsText, res.TypeLabel, res.TypeScore); err != nil {
+		log.Printf("detect: store type id=%s: %v", id, err)
+	}
+}
+
+// SCPCommand parses an `scp -t /dst`, `scp -r -t /dst`, `scp -d -t /dst`
+// (and combinations like -rt) exec request.
+type SCPCommand struct {
+	Recursive bool
+	DestPath  string
+}
+
+func parseSCPCommand(cmd string) (SCPCommand, bool) {
+	fields := strings.Fields(cmd)
+	if len(fields) == 0 || fields[0] != "scp" {
+		return SCPCommand{}, false
+	}
+	out := SCPCommand{}
+	sinkSeen := false
+	for i := 1; i < len(fields); i++ {
+		tok := fields[i]
+		if strings.HasPrefix(tok, "-") && len(tok) > 1 {
+			for _, r := range tok[1:] {
+				switch r {
+				case 'r':
+					out.Recursive = true
+				case 't':
+					sinkSeen = true
+				case 'f':
+					// Source mode -- we only implement sink.
+					return SCPCommand{}, false
+				}
+				// Other flags (d, p, q, v, ...) are accepted silently.
+			}
+			continue
+		}
+		out.DestPath = tok
+	}
+	if !sinkSeen {
+		return SCPCommand{}, false
+	}
+	return out, true
+}
+
+// parseExecPayload extracts the command string from an "exec" channel
+// request payload. RFC 4254: uint32 length + command bytes.
+func parseExecPayload(payload []byte) string {
+	if len(payload) < 4 {
+		return ""
+	}
+	n := binary.BigEndian.Uint32(payload[:4])
+	if uint32(len(payload)-4) < n {
+		return ""
+	}
+	return string(payload[4 : 4+n])
+}
+
+// writeExit sends an exit-status channel request so the client's scp
+// reports a meaningful return code.
+func writeExit(ch ssh.Channel, code int) {
+	payload := make([]byte, 4)
+	binary.BigEndian.PutUint32(payload, uint32(code))
+	_, _ = ch.SendRequest("exit-status", false, payload)
+}
+
+// loadOrGenerateHostKey returns the persistent SSH signer (section 4.4).
+//
+//   - A present durable key must be a readable, valid regular file. An invalid
+//     key must never be replaced or hidden by a local fallback.
+//   - If the share's state is uncertain, only an existing valid VM-local key
+//     permits offline startup; neither key path is written.
+//   - A missing key or an ancestor that is not a directory permits first-start
+//     local provisioning. A local key is promoted only to an absent share key.
+func loadOrGenerateHostKey(primary, fallback string) (ssh.Signer, error) {
+	return loadOrGenerateHostKeyWithStat(primary, fallback, os.Stat)
+}
+
+func loadOrGenerateHostKeyWithStat(primary, fallback string, stat func(string) (os.FileInfo, error)) (ssh.Signer, error) {
+	fi, statErr := stat(primary)
+	if statErr == nil {
+		return readShareHostKey(primary, fi)
+	}
+	if errors.Is(statErr, os.ErrNotExist) {
+		// Stat follows symlinks. A dangling link is an existing, unusable
+		// identity path, not permission to create a different local identity.
+		if entry, err := os.Lstat(primary); err == nil {
+			if entry.Mode()&os.ModeSymlink != 0 {
+				return readPublishedHostKey(primary)
+			}
+			// A peer may have published a key after our first Stat.
+			return readShareHostKey(primary, entry)
+		} else if !errors.Is(err, os.ErrNotExist) {
+			statErr = err
+		}
+	}
+	primaryAbsent := errors.Is(statErr, os.ErrNotExist)
+	primaryBlocked := errors.Is(statErr, syscall.ENOTDIR)
+	if data, err := os.ReadFile(fallback); err == nil {
+		if signer, err := ssh.ParsePrivateKey(data); err == nil {
+			if primaryAbsent {
+				if winner, err := promoteHostKey(primary, data); winner != nil || err != nil {
+					return winner, err
+				}
+			} else {
+				log.Printf("host key: share unavailable (%v); using existing VM-local key %s", statErr, fallback)
+			}
+			return signer, nil
+		}
+	}
+	if !primaryAbsent && !primaryBlocked {
+		return nil, fmt.Errorf("stat share host key %s (no usable local key; refusing replacement): %w", primary, statErr)
+	}
+	_, priv, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		return nil, fmt.Errorf("ed25519.GenerateKey: %w", err)
+	}
+	block, err := ssh.MarshalPrivateKey(priv, "stash-service host key")
+	if err != nil {
+		return nil, fmt.Errorf("MarshalPrivateKey: %w", err)
+	}
+	pemBytes := pem.EncodeToMemory(block)
+	writeErr := statErr
+	if primaryAbsent {
+		writeErr = writeHostKeyExclusive(primary, pemBytes)
+	}
+	if writeErr != nil {
+		if errors.Is(writeErr, os.ErrExist) {
+			// A concurrent publisher owns the path. Read it once; retrying
+			// creation recursively can loop forever on an unusable entry.
+			return readPublishedHostKey(primary)
+		}
+		log.Printf("host key: share unavailable (%v); using VM-local key %s", writeErr, fallback)
+		if err := writeHostKey(fallback, pemBytes); err != nil {
+			return nil, fmt.Errorf("write host key (share: %v; local: %v)", writeErr, err)
+		}
+	}
+	return ssh.NewSignerFromKey(priv)
+}
+
+func readShareHostKey(primary string, fi os.FileInfo) (ssh.Signer, error) {
+	if !fi.Mode().IsRegular() {
+		return nil, fmt.Errorf("share host key %s is not a regular file (refusing replacement)", primary)
+	}
+	data, err := os.ReadFile(primary)
+	if err != nil {
+		return nil, fmt.Errorf("read share host key %s: %w", primary, err)
+	}
+	signer, err := ssh.ParsePrivateKey(data)
+	if err != nil {
+		return nil, fmt.Errorf("parse share host key %s (refusing to overwrite a present key): %w", primary, err)
+	}
+	return signer, nil
+}
+
+// readPublishedHostKey loads a path a concurrent publisher now owns. Failure
+// is final for this startup; it must not trigger generation of another identity.
+func readPublishedHostKey(primary string) (ssh.Signer, error) {
+	fi, err := os.Stat(primary)
+	if err != nil {
+		return nil, fmt.Errorf("stat published share host key %s (refusing replacement): %w", primary, err)
+	}
+	return readShareHostKey(primary, fi)
+}
+
+// promoteHostKey best-effort writes the local key to an absent durable path.
+// A concurrent publisher's usable signer wins; an unusable published key fails
+// closed. A nil signer and nil error means the caller can keep its local identity,
+// either because promotion succeeded or because the share is still unavailable.
+func promoteHostKey(primary string, pemBytes []byte) (ssh.Signer, error) {
+	if fi, err := os.Stat(primary); err == nil {
+		return readShareHostKey(primary, fi)
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return nil, nil
+	}
+	if err := writeHostKeyExclusive(primary, pemBytes); err != nil {
+		if errors.Is(err, os.ErrExist) {
+			return readPublishedHostKey(primary)
+		}
+		return nil, nil
+	}
+	log.Printf("host key: promoted VM-local key to the durable share %s", primary)
+	return nil, nil
+}
+
+// writeHostKeyExclusive never replaces a durable key published by a peer.
+func writeHostKeyExclusive(path string, pemBytes []byte) error {
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return err
+	}
+	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	if err != nil {
+		return err
+	}
+	_, writeErr := file.Write(pemBytes)
+	closeErr := file.Close()
+	if writeErr != nil || closeErr != nil {
+		_ = os.Remove(path)
+		return errors.Join(writeErr, closeErr)
+	}
+	return nil
+}
+
+// writeHostKey creates the parent dir and writes the PEM key 0600.
+func writeHostKey(path string, pemBytes []byte) error {
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return err
+	}
+	return os.WriteFile(path, pemBytes, 0o600)
+}
+
+// trackConn registers a just-accepted connection for the shutdown drain,
+// returning false when the server is already closing (the caller then drops the
+// connection). The wg.Add happens under connMu together with the closing check
+// so it can never race Close's post-closing wg.Wait.
+func (s *Server) trackConn(c net.Conn) bool {
+	s.connMu.Lock()
+	defer s.connMu.Unlock()
+	if s.closing {
+		return false
+	}
+	s.conns[c] = struct{}{}
+	s.wg.Add(1)
+	return true
+}
+
+func (s *Server) untrackConn(c net.Conn) {
+	s.connMu.Lock()
+	delete(s.conns, c)
+	s.connMu.Unlock()
+}
+
+// shutdownDrainTimeout bounds how long Close waits for in-flight connection
+// handlers to finish before force-closing whatever is still connected.
+const shutdownDrainTimeout = 10 * time.Second
+
+// Close stops the listener and drains in-flight connection handlers so an
+// active upload's finalize/commit completes (or is force-aborted after a
+// bounded deadline) instead of being torn down mid-write by process exit.
+func (s *Server) Close() error {
+	// Set closing first (under connMu) so trackConn registers no new handler
+	// after this point; the wg.Wait below then sees a counter that only decreases.
+	s.connMu.Lock()
+	s.closing = true
+	s.connMu.Unlock()
+
+	var lerr error
+	if s.listener != nil {
+		// The ctx watcher may already have closed the listener on graceful
+		// shutdown; that benign already-closed error is not worth surfacing.
+		if err := s.listener.Close(); err != nil && !errors.Is(err, net.ErrClosed) {
+			lerr = err
+		}
+	}
+
+	done := make(chan struct{})
+	go func() {
+		s.wg.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(shutdownDrainTimeout):
+		// Deadline hit: force-close whatever is still connected so its handler
+		// unblocks and the process can exit; those handlers finish shortly after
+		// as their reads error out.
+		s.connMu.Lock()
+		n := len(s.conns)
+		for c := range s.conns {
+			_ = c.Close()
+		}
+		s.connMu.Unlock()
+		log.Printf("stash-service: shutdown drain exceeded %v; force-closed %d connection(s)", shutdownDrainTimeout, n)
+	}
+	return lerr
+}

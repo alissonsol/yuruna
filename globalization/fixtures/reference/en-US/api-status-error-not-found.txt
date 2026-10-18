@@ -1,0 +1,12 @@
+{
+  "schema": "yuruna.message/v1",
+  "code": "status.error_not_found",
+  "args": {},
+  "rendered": {
+    "text": "Not found",
+    "messageKey": "status.error_not_found",
+    "locale": "en-US",
+    "catalogHash": "<sha256>",
+    "authoritative": false
+  }
+}

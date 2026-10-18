@@ -1,0 +1,454 @@
+# Yuruna Contributor Guidance
+
+See [Yuruna Architecture](docs/architecture.md) for project architecture and
+[Test harness](docs/test-harness.md) for the test-harness internals.
+
+Follow [Source consistency](docs/source-consistency.md) when changing shared
+host, guest, test, or VM configuration blocks.
+
+Looking for something to work on? Pick from
+[Contributor opportunities](docs/opportunities.md).
+
+Use the [public](https://yuruna.com) repository for test labs and learning. For access to the [development](https://yuruna.dev)
+repository, contact [contrib@yuruna.dev](mailto:contrib@yuruna.dev).
+
+See [Languages and localization](docs/globalization.md) when changing displayed text.
+
+## Private repository bootstrap
+
+Once your account has access to the private `yurunadev` repository,
+use the instructions below instead of the one-liner installers in
+[install/README.md](install/README.md).
+
+### a. Install the GitHub CLI
+
+| Platform | One-liner |
+|---|---|
+| macOS (Homebrew present) | `brew install gh` |
+| Ubuntu / Debian (snap path) | `sudo apt install gh` |
+| Amazon Linux 2023 / Fedora / RHEL | `sudo dnf install gh` |
+| Windows | `winget install --id GitHub.cli --source winget --silent` |
+
+The non-snap apt-repo route on Ubuntu is documented at
+[cli.github.com](https://github.com/cli/cli/blob/trunk/docs/install_linux.md).
+
+To execute PowerShell scripts in Windows, verify [execution policy](https://learn.microsoft.com/en-us/powershell/module/microsoft.powershell.core/about/about_execution_policies) settings.
+
+### b. Authenticate
+
+  ```
+  gh auth login
+  ```
+
+Pick `GitHub.com` -> `HTTPS` -> browser (recommended) or a Personal Access
+Token with at minimum the `repo` scope. The token `gh` stores is the same
+one accepted by `raw.githubusercontent.com` for private repo reads.
+
+#### Personal Access Token (PAT)
+
+Likely the best path for command-line use and environments like Linux.
+
+- Go to GitHub -> Settings -> Developer Settings -> Personal Access Tokens -> Tokens (classic).
+- Generate a token with repo, workflow, and read:org scopes.
+- Linux environment
+  - Edit `~/.bashrc` to add this line:
+    ```
+    export GH_TOKEN="ghp_YourGeneratedTokenGoesHere"
+    ```
+  - Or append it from the Bash shell.
+    ```
+    echo 'export GH_TOKEN="ghp_YourGeneratedTokenGoesHere"' >> ~/.bashrc && source ~/.bashrc
+    ```
+
+### c. Get the "dev" repositories mapped locally
+
+  - Assuming "`git`" is your base folder.
+     ```
+       git% git clone https://github.com/alissonsol/yurunadev yuruna
+       git% git clone https://github.com/alissonsol/yurunadev-project yuruna-project
+     ```
+
+  - With the `gh` CLI and a Personal Access Token, use `gh repo` commands.
+     ```
+       git% gh repo clone https://github.com/alissonsol/yurunadev yuruna
+       git% gh repo clone https://github.com/alissonsol/yurunadev-project yuruna-project
+     ```
+
+  - Configure local Git variables for later commits and pushes.
+    ```
+    git config --global user.name "Your Name"
+    git config --global user.email "Your@email.address"
+    git config --global core.autocrlf input
+    ```
+
+  - Go to the `install` folder and run the script for your host type:
+    - For macOS, run under a Bash shell: `bash macos.utm.sh`
+    - For Ubuntu, run under a Bash shell: `bash ubuntu.kvm.sh`
+    - For Windows, run under PowerShell: `windows.hyper-v.ps1`
+
+  - Other scripts for convenience.
+    - `test/lab/Enable-TestAutomation.ps1`: Change host settings to avoid screen savers and other disruptions for long test cycles.
+    - `test/lab/Sync-HostConfiguration.ps1`: Copy host configuration (`test.config.yml`) parameters from another host.
+    - `test/Test-CachingProxyService.ps1`: Test connectivity to the caching-proxy-service.
+    - `test/Test-Config.ps1`: Test if the host configuration has valid values.
+
+## Workflow
+
+### 1. **Confirm you are working on the "dev" repositories**
+
+  - Run this under your local repository folder.
+     ```
+       git config --get remote.origin.url
+     ```
+
+   - Double-check your results point to the "dev" repositories:
+     ```
+       git/yuruna% git config --get remote.origin.url
+               https://github.com/alissonsol/yurunadev
+       git/yuruna-project% git config --get remote.origin.url
+                       https://github.com/alissonsol/yurunadev-project
+     ```
+
+**Please do not proceed until you are working on the "dev" repositories.**
+
+No assistance is provided for migrating changes made in the public repositories to the "dev" repositories.
+
+### 2. **Configure for local development**
+
+  - Copy `yuruna/test/test.config.yml.template` to
+   `yuruna/test/test.config.yml` (gitignored).
+  - To use local project changes in tests, change the projectUrl in `test.config.yml`.
+
+    - Example for Windows
+      ```
+       repositories:
+         frameworkUrl: https://github.com/alissonsol/yurunadev
+         projectUrl: file:///c:/git/yuruna-project
+      ```
+
+    - Example for macOS
+      ```
+       repositories:
+         frameworkUrl: https://github.com/alissonsol/yurunadev
+         projectUrl: file:///Users/[username]/git/yuruna-project
+      ```
+
+    - Example for Linux
+      ```
+       repositories:
+         frameworkUrl: https://github.com/alissonsol/yurunadev
+         projectUrl: file:///home/[username]/git/yuruna-project
+      ```
+
+#### `repositories.ghToken` — reading a private framework/project repo
+
+Leave `ghToken: ""` if both `frameworkUrl` and `projectUrl` are public. You
+need it only when a guest has to read a **private** repo -- either to clone
+the framework/project, or to fetch its update script from GitHub when the host
+status service is unreachable.
+
+**Use a read-only, fine-grained token scoped to exactly those two repositories.**
+This token is copied onto every test VM and served by the status service on
+`/control/test-config`, so anything that can reach the host on port 8080 can read
+it. Its blast radius should be "read these two repos", nothing more -- the guests
+only ever pull.
+
+- GitHub -> *Settings* -> *Developer settings* -> *Personal access tokens* ->
+  **Fine-grained tokens** -> *Generate new token*.
+- **Resource owner:** the account that owns both repos (e.g. `alissonsol`).
+- **Repository access:** *Only select repositories* -> select **both**
+  `yurunadev` **and** `yurunadev-project`.
+- **Permissions** -> *Repository permissions* -> **Contents: Read-only**. That is
+  the only one needed: it covers `git clone` / `fetch` / `pull` over HTTPS *and*
+  the Contents API the GitHub fallback reads. (*Metadata: Read-only* is added
+  automatically and cannot be removed.) Grant nothing else -- no write, no
+  `workflow`, no org permissions.
+- Set an **expiration** and rotate it. Re-issuing is a one-line config edit.
+
+The result looks like `github_pat_...`:
+
+```
+ repositories:
+   frameworkUrl: https://github.com/alissonsol/yurunadev
+   ghToken: "github_pat_YourReadOnlyTokenGoesHere"
+   projectUrl: https://github.com/alissonsol/yurunadev-project
+```
+
+Two constraints before you generate one:
+
+- **A fine-grained token covers a single resource owner.** It works here because
+  `frameworkUrl` and `projectUrl` live under the same account. If they ever move
+  to different owners or orgs, no single fine-grained token can pull from both,
+  and `repositories.ghToken` holds only one -- you would need the repos under a
+  common owner, or a GitHub App.
+- **A classic PAT is a poor fit.** Its smallest useful scope, `repo`, is
+  read-**write** and reaches *every* repository the account can see. On a
+  credential that lives on disk in every guest VM, that is a much larger blast
+  radius than this job needs. Prefer fine-grained; use classic only if you must.
+
+The token never travels over the VM console (the host screenshots and OCRs that
+into the published run log) -- guests receive it on the cloud-init seed. It also
+stays out of `~/.gitconfig`, out of remote URLs, and out of the process list.
+`test/test.config.yml` is gitignored, so the real value is never committed; only
+the empty `ghToken: ""` in the template is.
+
+  - If you modify files that guest VMs fetch
+   via the [fetch-and-execution contract](https://yuruna.link/42fa6f45-0002),
+   commit your changes before testing
+   so the VM can download them via the status service "interceptor" (see
+   [Testing changes from a branch](#testing-changes-from-a-branch)).
+  - In the diagnostics for any running test sequence, check the `Yuruna version` and `Project version` fields at the start of the `YURUNA PROJECT` section.
+
+### 3. **Extensions configuration**
+
+  - Notification credentials and
+   subscriber lists are split between a checked-in template and a
+   gitignored runtime file:
+    - **Template (checked in):**
+   `test/extension/notification/transports.yml.template`.
+    - **Runtime (gitignored):**
+   `test/status/extension/notification/transports.yml`.
+    - Copy the template to the runtime location and fill in
+   `transports.resend.apiKey`, `transports.resend.fromEmail`, plus the
+   `subscribers["cycle.failure"]` list.
+    - See
+   [Test Runner -- Nerd-Level Details](test/read.more.md) for the full notification
+   setup. Test-user credentials are managed by the
+   `test/extension/authentication/` extension (the live vault.yml is at
+   `test/status/extension/authentication/vault.yml`, gitignored;
+   persists across cycles to simulate an external auth provider).
+
+### 4. **Project work**
+
+  - As long as your local `frameworkUrl` points to the "`yurunadev`" repository, it is business as usual with Git, with the bonus of **all committed changes** being served to your guests via the "status service interceptor".
+
+### 5. **Running Tests**
+
+  - If not using a local caching-proxy-service, set the address of that server --
+    durably via `vmStart.cachingProxyIp` in `test/test.config.yml` (probed
+    first at cycle start), or for the session only via the fallback env var
+    (consulted only when the config key is empty or unreachable):
+    ```
+    $env:YURUNA_CACHING_PROXY_SERVICE_IP = 'x.y.z.a'
+    ```
+
+  - Test your configuration, address the errors, and understand the warnings.
+    - Test just the caching-proxy-service: `test/Test-CachingProxyService.ps1`
+    - Check the configuration: `test/Test-Config.ps1`
+
+#### **Ensuring local changes are used in tests**
+
+  - If the projectUrl points to an external site (like `GitHub.com`), the "status service interceptor" doesn't serve its local commits. Why? You can clone that remote repository into multiple local folders -- which one would hold the code you want "intercepted"?
+    - Solutions:
+      - Serve the folder you want as a git repository using the git daemon.
+        ```
+        git daemon --verbose --export-all --base-path=. --enable=receive-pack
+        ```
+        Then change the projectUrl to point to your server
+        ```
+        projectUrl: git://server-name-or-ip/project-folder
+        ```
+        This suits a small group on a local network. Remember to commit changes!
+      - For testing changes on a single machine, point directly to the local folder
+        with a `file://` URL in the form your platform uses (see the per-platform
+        examples above).
+        ```
+        projectUrl: file:///<absolute-path-to>/yuruna-project
+        ```
+        Remember to commit changes!
+
+### 6. **Testing your project**
+
+  Test steps assume a PowerShell terminal (with Administrator permissions in Windows).
+
+  - Start the Yuruna caching-proxy-service
+    - Locally: `test/service/Start-CachingProxyServiceVM.ps1`
+    - For a remote cache: set `vmStart.cachingProxyIp` in `test/test.config.yml`, or the fallback env var (see step 5)
+    - Test: `test/Test-CachingProxyService.ps1`
+  - Single test loop: `test/Invoke-TestProject.ps1`
+  - For unattended tests, see the [Test runner](docs/runner-outer-loop.md) documentation.
+
+### 7. **Debug a specific step**
+  - `Debug-TestSequence.ps1` re-runs a
+   single sequence from (or stopping at) a chosen step without VM
+   re-creation:
+
+     ```
+     test/Debug-TestSequence.ps1 -SequenceName "start.guest.ubuntu.server.24" -StartStep 5
+     test/Debug-TestSequence.ps1 -SequenceName "start.guest.ubuntu.server.24" -StartStep 3 -StopStep 7
+     ```
+
+   The script lists all steps with markers showing which will execute
+   and leaves the VM running when `-StopStep` is set.
+
+## Configuration
+
+The link between YAML config and actions per command is explained in
+[Yuruna Architecture](docs/architecture.md). Operator tips and
+workarounds collected during development live in [Yuruna Workarounds](docs/workarounds.md).
+
+## Guidelines
+
+- **PowerShell** -- run [PSScriptAnalyzer](https://github.com/PowerShell/PSScriptAnalyzer)
+  via `pwsh tools/Invoke-Lint.ps1`. It scans git-tracked (and new, non-ignored)
+  files only, so generated/runtime trees that are not source and not the merge
+  gate -- the per-cycle clone (`project/`), the runtime dir
+  (`test/status/runtime/`, incl. the generated `.status-service.ps1`), pool
+  build outputs -- are excluded without a hand-maintained list. (Bare
+  `Invoke-ScriptAnalyzer -Path . -Recurse` ignores `.gitignore` and floods the
+  output with those pre-existing, non-gate findings on a tree where the harness
+  has run.) The repo ships a `PSScriptAnalyzerSettings.psd1` that PSSA
+  auto-discovers; it does not filter by severity, so findings of every severity
+  must be zero before merge -- including Information-level results (missing
+  comment help, undeclared output types, positional-parameter calls) and
+  `PSUseBOMForUnicodeEncodedFile`. Resolve a genuine false positive with a
+  scoped `[Diagnostics.CodeAnalysis.SuppressMessageAttribute(... ,
+  Justification = '...')]` carrying a one-line reason, not a blanket exclusion.
+- **Software bill of materials** -- [SBOM maintenance](docs/sbom/README.md)
+  generates repository, host, and guest inventories from the staged snapshot,
+  stages changed files, and retains the preceding version as `.previous`.
+  All files under `docs/sbom/` are exempt from globalization and localization,
+  including the translation-surface census and documentation anchor registry.
+  The commit hook still refreshes and stages the SBOMs.
+- **Commit hook** -- a repo-tracked `tools/githooks/pre-commit` runs the
+  ASCII/no-BOM gate (`tools/Test-AsciiNoBom.ps1`) and blocks a commit that
+  would put a BOM or non-ASCII byte into a byte-parsed bootstrap script
+  (`irm|iex` / `curl|bash`) or first-run guest script. The install scripts
+  activate it automatically via `.gitconfig.yuruna`; on a clone set up by
+  hand, enable it once with `git config --local core.hooksPath tools/githooks`.
+  When `VERSION`, a shared Ubuntu workflow, its generator, or a generated
+  entrypoint is staged, the hook regenerates all ten Ubuntu 24/26 entrypoints
+  and stages their runtime SHA-256 pins. It refuses unstaged edits to those
+  inputs or entrypoints and a partial commit that needs regeneration. Python 3
+  is required for this pass, including on hosts without PowerShell.
+  When the caching-proxy seed or its zot qualification record is staged, the
+  hook checks that the pinned zot release, its configuration and the probe
+  list still match the last live sync on record. Most seed edits settle that
+  offline in well under a second. A change to any of the three runs
+  `tools/Test-ZotRelease.py`, which downloads the pinned release once, syncs
+  real images through it with the seed's configuration, and stages
+  `host/vmconfig/caching-proxy-service.zot-qualified.json` when they sync. A
+  release that does not qualify blocks the commit with zot's own error and
+  what to change, and so does a qualification that cannot run (no internet, or
+  no Python 3.8). See
+  [When a zot release cannot sync the lab's images](docs/caching.md#when-a-zot-release-cannot-sync-the-labs-images).
+  When a commit stages catalog sources, the kernel, the locale manifest,
+  either generator, or a generated catalog/runtime file, it also runs
+  `tools/Invoke-CatalogCompile.ps1 -Update` and
+  `tools/Invoke-CatalogEmbed.ps1` (about forty seconds, more when a commit
+  adds English and the translation pass runs; announced by one `WARNING`
+  line). Other commits skip those generators; the release gate checks the
+  complete tree. The hook stages the files the generators report as theirs --
+  for a runtime they splice a generated block into, only that block, so a
+  hand edit elsewhere in the file stays unstaged. In the maintainers'
+  repository a pass before the catalog pass drafts translations for new
+  English and stages them. A public clone has no drafter and skips that
+  pass, so the catalog pass refuses a commit that adds or edits English:
+  commit the English only with `git commit --no-verify` and say so in the
+  change; the maintainers draft the other languages. It refuses while a
+  catalog source has changes the commit does not carry, and when a
+  `git commit <paths>` would need files staged. A merge or rebase step
+  that commits on its own does not run the hook; one concluded with
+  `git commit` after a conflict does. It is advisory -- skipped when
+  `pwsh` is absent and bypassable with `git commit --no-verify` -- so the
+  release script must run the same gate as a hard precondition (the
+  authoritative check for the published artifact).
+- **Source metadata** -- a code or manifest file in a format that takes comments
+  (PowerShell, shell, Python, Go, JavaScript, C#, Rust, YAML, HCL, TOML, HTML,
+  CSS, SQL and the like) opens with `LICENSEURI https://yuruna.link/license`
+  directly above `Copyright (c) 2019-2026 by Alisson Sol et al.`, written in the
+  language's comment syntax and placed below any first line that must stay first
+  (a shebang, `<?xml?>`, `#cloud-config`). A copyright without the pointer leaves
+  open which license the published repositories ship under. PowerShell keeps both
+  in the `<#PSScriptInfo` block, which also holds a `.GUID` that starts with `42`
+  and that no other file declares (mint one with the recipe in
+  [docs/test-perf.md](docs/test-perf.md)): the GUID is what keeps a script's
+  history joined through a rename, so a shared one merges two histories. JSON,
+  Markdown, lock files, images and `.template` skeletons (whose comments are
+  copied into operator files) are not covered. Only three kinds of file are
+  exempt, and only through an entry in
+  [tools/source-metadata.exemptions.json](tools/source-metadata.exemptions.json),
+  where each entry states its reason: generated files (the entry names the
+  generator, and the file must name it too), vendored files (they keep their
+  upstream header), and byte-identical synchronized copies that share a GUID by
+  design (the entry names the sync tool). A new generated file therefore needs a
+  reviewed entry before it passes. The commit hook runs
+  `tools/Test-SourceMetadata.ps1 -Staged`, which reads the index and blocks a gap
+  the commit introduces; a gap that already exists in a file you only edit is
+  reported and does not block. `pwsh tools/Test-SourceMetadata.ps1 -All` reports
+  the whole tree (`-Root` takes several repositories, and `-FailOnDebt` turns
+  any finding into a failure for a release gate). A project repository's hook can
+  run the same script with `-Staged -Root <that repository>`.
+- **Accessibility** -- run `pwsh tools/Invoke-A11yCheck.ps1` when you touch a
+  page, a stylesheet, or anything that generates HTML. It drives the installed
+  Chrome and measures what the browser paints -- contrast, reflow at 320 CSS px,
+  target size and the ARIA wiring -- and exits `2` when it cannot run at all,
+  which is not a pass. The static half of the same checks lives in
+  `test/modules/Test.ExtensionUiChrome.Tests.ps1` and runs everywhere without a
+  browser. A new page belongs in the gate's roots; a new HTML *generator*
+  belongs in `tools/Export-GeneratedPages.ps1`, or the gate will not see it. The
+  target, the exclusions and an operator keyboard reference are in
+  [docs/accessibility.md](docs/accessibility.md).
+- **Resources** -- keep OpenTofu files simple; minimize variables.
+- **Components** -- reusable components are best explained in an
+  end-to-end example.
+- **Workloads** -- examples should demonstrate resource + component
+  wiring and work on at least `localhost` and one cloud provider.
+
+## Testing changes from a branch
+
+**Interceptor**
+
+  The interceptor lets you test local commits without pushing them. If you used the "fetch-and-execute" pattern, the status service "intercepts" your requests and serves the local commits affecting the framework. Even for the development repository, you don't want to push untested changes. More details in the "[Fetch-and-execution contract](https://yuruna.link/42fa6f45-0002)" definition.
+
+**Testing workload scripts** (self-contained):
+
+  - Option A -- clone on the guest,
+`git checkout your-branch`, run the script directly.
+  - Option B -- push
+the branch and use `EXEC_BASE_URL` with `fetch-and-execute.sh`. The fetcher
+requires the script's SHA-256, so hash the pushed file in your checkout of the
+branch and pass it as `E_SHA` (why, and when `EXEC_ALLOW_UNVERIFIED=1` is the
+last resort: [Supplying the digest by hand](guest/README.md#supplying-the-digest-by-hand)):
+    ```
+    # in your checkout of your-branch-name:
+    sha256sum guest/ubuntu.server.24/ubuntu.server.24.code.sh
+
+    # in the guest, with that digest:
+    E_SHA=<digest> \
+    EXEC_BASE_URL="https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/your-branch-name/" \
+    /usr/local/lib/yuruna/fetch-and-execute.sh guest/ubuntu.server.24/ubuntu.server.24.code.sh
+    ```
+
+**Cloud-init user-data**: URLs are baked into the seed ISO at
+`New-VM.ps1` time from the local checkout -- the `YURUNA_GITHUB_REPO` /
+`YURUNA_GITHUB_REF` placeholders in `host/vmconfig/<guest>.base.user-data`
+resolve to the framework repo and its HEAD commit, so committed branch
+changes are served automatically. The exception is
+`host/vmconfig/caching-proxy-service.base.user-data`, which hard-codes its fetch
+base; edit its `refs/heads/main` to your branch when testing cache-VM
+changes. **Revert before opening a PR.**
+
+## Contributors
+
+Thanks to everyone who has contributed to developing, testing, and improving Yuruna:
+
+- [Alisson Sol](https://github.com/alissonsol)
+- [Chris Hawblitzel](https://github.com/Chris-Hawblitzel)
+- [Jay Lorch](https://github.com/jaylorch)
+- [Jingyan Wang](https://github.com/jingyanwangms)
+- [Markus Kuppe](https://github.com/lemmy)
+- [Paulo Haimann Pinto](https://github.com/PSergioHP)
+- [Ross Savage](https://github.com/Ross-GH)
+- [Sanket Kamble](https://github.com/akrine)
+- [Seth Eliot](https://github.com/setheliot)
+
+---
+
+LICENSEURI https://yuruna.link/license
+
+Copyright (c) 2019-2026 by Alisson Sol et al.
+
+Last review: 2026.10.14
+
+Back to [Yuruna](README.md)

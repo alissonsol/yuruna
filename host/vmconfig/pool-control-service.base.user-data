@@ -1,0 +1,221 @@
+#cloud-config
+# LICENSEURI https://yuruna.link/license
+# Copyright (c) 2019-2026 by Alisson Sol et al.
+#vim:syntax=yaml
+# See https://yuruna.link/429f3d06
+# See https://yuruna.link/4207d71a-000c
+# See https://yuruna.link/42e220c4-0006
+# --- REGION: hostname
+hostname: yuruna-pool-control-service
+# --- REGION: users
+# See https://yuruna.link/429f3d06-0034
+users:
+  - name: pool-control-service-admin
+    gecos: pool-control service user
+    sudo: ALL=(ALL) NOPASSWD:ALL
+    shell: /bin/bash
+    lock_passwd: false
+    # See https://yuruna.link/429f3d06-000d
+    plain_text_passwd: PASSWORD_PLACEHOLDER
+    ssh_authorized_keys:
+      - SSH_AUTHORIZED_KEY_PLACEHOLDER
+# --- REGION: chpasswd
+chpasswd:
+  expire: false
+  users:
+    - name: pool-control-service-admin
+      password: PASSWORD_PLACEHOLDER
+      type: text
+# --- REGION: ssh_pwauth
+ssh_pwauth: true
+# --- REGION: package_update
+package_update: true
+# --- REGION: packages
+packages:
+  # cifs-utils: the bring-up script's pool-NAS SMB3 mount (that script installs golang-go + pwsh itself).
+  - cifs-utils
+  # Network tools support console and SSH diagnostics.
+  # --- REGION: https://yuruna.link/429f3d06-003a
+  - net-tools
+  - iputils-ping
+  # === YURUNA_OVERLAY_HOST_AGENT_PKG ===
+# --- REGION: write_files
+write_files:
+  # --- REGION: https://yuruna.link/4220a755-004c
+  - path: /etc/ssh/sshd_config.d/60-yuruna-keepalive.conf
+    permissions: '0644'
+    owner: root:root
+    content: |
+      ClientAliveInterval 15
+      ClientAliveCountMax 4
+      TCPKeepAlive yes
+  # Pool coordinates, sed-read (`s/^KEY=//p`) by the bring-up script, so values are
+  # UNQUOTED here (unlike stash's single-quoted env; the host bake refuses single
+  # quotes). poolStorageNetworkPath/poolStorageNetworkUser match Test.PoolStorage networkStorage.
+  - path: /etc/yuruna/pool.env
+    permissions: '0644'
+    owner: root:root
+    content: |
+      YURUNA_AGGREGATOR_URL=YURUNA_AGGREGATOR_URL_PLACEHOLDER
+      YURUNA_POOL_CONFIGURATION_GIT_URL=YURUNA_POOL_CONFIGURATION_GIT_URL_PLACEHOLDER
+      YURUNA_POOL_NETWORK_PATH=POOL_NAS_NETWORK_PATH_PLACEHOLDER
+      YURUNA_POOL_NETWORK_IP=POOL_NAS_NETWORK_IP_PLACEHOLDER
+      YURUNA_POOL_NETWORK_USER=POOL_NAS_NETWORK_USER_PLACEHOLDER
+  # cifs credentials (0600 root) for the bring-up script's pool-NAS mount; the
+  # networkUser is the single pool-NAS account -- scope it storage-only on the NAS.
+  - path: /etc/yuruna/pool-nas.cifs.cred
+    permissions: '0600'
+    owner: root:root
+    content: |
+      username=POOL_NAS_NETWORK_USER_PLACEHOLDER
+      password=POOL_NAS_PASSWORD_PLACEHOLDER
+  # --- REGION: https://yuruna.link/42fffc2c-000d
+  - path: /etc/yuruna/globalization.env
+    owner: root:root
+    permissions: '0644'
+    content: |
+      YURUNA_LANGUAGE=YURUNA_LANGUAGE_PLACEHOLDER
+      YURUNA_ALLOW_PSEUDO_LOCALE=YURUNA_ALLOW_PSEUDO_LOCALE_PLACEHOLDER
+
+  # --- REGION: https://yuruna.link/429f3d06-0029
+  # Empty IP/PORT falls back to the public github mirror for the framework fetch.
+  - path: /etc/yuruna/host.env
+    permissions: '0644'
+    owner: root:root
+    content: |
+      YURUNA_HOST_ID=YURUNA_HOST_ID_PLACEHOLDER
+      YURUNA_STATUS_SERVICE_IP=YURUNA_STATUS_SERVICE_IP_PLACEHOLDER
+      YURUNA_STATUS_SERVICE_PORT=YURUNA_STATUS_SERVICE_PORT_PLACEHOLDER
+      YURUNA_CACHING_PROXY_SERVICE_IP=YURUNA_CACHING_PROXY_SERVICE_IP_PLACEHOLDER
+  # Operator note; the env files above carry the live coordinates.
+  - path: /etc/yuruna/README.pool-control-service
+    permissions: '0644'
+    owner: root:root
+    content: |
+      Pool-control service VM. /etc/yuruna/globalization.env + pool.env + host.env +
+      pool-nas.cifs.cred are written by New-VM.ps1 into the seed. The bring-up script
+      reads them.
+  # --- REGION: https://yuruna.link/429f3d06-002a
+  # This VM is provisioned once and runs for weeks, so it accumulates host
+  # renumbers a per-cycle test guest never sees.
+  - path: /usr/local/lib/yuruna/yuruna-host-locate.sh
+    encoding: base64
+    content: YURUNA_HOST_LOCATE_BASE64_PLACEHOLDER
+    permissions: '0755'
+  - path: /etc/systemd/system/yuruna-host-locate.service
+    permissions: '0644'
+    content: |
+      # --- REGION: [Unit]
+      [Unit]
+      Description=Refresh Yuruna host coordinates if the host has changed address
+      After=network.target NetworkManager-wait-online.service systemd-networkd-wait-online.service
+      Before=network-online.target
+
+      # --- REGION: [Service]
+      [Service]
+      Type=oneshot
+      TimeoutStartSec=30
+      ExecStart=/usr/local/lib/yuruna/yuruna-host-locate.sh
+
+      # --- REGION: [Install]
+      [Install]
+      WantedBy=network-online.target
+  - path: /etc/systemd/system/yuruna-host-locate.timer
+    permissions: '0644'
+    content: |
+      # --- REGION: [Unit]
+      [Unit]
+      Description=Periodic Yuruna host coordinate refresh
+
+      # --- REGION: [Timer]
+      [Timer]
+      OnBootSec=30s
+      OnUnitActiveSec=60s
+      AccuracySec=5s
+
+      # --- REGION: [Install]
+      [Install]
+      WantedBy=timers.target
+# --- REGION: runcmd
+runcmd:
+  # === YURUNA_OVERLAY_RUNCMD_HOST_AGENT ===
+  # sshd is already up by the time write_files lands, so the drop-in above needs
+  # a reload to take effect on this boot rather than only on the next one.
+  - systemctl reload ssh 2>/dev/null || systemctl reload sshd 2>/dev/null || true
+  # --- REGION: https://yuruna.link/429f3d06-002a
+  - systemctl enable --now yuruna-host-locate.service yuruna-host-locate.timer || true
+  # See https://yuruna.link/42fffc2c-0013
+  # --- REGION: Fetch the framework
+  - |
+    set +e
+    HF=/etc/yuruna/host.env
+    YR_HOST=$(sed -nE 's/^YURUNA_STATUS_SERVICE_IP=(.*)$/\1/p' "$HF" 2>/dev/null | head -n1)
+    YR_PORT=$(sed -nE 's/^YURUNA_STATUS_SERVICE_PORT=(.*)$/\1/p' "$HF" 2>/dev/null | head -n1)
+    DEST=/home/pool-control-service-admin/yuruna
+    MIRROR_URL=https://github.com/alissonsol/yuruna
+    FETCH_DIR=$(mktemp -d "${DEST}.fetch.XXXXXX") || FETCH_DIR=''
+    # --- REGION: yuruna_accept_framework
+    # Only a validated tree may replace a previously usable checkout.
+    yuruna_accept_framework() {
+      [ -f "$FETCH_DIR/tree/VERSION" ] && [ -s "$FETCH_DIR/tree/VERSION" ] || return 1
+      [ ! -e "$FETCH_DIR/previous" ] || return 1
+      if [ -e "$DEST" ]; then mv "$DEST" "$FETCH_DIR/previous" || return 1; fi
+      if mv "$FETCH_DIR/tree" "$DEST"; then rm -rf "$FETCH_DIR/previous"; return 0; fi
+      if [ -e "$FETCH_DIR/previous" ]; then
+        mv "$FETCH_DIR/previous" "$DEST" || echo "yuruna: previous checkout retained at $FETCH_DIR/previous after restore failed." >&2
+      fi
+      return 1
+    }
+    OK=0
+    SRC=mirror
+    SRC_URL="$MIRROR_URL"
+    # --- REGION: https://yuruna.link/42e220c4-0006
+    ATTEMPT=1
+    while [ "$ATTEMPT" -le 6 ]; do
+      if [ -n "$YR_HOST" ] && [ -n "$YR_PORT" ] && wget -q --no-proxy --tries=1 --timeout=5 -O /dev/null "http://$YR_HOST:$YR_PORT/livecheck"; then
+        # Check the transfer separately; tar can succeed after wget fails.
+        if [ -n "$FETCH_DIR" ] &&
+           wget --no-proxy --timeout=30 --tries=1 -qO "$FETCH_DIR/archive.tar.gz" "http://$YR_HOST:$YR_PORT/yuruna-archive.tar.gz" &&
+           mkdir -p "$FETCH_DIR/tree" && tar -xzf "$FETCH_DIR/archive.tar.gz" -C "$FETCH_DIR/tree" && yuruna_accept_framework; then
+          OK=1; SRC=host; SRC_URL="http://$YR_HOST:$YR_PORT"
+          echo "yuruna pool-control-service: framework extracted from host $SRC_URL"
+          break
+        fi
+        if [ -n "$FETCH_DIR" ]; then rm -rf "$FETCH_DIR/tree"; fi
+      fi
+      if [ "$ATTEMPT" -lt 6 ]; then sleep 10; fi
+      # Re-read the coordinates every attempt: waiting is only worth anything if
+      # the address the resolver has since corrected is the one the retry uses.
+      YR_HOST=$(sed -nE 's/^YURUNA_STATUS_SERVICE_IP=(.*)$/\1/p' "$HF" 2>/dev/null | head -n1)
+      YR_PORT=$(sed -nE 's/^YURUNA_STATUS_SERVICE_PORT=(.*)$/\1/p' "$HF" 2>/dev/null | head -n1)
+      ATTEMPT=$((ATTEMPT + 1))
+    done
+    if [ "$OK" -eq 0 ]; then
+      echo "yuruna pool-control-service: host status service did not serve the framework after 6 attempts; cloning the public mirror instead -- this daemon will run PUBLISHED code, which is older than the host's enlistment." >&2
+      if [ -n "$FETCH_DIR" ] &&
+         git -c http.lowSpeedLimit=1024 -c http.lowSpeedTime=60 clone --depth 1 "$MIRROR_URL" "$FETCH_DIR/tree" && yuruna_accept_framework; then OK=1; fi
+    fi
+    # See https://yuruna.link/42fffc2c-0013
+    # Record source provenance for the unprivileged seed account's readiness probe.
+    if [ "$OK" -eq 1 ]; then
+      mkdir -p /etc/yuruna
+      {
+        echo "source=$SRC"
+        echo "url=$SRC_URL"
+        echo "version=$(head -n1 "$DEST/VERSION" 2>/dev/null | tr -d '[:space:]')"
+        echo "fetchedAt=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+      } > /etc/yuruna/framework-source
+      chmod 0644 /etc/yuruna/framework-source
+    fi
+    if [ -n "$FETCH_DIR" ] && [ ! -e "$FETCH_DIR/previous" ]; then rm -rf "$FETCH_DIR"; fi
+    chown -R pool-control-service-admin:pool-control-service-admin "$DEST" 2>/dev/null || true
+    [ "$OK" -eq 1 ] || echo "yuruna pool-control-service: could not obtain the framework source; run the bring-up manually." >&2
+  # --- REGION: Build and start the service
+  - |
+    set +e
+    SCRIPT=/home/pool-control-service-admin/yuruna/guest/ubuntu.server.26/ubuntu.server.26.pool-control-service.sh
+    if [ -f "$SCRIPT" ]; then
+      bash "$SCRIPT" || echo "yuruna pool-control-service: bring-up script exited non-zero; see cloud-init-output.log." >&2
+    else
+      echo "yuruna pool-control-service: bring-up script not found at $SCRIPT (framework not fetched?)." >&2
+    fi

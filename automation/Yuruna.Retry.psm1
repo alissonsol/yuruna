@@ -1,0 +1,360 @@
+<#PSScriptInfo
+.VERSION 2026.10.14
+.GUID 4257205b-1908-49c3-840b-b2b3559b3337
+.AUTHOR Alisson Sol et al.
+.COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
+.TAGS Yuruna.Retry
+.LICENSEURI https://yuruna.link/license
+.PROJECTURI https://yuruna.com
+.ICONURI
+.EXTERNALMODULEDEPENDENCIES
+.REQUIREDSCRIPTS
+.EXTERNALSCRIPTDEPENDENCIES
+.RELEASENOTES
+.PRIVATEDATA
+#>
+
+#requires -version 7
+
+Import-Module (Join-Path $PSScriptRoot 'Yuruna.Globalization.psm1') -DisableNameChecking
+
+
+<#
+.SYNOPSIS
+    PowerShell counterpart of automation/yuruna-retry.sh.
+
+.DESCRIPTION
+    Mirrors the bash _yuruna_retry contract for PowerShell callers so
+    on-host code (Set-Resource tofu init, host-side curl probes, ...)
+    shares one retry policy with the guest-side scripts.
+
+    Policy: capped exponential backoff with optional jitter. Defaults
+    line up with yuruna-retry.sh (max_attempts=5, delay=10s, *= 2 per
+    attempt), with two additions that the bash side does not need:
+      * MaxDelaySeconds caps each backoff (default 300s).
+      * JitterFraction +/- randomizes each backoff (default 0.25) so a
+        burst of parallel callers does not lock-step their retries onto
+        the same failure window.
+
+    Defaults can be overridden per call OR via the same env vars the
+    bash side honors (YURUNA_RETRY_MAX_ATTEMPTS, YURUNA_RETRY_DELAY_SECONDS),
+    so an operator can tune both halves of the system from one place.
+    Parity covers those two vars only: the bash side's per-attempt
+    stall bound and heal hook (YURUNA_RETRY_STALL_TIMEOUT_SECONDS,
+    YURUNA_*_STALL_TIMEOUT, YURUNA_RETRY_HEAL) are guest-side knobs
+    built on timeout(1) with no counterpart here.
+
+    Callers that should retry only a subset of failures pass a
+    -ShouldRetry predicate. It receives a hashtable
+    (@{ Attempt; MaxAttempts; ExitCode; Output; Error }) and returns
+    $true to keep retrying or $false to fail fast. Omitting it retries
+    on any non-zero exit (the tofu-init contract).
+#>
+
+$script:RetryDefaults = @{
+    MaxAttempts         = 5
+    InitialDelaySeconds = 10
+    MaxDelaySeconds     = 300
+    JitterFraction      = 0.25
+}
+
+# See https://yuruna.link/4213a0b3-0010
+$script:TransientFailurePattern = '(?i)(failed to fetch|i/o timeout|no such host|could not resolve host|server misbehaving|connection refused|connection to the server \S+ was refused|connection reset|client\.timeout|\bEOF\b|TLS handshake|temporary failure|\b(?:429|500|502|503|504)\b|too many requests|error acquiring the state lock|ConditionalCheckFailedException)'
+
+<#
+.SYNOPSIS
+    Returns a positive integer from the named environment variable, or the
+    supplied fallback when the variable is unset or not a positive integer.
+#>
+function Get-YurunaRetryDefault {
+    [OutputType([int])]
+    param(
+        [Parameter(Mandatory)][string]$EnvName,
+        [Parameter(Mandatory)][int]$Fallback
+    )
+    $raw = [System.Environment]::GetEnvironmentVariable($EnvName)
+    if ($raw) {
+        $parsed = 0
+        if ([int]::TryParse($raw, [ref]$parsed) -and $parsed -gt 0) { return $parsed }
+    }
+    return $Fallback
+}
+
+<#
+.SYNOPSIS
+    Returns the shared transient-failure regex string for callers that match
+    output inline -- e.g. a closure that must run detached in the retry module's
+    scope -- instead of calling Test-YurunaTransientFailure.
+#>
+function Get-YurunaTransientPattern {
+    [OutputType([string])]
+    param()
+    return $script:TransientFailurePattern
+}
+
+<#
+.SYNOPSIS
+    Returns $true when the given command output (a string, or an array of
+    output lines/records) matches the shared transient-failure pattern and is
+    worth retrying.
+#>
+function Test-YurunaTransientFailure {
+    [OutputType([bool])]
+    param([Parameter(Mandatory)][AllowNull()]$Output)
+    if ($null -eq $Output) { return $false }
+    $text = (@($Output) | ForEach-Object { [string]$_ }) -join "`n"
+    return ($text -match $script:TransientFailurePattern)
+}
+
+# Structured retry telemetry (best-effort). Emits a machine-readable
+# retry_attempt / retry_exhausted NDJSON record when this host-side retry runs
+# inside a process that also loaded Test.Log; a no-op otherwise (Send-Cycle-
+# EventSafely is Get-Command-guarded), so the standalone tofu-init / on-host
+# probe paths that don't import Test.Log are unaffected. Private (not exported).
+function Send-YurunaRetryEvent {
+    param(
+        [Parameter(Mandatory)][string]$EventName,
+        [string]$Label,
+        [int]$Attempt,
+        [int]$MaxAttempts,
+        [int]$ExitCode,
+        [AllowNull()][Nullable[bool]]$Transient,
+        [AllowNull()][Nullable[int]]$SleepSeconds,
+        [AllowNull()][Nullable[bool]]$Permanent
+    )
+    if (-not (Get-Command Send-CycleEventSafely -ErrorAction SilentlyContinue)) { return }
+    $rec = @{
+        timestamp   = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", [Globalization.CultureInfo]::InvariantCulture)
+        event       = $EventName
+        stack       = 'pwsh'
+        description = [string]$Label
+        attempt     = [int]$Attempt
+        maxAttempts = [int]$MaxAttempts
+        exitCode    = [int]$ExitCode
+    }
+    if ($null -ne $Transient)    { $rec['transient']    = [bool]$Transient }
+    if ($null -ne $SleepSeconds) { $rec['sleepSeconds'] = [int]$SleepSeconds }
+    if ($null -ne $Permanent)    { $rec['permanent']    = [bool]$Permanent }
+    Send-CycleEventSafely -EventRecord $rec
+}
+
+<#
+.SYNOPSIS
+    Appends one section to a per-tool diagnostic log: a header line, then one
+    line for every element of -Line.
+.DESCRIPTION
+    The whole section reaches the file through a single Add-Content call, so
+    the log is opened once however much the tool printed. An append per line
+    pays a file open for every line, and on a host that scans files as they are
+    opened that turns a two-thousand-line transcript into most of a minute.
+
+    Every element is cast to [string] before it is written. Left to itself
+    Add-Content drops a $null element and renders a number in the current
+    culture; the cast writes the $null as an empty line and the number the way
+    PowerShell prints it, which is what appending [string]$element on its own
+    produces.
+
+    Nothing is caught here. A log that cannot be written is reported the way
+    an Add-Content written at the call site would report it -- one error
+    record, terminating only when the caller's error preference says so -- so
+    each caller keeps the handling it already had around its own append.
+#>
+function Write-YurunaToolLogSection {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][string]$LogFile,
+        [Parameter(Mandatory)][AllowEmptyString()][string]$Header,
+        [object[]]$Line
+    )
+    # A function in this module sees the global error preference, never one a
+    # caller in another module set in its own scope. Read the caller's, so a
+    # caller running under Stop is stopped by a log it cannot write and a
+    # caller that silenced errors stays silent, as with an append of its own.
+    $errorAction = $ErrorActionPreference
+    if (-not $PSBoundParameters.ContainsKey('ErrorAction')) {
+        $errorAction = $PSCmdlet.SessionState.PSVariable.GetValue('ErrorActionPreference', $ErrorActionPreference)
+    }
+    $section = @(
+        $Header
+        foreach ($entry in $Line) { [string]$entry }
+    )
+    Add-Content -LiteralPath $LogFile -Value $section -ErrorAction $errorAction
+}
+
+<#
+.SYNOPSIS
+    Runs a scriptblock under capped exponential backoff with optional jitter,
+    retrying on non-zero exit (or per the -ShouldRetry predicate) and returning
+    a result object describing the outcome.
+#>
+function Invoke-WithYurunaRetry {
+    [OutputType([pscustomobject])]
+    [CmdletBinding(PositionalBinding=$false)]
+    param(
+        [Parameter(Mandatory)][string]$Label,
+        [Parameter(Mandatory)][scriptblock]$ScriptBlock,
+        [int]$MaxAttempts         = 0,
+        [int]$InitialDelaySeconds = 0,
+        [int]$MaxDelaySeconds     = 0,
+        [double]$JitterFraction   = -1,
+        [string]$LogPath,
+        [string]$RcFile,
+        [scriptblock]$OnAttempt,
+        [scriptblock]$OnRetry,
+        [scriptblock]$ShouldRetry
+    )
+
+    if ($MaxAttempts -le 0) {
+        $MaxAttempts = Get-YurunaRetryDefault -EnvName 'YURUNA_RETRY_MAX_ATTEMPTS' -Fallback $script:RetryDefaults.MaxAttempts
+    }
+    if ($InitialDelaySeconds -le 0) {
+        $InitialDelaySeconds = Get-YurunaRetryDefault -EnvName 'YURUNA_RETRY_DELAY_SECONDS' -Fallback $script:RetryDefaults.InitialDelaySeconds
+    }
+    if ($MaxDelaySeconds -le 0)     { $MaxDelaySeconds  = $script:RetryDefaults.MaxDelaySeconds }
+    if ($JitterFraction  -lt 0)     { $JitterFraction   = $script:RetryDefaults.JitterFraction }
+
+    $delay      = [int]$InitialDelaySeconds
+    $attempt    = 1
+    $lastExit   = 0
+    $lastOutput = @()
+    $lastError  = $null
+    $success    = $false
+
+    while ($attempt -le $MaxAttempts) {
+        if ($OnAttempt) {
+            try { & $OnAttempt @{ Attempt = $attempt; MaxAttempts = $MaxAttempts } } catch { $null = $_ }
+        }
+        # Reset on $global: so a local assignment here does not shadow the
+        # automatic $LASTEXITCODE the scriptblock will update via native
+        # exes; reading $global:LASTEXITCODE below for the same reason.
+        $global:LASTEXITCODE = 0
+        $lastOutput          = @()
+        $lastError           = $null
+        try {
+            $lastOutput = & $ScriptBlock 2>&1
+            $lastExit   = if ($null -ne $global:LASTEXITCODE) { [int]$global:LASTEXITCODE } else { 0 }
+            if ($lastExit -eq 0) { $success = $true }
+        } catch {
+            $lastError = $_
+            $lastExit  = if ($null -ne $global:LASTEXITCODE -and $global:LASTEXITCODE -ne 0) { [int]$global:LASTEXITCODE } else { 1 }
+        }
+
+        if ($LogPath) {
+            try {
+                $stamp = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", [Globalization.CultureInfo]::InvariantCulture)
+                $header = "== ${stamp} ${Label} attempt ${attempt}/${MaxAttempts} (exit=${lastExit}) =="
+                # The attempt is one section: its output can run to thousands
+                # of lines, and each separate append would open the log again.
+                $lines = @(
+                    foreach ($line in $lastOutput) { [string]$line }
+                    if ($lastError) { "[exception] " + $lastError.Exception.Message }
+                )
+                Write-YurunaToolLogSection -LogFile $LogPath -Header $header -Line $lines
+            } catch { $null = $_ }
+        }
+
+        if ($success) { break }
+
+        if ($attempt -lt $MaxAttempts) {
+            # A predicate lets the caller fail fast on a non-transient error
+            # (config typo, NotFound, auth) instead of spending the whole
+            # backoff budget on a failure that will never clear. Evaluated
+            # only when a retry is still possible so its "not retryable"
+            # breadcrumb can't be confused with budget exhaustion. No
+            # predicate => retry on any non-zero exit (the tofu-init contract).
+            if ($ShouldRetry) {
+                # A predicate that THROWS is a bug in the caller's fail-fast
+                # test, not evidence the failure is non-transient. Default to
+                # retryable so a broken predicate falls back to the no-predicate
+                # contract (retry on any non-zero exit) instead of silently
+                # converting a retryable failure into a fail-fast; surface the
+                # fault so the predicate bug stays diagnosable.
+                $retryThis = $true
+                try {
+                    $retryThis = [bool](& $ShouldRetry @{ Attempt = $attempt; MaxAttempts = $MaxAttempts; ExitCode = $lastExit; Output = $lastOutput; Error = $lastError })
+                } catch {
+                    Write-Information (Format-YurunaOperatorMessage -Key 'automation.operator_5bb127d98fea6728' -Arguments @{ label = "${Label}"; message = "$($_.Exception.Message)" })
+                }
+                if (-not $retryThis) {
+                    Write-Information (Format-YurunaOperatorMessage -Key 'automation.operator_34010bbd70837710' -Arguments @{ label = "${Label}"; lastExit = "${lastExit}" })
+                    Send-YurunaRetryEvent -EventName 'retry_exhausted' -Label $Label -Attempt $attempt -MaxAttempts $MaxAttempts -ExitCode $lastExit -Permanent $true
+                    break
+                }
+            }
+            $sleep = Get-YurunaRetryBackoff -BaseDelay $delay -MaxDelay $MaxDelaySeconds -JitterFraction $JitterFraction
+            Write-Information (Format-YurunaOperatorMessage -Key 'automation.operator_b33c77878eaa7c77' -Arguments @{ label = "${Label}"; attempt = "${attempt}"; maxAttempts = "${MaxAttempts}"; lastExit = "${lastExit}"; sleep = "${sleep}" })
+            Send-YurunaRetryEvent -EventName 'retry_attempt' -Label $Label -Attempt $attempt -MaxAttempts $MaxAttempts -ExitCode $lastExit -Transient ([bool](Test-YurunaTransientFailure -Output $lastOutput)) -SleepSeconds $sleep
+            if ($OnRetry) {
+                try { & $OnRetry @{ Attempt = $attempt; MaxAttempts = $MaxAttempts; SleepSeconds = $sleep; ExitCode = $lastExit } } catch { $null = $_ }
+            }
+            Start-Sleep -Seconds $sleep
+            $delay = [Math]::Min([int]($delay * 2), $MaxDelaySeconds)
+        } else {
+            Write-Information (Format-YurunaOperatorMessage -Key 'automation.operator_0006b705ae0abd93' -Arguments @{ label = "${Label}"; maxAttempts = "${MaxAttempts}"; lastExit = "${lastExit}" })
+            Send-YurunaRetryEvent -EventName 'retry_exhausted' -Label $Label -Attempt $attempt -MaxAttempts $MaxAttempts -ExitCode $lastExit -Permanent $false
+        }
+        $attempt++
+    }
+
+    if ($RcFile) {
+        # Exit-code sidecar so the post-mortem diagnostic's rc-scan
+        # (Get-SystemDiagnostic derives <tool>.rc from <tool>.stderr.log) finds
+        # a result for a tool routed only through this retry helper -- e.g.
+        # tofu, which otherwise leaves a .stderr.log with no .rc sibling.
+        try { Set-Content -LiteralPath $RcFile -Value "$lastExit" } catch { $null = $_ }
+    }
+    return [pscustomobject]@{
+        Success     = $success
+        Attempts    = [Math]::Min($attempt, $MaxAttempts)
+        MaxAttempts = $MaxAttempts
+        LastExit    = $lastExit
+        LastOutput  = $lastOutput
+        LastError   = $lastError
+        Label       = $Label
+    }
+}
+
+<#
+.SYNOPSIS
+    Computes the next backoff delay in seconds, capping the base delay to the
+    maximum and applying +/- jitter so parallel callers do not lock-step.
+#>
+function Get-YurunaRetryBackoff {
+    [OutputType([int])]
+    param(
+        [Parameter(Mandatory)][int]$BaseDelay,
+        [Parameter(Mandatory)][int]$MaxDelay,
+        [Parameter(Mandatory)][double]$JitterFraction
+    )
+    $capped = [Math]::Min([Math]::Max($BaseDelay, 1), [Math]::Max($MaxDelay, 1))
+    if ($JitterFraction -le 0) { return [int]$capped }
+    $jitterRange = $capped * $JitterFraction
+    $jitter = (Get-Random -Minimum (-1.0 * $jitterRange) -Maximum $jitterRange)
+    $result = [int][Math]::Round($capped + $jitter)
+    if ($result -lt 1) { $result = 1 }
+    if ($result -gt $MaxDelay) { $result = $MaxDelay }
+    return $result
+}
+
+<#
+.SYNOPSIS
+    Runs `tofu init -input=false` for the named resource under the shared retry
+    policy, returning the Invoke-WithYurunaRetry result object.
+#>
+function Invoke-TofuInitWithRetry {
+    [OutputType([pscustomobject])]
+    [CmdletBinding(PositionalBinding=$false)]
+    param(
+        [Parameter(Mandatory)][string]$ResourceName,
+        [string]$LogPath,
+        [string]$RcFile,
+        [int]$MaxAttempts         = 0,
+        [int]$InitialDelaySeconds = 0
+    )
+    $label = "tofu init ($ResourceName)"
+    return Invoke-WithYurunaRetry -Label $label -ScriptBlock {
+        & tofu init -input=false
+    } -MaxAttempts $MaxAttempts -InitialDelaySeconds $InitialDelaySeconds -LogPath $LogPath -RcFile $RcFile
+}
+
+Export-ModuleMember -Function 'Invoke-WithYurunaRetry','Invoke-TofuInitWithRetry','Get-YurunaRetryBackoff','Get-YurunaRetryDefault','Get-YurunaTransientPattern','Test-YurunaTransientFailure','Write-YurunaToolLogSection'

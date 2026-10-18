@@ -1,0 +1,486 @@
+// LICENSEURI https://yuruna.link/license
+// Copyright (c) 2019-2026 by Alisson Sol et al.
+
+package main
+
+import (
+	"encoding/json"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"testing"
+	"time"
+)
+
+// The extension-presence announce (POST /announce): a service VM self-reports
+// the extension it runs so the Extension hosts row survives the owning host's
+// status service being down. These cover the handler's validation + identity
+// binding, the metric union with registration rows, the TTL reap, the Loki
+// rehydrate, and the /go/stash + pool-status fallbacks.
+
+const testHostID = "42512149e3dc437ca677a40828382528"
+
+// postAnnounce sends one announce body from the given source address.
+func postAnnounce(s *poolState, remoteAddr, body string) *httptest.ResponseRecorder {
+	req := httptest.NewRequest("POST", "/announce", strings.NewReader(body))
+	req.RemoteAddr = remoteAddr
+	rec := httptest.NewRecorder()
+	s.handleAnnounce(rec, req)
+	return rec
+}
+
+func TestAnnounceCreatesExtensionRow(t *testing.T) {
+	s := newPoolState("default", 8080)
+	rec := postAnnounce(s, "10.0.0.7:5555",
+		fmt.Sprintf(`{"schemaVersion":1,"hostId":%q,"area":"stash-service","targetPort":80,"active":true}`, testHostID))
+	if rec.Code/100 != 2 {
+		t.Fatalf("announce status = %d, want 2xx", rec.Code)
+	}
+	// The announce says the service exists; the pool's own probe is what makes
+	// its address usable. In a live collector the handler takes that probe
+	// itself -- here the verdict is seeded, since these tests have no client.
+	seedExtensionHealth(s, testHostID, stashArea, "http://10.0.0.7")
+	m := httptest.NewRecorder()
+	s.handleMetrics(m, metricsRequest())
+	// The target derives from the SOURCE address (port 80 -> no port suffix);
+	// baseUrl is empty because the owning host is not in the view. goPath is the
+	// dashboard's ready-made link for the row.
+	want := "yuruna_pool_host_extension{pool=\"default\",hostId=\"" + testHostID + "\",hostIdDashed=\"" + dashedHostID(testHostID) + "\",area=\"stash-service\",baseUrl=\"\",target=\"http://10.0.0.7\",goPath=\"/go/stash?host=" + testHostID + "&area=stash-service\"} 1"
+	if !strings.Contains(m.Body.String(), want) {
+		t.Errorf("/metrics missing the announce-sourced row.\nwant: %s\ngot:\n%s", want, m.Body.String())
+	}
+}
+
+func TestAnnounceNonDefaultPortRidesInTarget(t *testing.T) {
+	s := newPoolState("default", 8080)
+	postAnnounce(s, "10.0.0.7:5555", fmt.Sprintf(`{"hostId":%q,"targetPort":8081}`, testHostID))
+	s.mu.Lock()
+	av := s.announce[announceKey(testHostID, stashArea)]
+	s.mu.Unlock()
+	if av == nil || av.Target != "http://10.0.0.7:8081" {
+		t.Errorf("announce target = %+v, want http://10.0.0.7:8081 (area defaults to stash-service)", av)
+	}
+}
+
+// An explicit target URL must point at the SENDER -- an announcer can only
+// advertise itself, never paint a row that redirects to a third party.
+func TestAnnounceExplicitTargetMustMatchSource(t *testing.T) {
+	s := newPoolState("default", 8080)
+	rec := postAnnounce(s, "10.0.0.7:5555",
+		fmt.Sprintf(`{"hostId":%q,"target":"http://10.0.0.99"}`, testHostID))
+	if rec.Code != 403 {
+		t.Errorf("mismatched explicit target: status = %d, want 403", rec.Code)
+	}
+	rec = postAnnounce(s, "10.0.0.7:5555",
+		fmt.Sprintf(`{"hostId":%q,"target":"http://10.0.0.7:8081"}`, testHostID))
+	if rec.Code/100 != 2 {
+		t.Errorf("self-matching explicit target: status = %d, want 2xx", rec.Code)
+	}
+}
+
+func TestAnnounceRejectsInvalidIdentity(t *testing.T) {
+	s := newPoolState("default", 8080)
+	cases := []struct {
+		name string
+		body string
+	}{
+		{"hostId with label-breaking chars", `{"hostId":"bad\"id{}","targetPort":80}`},
+		{"hostId too short", `{"hostId":"ab","targetPort":80}`},
+		{"area with uppercase", fmt.Sprintf(`{"hostId":%q,"area":"Stash-Service"}`, testHostID)},
+		{"non-http target scheme", fmt.Sprintf(`{"hostId":%q,"target":"javascript:alert(1)"}`, testHostID)},
+		{"not json", `hostId=x`},
+	}
+	for _, c := range cases {
+		if rec := postAnnounce(s, "10.0.0.7:5555", c.body); rec.Code != 400 {
+			t.Errorf("%s: status = %d, want 400", c.name, rec.Code)
+		}
+	}
+}
+
+// A goodbye (active=false) removes the row immediately -- but only when it
+// comes from the entry's own source address.
+func TestAnnounceGoodbyeIdentityBound(t *testing.T) {
+	s := newPoolState("default", 8080)
+	postAnnounce(s, "10.0.0.7:5555", fmt.Sprintf(`{"hostId":%q,"targetPort":80}`, testHostID))
+
+	postAnnounce(s, "10.0.0.99:5555", fmt.Sprintf(`{"hostId":%q,"active":false}`, testHostID))
+	s.mu.Lock()
+	kept := s.announce[announceKey(testHostID, stashArea)] != nil
+	s.mu.Unlock()
+	if !kept {
+		t.Fatal("a goodbye from a DIFFERENT source removed the entry")
+	}
+
+	postAnnounce(s, "10.0.0.7:6666", fmt.Sprintf(`{"hostId":%q,"active":false}`, testHostID))
+	s.mu.Lock()
+	kept = s.announce[announceKey(testHostID, stashArea)] != nil
+	s.mu.Unlock()
+	if kept {
+		t.Fatal("the owner's goodbye did not remove the entry")
+	}
+}
+
+// When BOTH sources cover one (hostId, area), exactly one row is emitted and it
+// carries the LIVE announce's target.
+//
+// The registration is the owning host's advertisement, but the runner writes
+// host.registration.json before it refreshes the stash marker, so
+// extensionTargets carries the previous refresh's value -- a service VM rebuilt
+// onto a new DHCP address is advertised at its predecessor's address for a whole
+// cycle. The announce's target came off the source address of a request this
+// process received, so it is first-hand evidence the service answers there.
+func TestAnnounceLiveAnnounceBeatsStaleRegistration(t *testing.T) {
+	s := newPoolState("default", 8080)
+	s.hosts[testHostID] = &hostView{
+		HostId:           testHostID,
+		BaseURL:          "http://10.0.0.1:8080",
+		ActiveExtensions: []string{"stash-service"},
+		ExtensionTargets: map[string]string{"stash-service": "http://10.0.0.5"},
+		LastSeenUnixMs:   time.Now().UnixMilli(),
+	}
+	postAnnounce(s, "10.0.0.7:5555", fmt.Sprintf(`{"hostId":%q,"targetPort":80}`, testHostID))
+	seedExtensionHealth(s, testHostID, stashArea, "http://10.0.0.7")
+
+	m := httptest.NewRecorder()
+	s.handleMetrics(m, metricsRequest())
+	body := m.Body.String()
+	if got := strings.Count(body, "yuruna_pool_host_extension{"); got != 1 {
+		t.Errorf("emitted %d extension rows, want exactly 1 for one (hostId, area)", got)
+	}
+	if !strings.Contains(body, "target=\"http://10.0.0.7\"") {
+		t.Errorf("winning row must carry the announced target, got:\n%s", body)
+	}
+	// The row still belongs to the host, so its status page link survives.
+	if !strings.Contains(body, "baseUrl=\"http://10.0.0.1:8080\"") {
+		t.Errorf("winning row lost the host baseUrl, got:\n%s", body)
+	}
+}
+
+// A disagreement is reported, not just resolved: the address the losing source
+// claimed rides on its own gauge so an operator can see that a host's
+// registration has fallen behind its service before it is the only source left.
+func TestAnnounceDisagreementIsReported(t *testing.T) {
+	s := newPoolState("default", 8080)
+	s.hosts[testHostID] = &hostView{
+		HostId:           testHostID,
+		ActiveExtensions: []string{"stash-service"},
+		ExtensionTargets: map[string]string{"stash-service": "http://10.0.0.5"},
+		LastSeenUnixMs:   time.Now().UnixMilli(),
+	}
+	postAnnounce(s, "10.0.0.7:5555", fmt.Sprintf(`{"hostId":%q,"targetPort":80}`, testHostID))
+	seedExtensionHealth(s, testHostID, stashArea, "http://10.0.0.7")
+
+	m := httptest.NewRecorder()
+	s.handleMetrics(m, metricsRequest())
+	body := m.Body.String()
+	if !strings.Contains(body, "yuruna_pool_extension_target_disagreement{") {
+		t.Fatalf("no disagreement gauge emitted, got:\n%s", body)
+	}
+	if !strings.Contains(body, "superseded=\"http://10.0.0.5\"") {
+		t.Errorf("the disagreement gauge must name the dropped address, got:\n%s", body)
+	}
+}
+
+// Two sources that AGREE are not a disagreement -- the gauge must stay absent so
+// its presence keeps meaning something.
+func TestAnnounceNoDisagreementWhenSourcesAgree(t *testing.T) {
+	s := newPoolState("default", 8080)
+	s.hosts[testHostID] = &hostView{
+		HostId:           testHostID,
+		ActiveExtensions: []string{"stash-service"},
+		ExtensionTargets: map[string]string{"stash-service": "http://10.0.0.7"},
+		LastSeenUnixMs:   time.Now().UnixMilli(),
+	}
+	postAnnounce(s, "10.0.0.7:5555", fmt.Sprintf(`{"hostId":%q,"targetPort":80}`, testHostID))
+	seedExtensionHealth(s, testHostID, stashArea, "http://10.0.0.7")
+
+	m := httptest.NewRecorder()
+	s.handleMetrics(m, metricsRequest())
+	if body := m.Body.String(); strings.Contains(body, "yuruna_pool_extension_target_disagreement{") {
+		t.Errorf("disagreement gauge emitted for two sources that agree, got:\n%s", body)
+	}
+}
+
+// An entry whose beacon stopped refreshing is reaped after announceTtl; a
+// fresh one survives the same sweep.
+func TestAnnounceTTLReap(t *testing.T) {
+	s := newPoolState("default", 8080)
+	now := time.Now().UTC()
+	s.announce[announceKey("stalehost1", stashArea)] = &announceView{
+		HostId: "stalehost1", Area: stashArea,
+		LastSeenUnixMs: now.Add(-s.announceTtl - time.Minute).UnixMilli(),
+	}
+	s.announce[announceKey("freshhost1", stashArea)] = &announceView{
+		HostId: "freshhost1", Area: stashArea,
+		LastSeenUnixMs: now.Add(-time.Minute).UnixMilli(),
+	}
+	// The reap runs inside pollOnce's locked section; exercised via pollOnce
+	// with no squid log and no hosts (a no-op poll otherwise).
+	s.pollOnce(nil, "no-such-squid.log", "", now)
+	s.mu.Lock()
+	_, stale := s.announce[announceKey("stalehost1", stashArea)]
+	_, fresh := s.announce[announceKey("freshhost1", stashArea)]
+	s.mu.Unlock()
+	if stale {
+		t.Error("stale announce survived the TTL reap")
+	}
+	if !fresh {
+		t.Error("fresh announce was reaped")
+	}
+}
+
+// The newest Loki line per (hostId, area) decides restart state: active
+// restores (with the line's own timestamp as freshness), a goodbye leaves the
+// entry absent, and garbage lines are ignored.
+func TestApplyAnnounceLines(t *testing.T) {
+	s := newPoolState("default", 8080)
+	now := time.Now().UTC()
+	ns := func(d time.Duration) string { return fmt.Sprintf("%d", now.Add(d).UnixNano()) }
+	line := func(host string, active bool, target string) string {
+		b, _ := json.Marshal(map[string]any{"hostId": host, "area": stashArea, "target": target, "active": active})
+		return string(b)
+	}
+	streams := [][][2]string{
+		{ // newest-first within a stream: latest hello wins over the older goodbye
+			{ns(-time.Minute), line("livehost1", true, "http://10.0.0.7")},
+			{ns(-2 * time.Minute), line("livehost1", false, "")},
+		},
+		{ // latest line is a goodbye -> stays absent
+			{ns(-time.Minute), line("gonehost1", false, "")},
+			{ns(-2 * time.Minute), line("gonehost1", true, "http://10.0.0.8")},
+		},
+		{ // non-http target restores as presence-only
+			{ns(-time.Minute), line("nolinkhost", true, "ftp://10.0.0.9")},
+		},
+		{ // invalid identity never restores
+			{ns(-time.Minute), `{"hostId":"x","area":"stash-service","active":true}`},
+		},
+	}
+	if n := s.applyAnnounceLines(streams, now); n != 2 {
+		t.Errorf("restored %d entries, want 2", n)
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	live := s.announce[announceKey("livehost1", stashArea)]
+	if live == nil || live.Target != "http://10.0.0.7" {
+		t.Errorf("livehost1 = %+v, want restored with its target", live)
+	}
+	if live != nil && live.LastSeenUnixMs != now.Add(-time.Minute).UnixMilli() {
+		t.Errorf("livehost1 freshness = %d, want the LINE's timestamp", live.LastSeenUnixMs)
+	}
+	if s.announce[announceKey("gonehost1", stashArea)] != nil {
+		t.Error("gonehost1 restored despite its latest line being a goodbye")
+	}
+	if nl := s.announce[announceKey("nolinkhost", stashArea)]; nl == nil || nl.Target != "" {
+		t.Errorf("nolinkhost = %+v, want restored presence-only (no target)", nl)
+	}
+}
+
+// /go/stash falls back to the self-announced target when the registration
+// path has nothing (host absent from the view entirely).
+func TestGoStashFallsBackToAnnounce(t *testing.T) {
+	s := newPoolState("default", 8080)
+	postAnnounce(s, "10.0.0.7:5555", fmt.Sprintf(`{"hostId":%q,"targetPort":80}`, testHostID))
+	seedExtensionHealth(s, testHostID, stashArea, "http://10.0.0.7")
+	rec := httptest.NewRecorder()
+	s.handleGoStash(rec, httptest.NewRequest("GET", "/go/stash?host="+testHostID, nil))
+	if rec.Code != 302 {
+		t.Fatalf("status = %d, want 302", rec.Code)
+	}
+	if loc := rec.Header().Get("Location"); loc != "http://10.0.0.7" {
+		t.Errorf("Location = %q, want the announced target", loc)
+	}
+}
+
+// pool-status carries stashBaseUrl per host (registration first, announce
+// fallback) and the raw announcedExtensions list.
+func TestPoolStatusStashBaseURL(t *testing.T) {
+	s := newPoolState("default", 8080)
+	s.hosts["reghost11"] = &hostView{
+		HostId:           "reghost11",
+		ExtensionTargets: map[string]string{"stash-service": "http://10.0.0.5"},
+	}
+	s.hosts[testHostID] = &hostView{HostId: testHostID} // in view, no registration target
+	postAnnounce(s, "10.0.0.7:5555", fmt.Sprintf(`{"hostId":%q,"targetPort":80}`, testHostID))
+	seedExtensionHealth(s, "reghost11", stashArea, "http://10.0.0.5")
+	seedExtensionHealth(s, testHostID, stashArea, "http://10.0.0.7")
+
+	rec := httptest.NewRecorder()
+	s.handlePoolStatus(rec, httptest.NewRequest("GET", "/api/v1/pool-status", nil))
+	var out struct {
+		Hosts []struct {
+			HostID       string `json:"hostId"`
+			StashBaseURL string `json:"stashBaseUrl"`
+		} `json:"hosts"`
+		AnnouncedExtensions []struct {
+			HostID string `json:"hostId"`
+			Area   string `json:"area"`
+			Target string `json:"target"`
+		} `json:"announcedExtensions"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
+		t.Fatalf("pool-status parse: %v", err)
+	}
+	got := map[string]string{}
+	for _, h := range out.Hosts {
+		got[h.HostID] = h.StashBaseURL
+	}
+	if got["reghost11"] != "http://10.0.0.5" {
+		t.Errorf("reghost11 stashBaseUrl = %q, want the registration target", got["reghost11"])
+	}
+	if got[testHostID] != "http://10.0.0.7" {
+		t.Errorf("%s stashBaseUrl = %q, want the announce fallback", testHostID, got[testHostID])
+	}
+	if len(out.AnnouncedExtensions) != 1 || out.AnnouncedExtensions[0].HostID != testHostID {
+		t.Errorf("announcedExtensions = %+v, want the one live announce", out.AnnouncedExtensions)
+	}
+}
+
+// -announce-ttl 0 disables the route: an open write surface must have an off
+// switch.
+func TestAnnounceDisabledByZeroTTL(t *testing.T) {
+	s := newPoolState("default", 8080)
+	s.announceTtl = 0
+	rec := postAnnounce(s, "10.0.0.7:5555", fmt.Sprintf(`{"hostId":%q,"targetPort":80}`, testHostID))
+	if rec.Code != 503 {
+		t.Errorf("status = %d, want 503 when announce is disabled", rec.Code)
+	}
+}
+
+// announceStateWithLoki returns a state pushing announces at lokiURL, with the
+// announced address pre-confirmed so the handler's own reachability probe short
+// -circuits -- these tests are about the push outcome, not about routing.
+func announceStateWithLoki(lokiURL string, client *http.Client) *poolState {
+	s := newPoolState("default", 8080)
+	s.lokiURL, s.httpClient = lokiURL, client
+	seedExtensionHealth(s, testHostID, stashArea, "http://10.0.0.7")
+	return s
+}
+
+// The Loki line is the only part of an announce that outlives this process, and
+// the announcer's beacon stops retrying the moment it is told 2xx. So an
+// announce whose push did not land must NOT read as success: answering 2xx
+// there buys a row that disappears at the next restart and does not come back
+// until the announcer's next period -- fifteen minutes of a healthy service
+// missing from the pool, for a retry that would have cost seconds.
+func TestAnnounceReportsAPushLokiRejected(t *testing.T) {
+	loki := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, "loki not ready", http.StatusInternalServerError)
+	}))
+	defer loki.Close()
+
+	s := announceStateWithLoki(loki.URL, loki.Client())
+	rec := postAnnounce(s, "10.0.0.7:5555",
+		fmt.Sprintf(`{"hostId":%q,"area":"stash-service","targetPort":80,"active":true}`, testHostID))
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status = %d, want 503 when the announce could not be persisted", rec.Code)
+	}
+	// The entry is deliberately KEPT: it is live and serving right now, so the
+	// row should show immediately; the retry the 503 provokes is what makes it
+	// durable.
+	s.mu.Lock()
+	av := s.announce[announceKey(testHostID, stashArea)]
+	s.mu.Unlock()
+	if av == nil {
+		t.Error("announce entry was dropped; an un-pushed announce is still a live service")
+	}
+}
+
+// The same push, accepted: nothing is owed, so the announcer settles into its
+// steady re-announce period.
+func TestAnnounceSucceedsOnceLokiAccepts(t *testing.T) {
+	loki := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer loki.Close()
+
+	s := announceStateWithLoki(loki.URL, loki.Client())
+	rec := postAnnounce(s, "10.0.0.7:5555",
+		fmt.Sprintf(`{"hostId":%q,"area":"stash-service","targetPort":80,"active":true}`, testHostID))
+	if rec.Code/100 != 2 {
+		t.Fatalf("status = %d, want 2xx once Loki accepted the line", rec.Code)
+	}
+}
+
+// A pool with no Loki configured keeps no announce history by choice, so there
+// is no durability to lose and nothing to retry for. Such a pool must still get
+// 2xx, or its beacons would retry forever against a collector behaving exactly
+// as configured.
+func TestAnnounceSucceedsWithoutLokiConfigured(t *testing.T) {
+	s := announceStateWithLoki("", nil)
+	rec := postAnnounce(s, "10.0.0.7:5555",
+		fmt.Sprintf(`{"hostId":%q,"area":"stash-service","targetPort":80,"active":true}`, testHostID))
+	if rec.Code/100 != 2 {
+		t.Fatalf("status = %d, want 2xx when the pool runs without Loki", rec.Code)
+	}
+}
+
+func TestForeignGoodbyeIsNotPersisted(t *testing.T) {
+	pushes := 0
+	loki := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { pushes++; w.WriteHeader(http.StatusNoContent) }))
+	defer loki.Close()
+	s := newPoolState("default", 8080)
+	s.httpClient, s.lokiURL = loki.Client(), loki.URL
+	s.announce[announceKey(testHostID, stashArea)] = &announceView{HostId: testHostID, Area: stashArea, sourceIP: "10.0.0.7"}
+	body := fmt.Sprintf(`{"hostId":%q,"active":false}`, testHostID)
+	if r := postAnnounce(s, "10.0.0.99:5555", body); r.Code != http.StatusNoContent {
+		t.Fatalf("foreign goodbye: %d", r.Code)
+	}
+	if pushes != 0 {
+		t.Fatalf("ignored goodbye was persisted %d times", pushes)
+	}
+	if r := postAnnounce(s, "10.0.0.7:5555", body); r.Code != http.StatusNoContent {
+		t.Fatalf("owner goodbye: %d", r.Code)
+	}
+	if pushes != 1 {
+		t.Fatalf("owner goodbye was not persisted: %d", pushes)
+	}
+}
+
+func TestReplayedAnnounceIsHistoricalUntilLiveBeacon(t *testing.T) {
+	s := newPoolState("default", 8080)
+	now := time.Now().UTC()
+	line := fmt.Sprintf(`{"hostId":%q,"area":"stash-service","target":"http://10.0.0.7","active":true}`, testHostID)
+	s.applyAnnounceLines([][][2]string{{{fmt.Sprint(now.UnixNano()), line}}}, now)
+	entry := s.announce[announceKey(testHostID, stashArea)]
+	if entry.sourceIP != "" {
+		t.Fatalf("replay invented live ownership: %s", entry.sourceIP)
+	}
+	if rank := extensionSourceRank(extensionHostEntry{Source: extSourceAnnounce, confirmed: entry.sourceIP != ""}); rank != 2 {
+		t.Fatalf("historical rank = %d", rank)
+	}
+	postAnnounce(s, "10.0.0.7:5555", fmt.Sprintf(`{"hostId":%q,"targetPort":80}`, testHostID))
+	if entry.sourceIP != "10.0.0.7" {
+		t.Fatalf("live beacon did not bind owner: %s", entry.sourceIP)
+	}
+}
+
+func TestHostAnnounceUsesReplayablePresenceStream(t *testing.T) {
+	var received struct {
+		Streams []struct {
+			Stream map[string]string `json:"stream"`
+			Values [][2]string       `json:"values"`
+		} `json:"streams"`
+	}
+	loki := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := json.NewDecoder(r.Body).Decode(&received); err != nil {
+			t.Error(err)
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer loki.Close()
+	if err := pushHostAnnounce(loki.Client(), loki.URL, "default", testHostID, "http://10.0.0.7:8080", time.Now().UTC()); err != nil {
+		t.Fatal(err)
+	}
+	if len(received.Streams) != 1 || received.Streams[0].Stream["src"] != "presence" {
+		t.Fatalf("unreplayable stream: %+v", received)
+	}
+	s := newPoolState("default", 8080)
+	if n := s.applyPresenceLines([][][2]string{received.Streams[0].Values}, time.Now().UTC()); n != 1 {
+		t.Fatalf("presence did not replay: %d", n)
+	}
+	if s.hosts[testHostID].CurrentIP != "10.0.0.7" {
+		t.Fatal("replayed address changed")
+	}
+}

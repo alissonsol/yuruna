@@ -1,0 +1,57 @@
+# yaml-language-server: $schema=../schemas/sequence.schema.yml
+
+# LICENSEURI https://yuruna.link/license
+# Copyright (c) 2019-2026 by Alisson Sol et al.
+
+# Standalone SMOKE TEST of the stash daemon build + launch on a vanilla
+# Ubuntu guest (no NAS seed -> the daemon uses local-fallback storage).
+# It is NOT the production bring-up and is NOT listed in any test.runner.yml;
+# run it manually to verify the daemon compiles + starts.
+
+sequenceGuid: 42e26897-db3b-4d98-b923-5f39ad3349bb
+sequenceRevision: 2
+
+description: "Ubuntu Server 26.04: log in as stash-admin and bring up the Yuruna stash service daemon."
+keystrokeMechanism: gui
+
+# --- REGION: resource
+resource:
+  ubuntu.server.26:
+    - start.guest.ubuntu.server.26
+variables:
+  # This account cascades into the VM seed and prerequisite login.
+  username: stash-admin
+
+# --- REGION: component
+component:
+  - action: retry
+    maxAttempts: 2
+    description: "Login + retry"
+    steps:
+      - snippet: firstLoginPrime
+
+      - action: passwdPrompt
+        pattern: "login:"
+        timeoutSeconds: 600
+        text: "${username}"
+        description: "OCR: login:"
+
+      - action: passwdPrompt
+        pattern: "Password:"
+        text: "${ext:authentication.GetPassword(${username})}"
+        description: "OCR: Password:"
+
+  # See https://yuruna.link/42e220c4-0007
+  - snippet: shellInputPrime
+
+# --- REGION: workload
+workload:
+  - action: fetchAndExecute
+    text: "/usr/local/lib/yuruna/fetch-and-execute.sh guest/ubuntu.server.26/ubuntu.server.26.stash-service.sh"
+    description: "ubuntu.server.26.stash-service.sh"
+    waitPattern: "FETCHED AND EXECUTED:"
+    timeoutSeconds: 900
+
+  - action: inputTextAndEnter
+    text: "clear; exit;"
+    description: "Exit back to login"

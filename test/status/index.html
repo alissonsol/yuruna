@@ -1,0 +1,323 @@
+<!DOCTYPE html>
+<!-- LICENSEURI https://yuruna.link/license -->
+<!-- Copyright (c) 2019-2026 by Alisson Sol et al. -->
+<!-- REGION: html -->
+<!-- See https://yuruna.link/42fa6f45-0021 -->
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <!-- viewport-fit=cover lets the header background extend under the iPhone
+       notch / home-indicator; safe-area-inset padding in yuruna.common.css
+       keeps content readable on notched devices. -->
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta http-equiv="Cache-Control" content="public, max-age=60, must-revalidate">
+  <title data-i18n="status.yuruna_status">Yuruna Status</title>
+  <link rel="stylesheet" href="yuruna.common.css">
+  <style>
+    #banner-dash-row {
+      margin-inline-start: auto; flex: 0 0 auto;
+      font-size: .75rem;
+      background: transparent;
+    }
+    #banner-dash,
+    #banner-dash-noproxy {
+      color: rgba(255,255,255,.92);
+    }
+    #banner-dash { text-decoration: underline dotted; }
+    #banner-dash:hover { text-decoration: underline; }
+
+    /* .section-title / .meta-btn / .no-data chrome lives in
+       yuruna.common.css (shared with performance.html). The per-id rules
+       below pin flex behavior that's unique to index.html's
+       three-section layout. */
+    .section-title.with-controls #sec-cycle-title,
+    .section-title.with-controls #sec-sequences-title,
+    .section-title.with-controls #sec-history-title {
+      font-size: .6875rem; font-weight: 700; text-transform: uppercase;
+      letter-spacing: .07em; color: var(--fg-muted);
+      flex: 1 1 auto; min-width: 0;
+    }
+
+    /* Plain shorthand first as the fallback; the max()/env() longhand then holds
+       the content clear of the notch in landscape, where viewport-fit=cover lets
+       <main> reach the display edge. env() is 0 without a safe area. */
+    main {
+      max-width: 860px; width: 100%; margin: 1.75rem auto;
+      padding: 0 1.5rem;
+      padding: 0 max(1.5rem, env(safe-area-inset-right)) 0 max(1.5rem, env(safe-area-inset-left));
+    }
+    section { margin-bottom: 2rem; }
+
+    /* Refusal notice for a control action the host would not accept (403). */
+    .control-notice {
+      background: var(--bg-elevated); border: 1px solid var(--border);
+      border-inline-start: 3px solid var(--link-strong); border-radius: .5rem;
+      padding: .7rem 1rem; margin-bottom: 1.25rem; font-size: .8125rem; line-height: 1.5;
+    }
+    .control-notice a    { color: var(--link-strong); }
+    .control-notice code { font-family: var(--font-mono); }
+    .control-notice[hidden] { display: none; }
+
+    /* Degraded guest-network notice. Shares the notice shape but takes the
+       warning accent: the host keeps running and passing on a fallback path,
+       so this reports a topology, it does not report a failure. */
+    .host-network-notice { border-inline-start-color: var(--warn-fg); }
+    .runner-failure { border-inline-start-color: var(--fail-fg); overflow-wrap: break-word; }
+
+    .meta-grid {
+      display: flex; flex-wrap: wrap;
+    }
+    .guest-card {
+      background: var(--bg-elevated); border: 1px solid var(--border); border-radius: .5rem;
+      padding: .875rem 1.125rem; margin-bottom: .625rem;
+    }
+    .guest-card-header {
+      display: flex; align-items: flex-start; justify-content: space-between;
+    }
+    .guest-card-header > * + * { margin-inline-start: 1rem; }
+    .guest-card-header .left { flex: 1; min-width: 0; }
+    /* Guest keys are dotted identifiers with no spaces
+       (workload.guest.ubuntu.server.24.<name>), so without an explicit break
+       they are one unbreakable token wider than a phone. The sibling
+       .sequence-name and .guest-toplevel already break the same way. */
+    .guest-name { font-weight: 600; font-size: .9375rem; margin-bottom: .2rem; word-break: break-all; }
+    .guest-meta { font-size: .75rem; color: var(--fg-muted); margin-bottom: .45rem; }
+    .guest-toplevel {
+      font-size: .75rem; color: var(--link-strong); margin-bottom: .45rem;
+      font-family: var(--font-mono); word-break: break-all;
+    }
+    .steps      { display: flex; flex-wrap: wrap; }
+    .steps > .step-pill { margin-inline-end: .375rem; margin-bottom: .375rem; }
+    .step-pill  {
+      font-size: .6875rem; font-weight: 600; padding: .2rem .55rem; border-radius: 9999px;
+      white-space: nowrap;
+    }
+    .guest-error {
+      margin-top: .5rem; font-size: .75rem; color: var(--fail-fg);
+      background: var(--fail-soft-bg); border: 1px solid var(--fail-soft-border);
+      border-radius: .375rem; padding: .45rem .625rem;
+      font-family: var(--font-mono); word-break: break-all;
+    }
+    .guest-action {
+      margin-top: .5rem; font-size: .75rem; color: var(--info-fg);
+      background: var(--info-bg); border: 1px solid var(--info-border);
+      border-radius: .375rem; padding: .45rem .625rem;
+      font-family: var(--font-mono); word-break: break-all;
+    }
+    .guest-action.paused {
+      background: var(--banner-paused-bg); color: var(--fg-header); border-color: var(--paused-strong-border);
+    }
+
+    /* A sequence card is the visual unit for one test.runner.yml entry; it
+       wraps the guest(s) that sequence drives. The nested guest blocks drop
+       their own card chrome (see .sequence-card .guest-card below) so the
+       sequence card reads as a single tile even with one guest. */
+    .sequence-card {
+      background: var(--bg-elevated); border: 1px solid var(--border); border-radius: .5rem;
+      padding: .875rem 1.125rem; margin-bottom: .75rem;
+    }
+    .sequence-card-header {
+      display: flex; align-items: flex-start; justify-content: space-between;
+      margin-bottom: .5rem;
+    }
+    .sequence-card-header > * + * { margin-inline-start: 1rem; }
+    .sequence-name {
+      flex: 1; min-width: 0;
+      font-weight: 600; font-size: .9375rem; word-break: break-all;
+      font-family: var(--font-mono); color: var(--fg-primary);
+    }
+    .sequence-card .guest-card {
+      background: transparent; border: none; border-radius: 0;
+      padding: 0; margin: 0;
+    }
+    .sequence-card .guest-card + .guest-card {
+      margin-top: .625rem; padding-top: .625rem; border-top: 1px solid var(--border-soft);
+    }
+    /* Demote the guest key inside a sequence card to a sub-label — the
+       sequence name is the card's primary title. */
+    .sequence-card .guest-name { font-size: .8125rem; font-weight: 500; }
+
+    /* Nested-run sub-tiles: a host-action stage (e.g. set-resource) that fans
+       out per-stage guest builds in child processes shows each as an indented
+       card under its parent. The leading rule + indent read the nesting at a
+       glance; nested cards nest further to any depth. */
+    .nested-card {
+      margin-top: .5rem; margin-inline-start: .75rem;
+      padding-inline-start: .625rem; border-inline-start: 2px solid var(--border-soft);
+    }
+    .nested-card .guest-name { font-size: .8125rem; font-weight: 500; }
+    .nested-card .nested-card { margin-top: .375rem; }
+
+    /* Paired cards share a row until the viewport makes the pair too narrow;
+       flex wrapping then stacks them. */
+    .meta-grid > .meta-card { width: -webkit-calc(50% - .1875rem); width: calc(50% - .1875rem); margin-bottom: .375rem; }
+    .meta-grid > .meta-card:nth-child(odd) { margin-inline-end: .375rem; }
+
+    @supports (display: grid) {
+      .meta-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        grid-column-gap: .375rem; column-gap: .375rem;
+        grid-row-gap: .375rem;    row-gap: .375rem;
+      }
+      .meta-grid > .meta-card,
+      .meta-grid > .meta-card:nth-child(odd) {
+        width: auto; margin-inline-end: 0; margin-bottom: 0;
+      }
+    }
+
+    .meta-card {
+      background: var(--bg-elevated); border: 1px solid var(--border); border-radius: .5rem;
+      padding: .15rem 1rem;
+    }
+    .meta-card .label { font-size: .625rem; color: var(--fg-faint); text-transform: uppercase; letter-spacing: .05em; margin-bottom: .1rem; }
+    .meta-card .value { font-size: .6875rem; font-weight: 500; font-family: var(--font-mono); color: var(--fg-primary); word-break: break-all; }
+
+    .badge {
+      display: inline-flex; align-items: center;
+      font-size: .75rem; font-weight: 700; padding: .25rem .7rem;
+      border-radius: 9999px; white-space: nowrap;
+    }
+    #history-body .badge {
+      font-size: .625rem; padding: .15rem .4rem;
+      font-weight: 400; font-family: var(--font-mono);
+    }
+    #cycle-timestamp .badge { font-weight: 400; }
+
+    /* Per-row status colors (.badge / .step-pill) live in yuruna.common.css,
+       shared across the status pages so they stay in lockstep. */
+
+    /* Positioned so overflow-x can actually contain what it scrolls: an
+       absolutely positioned descendant -- .sr-only inside a row badge -- takes
+       the nearest positioned ancestor as its containing block, and with none
+       here that is the page itself, so the 1px box escapes the wrapper and is
+       laid out at its static x. In English it lands inside the viewport and
+       nothing shows; translated text pushes it past 320px and the document
+       gains a second scroll direction, which is a reflow failure. */
+    .table-wrap { position: relative; overflow-x: auto; }
+    table {
+      width: 100%; border-collapse: collapse;
+      background: var(--bg-elevated); border: 1px solid var(--border);
+      border-radius: .5rem; overflow: hidden; font-size: .8125rem;
+    }
+    th {
+      background: var(--bg-primary); padding: .625rem 1rem; text-align: left;
+      font-weight: 600; color: var(--fg-primary); border-bottom: 1px solid var(--border);
+      white-space: nowrap;
+    }
+    td { padding: .625rem 1rem; border-bottom: 1px solid var(--border-soft); color: var(--fg-primary); }
+    tr:last-child td { border-bottom: none; }
+    tbody tr:hover td { background: var(--bg-hover); }
+    .mono { font-family: var(--font-mono); font-size: .75rem; }
+
+    /* The footer bar itself -- surface, height, type scale and its
+       narrow-viewport behavior -- is the shared page chrome in
+       yuruna.common.css, the same block the service UIs carry. */
+  </style>
+</head>
+<body class="has-footer-bar">
+
+<header class="app">
+  <div class="brand">
+    <span class="name"><a href="index.html"><span id="header-title">Yuruna</span></a></span>
+    <span class="version" id="header-version"></span>
+  </div>
+  <span class="spacer"></span>
+  <span class="machine" id="header-machine"></span>
+  <div class="menu">
+    <button type="button" class="menu-button" id="menu-button" aria-haspopup="true" aria-expanded="false" aria-controls="menu-panel">
+      <span class="menu-icon" aria-hidden="true">&#9776;</span><span class="menu-label" data-i18n="status.menu">Menu</span>
+    </button>
+    <nav class="menu-panel" id="menu-panel" aria-label="Pages" hidden data-i18n-aria-label="status.pages">
+      <a href="index.html" aria-current="page" data-i18n="status.status">Status</a>
+      <a href="config.html" data-i18n="status.config">Config</a>
+      <a href="performance.html" data-i18n="status.performance">Performance</a>
+      <a href="diagnostics.html" data-i18n="status.diagnostics">Diagnostics</a>
+      <a class="menu-out" href="https://yuruna.link/42ad660e" target="_blank" rel="noopener" data-i18n="status.guide">Guide</a>
+    </nav>
+  </div>
+</header>
+
+<div id="banner" class="idle">
+  <span class="dot"></span>
+  <span id="banner-text" role="status" aria-atomic="true" data-i18n="status.loading">Loading…</span>
+  <span id="banner-dash-row">
+    <a id="banner-dash" class="hidden" href="#" target="_blank" rel="noopener" data-i18n="status.dashboards">Dashboards</a><span id="banner-dash-noproxy" class="hidden" data-i18n="status.no_dashboard_server">No dashboard server</span>
+  </span>
+</div>
+
+<main>
+  <h1 class="sr-only" data-i18n="status.yuruna_host_status">Yuruna host status</h1>
+
+  <!-- Shown by controlAction() when a /control/* POST is refused (403): the
+       on-host operator has loopback control; a browser on another machine needs
+       a short-lived token the pool dashboard grants, and an un-enrolled host
+       joins via the dashboard's Lab token (see control-routes). -->
+  <div id="control-notice" class="control-notice" role="alert" hidden></div>
+
+  <!-- Filled from runtime/host-network.txt, which exists only while this host's
+       guest network is degraded; absent file means healthy and this stays
+       hidden. The host still runs and passes on its fallback path, so this is
+       role="status", not an alert. -->
+  <div id="host-network-notice" class="control-notice host-network-notice" role="status" hidden></div>
+
+  <div id="runner-failure" class="control-notice runner-failure" role="alert" hidden></div>
+
+  <section id="sec-cycle" style="display:none" aria-labelledby="sec-cycle-title">
+    <div class="section-title with-controls">
+      <h2 id="sec-cycle-title" data-i18n="status.latest_cycle">Latest Cycle</h2>
+      <button id="cycle-pause-btn" class="meta-btn" type="button" disabled data-i18n="status.pause_after_cycle">Pause after cycle</button>
+    </div>
+    <div class="meta-grid">
+      <div class="meta-card"><div class="label" data-i18n="status.cycle_start_utc">Cycle start (UTC)</div><div class="value" id="cycle-timestamp">—</div></div>
+      <div class="meta-card"><div class="label" data-i18n="status.started">Started</div><div class="value" id="cycle-started">—</div></div>
+      <div class="meta-card"><div class="label" data-i18n="status.commit">Commit</div><div class="value" id="cycle-commit">—</div></div>
+      <div class="meta-card"><div class="label" data-i18n="status.images_refresh">Images refresh</div><div class="value" id="cycle-images-refresh">—</div></div>
+    </div>
+    <!-- Classified failure cause for the live cycle; populated/shown by renderStatus from data.lastFailure. -->
+    <div id="cycle-failure" class="cycle-failure" style="display:none"></div>
+  </section>
+
+  <section id="sec-sequences" style="display:none" aria-labelledby="sec-sequences-title">
+    <div class="section-title with-controls">
+      <h2 id="sec-sequences-title" data-i18n="status.test_sequences">Test sequences</h2>
+      <button id="step-pause-btn" class="meta-btn" type="button" disabled data-i18n="status.pause_after_step">Pause after step</button>
+    </div>
+    <div id="sequence-list"></div>
+  </section>
+
+  <section id="sec-history" style="display:none" aria-labelledby="sec-history-title">
+    <div class="section-title with-controls">
+      <h2 id="sec-history-title" data-i18n="status.recent_cycles">Recent Cycles</h2>
+      <a class="section-title-link" href="performance.html" data-i18n="status.performance">Performance</a>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th scope="col" data-i18n="status.cycle_start_utc">Cycle start (UTC)</th><th scope="col" data-i18n="status.duration">Duration</th>
+            <th scope="col" data-i18n="status.sequences">Sequences</th><th scope="col" data-i18n="status.commit">Commit</th>
+          </tr>
+        </thead>
+        <tbody id="history-body"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <div id="no-data" class="no-data">
+    <h3 data-i18n="status.no_test_data_yet">No test data yet</h3>
+    <p data-i18n="status.run_command1_to_start_a_test_cycle" data-i18n-args="{&quot;command1&quot;: &quot;Start-TestRunner.ps1&quot;}">Run Start-TestRunner.ps1 to start a test cycle.</p>
+  </div>
+
+</main>
+
+<footer id="footer-bar">
+  <span id="footer-ips"><span class="label" data-i18n="status.ips">IPs:</span><textarea id="footer-ip-list" readonly rows="1" spellcheck="false" inputmode="none" autocorrect="off" autocapitalize="off" aria-label="Host IP addresses" data-i18n-aria-label="status.host_ip_addresses">—</textarea></span>
+  <span><span data-i18n="status.loaded">Loaded:</span> <span id="last-loaded">—</span></span>
+  <span><button type="button" id="footer-refresh" class="linkish" data-i18n="status.refresh">Refresh</button>: <span id="countdown">60</span>s <button type="button" id="footer-pause" class="linkish" aria-pressed="false" data-i18n="status.pause">Pause</button></span>
+</footer>
+
+<script src="yuruna.common.js"></script>
+
+</body>
+</html>

@@ -1,0 +1,108 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://yuruna.com/schema/yuruna.message/v1",
+  "title": "Yuruna cross-boundary message envelope",
+  "type": "object",
+  "required": ["schema", "code", "args"],
+  "additionalProperties": false,
+  "properties": {
+    "schema": { "const": "yuruna.message/v1" },
+    "code": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)+$",
+      "maxLength": 128
+    },
+    "args": {
+      "type": "object",
+      "maxProperties": 32,
+      "propertyNames": { "pattern": "^[a-z][A-Za-z0-9]*$", "maxLength": 64 },
+      "additionalProperties": { "$ref": "#/definitions/argument" }
+    },
+    "detail": { "$ref": "#/definitions/detail" },
+    "rendered": { "$ref": "#/definitions/rendered" }
+  },
+  "definitions": {
+    "argument": {
+      "oneOf": [
+        { "type": "null" },
+        { "type": "boolean" },
+        { "type": "string", "maxLength": 4096 },
+        { "type": "number", "minimum": -9007199254740991, "maximum": 9007199254740991 },
+        { "$ref": "#/definitions/integer" },
+        { "$ref": "#/definitions/decimal" },
+        { "$ref": "#/definitions/bytes" },
+        { "$ref": "#/definitions/duration" },
+        { "$ref": "#/definitions/datetime" }
+      ]
+    },
+    "integer": {
+      "type": "object",
+      "required": ["$type", "value"],
+      "additionalProperties": false,
+      "properties": {
+        "$type": { "const": "integer" },
+        "value": { "type": "string", "pattern": "^(?:0|[1-9][0-9]*|-[1-9][0-9]*)$", "maxLength": 80 }
+      }
+    },
+    "decimal": {
+      "type": "object",
+      "required": ["$type", "value"],
+      "additionalProperties": false,
+      "properties": {
+        "$type": { "const": "decimal" },
+        "value": { "type": "string", "pattern": "^-?(0|[1-9][0-9]*)(\\.[0-9]+)?$", "maxLength": 128 }
+      }
+    },
+    "bytes": {
+      "type": "object",
+      "required": ["$type", "value"],
+      "additionalProperties": false,
+      "properties": {
+        "$type": { "const": "bytes" },
+        "value": { "type": "string", "pattern": "^(0|[1-9][0-9]*)$", "maxLength": 80 }
+      }
+    },
+    "duration": {
+      "type": "object",
+      "required": ["$type", "milliseconds"],
+      "additionalProperties": false,
+      "properties": {
+        "$type": { "const": "duration" },
+        "milliseconds": { "type": "string", "pattern": "^(0|[1-9][0-9]*)$", "maxLength": 80 }
+      }
+    },
+    "datetime": {
+      "type": "object",
+      "required": ["$type", "value"],
+      "additionalProperties": false,
+      "properties": {
+        "$type": { "const": "datetime" },
+        "value": {
+          "type": "string",
+          "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}\\.[0-9]{7}Z$"
+        }
+      }
+    },
+    "detail": {
+      "type": "object",
+      "required": ["text", "source"],
+      "additionalProperties": false,
+      "properties": {
+        "text": { "type": "string", "maxLength": 4096 },
+        "source": { "type": "string", "pattern": "^[a-z][a-z0-9_.-]*$", "maxLength": 128 }
+      }
+    },
+    "rendered": {
+      "type": "object",
+      "required": ["text", "messageKey", "locale", "catalogHash", "authoritative"],
+      "additionalProperties": false,
+      "properties": {
+        "text": { "type": "string", "minLength": 1, "maxLength": 16384 },
+        "messageKey": { "type": "string", "pattern": "^[a-z][a-z0-9]*(\\.[a-z][a-z0-9_]*)+$", "maxLength": 128 },
+        "locale": { "type": "string", "pattern": "^[A-Za-z]{2,3}(-[A-Za-z0-9]{2,8})*$", "maxLength": 35 },
+        "catalogHash": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "authoritative": { "const": false }
+      }
+    }
+  }
+}

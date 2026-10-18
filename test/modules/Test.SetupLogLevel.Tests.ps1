@@ -1,0 +1,182 @@
+<#PSScriptInfo
+.VERSION 2026.10.14
+.GUID 42bd03c8-a33c-4517-9a8b-e97307c8b49f
+.AUTHOR Alisson Sol et al.
+.COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
+.TAGS yuruna test setup loglevel pester
+.LICENSEURI https://yuruna.link/license
+.PROJECTURI https://yuruna.com
+.ICONURI
+.EXTERNALMODULEDEPENDENCIES
+.REQUIREDSCRIPTS
+.EXTERNALSCRIPTDEPENDENCIES
+.RELEASENOTES
+.PRIVATEDATA
+#>
+
+#requires -version 7
+
+<#
+.SYNOPSIS
+    Structural Pester guard: install/setup.ps1 takes -logLevel, and the level it
+    resolves reaches every script it starts.
+.DESCRIPTION
+    A setup run is one parent and a dozen children in their own pwsh processes.
+    PowerShell preference variables stop at the process boundary, so the level
+    travels as $env:YURUNA_LOG_LEVEL (published by Resolve-LogLevel, applied by
+    Use-LogLevelFromEnv) -- and as an explicit argument across the Windows
+    elevated relaunch, which RunAs builds through the AppInfo service without
+    carrying this process's environment.
+
+    That makes the chain silently breakable from either end: a child that stops
+    calling Use-LogLevelFromEnv goes quiet at -logLevel Debug, and a relaunch
+    that stops forwarding the argument drops the level at exactly the point a
+    Windows run starts doing the work worth watching. Both failures look like
+    "the flag did nothing", which is indistinguishable from a run that had
+    nothing to say. Asserted here, on source text and AST, so neither needs a
+    full bring-up to catch.
+
+    See docs/loglevels.md for the cascade itself.
+    Run: Invoke-Pester -Path test/modules/Test.SetupLogLevel.Tests.ps1
+#>
+
+BeforeAll {
+$here     = Split-Path -Parent $PSCommandPath
+$repoRoot = (Resolve-Path (Join-Path -Path $here -ChildPath '..' -AdditionalChildPath '..')).Path
+$setup    = Join-Path $repoRoot 'install/setup.ps1'
+
+Import-Module (Join-Path (Split-Path -Parent $PSCommandPath) 'Test.Assert.psm1') -Force -Global -DisableNameChecking
+
+function Get-ScriptAst {
+    [CmdletBinding()]
+    [OutputType([System.Management.Automation.Language.ScriptBlockAst])]
+    param([Parameter(Mandatory)][string]$Path)
+    return Get-YurunaTestFileAst -Path $Path
+}
+
+$script:setupAst = Get-ScriptAst -Path $setup
+$script:setupSrc = Get-Content -LiteralPath $setup -Raw
+
+# Every repo script install/setup.ps1 starts in a child pwsh. Read from the
+# Invoke-RepoScript / Invoke-ServiceVMReset call sites rather than listed by
+# hand, so a step added to the setup is held to the same contract without
+# anyone remembering to add it here.
+function Get-SetupChildScriptName {
+    [CmdletBinding()]
+    [OutputType([string[]])]
+    param([Parameter(Mandatory)][System.Management.Automation.Language.ScriptBlockAst]$Ast)
+    $names = [System.Collections.Generic.List[string]]::new()
+    foreach ($literal in $Ast.FindAll({
+        param($n) $n -is [System.Management.Automation.Language.StringConstantExpressionAst]
+    }, $true)) {
+        $value = $literal.Value
+        if ($value -match '^[A-Za-z]+-[A-Za-z0-9]+\.ps1$' -and -not $names.Contains($value)) {
+            $names.Add($value)
+        }
+    }
+    return $names.ToArray()
+}
+
+}
+
+Describe 'setup -logLevel -- the parameter exists and carries the whole cascade' {
+
+    It 'declares -logLevel over the five canonical levels' {
+        $param = $script:setupAst.ParamBlock.Parameters |
+            Where-Object { $_.Name.VariablePath.UserPath -eq 'logLevel' }
+        Assert-True ($null -ne $param) 'install/setup.ps1 must take -logLevel'
+        $validate = $param.Attributes |
+            Where-Object { $_.TypeName.Name -match '^ValidateSet$' } | Select-Object -First 1
+        Assert-True ($null -ne $validate) '-logLevel must be constrained by a ValidateSet, so a typo fails at bind time'
+        $values = @($validate.PositionalArguments | ForEach-Object { $_.Value })
+        foreach ($level in 'Error', 'Warning', 'Information', 'Verbose', 'Debug') {
+            Assert-True ($values -contains $level) "the ValidateSet must offer '$level'"
+        }
+    }
+
+    It 'resolves through the shared cascade rather than its own preference edits' {
+        Assert-True ($script:setupSrc -match 'Test\.LogLevel\\Resolve-LogLevel') `
+            'the level must come from Test.LogLevel (which is what publishes $env:YURUNA_LOG_LEVEL); a private cascade would reach no child'
+    }
+
+    It 'forwards the resolved level across the Windows elevated relaunch' {
+        # The relaunch is the one hop the environment does not survive: RunAs
+        # builds the process through the AppInfo service.
+        Assert-True ($script:setupSrc -match "relaunchArgs \+= @\('-logLevel'") `
+            'the elevated run must be given the level as an argument, like it is given -LogPath'
+    }
+
+    It 'records the level in the run log header' {
+        Assert-True ($script:setupSrc -match "log level\s*:") `
+            'a transcript missing what someone expected has to say which level produced it'
+    }
+}
+
+Describe 'setup -logLevel -- every script the setup starts honors the inherited level' {
+
+    It 'each child script calls Use-LogLevelFromEnv' {
+        $missing = [System.Collections.Generic.List[string]]::new()
+        $checked = 0
+        foreach ($name in (Get-SetupChildScriptName -Ast $script:setupAst)) {
+            # Mirrors how the setup resolves these children: it names them bare and
+            # joins them under $TestRoot/service, so a bare name is only ever found
+            # there. The $checked floor below is what keeps a future move from
+            # turning this guard into a silent no-op.
+            $path = Join-Path $repoRoot (Join-Path 'test' (Join-Path 'service' $name))
+            if (-not (Test-Path -LiteralPath $path)) { continue }
+            $checked++
+            $text = Get-Content -LiteralPath $path -Raw
+            # A wrapper that hands its work to the shared stop script is judged by that script.
+            $shared = Join-Path (Split-Path -Parent $path) 'Stop-ExtensionService.ps1'
+            if ($text -match 'Stop-ExtensionService\.ps1' -and (Test-Path -LiteralPath $shared)) { $text += "`n" + (Get-Content -LiteralPath $shared -Raw) }
+            if ($text -notmatch 'Use-LogLevelFromEnv') {
+                $missing.Add($name)
+            }
+        }
+        Assert-True ($checked -ge 8) "expected to find the setup's child scripts under test/; found $checked"
+        Assert-True ($missing.Count -eq 0) `
+            "these scripts run under setup.ps1 but ignore `$env:YURUNA_LOG_LEVEL, so -logLevel Debug leaves them silent: $($missing -join ', ')"
+    }
+}
+
+# Copyright (c) 2019-2026 by Alisson Sol et al.
+
+Describe 'setup elevated rebuild intent' {
+    It 'preserves an explicit rebuild across the elevated argument assembly' {
+        $assignment = $script:setupAst.Find({
+            param($node)
+            $node -is [Management.Automation.Language.AssignmentStatementAst] -and $node.Left.Extent.Text -eq '$relaunchArgs' -and
+            $node.Operator -eq [Management.Automation.Language.TokenKind]::Equals
+        }, $true)
+        $launch = $script:setupAst.Find({
+            param($node)
+            $node -is [Management.Automation.Language.CommandAst] -and $node.GetCommandName() -eq 'Start-Process' -and $node.Extent.Text -match '\$relaunchArgs'
+        }, $true)
+        $guard = $launch
+        while ($guard -and $guard -isnot [Management.Automation.Language.TryStatementAst]) { $guard = $guard.Parent }
+        Assert-NotNull $assignment
+        Assert-NotNull $guard
+        $assembly = [scriptblock]::Create($script:setupSrc.Substring($assignment.Extent.StartOffset, $guard.Extent.StartOffset - $assignment.Extent.StartOffset))
+        foreach ($rebuildRequested in @($false, $true)) {
+            $forwarded = & {
+                [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseDeclaredVarsMoreThanAssignments', '', Justification = 'Variables are the inputs read by the production argument-assembly scriptblock.')]
+                param($Body, $Requested)
+                $previousRebuild = $script:Rebuild
+                $previousLogFile = $script:LogFile
+                try {
+                    $script:Rebuild = $Requested
+                    $script:LogFile = ''
+                    $AnswerFile = ''
+                    $EffectiveLogLevel = 'Debug'
+                    $null = $AnswerFile, $EffectiveLogLevel
+                    . $Body
+                    return $relaunchArgs
+                } finally {
+                    $script:Rebuild = $previousRebuild
+                    $script:LogFile = $previousLogFile
+                }
+            } $assembly $rebuildRequested
+            Assert-Equal $rebuildRequested ($forwarded -contains '-Rebuild') 'the elevated child must receive the same rebuild choice'
+        }
+    }
+}

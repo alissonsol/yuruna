@@ -1,0 +1,62 @@
+# yaml-language-server: $schema=../schemas/sequence.schema.yml
+
+# LICENSEURI https://yuruna.link/license
+# Copyright (c) 2019-2026 by Alisson Sol et al.
+
+sequenceGuid: 4246401e-0173-4605-b3b0-e2a85c16ade5
+sequenceRevision: 3
+
+description: "Amazon Linux 2023: log in, install the Desktop package group."
+keystrokeMechanism: gui
+
+# --- REGION: resource
+resource:
+  amazon.linux.2023:
+    - start.guest.amazon.linux.2023
+variables:
+  username: yauser1
+
+# --- REGION: component
+component:
+  - action: retry
+    maxAttempts: 2
+    description: "Login + retry"
+    steps:
+      - snippet: firstLoginPrime
+
+      - action: passwdPrompt
+        pattern: "login:"
+        timeoutSeconds: 600
+        text: "${username}"
+        description: "OCR: login:"
+
+      - action: passwdPrompt
+        pattern: "Password:"
+        text: "${ext:authentication.GetPassword(${username})}"
+        description: "OCR: Password:"
+
+  # See https://yuruna.link/42e220c4-0007
+  - snippet: shellInputPrime
+
+# --- REGION: workload
+workload:
+  # See https://yuruna.link/42e220c4-0007
+  - action: inputTextAndEnter
+    # Expand the marker only after success; the echoed command must not match it.
+    text: 'sudo dnf groupinstall -y "Desktop" && echo DESKTOP_$(printf INSTALL)_DONE || echo DESKTOP_$(printf INSTALL)_FAILED'
+    description: "GUI install"
+
+  - action: waitForText
+    pattern: "DESKTOP_INSTALL_DONE"
+    failurePatterns: ["DESKTOP_INSTALL_FAILED"]
+    timeoutSeconds: 1800
+    freshMatch: true
+    description: "OCR: DESKTOP_INSTALL_DONE"
+
+  - action: inputTextAndEnter
+    text: 'dnf list installed "*desktop*"'
+    description: "Show installed desktop packages"
+
+  - action: waitForSeconds
+    seconds: 10
+    description: "Pause for displayed output"

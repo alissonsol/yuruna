@@ -1,0 +1,337 @@
+<#PSScriptInfo
+.VERSION 2026.10.14
+.GUID 42e0baf3-f2f9-48ca-aa27-fcf4d1a9763e
+.AUTHOR Alisson Sol et al.
+.COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
+.TAGS yuruna test vm cleanup prefix sweep contract pester
+.LICENSEURI https://yuruna.link/license
+.PROJECTURI https://yuruna.com
+.ICONURI
+.EXTERNALMODULEDEPENDENCIES
+.REQUIREDSCRIPTS
+.EXTERNALSCRIPTDEPENDENCIES
+.RELEASENOTES
+.PRIVATEDATA
+#>
+
+#requires -version 7
+
+<#
+.SYNOPSIS
+    Pester coverage for prefix-based VM cleanup: the shared name filter
+    (Select-NameByPrefix), the disposable-prefix resolver
+    (Resolve-CleanupVmNamePrefix), and the Get-VMName contract coverage
+    every host driver must provide.
+.DESCRIPTION
+    Throw-based assertions so the file runs under Pester 5+. Every case is driven from in-memory names and config
+    hashtables -- no hypervisor is queried -- so the sweep logic stays
+    testable on a host with no VMs and no utmctl/virsh/Hyper-V.
+    Run: Invoke-Pester -Path test/modules/Test.VmNameSweep.Tests.ps1
+#>
+
+BeforeAll {
+    Import-Module (Join-Path $PSScriptRoot 'Test.CatalogSource.psm1') -DisableNameChecking
+$here = Split-Path -Parent $PSCommandPath
+$repoRoot = Split-Path -Parent (Split-Path -Parent $here)
+Import-Module (Join-Path $repoRoot 'automation/Yuruna.Common.psm1') -Force -DisableNameChecking
+Import-Module (Join-Path $here 'Test.Config.psm1') -Force -DisableNameChecking
+
+$script:SweepRepoRoot = $repoRoot
+
+Import-Module (Join-Path (Split-Path -Parent $PSCommandPath) 'Test.Assert.psm1') -Force -Global -DisableNameChecking
+
+}
+
+Describe 'Select-NameByPrefix' {
+
+    It 'selects only the names carrying one of the prefixes' {
+        $names = @('test-ubuntu-01', 'amisad-build', 'amisad-core', 'yuruna-caching-proxy-service')
+        $got = @(Select-NameByPrefix -Name $names -Prefix @('amisad-'))
+        Assert-StringEqual 2 $got.Count -Because 'only the two amisad- guests match'
+        Assert-StringEqual 'amisad-build,amisad-core' ($got -join ',')
+    }
+
+    It 'accepts several prefixes at once and keeps input order' {
+        $names = @('test-ubuntu-01', 'amisad-build', 'unrelated-vm')
+        $got = @(Select-NameByPrefix -Name $names -Prefix @('amisad-', 'test-'))
+        Assert-StringEqual 'test-ubuntu-01,amisad-build' ($got -join ',') -Because 'input order, not prefix order'
+    }
+
+    It 'treats an absent or empty prefix set as no filter' {
+        # A caller whose prefix list resolved to nothing means "everything",
+        # not "nothing" -- the opposite reading would silently sweep no VMs
+        # and let leftovers accumulate unnoticed.
+        $names = @('a-vm', 'b-vm')
+        Assert-StringEqual 2 (@(Select-NameByPrefix -Name $names).Count)
+        Assert-StringEqual 2 (@(Select-NameByPrefix -Name $names -Prefix @()).Count)
+    }
+
+    It 'matches prefixes literally rather than as wildcards' {
+        # A prefix is a plain string. If it were used as a -like pattern, the
+        # '*' below would match every name and the sweep would delete the
+        # whole host.
+        $names = @('a*b-vm', 'axb-vm', 'anything-else')
+        $got = @(Select-NameByPrefix -Name $names -Prefix @('a*b-'))
+        Assert-StringEqual 'a*b-vm' ($got -join ',') -Because 'wildcard semantics would also match axb-vm and anything-else'
+    }
+
+    It 'ignores blank candidates and blank prefixes' {
+        $got = @(Select-NameByPrefix -Name @('keep-me', '', $null) -Prefix @('keep-'))
+        Assert-StringEqual 'keep-me' ($got -join ',')
+    }
+
+    It 'returns nothing when no name matches' {
+        Assert-StringEqual 0 (@(Select-NameByPrefix -Name @('a-vm') -Prefix @('zzz-')).Count)
+    }
+}
+
+Describe 'Resolve-CleanupVmNamePrefix' {
+
+    It 'defaults to the test prefix when nothing is configured' {
+        Assert-StringEqual 'test-' ((Resolve-CleanupVmNamePrefix -VmStart $null) -join ',')
+    }
+
+    It 'honors a customized test-VM prefix' {
+        $got = Resolve-CleanupVmNamePrefix -VmStart @{ testVmNamePrefix = 'yr-' }
+        Assert-StringEqual 'yr-' ($got -join ',')
+    }
+
+    It 'always keeps the test prefix when extra prefixes are configured' {
+        # The extra list EXTENDS the sweep; if it replaced the test prefix,
+        # an operator who added a project prefix would stop sweeping the
+        # framework's own guests and they would pile up every cycle.
+        $got = Resolve-CleanupVmNamePrefix -VmStart @{
+            testVmNamePrefix      = 'test-'
+            cleanupVmNamePrefixes = @('amisad-', 'amisad.')
+        }
+        Assert-StringEqual 'test-,amisad-,amisad.' ($got -join ',') -Because 'test prefix first, then the configured extras'
+    }
+
+    It 'accepts a bare string for cleanupVmNamePrefixes' {
+        $got = Resolve-CleanupVmNamePrefix -VmStart @{ cleanupVmNamePrefixes = 'amisad-' }
+        Assert-StringEqual 'test-,amisad-' ($got -join ',')
+    }
+
+    It 'drops blank entries so the sweep never matches every VM' {
+        $got = Resolve-CleanupVmNamePrefix -VmStart @{ cleanupVmNamePrefixes = @('', '  ', 'amisad-') }
+        Assert-StringEqual 'test-,amisad-' ($got -join ',') -Because 'a stray empty list entry must not widen the sweep'
+    }
+
+    It 'de-duplicates a prefix repeated in the extra list' {
+        $got = Resolve-CleanupVmNamePrefix -VmStart @{
+            testVmNamePrefix      = 'test-'
+            cleanupVmNamePrefixes = @('test-', 'amisad-')
+        }
+        Assert-StringEqual 'test-,amisad-' ($got -join ',')
+    }
+}
+
+Describe 'Get-VMName host-driver coverage' {
+
+    It 'is declared in the canonical host contract' {
+        $contract = Get-Content -Raw (Join-Path $script:SweepRepoRoot 'host/Yuruna.Host.Contract.psm1')
+        Assert-True ($contract -match "'Get-VMName'") 'the contract must list the inventory verb'
+    }
+
+    It 'is implemented and exported by every host driver' {
+        # Enumeration was the last host-specific step in a prefix sweep. If a
+        # driver stops exporting it, Remove-TestVMFiles cannot enumerate on
+        # that host at all, so pin all three rather than only the host this
+        # suite happens to run on.
+        foreach ($driver in @('macos.utm', 'windows.hyper-v', 'ubuntu.kvm')) {
+            $path = Join-Path $script:SweepRepoRoot "host/$driver/modules/Yuruna.Host.psm1"
+            $text = Get-Content -Raw $path
+            Assert-True ($text -match '(?m)^function Get-VMName\b') "$driver must define Get-VMName"
+            Assert-True ($text -match "Get-VMState, Get-VMName,") "$driver must export Get-VMName"
+            Assert-True ($text -match "'Get-VMState','Get-VMName'") "$driver must assert contract coverage for Get-VMName"
+        }
+    }
+
+    It 'fails loudly instead of reporting an empty list when the host cannot be queried' {
+        # A driver that returned @() when its CLI is unreachable would let a
+        # sweep call the host clean, and the orphan-file pass behind it would
+        # delete files still claimed by a registered VM.
+        foreach ($driver in @('macos.utm', 'windows.hyper-v', 'ubuntu.kvm')) {
+            $path = Join-Path $script:SweepRepoRoot "host/$driver/modules/Yuruna.Host.psm1"
+            $text = Get-Content -Raw $path
+            $body = [regex]::Match($text, '(?ms)^function Get-VMName\b.*?^\}').Value
+            Assert-True ($body -match 'throw') "$driver Get-VMName must throw when enumeration fails"
+        }
+    }
+}
+
+Describe 'Remove-TestVMFiles prefix sweep' {
+
+    It 'accepts a list of prefixes' {
+        $text = Get-Content -Raw (Join-Path $script:SweepRepoRoot 'test/Remove-TestVMFiles.ps1')
+        Assert-True ($text -match '\[string\[\]\]\$Prefix') 'the sweep must take more than one prefix'
+    }
+
+    It 'names no hypervisor in its cleanup logic' {
+        # The whole point of the contract verb: one sweep implementation for
+        # every host, so a fix lands on all three at once.
+        $text = Get-Content -Raw (Join-Path $script:SweepRepoRoot 'test/Remove-TestVMFiles.ps1')
+        $code = ($text -split "`n" | Where-Object { $_ -notmatch '^\s*#' }) -join "`n"
+        foreach ($token in @('utmctl', 'virsh ', 'Hyper-V\\Get-VM')) {
+            Assert-True ($code -notmatch [regex]::Escape($token)) "cleanup logic must not call $token directly"
+        }
+    }
+
+    It 'refuses a prefix set that resolves to nothing' {
+        # An empty prefix matches every VM on the host, including the caching
+        # proxy and anything unrelated the operator is running.
+        $text = Get-Content -Raw (Join-Path $script:SweepRepoRoot 'test/Remove-TestVMFiles.ps1')
+        Assert-True (((Get-CatalogSourceMessage -Source $text) -join "`n") -match 'would match every VM') 'the guard against an empty prefix must be present'
+    }
+}
+
+Describe 'Remove-TestVMFiles propagates orphan-sweep status' {
+    It 'returns <Expected> when <Case>' -ForEach @(
+        @{ Case = 'the orphan sweep succeeds after a stale native failure'; Mode = 'success'; Survivors = 0; Expected = 0 }
+        @{ Case = 'the orphan sweep fails with a native-style exit'; Mode = 'exit'; Survivors = 0; Expected = 1 }
+        @{ Case = 'the orphan sweep throws'; Mode = 'throw'; Survivors = 0; Expected = 1 }
+        @{ Case = 'VM survivors remain after successful orphan cleanup'; Mode = 'success'; Survivors = 1; Expected = 1 }
+    ) {
+        $source = Get-Content -Raw (Join-Path $script:SweepRepoRoot 'test/Remove-TestVMFiles.ps1')
+        $region = $source.Substring($source.IndexOf('$orphanArgs =', [StringComparison]::Ordinal))
+        $root = Join-Path $TestDrive ([guid]::NewGuid().ToString('N'))
+        $null = New-Item -ItemType Directory -Path $root
+        $cleanupPath = Join-Path $root 'orphan.ps1'
+        $cleanupBody = "[CmdletBinding()]param([switch]`$Force, [switch]`$Quiet)`n" + $(switch ($Mode) {
+            'exit' { 'exit 9' }
+            'throw' { "throw 'fixture sweep failure'" }
+            default { "'orphan cleanup attempted'" }
+        })
+        [IO.File]::WriteAllText($cleanupPath, $cleanupBody)
+        $fixture = @'
+param([string]$CleanupPath, [int]$SurvivorCount)
+$ErrorActionPreference = 'Continue'
+$cleanupScript = $CleanupPath
+$survivors = [System.Collections.Generic.List[string]]::new()
+if ($SurvivorCount -gt 0) { $survivors.Add('owned-vm') }
+$remaining = @()
+$rescanFailed = $false
+$Quiet = $true
+$global:LASTEXITCODE = 23
+'@
+        $path = Join-Path $root 'sweep.ps1'
+        [IO.File]::WriteAllText($path, $fixture + "`n" + $region)
+        $pwsh = (Get-Process -Id $PID).Path
+        $output = & $pwsh -NoLogo -NoProfile -NonInteractive -File $path -CleanupPath $cleanupPath -SurvivorCount $Survivors 2>&1
+        $code = $LASTEXITCODE
+        $code | Should -Be $Expected -Because (($output | Out-String).Trim())
+        if ($Mode -eq 'success') { ($output | Out-String) | Should -Match 'orphan cleanup attempted' }
+    }
+
+    It 'returns <Expected> after a <Case> final inventory and still attempts orphan cleanup' -ForEach @(
+        @{ Case = 'clean'; Mode = 'clean'; Expected = 0 }
+        @{ Case = 'newly discovered survivor'; Mode = 'survivor'; Expected = 1 }
+        @{ Case = 'failed'; Mode = 'failed'; Expected = 1 }
+    ) {
+        $source = Get-Content -Raw (Join-Path $script:SweepRepoRoot 'test/Remove-TestVMFiles.ps1')
+        $region = $source.Substring($source.IndexOf('# Re-scan to catch survivors', [StringComparison]::Ordinal))
+        $root = Join-Path $TestDrive ([guid]::NewGuid().ToString('N'))
+        $hostRoot = Join-Path $root 'fixturehost'
+        $null = New-Item -ItemType Directory -Path $hostRoot -Force
+        $cleanupBody = '[CmdletBinding()]param([switch]$Force, [switch]$Quiet)' + "`n" +
+            'Set-Content -LiteralPath (Join-Path $PSScriptRoot attempted) -Value done; exit 0'
+        [IO.File]::WriteAllText((Join-Path $hostRoot 'Remove-OrphanedVMFiles.ps1'), $cleanupBody)
+        $fixture = @'
+param([string]$Root, [string]$Mode)
+$ErrorActionPreference = 'Stop'
+$RepoRoot = $Root
+$HostType = 'fixture'
+$Prefix = @('owned-')
+$prefixLabel = 'owned-'
+$survivors = [System.Collections.Generic.List[string]]::new()
+$removedCount = 0
+$Quiet = $true
+function Write-Status { param($Message) }
+function Format-YurunaOperatorMessage { param($Key, $Arguments); return $Key }
+function Get-VMName { if ($Mode -eq 'failed') { throw 'fixture inventory unavailable' }; if ($Mode -eq 'survivor') { return 'owned-late' } }
+function Get-VMState { return 'running' }
+function Get-HostFolder { return 'fixturehost' }
+function Remove-HostDisplay { }
+'@
+        $path = Join-Path $root 'sweep.ps1'
+        [IO.File]::WriteAllText($path, $fixture + "`n" + $region)
+        $pwsh = (Get-Process -Id $PID).Path
+        $output = & $pwsh -NoLogo -NoProfile -NonInteractive -File $path -Root $root -Mode $Mode 2>&1
+        $code = $LASTEXITCODE
+        $code | Should -Be $Expected -Because (($output | Out-String).Trim())
+        Test-Path -LiteralPath (Join-Path $hostRoot 'attempted') | Should -BeTrue
+    }
+}
+
+Describe 'Concurrent-VM pre-flight' {
+
+    It 'stops running VMs through the host contract rather than naming a hypervisor' {
+        # A leftover guest has to be stopped, not reported: refusing over it
+        # strands the host, because the sweep that would remove it only runs
+        # once a cycle starts.
+        $text = Get-Content -Raw (Join-Path $script:SweepRepoRoot 'test/modules/Test.HostContract.psm1')
+        $body = [regex]::Match($text, '(?ms)^function Stop-ConcurrentVM\b.*?\n\}').Value
+        Assert-True ($body.Length -gt 0) 'Stop-ConcurrentVM is defined'
+        Assert-True ($body -match 'Get-VMName') 'enumerates through the contract'
+        Assert-True ($body -match 'Stop-VMForce') 'stops through the contract'
+        foreach ($token in @('utmctl', 'virsh')) {
+            Assert-True ($body -notmatch $token) "must not call $token directly"
+        }
+    }
+
+    It 'stops but never deletes an unrecognized VM' {
+        # A running VM the framework does not recognize may be the
+        # operator's. Stopping is recoverable; deleting is not. Removal is
+        # the prefix sweep's job, where the prefix proves it is disposable.
+        $text = Get-Content -Raw (Join-Path $script:SweepRepoRoot 'test/modules/Test.HostContract.psm1')
+        $body = [regex]::Match($text, '(?ms)^function Stop-ConcurrentVM\b.*?\n\}').Value
+        Assert-True ($body -notmatch 'Remove-VM') 'the pre-flight must not delete VMs'
+    }
+
+    It 'keeps progress out of the success stream so its return stays a boolean' {
+        # This function's output IS its return value. A Write-Output here
+        # makes it return an array of progress strings ending in the bool,
+        # and a non-empty array is always truthy -- so `-not
+        # (Stop-ConcurrentVM)` would never fire and the failure path would
+        # silently stop refusing. Progress belongs on the information stream.
+        $text = Get-Content -Raw (Join-Path $script:SweepRepoRoot 'test/modules/Test.HostContract.psm1')
+        $ast = [System.Management.Automation.Language.Parser]::ParseInput($text, [ref]$null, [ref]$null)
+        $fn = @($ast.FindAll({ param($n)
+            $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and
+            $n.Name -eq 'Stop-ConcurrentVM' }, $true))
+        Assert-True ($fn.Count -eq 1) 'Stop-ConcurrentVM is defined once'
+        $emitters = @($fn[0].FindAll({ param($n)
+            $n -is [System.Management.Automation.Language.CommandAst] }, $true) |
+            ForEach-Object { $_.GetCommandName() } | Where-Object { $_ })
+        Assert-True ($emitters -notcontains 'Write-Output') 'no Write-Output inside a value-returning function'
+        Assert-True ($emitters -contains 'Write-Information') 'progress goes to the information stream'
+    }
+
+    It 'runs through one shared admission in every entry point' {
+        # Three copies of "stop, then maybe refuse" drift apart; one function
+        # cannot. The entry points ask it and act on the verdict.
+        foreach ($caller in @('test/modules/Invoke-TestRunnerInnerLoop.ps1', 'test/Debug-TestSequence.ps1')) {
+            $text = Get-Content -Raw (Join-Path $script:SweepRepoRoot $caller)
+            Assert-True ($text -match 'Invoke-CycleAdmissionStep') "$caller must ask the shared VM admission step"
+            Assert-True ($text -notmatch 'Invoke-HostVmAdmission') "$caller must go through the step, not the wrapped function"
+            Assert-True ($text -notmatch 'Stop-ConcurrentVM') "$caller must not carry its own stop step"
+            Assert-True ($text -notmatch 'Assert-NoConcurrentUtmVm') "$caller must not carry a host-specific refusal of its own"
+            Assert-True ($text -match [regex]::Escape('exit $admissionStep.ExitCode')) "$caller must exit with the step's code: 'cannot run' for an unknown host, 'failure' for an occupied one"
+        }
+    }
+
+    It 'stops running VMs before it settles the verdict' {
+        $text = Get-Content -Raw (Join-Path $script:SweepRepoRoot 'test/modules/Test.HostContract.psm1')
+        $ast = [System.Management.Automation.Language.Parser]::ParseInput($text, [ref]$null, [ref]$null)
+        $fn = @($ast.FindAll({ param($n)
+            $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and
+            $n.Name -eq 'Invoke-HostVmAdmission' }, $true))
+        Assert-True ($fn.Count -eq 1) 'Invoke-HostVmAdmission is defined once'
+        $order = @($fn[0].FindAll({ param($n)
+            $n -is [System.Management.Automation.Language.CommandAst] }, $true) |
+            Sort-Object { $_.Extent.StartOffset } |
+            ForEach-Object { $_.GetCommandName() } |
+            Where-Object { $_ -in @('Get-VmAdmission', 'Stop-ConcurrentVM') })
+        Assert-Equal -Expected 'Get-VmAdmission,Stop-ConcurrentVM,Get-VmAdmission' -Actual ($order -join ',') -Because 'read, stop what is left over, read again'
+    }
+}

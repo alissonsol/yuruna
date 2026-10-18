@@ -1,0 +1,421 @@
+<!DOCTYPE html>
+<!-- LICENSEURI https://yuruna.link/license -->
+<!-- Copyright (c) 2019-2026 by Alisson Sol et al. -->
+<!-- REGION: html -->
+<!-- See https://yuruna.link/42fa6f45-0023 -->
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <!-- viewport-fit=cover + safe-area-inset support; see yuruna.common.css. -->
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta http-equiv="Cache-Control" content="public, max-age=60, must-revalidate">
+  <title data-i18n="status.test_config_yml_yuruna">test.config.yml — Yuruna</title>
+  <link rel="stylesheet" href="yuruna.common.css">
+  <style>
+    /* dvh, not vh: on iOS Safari 100vh is the LARGE viewport (toolbars
+       retracted), so ~100px of the body -- essentially the whole #config-footer
+       action bar -- starts below the fold. The vh line stays first as the
+       fallback for engines without dvh, which simply ignore the second. */
+    body { min-height: 100vh; min-height: 100dvh; display: flex; flex-direction: column; }
+
+    /* Plain shorthand first as the fallback; the max()/env() longhand then holds
+       the tree clear of the notch in landscape, where viewport-fit=cover lets
+       <main> reach the display edge. env() is 0 without a safe area. */
+    main {
+      flex: 1; overflow-y: auto;
+      max-width: 880px; width: 100%; margin: 0 auto;
+      padding: 1.25rem 1.5rem;
+      padding: 1.25rem max(1.5rem, env(safe-area-inset-right)) 1.25rem max(1.5rem, env(safe-area-inset-left));
+      font-family: var(--font-mono);
+      font-size: .8125rem;
+    }
+
+    #config-status {
+      padding: .5rem 1.5rem;
+      font-size: .75rem;
+      border-top: 1px solid var(--border);
+      min-height: 2rem;
+      background: var(--bg-elevated);
+      color: var(--fg-muted);
+    }
+    #config-status.error { color: var(--fail-fg); background: var(--fail-soft-bg); }
+    #config-status.ok    { color: var(--pass-fg); background: var(--pass-bg); }
+
+    /* Host refresh: its own live region, so its progress never overwrites the
+       save/load messages #config-status carries, and the reverse. Hidden
+       until the host advertises a refresh it can run. */
+    .host-refresh {
+      padding: .5rem 1.5rem;
+      border-top: 1px solid var(--border);
+      background: var(--bg-elevated);
+      font-size: .75rem;
+    }
+    .host-refresh-title { font-size: .8125rem; margin: 0 0 .25rem; }
+    .host-refresh-note  { color: var(--fg-muted); margin: 0 0 .5rem; max-width: 72ch; line-height: 1.4; }
+    .host-refresh-actions > * + * { margin-inline-start: .5rem; }
+    .host-refresh-status { min-height: 1.25rem; margin-top: .5rem; color: var(--fg-muted); }
+    .host-refresh-status.error { color: var(--fail-fg); }
+    .host-refresh-status.ok    { color: var(--pass-fg); }
+
+    #config-footer {
+      /* Shorthand first as the fallback; browsers that understand env()/max() override with the
+         safe-area-aware values so the Save/Discard action row clears the iPhone home indicator
+         and notch (this is the bottom-most element of the full-height flex column). */
+      padding: .75rem 1.5rem;
+      padding-bottom: calc(.75rem + env(safe-area-inset-bottom));
+      padding-left: max(1.5rem, env(safe-area-inset-left));
+      padding-right: max(1.5rem, env(safe-area-inset-right));
+      border-top: 1px solid var(--border);
+      display: flex;
+      background: var(--bg-elevated);
+    }
+    #config-footer > * + * { margin-inline-start: .5rem; }
+    #config-footer > #config-discard { margin-inline-start: auto; }
+    .config-btn {
+      border-radius: .375rem;
+      font-weight: 600;
+      font-family: inherit; cursor: pointer;
+      border: 1px solid transparent;
+    }
+    .config-btn.primary {
+      background: var(--primary-bg); color: var(--fg-header);
+      border-color: var(--primary-border);
+    }
+    .config-btn.primary:hover:not([disabled]) { background: var(--primary-hover-bg); }
+    .config-btn.primary[disabled] { background: var(--primary-disabled-bg); cursor: default; }
+    .config-btn.secondary {
+      background: var(--meta-btn-bg); color: var(--meta-btn-fg);
+      border-color: var(--meta-btn-border);
+    }
+    .config-btn.secondary:hover { background: var(--meta-btn-hover-bg); }
+    .config-btn.destructive {
+      background: var(--destructive-bg); color: var(--fg-header);
+      border-color: var(--destructive-border);
+    }
+    .config-btn.destructive:hover:not([disabled]) { background: var(--destructive-hover-bg); }
+    .config-btn.destructive[disabled] { background: var(--destructive-disabled-bg); cursor: default; }
+
+    .tree-node { margin: .15rem 0; }
+    .tree-row {
+      display: flex; align-items: center;
+      padding: .15rem .25rem;
+    }
+    .tree-row > * + * { margin-inline-start: .5rem; }
+    .tree-row:hover { background: var(--bg-hover); }
+    .tree-toggle {
+      width: 1rem; flex-shrink: 0; cursor: pointer;
+      color: var(--fg-muted);
+      -webkit-user-select: none;
+         -moz-user-select: none;
+          -ms-user-select: none;
+              user-select: none;
+      text-align: center;
+    }
+    .tree-toggle.leaf { cursor: default; visibility: hidden; }
+    .tree-key {
+      color: var(--info-fg); flex-shrink: 0;
+      min-width: 9rem;
+    }
+    .tree-key.array-index { color: var(--fg-muted); }
+    .tree-key.array-index.narrow { min-width: 2.5rem; }
+    .tree-type {
+      color: var(--fg-faint); font-size: .6875rem;
+      text-transform: uppercase; letter-spacing: .05em;
+    }
+    .tree-children {
+      margin-inline-start: 1.25rem;
+      border-inline-start: 1px dashed var(--border);
+      padding-inline-start: .5rem;
+    }
+    .tree-children.collapsed { display: none; }
+
+    .tree-array-delete {
+      flex-shrink: 0;
+      background: transparent; color: var(--fg-faint);
+      border: 1px solid transparent; border-radius: .25rem;
+      width: 1.4rem; height: 1.4rem; padding: 0;
+      font-size: .75rem; line-height: 1; cursor: pointer;
+      font-family: inherit;
+    }
+    .tree-array-delete:hover {
+      background: var(--fail-bg); color: var(--fail-fg); border-color: var(--fail-soft-border);
+    }
+    .tree-array-add {
+      margin: .25rem 0;
+      background: transparent; color: var(--info-fg);
+      border: 1px dashed var(--info-border); border-radius: .25rem;
+      padding: .15rem .5rem;
+      font-size: .75rem; cursor: pointer;
+      font-family: inherit;
+    }
+    .tree-array-add:hover {
+      background: var(--info-bg); border-style: solid;
+    }
+
+    .tree-input {
+      flex: 1; min-width: 0;
+      font-family: inherit; font-size: .8125rem;
+      padding: .2rem .4rem;
+      border: 1px solid var(--border-input); border-radius: .25rem;
+      background: var(--bg-elevated); color: var(--fg-primary);
+    }
+    .tree-input:focus {
+      outline: 2px solid var(--info-strong); outline-offset: -1px;
+      border-color: transparent;
+    }
+    .tree-input.string { font-family: var(--font-mono); }
+    .tree-input.number { width: 8rem; flex: 0 0 auto; }
+    .tree-input.invalid-ip {
+      border-color: var(--fail-fg);
+      background: var(--fail-soft-bg);
+    }
+    .tree-input.invalid-ip:focus {
+      outline-color: var(--fail-fg);
+    }
+    .cache-ip-wrap {
+      flex: 1; min-width: 0;
+      display: flex; flex-direction: column;
+    }
+    /* Following controls get spacing while each row starts flush with its edge. */
+    .cache-ip-wrap > * + * { margin-top: .25rem; }
+    .cache-ip-envrow {
+      display: flex; align-items: center;
+      font-size: .75rem;
+    }
+    .cache-ip-envrow > * + * { margin-inline-start: .5rem; }
+    .cache-ip-envlabel {
+      color: var(--fg-muted);
+      font-family: var(--font-mono);
+      white-space: nowrap;
+    }
+    .tree-input.cache-ip-envinput {
+      background: var(--bg-hover);
+      color: var(--fg-muted);
+      cursor: default;
+    }
+    .tree-input.cache-ip-envinput:focus { outline: none; }
+    .cache-ip-input-row {
+      display: flex; align-items: center;
+    }
+    .cache-ip-input-row > * + * { margin-inline-start: .4rem; }
+    .cache-ip-mark {
+      flex: 0 0 auto;
+      display: inline-flex; align-items: center; justify-content: center;
+      width: 1.25rem; height: 1.25rem;
+      font-size: .9rem; font-weight: 700;
+      font-family: var(--font-mono);
+      line-height: 1;
+      cursor: help;
+      -webkit-user-select: none;
+      -moz-user-select: none;
+      -ms-user-select: none;
+      user-select: none;
+    }
+    .cache-ip-mark.ok       { color: var(--pass-fg); }
+    .cache-ip-mark.fail     { color: var(--fail-fg); }
+    .cache-ip-mark.disabled { color: var(--fg-faint); }
+    /* The pending state already has its own glyph, so the motion is decoration
+       on top of a cue that is complete without it. A probe can sit pending for
+       the full 15 s abort window and re-enter it on every edit, so an
+       unconditional infinite animation is a long one. Gate it the way the
+       banner dot is gated in yuruna.common.css: motion only when nobody has
+       asked for less of it. */
+    .cache-ip-mark.pending  { color: var(--warn-fg); }
+    @media (prefers-reduced-motion: no-preference) {
+      .cache-ip-mark.pending { animation: cache-ip-pulse 1.1s ease-in-out infinite; }
+    }
+    @keyframes cache-ip-pulse {
+      0%, 100% { opacity: 1; }
+      50%      { opacity: .45; }
+    }
+    /* The validation message the invalid field points at with
+       aria-describedby. Visible text, not a tooltip: a title attribute is
+       mouse-only, and this is the one thing standing between a typo and a
+       rejected Save. */
+    .tree-error {
+      display: block; margin-top: .2rem;
+      font-size: .75rem; color: var(--fail-fg);
+    }
+    .tree-input[disabled] {
+      background: var(--bg-hover); color: var(--fg-muted);
+      cursor: progress;
+    }
+    .ydd {
+      position: relative;
+      display: inline-flex; align-items: center;
+      flex: 0 0 auto;
+      font-family: var(--font-mono);
+      font-size: .8125rem;
+      padding: .2rem 1.5rem .2rem .4rem;
+      border: 1px solid var(--border-input); border-radius: .25rem;
+      background: var(--bg-elevated); color: var(--fg-primary);
+      cursor: pointer;
+      -webkit-user-select: none;
+         -moz-user-select: none;
+          -ms-user-select: none;
+              user-select: none;
+    }
+    .ydd:focus { outline: 2px solid var(--info-strong); outline-offset: -1px; border-color: transparent; }
+    .ydd-current { white-space: nowrap; }
+    .ydd-current.ydd-stale { color: var(--fg-faint); font-style: italic; }
+    .ydd-arrow {
+      position: absolute; right: .4rem; top: 50%;
+      margin-top: -.5rem; height: 1rem; line-height: 1rem;
+      color: var(--fg-muted); font-size: .65rem;
+      pointer-events: none;
+    }
+    .ydd-menu {
+      position: absolute; top: 100%; inset-inline-start: 0;
+      z-index: 100;
+      background: var(--bg-elevated);
+      border: 1px solid var(--border-input); border-radius: .25rem;
+      box-shadow: 0 4px 8px rgba(0,0,0,.08);
+      margin-top: .15rem;
+      max-height: 14rem; overflow-y: auto;
+      min-width: 100%;
+    }
+    .ydd-menu[hidden] { display: none; }
+    .ydd-item {
+      padding: .2rem .6rem;
+      cursor: pointer; white-space: nowrap;
+    }
+    .ydd-item.is-active, .ydd-item:hover {
+      background: var(--info-bg); color: var(--info-fg);
+    }
+    .ydd-item.is-selected { font-weight: 600; }
+    .ydd-item.is-disabled {
+      color: var(--fg-faint); font-style: italic; cursor: default;
+    }
+    .ydd-item.is-disabled:hover { background: transparent; color: var(--fg-faint); }
+
+    .tree-bool {
+      display: inline-flex; align-items: center;
+    }
+    .tree-bool > * + * { margin-inline-start: .5rem; }
+    .tree-bool-switch {
+      position: relative; display: inline-block;
+      width: 2.4rem; height: 1.2rem;
+    }
+    .tree-bool-switch input {
+      opacity: 0; width: 0; height: 0;
+    }
+    .tree-bool-track {
+      position: absolute; cursor: pointer;
+      top: 0; right: 0; bottom: 0; left: 0;
+      background: var(--border-input); border-radius: 1.2rem;
+      transition: background .15s;
+    }
+    .tree-bool-track::before {
+      content: ''; position: absolute;
+      width: .9rem; height: .9rem; left: .15rem; bottom: .15rem;
+      background: var(--bg-elevated); border-radius: 50%;
+      -webkit-transition: -webkit-transform .15s;
+              transition:         transform .15s;
+    }
+    .tree-bool-switch input:checked + .tree-bool-track {
+      background: var(--pass-fg);
+    }
+    .tree-bool-switch input:checked + .tree-bool-track::before {
+      -webkit-transform: translateX(1.2rem);
+              transform: translateX(1.2rem);
+    }
+    .tree-bool-label {
+      font-weight: 600; min-width: 3rem;
+      color: var(--fg-muted);
+    }
+    .tree-bool-label.true  { color: var(--pass-fg); }
+    .tree-bool-label.false { color: var(--fail-fg); }
+
+    .tree-null  { color: var(--fg-faint); font-style: italic; }
+    .tree-note  { color: var(--fg-muted); font-size: .75rem; line-height: 1.4; margin: .2rem 0 .4rem; max-width: 62ch; }
+    .tree-empty { color: var(--fg-faint); font-style: italic; font-size: .75rem; }
+
+    @media (max-width: 600px) {
+      /* iOS Safari zooms the viewport whenever a focused text control computes
+         under 16px, and it does not zoom back out. At .8125rem (13px) every tap
+         on a field -- the entire config editing surface -- shifts the page. The
+         desktop density above is kept; only the phone breakpoint pays the 16px.
+         Widening the tap target on the custom select and its menu rows for the
+         same reason: at ~26px they are well under the 44px touch minimum. */
+      .tree-input { font-size: 16px; }
+      .ydd, .ydd-item { min-height: var(--touch-min); }
+      /* The switch label is the only target for a boolean value and draws
+         2.4rem x 1.2rem (~38x19 px), far under the same touch minimum. Give the
+         label the full touch height and hold the track at its drawn size,
+         centered inside it, so the hit area grows without the control changing
+         shape or the knob's offsets moving. */
+      .tree-bool-switch { height: var(--touch-min); }
+      .tree-bool-track  { top: 50%; bottom: auto; height: 1.2rem; margin-top: -.6rem; }
+    }
+
+    /* A touch pointer can coexist with a mouse on a wide viewport. */
+    @media (any-pointer: coarse) {
+      .tree-toggle, .tree-input, .ydd, .ydd-item, .tree-bool-switch {
+        min-height: 44px; min-width: 44px;
+      }
+      .tree-toggle { display: inline-flex; align-items: center; justify-content: center; }
+      .ydd-item { display: flex; align-items: center; }
+      .tree-bool-switch { height: 44px; }
+      .tree-bool-track {
+        top: 50%; right: auto; bottom: auto; left: 50%;
+        width: 2.4rem; height: 1.2rem;
+        margin-top: -.6rem; margin-left: -1.2rem;
+      }
+    }
+  </style>
+</head>
+<body>
+
+<header class="app">
+  <div class="brand">
+    <span class="name"><a href="index.html"><span id="header-title">Yuruna</span></a></span>
+    <span class="version" id="header-version"></span>
+  </div>
+  <span class="spacer"></span>
+  <span class="machine" id="header-machine"></span>
+  <div class="menu">
+    <button type="button" class="menu-button" id="menu-button" aria-haspopup="true" aria-expanded="false" aria-controls="menu-panel">
+      <span class="menu-icon" aria-hidden="true">&#9776;</span><span class="menu-label" data-i18n="status.menu">Menu</span>
+    </button>
+    <nav class="menu-panel" id="menu-panel" aria-label="Pages" hidden data-i18n-aria-label="status.pages">
+      <a href="index.html" data-i18n="status.status">Status</a>
+      <a href="config.html" aria-current="page" data-i18n="status.config">Config</a>
+      <a href="performance.html" data-i18n="status.performance">Performance</a>
+      <a href="diagnostics.html" data-i18n="status.diagnostics">Diagnostics</a>
+      <a class="menu-out" href="https://yuruna.link/42ad660e" target="_blank" rel="noopener" data-i18n="status.guide">Guide</a>
+    </nav>
+  </div>
+</header>
+
+<div id="banner" class="idle">
+  <span class="dot"></span>
+  <span id="banner-text" role="status" aria-atomic="true" data-i18n="status.loading">Loading…</span>
+</div>
+
+<main id="config-body">
+  <h1 class="sr-only" data-i18n="status.test_config_yml">test.config.yml</h1>
+  <div class="tree-empty" data-i18n="status.loading">Loading…</div>
+</main>
+
+<div id="config-status" role="status"></div>
+
+<section id="host-refresh" class="host-refresh" hidden aria-labelledby="host-refresh-title">
+  <h2 id="host-refresh-title" class="host-refresh-title"></h2>
+  <p id="host-refresh-note" class="host-refresh-note"></p>
+  <div class="host-refresh-actions">
+    <button type="button" class="config-btn destructive" id="host-refresh-start"></button>
+    <button type="button" class="config-btn secondary" id="host-refresh-retry" hidden></button>
+  </div>
+  <div id="host-refresh-status" class="host-refresh-status" role="status" aria-live="polite" aria-atomic="true"></div>
+</section>
+
+<div id="config-footer">
+  <button type="button" class="config-btn destructive" id="config-save-start" data-i18n="status.save_and_start_cycle">Save and start cycle</button>
+  <button type="button" class="config-btn secondary" id="config-discard" data-i18n="status.discard">Discard</button>
+  <button type="button" class="config-btn primary"   id="config-save" data-i18n="status.save">Save</button>
+</div>
+
+<script src="yuruna.common.js"></script>
+
+</body>
+</html>

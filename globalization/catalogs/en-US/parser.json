@@ -1,0 +1,90 @@
+{
+  "schema": "yuruna.catalog/v1",
+  "domain": "parser",
+  "locale": "en-US",
+  "messages": {
+    "parser.squid_cache_recent_100_requests": {
+      "message": "Squid cache -- recent 100 requests",
+      "description": "Visible text in test/extension/caching-proxy-parser-service/parse.go; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "parser.pause_auto_refresh": {
+      "message": "Pause auto-refresh",
+      "description": "Visible text in test/extension/caching-proxy-parser-service/parse.go; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "parser.time": {
+      "message": "time",
+      "description": "Visible text in test/extension/caching-proxy-parser-service/parse.go; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "parser.client": {
+      "message": "client",
+      "description": "Visible text in test/extension/caching-proxy-parser-service/parse.go; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "parser.status": {
+      "message": "status",
+      "description": "Visible text in test/extension/caching-proxy-parser-service/parse.go; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "parser.bytes": {
+      "message": "bytes",
+      "description": "Visible text in test/extension/caching-proxy-parser-service/parse.go; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "parser.method": {
+      "message": "method",
+      "description": "Visible text in test/extension/caching-proxy-parser-service/parse.go; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "parser.url": {
+      "message": "url",
+      "description": "Visible text in test/extension/caching-proxy-parser-service/parse.go; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "parser.user_agent": {
+      "message": "user-agent",
+      "description": "Visible text in test/extension/caching-proxy-parser-service/parse.go; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "parser.refresh_failed": {
+      "message": "(refresh failed)",
+      "description": "Operator-facing browser message in test/extension/caching-proxy-parser-service/parse.go. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active"
+    },
+    "parser.refresh_failed_the_rows_below_are_from_the_last_successful_read": {
+      "message": "Refresh failed. The rows below are from the last successful read.",
+      "description": "Operator-facing browser message in test/extension/caching-proxy-parser-service/parse.go. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active"
+    },
+    "parser.resume_auto_refresh": {
+      "message": "Resume auto-refresh",
+      "description": "Operator-facing browser message in test/extension/caching-proxy-parser-service/parse.go. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active"
+    },
+    "parser.refreshed_rows": {
+      "description": "Complete count-dependent operator message. Never concatenate a translated noun, plural suffix or sentence fragment.",
+      "lifecycle": "active",
+      "placeholders": {
+        "count": {
+          "type": "integer",
+          "trust": "internal",
+          "example": 3
+        },
+        "time": {
+          "type": "text",
+          "trust": "internal",
+          "example": "example"
+        }
+      },
+      "plural": {
+        "selector": "count",
+        "variants": {
+          "one": "({count} row, refreshed {time})",
+          "other": "({count} rows, refreshed {time})"
+        }
+      }
+    }
+  }
+}

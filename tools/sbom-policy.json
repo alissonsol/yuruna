@@ -1,0 +1,10 @@
+{
+  "schema": "yuruna.sbom-policy/v1",
+  "name": "yuruna",
+  "source": "https://github.com/alissonsol/yuruna",
+  "creator": "Alisson Sol et al.",
+  "creatorRegid": "yuruna.com",
+  "created": "2026-10-03T16:48:41Z",
+  "licenseId": "LicenseRef-Yuruna",
+  "licensePath": "LICENSE.md"
+}

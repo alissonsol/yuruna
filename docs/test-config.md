@@ -1,0 +1,663 @@
+<a id="42b11c32-0001"></a>
+
+# test.config.yml -- runner configuration reference
+
+`test/test.config.yml` is the per-host runner configuration. On first run it is
+bootstrapped from `test/test.config.yml.template` (then gitignored, so your edits
+and secrets stay local). Edit it directly, or through the status-page editor
+(`config.html`), a schema-driven form that loads/saves via
+`GET`/`POST /control/test-config`. The template carries short comments on many
+non-obvious knobs and reconciliation renders those into the live file (a save
+from the editor round-trips through `ConvertTo-Yaml` and strips them until the
+next reconciliation); this document is the fuller reference.
+
+Top-level sections: `configService`, `downloadAgentService`, `guestSequence`,
+`language`, `logLevel`, `networkStorage`, `notification`, `pool`, `repositories`,
+`statusService`, `testCycle`, `vmCommunication`, `vmImage`, `vmStart`. Most are
+self-describing; the ones carrying non-obvious behavior are documented below.
+
+One is easy to misread: `guestSequence` does not choose the cycle's guests. The
+runner resolves those from the `sequences:` list in `test/test.runner.yml` in
+the project repository, and reads `guestSequence` only when that file resolves
+no plan -- so an edit to it, in this file or through the editor, changes nothing
+on a host whose project repository resolves a plan. The editor shows the guest
+set the last cycle actually ran beside the field.
+
+<a id="42b11c32-0002"></a>
+
+## Key names
+
+Template reconciliation migrates registered retired key names before merging
+the current schema. It preserves operator values, converts duration units, and
+recovers registered keys parked in the generated obsolete-key block when the
+replacement is blank. Validation still rejects retired keys that remain active.
+To convert a whole file explicitly -- key renames, the
+minutes/hours-to-seconds value conversions, and the `autoRemediation` nesting
+move -- run:
+
+```
+pwsh tools/Update-TestConfigNaming.ps1
+```
+
+It keeps the previous file alongside as `test.config.yml.pre-renaming` (which
+holds the same secrets the live file does, and is gitignored for that reason),
+is a no-op on an already-converted file, and stops without changing the file
+when populated old and new values disagree. Equal values are consolidated;
+blank replacements can be filled from the old value. A subsequent migration
+uses a unique backup suffix instead of replacing the first backup. The retired-key table it reads is
+`test/modules/Test.ConfigNaming.psm1`; the rules behind the names are in
+[naming conventions](design/naming.md).
+
+<a id="42b11c32-0003"></a>
+
+## Template reconciliation
+
+`test.config.yml.template` is the schema source of truth. `Test-Config`
+fully reconciles the live `test.config.yml` to it
+(`Sync-TestConfigToTemplate` in `Test.ConfigSync.psm1`): registered naming
+migrations run first and preserve the original file in a `.pre-renaming` backup;
+missing template
+fields are added with empty/default values; keys the template no longer
+defines are removed (a populated removed key first backs the previous file
+up to `test.config.yml.backup`); and the file is rewritten with all map
+keys and scalar-array elements in alphabetical order so it is byte-stable
+and diff-friendly. Operator values that still map are kept and the
+out-of-band `secrets` node is untouched.
+
+Outcomes: already canonical -> PASS with no rewrite; fields added/re-sorted
+-> PASS listing new fields to fill in; populated keys dropped from the
+schema -> WARN or FAIL per `-OnConfigSchemaDrift` (recover from the
+`.backup`). At cycle start the runner runs the same reconciliation via
+`Update-TestConfigFromTemplate`, which additionally STOPS the run when a
+populated value no longer maps; `-ApplyConfigMigration` runs that
+stop-on-unmappable variant immediately.
+
+<a id="42b11c32-0004"></a>
+
+### The file keeps the template's comments
+
+The reconciled file is rendered **from the template text**, not regenerated
+from a parsed object: a `ConvertFrom-Yaml`/`ConvertTo-Yaml` round-trip drops
+every comment, so the operator's file would lose every per-knob explanation
+the template carries. The template is already both the schema and the
+canonical ordering, so it doubles as the rendering skeleton -- its comments,
+blank lines and key order come through verbatim, with the operator's value
+substituted wherever the file has one.
+
+Keys the template no longer defines are written back as commented-out
+entries under a `# --- REGION: Obsolete keys` block instead of only living in the
+`.backup`:
+
+```yaml
+# --- REGION: Obsolete keys
+# Not defined by test.config.yml.template, so the runner ignores them. Kept
+# here (commented) so no value is lost: move anything still needed into the
+# keys above, then delete these lines.
+#   configService.isEnabled: true
+```
+
+A parked key is inert YAML. Registered retired names in this generated block
+are recovered into their current paths before reconciliation; conflicting
+populated values stop the migration without a write. Unregistered entries
+remain parked for operator review. Rendering is deterministic -- a second
+run reproduces the file byte for byte and writes nothing.
+
+Two consequences: the operator-managed `secrets` node is emitted as real YAML
+(never commented) so credentials survive the rewrite; and comments an operator
+adds by hand outside the obsolete block are not preserved, because the
+template -- not the previous file -- is the skeleton.
+
+<a id="42b11c32-0005"></a>
+
+## configService -- host mTLS credential service
+
+`configService.enabled` / `configService.port` (default `8443`) control the
+per-host **config service** -- the mTLS endpoint that serves NAS credentials to
+the VMs this host provisions so they don't have to ship in each seed. When
+enabled, `Start-CachingProxyServiceVM.ps1` ensures it (given a Config CA exists); VMs fetch
+over the `yuruna-config-fetch.sh` mTLS path and fall back to baked creds only
+if it is unreachable.
+
+<a id="42b11c32-0011"></a>
+
+## language -- the lab-wide language lock
+
+`language` (default `auto`) names the language every Yuruna surface answers in,
+as a BCP 47 tag. **`auto` is not a language; it is the absence of a lock.** Under
+`auto` each reader decides for themselves: a served page follows the browser's
+`Accept-Language`, and a command follows the culture of the session running it.
+
+A tag locks the whole lab to one language instead. That is deliberately
+lab-wide rather than per-surface: a page, the API responses behind it and the
+transcript of the same run have to be readable as one account of one cycle, and
+a per-surface setting is what makes them disagree. A lock also outranks the
+browser -- a reader who asks for something else still gets the locked language,
+because the lock exists to make the lab's output uniform.
+
+Only a tag with a reviewed catalog behind it is served. A tag without one is
+refused rather than obeyed, so a typo does not quietly ship a language that does
+not exist: the run falls back to English and reports the configuration as what
+decided it, which distinguishes a mistyped lock from a reader who asked
+for English. Today `en-US`, `pt-BR`, `zh-CN`, and `he-IL` are such tags.
+
+Deleting the key means the same thing as `auto`, but leave it in place. It is
+the seed reconciliation copies into a new host's file, and the status-page
+config editor can only offer a knob the file contains.
+
+<a id="42b11c32-0006"></a>
+
+## downloadAgentService — the pool-wide image downloader
+
+The **download-agent service** VM (`yuruna-download-agent-service`) keeps guest
+images on the pool share fresh, so the lab pulls an image from its origin once
+instead of once per host. It needs the **pool** tier below configured -- that
+share is where the Download pool lives -- and it is brought up by
+`install/setup.ps1` or `pwsh test/service/Start-DownloadAgentServiceVM.ps1`. Operator
+guide: [download-agent.md](download-agent.md); the service section of
+[pool-admin.md](pool-admin.md#download-agent-service).
+
+| Key | Type | Meaning |
+|---|---|---|
+| `autoSeed` | bool | Pre-download the stable image families for the host types the pool aggregator reports, instead of waiting for a host to ask. Default `true`; `false` leaves the pool demand-driven and manual. |
+| `enabled` | bool | Master switch for the setup bring-up. `false` makes `install/setup.ps1` skip the agent's reset+start pair, so a re-run neither rebuilds nor starts it; `true` brings it up in either mode. An absent key resolves by mode: a **lab** runs the agent (sharing images across the pool's hosts is its whole point), a **standalone** host does not -- its memory goes to the test guests instead. Running `test/service/Start-DownloadAgentServiceVM.ps1` by hand still starts it -- asking for it explicitly overrides the setup default. |
+| `freshnessSeconds` | int | How long an image stays fresh after its last successful **direct** origin check. Default `86400` (24 h). |
+| `prefetchLeadSeconds` | int | The scanner acts on an image whose freshness expires within this window, rather than waiting for it to go stale. Default `7200` (2 h). |
+| `scanIntervalSeconds` | int | How often the agent walks the pool looking for work. Default `900` (15 min). |
+
+The four tunables are read at **VM-create time** and baked onto the daemon's
+flag line in the guest seed, so changing one takes effect on the next
+stop->start of the agent VM, not on the next cycle. The same defaults are
+hardcoded in the daemon (`server/internal/config`), so a host with no
+`downloadAgentService` block and a bare daemon behave identically.
+
+<a id="42b11c32-0007"></a>
+
+## networkStorage -- optional NAS-backed durable tiers
+
+Hosts (like guests) are **reimageable at any time**, so local storage stays local,
+fast, and ephemeral; optional Network-Attached Storage shares are the durable tier.
+`networkStorage` carries the paths/credentials for two **independent** tiers: the
+**pool** (cycle-output archiving, keys `pool*`) and the **stash** (the stash
+service's own durable store, keys `stash*`). They use **separate NAS shares and
+accounts** -- the stash does not reuse the pool's share or credential.
+
+**Populating the three `poolStorage*` paths is the opt-in.** A host that names a
+share, an account and a mount point has asked for its cycles to reach that share,
+so each finished cycle is copied to
+`<poolStorageLocalPath>/hosts/<hostId>/test-cycles/` over **SMB3** (uniform across
+Windows/macOS/Linux). `moveLogsToPoolStorage` then selects the **mode**, never
+whether archiving happens:
+
+| Mode | `moveLogsToPoolStorage` | Behavior |
+|---|---|---|
+| **copy** (default) | `false` | Copy each finished cycle to the share and **keep** the local folder. Runs detached at cycle end; a slow or absent NAS never delays the loop. |
+| **move** | `true` | Copy, **verify**, and then **delete** the local folder, so the share holds the only copy. Runs synchronously at cycle end, because the cycle's verdict depends on it. |
+
+The Squid cache is **not** archived (rebuildable; left to Squid pools). The stash
+tier has no mode flag -- the stash daemon writes its files directly to its own share.
+
+> **`pool.networkReplicate` is retired.** It is ignored wherever it still appears,
+> and `pwsh test/Test-Config.ps1` prints one advisory naming the replacement. A host
+> that had the three paths populated with `networkReplicate: false` -- the
+> pre-validation state this page used to recommend -- **starts archiving in copy mode
+> at upgrade**, and its next caching-proxy-service rebuild starts replicating the proxy's
+> observability data too. Delete the key; add `moveLogsToPoolStorage: true` if you
+> want move semantics.
+
+This section is the parameter reference; for the architecture (the async,
+fail-fast, atomic, backlog-draining replicator), the on-share layout, the Linux
+passwordless-sudo precondition, and operations/troubleshooting, see
+[pool-storage.md](pool-storage.md).
+
+<a id="42b11c32-0008"></a>
+
+### Pool storage (cycle-output archiving)
+
+| Key | Type | Meaning |
+|---|---|---|
+| `moveLogsToPoolStorage` | bool | **Default `false`.** `true` => **move** mode: each finished cycle is copied to the share, verified (file count + total bytes), and only then deleted locally. The share becomes the only copy, so a broken or **full** share is a hard gate failure and stops cycles rather than merely warning. `false` => **copy** mode, the local folder is kept. Requires the three paths below; with any of them empty, archiving is off entirely and this key does nothing. |
+| `poolStorageNetworkPath` | string | The pool SMB share. Windows `\\server.local\work`; macOS/Linux `//server.local/work` (either form is accepted and normalized). |
+| `poolStorageNetworkUser` | string | The **single** SMB account used for **every** pool connection to the share -- host-side cycle replication (the host mounts) **and** the caching-proxy-service guest's service replication alike. **Also the vault key** its password is fetched under (see below). Scope it **storage-only** on the NAS (write access to `poolStorageNetworkPath` and nothing else). |
+| `poolStorageLocalPath` | string | The host's pool mount point. Windows `'y:'` (**must be quoted** -- see below) - macOS `~/Shares/ypool-nas` - Linux `/mnt/ypool-nas`. |
+
+Examples -- only `poolStorageLocalPath` and the `poolStorageNetworkPath` slash style differ per
+platform (the `stash*` keys, documented below, follow the same per-platform rules):
+
+**Windows:**
+```yaml
+networkStorage:
+  poolStorageNetworkPath: \\server.local\work
+  poolStorageNetworkUser: yuruna-pool
+  poolStorageLocalPath: 'y:'
+```
+
+**macOS:**
+```yaml
+networkStorage:
+  poolStorageNetworkPath: //server.local/work
+  poolStorageNetworkUser: yuruna-pool
+  poolStorageLocalPath: ~/Shares/ypool-nas
+```
+
+**Ubuntu (Linux):**
+```yaml
+networkStorage:
+  poolStorageNetworkPath: //server.local/work
+  poolStorageNetworkUser: yuruna-pool
+  poolStorageLocalPath: /mnt/ypool-nas
+```
+
+macOS expands a leading `~/` to `$HOME` -- keep the **slash** (`~/Shares/ypool-nas`, not
+`~Shares/ypool-nas`): only `~/...` is expanded, a tilde glued to the next character is left
+literal and the mount silently fails. The macOS/Linux mount point needs no quoting
+(no trailing colon). On **Ubuntu/Linux** the mount also requires
+**passwordless `sudo` for `mount`** (an `/etc/sudoers.d` drop-in) -- see
+[pool-storage.md](pool-storage.md).
+
+> **YAML quoting -- quote a Windows drive-letter `poolStorageLocalPath`/`stashStorageLocalPath`.**
+> Write `poolStorageLocalPath: 'y:'`, not `poolStorageLocalPath: y:`. Unquoted, YAML reads the
+> trailing colon in `y:` as the start of a nested mapping and the **entire
+> `test.config.yml` fails to parse** (`While scanning a plain scalar value, found
+> invalid mapping`) -- so the runner can't read *any* config, not just
+> networkStorage. Single quotes are the safe choice for any value with a trailing
+> colon or backslashes. `poolStorageNetworkPath: \\server.local\work` works unquoted because
+> YAML treats backslashes in a plain scalar literally, but `'\\server.local\work'` (single
+> quotes) is equally fine.
+
+<a id="42b11c32-0009"></a>
+
+### Stash storage (the stash service's own durable store)
+
+The **stash service** uses an **isolated** storage tier: its own NAS share, its
+own NAS account (the `stash*` keys), and **no replicate flag** -- the stash daemon
+writes files directly. All three `stash*` keys must be set for the stash store to
+be active; leave them empty to keep it off. The reader is
+`Get-YurunaStashStorageConfig` (the pool tier's reader is
+`Get-YurunaPoolStorageConfig`).
+
+| Key | Type | Meaning |
+|---|---|---|
+| `stashStorageNetworkPath` | string | The stash SMB share -- its **own** share, e.g. Windows `\\ystash-nas\work\yuruna.stash`; macOS/Linux `//ystash-nas/work/yuruna.stash` (either form is accepted and normalized). |
+| `stashStorageNetworkUser` | string | The stash's **own** SMB account (e.g. `yuruna-stash`), distinct from `poolStorageNetworkUser`. **Also the vault key** its password is fetched under (see below). Scope it **storage-only** on the NAS (write access to `stashStorageNetworkPath` and nothing else). |
+| `stashStorageLocalPath` | string | The host's stash mount point. Windows `'z:'` (**must be quoted** -- same drive-letter trap as the pool) - macOS `~/Shares/yuruna.stash` - Linux `/mnt/yuruna.stash`. |
+
+Example (Windows; macOS/Linux follow the same slash/mount-point rules as the pool):
+
+```yaml
+networkStorage:
+  poolStorageNetworkPath: \\ypool-nas\work\yuruna.pool
+  poolStorageNetworkUser: yuruna-pool
+  poolStorageLocalPath: 'y:'
+  stashStorageNetworkPath: \\ystash-nas\work\yuruna.stash
+  stashStorageNetworkUser: yuruna-stash
+  stashStorageLocalPath: 'z:'
+```
+
+The passwords are **never** stored in `test.config.yml` -- they live in the vault.
+
+<a id="42b11c32-000a"></a>
+
+### Setting the SMB passwords in the vault
+
+Each SMB password must match the NAS exactly, so it is **never** auto-generated --
+you set it once, per host. Because the pool and stash use **separate
+accounts**, you set **two** passwords: one for `poolStorageNetworkUser` and one for
+`stashStorageNetworkUser`. The vault
+(`test/status/extension/authentication/vault.yml`) is gitignored, plaintext, and
+persists across cycles.
+
+**Already done for local storage.** If the shares live on this machine and were
+created by `pwsh test/lab/New-LocalLabStorage.ps1`, both passwords are already
+generated, mapped to a `vaultKey`, and stored -- there is nothing to do here.
+The rest of this section is for a NAS or a separate file server, whose accounts
+and passwords are owned by that device.
+
+**Easiest (interactive):** run `pwsh test/Test-Config.ps1` from a terminal. When
+the pool account has no usable credential, the validator asks for the
+`poolStorageNetworkUser` password (typed twice, not echoed), maps the `vaultKey` in
+`users.yml`, stores the password, and re-checks -- so the run ends with the gate
+satisfied instead of a failure to act on later. Run non-interactively (the
+unattended runner, a redirected stdin), it never prompts and reports the
+failure. The `stashStorageNetworkUser` password is still set by hand, below.
+
+**Recommended (fail-safe):** map a `vaultKey` so the harness never silently
+auto-generates a wrong password, then store the value. Do this for **both** users.
+
+1. In `test/status/extension/authentication/users.yml`, add/edit each user with a
+   **non-empty** `vaultKey`:
+   ```yaml
+   yuruna-pool:
+     localOsUser: yuruna-pool
+     corporate:   { domain: "", sam: "", upn: "" }
+     vaultKey:    "smb.yuruna-pool"
+     localOsPasswordRef: ""
+   yuruna-stash:
+     localOsUser: yuruna-stash
+     corporate:   { domain: "", sam: "", upn: "" }
+     vaultKey:    "smb.yuruna-stash"
+     localOsPasswordRef: ""
+   ```
+   A non-empty `vaultKey` disables auto-generation: `Get-Password` returns the
+   stored value or fails loudly if it is missing (so a random password can never
+   silently break the mount).
+2. Store each password under its vault key:
+   ```powershell
+   Import-Module test/extension/authentication/default.psm1
+   Set-Password -Username 'smb.yuruna-pool'  -NewPassword '<pool NAS password>'
+   Set-Password -Username 'smb.yuruna-stash' -NewPassword '<stash NAS password>'
+   ```
+
+**Quick alternative (no users.yml edit):** store directly under each username --
+`Set-Password -Username 'yuruna-pool' -NewPassword '<pool NAS password>'` and
+`Set-Password -Username 'yuruna-stash' -NewPassword '<stash NAS password>'`. Works
+because an unset, vaultKey-less user resolves to the username as its own vault key.
+Caveat: if you forget to set one, `Get-Password` auto-generates a random password
+and that mount fails with bad credentials -- the recommended path above prevents
+that.
+
+Verify with `pwsh test/Test-Config.ps1`. Beyond checking that mapped vault
+entries exist, when the server is reachable it **actively mounts `poolStorageLocalPath`
+and creates the per-host folder `<poolStorageLocalPath>/hosts/<hostId>`** -- so a wrong password,
+a share-name typo, missing Linux passwordless sudo, or a read-only share surfaces
+as a gate failure (and, with `moveLogsToPoolStorage: true`, **stops the cycle from
+starting**) instead of replication silently never happening. See
+[pool-storage.md](pool-storage.md#operating--troubleshooting). Password
+characters: `a-z A-Z 0-9` and `! @ # $ % ^ & * ( ) - _ = +`; avoid quotes,
+backslash, and YAML/shell separators (``: , < > | ; ~ ` ``).
+
+<a id="42b11c32-000b"></a>
+
+### Extension services (pool registry) — where THIS host's stash actually is
+
+The `stash*` keys above say this host could build a stash service. A cycle
+depends on a different question: which stash service will this host be **sent
+to**, and does it answer? That address comes from the pool, so a registration
+nobody can reach stops the cycle in its warm-up -- after a config check that
+reported everything fine.
+
+`Test-Config.ps1`'s **Extension services (pool registry)** section asks the
+aggregator (`/api/v1/extension-hosts`) for every stash service the pool knows,
+and probes each from this host:
+
+- a registration the **pool itself refuses** (an address it cannot reach -- the
+  usual cause is a stash VM on a hypervisor-private network: the macOS shared
+  vmnet, a Hyper-V Default Switch, libvirt's `virbr0`) is reported as a WARN
+  naming the refused address and the reason. Fix it by rebuilding that stash VM
+  on a **bridged** interface;
+- a registration the pool still advertises but **this host** cannot reach is a
+  WARN too: the pool can route to it and this host cannot, so check this host's
+  route rather than that VM;
+- **no** stash service answering at all is a WARN naming that consequence -- a
+  project that uploads build output has nowhere to put it, and its cycle stops
+  before the provisioning stages. Advisory rather than a gate failure on
+  purpose: a FAIL here refuses to start the runner loop, and a service on
+  another machine being down must not wedge a lab that would otherwise keep
+  cycling and recover.
+
+Several hosts each running their own stash service is normal and reports as
+several PASS lines. A host with no caching-proxy-service has no aggregator to
+ask; the section says so and skips.
+
+<a id="42b11c32-000c"></a>
+
+## pool -- optional multi-host pool configuration (default-off)
+
+Joins this host to a **pool**: it PULLs the slow-changing pool configuration (membership
++ `configuredState`) from a LAN git repo on the caching-proxy-service each cycle, and the
+pool-aggregator service labels its telemetry by the pool it belongs to. **Default-off** --
+with `enabled: false` (or no `pool` block) the host behaves exactly as a single
+host. Creating pools + assigning test sequences (the operator guide): [pool-admin.md](pool-admin.md).
+
+| Key | Type | Meaning |
+|---|---|---|
+| `enabled` | bool | Master switch. **Default `false`.** `false` => no pull, no behavior change. |
+| `configurationGitUrl` | string | Read-only URL of the bare configuration repository on the proxy, e.g. `http://caching-proxy-service.local/pool-configuration.git`. Empty => off. |
+| `localClonePath` | string | Where to keep the pulled clone. Empty => `<runtime>/pool-configuration` (default). |
+| `pullTimeoutSeconds` | int | Wall-clock cap on each bounded git fetch. Default `30`. |
+
+There is **no `poolId` here** -- the single source of truth for membership is the
+configuration store's `pools.yml` `members[]` (the operator assigns this host's stable
+`hostId` via `Add-HostToPool.ps1`); the runner finds its own pool by locating its
+`hostId` there. An unreachable configuration store degrades gracefully: the host keeps
+cycling as a single host (it never blocks on the pull). `configuredState`
+(`run`/`paused`/`drain`) gates the cycle -- `paused` holds after the in-flight
+cycle, `drain` stops after the current one -- and the pool's **repositories**,
+when it carries them, decide which framework and project this host runs for
+the cycle.
+
+<a id="42b11c32-000d"></a>
+
+## testCycle.autoRemediation
+
+```yaml
+testCycle:
+  autoRemediation:
+    enabled: false
+    maxAttemptsPerCycle: 2
+```
+
+Default-off self-heal. With `enabled: true` the runner may repair a failed cycle on
+its own, through a short allow-list of bounded repairs recorded in a durable ledger
+([Recovery after a failed cycle](runner-outer-loop.md#recovery-after-a-failed-cycle)):
+it ends the outer failure pause early for a clearly-safe transient failure class
+(`wait_timeout`, `instrumentation_failure`, `network_timeout`, `ip_not_discovered`,
+`host_io_blocked`) instead of waiting up to the failure-pause cap for a human commit;
+it moves aside a stale git lock that makes the framework pull or the project clone
+fail; and it retries a failed project clone with a health check.
+
+`maxAttemptsPerCycle` is the number of attempts per failure fingerprint and repair.
+The count is kept in `runtime/recovery.ledger.ndjson`, so a runner restart does not
+reset it; a passing cycle re-arms it, and so does the passage of 24 hours. A
+deterministic failure therefore still escalates to the normal wait-for-human pause
+after that many attempts. With `enabled: false` nothing is written to the ledger and
+each cycle's result (`runtime/recovery.result.json`) records the repairs that would
+have applied. A pool may override the whole block through its `config.testCycle`.
+
+<a id="42b11c32-0012"></a>
+
+## testCycle.autoRefreshAfterStalls -- automatic host refresh (default off)
+
+```yaml
+testCycle:
+  autoRefreshAfterStalls: 0
+```
+
+The number of completed cycles that must see the hypervisor stop answering
+before the resident runner repairs the host itself, instead of waiting for an
+operator to run `test/lab/Invoke-HostRefresh.ps1`. `0` (the default) is off.
+The recommended opt-in is `2`; `1` is treated as `2`, because one timeout is not
+proof of a wedge. A value that is not a whole number of zero or more is read as
+`0`, with a warning after each completed cycle, and `Test-Config.ps1` warns too. A pool's
+`config.testCycle.autoRefreshAfterStalls` wins over this file, including `0`,
+which turns automatic repair off across the pool.
+
+**No platform acts on it yet.** Automatic repair runs only on a platform that has
+passed a native qualification run, and none has: macOS reports
+`awaiting-native-qualification`, Ubuntu KVM and Windows Hyper-V
+`platform-unqualified`. On those hosts the runner still reads the value and
+counts the evidence below, logs once per runner process that automatic repair
+is not available on this host and why, and `Test-Config.ps1` warns when the value
+is above `0`. Local repair with `Invoke-HostRefresh.ps1` is unaffected.
+
+**What counts.** Only a cycle whose outcome is *completed* -- it passed or it
+failed, but it ran -- and only evidence from the service-VM restore sweep at
+cycle start. The inner runner writes that evidence to
+`runtime/runner.refresh-evidence.json`, stamped with the cycle generation the
+resident runner issued, and the resident runner consumes the file after every
+dispatch, so evidence from one cycle is never counted for another. A cycle
+counts toward the threshold when at least one service VM's state could not be
+read because the hypervisor control call timed out, and no service VM got an
+answer. It never counts:
+
+- a denied permission, a missing `utmctl`, no GUI session, or output nothing
+  recognizes -- those need an operator, not a restart;
+- any other phase: git, network, vault and package failures, test failures;
+- a cycle that aborted on start, failed to spawn, hit a pull error, or was
+  paused, drained or shut down.
+
+A cycle in which the hypervisor answered for any service resets the count to
+zero. The count survives a runner restart; it lives in
+`$HOME/.yuruna/host-refresh/host-refresh.auto-streak.json`.
+
+Counting has two side effects on every host, even with the value at `0` and on a
+platform that cannot act: the first counted timeout creates
+`$HOME/.yuruna/host-refresh/` (owner-only) for the count file, and each cycle that
+counts one reads the pool configuration again -- with pool sync on, the same bounded
+fetch the cycle start does, rewriting `runtime/pool.state.json` -- so a pool
+override can take effect without waiting for the next cycle.
+
+**What happens at the threshold.** After the cycle that reached it, the resident
+runner re-reads the pool configuration, reserves the day's attempt, and runs
+`test/lab/Invoke-HostRefresh.ps1` itself, synchronously, at the `restart` tier
+with the highest restart-tier rung this host has qualified as the ceiling. A
+paused, draining or unreadable pool means no attempt, and so does pool sync that
+is on but yields no pool record for this host (no configuration pulled or cached, or the
+host is not a member): the runner then cycles as a single host, but an unattended
+restart cannot tell a fleet that wants the host paused from one it cannot read.
+The repair re-probes first and changes nothing if the hypervisor answers by then.
+It never force-stops UTM or its helpers, never reclaims or restarts the runner
+that called it, and restores the service VMs it disrupted. The runner waits for
+it, at most about 16 minutes. On Linux and macOS the repair starts with Ctrl+C
+(SIGINT) ignored, so a Ctrl+C in the runner's terminal reaches only the runner,
+which acts on it after the repair returns; the processes the repair starts
+inherit the ignored Ctrl+C. On Windows a console Ctrl+C reaches the repair too.
+The runner counts the attempt a success only when the recorded result is for its
+own request, from an attempt that ended after the launch, with a responsive final
+probe and the runner reported parked.
+
+**Budget.** At most one automatic attempt per UTC day; the day rolls over at
+00:00:00Z. The attempt is reserved in
+`$HOME/.yuruna/host-refresh/host-refresh.auto-budget.record` before the repair
+request exists, and the reservation stands whatever the outcome -- a failed,
+refused or interrupted attempt still uses the day. A clock set back never frees
+a used day: a reservation dated in the future stops automatic repair until the
+clock catches up. A corrupt or unreadable ledger makes automatic repair
+unavailable; inspect it, then delete both `host-refresh.auto-budget.record` and
+`host-refresh.auto-budget.record.prev` to start a new one. An answering
+hypervisor resets the count, never the budget.
+
+**After an attempt.** A repair on a failed cycle skips the failure pause, so the
+next cycle starts at once. Any other result keeps the normal backoff and logs an
+operator line naming the verdict and the next UTC day an automatic attempt is
+allowed. While the automatic request is still open, a plain local
+`Invoke-HostRefresh.ps1` run is refused; finish it with
+`Invoke-HostRefresh.ps1 -Resume`, or release what it holds with
+`-DisposeObligation`.
+
+**Resuming.** An automatic request that is left open -- recovery-pending because
+a service it stopped is not back, never claimed, or claimed by a worker that is
+gone (one the runner stopped after the 16-minute bound, or one that crashed) --
+is relaunched by the runner with the same request id: no new reservation, up to
+three attempts in all, at least five minutes after the last one, and only while
+the pool is `run` and no shutdown is pending. A request with a service still to
+restore resumes for restoration only, with no new teardown. The runner resumes
+only a request that recorded its own process as the caller: the repair protects
+the runner it recorded and does not look for another, so after a runner restart
+the new runner leaves the old request to the operator and says so once.
+
+**Turning it off.** Setting the value to `0` (locally or through the pool) stops
+new automatic attempts and every resume of a request that has not disrupted
+anything yet; the runner says once per request that it leaves it. A request with
+a service still to restore keeps resuming, because that run only restores. To
+stop that too, dispose of its obligations with `Invoke-HostRefresh.ps1
+-DisposeObligation`. A drain withdraws an automatic request no worker has
+started.
+
+**Timing.** There is no fixed delay between the fault and the repair: the count
+advances one cycle at a time, and the failure pause between failed cycles is 60
+minutes, widening after repeated preamble stalls, so a wedged host can wait far
+longer than two cycle lengths.
+
+**Taking effect.** The resident runner holds this logic in memory, so a change to
+it applies after the runner restarts; the value itself is re-read every cycle.
+
+<a id="42b11c32-000e"></a>
+
+## testCycle.labHealth -- hold the cycle while a lab service is away
+
+```yaml
+testCycle:
+  labHealth:
+    enabled: true
+    minIntervalSeconds: 30
+    discoveryIntervalSeconds: 600
+    armWindowHours: 24
+    maxHoldAttempts: 999
+    require: []
+```
+
+Ahead of each chain entry and each sequence step, check the services this lab
+declares; when one that **was** answering stops answering, park the cycle the way
+the operator's *Pause after the next step* parks it, re-probe on backoff, and
+resume when it returns. What a rebuilt service VM would otherwise cost is a
+failed cycle for a condition that cured itself.
+
+**Nothing lists the services here.** The probe set is derived from every
+extension area's declared `healthPort`, so an area that ships tomorrow is covered
+without a config edit.
+
+`armWindowHours` is the knob that decides what counts as a change of condition: a
+service this host last reached longer ago than this can no longer hold the cycle,
+because gone for a week is the lab's new normal and holding every cycle would
+hide that. A service this host has **never** reached never holds at all.
+
+`minIntervalSeconds` is how long a watched service's verdict is reused before it
+is asked again -- the reason the gate can run at every step boundary.
+`discoveryIntervalSeconds` is the far slower cadence for a service the gate is
+not watching, whose lookup is the expensive one.
+
+`maxHoldAttempts` is clamped to a compiled **999**, which at the backoff cap is
+about sixteen hours; past it the cycle records `lab_dependency_down`. `require`
+names extra areas to probe even where this host has never seen them healthy.
+
+`enabled: false` opts the host out entirely. The full mechanism, its events and
+its `status.json` fields:
+[failure-schema.md](failure-schema.md#the-lab-health-gate-lab_health_-events).
+
+<a id="42b11c32-000f"></a>
+
+## vmStart.cachingProxyIp -- external cache source (probed first)
+
+Names the external caching-proxy-service this host should route guest installs
+through. At cycle start `Resolve-CachingProxyServiceEndpoint` (Test.CachingProxyService)
+probes this value **first**; it wins when its Squid HTTP port `:3128`
+answers. `$Env:YURUNA_CACHING_PROXY_SERVICE_IP` is the session-scope **fallback**,
+probed only when this key is empty or its probe fails. The winner (from
+either source) is published into the env var for the rest of the cycle.
+When both sources fail their probes, the env var is cleared and local
+discovery runs -- a host with its own cache VM falls back to it; a host
+with none proceeds without a caching-proxy-service.
+
+Empty string means absent (fall through to the env var / local
+discovery). The status-page editor validates the value at save time:
+it must parse as an IPv4/IPv6 address **and** answer on TCP `:3128`,
+so a dead IP is rejected before it is persisted. Full cache-source
+story: [caching.md](caching.md#external-cache-override).
+
+<a id="42b11c32-0010"></a>
+
+## users.yml — authentication users mapping
+
+`users.yml` (runtime copy: `test/status/extension/authentication/users.yml`)
+maps logical (sequence-level) usernames onto corporate identities (AD/Entra/...)
+plus the vault keys holding the corresponding passwords. Bootstrap-from-template
+runs on first cycle, so a fresh checkout gets a runtime file pre-seeded with the
+four bundled logical users and the four service-VM administrators, all with
+empty corporate fields (local-only behavior).
+
+Strict mode (the default) blocks the cycle when an active sequence references a
+logical username missing from `users.yml`, when corporate fields are
+half-populated (`sam` set without `domain`, etc.), or when a populated
+`vaultKey` does not exist in `vault.yml` -- so the dev path exercises the
+production AD-join path every cycle. `test/Test-Config.ps1` validates the
+mapping and reports each violation.
+
+---
+
+LICENSEURI https://yuruna.link/license
+
+Copyright (c) 2019-2026 by Alisson Sol et al.
+
+Last review: 2026.10.14
+
+Back to [Yuruna](../README.md)

@@ -1,0 +1,91 @@
+<#PSScriptInfo
+.VERSION 2026.10.14
+.GUID 42cf1e3a-80ad-4ced-a52c-2fdc80833d43
+.AUTHOR Alisson Sol et al.
+.COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
+.TAGS yuruna test output copy-safety pester
+.LICENSEURI https://yuruna.link/license
+.PROJECTURI https://yuruna.com
+.ICONURI
+.EXTERNALMODULEDEPENDENCIES
+.REQUIREDSCRIPTS
+.EXTERNALSCRIPTDEPENDENCIES
+.RELEASENOTES
+.PRIVATEDATA
+#>
+
+#requires -version 7
+
+<#
+.SYNOPSIS
+    Behavioral guard on Test.Output.psm1's Get-OutputState copy-safety contract.
+.DESCRIPTION
+    Get-OutputState documents that the returned snapshot is a copy so a caller
+    mutating it does not corrupt the live counter state. A WarningsBySection
+    returned by live reference lets a snapshot mutation (adding a section, or
+    .Add()-ing to a section's list) corrupt the live state. These tests
+    populate warnings, snapshot, mutate the snapshot, and assert the live state
+    is unchanged -- they fail against a live-reference return.
+
+    The throw-based Assert-* helpers live in the file's BeforeAll, which is the
+    scope Pester 5 shares with the It blocks; defining them at script scope
+    instead makes every It fail on a missing command rather than on an
+    assertion.
+#>
+
+BeforeAll {
+$here       = Split-Path -Parent $PSCommandPath
+$modulePath = Join-Path $here 'Test.Output.psm1'
+
+Import-Module (Join-Path (Split-Path -Parent $PSCommandPath) 'Test.Assert.psm1') -Force -Global -DisableNameChecking
+
+Import-Module $modulePath -Force -DisableNameChecking -ErrorAction SilentlyContinue
+
+}
+
+Describe 'Get-OutputState returns a copy-safe WarningsBySection' {
+    # Leave the ambient counters zeroed so the suite does not perturb a live
+    # $global:YurunaOutputState if it runs in-session.
+    AfterAll { Reset-OutputState -Confirm:$false }
+
+    It 'isolates the returned WarningsBySection from live state (mutating the snapshot does not corrupt live)' {
+        Reset-OutputState -Confirm:$false
+        $null = Write-Section 'SecA'
+        $null = Write-Warn 'w1'
+        $null = Write-Warn 'w2'
+
+        $snap = Get-OutputState
+        Assert-Equal -Expected 2 -Actual $snap.WarningsBySection['SecA'].Count -Because 'the snapshot carries the live warnings'
+
+        # Mutate the snapshot two ways: append to an existing section's list, and
+        # add a brand-new section. Neither may reach the live state.
+        $snap.WarningsBySection['SecA'].Add('injected')
+        $snap.WarningsBySection['SecZ'] = [System.Collections.Generic.List[string]]::new()
+
+        $live = Get-OutputState
+        Assert-Equal -Expected 2 -Actual $live.WarningsBySection['SecA'].Count -Because 'the section list must be a copy, not the live list'
+        Assert-True  (-not $live.WarningsBySection.Contains('SecZ')) 'the dictionary must be a fresh container, not the live one'
+    }
+
+    It 'preserves the recorded warnings in the copy' {
+        Reset-OutputState -Confirm:$false
+        $null = Write-Section 'SecB'
+        $null = Write-Warn 'only'
+
+        $snap = Get-OutputState
+        Assert-Equal -Expected 1     -Actual $snap.WarningsBySection['SecB'].Count -Because 'the copy carries the live data'
+        Assert-Equal -Expected 'only' -Actual $snap.WarningsBySection['SecB'][0]    -Because 'copied content matches the live content'
+    }
+
+    It 'Failures remains copy-safe (unchanged contract, regression guard)' {
+        Reset-OutputState -Confirm:$false
+        Write-Fail 'boom' | Out-Null
+        $snap = Get-OutputState
+        $internal = & (Get-Module Test.Output) { $script:State.Failures }
+        Assert-False ([object]::ReferenceEquals($snap.Failures, $internal)) 'failure snapshots must not share the live list'
+        if ($snap.Failures -is [Collections.IList] -and -not $snap.Failures.IsFixedSize) { [void]$snap.Failures.Add([pscustomobject]@{ Message = 'injected' }) }
+        elseif (@($snap.Failures).Count) { $snap.Failures[0] = [pscustomobject]@{ Message = 'injected' } }
+        $live = Get-OutputState
+        Assert-Equal -Expected 1 -Actual @($live.Failures).Count -Because 'the Failures array snapshot is isolated from caller mutation'
+    }
+}

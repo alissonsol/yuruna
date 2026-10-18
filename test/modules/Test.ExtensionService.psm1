@@ -1,0 +1,652 @@
+<#PSScriptInfo
+.VERSION 2026.10.14
+.GUID 42eeeb9d-fb5a-4c19-9424-9b112f3e3721
+.AUTHOR Alisson Sol et al.
+.COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
+.TAGS yuruna extension service manifest marker registration
+.LICENSEURI https://yuruna.link/license
+.PROJECTURI https://yuruna.com
+.ICONURI
+.EXTERNALMODULEDEPENDENCIES
+.REQUIREDSCRIPTS
+.EXTERNALSCRIPTDEPENDENCIES
+.RELEASENOTES
+.PRIVATEDATA
+#>
+
+#requires -version 7
+
+Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
+
+
+# See https://yuruna.link/4213a0b3-0056
+
+$script:RepoRoot     = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
+$script:ExtensionDir = Join-Path $script:RepoRoot 'test/extension'
+
+# Mtime-keyed cache for parsed manifests, mirroring Test.Extension's config
+# cache: the registration writer reads every area's manifest on every write.
+$script:ManifestCache = @{}
+
+<#
+.SYNOPSIS
+    The `service:` manifest an extension area declares, or $null when the area
+    declares none.
+.DESCRIPTION
+    An area without a `service:` block is code the cycle loads (authentication,
+    notification) or a sidecar inside another VM -- not something the pool can
+    locate, restart, or paint a dashboard row for. Returning $null for those is
+    the answer, not a failure.
+
+    Never throws: an unreadable or malformed config reports $null and logs to
+    the verbose stream, so one broken area cannot take a bring-up down.
+.PARAMETER Area
+    Extension area name (the directory basename).
+.OUTPUTS
+    [hashtable] with Area, DisplayName, VMName, HostedIn, HealthPort,
+    HealthPath, StartScript, StopScript, MarkerBaseUrlKey, BeaconInterval,
+    WriteGate -- or $null.
+#>
+function Get-ExtensionServiceManifest {
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param([Parameter(Mandatory)][string]$Area)
+
+    $file = Join-Path $script:ExtensionDir $Area -AdditionalChildPath "$Area.config.yml"
+    if (-not (Test-Path -LiteralPath $file)) { return $null }
+    try {
+        $resolved = (Resolve-Path -LiteralPath $file).Path
+        $mtime    = (Get-Item -LiteralPath $resolved).LastWriteTimeUtc
+        if ($script:ManifestCache.ContainsKey($resolved)) {
+            $entry = $script:ManifestCache[$resolved]
+            if ($entry.Mtime -eq $mtime) { return $entry.Manifest }
+        }
+        $svc = Read-ExtensionServiceBlock -Path $resolved
+        $manifest = $null
+        if ($svc -and $svc.Count -gt 0) {
+            $manifest = @{
+                Area             = $Area
+                DisplayName      = [string]$svc['displayName']
+                VMName           = [string]$svc['vmName']
+                HostedIn         = [string]$svc['hostedIn']
+                HealthPort       = if ($svc['healthPort']) { [int]$svc['healthPort'] } else { 0 }
+                HealthPath       = if ($svc['healthPath']) { [string]$svc['healthPath'] } else { '/healthz' }
+                StartScript      = [string]$svc['startScript']
+                StopScript       = [string]$svc['stopScript']
+                MarkerBaseUrlKey = [string]$svc['markerBaseUrlKey']
+                BeaconInterval   = [string]$svc['beaconInterval']
+                WriteGate        = if ($svc['writeGate']) { [string]$svc['writeGate'] } else { 'lab-token' }
+            }
+        }
+        $script:ManifestCache[$resolved] = @{ Mtime = $mtime; Manifest = $manifest }
+        return $manifest
+    } catch {
+        Write-Verbose "Get-ExtensionServiceManifest '$Area': $($_.Exception.Message)"
+        return $null
+    }
+}
+
+<#
+.SYNOPSIS
+    The `service:` mapping from an <area>.config.yml, as an ordered dictionary.
+.DESCRIPTION
+    Read by lines, deliberately, and never through a YAML parser.
+
+    Not because a parser would be wrong, but because it would not always be
+    THERE. This module's callers include the service-VM roster, which is
+    imported on its own -- by the reboot sweep and by cleanup paths -- with
+    nothing loaded. A reader that answers only when a parser happens to be in
+    scope would return nothing there, and an empty roster means a rebooted host
+    never restarts its service VMs and a prefix-matching cleanup can no longer
+    prove it will skip them. One path that always works beats two where the one
+    that runs in production is the one no test exercises.
+
+    This is not a general YAML reader and does not pretend to be. The block is
+    schema-constrained to a flat mapping of scalars
+    (test/schemas/extension-config.schema.yml, additionalProperties: false), so
+    "key: value at exactly two spaces of indent" is the whole grammar it has to
+    handle.
+.OUTPUTS
+    [System.Collections.Specialized.OrderedDictionary], possibly empty.
+#>
+function Read-ExtensionServiceBlock {
+    [CmdletBinding()]
+    [OutputType([System.Collections.Specialized.OrderedDictionary])]
+    param([Parameter(Mandatory)][string]$Path)
+
+    $out = [ordered]@{}
+    $inBlock = $false
+    foreach ($line in (Get-Content -LiteralPath $Path)) {
+        if ($line -match '^\s*(#.*)?$') { continue }
+        if ($line -match '^service:\s*$') { $inBlock = $true; continue }
+        if (-not $inBlock) { continue }
+        # A line back at column 0 ends the block: the next top-level key.
+        if ($line -notmatch '^  \S') { break }
+        if ($line -notmatch '^  ([A-Za-z][A-Za-z0-9]*):\s*(.*)$') { continue }
+        $key   = $Matches[1]
+        $value = $Matches[2].Trim()
+        # Trailing comment, then quotes. A value in this block never contains a
+        # '#' of its own, so the split is unambiguous.
+        if ($value -match '^(.*?)\s+#') { $value = $Matches[1].Trim() }
+        $value = $value.Trim("'", '"')
+        $out[$key] = $value
+    }
+    return $out
+}
+
+<#
+.SYNOPSIS
+    The extension services this host builds a VM for, as roster rows.
+.DESCRIPTION
+    The shape Test.ServiceVm's roster consumes, derived from the manifests so a
+    new extension service joins the reboot sweep and the cleanup guard by
+    existing. Key is the area slug with its '-service' suffix dropped, which is
+    the short name the roster has always used.
+.OUTPUTS
+    pscustomobject[] -- Key, VMName, DisplayName, StartScript, HealthPort.
+#>
+function Get-ExtensionServiceVmRoster {
+    [CmdletBinding()]
+    [OutputType([pscustomobject[]], [object[]])]
+    param()
+
+    $rows = @()
+    foreach ($manifest in (Get-ExtensionServiceManifestAll -WithVMOnly)) {
+        $key = [string]$manifest.Area -replace '-service$', ''
+        $rows += [pscustomobject]@{
+            Key         = $key
+            VMName      = [string]$manifest.VMName
+            DisplayName = [string]$manifest.DisplayName
+            StartScript = [string]$manifest.StartScript
+            HealthPort  = [int]$manifest.HealthPort
+        }
+    }
+    return [pscustomobject[]]$rows
+}
+
+<#
+.SYNOPSIS
+    Every extension area that declares a `service:` manifest, area-sorted.
+.DESCRIPTION
+    Discovery by directory, the same rule Get-ExtensionAreaName follows: an area
+    joins by existing, not by being added to a list somewhere else.
+.PARAMETER WithVMOnly
+    Return only services this host builds a VM for -- what a roster of
+    startable, stoppable VMs means. A service hosted inside another area's VM
+    (the pool aggregator, inside the caching-proxy VM) declares no vmName and is
+    excluded.
+.OUTPUTS
+    [hashtable[]] manifests, possibly empty.
+#>
+function Get-ExtensionServiceManifestAll {
+    [CmdletBinding()]
+    [OutputType([hashtable[]], [object[]])]
+    param([switch]$WithVMOnly)
+
+    if (-not (Test-Path -LiteralPath $script:ExtensionDir)) { return @() }
+    $out = @()
+    foreach ($dir in (Get-ChildItem -LiteralPath $script:ExtensionDir -Directory -ErrorAction SilentlyContinue | Sort-Object Name)) {
+        $manifest = Get-ExtensionServiceManifest -Area $dir.Name
+        if (-not $manifest) { continue }
+        if ($WithVMOnly -and [string]::IsNullOrWhiteSpace($manifest.VMName)) { continue }
+        $out += $manifest
+    }
+    return [hashtable[]]$out
+}
+
+<#
+.SYNOPSIS
+    Absolute path of an extension service's runtime marker
+    (runtime/<area>.json), or '' when no runtime dir is known.
+.PARAMETER Area
+    Extension area name.
+.PARAMETER RuntimeDir
+    Runtime directory holding the marker. Defaults to $env:YURUNA_RUNTIME_DIR.
+#>
+function Get-ExtensionServiceMarkerPath {
+    [CmdletBinding()]
+    [OutputType([string])]
+    param(
+        [Parameter(Mandatory)][string]$Area,
+        [string]$RuntimeDir = $env:YURUNA_RUNTIME_DIR
+    )
+    if ([string]::IsNullOrWhiteSpace($RuntimeDir)) { return '' }
+    return (Join-Path -Path $RuntimeDir -ChildPath "$Area.json")
+}
+
+<#
+.SYNOPSIS
+    Write runtime/<area>.json, this host's claim that it runs the service.
+.DESCRIPTION
+    Key order is fixed so the file is byte-stable across re-runs that change
+    nothing: a marker rewritten with reshuffled keys looks like a change to
+    every consumer that diffs or hashes it.
+
+    -Active is the readiness verdict, not "the bring-up script ran". The
+    aggregator paints the Extension-hosts row and its deep-link from this value;
+    publishing $true for a daemon that never bound its port sends operators to a
+    dead URL and hides the actual failure.
+
+    The base URL is written under the uniform `baseUrl` AND under the area's own
+    `markerBaseUrlKey` when it declares one. Both, because a consumer built
+    before the uniform key exists reads only the per-service one, and a host can
+    be running a framework newer than the aggregator it reports to.
+
+    Written whole with WriteAllText (UTF-8, no BOM) because the aggregator polls
+    the file: a partial write would be parsed as corrupt rather than retried.
+.PARAMETER Area
+    Extension area name.
+.PARAMETER RuntimeDir
+    Runtime directory to write into. Defaults to $env:YURUNA_RUNTIME_DIR.
+.PARAMETER Active
+    The readiness verdict.
+.PARAMETER VMName
+    Name of the VM running the daemon. Defaults to the manifest's vmName.
+.PARAMETER HostType
+    Host type that built the VM (host.windows.hyper-v, host.ubuntu.kvm,
+    host.macos.utm).
+.PARAMETER BaseUrl
+    Base URL peers should use for the service UI/API. '' when this host could
+    not resolve one.
+.PARAMETER StartedAtUtc
+    Timestamp to record. Defaults to now, in Zulu form.
+.PARAMETER Extra
+    Additional service-specific fields, appended in the order given. For the
+    facts only one service has -- a host-side launcher's pid and port -- rather
+    than a union of every service's fields in the common shape.
+.PARAMETER HostingMode
+    'vm' or 'host-process': where the service runs. Written after baseUrl only
+    when given, so a marker from a caller that does not pass it stays
+    byte-identical. Recovery reads it to tell a guest it may restore from a
+    host process it must leave alone; a marker without it is inferred from
+    its pid field (Get-ExtensionServiceDeploymentIdentity).
+.OUTPUTS
+    [string] the path written, or '' when there was no runtime dir.
+#>
+function Write-ExtensionServiceMarker {
+    [CmdletBinding()]
+    [OutputType([string])]
+    param(
+        [Parameter(Mandatory)][string]$Area,
+        [string]$RuntimeDir = $env:YURUNA_RUNTIME_DIR,
+        [bool]$Active = $false,
+        [AllowEmptyString()][string]$VMName = '',
+        [AllowEmptyString()][string]$HostType = '',
+        [AllowEmptyString()][string]$BaseUrl = '',
+        [AllowEmptyString()][string]$StartedAtUtc = '',
+        [System.Collections.IDictionary]$Extra,
+        [ValidateSet('', 'vm', 'host-process')][string]$HostingMode = ''
+    )
+    $path = Get-ExtensionServiceMarkerPath -Area $Area -RuntimeDir $RuntimeDir
+    if (-not $path) { return '' }
+    $manifest = Get-ExtensionServiceManifest -Area $Area
+    if ([string]::IsNullOrWhiteSpace($VMName) -and $manifest) { $VMName = [string]$manifest.VMName }
+    if ([string]::IsNullOrWhiteSpace($StartedAtUtc)) {
+        $StartedAtUtc = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", [Globalization.CultureInfo]::InvariantCulture)
+    }
+    $marker = [ordered]@{
+        active       = $Active
+        area         = $Area
+        vmName       = $VMName
+        hostType     = $HostType
+        startedAtUtc = $StartedAtUtc
+        baseUrl      = $BaseUrl
+    }
+    if ($HostingMode) { $marker['hostingMode'] = $HostingMode }
+    if ($manifest -and -not [string]::IsNullOrWhiteSpace($manifest.MarkerBaseUrlKey)) {
+        $marker[$manifest.MarkerBaseUrlKey] = $BaseUrl
+    }
+    if ($Extra) {
+        foreach ($key in $Extra.Keys) { $marker[[string]$key] = $Extra[$key] }
+    }
+    [System.IO.File]::WriteAllText($path, ($marker | ConvertTo-Json), [System.Text.UTF8Encoding]::new($false))
+    return $path
+}
+
+<#
+.SYNOPSIS
+    Read runtime/<area>.json.
+.DESCRIPTION
+    Never throws: an absent, unreadable, or malformed marker is
+    indistinguishable from "this host does not run the service" as far as every
+    caller is concerned, and a discovery read must not be able to fail a
+    bring-up or a teardown.
+.OUTPUTS
+    [pscustomobject] the parsed marker, or $null.
+#>
+function Read-ExtensionServiceMarker {
+    [CmdletBinding()]
+    [OutputType([pscustomobject])]
+    param(
+        [Parameter(Mandatory)][string]$Area,
+        [string]$RuntimeDir = $env:YURUNA_RUNTIME_DIR
+    )
+    $path = Get-ExtensionServiceMarkerPath -Area $Area -RuntimeDir $RuntimeDir
+    if (-not $path -or -not (Test-Path -LiteralPath $path)) { return $null }
+    try {
+        return (Get-Content -Raw -LiteralPath $path | ConvertFrom-Json -ErrorAction Stop)
+    } catch {
+        Write-Verbose "extension marker read '$path': $($_.Exception.Message)"
+        return $null
+    }
+}
+
+<#
+.SYNOPSIS
+    The base URL a marker advertises, honoring both the uniform key and the
+    area's own.
+.DESCRIPTION
+    A marker written by an older framework carries only the per-service key
+    (stashBaseUrl, poolControlServiceBaseUrl, downloadAgentServiceBaseUrl); one
+    written now carries `baseUrl` as well. Readers ask here rather than each
+    picking a key, which is what let three services drift apart in the first
+    place.
+.OUTPUTS
+    [string] the advertised base URL, or ''.
+#>
+function Get-ExtensionServiceMarkerBaseUrl {
+    [CmdletBinding()]
+    [OutputType([string])]
+    param(
+        [Parameter(Mandatory)][AllowNull()][psobject]$Marker,
+        [Parameter(Mandatory)][string]$Area
+    )
+    if (-not $Marker) { return '' }
+    $uniform = [string]$Marker.baseUrl
+    if (-not [string]::IsNullOrWhiteSpace($uniform)) { return $uniform.Trim() }
+
+    $manifest = Get-ExtensionServiceManifest -Area $Area
+    if ($manifest -and -not [string]::IsNullOrWhiteSpace($manifest.MarkerBaseUrlKey)) {
+        $declared = [string]$Marker.($manifest.MarkerBaseUrlKey)
+        if (-not [string]::IsNullOrWhiteSpace($declared)) { return $declared.Trim() }
+    }
+    # Last resort, for a marker written before the uniform key on a host with no
+    # YAML parser loaded to read the manifest: the per-service keys all end in
+    # BaseUrl, and a marker carries exactly one of them.
+    foreach ($property in $Marker.PSObject.Properties) {
+        if ($property.Name -notlike '*BaseUrl') { continue }
+        $value = [string]$property.Value
+        if (-not [string]::IsNullOrWhiteSpace($value)) { return $value.Trim() }
+    }
+    return ''
+}
+
+<#
+.SYNOPSIS
+    Where a service is deployed on this host, read from its runtime marker
+    alone.
+.DESCRIPTION
+    Manifest names are defaults, not an inventory: a service started with a
+    custom VM name records that name here, and pool-control can run as a
+    host process whose marker still carries the manifest's VM name because
+    the marker writer supplies it. Recovery needs both facts before it
+    decides that a marker stands for a guest it may restore.
+
+    HostingMode comes from the marker's own hostingMode when present
+    ('marker'); a marker written before that key existed is host-process when
+    it records a pid ('inferred-pid') and vm otherwise ('inferred-default').
+    An unrecognized hostingMode value is 'unknown'. No marker at all is
+    'unknown' with source 'none'.
+
+    File-only and never throws, like Read-ExtensionServiceMarker.
+.PARAMETER Area
+    Extension area name.
+.PARAMETER RuntimeDir
+    Runtime directory holding the marker. Defaults to $env:YURUNA_RUNTIME_DIR.
+.OUTPUTS
+    [pscustomobject] Area; MarkerPresent; Active ($null when unrecorded);
+    VMName; HostType; BaseUrl; HostingMode vm|host-process|unknown;
+    HostingModeSource marker|inferred-pid|inferred-default|none; Pid; Port;
+    ProcessStartUnixMs; StartedAtUtc.
+#>
+function Get-ExtensionServiceDeploymentIdentity {
+    [CmdletBinding()]
+    [OutputType([pscustomobject])]
+    param(
+        [Parameter(Mandatory)][string]$Area,
+        [AllowEmptyString()][string]$RuntimeDir = $env:YURUNA_RUNTIME_DIR
+    )
+    $identity = [ordered]@{
+        PSTypeName = 'Yuruna.ExtensionServiceDeploymentIdentity'
+        Area = $Area; MarkerPresent = $false; Active = $null; VMName = ''; HostType = ''; BaseUrl = ''
+        HostingMode = 'unknown'; HostingModeSource = 'none'; Pid = $null; Port = $null
+        ProcessStartUnixMs = $null; StartedAtUtc = ''
+    }
+    $marker = $null
+    try { $marker = Read-ExtensionServiceMarker -Area $Area -RuntimeDir $RuntimeDir } catch { $marker = $null }
+    if (-not $marker) { return [pscustomobject]$identity }
+    $identity.MarkerPresent = $true
+    $readProperty = {
+        param([string]$Name)
+        $property = $marker.PSObject.Properties[$Name]
+        if ($property) { $property.Value } else { $null }
+    }
+    $active = & $readProperty 'active'
+    if ($active -is [bool]) { $identity.Active = $active }
+    $identity.VMName = [string](& $readProperty 'vmName')
+    $identity.HostType = [string](& $readProperty 'hostType')
+    $identity.StartedAtUtc = [string](& $readProperty 'startedAtUtc')
+    try { $identity.BaseUrl = Get-ExtensionServiceMarkerBaseUrl -Marker $marker -Area $Area } catch { $identity.BaseUrl = '' }
+    $toInteger = {
+        param($Value)
+        $parsed = [long]0
+        if ($null -ne $Value -and [long]::TryParse([string]$Value, [ref]$parsed) -and $parsed -gt 0) { return $parsed }
+        return $null
+    }
+    $processId = & $toInteger (& $readProperty 'pid')
+    if ($null -ne $processId -and $processId -le [int]::MaxValue) { $identity.Pid = [int]$processId }
+    $port = & $toInteger (& $readProperty 'port')
+    if ($null -ne $port -and $port -le 65535) { $identity.Port = [int]$port }
+    $identity.ProcessStartUnixMs = & $toInteger (& $readProperty 'processStartUnixMs')
+    $declared = & $readProperty 'hostingMode'
+    if ($null -ne $declared) {
+        $identity.HostingModeSource = 'marker'
+        $identity.HostingMode = if ([string]$declared -in @('vm', 'host-process')) { [string]$declared } else { 'unknown' }
+    } elseif ($null -ne $identity.Pid) {
+        $identity.HostingMode = 'host-process'
+        $identity.HostingModeSource = 'inferred-pid'
+    } else {
+        $identity.HostingMode = 'vm'
+        $identity.HostingModeSource = 'inferred-default'
+    }
+    return [pscustomobject]$identity
+}
+
+<#
+.SYNOPSIS
+    Whether the process a marker names is still the service it launched.
+.DESCRIPTION
+    A pid in a marker outlives its process, and the operating system hands
+    the number to something else; stopping "the pid in the marker" without
+    checking would kill an unrelated process. The process must still be
+    running, carry the service's executable name, and -- when the marker
+    recorded one -- have started within two seconds of the recorded start
+    time. Linux truncates the kernel's command name to fifteen characters,
+    so a truncated prefix of the expected name also matches.
+.PARAMETER ProcessId
+    The pid the marker records.
+.PARAMETER ProcessStartUnixMs
+    The start time the marker records, when it has one.
+.PARAMETER ExpectedName
+    The service executable's name without extension.
+.PARAMETER ProcessLookup
+    Test seam: a scriptblock taking the pid and returning $null (no such
+    process) or an object with Name, Path and StartUnixMs.
+.OUTPUTS
+    [pscustomobject] ProcessId; Alive; Name; NameMatches; StartUnixMs;
+    StartTimeMatches ($null when no start time was recorded);
+    IdentityVerified; Reason ok|not-running|name-mismatch|
+    start-time-mismatch|start-time-unreadable|lookup-failed.
+#>
+function Get-ExtensionServiceHostProcessState {
+    [CmdletBinding()]
+    [OutputType([pscustomobject])]
+    param(
+        [Parameter(Mandatory)][ValidateRange(1, [int]::MaxValue)][int]$ProcessId,
+        [long]$ProcessStartUnixMs = 0,
+        [ValidateNotNullOrEmpty()][string]$ExpectedName = 'pool-control-service',
+        [scriptblock]$ProcessLookup
+    )
+    $state = [ordered]@{
+        PSTypeName = 'Yuruna.ExtensionServiceHostProcessState'
+        ProcessId = $ProcessId; Alive = $false; Name = ''; NameMatches = $false; StartUnixMs = $null
+        StartTimeMatches = $null; IdentityVerified = $false; Reason = 'lookup-failed'
+    }
+    $found = $null
+    try {
+        if ($ProcessLookup) {
+            $found = & $ProcessLookup $ProcessId
+        } else {
+            $process = Get-Process -Id $ProcessId -ErrorAction SilentlyContinue
+            if ($process) {
+                $startUnixMs = $null
+                try { $startUnixMs = [DateTimeOffset]::new($process.StartTime).ToUnixTimeMilliseconds() } catch { $startUnixMs = $null }
+                $processPath = ''
+                try { $processPath = [string]$process.Path } catch { $processPath = '' }
+                $found = [pscustomobject]@{ Name = [string]$process.ProcessName; Path = $processPath; StartUnixMs = $startUnixMs }
+            }
+        }
+    } catch {
+        Write-Verbose "Get-ExtensionServiceHostProcessState($ProcessId): $($_.Exception.Message)"
+        return [pscustomobject]$state
+    }
+    if ($null -eq $found) {
+        $state.Reason = 'not-running'
+        return [pscustomobject]$state
+    }
+    $state.Alive = $true
+    $state.Name = [string]$found.Name
+    $pathLeaf = if ($found.Path) { [System.IO.Path]::GetFileNameWithoutExtension([string]$found.Path) } else { '' }
+    $name = [string]$found.Name
+    $state.NameMatches = ($name -ceq $ExpectedName) -or ($pathLeaf -ceq $ExpectedName) -or
+        ($name.Length -eq 15 -and $ExpectedName.StartsWith($name, [StringComparison]::Ordinal))
+    if ($null -ne $found.StartUnixMs) { $state.StartUnixMs = [long]$found.StartUnixMs }
+    if (-not $state.NameMatches) {
+        $state.Reason = 'name-mismatch'
+        return [pscustomobject]$state
+    }
+    if ($ProcessStartUnixMs -gt 0) {
+        if ($null -eq $state.StartUnixMs) {
+            $state.StartTimeMatches = $false
+            $state.Reason = 'start-time-unreadable'
+            return [pscustomobject]$state
+        }
+        $state.StartTimeMatches = ([Math]::Abs([long]$state.StartUnixMs - $ProcessStartUnixMs) -le 2000)
+        if (-not $state.StartTimeMatches) {
+            $state.Reason = 'start-time-mismatch'
+            return [pscustomobject]$state
+        }
+    }
+    $state.IdentityVerified = $true
+    $state.Reason = 'ok'
+    return [pscustomobject]$state
+}
+
+<#
+.SYNOPSIS
+    Remove runtime/<area>.json so this host stops claiming the area.
+.DESCRIPTION
+    Runs BEFORE the VM teardown it accompanies. Between the two there is a
+    window where the aggregator can poll, and a marker that still says active
+    while the VM is being destroyed advertises a service that is already gone --
+    the deep-link fails and hosts that trust the row waste a request budget on
+    it. Removing first makes the worst case a host that looks service-less
+    slightly early.
+.OUTPUTS
+    [bool] $true when a marker was present and is now gone.
+#>
+function Remove-ExtensionServiceMarker {
+    [CmdletBinding(SupportsShouldProcess)]
+    [OutputType([bool])]
+    param(
+        [Parameter(Mandatory)][string]$Area,
+        [string]$RuntimeDir = $env:YURUNA_RUNTIME_DIR
+    )
+    $path = Get-ExtensionServiceMarkerPath -Area $Area -RuntimeDir $RuntimeDir
+    if (-not $path -or -not (Test-Path -LiteralPath $path)) { return $false }
+    if (-not $PSCmdlet.ShouldProcess($path, (Format-YurunaOperatorMessage -Key 'runner.operator_be9d6a7f5e2de0e5' -Arguments @{ area = "$Area" }))) { return $false }
+    Remove-Item -LiteralPath $path -Force -ErrorAction SilentlyContinue
+    return (-not (Test-Path -LiteralPath $path))
+}
+
+<#
+.SYNOPSIS
+    The areas this host is ACTIVELY running, and the deep-link it advertises for
+    each -- what host.registration.json publishes as activeExtensions /
+    extensionTargets.
+.DESCRIPTION
+    Marker presence is the claim; an explicit active:false clears it.
+
+    Driven by the MARKERS on disk, cross-checked against the extension
+    directory, rather than by the manifests: this runs inside the registration
+    write, which is deliberately file-I/O only and cannot assume a YAML parser
+    is loaded. A host whose parser is absent still reports every service it runs
+    -- the manifest only enriches the answer, it is not required for it. Every
+    failure is a logged skip, because a discovery nicety must never fail a
+    registration write.
+.OUTPUTS
+    [hashtable] @{ Areas = [string[]]; Targets = [ordered] area -> baseUrl }
+#>
+function Get-ActiveExtensionService {
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param([string]$RuntimeDir = $env:YURUNA_RUNTIME_DIR)
+
+    $areas   = @()
+    $targets = [ordered]@{}
+    if ([string]::IsNullOrWhiteSpace($RuntimeDir) -or -not (Test-Path -LiteralPath $RuntimeDir)) {
+        return @{ Areas = [string[]]$areas; Targets = $targets }
+    }
+    foreach ($file in (Get-ChildItem -LiteralPath $RuntimeDir -Filter '*.json' -File -ErrorAction SilentlyContinue | Sort-Object Name)) {
+        $area = [System.IO.Path]::GetFileNameWithoutExtension($file.Name)
+        # An extension marker is named for its area. The directory check is what
+        # keeps an unrelated runtime file (project.access.json, host-network.json)
+        # from being read as one.
+        if (-not (Test-Path -LiteralPath (Join-Path $script:ExtensionDir $area) -PathType Container)) { continue }
+        try {
+            $marker = Read-ExtensionServiceMarker -Area $area -RuntimeDir $RuntimeDir
+            if (-not $marker) { continue }
+            if ($null -ne $marker.active -and -not [bool]$marker.active) { continue }
+            $areas += $area
+            $baseUrl = Get-ExtensionServiceMarkerBaseUrl -Marker $marker -Area $area
+            if ($baseUrl) { $targets[$area] = $baseUrl }
+        } catch {
+            Write-Verbose "activeExtensions ($area): $($_.Exception.Message)"
+        }
+    }
+    return @{ Areas = [string[]]$areas; Targets = $targets }
+}
+
+# --- REGION: Service readiness timeout
+# See https://yuruna.link/42e220c4-0008
+function Get-ExtensionServiceReadyTimeoutSeconds {
+    <#
+    .SYNOPSIS
+        Read a service's readiness timeout, retaining the default for invalid overrides.
+    .PARAMETER Area
+        Extension area used in YURUNA_<AREA>_READY_TIMEOUT_SECONDS.
+    .PARAMETER DefaultSeconds
+        Initial wait budget when the override is absent or not a positive integer.
+    #>
+    [CmdletBinding()]
+    [OutputType([int])]
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseSingularNouns', '',
+        Justification = 'Seconds identifies the duration unit, not a collection.')]
+    param(
+        [Parameter(Mandatory)][string]$Area,
+        [int]$DefaultSeconds = 2700
+    )
+    $variableName = 'YURUNA_' + $Area.ToUpperInvariant().Replace('-', '_') + '_READY_TIMEOUT_SECONDS'
+    $value = [Environment]::GetEnvironmentVariable($variableName)
+    if ([string]::IsNullOrWhiteSpace($value)) { return $DefaultSeconds }
+    $parsed = 0
+    if ([int]::TryParse($value, [ref]$parsed) -and $parsed -gt 0) { return $parsed }
+    Write-Verbose "$variableName='$value' is not a positive integer; using $DefaultSeconds."
+    return $DefaultSeconds
+}
+
+Export-ModuleMember -Function Get-ExtensionServiceManifest, Get-ExtensionServiceManifestAll, `
+    Get-ExtensionServiceVmRoster, Get-ExtensionServiceMarkerPath, Write-ExtensionServiceMarker, `
+    Read-ExtensionServiceMarker, Get-ExtensionServiceMarkerBaseUrl, Remove-ExtensionServiceMarker, `
+    Get-ActiveExtensionService, Get-ExtensionServiceReadyTimeoutSeconds, `
+    Get-ExtensionServiceDeploymentIdentity, Get-ExtensionServiceHostProcessState

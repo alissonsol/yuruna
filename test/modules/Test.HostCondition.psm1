@@ -1,0 +1,749 @@
+<#PSScriptInfo
+.VERSION 2026.10.14
+.GUID 421a49fd-aa32-431c-979f-99704a673b48
+.AUTHOR Alisson Sol et al.
+.COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
+.TAGS yuruna test host
+.LICENSEURI https://yuruna.link/license
+.PROJECTURI https://yuruna.com
+.ICONURI
+.EXTERNALMODULEDEPENDENCIES
+.REQUIREDSCRIPTS
+.EXTERNALSCRIPTDEPENDENCIES
+.RELEASENOTES
+.PRIVATEDATA
+#>
+
+#requires -version 7
+
+# Cross-platform host-condition facade: ../../docs/test-harness.md#host-condition-registry.
+
+[Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidGlobalVars', '',
+    Justification = 'Registry anchor; required to survive -Force re-imports of this facade.')]
+param()
+
+Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
+Import-Module (Join-Path $PSScriptRoot 'Test.Registry.psm1') -Force -DisableNameChecking -Global
+
+# Backing store is a New-YurunaRegistry bundle anchored under
+# $global:YurunaHostConditionProviders so the registrations survive
+# -Force re-imports of this facade. Each entry is an [ordered]@{
+#   HostType; Set; Assert; AssertMinimum; RequiresElevation;
+#   Display; DisplayTeardown; ClockSync; NetworkHealth; MetricsExporter
+# } record; everything after RequiresElevation is optional and $null on a
+# platform that does not offer it.
+$script:HostConditionRegistry = New-YurunaRegistry `
+    -Name 'HostCondition' `
+    -AnchorVar 'YurunaHostConditionProviders' `
+    -Comparer 'OrdinalIgnoreCase'
+
+function Register-HostConditionProvider {
+    <#
+    .SYNOPSIS
+        Bind an (Assert, AssertMinimum, RequiresElevation) record
+        to $HostType in the host-condition registry.
+    .PARAMETER HostType
+        Stable host identifier ('host.windows.hyper-v', 'host.macos.utm',
+        'host.ubuntu.kvm', or a future plugin's identifier).
+    .PARAMETER Assert
+        Scriptblock invoked by Assert-HostConditionSet at runtime.
+        Signature: `param([string]$HostType)`. Must return [bool]
+        and emit Write-Warning / Write-Error for any failed condition.
+    .PARAMETER AssertMinimum
+        Scriptblock invoked by Test-HostRequirement for one-off
+        operator helpers (Remove-TestVMFiles.ps1 etc.). Lighter than
+        Assert -- the screen-lock / TCC checks belong in Assert, not
+        here, because they false-positive during interactive
+        maintenance. Signature: `param()`. Returns [bool].
+    .PARAMETER RequiresElevation
+        Set $true when the host needs Administrator / root for the
+        runtime cycle (Hyper-V cmdlets fail with permission denied
+        otherwise). Test-ElevationRequired reads this.
+    #>
+    [CmdletBinding()]
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter', '',
+        Justification = 'Parameters are stored in the registry, not used by this function body.')]
+    param(
+        [Parameter(Mandatory)][string]$HostType,
+        [Parameter(Mandatory)][scriptblock]$Assert,
+        [Parameter(Mandatory)][scriptblock]$AssertMinimum,
+        [bool]$RequiresElevation = $false,
+        # Optional per-cycle display-surface ensure (e.g. attach a virtual
+        # monitor on a headless Hyper-V host so screen-capture/OCR keeps
+        # working). Signature: `param()`, returns a status string. $null
+        # for hosts that need nothing (macOS/Linux). Invoked by
+        # Initialize-HostDisplay; see docs/host-hyperv.md.
+        [scriptblock]$Display = $null,
+        # Optional inverse of $Display: tear the surface down when the host
+        # stops running tests (e.g. disable the virtual display so a stale
+        # one doesn't hang around). Signature: `param()`, returns a status
+        # string. $null for hosts that need nothing. Invoked by
+        # Remove-HostDisplay from Remove-TestVMFiles.
+        [scriptblock]$DisplayTeardown = $null,
+        # Optional "put this host's clock back under NTP discipline".
+        # Signature: `param()`, returns @{ Succeeded; Message }. Invoked by
+        # Sync-HostClock from the operator-facing paths only (Test-Config's
+        # offer, Enable-TestAutomation) -- it needs privileges an unattended
+        # cycle cannot obtain. $null for a host with no way to discipline
+        # its own clock.
+        [scriptblock]$ClockSync = $null,
+        # Optional "can this host still put a guest on a working network".
+        # Signature: `param([string]$HostType)`, returns the record described
+        # on Test-HostGuestNetworkHealth. Its own slot rather than part of
+        # Assert: Assert's $false means refuse the cycle, while a host that
+        # lost one network path but kept another runs on the one it kept.
+        # $null for a host with no way to answer the question.
+        [scriptblock]$NetworkHealth = $null,
+        # See https://yuruna.link/4213a0b3-0073
+        [scriptblock]$MetricsExporter = $null
+    )
+    & $script:HostConditionRegistry.Register $HostType ([ordered]@{
+        HostType          = $HostType
+        Assert            = $Assert
+        AssertMinimum     = $AssertMinimum
+        RequiresElevation = $RequiresElevation
+        Display           = $Display
+        DisplayTeardown   = $DisplayTeardown
+        ClockSync         = $ClockSync
+        NetworkHealth     = $NetworkHealth
+        MetricsExporter   = $MetricsExporter
+    })
+}
+
+function Get-HostClockSkew {
+    <#
+    .SYNOPSIS
+        Signed seconds between this host's clock and real time (positive =
+        host ahead), or $null when no time server answers.
+
+    .DESCRIPTION
+        Every hypervisor here seeds a guest's virtual clock from the host
+        at power-on, so a host that has drifted starts every VM equally
+        wrong -- and the guest's own NTP client steps it to real time
+        seconds into the boot. That step lands in the middle of whatever
+        the guest is bringing up. On a Kubernetes guest it leaves the
+        control plane and part of the workload Running but never Ready,
+        their status timestamps sitting in the future; Services lose every
+        endpoint and each NodePort refuses, while a curl straight at the
+        pod IP still answers 200. Nothing in that picture points back at a
+        clock, which is why the host clock is worth measuring up front
+        rather than reconstructing afterwards.
+
+        Speaks NTP directly over UDP rather than shelling out to the
+        platform's time client: on a drifting host that client is usually
+        the thing that is broken or absent, its output is localized, and
+        its timeouts are not ours to choose. One socket answers the same
+        question identically on all three hosts.
+
+        Returns $null -- never 0 -- when nothing answers, so an isolated
+        lab reads as "unmeasured" and callers can skip rather than mistake
+        an unreachable network for a disciplined clock.
+
+    .PARAMETER TimeServer
+        Servers to try in order; the first that answers wins.
+
+    .PARAMETER Port
+        NTP port. Exposed so the epoch/endianness arithmetic can be
+        verified against a local responder instead of the public clock.
+
+    .PARAMETER TimeoutMilliseconds
+        Per-server send/receive timeout.
+
+    .OUTPUTS
+        [double] signed seconds, or $null when unmeasured.
+    #>
+    [CmdletBinding()]
+    [OutputType([double])]
+    param(
+        [string[]]$TimeServer = @('time.cloudflare.com', 'pool.ntp.org', 'time.windows.com'),
+        [int]$Port = 123,
+        [int]$TimeoutMilliseconds = 3000
+    )
+
+    $ntpEpoch = [datetime]::new(1900, 1, 1, 0, 0, 0, [System.DateTimeKind]::Utc)
+    foreach ($server in $TimeServer) {
+        $client = $null
+        try {
+            $client = [System.Net.Sockets.UdpClient]::new()
+            $client.Client.ReceiveTimeout = $TimeoutMilliseconds
+            $client.Client.SendTimeout    = $TimeoutMilliseconds
+            $client.Connect($server, $Port)
+            # 0x1B: leap indicator 0, version 3, mode 3 (client). Every
+            # other byte of the request stays zero.
+            $request = [byte[]]::new(48)
+            $request[0] = 0x1B
+            $sentAt = [datetime]::UtcNow
+            [void]$client.Send($request, $request.Length)
+            $remote   = [System.Net.IPEndPoint]::new([System.Net.IPAddress]::Any, 0)
+            $response = $client.Receive([ref]$remote)
+            $heardAt  = [datetime]::UtcNow
+            if ($response.Length -lt 48) { continue }
+            # Transmit timestamp: bytes 40-47, big-endian seconds + binary
+            # fraction since 1900. The slices run backwards because
+            # BitConverter reads little-endian.
+            $seconds  = [System.BitConverter]::ToUInt32($response[43..40], 0)
+            $fraction = [System.BitConverter]::ToUInt32($response[47..44], 0)
+            if ($seconds -eq 0) { continue }
+            $reference = $ntpEpoch.AddSeconds($seconds).AddSeconds($fraction / 4294967296.0)
+            # The server's timestamp describes an instant in the middle of
+            # the exchange, so compare it against the middle of ours --
+            # otherwise the whole round trip is charged to the host as skew.
+            $localAtReference = $sentAt.AddTicks((($heardAt - $sentAt).Ticks / 2))
+            return [double]($localAtReference - $reference).TotalSeconds
+        } catch {
+            Write-Verbose "Host clock: no answer from '$server' ($($_.Exception.Message))."
+        } finally {
+            if ($client) { $client.Dispose() }
+        }
+    }
+    return $null
+}
+
+# How far a host clock may sit from real time before it is worth reporting.
+# An NTP-disciplined host holds milliseconds, so this is not a precision
+# budget -- it is the line between "disciplined" and "nothing is correcting
+# this clock", well clear of the seconds-scale wander of a host that syncs
+# but syncs rarely.
+$script:YurunaMaxHostClockSkewSeconds = 120
+
+function Get-HostClockSkewLimit {
+    <#
+    .SYNOPSIS
+        The skew, in seconds, past which a host clock is reported as drifted.
+    .DESCRIPTION
+        Exposed so a second reporting caller (Test-Config) states the same
+        number instead of carrying its own copy of it.
+    .OUTPUTS
+        [int]
+    #>
+    [CmdletBinding()]
+    [OutputType([int])]
+    param()
+    return $script:YurunaMaxHostClockSkewSeconds
+}
+
+# One clock measurement per process. A fresh process runs each cycle
+# (the per-cycle child, then the inner it spawns), so once-per-process is
+# once-per-cycle -- and the platform Assert that calls this runs more than
+# once inside a single inner run. Without the memo the operator reads the
+# same paragraph twice a cycle and pays a second NTP round trip for it.
+$script:HostClockReported = $false
+
+function Write-HostClockDriftWarning {
+    <#
+    .SYNOPSIS
+        Measure this host's clock once per process and warn -- once -- when
+        it has drifted past $MaxSkewSeconds. Returns nothing.
+
+    .DESCRIPTION
+        Shared by every platform's Assert-*HostConditionSet: the fault is
+        the same everywhere (guests inherit the host clock at power-on and
+        get stepped to real time mid-boot), so the threshold and the
+        wording are held in one place rather than drifting between three.
+
+        Warn-only, deliberately. Correcting a clock needs privileges an
+        unattended runner does not hold and cannot ask for -- so a drifted
+        host that refused its own cycles would sit refusing them until an
+        operator noticed, trading a degraded cycle for no cycle at all. The
+        repair is offered where someone is present to authorize it:
+        test/Test-Config.ps1 and the per-host Enable-TestAutomation.ps1.
+
+        An unmeasurable clock says nothing. A lab with no route to a time
+        server is a normal deployment, not a fault to report every cycle.
+
+    .OUTPUTS
+        None.
+    #>
+    [CmdletBinding()]
+    [OutputType([void])]
+    param(
+        [string]$HostType,
+        [int]$MaxSkewSeconds = $script:YurunaMaxHostClockSkewSeconds
+    )
+
+    if ($script:HostClockReported) { return }
+    $script:HostClockReported = $true
+
+    $skew = Get-HostClockSkew
+    if ($null -eq $skew) {
+        Write-Verbose "Host clock: no time server answered; skew left unchecked."
+        return
+    }
+    if ([math]::Abs($skew) -le $MaxSkewSeconds) {
+        Write-Verbose "Host clock: $([math]::Round($skew, 1))s from real time (limit ${MaxSkewSeconds}s)."
+        return
+    }
+
+    $offBy     = [math]::Round([math]::Abs($skew), 1)
+    $direction = if ($skew -gt 0) { 'ahead of' } else { 'behind' }
+    $hostFolder = ($HostType -replace '^host\.', '')
+    Write-Warning "========"
+    Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_d3aad2200f7522cb' -Arguments @{ offBy = "${offBy}"; direction = "$direction"; maxSkewSeconds = "${MaxSkewSeconds}" })
+    Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_fcef8dbc96090ed0')
+    Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_2624274ccada9260')
+    Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_7d992f9496abac61')
+    Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_46842aebe8c0924c')
+    Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_59428c9f41167b34')
+    Write-Warning ""
+    Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_85f5b25c31805a2e')
+    Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_cbacfa5c4ab203be')
+    Write-Warning "   pwsh test/Test-Config.ps1"
+    Write-Warning "   pwsh host/$hostFolder/Enable-TestAutomation.ps1"
+    Write-Warning "========"
+}
+
+function Reset-HostClockReport {
+    <#
+    .SYNOPSIS
+        Re-arm the once-per-process clock report.
+    .DESCRIPTION
+        Tests-only: production processes are per-cycle, so the memo is
+        never re-armed in a live run.
+    #>
+    [CmdletBinding(SupportsShouldProcess)]
+    param()
+    if ($PSCmdlet.ShouldProcess((Format-YurunaOperatorMessage -Key 'runner.operator_c2c0b7df689c0667'), 'Re-arm')) {
+        $script:HostClockReported = $false
+    }
+}
+
+function Sync-HostClock {
+    <#
+    .SYNOPSIS
+        Platform dispatcher: put the host clock back under NTP discipline.
+        Returns @{ Attempted; Succeeded; Message }.
+
+    .DESCRIPTION
+        Best-effort by contract. A host clock is fixed with privileged
+        calls that can fail for reasons the caller cannot resolve (no
+        elevation, a managed time service, an air-gapped network), so this
+        never throws and reports what happened instead.
+
+        Operator-facing only: the privileged calls underneath need an
+        Administrator shell or a sudo credential the caller must be able to
+        obtain, which an unattended runner cannot. Callers are
+        test/Test-Config.ps1 (which asks first, and primes the sudo cache
+        so the answer is honored) and the per-host Enable-TestAutomation.ps1.
+        A running cycle only warns -- see Write-HostClockDriftWarning.
+
+        No guest may be running. Correcting a drifted host steps its clock,
+        and a step while guests are up is the very fault this exists to
+        prevent -- guests take their time from the host.
+
+    .OUTPUTS
+        [hashtable] Attempted (bool), Succeeded (bool), Message (string).
+    #>
+    [CmdletBinding(SupportsShouldProcess)]
+    [OutputType([hashtable])]
+    param([string]$HostType)
+
+    $provider = Get-HostConditionProvider -HostType $HostType
+    if (-not $provider -or -not $provider.ClockSync) {
+        return @{ Attempted = $false; Succeeded = $false; Message = (Format-YurunaOperatorMessage -Key 'runner.operator_75fb42592a454fa3' -Arguments @{ hostType = "$HostType" }) }
+    }
+    if (-not $PSCmdlet.ShouldProcess((Format-YurunaOperatorMessage -Key 'runner.operator_853ad81502417c07' -Arguments @{ hostType = "$HostType" }), (Format-YurunaOperatorMessage -Key 'runner.operator_8375949b7591bd50'))) {
+        return @{ Attempted = $false; Succeeded = $false; Message = 'Skipped (WhatIf).' }
+    }
+    try {
+        $result = & $provider.ClockSync
+        if ($result -isnot [System.Collections.IDictionary]) {
+            return @{ Attempted = $true; Succeeded = $false; Message = (Format-YurunaOperatorMessage -Key 'runner.operator_d4d5c819090c7922' -Arguments @{ hostType = "$HostType" }) }
+        }
+        return @{
+            Attempted = $true
+            Succeeded = [bool]$result.Succeeded
+            Message   = [string]$result.Message
+        }
+    } catch {
+        return @{ Attempted = $true; Succeeded = $false; Message = $_.Exception.Message }
+    }
+}
+
+function Get-HostConditionProvider {
+    <#
+    .SYNOPSIS
+        Look up the provider record for $HostType. Returns the record
+        or $null when no provider is registered.
+    #>
+    [CmdletBinding()]
+    [OutputType([System.Collections.Specialized.OrderedDictionary])]
+    param([Parameter(Mandatory)][string]$HostType)
+    return (& $script:HostConditionRegistry.Get $HostType)
+}
+
+function Get-HostConditionProviderMatrix {
+    <#
+    .SYNOPSIS
+        Snapshot of every registered provider keyed by HostType. Used by
+        the startup capability matrix to render coverage.
+    #>
+    [CmdletBinding()]
+    [OutputType([System.Collections.Specialized.OrderedDictionary])]
+    param()
+    return (& $script:HostConditionRegistry.GetMatrix)
+}
+
+function Clear-HostConditionProvider {
+    <#
+    .SYNOPSIS
+        Drop every registered host-condition provider.
+    .DESCRIPTION
+        Tests-only: production code relies on -Force re-import to
+        refresh registrations.
+    #>
+    [CmdletBinding(SupportsShouldProcess)]
+    param()
+    if ($PSCmdlet.ShouldProcess((Format-YurunaOperatorMessage -Key 'runner.operator_57a1e401b74cce86'), (Format-YurunaOperatorMessage -Key 'runner.operator_01286d1a561aca1c'))) {
+        & $script:HostConditionRegistry.Clear
+    }
+}
+
+# Per-platform siblings. -Global so their exports stay reachable to
+# callers that imported only this facade. Import order is immaterial:
+# self-registration (Register-IfAvailable, below) resolves each
+# platform's functions from the already-populated global session after
+# all three siblings have loaded, so no sibling depends on another
+# being imported first.
+Import-Module (Join-Path $PSScriptRoot 'Test.HostCondition.Mac.psm1')     -Global -Force -DisableNameChecking
+Import-Module (Join-Path $PSScriptRoot 'Test.HostCondition.Windows.psm1') -Global -Force -DisableNameChecking
+Import-Module (Join-Path $PSScriptRoot 'Test.HostCondition.Linux.psm1')   -Global -Force -DisableNameChecking
+
+# Self-register each platform by looking up its functions in the global
+# session. Missing functions (a stripped-down install where one
+# platform module was deleted) cause Register-IfAvailable to skip
+# silently; the dispatcher then surfaces an "Unknown host type"
+# warning rather than failing on a torn registration.
+function script:Register-IfAvailable {
+    [CmdletBinding()]
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+        Justification = 'Helper drives Register-HostConditionProvider; the wrapper carries ShouldProcess-equivalent intent at module load.')]
+    param(
+        [Parameter(Mandatory)][string]$HostType,
+        [Parameter(Mandatory)][string]$AssertFn,
+        [Parameter(Mandatory)][string]$MinimumFn,
+        [bool]$RequiresElevation,
+        # Optional: name of a per-cycle display-surface ensure function.
+        # Resolved only when present; absent on hosts that need nothing.
+        [string]$DisplayFn,
+        # Optional: name of the inverse teardown function for the display
+        # surface. Resolved only when present; absent on hosts that need nothing.
+        [string]$TeardownFn,
+        # Optional: name of this platform's clock-discipline function.
+        # Resolved only when present.
+        [string]$ClockSyncFn,
+        # Optional: name of this platform's guest-network probe. Optional-only
+        # by construction -- a name listed as MANDATORY that cannot be resolved
+        # skips the ENTIRE registration, so a platform that never grows this
+        # capability must not be able to lose its Set/Assert/Minimum over it.
+        [string]$NetworkHealthFn,
+        # Optional: name of this platform's per-cycle metrics-exporter
+        # convergence. Optional-only for the same reason as the probe above --
+        # an unresolvable MANDATORY name skips the whole registration, and a
+        # platform must never lose its Assert over a telemetry capability.
+        [string]$MetricsExporterFn
+    )
+    $missing = @()
+    foreach ($fn in @($AssertFn, $MinimumFn)) {
+        if (-not (Get-Command -Name $fn -ErrorAction SilentlyContinue)) { $missing += $fn }
+    }
+    if ($missing.Count -gt 0) {
+        # Write-Warning (not Write-Verbose) so a torn registration -- a known HostType whose
+        # provider module half-loaded -- is visible at default verbosity instead of silently
+        # skipped (which later surfaces only as "unknown host type, skipping checks" and passes).
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_597096826951b442' -Arguments @{ hostType = "$HostType"; join = "$($missing -join ', ')" })
+        return
+    }
+    # One row per optional capability: the record slot, the function name the
+    # caller gave for it, and what the Verbose line calls it when that name
+    # does not resolve. Ordered, because several missing capabilities are
+    # reported in this sequence.
+    $optional = [ordered]@{
+        Display         = @($DisplayFn,         'display ensure')
+        DisplayTeardown = @($TeardownFn,        'display teardown')
+        ClockSync       = @($ClockSyncFn,       'clock sync')
+        NetworkHealth   = @($NetworkHealthFn,   'guest-network probe')
+        MetricsExporter = @($MetricsExporterFn, 'metrics-exporter convergence')
+    }
+    $resolved = @{}
+    foreach ($slot in $optional.Keys) {
+        $name, $wording = $optional[$slot]
+        $resolved[$slot] = $null
+        if (-not $name) { continue }
+        $command = Get-Command -Name $name -ErrorAction SilentlyContinue
+        if ($command) { $resolved[$slot] = $command.ScriptBlock }
+        else { Write-Verbose "Test.HostCondition: $HostType $wording '$name' not found; skipping that capability." }
+    }
+    # Every optional slot is passed by name, an unresolved one as $null, so the
+    # stored record never depends on the defaults of the function that stores it.
+    Register-HostConditionProvider -HostType $HostType `
+        -Assert          (Get-Command $AssertFn).ScriptBlock `
+        -AssertMinimum   (Get-Command $MinimumFn).ScriptBlock `
+        -RequiresElevation $RequiresElevation `
+        -Display         $resolved.Display `
+        -DisplayTeardown $resolved.DisplayTeardown `
+        -ClockSync       $resolved.ClockSync `
+        -NetworkHealth   $resolved.NetworkHealth `
+        -MetricsExporter $resolved.MetricsExporter
+}
+Register-IfAvailable -HostType 'host.windows.hyper-v' `
+    -AssertFn 'Assert-WindowsHostConditionSet' -MinimumFn 'Test-WindowsHostMinimum' `
+    -DisplayFn 'Install-YurunaVirtualDisplay' -TeardownFn 'Remove-YurunaVirtualDisplay' `
+    -ClockSyncFn 'Sync-WindowsHostClock' `
+    -NetworkHealthFn 'Test-WindowsGuestNetworkHealth' `
+    -MetricsExporterFn 'Initialize-WindowsHostMetricsExporter' `
+    -RequiresElevation $true
+Register-IfAvailable -HostType 'host.macos.utm' `
+    -AssertFn 'Assert-MacHostConditionSet' -MinimumFn 'Test-MacHostMinimum' `
+    -ClockSyncFn 'Sync-MacHostClock' `
+    -RequiresElevation $false
+Register-IfAvailable -HostType 'host.ubuntu.kvm' `
+    -AssertFn 'Assert-LinuxHostConditionSet' -MinimumFn 'Test-LinuxHostMinimum' `
+    -ClockSyncFn 'Sync-LinuxHostClock' `
+    -RequiresElevation $false
+
+function Assert-HostConditionSet {
+    <#
+    .SYNOPSIS
+        Platform dispatcher: looks up the registered Assert callback
+        for $HostType and invokes it. Returns $true when no provider
+        is registered (operator can run on an unknown host without a
+        hard failure; the runner's per-step gates still apply).
+    #>
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param([string]$HostType)
+    $provider = Get-HostConditionProvider -HostType $HostType
+    if (-not $provider) {
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_8e0ac14bdd8e4f82' -Arguments @{ hostType = "$HostType" })
+        return $true
+    }
+    return [bool](& $provider.Assert -HostType $HostType)
+}
+
+function Test-HostGuestNetworkHealth {
+    <#
+    .SYNOPSIS
+        Platform dispatcher: ask the host whether it can still put a guest on
+        a working network. Returns a record, never throws, and reports healthy
+        for any host that registered no probe.
+
+    .DESCRIPTION
+        Separate from Assert-HostConditionSet on purpose. Assert answers
+        "refuse this cycle"; this answers "which topology are the guests about
+        to get", and those are different questions with different consequences:
+        a host that lost its bridged path but kept a NAT path still runs a full
+        cycle on the NAT path, and refusing it would trade a degraded cycle for
+        no cycle at all on a machine nobody is standing next to.
+
+        Fail-open by contract. No provider, no probe, a probe that throws or
+        returns something that is not a record -- all read as healthy with path
+        'unknown'. Only a provider that positively reports Healthy = $false has
+        said anything the caller may act on.
+
+    .PARAMETER HostType
+        Stable host identifier, as registered.
+
+    .OUTPUTS
+        [hashtable] Healthy (bool -- $false only when NO guest network path
+        exists), Degraded (bool -- a path was lost but another remains), Path
+        (string, provider-defined; 'unknown' when unevaluated), Verdicts
+        (array of provider-defined per-network records), Reason (string).
+    #>
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param([string]$HostType)
+
+    $unevaluated = @{
+        Healthy  = $true
+        Degraded = $false
+        Path     = 'unknown'
+        Verdicts = @()
+        Reason   = (Format-YurunaOperatorMessage -Key 'runner.operator_2f49bf98e6a47e09' -Arguments @{ hostType = "$HostType" })
+    }
+    $provider = Get-HostConditionProvider -HostType $HostType
+    if (-not $provider -or -not $provider.NetworkHealth) { return $unevaluated }
+
+    $result = $null
+    try {
+        $result = & $provider.NetworkHealth -HostType $HostType
+    } catch {
+        $unevaluated.Reason = (Format-YurunaOperatorMessage -Key 'runner.operator_854c41105dadf897' -Arguments @{ hostType = "$HostType"; message = "$($_.Exception.Message)" })
+        return $unevaluated
+    }
+    if ($result -isnot [System.Collections.IDictionary]) {
+        $unevaluated.Reason = (Format-YurunaOperatorMessage -Key 'runner.operator_f318cb1504904b80' -Arguments @{ hostType = "$HostType" })
+        return $unevaluated
+    }
+    # Copy field by field over the healthy defaults: a provider that omits a
+    # field must read as "did not say", never as $false -- [bool]$null on a
+    # missing Healthy would refuse a host whose probe merely under-reported.
+    $normalized = $unevaluated
+    $normalized.Reason = ''
+    foreach ($field in @('Healthy', 'Degraded', 'Path', 'Verdicts', 'Reason')) {
+        if ($result.Contains($field) -and $null -ne $result[$field]) { $normalized[$field] = $result[$field] }
+    }
+    $normalized.Healthy  = [bool]$normalized.Healthy
+    $normalized.Degraded = [bool]$normalized.Degraded
+    return $normalized
+}
+
+function Initialize-HostDisplay {
+    <#
+    .SYNOPSIS
+        Platform dispatcher: ensure the host has a usable display surface for
+        screen-capture / OCR before a cycle (e.g. attach a virtual display on
+        a headless Hyper-V host so DWM keeps painting the synthetic GPU).
+    .DESCRIPTION
+        Idempotent and cheap to call every cycle: the underlying ensure
+        short-circuits when the surface is already present. No-op when the
+        provider registers no Display callback (macOS/Linux, or an unknown
+        host). Never throws -- a display-ensure failure must not abort the
+        cycle; it degrades to the manual-workaround path (see
+        docs/host-hyperv.md) and is surfaced as a warning.
+    #>
+    [CmdletBinding()]
+    param([string]$HostType)
+    $provider = Get-HostConditionProvider -HostType $HostType
+    if (-not $provider -or -not $provider.Display) { return }
+    try {
+        $status = & $provider.Display
+        switch ("$status") {
+            'Activated'     { Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_f9c3345659e997dd' -Arguments @{ hostType = "$HostType" }) }
+            'AlreadyActive' { Write-Verbose "Virtual display already active for '$HostType'." }
+            'Failed'        { Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_8f36d24ce01d02c0' -Arguments @{ hostType = "$HostType" }) }
+            'Disabled'      { Write-Verbose "Virtual display disabled for '$HostType' (YURUNA_VIRTUAL_DISPLAY not set to true)." }
+            default         { Write-Verbose "Initialize-HostDisplay ('$HostType'): $status" }
+        }
+    } catch {
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_1fee4eeedfc3032d' -Arguments @{ hostType = "$HostType"; message = "$($_.Exception.Message)" })
+    }
+}
+
+function Initialize-HostMetricsExporter {
+    <#
+    .SYNOPSIS
+        Platform dispatcher: converge this host's metrics exporter for the
+        cycle about to run -- install one where there is none, then give it the
+        collectors, port and firewall rule this host publishes.
+    .DESCRIPTION
+        A mutation, and named as one rather than folded into
+        Assert-HostConditionSet. Assert answers a single question -- may this
+        cycle run -- and answers it with a bool; a host change hidden behind it
+        would be invisible to every reader of that call, and the split between
+        Assert-*HostConditionSet (decide) and Set-*HostConditionSet (change) is
+        one this codebase already keeps.
+
+        Deliberately called only after that gate has passed, because the gate is
+        where the privilege is proved. On the one host type that registers a
+        provider here, the gate's first act is Assert-Elevation and a cycle that
+        fails it never reaches this line -- so this runs holding Administrator
+        rather than asking for it. That is the whole difference between this
+        repair and the host-clock repair the unattended loop refuses to make: a
+        clock fix has to ask for a credential nobody is present to type, and a
+        loop that stops to ask is a hang. No provider is registered for the
+        hosts where this work would have to ask.
+
+        Never throws and never reports anything a cycle can act on. Every
+        outcome is a record the caller discards; the worst of them is a
+        warning. Telemetry that exists to explain a failure must not become a
+        reason for one.
+
+        Everything a person is meant to read leaves on the warning or
+        information stream, never on the success stream, because the call site
+        discards the success stream to guarantee this step cannot contribute to
+        the enclosing function's value. The information stream is forced to
+        Continue for the same reason it is chosen: it is silent at the runner's
+        default preference, and a host that just gained -- or just failed to
+        gain -- the only record of why it refuses guests is not something to say
+        silently.
+    .PARAMETER HostType
+        Stable host identifier, as registered.
+    .EXAMPLE
+        Initialize-HostMetricsExporter -HostType 'host.windows.hyper-v'
+    #>
+    [CmdletBinding()]
+    param([string]$HostType)
+    $provider = Get-HostConditionProvider -HostType $HostType
+    if (-not $provider -or -not $provider.MetricsExporter) { return }
+    try {
+        # The contract is one record. Collecting and taking the last value means
+        # a provider that ever leaks an extra line degrades to a stale message
+        # rather than to silence: a bare assignment would make $status an array,
+        # match no arm, and drop the announcement this step exists to make.
+        $emitted = @(& $provider.MetricsExporter)
+        $outcome = if ($emitted.Count -gt 0) { $emitted[-1] } else { $null }
+        $status = if ($outcome) { "$($outcome.Status)" } else { '' }
+        $reason = if ($outcome) { "$($outcome.Reason)" } else { (Format-YurunaOperatorMessage -Key 'runner.operator_542a80719b62ad31') }
+        switch ($status) {
+            'Present' {
+                Write-Verbose "Host metrics exporter already present on '$HostType'."
+            }
+            'Installed' {
+                Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_fe5a00f1761237fd' -Arguments @{ hostType = "$HostType" }) -InformationAction Continue
+            }
+            'Throttled' {
+                Write-Verbose "Host metrics: exporter install on '$HostType' is waiting out the interval a failed attempt bought ($reason)."
+            }
+            'Unavailable' {
+                Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_b9e2148c39eb8ff7' -Arguments @{ hostType = "$HostType"; reason = "$reason" })
+            }
+            'Failed' {
+                Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_0318b2a4ceda85be' -Arguments @{ hostType = "$HostType"; reason = "$reason" })
+            }
+            'Skipped' {
+                Write-Verbose "Host metrics: exporter convergence skipped on '$HostType' ($reason)."
+            }
+            default {
+                Write-Verbose "Initialize-HostMetricsExporter ('$HostType'): $status -- $reason"
+            }
+        }
+    } catch {
+        # Reached only if a provider throws past its own guard. Still a warning:
+        # the contract this dispatcher owes the cycle is that it cannot fail it.
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_25d5ba063fd07cd5' -Arguments @{ hostType = "$HostType"; message = "$($_.Exception.Message)" })
+    }
+}
+
+function Remove-HostDisplay {
+    <#
+    .SYNOPSIS
+        Platform dispatcher and inverse of Initialize-HostDisplay: tear down the
+        display surface a machine no longer needs once it stops running tests
+        (e.g. disable the usbmmidd virtual display on a Hyper-V host so a
+        stale/duplicate monitor left by a mid-cycle KVM switch does not linger).
+    .DESCRIPTION
+        Idempotent and safe to call even when no surface was ever attached: the
+        underlying teardown short-circuits when the driver was never staged or no
+        virtual display is present. No-op when the provider registers no
+        DisplayTeardown callback (macOS/Linux, or an unknown host). Never throws
+        -- a teardown failure during cleanup must not abort the caller; it
+        degrades to a warning. Invoked by Remove-TestVMFiles.
+    #>
+    [CmdletBinding(SupportsShouldProcess)]
+    param([string]$HostType)
+    $provider = Get-HostConditionProvider -HostType $HostType
+    if (-not $provider -or -not $provider.DisplayTeardown) { return }
+    if (-not $PSCmdlet.ShouldProcess((Format-YurunaOperatorMessage -Key 'runner.operator_2a1d2326d4df1c6b' -Arguments @{ hostType = "$HostType" }), (Format-YurunaOperatorMessage -Key 'runner.operator_128f4d8dd4b801ba'))) { return }
+    try {
+        $status = & $provider.DisplayTeardown
+        switch ("$status") {
+            'Removed'       { Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_f398e5997a59d4e8' -Arguments @{ hostType = "$HostType" }) }
+            'AlreadyAbsent' { Write-Verbose "No virtual display to remove for '$HostType'." }
+            'Failed'        { Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_c19cd351b2c3776c' -Arguments @{ hostType = "$HostType" }) }
+            default         { Write-Verbose "Remove-HostDisplay ('$HostType'): $status" }
+        }
+    } catch {
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_ecd5d1376e4d1d84' -Arguments @{ hostType = "$HostType"; message = "$($_.Exception.Message)" })
+    }
+}
+
+Export-ModuleMember -Function `
+    Register-HostConditionProvider, Get-HostConditionProvider, Get-HostConditionProviderMatrix, Clear-HostConditionProvider, `
+    Assert-HostConditionSet, Test-HostGuestNetworkHealth, Initialize-HostDisplay, Remove-HostDisplay, Initialize-HostMetricsExporter, `
+    Get-HostClockSkew, Get-HostClockSkewLimit, Write-HostClockDriftWarning, Reset-HostClockReport, Sync-HostClock, `
+    Assert-ScreenLock, Get-MacScreenLockIssue, Assert-MacUtmLifetime, Get-MacUtmLifetimeIssue, Assert-MacUtmAppData, Test-MacUtmAppDataGrant, Get-MacUtmContainerPreferencePath, Get-MacDisplayScaleProfile, Get-MacDisplayScaleIssue, Initialize-SudoCache, `
+    Get-MacPmsetGuardList, Set-MacHostConditionSet, Set-MacUtmctlLink, Get-MacUtmctlRemediation, Set-MacScreenLockState, Get-MacScreenLockManualCommand, `
+    Get-MacSessionKind, Get-MacTccSubjectName, Get-MacOperatorGrant, Get-MacOperatorGrantState, Get-MacOperatorGrantInstruction, Assert-MacOperatorGrant, Invoke-MacOperatorGrantAssist, `
+    Assert-Accessibility, Assert-ScreenRecording, Assert-MacHostConditionSet, Test-MacHostMinimum, Sync-MacHostClock, `
+    Set-WindowsHostConditionSet, Assert-WindowsHostConditionSet, Test-WindowsHostMinimum, Test-WindowsGuestNetworkHealth, Sync-WindowsHostClock, Get-WindowsDisplayScaleSetting, Get-WindowsDisplayScaleIssue, `
+    Assert-LinuxHostConditionSet, Test-LinuxHostMinimum, Sync-LinuxHostClock

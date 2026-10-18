@@ -1,0 +1,256 @@
+<#PSScriptInfo
+.VERSION 2026.10.14
+.GUID 42f7b847-f2dc-43ee-b9f7-f70bdc728c72
+.AUTHOR Alisson Sol et al.
+.COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
+.TAGS
+.LICENSEURI https://yuruna.link/license
+.PROJECTURI https://yuruna.com
+.ICONURI
+.EXTERNALMODULEDEPENDENCIES
+.REQUIREDSCRIPTS
+.EXTERNALSCRIPTDEPENDENCIES
+.RELEASENOTES
+.PRIVATEDATA
+#>
+
+#requires -version 7
+
+<#
+.SYNOPSIS
+    Stop and remove VMs (by name prefix) and their leftover files.
+.DESCRIPTION
+    Operator entry point, also invoked by the cycle-start sweep in
+    Invoke-TestRunnerInnerLoop. Resolves the VM-name prefixes from -Prefix, then
+    test.config.yml, and removes the matching VMs and their orphaned files.
+
+    Host-neutral throughout: enumeration goes through the contract's
+    Get-VMName and each VM is stopped and removed with Stop-VMForce /
+    Remove-VM, so a project that names its VMs outside the test-VM prefix
+    is swept the same way on every hypervisor.
+.PARAMETER Prefix
+    One or more VM-name prefixes selecting which VMs to remove. A VM is
+    removed when its name starts with any of them. When omitted, the
+    prefixes come from test.config.yml (vmStart.cleanupVmNamePrefixes,
+    else vmStart.testVmNamePrefix) so a manual invocation matches what the
+    runner used; falls back to "test-".
+
+    Prefixes are matched literally, never as wildcards. Passing an empty
+    string is refused rather than treated as "everything": a sweep that
+    matched every VM would take the caching-proxy service and any unrelated VM on
+    the host with it.
+.PARAMETER Quiet
+    Suppress per-step "Stopping ... Removed ..." chatter and the
+    host-recommendation block so an automated caller gets a single visible
+    line: "Running orphaned VM file cleanup: <path>". Routine status lines
+    flip to Write-Verbose; Write-Warning and Write-Error remain visible
+    because they always represent an actual problem the operator needs to
+    see. -Quiet alone DOES NOT bypass any destructive confirmation.
+.EXAMPLE
+    ./Remove-TestVMFiles.ps1 -Prefix test-
+#>
+
+param(
+    [string[]]$Prefix,
+    [switch]$Quiet
+)
+
+# A Windows console code page prints Chinese and Hebrew catalog text as
+# question marks; YURUNA_KEEP_CONSOLE_ENCODING=1 keeps the console's own.
+if ($IsWindows -and $env:YURUNA_KEEP_CONSOLE_ENCODING -ne '1') { [Console]::OutputEncoding = [Text.UTF8Encoding]::new($false) }
+
+Import-Module (Join-Path $PSScriptRoot '../automation/Yuruna.Globalization.psm1') -DisableNameChecking
+$ErrorActionPreference = "Stop"
+$ExplicitPrefix = $PSBoundParameters.ContainsKey('Prefix')
+$TestRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
+$RepoRoot = Split-Path -Parent $TestRoot
+$ModulesDir = Join-Path $TestRoot "modules"
+
+# --- REGION: Write-Status
+function Write-Status {
+    [CmdletBinding()]
+    param([Parameter(ValueFromPipeline)][string]$Message)
+    process {
+        if ($Quiet) { Write-Verbose $Message } else { Write-Output $Message }
+    }
+}
+
+# See https://yuruna.link/42010605-0002
+if (-not $ExplicitPrefix) {
+    $configPath = Join-Path $TestRoot 'test.config.yml'
+    if (Test-Path $configPath) {
+        try {
+            Import-Module powershell-yaml -Global -Verbose:$false -ErrorAction Stop
+            Import-Module (Join-Path $ModulesDir 'Test.Config.psm1') -Force -Global -ErrorAction Stop
+            $cfg = Get-Content -Raw $configPath | ConvertFrom-Yaml -Ordered
+            $Prefix = Resolve-CleanupVmNamePrefix -VmStart $cfg.vmStart
+        } catch {
+            Write-Verbose "Could not read the cleanup prefixes from $configPath`: $_"
+        }
+    }
+}
+if (-not $Prefix) { $Prefix = @('test-') }
+
+# Normalize and refuse an empty prefix. An empty string matches every VM,
+# which would sweep the caching-proxy service and any unrelated VM sharing the
+# host -- a far larger blast radius than any caller intends, and one that
+# only shows up once it has already deleted something.
+$Prefix = @($Prefix | ForEach-Object { "$_".Trim() } | Where-Object { $_ })
+if ($Prefix.Count -eq 0) {
+    Write-Error (Format-YurunaOperatorMessage -Key 'runner.operator_ffda3e4cb15ba9b3')
+    exit 1
+}
+
+# --- REGION: Import host modules
+# Test.HostContract is needed for Get-HostType on every platform.
+# -Global is load-bearing: when this script is invoked via the call operator
+# from inside a module (the cycle runner calls it for the VM sweep), a -Force
+# import without -Global pulls Test.HostContract (and its host-contract exports)
+# out of the global table for unrelated modules (the legacy-eviction regression
+# class). -Global keeps the contract globally resolvable for every caller.
+$hostModPath = Join-Path $ModulesDir "Test.HostContract.psm1"
+if (-not (Test-Path $hostModPath)) { Write-Error (Format-YurunaOperatorMessage -Key 'runner.operator_b715acbcf9355372' -Arguments @{ hostModPath = "$hostModPath" }); exit 1 }
+Import-Module -Name $hostModPath -Force -Global
+
+$HostType = Get-HostType
+if (-not $HostType) { exit 1 }
+
+# On host.ubuntu.kvm: auto-relaunch under `sg libvirt -c "..."` when this
+# shell's running group set lacks libvirt (otherwise every virsh call
+# below would hit "Permission denied" on /var/run/libvirt/libvirt-sock).
+# Helper is a no-op on macOS/Windows and on already-fresh shells.
+Invoke-LibvirtGroupReExecIfNeeded -HostType $HostType -ScriptPath $PSCommandPath -BoundParameters $PSBoundParameters
+
+Write-Status "Host type: $HostType"
+Write-Status ""
+
+# Fast pre-flight: refuse to call host VM cmdlets without the absolute
+# minimum (Administrator on Hyper-V, virsh/utmctl reachable on KVM/UTM).
+# Without this gate the enumeration below fails with the hypervisor's own
+# raw message -- "You do not have the required permission..." names the
+# computer but not the fix.
+if (-not (Test-HostRequirement -HostType $HostType -Quiet:$Quiet)) { exit 1 }
+
+# Wire the host driver so the contract (Get-VMName, Stop-VMForce,
+# Remove-VM, ...) is available. Enumeration is the only host-specific part
+# of a prefix sweep, and Get-VMName covers it, so this script names no
+# hypervisor at all: a fix to the removal logic lands on all three hosts at
+# once instead of needing three parallel edits.
+[void](Initialize-YurunaHost -RepoRoot $RepoRoot -HostType $HostType)
+
+# --- REGION: Stop and remove every matching VM
+$prefixLabel = ($Prefix -join "', '")
+Write-Status "Stopping VMs with prefix '$prefixLabel'..."
+Write-Status ""
+
+# See https://yuruna.link/42010605-0002
+$survivors = [System.Collections.Generic.List[string]]::new()
+$removedCount = 0
+
+# Get-VMName throws when the host cannot be queried at all (utmctl denied
+# Apple Events, libvirtd down, Hyper-V unelevated). That must stay fatal:
+# treating "cannot ask" as "nothing matched" would report a clean host and
+# let the orphan-file sweep below delete files still claimed by a live VM.
+try {
+    $targets = @(Get-VMName -Prefix $Prefix)
+} catch {
+    Write-Error (Format-YurunaOperatorMessage -Key 'runner.operator_74777125b53cf1b3' -Arguments @{ hostType = "$HostType"; message = "$($_.Exception.Message)" })
+    exit 1
+}
+
+if ($targets.Count -eq 0) {
+    Write-Status "  No VMs found matching '$prefixLabel'."
+}
+foreach ($vmName in $targets) {
+    $state = Get-VMState -VMName $vmName
+    Write-Status "  Stopping $vmName [$state]..."
+    try {
+        if ($state -notin @('stopped', 'absent')) {
+            # Stop-VMForce escalates past a graceful stop (kill vmwp.exe /
+            # virsh destroy + SIGKILL / utmctl stop --kill) so one wedged
+            # guest cannot block the rest of the sweep.
+            if (Stop-VMForce -VMName $vmName -StopTimeoutSeconds 20 -Confirm:$false) {
+                Write-Status "    Stopped."
+            } else {
+                Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_178c903f4d34b4e7' -Arguments @{ vmName = "$vmName" })
+            }
+        } else {
+            Write-Status "    Already stopped."
+        }
+        # Remove-VM wraps each host's destroy-and-cleanup path: Hyper-V
+        # unregisters then drops the VHDX dir, libvirt undefines with
+        # --nvram --remove-all-storage, UTM deletes and removes the bundle.
+        $removedOk = Remove-VM -VMName $vmName -Confirm:$false
+        $finalState = Get-VMState -VMName $vmName
+        if (-not $removedOk -or $finalState -ne 'absent') {
+            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_26faefb48e0a9157' -Arguments @{ vmName = "$vmName"; finalState = "$finalState" })
+            $survivors.Add("$vmName [$finalState]")
+        } else {
+            Write-Status "    Removed."
+            $removedCount++
+        }
+    } catch {
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_005c1ce69aef7499' -Arguments @{ vmName = "$vmName"; value = "$_" })
+        $finalState = Get-VMState -VMName $vmName
+        $survivors.Add("$vmName$(if ($finalState -and $finalState -ne 'absent') { " [$finalState]" })")
+    }
+}
+
+Write-Status ""
+
+# Re-scan to catch survivors the per-VM block missed (e.g. a VM that
+# flipped to a transitional state while the loop was iterating).
+# Belt-and-suspenders against the very symptom this script exists to fix:
+# VMs surviving across cycles on a long-running host. A rescan that cannot
+# reach the host is reported, not silently read as "no survivors".
+$remaining = @()
+$rescanFailed = $false
+try {
+    $remaining = @(Get-VMName -Prefix $Prefix)
+    if ($remaining.Count -gt 0) {
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_a5b2e6728ed80b48' -Arguments @{ count = "$($remaining.Count)"; prefixLabel = "$prefixLabel" })
+        foreach ($n in $remaining) { Write-Warning "    $n [$(Get-VMState -VMName $n)]" }
+    }
+} catch {
+    Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_a206c195828cc91a' -Arguments @{ message = "$($_.Exception.Message)" })
+    $rescanFailed = $true
+}
+
+Write-Status ""
+Write-Status "Removed $removedCount VM(s); $($survivors.Count) survivor(s)."
+if ($survivors.Count -gt 0) {
+    foreach ($s in $survivors) { Write-Warning "  Survivor: $s" }
+}
+Write-Status ""
+
+# See https://yuruna.link/42010605-0002
+Write-Status "Releasing host virtual display (if attached)..."
+Remove-HostDisplay -HostType $HostType
+Write-Status ""
+
+$cleanupScript = Join-Path -Path $RepoRoot -ChildPath (Get-HostFolder $HostType) -AdditionalChildPath "Remove-OrphanedVMFiles.ps1"
+
+if (-not (Test-Path $cleanupScript)) {
+    Write-Error (Format-YurunaOperatorMessage -Key 'runner.operator_346d59852c305e3b' -Arguments @{ cleanupScript = "$cleanupScript" })
+    exit 1
+}
+
+# See https://yuruna.link/42010605-0002
+Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_0727e0f3d5181249' -Arguments @{ cleanupScript = "$cleanupScript" })
+Write-Status ""
+$orphanArgs = @{ Force = $true }
+if ($Quiet) { $orphanArgs['Quiet'] = $true }
+$global:LASTEXITCODE = 0
+& $cleanupScript @orphanArgs
+$orphanSucceeded = $?
+$orphanExitCode = $LASTEXITCODE
+
+# Surface incomplete cleanup to an automated caller. Survivors are VMs that
+# resisted registry removal; their on-disk files stay claimed so the orphan
+# sweep above intentionally skips them. A caller (the cycle-start sweep) needs
+# a non-zero exit to retry or alert instead of treating a partial teardown as
+# clean. Run the orphan sweep first so the reclaimable files are always freed.
+if ($survivors.Count -gt 0 -or $remaining.Count -gt 0 -or $rescanFailed -or -not $orphanSucceeded -or $orphanExitCode -ne 0) {
+    exit 1
+}
+exit 0

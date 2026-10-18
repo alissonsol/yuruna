@@ -1,0 +1,176 @@
+configService:
+  enabled: true
+  port: 8443
+# The download-agent service VM: one pool-wide downloader that keeps guest
+# images on the pool share fresh, so a host fetches an image from the origin
+# only when the agent cannot serve it.
+downloadAgentService:
+  # Pre-download the stable image families for the host types the aggregator
+  # reports, instead of waiting for a host to ask for one.
+  autoSeed: true
+  # enabled: whether setup brings up the agent's VM. Deliberately UNSTATED
+  # here: unstated resolves by mode -- a lab runs the agent (sharing images
+  # across the pool's hosts is its whole point), a standalone host does not
+  # (the memory goes to its test guests instead; start it by hand with
+  # test/service/Start-DownloadAgentServiceVM.ps1 when wanted). State true or false
+  # to override the mode default.
+  # How long an image stays fresh after its last successful origin check.
+  freshnessSeconds: 86400
+  # The scanner refreshes anything whose freshness expires within this window.
+  prefetchLeadSeconds: 7200
+  # How often the agent walks the pool looking for work.
+  scanIntervalSeconds: 900
+guestSequence:
+- guest.amazon.linux.2023
+- guest.ubuntu.server.24
+- guest.ubuntu.server.26
+# The language every Yuruna surface answers in, as a BCP 47 tag. "auto" is not
+# a lock: each reader's browser, and each command's own culture, decides. A tag
+# names one language for the whole lab -- a page, its API responses and the
+# transcript of the same run then cannot disagree, which is the failure a
+# per-surface setting produces. A tag with no reviewed catalog behind it is
+# refused rather than obeyed, so a typo here does not serve a language that
+# does not exist; the run falls back to English and says the lock is what
+# decided it.
+language: auto
+logLevel: Information
+networkStorage:
+  # Populating all three pool paths IS the opt-in to archiving finished cycle
+  # results to the share; moveLogsToPoolStorage then selects the mode.
+  poolStorageLocalPath: ""
+  poolStorageNetworkPath: ""
+  poolStorageNetworkUser: ""
+  # Move finished cycle results to the pool share instead of copying them: each
+  # cycle is copied, verified, and only then deleted locally, so the share holds
+  # the only copy. false = copy and keep the local folder.
+  moveLogsToPoolStorage: false
+  stashStorageLocalPath: ""
+  stashStorageNetworkPath: ""
+  stashStorageNetworkUser: ""
+notification:
+  failuresBeforeAlert: 2
+  successesBeforeRearm: 5
+pool:
+  enabled: false
+  configurationGitUrl: ""
+  localClonePath: ""
+  pullTimeoutSeconds: 30
+repositories:
+  frameworkUrl: https://github.com/alissonsol/yuruna
+  ghToken: ""
+  projectUrl: https://github.com/alissonsol/yuruna-project
+statusService:
+  enabled: true
+  port: 8080
+testCycle:
+  # Auto-remediation: after a cycle fails, run the recovery handler chosen from
+  # last_failure.json before the next spawn, up to maxAttemptsPerCycle tries per
+  # consecutive-failure streak. Default off -- a host opts in.
+  autoRemediation:
+    enabled: false
+    maxAttemptsPerCycle: 2
+  # See https://yuruna.link/42d38664-0023
+  autoRefreshAfterStalls: 0
+  cycleDelaySeconds: 300
+  # Circuit breaker: skip a guest that keeps failing the same way, so it stops
+  # burning a full provision+deploy every cycle. After failuresToQuarantine
+  # consecutive failures of the SAME failureClass, the guest is skipped for up to
+  # skipCycles cycles or until a framework/project commit changes (whichever comes
+  # first), emitting a guest_quarantined event + a dashboard flag.
+  guestQuarantine:
+    enabled: true
+    failuresToQuarantine: 3
+    skipCycles: 5
+  # Lab-health gate: hold the cycle at the next step boundary when a lab service
+  # that WAS answering stops answering, and resume on its own when it returns.
+  # The probe set is derived from every extension area's declared healthPort, so
+  # nothing is listed here. A service this host has never reached never holds --
+  # that is not a change of condition, and the caller's own pre-flight gives a
+  # faster answer about a service that was never there.
+  labHealth:
+    enabled: true
+    # Verdict freshness for a service the gate is watching. Below this age the
+    # per-step gate reuses the cached verdict instead of probing, so the gate
+    # costs nothing on a fast sequence.
+    minIntervalSeconds: 30
+    # Re-probe cadence for a service the gate is NOT watching. Its lookup is the
+    # expensive one (a pool round-trip that has to time out) and its answer is
+    # the one that almost never changes, so it is asked far less often.
+    discoveryIntervalSeconds: 600
+    # A service last reached longer ago than this can no longer hold the cycle:
+    # gone for a week is the lab's new normal, and holding every cycle would
+    # hide that behind a host that never reports anything at all.
+    armWindowHours: 24
+    # Ceiling on hold re-probes. Clamped to the compiled 999, which at up to 59 s
+    # per attempt is about sixteen hours before the cycle gives up and records a
+    # lab_dependency_down failure.
+    maxHoldAttempts: 999
+    # Extra areas to probe even where this host has never seen them healthy.
+    require: []
+  # Per-step performance log: one JSONL row per step under status/perf/cycles/,
+  # which is what the status page's Perf chart renders. Collection is automatic;
+  # this knob only turns it off for a host. Deliberately host-level, not per
+  # project, so one project's runner config cannot stop a machine from collecting.
+  # An absent key reads as enabled.
+  perfLog:
+    enabled: true
+  recentDisplayCount: 30
+  stopOnFailure: false
+  # See https://yuruna.link/42d38664-0023
+  stepTimeoutSeconds: 3600
+  # Tighter watchdog bound for the runner's PREAMBLE -- process start through host
+  # detection, the caching-proxy gate and its port-map refresh, and the status-service
+  # start, i.e. everything before the first sequence step. None of it is legitimately
+  # slow, so a stall there means the runner is wedged (the case this exists for is a
+  # sudo or credential prompt on the inherited terminal with nobody present), and
+  # waiting out stepTimeoutSeconds means 45 minutes of a green dashboard over an idle
+  # host. Set to 0 to opt out, so stepTimeoutSeconds applies everywhere; raise it
+  # instead if a host has a genuinely slow preamble.
+  preambleTimeoutSeconds: 600
+  # Warm-resume checkpointing: on an eligible transient workload failure
+  # (network_timeout / wait_timeout / instrumentation_failure / host_io_blocked),
+  # re-run the failed sequence from its last-good step on the same live VM instead
+  # of tearing the guest down and redoing the whole install. Up to maxAttempts
+  # in-place tries; on exhaustion it falls back to the normal teardown + cold
+  # re-provision. Emits a warm_resume event.
+  warmResume:
+    enabled: true
+    maxAttempts: 2
+vmCommunication:
+  charDelayMs: 10
+  pollSeconds: 5
+  # How many raw console frames the wait loop keeps per VM. A guest that PASSES
+  # has them all deleted; a guest that FAILS keeps them, so this is exactly how
+  # much of the run-up to a failure a reader gets. It counts frames but should
+  # be picked as a duration: a frame costs a screenshot plus an OCR pass on top
+  # of pollSeconds, around 8 s each, so 20 is about two and a half minutes.
+  # Each frame on disk is a PNG plus its OCR text, order 100 KB together, kept
+  # twice for a failed guest and never removed by log rotation -- raise it for a
+  # longer window knowing a host that fails often pays for it in disk. Values
+  # outside 1..240 are clamped into that range.
+  screenHistorySize: 20
+  timeoutSeconds: 180
+  vncPort: 5900
+vmImage:
+  alwaysRedownload: false
+  refreshSeconds: 604800
+vmStart:
+  bootDelaySeconds: 15
+  cachingProxyIp: ""
+  # A zot release the caching-proxy-service build installs instead of the one
+  # this Yuruna release pins, for when the pinned release cannot sync the lab's
+  # images (the cache's /cache-health says so). Set both or neither: the tag
+  # (for example v2.1.21) and the SHA-256 of zot-linux-amd64, or zot-linux-arm64
+  # on an ARM64 host, from that release's checksums.sha256.txt. Rebuild the
+  # cache to apply.
+  cachingProxyZotSha256: ""
+  cachingProxyZotVersion: ""
+  startTimeoutSeconds: 120
+  testVmNamePrefix: test-
+  # Extra VM-name prefixes the cycle sweep may stop and delete, for a project
+  # whose VMs are promoted out of the test-VM namespace (a snapshot id becomes
+  # the VM name, so those guests no longer carry testVmNamePrefix and would
+  # otherwise survive every cycle and block the next one). testVmNamePrefix is
+  # always swept and needs no repeating here. Prefixes match literally, never as
+  # wildcards; an empty entry is ignored rather than matching every VM.
+  cleanupVmNamePrefixes: []

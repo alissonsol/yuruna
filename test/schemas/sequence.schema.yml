@@ -1,0 +1,535 @@
+# LICENSEURI https://yuruna.link/license
+# Copyright (c) 2019-2026 by Alisson Sol et al.
+$schema: https://json-schema.org/draft/2020-12/schema
+$id: https://yuruna.com/schemas/sequence.schema.yml
+title: Yuruna interaction sequence
+description: >
+  Drives a VM through OCR/keystroke or SSH steps. Action set matches the
+  switch in test/modules/Test.SequenceEngine.psm1; the catalog in
+  test/sequences/actions.yml documents per-action parameters and defaults.
+
+
+  FILE NAMING. A project sequence file is named
+  `workload.<guestKey>.<vm>.<scenario>.yml` -- e.g.
+  `workload.guest.ubuntu.server.24.amisad-core.s001.fulfillment.yml`: the guest
+  key it runs on, then the VM the scenario targets, then the scenario itself.
+  The name is a lookup key, not just a label: `resource:` prerequisites and
+  orchestration `sequence:` steps reference sequences by this name, so renaming
+  a file breaks every chain that names it (`sequenceGuid` is what survives a
+  rename, for perf analytics).
+
+
+  Scenario slugs of the form `sNNN.<topic>` (`s001.fulfillment`,
+  `s002.fitting`) are ORDER-SENSITIVE where a project says so in its
+  orchestration sequence: the number is the position in the intended run
+  order, and a scenario may assume state a lower-numbered one left behind.
+  Nothing in the engine enforces that -- run one on its own and it will
+  execute -- so a project whose scenarios share state must express the order
+  in an orchestration sequence rather than relying on the numbering.
+
+type: object
+# A guest sequence declares a `keystrokeMechanism`, a `resource:` prerequisite
+# chain, and ordered `component:` + `workload:` action lists. The legacy
+# `baseline:` key and flat top-level `steps:` list were removed; either
+# one is rejected at load with a migration error.
+required: [description, keystrokeMechanism, resource]
+additionalProperties: false
+
+properties:
+
+  keystrokeMechanism:
+    type: string
+    enum: [gui, ssh]
+    description: >
+      How this sequence's steps drive the guest: `gui` (OCR/keystroke) or `ssh`.
+      Placed just after name/description; defaults to `gui` when absent. There is
+      no machine-global keystroke mechanism -- the ssh variant of a sequence is a
+      distinct `<name>.ssh.yml` file carrying `keystrokeMechanism: ssh`, selected
+      by listing that explicit name.
+
+  sequenceGuid:
+    type: string
+    description: >
+      Perf-log identity. `42`-prefixed 32-hex GUID (formatted with dashes
+      as 42xxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx). Persistent across renames;
+      Test.Perf.psm1 stamps every step row with this value so cross-host
+      and cross-cycle analytics can join even after a sequence rename.
+    pattern: "^42[0-9a-fA-F]{6}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
+
+  sequenceRevision:
+    type: integer
+    minimum: 1
+    description: >
+      Author-bumped integer. Increment when steps are added, removed,
+      or reordered. Lets perf analytics segment "Step X duration" by
+      sequence shape without depending on commit dates.
+
+  description:
+    type: string
+    description: One-line summary shown in cycle logs and the dashboard.
+
+  descriptionLocalized:
+    type: object
+    additionalProperties: { type: string }
+
+  resource:
+    type: object
+    description: >
+      Per-guest-OS prerequisite chain -- the sequence(s) run as the `resource`
+      ahead of this one (reinforces the resource/component/workload verification
+      mindset). Each key is a guest OS identifier (e.g. "ubuntu.server.24"); each
+      value is an ordered list of sequence names (no extension, no folder).
+    minProperties: 1
+    additionalProperties:
+      type: array
+      items:
+        type: string
+        pattern: "^[A-Za-z0-9._-]+$"
+
+  variables:
+    type: object
+    description: >
+      Scalar map injected as ${name} substitutions into step parameters.
+      Built-ins (${vmName}, ${hostType}, ${guestKey}) are added by the
+      runner and should not be redeclared.
+    additionalProperties:
+      type: [string, number, boolean]
+
+  requiresSnapshot:
+    type: object
+    description: >
+      Declares that this sequence is a CONSUMER of a disk snapshot
+      produced by an earlier sequence in its `resource:` chain. Two
+      effects on the runner:
+
+      1. VM-name override. The runtime VM name becomes `id` (instead of
+         `test-<guestKey>`). The chain's terminal `saveDiskSnapshot`
+         already renames `test-*` -> id; pre-naming the VM as id from
+         the start makes that rename a no-op on the cold path and lets
+         the warm path target the persisted VM directly.
+
+      2. Chain skip. Before walking the resource chain, the runner
+         probes the host for snapshot id on VM id. Hit -> skip every
+         prereq sequence and run only this top-level (the first
+         `loadDiskSnapshot` reverts the disk). Miss -> walk the full
+         chain so the prereqs build the snapshot.
+
+      WARNING (operator's responsibility): the snapshot is FROZEN on-
+      disk state. Any variable that affects what's baked into the VM
+      (username, hostname, anything templated into cloud-init / users /
+      ssh keys) MUST match the value the chain's snapshot-producing
+      sequence used. On the cold path, the cascade hands top-of-chain
+      variables down to the prereqs and everything aligns. On the warm
+      path the prereqs don't re-run, so a mismatched variable here
+      will reference state that doesn't exist on disk (e.g. a
+      passwdPrompt for a username the snapshot's /etc/passwd never had).
+    required: [id]
+    additionalProperties: false
+    properties:
+      id:
+        type: string
+        description: >
+          Snapshot id produced by the terminal `saveDiskSnapshot` of
+          the resource chain. Must match exactly -- the runner uses
+          this both as the snapshot lookup key AND as the persisted
+          VM name (the chain's saveDiskSnapshot renames to this id).
+
+  snapshotPolicy:
+    type: object
+    description: >
+      Optional managed-baseline policy shared by the producer and consumer.
+      Requires provenance and a bounded age before restoring. A stale baseline
+      can be rebuilt only when its manifest proves ownership on this host.
+      Sequences without this policy retain legacy snapshot behavior.
+    required: [maxAgeHours, sourceFiles]
+    additionalProperties: false
+    properties:
+      maxAgeHours: { type: number, exclusiveMinimum: 0 }
+      rebuildOnMismatch: { type: boolean, default: false }
+      sourceFiles:
+        type: array
+        minItems: 1
+        items:
+          type: string
+          description: Framework-relative file or wildcard pattern; every pattern must match.
+
+  component:
+    type: array
+    description: >
+      Ordered VM-setup actions -- the `component` phase (session/login priming,
+      password init, environment setup). Runs before `workload`. The executed
+      step list is component ++ workload.
+    items:
+      $ref: "#/$defs/step"
+
+  workload:
+    type: array
+    description: >
+      Ordered verification actions -- the `workload` phase (the final pass/fail
+      test, typically the fetchAndExecute checks past initial setup). Runs after
+      `component`.
+    items:
+      $ref: "#/$defs/step"
+
+$defs:
+
+  step:
+    description: A sequence step -- an action invocation or a snippet reference.
+    oneOf:
+      - $ref: "#/$defs/actionStep"
+      - $ref: "#/$defs/snippetStep"
+
+  snippetStep:
+    type: object
+    additionalProperties: false
+    description: >
+      Reference to a named step list in a _snippets.yml library (framework
+      test/sequences/_snippets.yml or project <...>/test/_snippets.yml). The
+      loader splices the named steps in place before execution; a project name
+      overrides a framework name.
+    required: [snippet]
+    properties:
+      snippet:
+        type: string
+        pattern: "^[A-Za-z][A-Za-z0-9_-]*$"
+        description: Snippet name to splice in.
+      description:
+        type: string
+
+  actionStep:
+    type: object
+    description: One action invocation.
+    required: [action]
+    properties:
+      action:
+        type: string
+        description: Which handler in Test.SequenceEngine.psm1 to dispatch to.
+        enum:
+          - break
+          - callExtension
+          - fetchAndExecute
+          - inputText
+          - inputTextAndEnter
+          - loadDiskSnapshot
+          - recoverFromSnapshot
+          - networkRelease
+          - passwdPrompt
+          - pressKey
+          - retry
+          - saveDiskSnapshot
+          - saveGuestClockSnapshot
+          - saveSystemDiagnostic
+          - sshExec
+          - sshFetchAndExecute
+          - sshWaitReady
+          - startVm
+          - takeScreenshot
+          - tapOn
+          - typeAndEnter           # deprecated alias for inputTextAndEnter
+          - waitForAndEnter
+          - waitForSeconds
+          - waitForText
+          - waitForTextWithNudge
+      description:
+        type: string
+        description: Free-form label shown in the cycle log and dashboard.
+
+    # Per-action required-field constraints. Each branch only declares
+    # what *must* be present and the canonical property types; optional
+    # fields are accepted via additionalProperties on the step itself.
+    allOf:
+
+      - if: { properties: { action: { const: callExtension } } }
+        then:
+          required: [method]
+          properties:
+            method:
+              type: string
+              pattern: "^[A-Za-z0-9_]+\\.[A-Za-z][A-Za-z0-9_-]*$"
+              description: "area.Method form, e.g. authentication.SetPassword."
+            args:
+              type: object
+              additionalProperties:
+                type: [string, number, boolean]
+
+      - if: { properties: { action: { const: fetchAndExecute } } }
+        then:
+          required: [text, waitPattern]
+          properties:
+            text:                   { type: string }
+            waitPattern:            { type: string }
+            charDelayMs:            { type: integer, minimum: 0 }
+            delaySeconds:           { type: number,  minimum: 0 }
+            timeoutSeconds:         { type: integer, minimum: 0 }
+            pollSeconds:            { type: integer, minimum: 1 }
+            freshMatchTailLines:    { type: integer, minimum: 0 }
+            noSegmentMatch:         { type: boolean, default: false }
+            failurePatterns:
+              $ref: "#/$defs/patternOrArray"
+              description: >
+                Replaces the default fast-fail set (the wrapper's non-zero-exit
+                sentinel) for this step's payload. The shell-rejection
+                anti-patterns, which decide whether the typed command line was
+                accepted at all, are not part of this set and stay in force.
+
+      - if: { properties: { action: { const: pressKey } } }
+        then:
+          required: [name]
+          properties:
+            name:
+              type: string
+              enum: [Enter, Tab, Space, Escape, Up, Down, Left, Right,
+                     F1, F2, F3, F4, F5, F6, F7, F8, F9, F10, F11, F12]
+
+      - if: { properties: { action: { const: retry } } }
+        then:
+          required: [steps]
+          dependentRequired:
+            stepsAfterVmRestart: [restartVmBeforeRetry]
+          properties:
+            maxAttempts: { type: integer, minimum: 1 }
+            restartVmBeforeRetry:
+              type: string
+              enum: [arm64HyperVColdPowerCycle, arm64HyperVInstallerBoot]
+            stepsAfterVmRestart:
+              type: array
+              minItems: 1
+              items: { $ref: "#/$defs/step" }
+            steps:
+              type: array
+              minItems: 1
+              items: { $ref: "#/$defs/step" }
+
+      - if: { properties: { action: { const: inputText } } }
+        then:
+          required: [text]
+          properties:
+            text:         { type: string }
+            sensitive:    { type: boolean }
+            charDelayMs:  { type: integer, minimum: 0 }
+
+      - if:
+          properties:
+            action: { enum: [inputTextAndEnter, typeAndEnter] }
+        then:
+          required: [text]
+          properties:
+            text:         { type: string }
+            sensitive:    { type: boolean }
+            charDelayMs:  { type: integer, minimum: 0 }
+            delaySeconds: { type: number,  minimum: 0 }
+
+      - if: { properties: { action: { const: passwdPrompt } } }
+        then:
+          required: [pattern, text]
+          properties:
+            pattern:             { $ref: "#/$defs/patternOrArray" }
+            text:                { type: string }
+            timeoutSeconds:      { type: integer, minimum: 0 }
+            pollSeconds:         { type: integer, minimum: 1 }
+            freshMatch:          { type: boolean }
+            freshMatchTailLines: { type: integer, minimum: 0 }
+            noSegmentMatch:      { type: boolean, default: true }
+            sinceStepStart:      { type: boolean }
+            failurePatterns:     { $ref: "#/$defs/patternOrArray" }
+            tabCount:            { type: integer, minimum: 0 }
+            charDelayMs:         { type: integer, minimum: 0 }
+            delaySeconds:        { type: number,  minimum: 0 }
+
+      - if: { properties: { action: { const: saveGuestClockSnapshot } } }
+        then:
+          required: [phase]
+          properties:
+            phase:
+              type: string
+              enum: [before-cpu-restart, after-cpu-restart]
+
+      - if: { properties: { action: { const: saveSystemDiagnostic } } }
+        then:
+          required: [id]
+          properties:
+            id:
+              type: string
+              description: >
+                Appended to the saved filename so two captures in the
+                same cycle don't collide (e.g. "after.k8s.bootstrap").
+
+      - if: { properties: { action: { const: saveDiskSnapshot } } }
+        then:
+          required: [id]
+          properties:
+            id:
+              type: string
+              description: >
+                Snapshot name attached to this VM's disks; overwrites
+                an existing snapshot with the same name.
+
+      - if: { properties: { action: { const: loadDiskSnapshot } } }
+        then:
+          required: [id]
+          properties:
+            id:
+              type: string
+              description: >
+                Name of the snapshot to revert this VM's disks to.
+
+      - if: { properties: { action: { const: break } } }
+        then:
+          properties:
+            reason:
+              type: string
+              description: >
+                Free-form text written into the marker file so the
+                operator knows why the sequence stopped here.
+            id:
+              type: string
+              description: >
+                Optional label for this breakpoint, shown in the marker
+                file and the status UI. It is a label only: it does NOT
+                trigger a snapshot restore, even when it happens to match
+                a real snapshot name (e.g. the workload's requiresSnapshot
+                / loadDiskSnapshot id). A plain break pauses and, on
+                Continue, resumes in place -- the usual breakpoint
+                semantics. Set restoreOnContinue to opt into a restore.
+            restoreOnContinue:
+              type: boolean
+              description: >
+                When true AND `id` names an existing snapshot, clicking
+                "Continue" in the status UI calls Restore-VMDiskSnapshot
+                -Id <id> followed by Start-VM before resuming (a one-click
+                "rewind to checkpoint + continue" workflow, e.g. a break
+                paired with a prior saveDiskSnapshot -Id <same>). Default
+                false: Continue resumes in place. Manual marker-file
+                delete always resumes in place regardless of this flag.
+
+      - if: { properties: { action: { const: takeScreenshot } } }
+        then:
+          properties:
+            label: { type: string }
+
+      - if: { properties: { action: { const: sshExec } } }
+        then:
+          required: [command]
+          properties:
+            command:        { type: string }
+            timeoutSeconds: { type: integer, minimum: 0 }
+            allowFailure:   { type: boolean }
+            sensitive:      { type: boolean }
+            # Reconnects to spend when the SSH session dies mid-command.
+            # Defaults to 0 here: the command is whatever the YAML names, and a
+            # dropped session leaves it unknown whether that command already
+            # ran. Raise it only for a command that is safe to run twice.
+            transportRetries: { type: integer, minimum: 0, maximum: 10 }
+
+      - if: { properties: { action: { const: sshFetchAndExecute } } }
+        then:
+          required: [command]
+          properties:
+            command:        { type: string }
+            timeoutSeconds: { type: integer, minimum: 0 }
+            # As above, and likewise 0 by default: "re-runnable across cycles"
+            # is not "re-runnable against state this run already changed". Set
+            # it on a step whose script provisions; leave it off on one that
+            # seeds records and asserts over them. Only consulted when the step
+            # is NOT detached -- a detached step re-attaches instead of
+            # re-running, which needs no such judgment.
+            transportRetries: { type: integer, minimum: 0, maximum: 10 }
+            # Run the payload under the guest-side supervisor so it outlives the
+            # ssh session, and make a reconnect re-attach to it from the last
+            # line already received. Defaults to TRUE for this verb: the payload
+            # is a fetched script, the session is the fragile part, and attaching
+            # is sound even for a payload that could not be re-run. Set false to
+            # go back to a plain session for a step where the supervisor is the
+            # problem rather than the fix.
+            detach: { type: boolean }
+
+      - if: { properties: { action: { const: sshWaitReady } } }
+        then:
+          properties:
+            timeoutSeconds:           { type: integer, minimum: 0 }
+            pollSeconds:              { type: integer, minimum: 1 }
+            installerFailurePatterns: { $ref: "#/$defs/patternOrArray" }
+
+      - if: { properties: { action: { const: startVm } } }
+        then:
+          properties:
+            timeoutSeconds: { type: integer, minimum: 1 }
+            arm64HyperVProcessorCount: { type: [integer, string] }
+
+      - if: { properties: { action: { const: tapOn } } }
+        then:
+          required: [label]
+          properties:
+            label:          { $ref: "#/$defs/patternOrArray" }
+            timeoutSeconds: { type: integer, minimum: 0 }
+            pollSeconds:    { type: integer, minimum: 1 }
+            offsetX:        { type: integer }
+            offsetY:        { type: integer }
+
+      - if: { properties: { action: { const: waitForAndEnter } } }
+        then:
+          required: [pattern, text]
+          properties:
+            pattern:             { $ref: "#/$defs/patternOrArray" }
+            text:                { type: string }
+            timeoutSeconds:      { type: integer, minimum: 0 }
+            pollSeconds:         { type: integer, minimum: 1 }
+            freshMatch:          { type: boolean }
+            freshMatchTailLines: { type: integer, minimum: 0 }
+            noSegmentMatch:      { type: boolean, default: false }
+            sinceStepStart:      { type: boolean }
+            failurePatterns:     { $ref: "#/$defs/patternOrArray" }
+            sensitive:           { type: boolean }
+            tabCount:            { type: integer, minimum: 0 }
+            charDelayMs:         { type: integer, minimum: 0 }
+            delaySeconds:        { type: number,  minimum: 0 }
+            blindAfterSeconds:   { type: integer, minimum: 0 }
+            blindSkipPattern:    { $ref: "#/$defs/patternOrArray" }
+            skipInputPattern:    { $ref: "#/$defs/patternOrArray" }
+            confirmPattern:      { $ref: "#/$defs/patternOrArray" }
+            confirmSeconds:      { type: integer, minimum: 0 }
+
+      - if: { properties: { action: { const: waitForSeconds } } }
+        then:
+          required: [seconds]
+          properties:
+            seconds: { type: integer, minimum: 0 }
+
+      - if: { properties: { action: { const: waitForText } } }
+        then:
+          required: [pattern]
+          properties:
+            pattern:             { $ref: "#/$defs/patternOrArray" }
+            timeoutSeconds:      { type: integer, minimum: 0 }
+            pollSeconds:         { type: integer, minimum: 1 }
+            freshMatch:          { type: boolean }
+            freshMatchTailLines: { type: integer, minimum: 0 }
+            noSegmentMatch:      { type: boolean, default: false }
+            sinceStepStart:      { type: boolean }
+            failurePatterns:     { $ref: "#/$defs/patternOrArray" }
+
+      - if: { properties: { action: { const: waitForTextWithNudge } } }
+        then:
+          required: [pattern, nudgeKey, nudgeIntervalSeconds]
+          properties:
+            pattern:             { $ref: "#/$defs/patternOrArray" }
+            timeoutSeconds:      { type: integer, minimum: 0 }
+            pollSeconds:         { type: integer, minimum: 1 }
+            freshMatch:          { type: boolean }
+            freshMatchTailLines: { type: integer, minimum: 0 }
+            noSegmentMatch:      { type: boolean, default: false }
+            sinceStepStart:      { type: boolean }
+            failurePatterns:     { $ref: "#/$defs/patternOrArray" }
+            nudgeKey:
+              type: string
+              enum: [Enter, Tab, Space, Escape, Up, Down, Left, Right,
+                     F1, F2, F3, F4, F5, F6, F7, F8, F9, F10, F11, F12]
+            nudgeIntervalSeconds: { type: integer, minimum: 1 }
+
+  patternOrArray:
+    description: A single OCR pattern, or an array of candidate patterns.
+    oneOf:
+      - type: string
+      - type: array
+        minItems: 1
+        items: { type: string }

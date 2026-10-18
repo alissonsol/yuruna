@@ -1,0 +1,279 @@
+<a id="42a76c30-0001"></a>
+
+# Kubernetes Deployment
+
+Deploy containerized applications to Kubernetes across localhost, Azure,
+and AWS with a single workflow (GCP is planned, not yet available). Write
+the configuration once; switch target clouds by changing a parameter.
+
+See [Yuruna Architecture](architecture.md) for the three-phase model
+(Resources->Components->Workloads), the CLI entry points, and the project
+layout. This doc is the user-facing quick start for Kubernetes.
+
+Prerequisites are in [Preflight dependencies](operator.md#b2-preflight-dependencies).
+
+<a id="42a76c30-0002"></a>
+
+## Quick Start (Localhost)
+
+Deploy the sample `.NET` website to Docker Desktop Kubernetes. No cloud
+account required.
+
+```
+git clone https://github.com/alissonsol/yuruna.git
+cd yuruna
+./Add-AutomationToPath.ps1
+```
+
+Create the HTTPS dev certificate. The `k8s` workloads of the Ubuntu Server and
+Windows 11 guests do this automatically: they export `~/.aspnet/https/aspnetapp.pfx`
+under a random password (32 bytes as 64 hex characters) and keep that password in
+`aspnetapp.pfx.password` beside it, readable by its owner only. The examples read the
+password from `ASPNETCORE_Kestrel__Certificates__Default__Password` when that variable
+is set and from the file otherwise, so a guest needs no variable. No fixed password
+remains: a PFX with no password file (for example, one exported under a fixed
+password) must be replaced, so run the `k8s` workload again. On your own machine:
+
+```
+$pfxDir = Join-Path $HOME ".aspnet/https"
+if (!(Test-Path $pfxDir)) { New-Item -ItemType Directory -Path $pfxDir -Force | Out-Null }
+# The password lives in this shell only, in the variable the deployment step reads
+# to open the file. It is never written to the repository or an image.
+$env:ASPNETCORE_Kestrel__Certificates__Default__Password = [Convert]::ToHexString([Security.Cryptography.RandomNumberGenerator]::GetBytes(16))
+openssl req -x509 -newkey rsa:4096 -keyout "$pfxDir/aspnetapp.key" -out "$pfxDir/aspnetapp.crt" -days 365 -nodes -subj '/CN=localhost' 2>$null
+openssl pkcs12 -export -out "$pfxDir/aspnetapp.pfx" -inkey "$pfxDir/aspnetapp.key" -in "$pfxDir/aspnetapp.crt" -passout env:ASPNETCORE_Kestrel__Certificates__Default__Password
+Remove-Item "$pfxDir/aspnetapp.key", "$pfxDir/aspnetapp.crt" -Force
+```
+
+Keep that variable set in the shell that runs the deploy commands below, or save
+the password once in `$pfxDir/aspnetapp.pfx.password` (one line) and leave the variable
+unset. The images carry no certificate: the workload step opens this file with the
+password, re-protects the certificate under a new random password inside a
+Kubernetes Secret, and the pod mounts the Secret. Automation with no developer
+certificate sets `YURUNA_EXAMPLE_SELF_SIGNED_CERT=1` instead and the step
+issues a throwaway certificate.
+
+Deploy:
+
+```
+cd project/example
+Set-Resource.ps1  website localhost -logLevel Debug
+Test-Runtime.ps1
+Set-Component.ps1 website localhost -logLevel Debug
+Set-Workload.ps1  website localhost -logLevel Debug
+```
+
+`Set-Workload.ps1` prints the URL.
+
+<a id="42a76c30-0003"></a>
+
+## Cloud Deployment
+
+Authenticate once, then swap `localhost` for your cloud:
+
+```
+# Azure
+az login --use-device-code
+az account set --subscription <your-subscription-id>
+Set-Resource.ps1 website azure; Set-Component.ps1 website azure; Set-Workload.ps1 website azure
+
+# AWS
+aws configure
+Set-Resource.ps1 website aws;   Set-Component.ps1 website aws;   Set-Workload.ps1 website aws
+
+# GCP (planned, not yet available)
+gcloud auth application-default login
+Set-Resource.ps1 website gcp;   Set-Component.ps1 website gcp;   Set-Workload.ps1 website gcp
+```
+
+<a id="42a76c30-0004"></a>
+
+### Control-plane access hardening (required for EKS / AKS)
+
+The managed clusters restrict their Kubernetes API server to an explicit
+CIDR allow-list instead of exposing it to the whole internet, so an EKS or
+AKS deployment **requires** `apiServerAuthorizedCidrs` in your
+`resources.yml` `globalVariables`:
+
+```yaml
+globalVariables:
+  # Comma-separated CIDR allow-list for the cluster API server. MUST include
+  # the machine running Set-Workload (its public egress IP as a /32) or the
+  # first kubectl/helm call is locked out. Add admin / VPN ranges as needed.
+  apiServerAuthorizedCidrs: "203.0.113.5/32,198.51.100.0/24"
+```
+
+It wires to EKS `endpoint_public_access_cidrs` and AKS
+`api_server_access_profile.authorized_ip_ranges`. There is **no default** --
+omitting it fails at `tofu plan` (fail-closed) rather than silently exposing
+`0.0.0.0/0`. EKS keeps private endpoint access on for in-VPC node/pod
+traffic; the external `kubectl`/`helm` deploy uses the allow-list. For a
+fully private control plane, set EKS `endpoint_public_access = false` / AKS
+`private_cluster_enabled = true` and run the deploy from a VPN or in-VPC/VNet
+host.
+
+The EKS module ships no `cluster-admin`-bound dashboard `admin-user`
+ServiceAccount: the deploy identity already has cluster admin
+(`enable_cluster_creator_admin_permissions`). If you want the Kubernetes
+dashboard, grant a scoped role and mint a short-lived token on demand
+(`kubectl create token`) rather than leaving a standing cluster-admin
+secret in the cluster.
+
+Details, service accounts, and API enablement: [Yuruna Authentication ...](authentication.md).
+
+<a id="42a76c30-0005"></a>
+
+## Cleaning up cloud resources
+
+**These instructions will destroy resources.** Enter the correct parameters.
+Cloud resources incur charges, so always clear what you are not using.
+
+<a id="42a76c30-0006"></a>
+
+### Cleaning up automatically
+
+Clear the resources for a given configuration:
+
+```
+Invoke-Clear.ps1 [project_root] [config_subfolder]
+```
+
+Clearing the `website` project in the `azure` cloud (assuming the
+[Yuruna Authentication ...](authentication.md) steps were followed):
+
+```
+Invoke-Clear.ps1 website azure
+```
+
+You can also delete resources directly from the folder holding the initial
+deployment files (`.yuruna/$config_subfolder/resources/$resourceName` -- e.g.
+`.yuruna/azure/resources/website-cluster` for `Invoke-Clear.ps1 website azure`):
+
+```
+tofu destroy -auto-approve -refresh=false
+```
+
+This needs the created `.terraform` folder to still be available; without it you
+will see `0 destroyed` -- follow the manual cleanup below instead.
+
+Don't forget to delete the cluster context from `[user]/.kube/config`. The
+[Visual Studio Code](https://code.visualstudio.com/)
+[Kubernetes extension](https://marketplace.visualstudio.com/items?itemName=ms-kubernetes-tools.vscode-kubernetes-tools)
+or [`kubectl`](https://kubernetes.io/docs/reference/generated/kubectl/kubectl-commands#-em-delete-context-em-)
+can both do this.
+
+<a id="42a76c30-0007"></a>
+
+### Manual cleanup per cloud
+
+- **AWS** -- from the [AWS Management Console](https://console.aws.amazon.com/),
+  delete clusters, registries, VPCs, IPs and other resources.
+- **Azure** -- from the [Azure Portal](https://portal.azure.com), delete the
+  Azure Resource Groups created; deleting a resource group deletes all
+  associated resources. There is a global resource for registry and clusters,
+  and each Kubernetes cluster has a corresponding AKS node resource group
+  (see [AKS FAQ](https://learn.microsoft.com/en-us/azure/aks/faq)) named with
+  the suffix `_nodes`.
+- **GCP** -- from the [GCP Console](https://console.cloud.google.com/), delete any
+  resources previously created.
+
+<a id="42a76c30-0008"></a>
+
+## Guest-side prerequisites
+
+The guest workloads install the common local-cluster toolchain: Git, Docker,
+Kubernetes, PowerShell, Helm, OpenTofu, and mkcert. They also create the HTTPS
+development certificate and its password file, as described in the quick start.
+Windows additionally installs Graphviz and the Azure, AWS, and Google Cloud CLIs.
+Ubuntu intentionally omits those optional tools: cloud CLIs are needed only by
+examples that deploy to a cloud, Graphviz is recommended rather than required,
+and installing the full set adds substantial transfer and setup cost while some
+vendor packages remain unavailable on ARM64. Add them through an explicit
+opt-in workload when a guest needs them instead of slowing every local-cluster
+image build. See
+[Preflight dependencies](operator.md#b2-preflight-dependencies). Guest workload
+pattern: [Yuruna Architecture](architecture.md). The fetcher requires the
+script's expected SHA-256 as `E_SHA` in front of the Linux commands below; see
+[Supplying the digest by hand](../guest/README.md#supplying-the-digest-by-hand).
+
+| Guest | Command |
+|---|---|
+| **Ubuntu Server 24.04** | `E_SHA=<sha256> /usr/local/lib/yuruna/fetch-and-execute.sh guest/ubuntu.server.24/ubuntu.server.24.k8s.sh` |
+| **Ubuntu Server 26.04** | `E_SHA=<sha256> /usr/local/lib/yuruna/fetch-and-execute.sh guest/ubuntu.server.26/ubuntu.server.26.k8s.sh` |
+| **Windows 11** | `irm ".../guest/windows.11/windows.11.k8s.ps1$nc" \| iex` (see [Windows 11 ...](../guest/windows.11/README.md)) |
+
+**Ubuntu -- optional after:** change hostname with
+`sudo hostnamectl set-hostname <name>`; a terminal restart may be
+needed for new group permissions.
+
+<a id="42a76c30-0009"></a>
+
+### Verify
+
+```
+docker images
+docker ps -a
+kubectl get nodes
+kubectl get pods -A
+kubectl config current-context
+```
+
+<a id="42a76c30-000a"></a>
+
+## Test-sequence notes
+
+<a id="42a76c30-000b"></a>
+
+### Why the website readiness check waits on Deployment availability, not Endpoints
+
+The website workload script ends by waiting on **Deployment availability**,
+not Endpoints addresses, before the GUI test step that follows:
+
+```
+kubectl wait --for=condition=available deployment/website -n website --timeout=240s
+```
+
+Checking `endpoints/website-service` would be wrong on two counts:
+
+1. **Wrong name.** The helm chart's Service is `website`, not
+   `website-service` -- that name is on the standalone manifest in
+   `components/frontend/website/` used for ad-hoc `kubectl apply`, not
+   in-cluster.
+2. **Wrong signal.** It reported `NotFound` instantly when the
+   Deployment was 0/1 ready, masking the real fault (a pod Evicted by
+   ephemeral-storage pressure, its replacement stuck on the
+   disk-pressure taint).
+
+`--for=condition=available` blocks on the `Deployment.status.conditions`
+readiness signal, so the test waits the full 240 s and the diagnostic
+captures a useful pod state.
+
+<a id="42a76c30-000c"></a>
+
+### Reclaim build-cache disk before deploy
+
+The dotnet SDK build leaves ~1.3 GiB in `docker buildx prune` territory
+and another ~0.5 GiB of dangling intermediate images. On a 14 GiB node
+disk that was enough to trip kubelet's 85% ephemeral-storage watermark,
+get the workload + nginx-ingress pods Evicted, and leave their
+replacements stuck on the disk-pressure taint. The workload scripts
+prune both caches before the cluster deploys; failure there is
+non-fatal -- only the side effect matters.
+
+<a id="42a76c30-000d"></a>
+
+## See also
+
+- [Yuruna Architecture](architecture.md#cli-entry-points) -- CLI reference for the three phases
+- [Yuruna Workarounds and FAQ](workarounds.md)
+- [Yuruna Website example](https://github.com/alissonsol/yuruna-project/tree/main/example/website), [Further reading](README.md#further-reading)
+
+---
+
+LICENSEURI https://yuruna.link/license
+
+Copyright (c) 2019-2026 by Alisson Sol et al.
+
+Last review: 2026.10.14
+
+Back to [Yuruna](../README.md)

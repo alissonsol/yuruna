@@ -1,0 +1,64 @@
+# Amazon Linux 2023 guest on Ubuntu KVM host
+
+> Common setup pattern: see [Guest Image Setup](../../../docs/guest-image-setup.md).
+> This file documents only what's HOST/GUEST-specific.
+
+Boots the AL2023 KVM cloud image (`kvm` on x86_64, `kvm-arm64` on
+aarch64) with a cloud-init NoCloud seed.
+
+Cross-host concepts: [Hosts -- ...](../../README.md).
+
+## One-time
+
+From `yuruna/host/ubuntu.kvm/guest.amazon.linux.2023`:
+
+```
+pwsh ./Get-Image.ps1                        # download / refresh base image
+```
+
+## For each VM
+
+```
+pwsh ./New-VM.ps1                           # default name: amazon-linux01
+pwsh ./New-VM.ps1 -VMName myhost            # custom name
+```
+
+`New-VM.ps1` clones the qcow2 cloud image as a backing-file disk under
+`~/yuruna/vms/<vmname>/`, builds a NoCloud seed ISO from `vmconfig/`,
+and defines the VM via `virt-install --import` against `qemu:///system`.
+
+## Defaults
+
+| Knob | Default |
+|------|---------|
+| Name | `amazon-linux01` |
+| RAM  | 4 GiB |
+| vCPU | min(host threads - 1, max(2, host threads / 2)) |
+| Disk | max(base virtual size, 16 GiB) qcow2 backed by base |
+| User | `yauser1` (test sequence target, see [test/sequences/start.guest.amazon.linux.2023.yml](../../../test/sequences/start.guest.amazon.linux.2023.yml)) and `ec2-user` (cloud-image default; SSH key-auth) |
+| Net  | libvirt `default` (NAT 192.168.122.0/24) |
+
+The password is managed by the authentication extension (per-cycle vault.yml at `test/status/extension/authentication/vault.yml`, code under [test/extension/authentication/](../../../test/extension/authentication/));
+cloud-init's chpasswd default `expire: true` triggers the
+Current/New/Retype rotation on first console login.
+
+## Reaching the guest
+
+```
+virsh -c qemu:///system domifaddr <vmname>
+ssh -i ../../../test/status/ssh/yuruna_ed25519 yauser1@<ip>
+```
+
+## Next
+
+[Amazon Linux 2023 workloads](../../../guest/amazon.linux.2023/README.md)
+
+---
+
+LICENSEURI https://yuruna.link/license
+
+Copyright (c) 2019-2026 by Alisson Sol et al.
+
+Last review: 2026.10.14
+
+Back to [Yuruna](../../../README.md)

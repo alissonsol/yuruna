@@ -1,0 +1,657 @@
+<a id="4268e4cb-0001"></a>
+
+# Yuruna download-agent service -- one download for the whole lab
+
+> **Who this is for.** An operator running Yuruna test hosts against a shared
+> pool NAS who is tired of every host pulling the same multi-gigabyte ISO from
+> the internet. It is not a guide to writing test sequences. It assumes the
+> **pool storage tier is already configured** (`networkStorage.pool*` in
+> `test/test.config.yml`); without a share there is nowhere for the image pool to
+> live and the service is skipped.
+
+<a id="4268e4cb-0002"></a>
+
+## What it is
+
+The **download-agent service** is an extension service VM
+(`yuruna-download-agent-service`) that owns a **Download pool** on the pool
+share. It resolves each guest image the way the host scripts do, downloads it
+once, verifies the publisher checksum, stores it under a content-addressed
+generation name, and serves the bytes over HTTP with `Range` support. A
+background scanner re-checks each image against its origin on a schedule so the
+pool never drifts silently out of date, and an embedded web UI shows what the
+pool holds and what it costs in disk, and can force a refresh, a delete, or a
+prune.
+
+Three properties shape everything else:
+
+- **Degrade, never fail.** The agent is an optimization. A host that cannot
+  reach it, an agent whose pool share is unmounted, an origin that is down: each
+  falls back to the behavior of a lab with no agent. Nothing about the agent can
+  fail a test cycle.
+- **Reads are open, writes are gated.** The UI, the catalog, the metadata, the
+  bytes, and `/healthz` answer any client on the trusted LAN. Refresh, delete,
+  and prune require the dashboard's rotating Lab token or the internal authentication key.
+- **The pool is the durable part.** The VM is disposable -- stopping the service
+  destroys it, and starting it rebuilds from the base image. Everything
+  downloaded lives on the pool share and is adopted again by the rebuilt agent.
+
+Every host-side `Get-Image.ps1` asks the agent before it contacts a publisher --
+the Ubuntu Server ISOs, the shared extension cloud image, Amazon Linux 2023,
+virtio-win, and (best effort) the Windows 11 media. What each script does with
+the answer is in
+[guest-image-setup.md](guest-image-setup.md#agent-first-image-downloads): a host
+holding the current artifact stops immediately, a host that needs bytes takes
+them from the LAN, and anything else falls back to the publisher path with the
+same output and exit codes as a lab that runs no agent.
+
+The Go daemon (image pool over the pool share, freshness scanner,
+single-flight downloads, embedded web UI) lives under
+[`server/`](../test/extension/download-agent-service/server/) inside the
+extension. The extension's own `default.psm1` exposes the host-side cmdlet
+vocabulary shared across extension areas: `Get-DownloadAgentServiceInfo`
+returns the uniform status hashtable, currently a stub whose flags stay
+`$false` until host-side status probing against a running agent VM is wired
+up; `Test-DownloadAgentServiceHost` is the reachability pre-flight a caller
+runs *before* committing to an agent address, so an unreachable agent
+surfaces up front rather than in the middle of a multi-gigabyte fetch.
+
+<a id="4268e4cb-0003"></a>
+
+## Activating it
+
+With pool storage configured, `install/setup.ps1` runs the agent's stop/start
+pair by default in **Lab** mode. A **Standalone** host can start it by hand or
+set `downloadAgentService.enabled: true`.
+The step is non-critical -- a failed agent build never fails setup.
+
+To bring it up or rebuild it by hand:
+
+```powershell
+pwsh test/service/Start-DownloadAgentServiceVM.ps1 [-VMName yuruna-download-agent-service]
+pwsh test/service/Stop-DownloadAgentServiceVM.ps1   # tears the VM down; the pool is untouched
+```
+
+`Start-DownloadAgentServiceVM.ps1`, in order:
+
+1. **Gates on the pool credential.** A NAS user with no *stored* password is a
+   hard stop before anything is built: a mapped-but-unstored vault key would
+   make the guest seed bake an auto-generated value the NAS rejects
+   (`cifs mount error(13)`), and the VM would come up serving an empty pool. A
+   credential that is stored but does not authenticate is a warning only -- the
+   daemon runs fine against an offline share, reporting `poolAvailable:false`.
+2. **Starts the host status service first.** The guest fetches the framework
+   archive from `http://<host>:<port>/yuruna-archive.tar.gz` minutes into its
+   first boot.
+3. **Delegates to `host/<platform>/guest.download-agent-service/New-VM.ps1`**,
+   which builds the seed and the VM. The Go daemon is compiled **inside** the
+   guest -- no host `go` toolchain is needed.
+4. **Waits for `:80` to actually serve**, up to 45 minutes. An IP is not "up":
+   the guest still has to install the toolchain, build the daemon, and mount the
+   share. Override the budget with
+   `YURUNA_DOWNLOAD_AGENT_SERVICE_READY_TIMEOUT_SECONDS=<seconds>` -- useful for
+   a quick re-check of a VM that is already running.
+5. **Publishes the marker with the readiness verdict**, then refreshes the host
+   registration so the dashboard picks it up within one aggregator poll.
+
+On Windows the script needs an elevated session (Hyper-V VM creation), and says
+so before it changes anything.
+
+If `:80` never comes up, the script SSHes into the guest with the harness key and
+prints `cloud-init status`, the unit's journal, the listener table, the pool
+mount state, and the tail of `/var/log/cloud-init-output.log` -- so a failed build
+shows the reason instead of a dead URL.
+
+<a id="4268e4cb-0004"></a>
+
+## The Download pool
+
+Everything lives under the pool share:
+
+```
+<pool root>/
+  images/
+    .agent-lease.json                      single-writer lease
+    <hostType>/<imageKey>/
+      current.<arch>.<variant>.json        pointer -- written LAST
+      <upstreamFilename>.<sha256[:12]>            generation artifact
+      <upstreamFilename>.<sha256[:12]>.meta.json  its sidecar
+      <older generation> + sidecar                one previous, retained
+      .staging/                            agent-private, swept on every scan
+      manual/<arch>.<variant>/             drop a hand-downloaded artifact here
+  download-agent-service/
+    audit.jsonl                            one line per unlock and mutation
+    status.json                            last snapshot
+```
+
+- `<hostType>` is `windows.hyper-v`, `ubuntu.kvm`, or `macos.utm`.
+- `<imageKey>` is the guest folder name (`guest.ubuntu.server.24`,
+  `guest.ubuntu.server.26`, `guest.amazon.linux.2023`, `guest.windows.11`),
+  except the extension service guests, which share one pooled artifact under
+  `ubuntu.extension.26`, and auxiliary artifacts, which get a key of their own
+  (`virtio-win`).
+- The full identity of one entry is `(hostType, imageKey, arch, variant)`, with
+  `arch` in `amd64|arm64` and `variant` in `stable|daily`. `variant` names the
+  *requested preference*, so two preferences that resolve to the same artifact
+  keep separate pointers.
+
+**Why generation names instead of plain upstream filenames.** Several families
+publish a fixed filename whose content changes (the cloud image, daily ISOs).
+With plain names, promoting a new download would rename over the previous
+generation -- destroying retention -- and over a file the daemon may be
+streaming to a host, which SMB does not do atomically. With
+generations, a refresh writes into `.staging/`, verifies, renames into place,
+writes the sidecar, and only then replaces the tiny pointer file. A reader
+already streaming keeps its handle on the old generation. Content addressing
+also gives free dedup: a re-download whose hash matches an existing generation
+just re-stamps freshness and rewrites the pointer.
+
+**Retention** is the pointer's generation plus one previous, per identity. The
+`manual/` folders are outside it: they hold nothing the agent put there, and a
+file waiting in one is adopted rather than swept.
+
+**The lease.** Nothing stops two machines sharing one NAS from each running an
+agent, so the agents keep a lease at `images/.agent-lease.json`,
+renewed every scan and considered expired after three scan intervals. An agent
+that finds a live lease held by someone else enters **read-only mode**: it still
+serves committed generations and answers metadata, but defers downloads to the
+holder and reports `leaseHolder` in its status. Correctness never depends on the
+lease -- generation-addressed storage makes concurrent writers safe on its own;
+the lease only makes duplicate work rare.
+
+**Operational state** -- `audit.jsonl` (one line per unlock and pool
+mutation) and `status.json` (last action, counters, health, heartbeat) --
+survives a service restart because both live on the pool share rather than
+inside the disposable VM. When no state directory is configured the store is
+an inert no-op, so unit tests and a pool-less bring-up run without a NAS. A
+write failure there is recorded in the status's health field and never blocks
+the mutation itself: losing the audit trail is strictly better than refusing
+to serve images because the share went read-only. Internally the store holds
+two separate locks rather than one: the mutex guarding the in-memory snapshot
+is never held across a file operation, because `/healthz` reads that snapshot
+and the launcher polls `/healthz` to decide the daemon is up -- a lock held
+across a CIFS write to a hung NAS would hang the one endpoint whose entire
+purpose is to keep answering while the share is sick. A second lock
+serializes the writes themselves.
+
+<a id="4268e4cb-0005"></a>
+
+## Freshness and the scanner
+
+An image is **fresh** for `freshnessSeconds` after its `lastVerifiedAt`, which is
+stamped whenever a direct origin probe matches the stored metadata (filename,
+URL, `Content-Length`, `Last-Modified` -- the same four fields the host-side
+skip-guard compares). Every `scanIntervalSeconds` the agent walks the pool and
+acts on anything whose freshness expires within `prefetchLeadSeconds`:
+
+- **Probe matches** -> `lastVerifiedAt` is bumped. No bytes move. This is the
+  common case, and nearly free.
+- **Probe differs** (new point release, changed length) -> a single-flight
+  download runs, the checksum is verified, a new generation is written, and the
+  pointer flips. If it fails, the **previous verified artifact stays servable**
+  and the next scan retries.
+- **Origin unreachable** -> nothing is stamped. The pool serves stale rather than
+  certifying staleness as freshness.
+
+Two caching-proxy-service rules are load-bearing and easy to get backward:
+
+| Traffic | Path | Why |
+|---|---|---|
+| Byte downloads | Squid first (`:3128` / ssl-bump `:3129`), direct on any proxy failure including the offline-mode `504` | The bytes are exactly what a cache is for |
+| Freshness probes and resolver fetches | **always direct** | The proxy pins `.iso`/`.zip` with `override-expire override-lastmod` and runs `offline_mode` after prewarm. A proxied `HEAD` returns frozen prewarm-era headers as a success, which would certify staleness as freshness forever |
+
+**Seeding.** Content enters the pool three ways. With `autoSeed` on (the
+default), each scan reads the pool aggregator's host roster, derives the host
+types present, and pre-downloads the stable families for **every architecture
+each host type can run** -- UTM is Apple Silicon, Hyper-V and KVM ship on both,
+and the roster carries no arch field to narrow it by -- at most two seed
+downloads at a time so seeding never starves an interactive request. Beyond
+that, a host's first request creates an entry on demand, and the UI's Force
+refresh creates one manually. Hosts the aggregator has no status for are covered
+on demand -- never an error.
+
+Seeding both architectures costs one extra copy per stable family on the two
+both-arch host types, and it is what keeps an ARM64 Hyper-V or KVM host
+addressable at all. An architecture left out of the scan gets no catalog row, no
+seed and no drop folder, leaving only the on-demand path -- which has to resolve
+the family before it can create anything. For a best-effort family whose
+resolver is down that is a closed loop: the request answers `unsupported`
+because there is no entry, and the entry can never be created because the
+resolver cannot run.
+
+`guest.windows.11` and `virtio-win` are never seeded: a best-effort family
+should not spend seed bandwidth, and virtio-win is wanted only by hosts that
+build a Windows guest. They still get a catalog row -- and Windows 11 a drop
+folder -- for each architecture, which costs nothing until an operator fills it.
+virtio-win is the exception that stays x86-64 only, because the bundle carries
+no ARM64 drivers to offer.
+
+<a id="4268e4cb-0006"></a>
+
+## Windows 11: a best-effort family, and what it is worth
+
+Microsoft publishes no fetchable URL for the Windows 11 media. The page mints a
+short-lived signed one per visit, which is why every `guest.windows.11`
+`Get-Image.ps1` either drives **Fido** (a PowerShell script that asks for that
+URL the way the page does) or, on KVM, gives up and prints manual instructions.
+
+The agent does the same centrally: its VM installs PowerShell and vendors Fido --
+the same tagged release, verified against the same SHA-256, that the host scripts
+pin -- and the daemon runs it to mint a URL and download once for the lab.
+
+Best effort means exactly that:
+
+- **Fido is a Windows-oriented script that refuses other platforms outright**
+  ("This feature is not available on this platform.", exit 403 -- which the OS
+  reports as 147). The agent VM's cloud-init therefore disables that platform
+  gate after verifying the pinned hash; the request flow behind the gate is
+  plain web requests and works under Linux pwsh, but nothing guarantees it
+  survives a Microsoft page change. The [Diagnostics page](#diagnostics)'s
+  resolver test is how you prove the whole chain on a live agent.
+- **The minted URL is short-lived**, so the daemon has to download immediately
+  on resolve; there is no stored URL to re-check later. Freshness for this one
+  family therefore compares filename and size only, never the URL -- every
+  resolve produces a different one.
+- **PowerShell and Fido are both best-effort installs.** Either can be missing
+  after a build. The cloud-init log says which state the VM is in --
+  look for the `Windows 11 family ENABLED` or `Windows 11 family UNAVAILABLE`
+  line in `/var/log/cloud-init-output.log`.
+- **Microsoft can simply refuse.** A resolve costs one session on their front
+  end, and a session it considers too chatty for the address it came from is
+  rejected outright: Fido prints `Error: Sentinel marked this request as
+  rejected.` and exits 3. Nothing about that is retryable within the minute, so
+  the agent spends as few sessions as it can -- **one resolve per architecture at
+  a time, shared by every host type's row**, with a minted URL reused for half an
+  hour and a refusal answering the other rows for five minutes instead of each
+  of them earning its own. Without that, one scan pass asks three times within
+  seconds from a single address, and the rows that lose the race are the ones
+  that come back rejected.
+
+When any of that fails, the agent reports the family **absent** and the hosts
+silently do what they always do: Hyper-V and UTM run Fido themselves, KVM asks
+for a manual download. An agent that does not hold Windows media is an
+ordinary state, not a fault -- nothing regresses, and nothing warns.
+
+<a id="4268e4cb-0007"></a>
+
+### When the resolver is refused: the drop folder
+
+A refusal is not a dead end -- a person with a browser is never refused -- so the
+Windows row stops showing a failure nobody can act on and shows the way around
+it instead: *visit **this page**, select these options, copy the downloaded file
+into **this folder***, with the page and the folder as links. The choices and the
+page are the same ones the host `Get-Image.ps1` scripts print, per architecture,
+so whichever surface sent you there you fetch the artifact the pool would have
+held anyway. The raw resolver error stays available: it is the line's tooltip,
+and the [Diagnostics page](#diagnostics) keeps the whole capture.
+
+The folder is `images/<hostType>/guest.windows.11/manual/<arch>.<variant>/` on
+the pool share -- one per architecture that host type can run, so an ARM64
+Hyper-V host has somewhere to be handed its media even though the amd64 row is
+the one an x86-64 host reads. The agent creates it as soon as the family goes
+unavailable, and
+the UI names it as the share path -- `//nas/share/...`, what your file manager
+opens -- when the daemon was given `--pool-network-path`, which the guest seed
+fills in from the pool config; otherwise it names its own mount point.
+
+What happens next needs no button. Within one scan the agent notices the file,
+waits until it has stopped growing (a copy in progress must not be published as
+a whole ISO), hashes it, moves it in under the usual generation name, writes the
+sidecar and flips the pointer. From that moment it is an ordinary pool entry:
+served to every host over the LAN, counted in the totals, deletable and
+prunable. Its `checksumVerdict` is `none` and its `sourceUrl` is the page it came
+from -- the agent proves nothing about bytes it did not download, and says so.
+
+Only best-effort families adopt this way. A family with a working resolver would
+have its hand-placed copy replaced by the next scan, silently, so the drop is
+refused rather than quietly undone.
+
+**The gain, when it works, is real but uneven.** On Hyper-V and UTM it saves a
+repeated multi-gigabyte pull. On **KVM it is a new capability**: that script has
+never had an automated path -- it exits non-zero with instructions until an
+operator drops an ISO in place -- so a pool holding the media turns a manual step
+into an unattended one.
+
+**virtio-win is not best effort.** The KVM Windows guest also needs Fedora's
+signed driver ISO: a plain pinned URL the agent resolves like any other family,
+seeded on demand and served from the pool like the Ubuntu images.
+
+**These are build-time additions to the agent VM.** An agent VM built before
+them has no PowerShell and no Fido; rebuild it (`Stop-` then
+`Start-DownloadAgentServiceVM.ps1`, which is what a setup re-run does anyway) to
+pick them up.
+
+<a id="4268e4cb-0008"></a>
+
+## The web UI
+
+The daemon serves a single-page UI at `/`, reachable from the Extension hosts
+table's deep-link or directly at the base URL the marker publishes. Reads are
+open on the LAN; the page polls the same `GET /api/v1/images` that automation
+uses, so the UI has no private endpoints.
+
+<a id="4268e4cb-0009"></a>
+
+### The per-image API
+
+Beyond the pool-wide `GET /api/v1/images` above, every image is addressable on
+its own by the `{hostType}/{imageKey}` pair the pool catalog names it with:
+
+| Method | Path | Auth | Purpose |
+|---|---|---|---|
+| GET | `/api/v1/status` | none | agent-level state: pool availability, lease holder, scanner cadence, last and next scan |
+| GET | `/api/v1/images/{hostType}/{imageKey}` | none | one image's catalog entry -- its generations, freshness and current verdict |
+| GET | `/api/v1/images/{hostType}/{imageKey}/file/{generation}` | none | the artifact bytes for one generation, which is how a host fetches an image rather than downloading it from upstream |
+| POST | `/api/v1/images/{hostType}/{imageKey}/ensure` | none | make sure this generation is present, downloading it if it is not. **Deliberately ungated**: it is the call a host makes for itself on the read path, and gating it would mean a host could not fetch an image without an operator credential. It creates no new artifact an unauthenticated caller could not already request |
+| POST | `/api/v1/images/{hostType}/{imageKey}/refresh` | lab-token | re-check this one image upstream now |
+| POST | `/api/v1/images/{hostType}/{imageKey}/delete` | lab-token | delete a generation |
+| POST | `/api/v1/images/{hostType}/{imageKey}/prune` | lab-token | drop the superseded generations of this image |
+
+`POST /api/v1/refresh` (below) is the pool-wide counterpart to the per-image
+`refresh`, and is the one route gated by the shared **bearer** token rather
+than a UI session -- it is meant for automation, not a button.
+
+<a id="4268e4cb-000a"></a>
+
+### What you can see
+
+**Agent header** -- daemon version; pool availability; lease state (holder, or
+read-only when another agent holds it); scanner cadence with last and next scan
+time; auto-seed status and the last seed outcome.
+
+**One row per `(hostType, imageKey, arch, variant)`:**
+
+| Field | What it tells you |
+|---|---|
+| State badge | `fresh`, `stale`, `downloading`, `failed`, `absent` |
+| Upstream filename | The current generation's real name, as published |
+| Size on disk | Current plus previous generation -- what this row costs |
+| `lastVerifiedAt` + time to expiry | When the origin last confirmed these bytes, and when the scanner will look again |
+| `checksumVerdict` | `verified` (publisher checksum matched), `unpublished` (family publishes none), `none` |
+| `sourceUrl` / `downloadedAt` | Provenance: exactly where these bytes came from and when |
+| Progress | `bytesDone`/`bytesTotal` while a download is in flight |
+| Last error | On a `failed` row, the string the attempt died with -- replaced, on a Windows row whose resolver cannot run, by the [hand-download instructions](#when-the-resolver-is-refused-the-drop-folder) |
+
+**Totals row** -- pool bytes used, with per-hostType subtotals: the answer to
+"what is eating the share".
+
+<a id="4268e4cb-000b"></a>
+
+### Sorting the table
+
+The table opens with a counter column that numbers the rows *as shown*: it reads
+1&hellip;n down the page whatever the sort, which is how many entries the pool
+holds. It is furniture, not data, so it does not sort.
+
+Every other column header except Actions is a button: click to sort,
+click again to reverse. The arrow says which column is active and which way it
+runs. The choice is remembered in the browser and survives a reload.
+
+Two columns deliberately do not sort alphabetically, because their text is not
+the question:
+
+- **State** sorts by severity -- `failed`, `downloading`, `absent`, `stale`,
+  `fresh`. Alphabetical order would bury the row that needs an operator
+  between `absent` and `fresh`.
+- **Size** sorts by bytes. As text, "9 GiB" orders ahead of "12 GiB", which
+  puts the wrong row at the top.
+
+`Last verified` sorts by timestamp, with never-verified rows gathered at the
+oldest end. Rows that tie on the sorted column fall back to their identity, so
+the order does not shuffle under the cursor while the page polls.
+
+<a id="4268e4cb-000c"></a>
+
+### The three actions, and when to use each
+
+All three are per-row and gated (an unlocked session or a bearer). Each appends
+`{atUtc, action, hostType, imageKey, arch, variant, outcome}` to
+`<pool root>/download-agent-service/audit.jsonl` and is also available as an API
+route for automation. Unlock attempts land in the same file as `unlock` lines
+(outcome `ok`, `refused`, `throttled`, or `unavailable`, with the caller's
+address), so the trail shows who opened the board as well as what they changed.
+
+| Action | What it does | Reach for it when |
+|---|---|---|
+| **Force refresh** | Re-verifies against the origin **now**. Downloads only if something changed -- an unchanged origin just re-stamps freshness in seconds. On an `absent` row it triggers the first download. | A point release just shipped and you do not want to wait for the scan window; or you want to populate an entry the seed pass does not cover (a daily variant, an arch nothing reported). This is the cheap, safe, everyday button. |
+| **Delete** | Cancels any in-flight download for the key, clears its staging, removes the pointer **first**, then every generation and sidecar. The row shows `deleting` until complete. | You suspect the stored bytes are wrong, or you need the space back now. The next host request or seed pass re-downloads from the origin -- so this is also the **"force a genuinely new download"** path, stronger than Force refresh, which will not re-fetch bytes the origin calls unchanged. Hosts' local copies are untouched, and an unchanged origin yields the same SHA-256, so their fingerprints match again after the re-download with nothing re-transferred. |
+| **Prune previous** | Deletes only the previous generation. The current one stays servable throughout. | The share is filling up and you have accepted the current generation. Retention drops to one for that row until the next refresh creates a new previous. |
+
+`POST /api/v1/refresh` re-verifies the whole pool in one call. That one is
+**bearer-only** (the internal authentication key): an automation route, not a button.
+
+<a id="4268e4cb-000d"></a>
+
+## Diagnostics
+
+The **Diagnostics** page (menu -> Diagnostics, or `/diagnostics`) answers
+the question the pool table cannot: *why* does a best-effort family not work on
+this agent. The table collapses every resolver failure into one `absent` row --
+deliberately, so hosts have one behavior -- which leaves nothing to act on when
+the family is down. This page shows the evidence, without an SSH session into
+the guest:
+
+- **The environment the resolver runs in**: guest OS and kernel, the resolved
+  PowerShell interpreter and its version, the vendored `Fido.ps1` with its
+  **live SHA-256** (after the platform-gate patch this differs from the pinned
+  download hash -- the pin vouches for what was fetched, the page shows what is
+  installed), pool and proxy configuration.
+- **The Windows 11 family verdict** with its full reason, plus the remembered
+  failure and when it expires (a failed resolve holds the family unavailable
+  for an hour before it retries on its own).
+- **The last resolver run, completely**: argv, exit code, duration, and both
+  output streams. Fido reports refusals on *stdout*, so both streams matter --
+  an error that quoted only stderr is how "exit status 147 ()" once shipped
+  with its actual reason discarded.
+- **Recent per-image refresh errors**, newest first: the strings behind any
+  `failed` badge on the pool page.
+
+Reads are open. The one action, **Resolver test**, is
+gated (same Lab token / bearer as the pool actions): it runs the vendored Fido
+once with the exact parameters a resolve uses, mints a URL and downloads
+nothing, and renders the full capture. Each run spends a Microsoft session
+(their servers rate-ban chatty addresses), so it is a diagnosis button, not a
+health check to poll. Its outcome feeds the family state in both directions: a
+successful test clears a remembered failure on the spot -- the family is back
+without waiting out the TTL or rebuilding.
+
+`GET /api/v1/diagnostics` serves the same report as JSON;
+`POST /api/v1/diagnostics/fido-test?arch=amd64|arm64` is the test route
+(gated), and both land in the audit log like every other action.
+
+<a id="4268e4cb-000e"></a>
+
+## Unlocking the actions
+
+**Usually there is nothing to unlock.** Open the Download pool from the *Yuruna
+hosts* dashboard -- the *Extension hosts* table, `Download-agent service` -- and it
+arrives already unlocked. That link goes through the aggregator's `/go/stash`
+redirect, which hands the page a short-lived control proof in the URL fragment
+(never sent to a server, never in an access log); the page exchanges it for a
+session on arrival.
+
+The prompt below is what you see when there is no proof to spend: the page was
+opened by typing its address, or bookmarked, or the proof expired while the tab
+sat open.
+
+The board's **Unlock actions** prompt takes the same 6-character **Lab token**
+the Yuruna hosts dashboard shows on its own tile. Type the code from the tile
+into the board, and that browser holds an unlocked session for a week.
+There is nothing to provision, nothing to look up in a vault, and nothing to
+remember between rebuilds.
+
+**The code rotates about once a minute.** The dashboard's tile trails a rotation
+by up to about three quarters of a minute (a Prometheus scrape plus a panel
+refresh), so the aggregator accepts the current code *and* its two predecessors.
+A code you have just read stays redeemable for at least one full rotation; one
+that leaked out of the lab stops working on its own within roughly three.
+
+**The daemon does not validate the code itself.** It forwards what you typed to
+the aggregator's `POST /api/v1/lab-token` exchange, which owns the codes and
+their rotation, and believes only a definite answer. Two consequences:
+
+- An **unreachable or unconfigured aggregator means the board cannot be
+  unlocked** -- the answer is `503 {"reason":"lab-token-unavailable"}`, which is
+  deliberately a different answer from "wrong code". The gate fails closed.
+  Automation is unaffected:
+  `Authorization: Bearer <internal-auth-key>` still works, and is the way to drive
+  the agent when the aggregator is down.
+- With **neither** an aggregator to ask nor a token configured, the mutating
+  routes answer `503 {"ok":false,"reason":"auth-unconfigured"}` -- never an
+  ungated write.
+
+A rejected code answers `401`, and eight rejections from one address inside ten
+minutes answer `429` without troubling the aggregator -- so a typo loop cannot
+burn through the lab's shared attempt budget. Every attempt, accepted or not, is recorded in the audit log.
+
+**The code is public on the LAN by design.** The aggregator publishes it on its
+open `/metrics` and paints it on a dashboard tile, so anyone who can reach the
+dashboard can read it. That is the point: the gate stops a stray click on a
+Delete button, it is not a secret. Its value is the rotation -- unlike a stored
+passcode, a code that walks out of the lab expires by itself.
+
+<a id="4268e4cb-000f"></a>
+
+## Discovery, ports, and the Extension hosts row
+
+The daemon listens on `0.0.0.0:80` in the guest, plain HTTP on the trusted LAN,
+the same posture as the stash and pool-control services.
+
+The host advertises the agent two independent ways, and either alone paints the
+dashboard row:
+
+- **The marker.** `runtime/download-agent-service.json` --
+  `{active, vmName, hostType, startedAtUtc, downloadAgentServiceBaseUrl}` --
+  written by the start script and folded into `host.registration.json`, which the
+  aggregator already polls. `active` carries the **readiness verdict**, not "the
+  script ran": a bring-up that never saw `:80` publishes `active:false` rather
+  than deep-linking operators to a dead UI.
+- **The beacon.** The daemon posts to the aggregator's `/announce` at boot, every
+  15 minutes, and once more as a goodbye on shutdown.
+
+<a id="4268e4cb-0010"></a>
+
+### UTM Shared NAT and port 8082
+
+vmnet cannot bridge a Wi-Fi uplink, so on a Wi-Fi Mac the VM is built on UTM
+Shared NAT, where its address is inside a segment no peer can route to. The start
+script therefore forwards **host `:8082` to guest `:80`** and writes the marker's
+`downloadAgentServiceBaseUrl` as `http://<mac-lan-ip>:8082/`. On a bridged host
+the marker carries the VM's own address and no forward is needed.
+
+The port is fixed, not picked at runtime: `:80` is the caching-proxy-service's
+CA-cert endpoint, `:2222` is the stash service, and `:8081` is the pool-control
+service.
+Asking for a port already forwarded would attach to that forwarder and publish
+the wrong service at the advertised URL.
+
+The beacon cannot cover this case -- the aggregator derives the announcing
+address from the request's source IP, which NAT rewrites to the Mac's address
+*without* the port that reaches the guest. That is why the published endpoint
+comes from the marker. A Shared NAT Mac is a **reduced-value placement**: prefer
+a bridged host for the agent.
+
+<a id="4268e4cb-0011"></a>
+
+### Pinning an endpoint by hand
+
+`YURUNA_EXTENSION_HOST_DOWNLOAD_AGENT_SERVICE=<address>` pins the endpoint for a
+host, ahead of any discovery -- the escape hatch for a lab whose agent lives
+somewhere discovery cannot see.
+
+<a id="4268e4cb-0012"></a>
+
+## Configuration
+
+Five keys under `downloadAgentService` in `test/test.config.yml`; the reference
+table is in
+[test-config.md](test-config.md#downloadagentservice--the-pool-wide-image-downloader).
+
+```yaml
+downloadAgentService:
+  autoSeed: true              # pre-download stable families for reported host types
+  enabled: true               # declared master switch
+  freshnessSeconds: 86400     # 24 h
+  prefetchLeadSeconds: 7200   # act 2 h before expiry
+  scanIntervalSeconds: 900    # walk the pool every 15 min
+```
+
+The live values are read at **VM-create time** and baked onto the daemon's flag
+line in the guest seed, so a change takes effect on the next stop/start of the
+agent VM, not on the next cycle. The same defaults are compiled into the daemon,
+so a bare daemon and one with no config block behave identically.
+
+Joining lab hosts need **no** new config key -- discovery rides the aggregator,
+with the environment pin above as the manual override.
+
+<a id="4268e4cb-0013"></a>
+
+## The agent's vault user
+
+The agent VM's login is `download-agent-service-admin`, declared in
+`test/extension/authentication/users.yml.template`. Bootstrap copies that
+template only when the runtime `users.yml` is absent, so an
+**already-bootstrapped host running strict mode** would otherwise fail
+`Test-Config`'s user scan the first time it sees the smoke sequence. The
+authentication area merges template-declared service-VM entries into an existing
+runtime `users.yml`, so there is no manual migration step, and strict mode ships
+default-off, so only opt-in hosts are affected.
+
+The merge is additive only. A host carried over from an older build keeps a
+`download-agent-service-passcode` entry in its runtime `users.yml`, and possibly
+a value under that key in `vault.yml`. Neither grants access
+to anything -- no daemon compares against them and no seed carries them -- so
+leaving them is harmless. Delete both by hand if you would rather the vault
+held only live credentials.
+
+<a id="4268e4cb-0014"></a>
+
+## Troubleshooting
+
+| Symptom | Likely cause | What to do |
+|---|---|---|
+| Start script times out waiting on `:80` | First boot is still installing the toolchain and building the daemon | Re-run to re-check, or raise `YURUNA_DOWNLOAD_AGENT_SERVICE_READY_TIMEOUT_SECONDS`. The printed `cloud-init status` says whether it is still running |
+| Start script prints a `go build` or `apt` error | Package or source problem in the guest | The log tail names the line; fix and rebuild with Stop then Start |
+| Daemon serves, UI says `poolAvailable:false` | The pool share did not mount in the guest | Check the NAS credential (`Set-Password` the `poolStorageNetworkUser`) and that the share is reachable, then rebuild. The daemon deliberately keeps serving; every `ensure` answers `pool-unavailable` and hosts fall back |
+| "the daemon IS serving in-guest but this host cannot connect" | The address is not reachable from here | A stale DHCP lease (compare the guest console's own `eth0` line), a guest firewall dropping `:80`, or a bridged-mode address being probed on a Shared NAT host. Waiting cannot help -- the daemon is already up |
+| No Extension hosts row | The host status service is not serving `host.registration.json`, or the marker says `active:false` | Run `test/service/Start-StatusService.ps1`; check `runtime/download-agent-service.json`. The beacon alone still paints a row, minus the status baseUrl link |
+| Row appears but the deep-link is dead from other machines | Shared NAT Mac whose `:8082` forward did not install | Re-run the start script once the VM has an address; prefer a bridged host for the agent |
+| Unlock says `503 lab-token-unavailable` | The daemon could not reach the aggregator to check the code, so it refused rather than guessing | Check the caching-proxy-service VM and the aggregator (`journalctl -u pool-aggregator-service`). Until it answers, drive the agent with the `Authorization: Bearer <internal-auth-key>` API routes |
+| Unlock refuses a code you just read | The code rotated more than about three minutes ago, or the tile is stale | Re-read the tile and retry. If the tile itself reads "collector down", fix the aggregator first |
+| UI actions return `503 auth-unconfigured` | The VM was built with no aggregator URL and no internal authentication key, so neither gate exists | Enroll the host with `test/lab/Set-LabToken.ps1` so it stores the internal authentication key, then rebuild the agent VM so the seed carries the aggregator URL |
+| UI actions return "read-only" / show a `leaseHolder` | Another agent on the same NAS holds the lease | Expected. Use that agent's UI, or stop it -- the lease expires after three scan intervals |
+| An entry is stale and refuses to refresh | The origin is unreachable directly | The pool keeps serving the previous verified generation. Nothing to do but restore origin reachability; the next scan retries |
+| `guest.windows.11` never appears in the pool, or stays `absent` after a Force refresh | Best-effort family: no PowerShell, no Fido, or Fido could not mint a URL under Linux pwsh | Open the **Diagnostics** page: the family card carries the exact failure, the last resolver run shows both output streams, and the gated Resolver test reruns the resolve on demand. A VM built before this family (or before the platform-gate patch) needs a Stop/Start rebuild. Hosts are unaffected either way: Hyper-V and UTM run Fido themselves, KVM stays manual |
+| `Fido failed: exit status 3 (Error: Sentinel marked this request as rejected.)` | Microsoft refused the session; their front end, not the agent or the network | Follow the instructions on the row: fetch the ISO from the page it links and copy it into the folder it links. The agent adopts it within one scan and serves it to every host. Retrying sooner mostly spends more sessions from the same address, which is what earns the refusal -- the agent already spaces its own attempts out |
+| Host warns that the agent "holds"/"offers" an artifact "this host stages" cannot use | The agent VM runs an older resolver that maps that guest key to the x86-64 publisher platform for every Hyper-V host, whatever its architecture | Harmless in the moment -- the host falls back to the publisher and the cycle continues. Rebuild the agent VM (Stop then Start) so its resolver is current, then Force-refresh that row; the stale generation is replaced on the next scan either way |
+| Pool is eating the share | Retention is current + previous per identity | Prune previous on the fat rows, or Delete entries for host types this lab no longer runs |
+
+The manual smoke test for the daemon build itself is
+`test/sequences/workload.guest.ubuntu.server.26.download-agent-service.yml`. It
+is standalone and deliberately **not** listed in any project's `test.runner.yml`:
+run it by hand to verify the daemon compiles and starts on a vanilla guest.
+
+<a id="4268e4cb-0015"></a>
+
+## See also
+
+- [pool-admin.md](pool-admin.md#download-agent-service) -- the service in the
+  context of the rest of the pool tooling.
+- [pool-storage.md](pool-storage.md) -- the pool share itself: paths,
+  credentials, and the on-share layout.
+- [caching.md](caching.md) -- the Squid caching-proxy-service the agent's byte
+  downloads ride through, and its offline-mode behavior.
+- [network.md](network.md) -- the Shared NAT host-port allocation table.
+- [test-config.md](test-config.md#downloadagentservice--the-pool-wide-image-downloader) --
+  the config-key reference.
+- [guest-image-setup.md](guest-image-setup.md) -- how hosts obtain guest images.
+
+---
+
+LICENSEURI https://yuruna.link/license
+
+Copyright (c) 2019-2026 by Alisson Sol et al.
+
+Last review: 2026.10.14
+
+Back to [Yuruna](../README.md)

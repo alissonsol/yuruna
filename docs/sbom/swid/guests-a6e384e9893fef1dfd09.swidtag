@@ -1,0 +1,5 @@
+<?xml version='1.0' encoding='utf-8'?>
+<SoftwareIdentity xmlns="http://standards.iso.org/iso/19770/-2/2015/schema.xsd" xmlns:sbom="urn:yuruna:sbom:1" name="acl" tagId="urn:uuid:b18e59d9-5637-5791-8664-183a08eca27c" version="unspecified" versionScheme="alphanumeric" tagVersion="0" corpus="true">
+  <Entity name="Alisson Sol et al." regid="yuruna.com" role="tagCreator" />
+  <Meta sbom:generator="tools/Sync-Sbom.py" sbom:scope="guests" sbom:inventory-kind="declared-source" sbom:declaration="{&quot;completeness&quot;: &quot;source-declared&quot;, &quot;ecosystem&quot;: &quot;apt&quot;, &quot;evidence&quot;: [{&quot;detail&quot;: &quot;target=ubuntu-service-seed; action=cloud-init packages; OS package dependency resolution deferred&quot;, &quot;line&quot;: 95, &quot;path&quot;: &quot;host/vmconfig/caching-proxy-service.base.user-data&quot;}], &quot;group&quot;: &quot;yuruna:guests:ubuntu-service-seed&quot;, &quot;notes&quot;: [&quot;Conditional source declaration; installed state and transitive dependencies are not resolved.&quot;], &quot;scope&quot;: &quot;runtime&quot;}" />
+</SoftwareIdentity>

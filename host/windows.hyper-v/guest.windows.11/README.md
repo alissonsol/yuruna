@@ -1,0 +1,61 @@
+# Windows 11 guest on Windows Hyper-V host
+
+> Common setup pattern: see [Guest Image Setup](../../../docs/guest-image-setup.md).
+> This file documents only what's HOST/GUEST-specific.
+
+Minimal commands. Walk-through: [Windows 11 guest on Windows Hyper-V host -- Nerd-Level Details](read.more.md). Cross-host
+concepts: [Hosts -- ...](../../README.md).
+
+## One-time
+
+From `yuruna\host\windows.hyper-v\guest.windows.11` in an
+elevated PowerShell:
+
+```
+.\Get-Image.ps1
+```
+
+Automates the Windows 11 ISO download from
+[Microsoft](https://www.microsoft.com/software-download/windows11);
+prints manual instructions if blocked.
+
+## For each VM
+
+```
+.\New-VM.ps1                       # default hostname windows11-01
+.\New-VM.ps1 -VMName myhost
+```
+
+The script creates and starts the VM, then sends the initial DVD boot key
+automatically. Installer runs unattended via `autounattend.xml` (~15 min).
+Open Hyper-V Manager or `vmconnect.exe localhost windows11-01` to view it.
+
+## Update
+
+Auto-logon to `ywuser1` / `password` on first boot (change forced next
+login). Elevated PowerShell:
+
+```
+$nc = if ($env:YurunaCacheContent) { "?nocache=$env:YurunaCacheContent" } else { "" }
+irm "https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/main/guest/windows.11/windows.11.update.ps1$nc" | iex
+Restart-Computer
+```
+
+`$env:YurunaCacheContent` / `setx`: see
+[Caching](../../../docs/caching.md).
+
+## Next
+
+[Windows 11 workloads](../../../guest/windows.11/README.md)
+
+Read more: [Windows 11 guest on Windows Hyper-V host -- Nerd-Level Details](read.more.md).
+
+---
+
+LICENSEURI https://yuruna.link/license
+
+Copyright (c) 2019-2026 by Alisson Sol et al.
+
+Last review: 2026.10.14
+
+Back to [Yuruna](../../../README.md)

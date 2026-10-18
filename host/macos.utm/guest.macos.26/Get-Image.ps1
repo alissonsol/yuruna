@@ -1,0 +1,267 @@
+<#PSScriptInfo
+.VERSION 2026.10.14
+.GUID 42b0f1a0-585e-4f1d-8e6b-453c54b16950
+.AUTHOR Alisson Sol et al.
+.COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
+.TAGS
+.LICENSEURI https://yuruna.link/license
+.PROJECTURI https://yuruna.com
+.ICONURI
+.EXTERNALMODULEDEPENDENCIES
+.REQUIREDSCRIPTS
+.EXTERNALSCRIPTDEPENDENCIES
+.RELEASENOTES
+.PRIVATEDATA
+#>
+
+#requires -version 7
+
+<#
+.SYNOPSIS
+    Downloads the latest macOS 26 IPSW restore image for Apple Virtualization.
+
+.DESCRIPTION
+    Apple does not publish a stable directory listing for IPSWs. The
+    canonical discovery path is VZMacOSRestoreImage.fetchLatestSupported
+    in the Virtualization framework, which returns the current latest
+    IPSW URL + build number for the host Mac's hardware bucket. We invoke
+    a small Swift program to call it, parse the resulting URL, and then
+    download via Save-CachedHttpUri the same way the Linux/Windows guest
+    images do.
+
+    The squid cache rarely helps here (IPSWs are 15-20GB and per-build);
+    Save-CachedHttpUri falls back to a direct Invoke-WebRequest when no
+    cache is reachable.
+
+    macOS 26 is gated at restore time: the Swift helper accepts the URL
+    only when the published build advertises operatingSystemVersion >= 26.
+    Apple bumps the URL when a new build ships; the skip-if-same-source
+    guard avoids re-downloading the same build on a repeat run.
+#>
+
+# --- REGION: Log level from environment
+# Reuse the caller's log module so an in-process fetch preserves its state.
+Import-Module (Join-Path $PSScriptRoot '../../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
+$_logLevelMod = Join-Path $PSScriptRoot '../../../test/modules/Test.LogLevel.psm1'
+if (-not (Get-Command Use-LogLevelFromEnv -ErrorAction SilentlyContinue) -and (Test-Path $_logLevelMod)) {
+    Import-Module $_logLevelMod -Global
+}
+if (Get-Command Use-LogLevelFromEnv -ErrorAction SilentlyContinue) { Use-LogLevelFromEnv }
+
+# --- REGION: Platform guard
+if (-not $IsMacOS) {
+    Write-Error (Format-YurunaOperatorMessage -Key 'exceptions.host_607d7ff275d56f40')
+    exit 1
+}
+
+# --- REGION: Configuration
+$downloadDir   = "$HOME/yuruna/image/macos.env"
+$baseImageName = "host.macos.utm.guest.macos.26"
+$baseImageFile = Join-Path $downloadDir "$baseImageName.ipsw"
+$baseImageOrigin = Join-Path $downloadDir "$baseImageName.txt"
+
+New-Item -ItemType Directory -Force -Path $downloadDir | Out-Null
+
+# --- REGION: Resolve the latest IPSW URL via the Virtualization framework
+# See https://yuruna.link/42e220c4-0003
+# Require a macOS 26 restore image and preserve the typed Swift error details.
+
+# Up-front swift sanity check: fail here with a clear, actionable
+# message before we burn time on a here-string + temp-file dance for what
+# is really just a "command not found".
+if (-not (Get-Command swift -ErrorAction SilentlyContinue)) {
+    Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_79fdf80d7c21c98e')
+    Write-Information (Format-YurunaOperatorMessage -Key 'host.operator_30f614d6e42fae94') -InformationAction Continue
+    exit 1
+}
+
+$swiftSrc = @'
+import Foundation
+import Virtualization
+
+let minMajor = 26
+
+let sema = DispatchSemaphore(value: 0)
+var resolved: (url: URL, build: String, version: String)?
+var failureKind: String?
+var failureMessage: String?
+
+VZMacOSRestoreImage.fetchLatestSupported { result in
+    switch result {
+    case .success(let image):
+        let v = image.operatingSystemVersion
+        let versionString = "\(v.majorVersion).\(v.minorVersion).\(v.patchVersion)"
+        if v.majorVersion < minMajor {
+            failureKind = "version-below-floor"
+            failureMessage = "Apple's latest published macOS for this host is \(versionString) (build \(image.buildVersion)); macOS \(minMajor)+ is required. The host hardware bucket may need an OS bump (Apple gates macOS 26 IPSWs to host macOS 15+ on M4+)."
+        } else {
+            resolved = (image.url, image.buildVersion, versionString)
+        }
+    case .failure(let err):
+        let ns = err as NSError
+        // VZErrorRestoreImageCatalogLoadFailed = 10001; thrown from the
+        // private installation-service helper when its catalog fetch
+        // fails. Surfaces as "The restore image catalog failed to
+        // load. Installation service returned an unexpected error." --
+        // verbatim from the framework, opaque to the operator. Bucket
+        // it separately so PowerShell can emit a targeted hint.
+        if ns.domain == "VZErrorDomain" && ns.code == 10001 {
+            failureKind = "vz-catalog-fetch"
+        } else {
+            failureKind = "vz-other"
+        }
+        failureMessage = "\(ns.localizedDescription) (domain=\(ns.domain) code=\(ns.code))"
+    }
+    sema.signal()
+}
+sema.wait()
+
+if let kind = failureKind {
+    FileHandle.standardError.write(Data("ERROR_KIND=\(kind)\n".utf8))
+    FileHandle.standardError.write(Data("Error: \(failureMessage ?? "(no message)")\n".utf8))
+    exit(1)
+}
+guard let r = resolved else {
+    FileHandle.standardError.write(Data("ERROR_KIND=vz-other\n".utf8))
+    FileHandle.standardError.write(Data("Error: VZMacOSRestoreImage.fetchLatestSupported returned no result\n".utf8))
+    exit(1)
+}
+print("\(r.url.absoluteString)\t\(r.build)\t\(r.version)")
+'@
+
+# The VZ probe needs the com.apple.security.virtualization entitlement to
+# reach Apple's installation service; Invoke-EntitledSwift compiles and
+# self-signs the helper so the call works (a bare `swift <file>` does not).
+Import-Module -Name (Join-Path (Split-Path -Parent $PSScriptRoot) "modules/Yuruna.Host.psm1") -Force
+
+Write-Verbose "Probing VZMacOSRestoreImage.fetchLatestSupported via swift..."
+$resolved = Invoke-EntitledSwift -Source $swiftSrc
+if ($LASTEXITCODE -ne 0) {
+    $resolvedText = ($resolved -join "`n")
+    $errorKind = ($resolved | ForEach-Object { "$_" } |
+        Where-Object { $_ -match '^ERROR_KIND=' } |
+        Select-Object -Last 1) -replace '^ERROR_KIND=',''
+    switch ($errorKind) {
+        'vz-catalog-fetch' {
+            Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_1e7cd29fbb2332d2')
+            Write-Information (Format-YurunaOperatorMessage -Key 'host.operator_4385f6ff408b1852' -Arguments @{ baseImageFile = "$baseImageFile"; resolvedText = "$resolvedText" }) -InformationAction Continue
+        }
+        'version-below-floor' {
+            Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_03631e7fcccff720')
+            Write-Information (Format-YurunaOperatorMessage -Key 'host.operator_f63ef0c4c6099b60' -Arguments @{ resolvedText = "$resolvedText" }) -InformationAction Continue
+        }
+        default {
+            # vz-other or no ERROR_KIND line at all (compiler error,
+            # swift crash). The latter is the only case where the
+            # Xcode CLT hint is actually relevant.
+            Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_ce75ea0fbe6f282d')
+            Write-Information (Format-YurunaOperatorMessage -Key 'host.operator_f824c272a80574f8' -Arguments @{ resolvedText = "$resolvedText" }) -InformationAction Continue
+        }
+    }
+    exit 1
+}
+
+# `swift` prints any compiler warnings on the same stdout as our final
+# line; the resolution line is always the LAST tab-separated 3-field
+# entry, so pick that one rather than .Trim()-ing the whole capture.
+$resolvedLine = ($resolved -split "`n" | Where-Object { ($_ -split "`t").Count -ge 3 } | Select-Object -Last 1)
+if (-not $resolvedLine) {
+    Write-Error ((Format-YurunaOperatorMessage -Key 'host.operator_3b5d2f7573930a29' -Arguments @{ n = [string](($resolved -join "`n")) }))
+    exit 1
+}
+$fields = $resolvedLine -split "`t"
+$sourceUrl  = $fields[0].Trim()
+$build      = $fields[1].Trim()
+$version    = $fields[2].Trim()
+Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_ddd6375b1613a19a' -Arguments @{ version = "$version"; build = "$build"; sourceUrl = "$sourceUrl" })
+
+# --- REGION: https://yuruna.link/42ec97cd-0006
+if (Test-DownloadAlreadyCurrent -SourceUrl $sourceUrl -BaseImageFile $baseImageFile -OriginFile $baseImageOrigin) {
+    $msg = "Skipping download: $sourceUrl URL and expected size match the prior run for $baseImageFile. To force a re-download, delete or rename: $baseImageFile"
+    Write-Information $msg -InformationAction Continue
+    Write-Output $msg
+    exit 0
+}
+
+# --- REGION: Retrieve and process the files
+$downloadFile = Join-Path $downloadDir "downloaded.ipsw"
+Remove-Item $downloadFile -Force -ErrorAction SilentlyContinue
+Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_7f86dc7594de5a99' -Arguments @{ sourceUrl = "$sourceUrl"; downloadFile = "$downloadFile" })
+try {
+    Save-CachedHttpUri -Uri $sourceUrl -OutFile $downloadFile
+} catch {
+    Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_617808006d5c6420' -Arguments @{ message = "$($_.Exception.Message)" })
+    exit 1
+}
+$downloadedSize = (Get-Item -LiteralPath $downloadFile).Length
+
+# --- REGION: Validate the IPSW restore-image headers
+# Apple publishes the IPSW URL via the same VZ API that consumes it,
+# so a SHA mismatch from a CDN proxy is the only realistic corruption
+# mode. VZMacOSRestoreImage.load(from:) parses the IPSW header + verifies
+# the embedded signature; on any failure it returns NSError and we
+# fail loud rather than ship a broken image to New-VM.ps1.
+$validateSrc = @'
+import Foundation
+import Virtualization
+
+guard CommandLine.arguments.count >= 2 else {
+    FileHandle.standardError.write(Data("Error: usage: <ipsw-path>\n".utf8))
+    exit(1)
+}
+let path = CommandLine.arguments[1]
+let url = URL(fileURLWithPath: path)
+
+let sema = DispatchSemaphore(value: 0)
+var failure: String?
+var versionString: String?
+
+VZMacOSRestoreImage.load(from: url) { result in
+    switch result {
+    case .success(let image):
+        let v = image.operatingSystemVersion
+        versionString = "\(v.majorVersion).\(v.minorVersion).\(v.patchVersion) (build \(image.buildVersion))"
+    case .failure(let err):
+        failure = err.localizedDescription
+    }
+    sema.signal()
+}
+sema.wait()
+
+if let f = failure {
+    FileHandle.standardError.write(Data("Error: \(f)\n".utf8))
+    exit(1)
+}
+print("Validated IPSW: macOS \(versionString ?? "?")")
+'@
+
+Write-Verbose "Validating downloaded IPSW via VZMacOSRestoreImage.load(from:)..."
+$vOut = Invoke-EntitledSwift -Source $validateSrc -ArgumentList @($downloadFile)
+if ($LASTEXITCODE -ne 0) {
+    Write-Error ((Format-YurunaOperatorMessage -Key 'host.operator_8fb20ea52d59a761' -Arguments @{ n = [string](($vOut -join "`n")) }))
+    Remove-Item $downloadFile -Force -ErrorAction SilentlyContinue
+    exit 1
+}
+Write-Output ($vOut -join "`n")
+
+# --- REGION: Preserve previous and finalize
+$previousFile = Join-Path $downloadDir "$baseImageName.previous.ipsw"
+Remove-Item $previousFile -Force -ErrorAction SilentlyContinue
+if (Test-Path $baseImageFile) {
+    Move-Item -Path $baseImageFile -Destination $previousFile
+    Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_05027812540d620c' -Arguments @{ previousFile = "$previousFile" })
+}
+Move-Item -Path $downloadFile -Destination $baseImageFile
+
+# Origin sentinel (filename, URL, byte count, Last-Modified) read back by
+# Test-DownloadAlreadyCurrent on the next run to skip an identical re-download.
+# Must go through the shared 4-line writer: the reader rejects shorter
+# sentinels, and a hand-rolled 3-line one silently disables the skip guard.
+Write-ImageSentinel -SourceUrl $sourceUrl -OriginFile $baseImageOrigin -SizeBytes $downloadedSize -Confirm:$false
+Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_1dec325a446dd0f7' -Arguments @{ baseImageOrigin = "$baseImageOrigin" })
+
+Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_347faa31fb049e6d' -Arguments @{ baseImageFile = "$baseImageFile" })
+
+# --- REGION: Completion
+# Clear a native discovery probe's stale exit code, including on cache hits.
+exit 0

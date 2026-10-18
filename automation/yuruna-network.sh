@@ -1,0 +1,358 @@
+#!/bin/bash
+# Version: 2026.10.14
+# LICENSEURI https://yuruna.link/license
+# Copyright (c) 2019-2026 by Alisson Sol et al.
+#
+# Guest network helper for Ubuntu Server and Amazon Linux, deployed at
+# /usr/local/lib/yuruna/yuruna-network.sh and shared by diagnostics and release.
+# Probe the active network daemon; its presence alone does not establish ownership.
+# --- REGION: Connectivity diagnosis
+# See https://yuruna.link/4220a755-0010
+# See https://yuruna.link/4220a755-0011
+# Distinguish administratively down, carrier-down, and carrier-up/no-IPv4 links.
+# Treat uncertain flags as carrier evidence, never as proof of a guest-side fault.
+_yuruna_net_admin_down() {
+    local f="$1"
+    # See https://yuruna.link/4220a755-0011
+    # Validate flags before arithmetic so malformed diagnostics cannot abort the report.
+    case "$f" in
+        '') return 1 ;;
+        0x*)
+            [ -n "${f#0x}" ] || return 1
+            case "${f#0x}" in *[!0-9a-fA-F]*) return 1 ;; esac
+            ;;
+        *) case "$f" in *[!0-9]*) return 1 ;; esac ;;
+    esac
+    [ $(( f & 1 )) -eq 0 ]
+}
+
+# --- REGION: https://yuruna.link/4220a755-0011
+# Use the same interface selection as network_diag without printing on every poll.
+yuruna_has_ipv4() {
+    local sysfs=/sys/class/net ifc oper carrier
+    for ifc in "$sysfs"/*; do
+        ifc=$(basename "$ifc")
+        [ -d "$sysfs/$ifc" ] || continue
+        [ "$ifc" = "lo" ] && continue
+        case "$ifc" in
+            veth*|docker*|br-*|virbr*|cni*|flannel*|kube*|tap*|tun*) continue ;;
+        esac
+        oper=$(cat "$sysfs/$ifc/operstate" 2>/dev/null)
+        carrier=$(cat "$sysfs/$ifc/carrier" 2>/dev/null)
+        [ "$oper" != "up" ] && [ "$carrier" != "1" ] && continue
+        if [ -n "$(ip -4 -o address show dev "$ifc" scope global 2>/dev/null)" ]; then
+            return 0
+        fi
+    done
+    return 1
+}
+
+# See https://yuruna.link/4220a755-000d
+# Poll kernel IPv4 state across both network managers; return 1 when the budget expires.
+yuruna_wait_ipv4() {
+    local budget="${1:-120}" waited=0
+    yuruna_has_ipv4 && return 0
+    while [ "$waited" -lt "$budget" ]; do
+        sleep 3
+        waited=$((waited + 3))
+        if yuruna_has_ipv4; then
+            echo "   IPv4 address appeared after ${waited}s."
+            return 0
+        fi
+    done
+    return 1
+}
+
+# --- REGION: https://yuruna.link/4220a755-000d
+# Keep bounded, ordered DHCP/address evidence and retry journal access without prompting.
+_yuruna_net_journal_slice() {
+    "$@" "${YURUNA_NET_JOURNAL:-journalctl}" -o short-precise --no-pager -n 200 \
+        -u systemd-networkd -u NetworkManager 2>/dev/null |
+        grep -iE 'dhcp|lease|carrier|address|not ready|could not set|refuse to configure|EEXIST' |
+        sed -E 's/^([A-Za-z]{3}[ ]+[0-9]+[ ]+)?([0-9]{2}:[0-9]{2}:[0-9]{2})(\.[0-9]{3})[0-9]*[ ]+[^ ]+[ ]+[^:]+:[ ]/\2\3 /' |
+        tail -7
+}
+
+# See https://yuruna.link/4220a755-000d
+# Print a fixed-size client-state sample so the failure marker remains in the console frame.
+_yuruna_net_client_state() {
+    local ifc="$1" out=""
+    [ -n "$ifc" ] || return 0
+    echo "--- DHCP client state ($ifc) ---"
+    if command -v networkctl >/dev/null 2>&1; then
+        out=$(networkctl status --no-pager "$ifc" 2>/dev/null |
+            grep -E '^ *(Network File|State|Online state|DHCP4 Client ID):' |
+            sed 's/^ *//' | head -4)
+    fi
+    if [ -z "$out" ] && command -v nmcli >/dev/null 2>&1; then
+        out=$(nmcli -t -f GENERAL.STATE,IP4.ADDRESS,DHCP4.OPTION device show "$ifc" 2>/dev/null | head -4)
+    fi
+    if [ -n "$out" ]; then
+        printf '%s\n' "$out"
+    else
+        echo "   (neither networkd nor NetworkManager answered for $ifc)"
+    fi
+    out=$(_yuruna_net_journal_slice)
+    [ -z "$out" ] && out=$(_yuruna_net_journal_slice sudo -n)
+    if [ -n "$out" ]; then
+        printf '%s\n' "$out"
+    else
+        echo "   (no DHCP line in the client journal, privileged or not)"
+    fi
+}
+
+network_diag() {
+    # See https://yuruna.link/4220a755-0011
+    # Override sysfs only for fixtures; ip still reports the live address state.
+    local sysfs="${YURUNA_NET_SYSFS:-/sys/class/net}"
+    echo ""
+    echo "==== NETWORK DIAGNOSTIC ===="
+    echo "--- addresses ---"
+    ip -br address 2>/dev/null || ip address 2>/dev/null
+    # See https://yuruna.link/4220a755-0011
+    # Show flags so administrative-down and carrier-loss verdicts can be checked.
+    echo "--- links (flags) ---"
+    ip -br link 2>/dev/null
+    echo "--- routes (IPv4) ---"
+    ip -4 route 2>/dev/null
+    echo "--- routes (IPv6 default) ---"
+    ip -6 route show default 2>/dev/null
+    echo "--- DNS ---"
+    grep -i '^nameserver' /etc/resolv.conf 2>/dev/null || echo "(no nameserver entries)"
+
+    # See https://yuruna.link/4220a755-0011
+    # Classify physical link states; bound named interfaces to the console frame.
+    local addrless="" downlinks="" downcount=0 adminlinks="" admincount=0
+    local examined=0 ifc oper carrier flags v4 v6
+    # See https://yuruna.link/4220a755-0011
+    # Probe one candidate; address-less links take precedence within the output budget.
+    local probe_ifc="" probe_admin=""
+    for ifc in "$sysfs"/*; do
+        ifc=$(basename "$ifc")
+        # An unmatched glob leaves the pattern itself as the only "entry".
+        [ -d "$sysfs/$ifc" ] || continue
+        [ "$ifc" = "lo" ] && continue
+        case "$ifc" in
+            veth*|docker*|br-*|virbr*|cni*|flannel*|kube*|tap*|tun*) continue ;;
+        esac
+        oper=$(cat "$sysfs/$ifc/operstate" 2>/dev/null)
+        carrier=$(cat "$sysfs/$ifc/carrier" 2>/dev/null)
+        flags=$(cat "$sysfs/$ifc/flags" 2>/dev/null)
+        if [ "$oper" != "up" ] && [ "$carrier" != "1" ]; then
+            if _yuruna_net_admin_down "$flags"; then
+                admincount=$((admincount + 1))
+                [ -z "$probe_admin" ] && probe_admin="$ifc"
+                if [ "$admincount" -le 3 ]; then
+                    adminlinks="$adminlinks $ifc(operstate=${oper:-unknown},flags=${flags:-unknown})"
+                fi
+            else
+                downcount=$((downcount + 1))
+                if [ "$downcount" -le 3 ]; then
+                    downlinks="$downlinks $ifc(operstate=${oper:-unknown},carrier=${carrier:-none})"
+                fi
+            fi
+            continue
+        fi
+        examined=$((examined + 1))
+        v4=$(ip -4 -o address show dev "$ifc" scope global 2>/dev/null)
+        v6=$(ip -6 -o address show dev "$ifc" scope global 2>/dev/null)
+        if [ -z "$v4" ]; then
+            if [ -n "$v6" ]; then
+                echo "   $ifc: carrier up, has IPv6 (SLAAC) but NO IPv4 (no DHCP lease / no static)"
+            else
+                echo "   $ifc: carrier up, NO IPv4 and no global IPv6 (link-local may be above)"
+            fi
+            addrless="$addrless $ifc"
+            [ -z "$probe_ifc" ] && probe_ifc="$ifc"
+        fi
+    done
+
+    # See https://yuruna.link/4220a755-0011
+    # Report both down states before lease theories; each can be a separate fault.
+    if [ -n "$adminlinks" ]; then
+        echo ""
+        echo "!! DOWN INSIDE THIS GUEST on $admincount interface(s), first:$adminlinks"
+        echo "!!   IFF_UP is clear, which only something on this machine can do,"
+        echo "!!   so no switch, cable or DHCP server explains it. Two shapes:"
+        echo "!!   1. NOTHING CLAIMED IT -- no profile matched this device. A"
+        echo "!!      seeded network config resolving to no interface does this,"
+        echo "!!      and it REPLACES the default rather than adding to it, so a"
+        echo "!!      config matching nothing is worse than none. The client"
+        echo "!!      state below reports n/a for a NIC nothing claimed."
+        echo "!!   2. SOMETHING DOWNED IT and never restored it -- a lease"
+        echo "!!      release, 'ip link set down', or 'nmcli networking off'"
+        echo "!!      (persists in NetworkManager.state, outlives reboots)."
+        echo "!!   DHCP is never attempted while down, so lease-pool causes do"
+        echo "!!   not apply."
+    fi
+    if [ -n "$downlinks" ]; then
+        echo ""
+        echo "!! LINK DOWN on $downcount interface(s), first:$downlinks"
+        echo "!!   No carrier, so DHCP is never attempted and lease-pool"
+        echo "!!   questions do not apply. IFF_UP is set here, so the link is up"
+        echo "!!   as far as this machine is concerned and the cause is outside"
+        echo "!!   it: the virtual switch this vNIC attaches to has no live"
+        echo "!!   uplink, the cable is out, or the switch port is disabled."
+    fi
+    if [ -z "$adminlinks" ] && [ -z "$downlinks" ]; then
+        if [ -n "$addrless" ]; then
+            echo ""
+            echo "!! NO IPv4 ADDRESS on carrier-up interface(s):$addrless"
+            echo "!!   Neither a static address nor a DHCP lease is present. The"
+            echo "!!   link is up, so the fault is between here and the DHCP"
+            echo "!!   server -- which cannot be seen from inside this guest."
+            echo "!!   Ordered by how often each is the answer, NOT by certainty:"
+            echo "!!   1. The lease has not landed YET: a lost DISCOVER backs the"
+            echo "!!      client off while SLAAC keeps winning on its own RAs, so"
+            echo "!!      IPv6-only for minutes is normal and is not a refusal."
+            echo "!!   2. Request or reply not getting through: a bridge port not"
+            echo "!!      forwarding, VLAN/cabling, or a DHCP server that is down."
+            echo "!!   3. The server had no free lease -- not observable from here."
+            echo "!!   4. ACKed and never installed: an acquired line in the client"
+            echo "!!      state below, with no address here, is that shape."
+        elif [ "$examined" -gt 0 ]; then
+            echo ""
+            echo "   All carrier-up interfaces hold an IPv4 address."
+        else
+            echo ""
+            echo "   No non-loopback interface is carrier-up."
+        fi
+    fi
+    _yuruna_net_client_state "${probe_ifc:-$probe_admin}"
+    echo "==== END NETWORK DIAGNOSTIC ===="
+    echo ""
+}
+
+# See https://yuruna.link/4220a755-0012
+# Avoid sudo when already root, including while the shutdown authentication stack exits.
+_yuruna_net_sudo() {
+    if [ "$(id -u)" = "0" ]; then "$@"; else sudo "$@"; fi
+}
+
+# See https://yuruna.link/4220a755-0012
+# Allow only physical NIC names with a sysfs device link; leave CNI devices alone.
+_yuruna_net_is_physical() {
+    local sysfs="${YURUNA_NET_SYSFS:-/sys/class/net}"
+    case "$1" in
+        en*|eth*|wl*) ;;
+        *) return 1 ;;
+    esac
+    [ -e "$sysfs/$1/device" ]
+}
+
+# See https://yuruna.link/4220a755-000d
+# Repair only address-less physical NICs without taking links down.
+yuruna_net_repair_ipv4() {
+    local sysfs="${YURUNA_NET_SYSFS:-/sys/class/net}" ifc waited
+    local settle="${YURUNA_NET_RELOAD_SETTLE_SECONDS:-10}"
+    if command -v networkctl >/dev/null 2>&1; then
+        # See https://yuruna.link/4220a755-000d
+        # Apply changed profiles before asking a NIC to reconfigure.
+        _yuruna_net_sudo networkctl reload >/dev/null 2>&1 || true
+        for ifc in "$sysfs"/*; do
+            ifc=$(basename "$ifc")
+            _yuruna_net_is_physical "$ifc" || continue
+            # See https://yuruna.link/4220a755-000d
+            # Let reload-triggered DHCP settle before reconfigure can restart that transaction.
+            waited=0
+            while [ "$waited" -lt "$settle" ] && \
+                  [ -z "$(ip -4 -o address show dev "$ifc" scope global 2>/dev/null)" ]; do
+                waited=$((waited + 1))
+                sleep 1
+            done
+            if [ -n "$(ip -4 -o address show dev "$ifc" scope global 2>/dev/null)" ]; then
+                if [ "$waited" -gt 0 ]; then
+                    echo "   $ifc: address landed ${waited}s after the reload; no reconfigure needed"
+                fi
+                continue
+            fi
+            # See https://yuruna.link/4220a755-000d
+            # Record client state before the nudge destroys that evidence.
+            if command -v _yuruna_net_client_state >/dev/null 2>&1; then
+                _yuruna_net_client_state "$ifc"
+            fi
+            if _yuruna_net_sudo networkctl reconfigure "$ifc" >/dev/null 2>&1; then
+                echo "   networkctl reconfigure $ifc"
+            fi
+        done
+    fi
+    if command -v nmcli >/dev/null 2>&1 && \
+       [ "$(nmcli -t -f RUNNING general 2>/dev/null)" = "running" ]; then
+        for ifc in "$sysfs"/*; do
+            ifc=$(basename "$ifc")
+            _yuruna_net_is_physical "$ifc" || continue
+            [ -n "$(ip -4 -o address show dev "$ifc" scope global 2>/dev/null)" ] && continue
+            if _yuruna_net_sudo nmcli device connect "$ifc" >/dev/null 2>&1; then
+                echo "   nmcli device connect $ifc"
+            fi
+        done
+    fi
+    return 0
+}
+
+# --- REGION: https://yuruna.link/4220a755-0012
+# Return leases best-effort before guest teardown; skip unavailable clients.
+network_release() {
+    echo ""
+    echo "==== NETWORK RELEASE ===="
+    local released=0 ifc cname ctype cdev
+
+    # systemd-networkd (Ubuntu Server): SendRelease defaults to yes, so
+    # bringing a managed link down emits a DHCPRELEASE for its lease.
+    if command -v networkctl >/dev/null 2>&1; then
+        for ifc in "${YURUNA_NET_SYSFS:-/sys/class/net}"/*; do
+            ifc=$(basename "$ifc")
+            _yuruna_net_is_physical "$ifc" || continue
+            if _yuruna_net_sudo networkctl down "$ifc" >/dev/null 2>&1; then
+                echo "   networkctl down $ifc"
+                released=1
+            fi
+        done
+    fi
+    # See https://yuruna.link/4220a755-0012
+    # Enable per-connection DHCP release; never persist a global networking-off state.
+    if command -v nmcli >/dev/null 2>&1 && \
+       [ "$(nmcli -t -f RUNNING general 2>/dev/null)" = "running" ]; then
+        # Process substitution, not a pipe: a `while` on the right of a pipe
+        # runs in a subshell, where $released would be set and then discarded.
+        while IFS=: read -r cname ctype cdev; do
+            [ -n "$cname" ] || continue
+            case "$ctype" in
+                802-3-ethernet|ethernet|802-11-wireless|wifi|bridge|bond|vlan) : ;;
+                *) continue ;;
+            esac
+            _yuruna_net_sudo nmcli connection modify "$cname" ipv4.dhcp-send-release yes >/dev/null 2>&1 || true
+            if _yuruna_net_sudo nmcli connection down "$cname" >/dev/null 2>&1; then
+                echo "   nmcli connection down $cname (device ${cdev:-unknown})"
+                released=1
+            fi
+        done < <(nmcli -t -f NAME,TYPE,DEVICE connection show --active 2>/dev/null)
+    fi
+    # Classic dhclient stacks: explicit release of all held leases.
+    if command -v dhclient >/dev/null 2>&1; then
+        if _yuruna_net_sudo dhclient -r >/dev/null 2>&1; then echo "   dhclient -r"; released=1; fi
+    fi
+    # dhcpcd stacks.
+    if command -v dhcpcd >/dev/null 2>&1; then
+        if _yuruna_net_sudo dhcpcd -k >/dev/null 2>&1; then echo "   dhcpcd -k"; released=1; fi
+    fi
+
+    if [ "$released" = "1" ]; then
+        echo "   DHCP lease(s) released."
+    else
+        echo "   No DHCP client release path available (nothing to do)."
+    fi
+    echo "==== END NETWORK RELEASE ===="
+    echo ""
+}
+
+# --- REGION: https://yuruna.link/4220a755-0013
+# Support both sourced helpers and direct console verbs.
+if [ "${BASH_SOURCE[0]}" = "${0}" ]; then
+    case "${1:-}" in
+        diag)    network_diag ;;
+        release) network_release ;;
+        repair)  yuruna_net_repair_ipv4 ;;
+        *) echo "usage: $0 {diag|release|repair}" >&2; exit 2 ;;
+    esac
+fi

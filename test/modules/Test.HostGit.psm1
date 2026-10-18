@@ -1,0 +1,1534 @@
+<#PSScriptInfo
+.VERSION 2026.10.14
+.GUID 42bb2613-9d4e-4ac0-aeb2-0784a83e7a8a
+.AUTHOR Alisson Sol et al.
+.COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
+.TAGS yuruna test host
+.LICENSEURI https://yuruna.link/license
+.PROJECTURI https://yuruna.com
+.ICONURI
+.EXTERNALMODULEDEPENDENCIES
+.REQUIREDSCRIPTS
+.EXTERNALSCRIPTDEPENDENCIES
+.RELEASENOTES
+.PRIVATEDATA
+#>
+
+#requires -version 7
+
+# Git and project-clone helpers: ../../docs/test-harness.md#module-responsibilities.
+
+Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
+function Get-GitUpstreamStatus {
+    <#
+    .SYNOPSIS
+        Classify a git working tree vs its upstream: no-tree / no-upstream /
+        up-to-date / ahead / behind / diverged.
+    .DESCRIPTION
+        Pure read-only -- does NOT fetch (each caller fetches its own way first,
+        with its own retry / offline policy), so the result reflects whatever
+        the local refs currently say. One comparison code path: Invoke-GitPull
+        maps the State to a pull/skip/error decision; Test-RepoFreshness
+        (Test.ConfigValidator) maps the same State to a PASS/WARN row.
+    .OUTPUTS
+        [hashtable] @{ State; Ahead; Behind; Local; Remote }
+    #>
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param([Parameter(Mandatory)][string]$Path)
+
+    if (-not (Test-Path (Join-Path $Path '.git'))) {
+        return @{ State = 'no-tree'; Ahead = 0; Behind = 0; Local = $null; Remote = $null }
+    }
+    $local = & git -C $Path rev-parse HEAD 2>$null
+    if ($local) { $local = "$local".Trim() }
+    $remote = & git -C $Path rev-parse '@{u}' 2>$null
+    if ($LASTEXITCODE -ne 0 -or -not $remote) {
+        return @{ State = 'no-upstream'; Ahead = 0; Behind = 0; Local = $local; Remote = $null }
+    }
+    $remote = "$remote".Trim()
+    if ($local -eq $remote) {
+        return @{ State = 'up-to-date'; Ahead = 0; Behind = 0; Local = $local; Remote = $remote }
+    }
+    # Count-based classification is equivalent to merge-base: behind == 0 iff
+    # remote is an ancestor of local (ahead), ahead == 0 iff local is an
+    # ancestor of remote (behind), both > 0 iff the histories diverged.
+    $behind = 0; $ahead = 0
+    $behindRaw = & git -C $Path rev-list --count "$local..$remote" 2>$null
+    $behindExit = $LASTEXITCODE
+    $aheadRaw = & git -C $Path rev-list --count "$remote..$local" 2>$null
+    $aheadExit = $LASTEXITCODE
+    if ($behindExit -ne 0 -or $aheadExit -ne 0 -or
+        -not [int]::TryParse("$behindRaw".Trim(), [ref]$behind) -or
+        -not [int]::TryParse("$aheadRaw".Trim(), [ref]$ahead)) {
+        # A failed / unparseable rev-list count must NOT collapse to 'up-to-date' (a false
+        # healthy). Report 'unknown' so callers treat it as WARN/skip rather than clean.
+        return @{ State = 'unknown'; Ahead = 0; Behind = 0; Local = $local; Remote = $remote }
+    }
+    $state = if ($behind -gt 0 -and $ahead -eq 0) { 'behind' }
+             elseif ($ahead -gt 0 -and $behind -eq 0) { 'ahead' }
+             elseif ($ahead -gt 0 -and $behind -gt 0) { 'diverged' }
+             else { 'up-to-date' }
+    return @{ State = $state; Ahead = $ahead; Behind = $behind; Local = $local; Remote = $remote }
+}
+
+function Test-GitRemoteAuthFailure {
+    <#
+    .SYNOPSIS
+        Pure text classifier: does this git fetch/pull/ls-remote output carry a
+        credential / authorization signature (a stale or missing GitHub login),
+        as opposed to a network outage or a local-branch condition?
+    .DESCRIPTION
+        Lets the pull path fail FAST with an actionable "refresh GitHub access"
+        message instead of a runner blocking on git's interactive username /
+        password prompt. With the credential-prompt env neutralized
+        (GIT_TERMINAL_PROMPT=0), a missing credential surfaces as "terminal
+        prompts disabled"; an expired / wrong one as "Authentication failed" or
+        "Invalid username or password"; a private repo the current identity can
+        no longer see as "Repository not found"; an expired PAT / unauthorized
+        SSO as an HTTPS "returned error: 401|403"; an SSH key that is not loaded
+        as "Permission denied (publickey)". Every one is fixed by refreshing the
+        login, not by retrying -- so the caller stops rather than burning its
+        retry budget.
+    .OUTPUTS
+        [bool] $true when the output matches an auth/authorization signature.
+    #>
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param([Parameter()][AllowNull()][AllowEmptyString()][string]$Output)
+    if ([string]::IsNullOrWhiteSpace($Output)) { return $false }
+    return [bool]($Output -match '(?i)(terminal prompts disabled|could not read (Username|Password)|Authentication failed|Invalid username or password|Permission denied \(publickey\)|Repository not found|returned error: 40[13])')
+}
+
+function Get-YurunaGitCredentialArg {
+    <#
+    .SYNOPSIS
+        The `git -c ...` arguments that make git authenticate to github.com with
+        $env:GH_TOKEN, or an empty array when GH_TOKEN is unset. Pure (reads only
+        the environment variable).
+    .DESCRIPTION
+        Plain `git` does NOT read GH_TOKEN -- only the GitHub CLI (`gh`) does --
+        so a host whose only GitHub credential is GH_TOKEN (a headless runner, a
+        freshly-imaged pool host, a CI box) fails every https fetch/pull/clone with
+        "could not read Username", even though the operator set the token
+        expecting git to use it. This returns an inline credential helper, SCOPED
+        to https://github.com, that answers git's credential request with the token
+        as the password for an x-access-token user.
+
+        Two properties matter:
+          * SCOPED to github.com, so the token is never offered to any other
+            remote (a private mirror, the LAN pool-configuration store, a file:// URL).
+          * The helper reads $GH_TOKEN at RUN TIME from the environment git passes
+            it, so the token value never appears on a command line (visible to
+            `ps`), in git config, or in a log -- only the fixed helper string and
+            the literal variable name `$GH_TOKEN` do.
+
+        GitHub tokens are `[A-Za-z0-9_]` (classic) or `github_pat_[A-Za-z0-9_]`
+        (fine-grained), so the unquoted `$GH_TOKEN` expansion in the POSIX-sh
+        helper is shell-safe. The `!`-prefixed helper runs under git's shell
+        (`/bin/sh`, or Git-for-Windows' bundled sh), so it is cross-platform.
+    .OUTPUTS
+        [string[]] -- the -c argument pairs, or an empty array when no token.
+    #>
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseOutputTypeCorrectly', '',
+        Justification = 'Returns a [string[]] of git -c args; callers always wrap with @(...), so the pipeline unroll into object[] is harmless and re-collected.')]
+    [CmdletBinding()]
+    [OutputType([string[]])]
+    param()
+    if ([string]::IsNullOrWhiteSpace($env:GH_TOKEN)) { return @() }
+    # First value '' resets any inherited helper FOR github.com so only ours
+    # answers; the second installs the inline helper. Single-quoted so PowerShell
+    # keeps $GH_TOKEN literal for git's shell to expand at run time.
+    $reset  = 'credential.https://github.com.helper='
+    $helper = 'credential.https://github.com.helper=!f() { echo username=x-access-token; echo password=$GH_TOKEN; }; f'
+    return [string[]]@('-c', $reset, '-c', $helper)
+}
+
+function Get-YurunaGhCliCredentialArg {
+    <#
+    .SYNOPSIS
+        The `git -c ...` arguments that make git authenticate to github.com
+        through the GitHub CLI's stored login (`gh auth git-credential`), or an
+        empty array when gh is not on PATH.
+    .DESCRIPTION
+        `gh auth login` stores its credential in gh's own config/keyring --
+        plain git never sees it unless `gh auth setup-git` also wrote gh into
+        the user's gitconfig, a step the login flow only offers on the
+        interactive HTTPS path (and `gh repo clone` injects only for the clone
+        itself). On Linux git has no default credential store at all, so a host
+        bootstrapped with `gh auth login` + `gh repo clone` authenticates the
+        clone and then fails every later fetch/pull with "could not read
+        Username". This returns the same per-invocation injection gh itself
+        uses: gh's credential-helper plumbing, SCOPED to https://github.com so
+        the login is never offered to any other remote.
+
+        `gh auth git-credential` speaks git's credential protocol and never
+        prompts; when gh holds no login it simply answers nothing, which
+        surfaces as a normal auth failure for the caller's fallback chain.
+        The helper says bare `gh` (not a resolved absolute path): git runs
+        helpers through its shell, which inherits this process's PATH -- the
+        same PATH that just resolved gh -- and an absolute Windows path
+        ('Program Files' spaces) would need sh-side quoting.
+    .OUTPUTS
+        [string[]] -- the -c argument pairs, or an empty array when gh is absent.
+    #>
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseOutputTypeCorrectly', '',
+        Justification = 'Returns a [string[]] of git -c args; callers always wrap with @(...), so the pipeline unroll into object[] is harmless and re-collected.')]
+    [CmdletBinding()]
+    [OutputType([string[]])]
+    param()
+    if (-not (Get-Command -Name 'gh' -CommandType Application -ErrorAction SilentlyContinue)) { return @() }
+    # Same reset-then-install shape as Get-YurunaGitCredentialArg: the '' value
+    # clears inherited helpers FOR github.com so only gh answers this attempt.
+    $reset  = 'credential.https://github.com.helper='
+    $helper = 'credential.https://github.com.helper=!gh auth git-credential'
+    return [string[]]@('-c', $reset, '-c', $helper)
+}
+
+function Get-YurunaGitAuthAttemptList {
+    <#
+    .SYNOPSIS
+        The ordered credentialed attempts for a network git call against
+        github.com: the explicit GH_TOKEN first, then the gh CLI's stored
+        login. Empty when the host has neither source.
+    .DESCRIPTION
+        One place owns the source ORDER so every network-git path (the inner
+        runner's Invoke-GitNetworkCommand, the outer loop's bounded runner)
+        chains identically. GH_TOKEN outranks the gh login because an explicit
+        environment token is deliberate operator intent -- the same precedence
+        gh itself applies. Callers run these before a plain (unmodified) git
+        attempt, which stays the last resort so the machine's own credential
+        manager / SSH agent can still win.
+
+        Descriptors are hashtables, never nested bare arrays: a nested array
+        return unrolls one level on the pipeline and an empty inner array
+        vanishes entirely (see feedback_return_comma_list_plus_at_paren_double_wraps).
+    .OUTPUTS
+        [hashtable[]] -- @{ Source = <label for logs>; Args = [string[]] git -c pairs },
+        in the order the attempts should run.
+    #>
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseOutputTypeCorrectly', '',
+        Justification = 'Returns a [hashtable[]]; callers always wrap with @(...), so the pipeline unroll into object[] is harmless and re-collected.')]
+    [CmdletBinding()]
+    [OutputType([hashtable[]])]
+    param()
+    $attempts = [System.Collections.Generic.List[hashtable]]::new()
+    $token = @(Get-YurunaGitCredentialArg)
+    if ($token.Count -gt 0) { $attempts.Add(@{ Source = 'GH_TOKEN'; Args = [string[]]$token }) }
+    $ghCli = @(Get-YurunaGhCliCredentialArg)
+    if ($ghCli.Count -gt 0) { $attempts.Add(@{ Source = 'gh CLI login'; Args = [string[]]$ghCli }) }
+    return $attempts.ToArray()
+}
+
+function Invoke-GitNetworkCommandOnce {
+    <#
+    .SYNOPSIS
+        One prompt-proof network-git run (see Invoke-GitNetworkCommand). Prefers
+        the bounded, process-tree-killing pool-sync runner when it is loaded;
+        otherwise neutralizes the credential-prompt env on this process around a
+        plain call and restores it after.
+    .OUTPUTS
+        [hashtable] @{ ExitCode; Output }.
+    #>
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param(
+        [Parameter(Mandatory)][string[]]$GitArgs,
+        [Parameter()][int]$TimeoutSeconds = 60
+    )
+    if (Get-Command Invoke-PoolSyncGitCapture -ErrorAction SilentlyContinue) {
+        $r = Invoke-PoolSyncGitCapture -ArgumentList $GitArgs -TimeoutSeconds $TimeoutSeconds
+        $text = ((@($r.StdOut, $r.StdErr) | Where-Object { $_ }) -join "`n").Trim()
+        return @{ ExitCode = [int]$r.ExitCode; Output = $text }
+    }
+    # Fallback: neutralize the prompt env on THIS process around a plain call.
+    $names = @('GIT_TERMINAL_PROMPT', 'GIT_ASKPASS', 'SSH_ASKPASS', 'GCM_INTERACTIVE', 'LC_ALL', 'LANG', 'LANGUAGE')
+    $prev  = @{}
+    foreach ($n in $names) { $prev[$n] = [Environment]::GetEnvironmentVariable($n) }
+    $env:GIT_TERMINAL_PROMPT = '0'
+    $env:GIT_ASKPASS         = ''
+    $env:SSH_ASKPASS         = ''
+    $env:GCM_INTERACTIVE     = 'never'
+    # The adapter classifies external Git diagnostics before localizing its
+    # own result; the child must use the invariant Git diagnostic vocabulary.
+    $env:LC_ALL = 'C'; $env:LANG = 'C'; $env:LANGUAGE = 'C'
+    try {
+        $out = & git @GitArgs 2>&1
+        return @{ ExitCode = $LASTEXITCODE; Output = ((@($out) -join "`n")).Trim() }
+    } finally {
+        foreach ($n in $names) {
+            if ($null -eq $prev[$n]) { Remove-Item -Path "Env:$n" -ErrorAction SilentlyContinue }
+            else { Set-Item -Path "Env:$n" -Value $prev[$n] }
+        }
+    }
+}
+
+function Invoke-GitNetworkCommand {
+    <#
+    .SYNOPSIS
+        Run a network-touching git command (fetch / pull / ls-remote / clone) so
+        it can NEVER block on an interactive credential prompt, never hang the
+        runner, AND authenticate to github.com with every credential source the
+        host actually has.
+    .DESCRIPTION
+        An unattended runner -- and, on the bare-pwsh path, the INTERACTIVE outer
+        loop -- would otherwise stall forever inside git the moment a stale or
+        missing GitHub credential makes git prompt for a username (the block is
+        inside the git child, so a wall-clock check in the caller can't catch it).
+        Prompt-proofing is handled by Invoke-GitNetworkCommandOnce.
+
+        On top of that this is the ONE place the inner runner's git talks to a
+        remote, so it is where the host's GitHub credential sources are chained
+        (order owned by Get-YurunaGitAuthAttemptList): a github.com-scoped
+        GH_TOKEN helper first, then the gh CLI's stored login -- so `gh auth
+        login` alone is enough, no `gh auth setup-git` / gitconfig edit needed
+        -- and always a plain run last (the machine's credential manager or SSH
+        agent may hold a credential the other sources do not). A failed attempt
+        falls through to the next source only when the failure is
+        credential-shaped (Test-GitRemoteAuthFailure); a network outage fails
+        identically for every source, so it is returned immediately instead of
+        burning another bounded timeout per source. With no token and no gh, a
+        single plain run happens exactly as before.
+    .OUTPUTS
+        [hashtable] @{ ExitCode; Output }. ExitCode is 124 on a pool-sync timeout,
+        -1 when git could not be started.
+    #>
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param(
+        [Parameter(Mandatory)][string[]]$GitArgs,
+        [Parameter()][int]$TimeoutSeconds = 60
+    )
+    foreach ($attempt in @(Get-YurunaGitAuthAttemptList)) {
+        # The -c auth args are git GLOBAL options, so they must precede the
+        # subcommand -- prepend them to whatever the caller passed (which starts
+        # with a global like -C or the subcommand itself).
+        $r = Invoke-GitNetworkCommandOnce -GitArgs (@($attempt.Args) + @($GitArgs)) -TimeoutSeconds $TimeoutSeconds
+        if ($r.ExitCode -eq 0) { return $r }
+        if (-not (Test-GitRemoteAuthFailure -Output $r.Output)) { return $r }
+        Write-Verbose "Invoke-GitNetworkCommand: the $($attempt.Source) attempt was rejected as unauthorized; trying the next credential source."
+    }
+    return Invoke-GitNetworkCommandOnce -GitArgs $GitArgs -TimeoutSeconds $TimeoutSeconds
+}
+
+function Get-GitFirstOutputLine {
+    <#
+    .SYNOPSIS
+        The first non-blank line of a git command's captured output, trimmed, or
+        an empty string when there is none.
+    .DESCRIPTION
+        git puts the sentence a human needs first ("remote: Invalid username or
+        token", "Repository not found") and follows it with the "fatal:" restating
+        of the same thing, so a one-line quote is what belongs in a report line
+        that already carries its own explanation.
+    .OUTPUTS
+        [string]
+    #>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param([Parameter()][AllowNull()][AllowEmptyString()][string]$Output)
+    if ([string]::IsNullOrWhiteSpace($Output)) { return '' }
+    $line = (($Output -split "`r?`n") | Where-Object { $_ -match '\S' } | Select-Object -First 1)
+    if (-not $line) { return '' }
+    return ([string]$line).Trim()
+}
+
+function Get-GitAuthRefreshRemedy {
+    <#
+    .SYNOPSIS
+        The ways an operator can restore a working github.com credential on this
+        host, one option per element, ordered the way the runner tries them.
+    .DESCRIPTION
+        An auth-shaped git failure (Test-GitRemoteAuthFailure) has exactly one
+        remedy no matter which check tripped over it, and a reader who is handed
+        a different wording per call site has to work out whether they are
+        looking at the same problem twice. Owning the list here keeps the
+        interactive banner and the pre-cycle gate's FAIL text saying the same
+        thing, and adding a credential source updates both at once.
+
+        Returned unformatted -- no bullets, no leading spaces -- because callers
+        render it differently: a multi-line banner has room for a list, a single
+        FAIL line embedded in a report does not.
+    .OUTPUTS
+        [string[]] -- the remedies, most-preferred first.
+    #>
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseOutputTypeCorrectly', '',
+        Justification = 'Returns a [string[]]; callers always wrap with @(...), so the pipeline unroll into object[] is harmless and re-collected.')]
+    [CmdletBinding()]
+    [OutputType([string[]])]
+    param()
+    return [string[]]@(
+        "gh auth login   (the runner picks up the gh CLI's stored login by itself)",
+        'export GH_TOKEN=<a valid GitHub token>',
+        'refresh your git credential helper / re-enter the personal access token'
+    )
+}
+
+function Write-GitAuthRefreshBanner {
+    <#
+    .SYNOPSIS
+        Emit the actionable "GitHub access needs refreshing" message when a git
+        fetch/pull failed because the cached credential is missing or expired
+        (classified by Test-GitRemoteAuthFailure), so the operator refreshes the
+        login in one step instead of debugging a silent hang.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter()][AllowEmptyString()][string]$RemoteUrl,
+        [Parameter()][AllowEmptyString()][string]$GitOutput
+    )
+    $remote = if ([string]::IsNullOrWhiteSpace($RemoteUrl)) { 'origin' } else { $RemoteUrl.Trim() }
+    $first  = Get-GitFirstOutputLine -Output $GitOutput
+    $said   = if ($first) { "`n  git said: $first" } else { '' }
+    $options = ((@(Get-GitAuthRefreshRemedy) | ForEach-Object { "    * $_" }) -join "`n")
+    Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_def404610b1df98a' -Arguments @{ remote = "$remote"; options = "$options"; said = "$said" })
+}
+
+function Invoke-GitPull {
+    <#
+    .SYNOPSIS
+    Runs git pull in the repo root. Returns $true on success.
+    .DESCRIPTION
+    Every network git call routes through Invoke-GitNetworkCommand, so a stale or
+    missing GitHub login can never block the runner on git's interactive username
+    prompt. A cheap ls-remote preflight verifies the remote is both reachable AND
+    authorized before the fetch; an auth failure (at the preflight, the fetch, or
+    the pull) stops FAST with the "refresh GitHub access" message instead of
+    hanging or spending the whole retry budget on a problem that will not
+    self-heal.
+    #>
+    param([string]$RepoRoot)
+
+    # Origin URL for the diagnostic message only (local config read -- no network,
+    # no prompt). Best-effort: an unusual remote name just yields a blank here.
+    $remoteUrl = & git -C $RepoRoot config --get remote.origin.url 2>$null
+    if ($remoteUrl) { $remoteUrl = "$remoteUrl".Trim() }
+
+    # Preflight: confirm the credential still AUTHORIZES against origin without ever
+    # blocking on a login prompt. This is the "will the pull work?" check the fetch
+    # below would otherwise discover only by hanging. Only an auth signature
+    # short-circuits here; a network blip, a missing 'origin', or a timeout falls
+    # through to the retry loop, which owns the transient-network backoff and the
+    # no-upstream handling. One extra lightweight ref advertisement per cycle -- far
+    # cheaper than a fetch, and it turns a silent hang into a clear message.
+    $pre = Invoke-GitNetworkCommand -GitArgs @('-C', $RepoRoot, 'ls-remote', '--exit-code', '--quiet', 'origin', 'HEAD') -TimeoutSeconds 30
+    if ($pre.ExitCode -ne 0 -and (Test-GitRemoteAuthFailure -Output $pre.Output)) {
+        Write-GitAuthRefreshBanner -RemoteUrl $remoteUrl -GitOutput $pre.Output
+        return $false
+    }
+
+    # See https://yuruna.link/4213a0b3-0081
+    $maxRetries      = 5
+    $maxTotalSeconds = 180   # wall-clock cap (in addition to the attempt count) so a hung/slow
+                             # fetch cannot stretch the loop far past the intended ~2.5 min window
+    $startUtc        = [DateTime]::UtcNow
+    $attempt         = 0
+    while ($true) {
+        $attempt++
+        $totalAttempts = $maxRetries + 1
+        Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_dc945b6f852c089a' -Arguments @{ repoRoot = "$RepoRoot"; attempt = "$attempt"; totalAttempts = "$totalAttempts" }) -InformationAction Continue
+        $fetch = Invoke-GitNetworkCommand -GitArgs @('-C', $RepoRoot, 'fetch') -TimeoutSeconds 60
+        Write-Information "$($fetch.Output)" -InformationAction Continue
+        if ($fetch.ExitCode -eq 0) { break }
+        # An auth failure never self-heals across retries -- stop now with the actionable message.
+        if (Test-GitRemoteAuthFailure -Output $fetch.Output) {
+            Write-GitAuthRefreshBanner -RemoteUrl $remoteUrl -GitOutput $fetch.Output
+            return $false
+        }
+        $elapsed = [int]([DateTime]::UtcNow - $startUtc).TotalSeconds
+        if ($attempt -gt $maxRetries -or $elapsed -ge $maxTotalSeconds) {
+            Write-Error (Format-YurunaOperatorMessage -Key 'exceptions.runner_2736bc206a47f22d' -Arguments @{ exitCode = "$($fetch.ExitCode)"; attempt = "$attempt"; elapsed = "${elapsed}"; maxTotalSeconds = "${maxTotalSeconds}" })
+            return $false
+        }
+        # Clamp the backoff so we never sleep past the wall-clock deadline.
+        $waitSeconds = [Math]::Min(10 * $attempt, [Math]::Max(1, $maxTotalSeconds - $elapsed))
+        Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_9b70d85e67370315' -Arguments @{ exitCode = "$($fetch.ExitCode)"; waitSeconds = "${waitSeconds}" }) -InformationAction Continue
+        Start-Sleep -Seconds $waitSeconds
+    }
+
+    # One shared comparison path (Get-GitUpstreamStatus); this function maps
+    # the State to a pull/skip/error action. The fetch above already ran, so
+    # the classifier reads fresh remote refs.
+    $st = Get-GitUpstreamStatus -Path $RepoRoot
+    switch ($st.State) {
+        'no-upstream' {
+            Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_c3946652c6bc4408') -InformationAction Continue
+            return $true
+        }
+        'up-to-date' {
+            Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_35fd2fea5f98f145') -InformationAction Continue
+            return $true
+        }
+        'ahead' {
+            Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_33bdd943ad4ebb3e') -InformationAction Continue
+            return $true
+        }
+        'behind' {
+            Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_80ee1545f3f94a52' -Arguments @{ behind = "$($st.Behind)" }) -InformationAction Continue
+            $pull = Invoke-GitNetworkCommand -GitArgs @('-C', $RepoRoot, 'pull', '--ff-only') -TimeoutSeconds 60
+            if ($pull.ExitCode -eq 0) {
+                # Exit 0 is not proof the working copy is usable: an autostash
+                # that failed to re-apply leaves conflict markers behind and
+                # still exits 0.
+                if (-not (Test-GitWorktreeMerged -RepoRoot $RepoRoot -Label 'framework repository')) { return $false }
+                Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_3f1b99fc3416e2fa' -Arguments @{ output = "$($pull.Output)" }) -InformationAction Continue
+                return $true
+            }
+            if (Test-GitRemoteAuthFailure -Output $pull.Output) {
+                Write-GitAuthRefreshBanner -RemoteUrl $remoteUrl -GitOutput $pull.Output
+                return $false
+            }
+            Write-Error (Format-YurunaOperatorMessage -Key 'exceptions.runner_9fe3c4a46ba0668d' -Arguments @{ exitCode = "$($pull.ExitCode)"; output = "$($pull.Output)" })
+            return $false
+        }
+        'unknown' {
+            # Could not determine ahead/behind (rev-list failed). Do not block the cycle on an
+            # undeterminable status -- warn and skip the ahead/behind check.
+            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_8bd112e1835b85ac')
+            return $true
+        }
+        default {
+            # diverged (no-tree cannot reach here -- the fetch above already ran)
+            Write-Error (Format-YurunaOperatorMessage -Key 'runner.operator_825c1426c2725e0c' -Arguments @{ ahead = "$($st.Ahead)"; behind = "$($st.Behind)" })
+            return $false
+        }
+    }
+}
+
+function Get-GitUnmergedPath {
+    <#
+    .SYNOPSIS
+    Paths left in a conflicted (unmerged) state in the worktree at $RepoRoot.
+    .DESCRIPTION
+    A pull can report success on a conflict it created itself. Every yuruna
+    clone runs with rebase.autoStash on (.gitconfig.yuruna), so a pull against
+    a dirty worktree stashes, fast-forwards, then fails to re-apply the stash:
+    git prints "Applying autostash resulted in conflicts", writes '<<<<<<<'
+    markers into the working copy, and still exits 0. An exit-code-only check
+    reads that as a clean sync, and the cycle goes on to execute .ps1/.psm1/.sh
+    sources with conflict markers in them.
+
+    The unmerged index is the durable evidence: it outlives the exit code and
+    names exactly which files are unusable.
+    .OUTPUTS
+    [string[]] conflicted paths, empty when there are none.
+    #>
+    [CmdletBinding()]
+    [OutputType([string[]])]
+    param([Parameter(Mandatory)][string]$RepoRoot)
+    $out = & git -C $RepoRoot ls-files --unmerged 2>$null
+    if ($LASTEXITCODE -ne 0 -or -not $out) { return [string[]]@() }
+    # `ls-files --unmerged` prints one line per stage: "<mode> <sha> <stage>\t<path>".
+    return [string[]]@(@($out) |
+        ForEach-Object { ($_ -split "`t", 2)[-1] } |
+        Where-Object { $_ } |
+        Sort-Object -Unique)
+}
+
+function Test-GitWorktreeMerged {
+    <#
+    .SYNOPSIS
+    $true when the worktree at $RepoRoot carries no conflicted paths.
+    .DESCRIPTION
+    The guard a pull's exit code cannot provide (see Get-GitUnmergedPath).
+    Reports the conflicted paths and the recovery, because the state does not
+    clear itself: the next pull refuses to run against a conflicted index, so
+    an unattended host stays wedged until an operator resolves it.
+    .OUTPUTS
+    [bool] $true when clean.
+    #>
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param(
+        [Parameter(Mandatory)][string]$RepoRoot,
+        [string]$Label = 'repository'
+    )
+    $conflicted = @(Get-GitUnmergedPath -RepoRoot $RepoRoot)
+    if ($conflicted.Count -eq 0) { return $true }
+    Write-Warning ((Format-YurunaOperatorMessage -Key 'runner.operator_0fa2a8400f3de23f' -Arguments @{ label = "${Label}"; repoRoot = "$RepoRoot"; count = "$($conflicted.Count)"; join = [string](($conflicted -join ', ')) }))
+    Write-Warning (Format-YurunaOperatorMessage -Key 'runner.git_recovery_command' -Arguments @{ repoRoot = "$RepoRoot"; upstreamReference = '@{u}' })
+    return $false
+}
+
+function Get-CurrentGitCommit {
+    <#
+    .SYNOPSIS
+    Returns the short git commit hash of HEAD.
+    #>
+    param([string]$RepoRoot)
+    $hash = & git -C $RepoRoot rev-parse --short HEAD 2>$null
+    if ($LASTEXITCODE -ne 0) { return "unknown" }
+    return $hash.Trim()
+}
+
+function Get-FileLockingProcess {
+    <#
+    .SYNOPSIS
+    Returns processes that currently hold an open handle to $Path (file or directory).
+    .DESCRIPTION
+    Two Windows mechanisms layered together, because no single API covers
+    every "in use by another process" cause:
+
+      1. Restart Manager (rstrtmgr.dll) -- the same API behind File
+         Explorer's "open in <App>" dialog. Catches *file-handle* lockers
+         (antivirus mid-scan, file watchers, .git/index, dll loaded from
+         the tree, etc). Registers the path plus every file underneath.
+      2. PEB-based cwd scan -- enumerates every accessible process and
+         reads its RTL_USER_PROCESS_PARAMETERS.CurrentDirectory via
+         NtQueryInformationProcess + ReadProcessMemory. Catches the
+         *directory-cwd* lockers Restart Manager misses (a stale pwsh /
+         cmd terminal sitting in <RepoRoot>/project, which is the typical
+         cause of "empty folder won't delete").
+
+    Diagnostic only: turns the generic "being used by another process"
+    Win32 error into PID + process name so the operator can decide
+    whether to close the holder or ignore it.
+
+    Non-Windows: returns an empty array (no equivalent stable API; lsof
+    is out-of-process and outside this helper's scope).
+    Failure modes: any API failure (Restart Manager rc, OpenProcess
+    access denied, 32-bit target with mismatched PEB layout) is swallowed
+    -- this is best-effort diagnostic, not a control-flow decision the
+    caller should branch on.
+    #>
+    [CmdletBinding()]
+    [OutputType([object[]])]
+    param(
+        [Parameter(Mandatory)][string]$Path
+    )
+    if (-not $IsWindows) { return @() }
+    if (-not ('Yuruna.RestartManager' -as [type])) {
+        # Add-Type once per process; the type stays loaded so re-invocations
+        # skip the C# compile. Keep the type name namespaced so it doesn't
+        # collide with anything else added later.
+        $source = @'
+using System;
+using System.Collections.Generic;
+using System.Runtime.InteropServices;
+using System.Text;
+
+namespace Yuruna {
+    public static class RestartManager {
+        // --- REGION: Restart Manager file-handle lockers
+        [StructLayout(LayoutKind.Sequential)]
+        private struct RM_UNIQUE_PROCESS {
+            public int dwProcessId;
+            public System.Runtime.InteropServices.ComTypes.FILETIME ProcessStartTime;
+        }
+        [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+        private struct RM_PROCESS_INFO {
+            public RM_UNIQUE_PROCESS Process;
+            [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 256)] public string strAppName;
+            [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 64)]  public string strServiceShortName;
+            public uint ApplicationType;
+            public uint AppStatus;
+            public uint TSSessionId;
+            [MarshalAs(UnmanagedType.Bool)] public bool bRestartable;
+        }
+        [DllImport("rstrtmgr.dll", CharSet = CharSet.Unicode)]
+        private static extern int RmStartSession(out uint pSessionHandle, int dwSessionFlags, string strSessionKey);
+        [DllImport("rstrtmgr.dll")]
+        private static extern int RmEndSession(uint pSessionHandle);
+        [DllImport("rstrtmgr.dll", CharSet = CharSet.Unicode)]
+        private static extern int RmRegisterResources(uint pSessionHandle, uint nFiles, string[] rgsFilenames, uint nApplications, RM_UNIQUE_PROCESS[] rgApplications, uint nServices, string[] rgsServiceNames);
+        [DllImport("rstrtmgr.dll")]
+        private static extern int RmGetList(uint dwSessionHandle, out uint pnProcInfoNeeded, ref uint pnProcInfo, [In, Out] RM_PROCESS_INFO[] rgAffectedApps, ref uint lpdwRebootReasons);
+
+        public class Holder {
+            public int Pid;
+            public string Name;
+            public bool Restartable;
+            public string Reason; // "file-handle" or "cwd"
+        }
+
+        public static List<Holder> GetLockers(string[] paths) {
+            var result = new List<Holder>();
+            uint session;
+            string key = Guid.NewGuid().ToString();
+            int rc = RmStartSession(out session, 0, key);
+            if (rc != 0) return result;
+            try {
+                rc = RmRegisterResources(session, (uint)paths.Length, paths, 0, null, 0, null);
+                if (rc != 0) return result;
+                uint needed = 0;
+                uint count  = 0;
+                uint reason = 0;
+                rc = RmGetList(session, out needed, ref count, null, ref reason);
+                if (needed == 0) return result;
+                var arr = new RM_PROCESS_INFO[needed];
+                count = needed;
+                rc = RmGetList(session, out needed, ref count, arr, ref reason);
+                if (rc != 0) return result;
+                for (int i = 0; i < count; i++) {
+                    result.Add(new Holder {
+                        Pid         = arr[i].Process.dwProcessId,
+                        Name        = arr[i].strAppName,
+                        Restartable = arr[i].bRestartable,
+                        Reason      = "file-handle"
+                    });
+                }
+            }
+            finally {
+                RmEndSession(session);
+            }
+            return result;
+        }
+
+        // --- REGION: PEB current-directory scan
+        // Catches processes whose current directory is
+        // the locked folder. Restart Manager doesn't see these because no
+        // file handle is open, only a directory handle from SetCurrentDirectory.
+        [StructLayout(LayoutKind.Sequential)]
+        private struct PROCESS_BASIC_INFORMATION {
+            public IntPtr Reserved1;
+            public IntPtr PebBaseAddress;
+            public IntPtr Reserved2_0;
+            public IntPtr Reserved2_1;
+            public IntPtr UniqueProcessId;
+            public IntPtr Reserved3;
+        }
+        [DllImport("kernel32.dll", SetLastError = true)]
+        private static extern IntPtr OpenProcess(uint access, bool inherit, int pid);
+        [DllImport("kernel32.dll", SetLastError = true)]
+        private static extern bool CloseHandle(IntPtr h);
+        [DllImport("ntdll.dll")]
+        private static extern int NtQueryInformationProcess(IntPtr h, int infoClass, ref PROCESS_BASIC_INFORMATION pbi, int size, out int retLen);
+        [DllImport("kernel32.dll", SetLastError = true)]
+        private static extern bool ReadProcessMemory(IntPtr h, IntPtr addr, byte[] buf, IntPtr size, out IntPtr nRead);
+
+        private const uint PROCESS_QUERY_LIMITED_INFORMATION = 0x1000;
+        private const uint PROCESS_VM_READ = 0x10;
+
+        // PEB offsets are stable across modern Windows but technically
+        // undocumented. x86 hosts aren't supported (this would require
+        // the 32-bit layout); helper returns empty if we ever run there.
+        private const int PEB_PROCESS_PARAMETERS_OFFSET_X64 = 0x20;
+        private const int RTL_USER_CURRENT_DIRECTORY_OFFSET_X64 = 0x38;
+
+        public static List<Holder> GetCwdHolders(string targetPath) {
+            var result = new List<Holder>();
+            if (IntPtr.Size != 8) return result;
+            string target = NormalizePath(targetPath);
+            foreach (var proc in System.Diagnostics.Process.GetProcesses()) {
+                try {
+                    IntPtr h = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_VM_READ, false, proc.Id);
+                    if (h == IntPtr.Zero) continue;
+                    try {
+                        var pbi = new PROCESS_BASIC_INFORMATION();
+                        int len;
+                        if (NtQueryInformationProcess(h, 0, ref pbi, Marshal.SizeOf(pbi), out len) != 0) continue;
+                        if (pbi.PebBaseAddress == IntPtr.Zero) continue;
+
+                        byte[] ptrBuf = new byte[8];
+                        IntPtr nRead;
+                        if (!ReadProcessMemory(h, new IntPtr(pbi.PebBaseAddress.ToInt64() + PEB_PROCESS_PARAMETERS_OFFSET_X64), ptrBuf, new IntPtr(8), out nRead)) continue;
+                        long pp = BitConverter.ToInt64(ptrBuf, 0);
+                        if (pp == 0) continue;
+
+                        byte[] usBuf = new byte[16];
+                        if (!ReadProcessMemory(h, new IntPtr(pp + RTL_USER_CURRENT_DIRECTORY_OFFSET_X64), usBuf, new IntPtr(16), out nRead)) continue;
+                        ushort length = BitConverter.ToUInt16(usBuf, 0);
+                        long bufferAddr = BitConverter.ToInt64(usBuf, 8);
+                        if (length == 0 || bufferAddr == 0) continue;
+
+                        byte[] strBuf = new byte[length];
+                        if (!ReadProcessMemory(h, new IntPtr(bufferAddr), strBuf, new IntPtr(length), out nRead)) continue;
+                        string cwd = NormalizePath(Encoding.Unicode.GetString(strBuf, 0, (int)nRead));
+                        if (cwd == target) {
+                            string name = null;
+                            try { name = proc.ProcessName; } catch { }
+                            result.Add(new Holder {
+                                Pid         = proc.Id,
+                                Name        = name ?? "(unknown)",
+                                Restartable = false,
+                                Reason      = "cwd"
+                            });
+                        }
+                    } finally {
+                        CloseHandle(h);
+                    }
+                } catch {
+                    // skip protected/exited/foreign-arch processes
+                } finally {
+                    try { proc.Dispose(); } catch { }
+                }
+            }
+            return result;
+        }
+
+        private static string NormalizePath(string p) {
+            if (string.IsNullOrEmpty(p)) return string.Empty;
+            return p.TrimEnd('\0','\\','/').Replace('/','\\').ToLowerInvariant();
+        }
+    }
+}
+'@
+        Add-Type -TypeDefinition $source -Language CSharp -ErrorAction SilentlyContinue
+    }
+    if (-not ('Yuruna.RestartManager' -as [type])) { return @() }
+    # Restart Manager only accepts FILE paths -- registering a directory
+    # path fails with ACCESS_DENIED (rc=5) and a single bad resource aborts
+    # the whole call, so build the resource list from file paths only.
+    # For a directory target, enumerate files inside it (capped so a giant
+    # tree doesn't stall the error path); cwd-only directory locks are
+    # caught separately by the PEB scan below.
+    $resources = @()
+    if (Test-Path -LiteralPath $Path -PathType Container) {
+        try {
+            $resources = @(Get-ChildItem -LiteralPath $Path -Recurse -File -Force -ErrorAction SilentlyContinue |
+                Select-Object -First 256 | ForEach-Object { $_.FullName })
+        } catch { $null = $_ }
+    } elseif (Test-Path -LiteralPath $Path -PathType Leaf) {
+        $resources = @($Path)
+    }
+    $rmHolders = @()
+    if ($resources.Count -gt 0) {
+        try { $rmHolders = [Yuruna.RestartManager]::GetLockers($resources) } catch { $null = $_ }
+    }
+    # Restart Manager misses processes that lock the directory only via
+    # cwd (SetCurrentDirectory). Fall through to the PEB scan in those
+    # cases -- it's the typical "empty folder won't delete" cause.
+    $cwdHolders = @()
+    try { $cwdHolders = [Yuruna.RestartManager]::GetCwdHolders($Path) } catch { $null = $_ }
+
+    $all = @($rmHolders) + @($cwdHolders)
+    if ($all.Count -eq 0) { return @() }
+    # De-dupe by PID: a process can show up via both mechanisms. Prefer
+    # Restart Manager's reason ("file-handle" is more specific than "cwd"
+    # if both apply). Group-Object would re-sort; preserve discovery order.
+    $seen = [System.Collections.Generic.HashSet[int]]::new()
+    $unique = foreach ($h in $all) {
+        if ($seen.Add($h.Pid)) { $h }
+    }
+    $enriched = foreach ($h in $unique) {
+        $proc = $null
+        try { $proc = Get-Process -Id $h.Pid -ErrorAction Stop } catch { $null = $_ }
+        [pscustomobject]@{
+            Pid         = $h.Pid
+            Name        = $h.Name
+            Image       = if ($proc) { $proc.ProcessName } else { $null }
+            Reason      = $h.Reason
+            Restartable = $h.Restartable
+        }
+    }
+    return @($enriched)
+}
+
+function Move-ProjectCloneDirectory {
+    <#
+    .SYNOPSIS
+    Renames one directory in a single operation, or throws and changes nothing.
+    .DESCRIPTION
+    Move-Item is not a rename: when the rename is refused it falls back to
+    moving the directory's children one at a time, and a failure part way
+    leaves the tree split between the source and the destination -- the one
+    shape the swap must never leave behind. [System.IO.Directory]::Move is one
+    call, so the tree moves whole or not at all.
+    #>
+    [CmdletBinding()]
+    [OutputType([void])]
+    param(
+        [Parameter(Mandatory)][string]$Path,
+        [Parameter(Mandatory)][string]$Destination
+    )
+    [System.IO.Directory]::Move($Path, $Destination)
+}
+
+function Copy-ProjectCloneDirectory {
+    <#
+    .SYNOPSIS
+    Installs a verified clone by copying it, for when it cannot be renamed into place.
+    .DESCRIPTION
+    The same refusal that blocks renaming the old checkout blocks renaming the new
+    one: a language server that notices a project in a fresh clone watches its
+    build output folder within a second, and that watch outlives any retry.
+    Copying reads the tree and writes a new one, which a watcher does not stop.
+    The copy counts only when it passes the same health check the clone did; any
+    other outcome removes it, so a half copy never stands where a checkout
+    belongs. Never merges into an existing tree.
+    .OUTPUTS
+    [bool] $true when the destination now holds a healthy copy.
+    #>
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param(
+        [Parameter(Mandatory)][string]$Path,
+        [Parameter(Mandatory)][string]$Destination
+    )
+    if (Test-Path -LiteralPath $Destination) { return $false }
+    try {
+        Copy-Item -LiteralPath $Path -Destination $Destination -Recurse -Force -ErrorAction Stop
+        $health = Test-ProjectCloneHealth -Path $Destination
+        if ($health.Healthy) { return $true }
+        Write-Verbose "Copy-ProjectCloneDirectory: the copy at ${Destination} is not usable ($($health.Reason))."
+    } catch {
+        Write-Verbose "Copy-ProjectCloneDirectory: could not copy ${Path} to ${Destination}: $($_.Exception.Message)"
+    }
+    $null = Remove-ProjectCloneDirectory -Path $Destination -Confirm:$false
+    return $false
+}
+
+function Remove-ProjectCloneDirectory {
+    <#
+    .SYNOPSIS
+    Deletes one of the directories a project refresh creates beside the checkout.
+    .DESCRIPTION
+    -Force chases hidden and read-only entries (.git/objects/pack files arrive
+    read-only on Windows after a clone). Returns $false instead of throwing: every
+    caller is cleaning up after something else and has a more useful failure to
+    report than this one.
+    .OUTPUTS
+    [bool] $true when the directory is gone afterwards.
+    #>
+    [CmdletBinding(SupportsShouldProcess)]
+    [OutputType([bool])]
+    param([Parameter(Mandatory)][string]$Path)
+    if (-not (Test-Path -LiteralPath $Path)) { return $true }
+    if (-not $PSCmdlet.ShouldProcess($Path, 'Remove project clone directory')) { return $true }
+    try {
+        Remove-Item -LiteralPath $Path -Recurse -Force -ErrorAction Stop
+        return $true
+    } catch {
+        Write-Verbose "Remove-ProjectCloneDirectory: could not remove ${Path}: $($_.Exception.Message)"
+        return (-not (Test-Path -LiteralPath $Path))
+    }
+}
+
+function Restore-ProjectCloneSwap {
+    <#
+    .SYNOPSIS
+    Puts <RepoRoot>/project/ back in a usable state after a refresh that was
+    interrupted, and clears what such a refresh leaves beside it.
+    .DESCRIPTION
+    A refresh clones into project.incoming/, sets the current checkout aside as
+    project.previous/, moves the clone into place, then deletes the displaced
+    copy. A crash or power loss between those renames leaves one of three
+    shapes, each with a single safe answer:
+
+      - project/ is missing and project.previous/ exists: the refresh stopped
+        after setting the checkout aside and before the replacement arrived.
+        The set-aside copy is the last known good one, so it goes back.
+      - project/ exists and project.previous/ exists: the swap finished and only
+        the cleanup did not. The displaced copy is deleted.
+      - project.incoming/ exists: a clone that never finished. It is deleted,
+        because nothing proved it complete.
+
+    Nothing here trusts the half-finished clone, so no marker of completeness is
+    needed. The caller goes on to refresh from the remote anyway; all this has to
+    guarantee is that a usable project/ exists whenever one ever did.
+    .OUTPUTS
+    [string[]] The actions taken, in order: restored-previous, removed-previous,
+    removed-incoming. Empty when nothing needed doing.
+    #>
+    [CmdletBinding(SupportsShouldProcess)]
+    [OutputType([string[]])]
+    param([Parameter(Mandatory)][string]$RepoRoot)
+    $root     = (Resolve-Path -LiteralPath $RepoRoot).Path
+    $project  = Join-Path $root 'project'
+    $incoming = Join-Path $root 'project.incoming'
+    $previous = Join-Path $root 'project.previous'
+    $actions  = [System.Collections.Generic.List[string]]::new()
+    if (-not $PSCmdlet.ShouldProcess($root, 'Recover an interrupted project refresh')) { return [string[]]@() }
+    if (-not (Test-Path -LiteralPath $project) -and (Test-Path -LiteralPath $previous)) {
+        try {
+            Move-ProjectCloneDirectory -Path $previous -Destination $project
+            $actions.Add('restored-previous')
+        } catch {
+            Write-Verbose "Restore-ProjectCloneSwap: could not put $previous back: $($_.Exception.Message)"
+        }
+    }
+    if (Test-Path -LiteralPath $previous) {
+        if (Test-Path -LiteralPath $project) {
+            if (Remove-ProjectCloneDirectory -Path $previous -Confirm:$false) { $actions.Add('removed-previous') }
+        }
+    }
+    if (Test-Path -LiteralPath $incoming) {
+        if (Remove-ProjectCloneDirectory -Path $incoming -Confirm:$false) { $actions.Add('removed-incoming') }
+    }
+    return [string[]]$actions.ToArray()
+}
+
+function Test-ProjectCloneHealth {
+    <#
+    .SYNOPSIS
+    Whether a freshly cloned directory is a complete checkout of a revision.
+    .DESCRIPTION
+    Two things must hold before a clone may replace the working checkout: HEAD
+    resolves to a commit, and every file git tracks is present on disk. The second
+    is what a clone cut short by a full disk or a killed process fails -- the
+    objects arrived and the working tree did not.
+
+    The check deliberately stops short of `git status`: a fresh checkout of a
+    repository with mixed line endings can list files as modified under some
+    autocrlf settings, and rejecting every such clone would stall every cycle for
+    a difference that harms nothing. Missing files are the corruption that
+    matters here.
+
+    The revision is the clone's own HEAD. It is not compared with the remote's,
+    because the remote may advance during the clone and a lost race is not a bad
+    checkout.
+    .OUTPUTS
+    [pscustomobject] Healthy [bool], Revision [string], Reason [string].
+    #>
+    [CmdletBinding()]
+    [OutputType([pscustomobject])]
+    param([Parameter(Mandatory)][string]$Path)
+    $verdict = { param([bool]$Healthy, [string]$Revision, [string]$Reason) [pscustomobject]@{ Healthy = $Healthy; Revision = $Revision; Reason = $Reason } }
+    if (-not (Test-Path -LiteralPath (Join-Path $Path '.git'))) {
+        return (& $verdict $false '' 'the directory is not a git checkout')
+    }
+    $head = (& git -C $Path rev-parse --verify 'HEAD^{commit}' 2>&1 | Out-String).Trim()
+    if ($LASTEXITCODE -ne 0 -or $head -notmatch '^[0-9a-f]{40,64}$') {
+        return (& $verdict $false '' "HEAD does not resolve to a commit: $head")
+    }
+    $missing = @(& git -C $Path ls-files --deleted 2>&1)
+    if ($LASTEXITCODE -ne 0) {
+        return (& $verdict $false $head "git could not list the checkout: $($missing -join ' ')")
+    }
+    if ($missing.Count -gt 0) {
+        $sample = ($missing | Select-Object -First 3) -join ', '
+        return (& $verdict $false $head "$($missing.Count) tracked file(s) are missing from the working tree (for example $sample)")
+    }
+    return (& $verdict $true $head '')
+}
+
+function Update-ProjectClone {
+    <#
+    .SYNOPSIS
+    At cycle start, refresh <RepoRoot>/project/ from test.config.yml's repositories.projectUrl.
+    .DESCRIPTION
+    The project under verification lives in a separate Git repository
+    (configured via test.config.yml `repositories.projectUrl`). Each cycle
+    replaces <RepoRoot>/project/ with a fresh clone so previous cycle output
+    cannot leak forward. Returns @{ success; skipped; errorMessage; revision }.
+
+    The replacement is built beside the checkout and swapped in only once it is
+    proven complete: clone into project.incoming/, verify it, set the current
+    checkout aside as project.previous/, move the clone into place, then delete
+    the displaced copy. A failed or interrupted clone therefore never costs the
+    last good checkout, and a failure after the swap began is rolled back. The two
+    renames are not atomic as a pair, so a crash between them is recovered at the
+    next refresh (see Restore-ProjectCloneSwap).
+
+    When `repositories.projectUrl` is empty/missing, this is a no-op (skipped) -
+    that path is the in-tree stop-gap, where project/ ships as part of
+    the framework repo and the runner uses it directly.
+
+    Safety: the directories this touches are derived from the resolved RepoRoot
+    and are strictly under it. A misconfigured RepoRoot or project path could
+    otherwise scrub something unrelated.
+    #>
+    [CmdletBinding(SupportsShouldProcess)]
+    [OutputType([hashtable])]
+    param(
+        [Parameter(Mandatory)][string]$RepoRoot,
+        [string]$ProjectUrl
+    )
+    if ([string]::IsNullOrWhiteSpace($ProjectUrl)) {
+        Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_eae57e0cb1c43db1') -InformationAction Continue
+        return @{ success = $true; skipped = $true; errorMessage = $null; revision = $null }
+    }
+
+    $projectDir = Join-Path $RepoRoot 'project'
+    $resolvedRoot = (Resolve-Path -LiteralPath $RepoRoot).Path
+    # Resolve project dir without requiring it to exist; manual path build
+    # so the safety check works even when project/ was wiped mid-cycle.
+    $resolvedProjectParent = (Resolve-Path -LiteralPath $RepoRoot).Path
+    $projectDirNormalized  = [System.IO.Path]::GetFullPath((Join-Path $resolvedProjectParent 'project'))
+    if (-not $projectDirNormalized.StartsWith($resolvedRoot, [System.StringComparison]::OrdinalIgnoreCase)) {
+        return @{ success = $false; skipped = $false; errorMessage = (Format-YurunaOperatorMessage -Key 'runner.operator_7c4b977d87fe98d6' -Arguments @{ projectDirNormalized = "$projectDirNormalized" }); revision = $null }
+    }
+    $incomingDir = Join-Path $resolvedRoot 'project.incoming'
+    $previousDir = Join-Path $resolvedRoot 'project.previous'
+
+    $revision = $null
+    if ($PSCmdlet.ShouldProcess($projectDir, (Format-YurunaOperatorMessage -Key 'runner.operator_f2604472b39532f2' -Arguments @{ projectUrl = "$ProjectUrl" }))) {
+        # Preflight the project remote BEFORE touching the checkout: a private
+        # projectUrl with a stale/expired GitHub credential would otherwise block
+        # the clone on an interactive username prompt (an uncatchable runner hang).
+        # ls-remote is credential-prompt-proof + bounded; only an auth signature
+        # short-circuits (a network blip / non-git path falls through to the
+        # clone, which reports it). Leave the existing clone in place and fail
+        # fast with clear guidance.
+        $pre = Invoke-GitNetworkCommand -GitArgs @('ls-remote', '--exit-code', '--quiet', $ProjectUrl, 'HEAD') -TimeoutSeconds 30
+        if ($pre.ExitCode -ne 0 -and (Test-GitRemoteAuthFailure -Output $pre.Output)) {
+            Write-GitAuthRefreshBanner -RemoteUrl $ProjectUrl -GitOutput $pre.Output
+            return @{ success = $false; skipped = $false; errorMessage = (Format-YurunaOperatorMessage -Key 'runner.operator_a090efbddc458c44' -Arguments @{ projectUrl = "$ProjectUrl"; output = "$($pre.Output)" }); revision = $null }
+        }
+
+        # A refresh that died mid-swap leaves project/ missing or a copy beside
+        # it; make sure a usable checkout exists before building the next one.
+        foreach ($action in @(Restore-ProjectCloneSwap -RepoRoot $resolvedRoot -Confirm:$false)) {
+            Write-Information (Format-YurunaOperatorMessage -Key 'runner.project_swap_recovered' -Arguments @{ action = "$action"; repoRoot = "$resolvedRoot" }) -InformationAction Continue
+        }
+
+        Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_9b1d71aa576b45f6' -Arguments @{ projectUrl = "$ProjectUrl"; projectDir = "$incomingDir" }) -InformationAction Continue
+        # Prompt-proof (and bounded, when the pool-sync runner is loaded) so a
+        # credential that expired between the preflight and here can't hang the clone.
+        $clone = Invoke-GitNetworkCommand -GitArgs @('clone', '--depth', '1', $ProjectUrl, $incomingDir) -TimeoutSeconds 600
+        if ($clone.ExitCode -ne 0) {
+            $null = Remove-ProjectCloneDirectory -Path $incomingDir -Confirm:$false
+            if (Test-GitRemoteAuthFailure -Output $clone.Output) {
+                Write-GitAuthRefreshBanner -RemoteUrl $ProjectUrl -GitOutput $clone.Output
+            }
+            return @{ success = $false; skipped = $false; errorMessage = "git clone failed (exit $($clone.ExitCode)): $($clone.Output)"; revision = $null }
+        }
+        $health = Test-ProjectCloneHealth -Path $incomingDir
+        if (-not $health.Healthy) {
+            $null = Remove-ProjectCloneDirectory -Path $incomingDir -Confirm:$false
+            return @{ success = $false; skipped = $false; errorMessage = "The fresh project clone is not usable ($($health.Reason)); the previous checkout was left in place."; revision = $null }
+        }
+        $revision = $health.Revision
+
+        $hadPrevious = Test-Path -LiteralPath $projectDir
+        $setAside = $false
+        $replacedInPlace = $false
+        $renameError = ''
+        if ($hadPrevious) {
+            try {
+                Move-ProjectCloneDirectory -Path $projectDir -Destination $previousDir
+                $setAside = $true
+            } catch {
+                $renameError = $_.Exception.Message
+                # Windows refuses to rename a directory while anything holds a handle
+                # on it or below it, and an editor's or build tool's file watcher on a
+                # build output folder is enough -- a C# language server that found the
+                # checkout's projects does exactly that. The same handles do not stop a
+                # delete, and the replacement is already proven complete, so nothing is
+                # lost by removing the old checkout and moving the new one in.
+                Write-Verbose "Update-ProjectClone: could not rename ${projectDir} ($renameError); replacing it in place."
+                $replacedInPlace = Remove-ProjectCloneDirectory -Path $projectDir -Confirm:$false
+            }
+            if (-not $setAside -and -not $replacedInPlace) {
+                # Windows "being used by another process" never names the
+                # holder -- it's almost always a stale pwsh/VSCode with
+                # the dir as cwd, or AV mid-scan. Resolve PIDs via Restart
+                # Manager so the operator knows what to close instead of
+                # retrying forever and trusting the next cycle to be luckier.
+                $msg = "Failed to set aside the previous project clone ($projectDir): $renameError"
+                $holders = Get-FileLockingProcess -Path $projectDir
+                if ($holders.Count -gt 0) {
+                    $lines = $holders | ForEach-Object {
+                        $imgPart = if ($_.Image) { " ($($_.Image).exe)" } else { '' }
+                        "  PID $($_.Pid) [$($_.Reason)] - $($_.Name)$imgPart"
+                    }
+                    $msg = "$msg`nProcess(es) holding the folder:`n$($lines -join "`n")"
+                } else {
+                    $msg = "$msg`n(No holder identified by Restart Manager or PEB cwd scan -- on Windows this can mean an antivirus scan, a transient handle, an elevated/protected process, or a 32-bit holder we can't introspect.)"
+                }
+                $null = Remove-ProjectCloneDirectory -Path $incomingDir -Confirm:$false
+                return @{ success = $false; skipped = $false; errorMessage = $msg; revision = $null }
+            }
+        }
+        $installed = $true
+        $installError = ''
+        try {
+            Move-ProjectCloneDirectory -Path $incomingDir -Destination $projectDir
+        } catch {
+            $installError = $_.Exception.Message
+            Write-Verbose "Update-ProjectClone: could not rename ${incomingDir} ($installError); copying it into place."
+            $installed = Copy-ProjectCloneDirectory -Path $incomingDir -Destination $projectDir
+        }
+        if (-not $installed) {
+            $msg = "Failed to move the fresh project clone into place ($projectDir): $installError"
+            if ($setAside) {
+                try {
+                    Move-ProjectCloneDirectory -Path $previousDir -Destination $projectDir
+                    $msg = "$msg`nThe previous checkout was put back."
+                } catch {
+                    $msg = "$msg`nThe previous checkout could not be put back and is at $previousDir; the next refresh restores it."
+                }
+            }
+            $null = Remove-ProjectCloneDirectory -Path $incomingDir -Confirm:$false
+            return @{ success = $false; skipped = $false; errorMessage = $msg; revision = $null }
+        }
+        # A rename consumed the clone; a copy left it behind.
+        if (Test-Path -LiteralPath $incomingDir) { $null = Remove-ProjectCloneDirectory -Path $incomingDir -Confirm:$false }
+        if ($setAside) {
+            Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_e5f2d5f15a8e668a' -Arguments @{ projectDir = "$previousDir" }) -InformationAction Continue
+            if (-not (Remove-ProjectCloneDirectory -Path $previousDir -Confirm:$false)) {
+                # The swap itself succeeded; a copy that will not delete yet is
+                # cleaned by the next refresh, so it must not fail this one.
+                Write-Warning (Format-YurunaOperatorMessage -Key 'runner.project_previous_cleanup_failed' -Arguments @{ previousDir = "$previousDir" })
+            }
+        }
+        Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_99afc5f5196cb53c') -InformationAction Continue
+    }
+    return @{ success = $true; skipped = $false; errorMessage = $null; revision = $revision }
+}
+
+function Resolve-GitRemoteLink {
+    <#
+    .SYNOPSIS
+    One git remote value as a location a browser can be pointed at:
+    [pscustomobject] @{ Url; Kind }.
+    .DESCRIPTION
+    Pure string work -- no filesystem, no network -- so it answers for a remote
+    this machine cannot reach as readily as for one it just cloned, and it never
+    leaves the value it was given for a different one: a remote naming a local
+    copy stays that local copy.
+
+    Every clone form is normalized to something addressable:
+
+      - https/http keeps its scheme, minus any embedded `user:password@`
+        userinfo (the result reaches unauthenticated surfaces, so a credential
+        written into a remote must not travel with it) and minus a trailing
+        `.git` (the web route is not served under the repository path).
+      - ssh:// and the scp-like `git@host:owner/repo.git` are the same
+        repository reached over a different transport, so both rewrite to the
+        https location that serves it in a browser.
+      - a rooted local path becomes a file: URL, drive letters and UNC shares
+        included. A trailing `.git` is kept here: a bare clone's directory is
+        literally named that.
+      - any other scheme keeps its spelling and path, with URI userinfo
+        removed. The consumer decides which schemes may become a link.
+
+    Kind names which of those answered -- 'web', 'file', 'other', or '' when
+    the input names nothing -- so a caller that needs specifically a web URL
+    can tell one from a local path without re-parsing the grammar.
+
+    A RELATIVE path ('../sibling.git') yields nothing: it has no meaning away
+    from the repository that holds it, and this helper is deliberately given no
+    directory to resolve it against.
+    .OUTPUTS
+    [pscustomobject] @{ Url = [string]; Kind = 'web'|'file'|'other'|'' }
+    #>
+    [CmdletBinding()]
+    [OutputType([pscustomobject])]
+    param([Parameter()][AllowNull()][AllowEmptyString()][string]$Url)
+
+    $s = "$Url".Trim()
+    if (-not $s) { return [pscustomobject]@{ Url = ''; Kind = '' } }
+
+    # Userinfo belongs to the transport, never to a published repository link.
+    # Limit removal to the URI authority; @ in a path, query or fragment is data.
+    $s = $s -replace '^([A-Za-z][A-Za-z0-9+.-]*://)[^/?#]*@', '$1'
+
+    # https is matched FIRST because its optional userinfo (`https://user@host/`)
+    # would otherwise read as the scp-like form's `user@host:`.
+    $web = ''
+    if ($s -match '^(?<scheme>https?://)(?:[^/@]+@)?(?<rest>.+)$') {
+        $web = $Matches['scheme'] + $Matches['rest']
+    } elseif ($s -match '^ssh://(?:[^@/]+@)?(?<hostname>[^/:]+)(?::\d+)?/(?<path>.+)$') {
+        $web = 'https://' + $Matches['hostname'] + '/' + ($Matches['path'] -replace '^/+', '')
+    } elseif ($s -match '^[^@/\\]+@(?<hostname>[^:/\\]+):(?<path>.+)$') {
+        # scp-like remote. The user@ prefix is required so a Windows drive
+        # path (C:/git/...) can never match as host:path.
+        $web = 'https://' + $Matches['hostname'] + '/' + ($Matches['path'] -replace '^/+', '')
+    }
+    if ($web) { return [pscustomobject]@{ Url = ($web -replace '/+$', '' -replace '\.git$', ''); Kind = 'web' } }
+
+    if ($s -match '^file://') { return [pscustomobject]@{ Url = $s; Kind = 'file' } }
+    if ($s -match '^[A-Za-z][A-Za-z0-9+.-]*://') { return [pscustomobject]@{ Url = $s; Kind = 'other' } }
+
+    # A path. Separators are normalized before escaping so one branch serves
+    # both platforms; '%' goes first, or it would re-escape the escapes.
+    $p = $s -replace '\\', '/'
+    $esc = $p -replace '%', '%25' -replace ' ', '%20' -replace '#', '%23' -replace '\?', '%3F'
+    if ($p -match '^//[^/]') {
+        # UNC share: the server takes the authority position (file://server/share).
+        return [pscustomobject]@{ Url = ('file:' + $esc); Kind = 'file' }
+    }
+    if ($p -match '^[A-Za-z]:/') { return [pscustomobject]@{ Url = ('file:///' + $esc); Kind = 'file' } }
+    if ($p.StartsWith('/'))      { return [pscustomobject]@{ Url = ('file://' + $esc); Kind = 'file' } }
+    return [pscustomobject]@{ Url = ''; Kind = '' }
+}
+
+function Resolve-GitRepositoryWebUrl {
+    <#
+    .SYNOPSIS
+    Resolve a configured repository URL/path to a browser-routable https URL, or $null.
+    .DESCRIPTION
+    The status document's gitCommits[].repoUrl is a deep-link base: the status
+    page and the pool dashboard build <repoUrl>/commit/<sha> anchors from it,
+    and both only link when the value is http(s). A repository setting may
+    legitimately be something a browser cannot open:
+
+      - a local clone path (a host cloning the project under test from a
+        sibling checkout instead of over the network),
+      - an scp-like ssh remote (git@github.com:owner/repo.git),
+      - an ssh:// remote.
+
+    This helper walks those forms back to the underlying web remote:
+    Resolve-GitRemoteLink normalizes the direct forms (ssh rewritten to https,
+    userinfo credentials stripped, trailing .git removed), and anything it does
+    not answer with a web URL is followed through the clone chain's
+    remote.origin.url instead (bounded hops, so an origin cycle cannot loop).
+
+    Returns $null when no web URL can be derived; callers keep their raw
+    value so a non-linkable repo still renders as plain text.
+    #>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param(
+        [AllowNull()][AllowEmptyString()][string]$Url,
+        [int]$MaxHops = 3
+    )
+    $current = $Url
+    for ($hop = 0; $hop -le $MaxHops; $hop++) {
+        if ([string]::IsNullOrWhiteSpace($current)) { return $null }
+        $current = $current.Trim()
+
+        $link = Resolve-GitRemoteLink -Url $current
+        if ($link.Kind -eq 'web') { return $link.Url }
+
+        # Local clone path: follow its origin one hop and re-classify. A file:
+        # URL is a location, not a link base a /commit/<sha> route can be built
+        # on, so it takes this branch too rather than being returned.
+        if ($current -match '^file:') {
+            try { $current = ([uri]$current).LocalPath } catch { return $null }
+        }
+        if (-not (Test-Path -LiteralPath $current)) { return $null }
+        $originUrl = $null
+        try {
+            $originUrl = & git -C $current config --get remote.origin.url 2>$null
+            if ([int]$LASTEXITCODE -ne 0) { $originUrl = $null }
+        } catch { $originUrl = $null }
+        if ([string]::IsNullOrWhiteSpace($originUrl)) { return $null }
+        $originUrl = @($originUrl)[0].Trim()
+        # An origin pointing back at the same path would spin until the hop
+        # cap; cut the obvious self-cycle immediately.
+        if ($originUrl -eq $current) { return $null }
+        $current = $originUrl
+    }
+    return $null
+}
+
+function Get-GitRepositoryName {
+    <#
+    .SYNOPSIS
+        The repository name at the end of a clone URL or path
+        ('https://github.com/alius-git/amisad.dev' -> 'amisad.dev'), or '' when
+        the input names nothing.
+    .DESCRIPTION
+        Pure string work -- no filesystem, no network, so it answers for a URL
+        this machine cannot reach as readily as for one it just cloned.
+
+        Every clone form ends in the same thing: the name after the last
+        separator. https and ssh:// separate with '/', the scp-like form
+        (git@github.com:owner/repo.git) may end its host with ':', and a local
+        clone path uses the platform separator -- so all three are cut at once
+        rather than by parsing each grammar. A trailing '.git' and trailing
+        slashes are dropped: a remote written either way is the same repository
+        and must not read as two different names.
+    .OUTPUTS
+        [string] the name, or '' when none can be read.
+    #>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param([Parameter()][AllowNull()][AllowEmptyString()][string]$Url)
+
+    if ([string]::IsNullOrWhiteSpace($Url)) { return '' }
+    $s = $Url.Trim() -replace '[\\/]+$', ''
+    $s = $s -replace '\.git$', ''
+    # Strip a query string / fragment before cutting: a browser-copied URL can
+    # carry one, and it is not part of the name.
+    $s = ($s -split '[?#]')[0] -replace '[\\/]+$', ''
+    if ([string]::IsNullOrWhiteSpace($s)) { return '' }
+    $name = ($s -split '[\\/:]')[-1]
+    return "$name".Trim()
+}
+
+function Test-GitRemoteAccess {
+    <#
+    .SYNOPSIS
+        Can this host read the repository at $Url right now? One bounded,
+        prompt-proof `git ls-remote` through the host's own credential chain.
+    .DESCRIPTION
+        Answers the question a clone would answer, without cloning: whether the
+        credential and the network this machine actually has can reach the
+        repository someone configured for it. Reaches the remote through
+        Invoke-GitNetworkCommand, so it can never block on an interactive
+        credential prompt and it tries the same credential sources a cycle's
+        clone would.
+
+        The auth/network split is kept because the two need different answers
+        from an operator (grant the token access vs. wait), even where the
+        caller collapses them into one word for display.
+    .OUTPUTS
+        [pscustomobject] @{ Reachable = [bool]; Reason = 'ok'|'denied'|'unreachable';
+                            Detail = [string] }
+    #>
+    [CmdletBinding()]
+    [OutputType([pscustomobject])]
+    param(
+        [Parameter(Mandatory)][AllowEmptyString()][string]$Url,
+        [Parameter()][int]$TimeoutSeconds = 20
+    )
+    if ([string]::IsNullOrWhiteSpace($Url)) {
+        return [pscustomobject]@{ Reachable = $false; Reason = 'unreachable'; Detail = (Format-YurunaOperatorMessage -Key 'runner.operator_6bd2246f82ada32b') }
+    }
+    $probe = Invoke-GitNetworkCommand -GitArgs @('ls-remote', '--exit-code', '--quiet', $Url.Trim(), 'HEAD') -TimeoutSeconds $TimeoutSeconds
+    if ($probe.ExitCode -eq 0) {
+        return [pscustomobject]@{ Reachable = $true; Reason = 'ok'; Detail = '' }
+    }
+    $reason = if (Test-GitRemoteAuthFailure -Output $probe.Output) { 'denied' } else { 'unreachable' }
+    return [pscustomobject]@{ Reachable = $false; Reason = $reason; Detail = "$($probe.Output)".Trim() }
+}
+
+function Get-HostRepositoryAccess {
+    <#
+    .SYNOPSIS
+        What this host can say about one of its two repositories (framework or
+        project): the repository name it holds, or that it has no access to the
+        one it was configured with.
+    .DESCRIPTION
+        Answers for the pool UI's repository columns, where an operator is
+        asking one question of a whole lab at once: does this host have the
+        repository I think it has? So the answer is a NAME when the host can
+        produce one, and a typed denied state when it was pointed at a
+        repository it cannot get to. Display labels belong to the caller.
+
+        The clone this host already holds is the cheap and truthful source: its
+        remote.origin.url is what the host actually tracks, which is not always
+        the configured URL (a pool assignment overrides it for a cycle). Only
+        when there is no readable clone is the configured URL probed, and that
+        probe is what separates a host that cannot reach the repository from
+        one that simply has not cloned it yet.
+
+        A host with neither a clone nor a configured URL reports NOTHING (an
+        empty Access): the in-tree project layout is a legitimate setup, not a
+        failure, and the caller renders a blank rather than an alarm.
+
+        The probe is opt-in (-Probe) because it is the only branch that touches
+        the network: a caller answering a request under a deadline runs the
+        local read inline and defers the probe.
+    .OUTPUTS
+        [pscustomobject] @{ Access; AccessState; Source; Url }.
+          Access -- the repository name when readable, or '' otherwise.
+          AccessState -- 'readable' | 'denied' | 'unconfigured' | 'unprobed'.
+                   The condition, as a stable repository_access token.
+                   Consumers choose localized labels from this value.
+          Source -- 'clone' | 'probe' | 'denied' | 'unreachable' | 'unconfigured'
+                   | 'unprobed', which is the reason behind Access.
+          Url    -- where that repository lives, normalized for linking by
+                   Resolve-GitRemoteLink: the clone's own origin, or the
+                   configured url when the answer came from a probe (including
+                   the one that failed -- an operator checking a denied
+                   row wants the url it could not read). Empty when the name
+                   came from a remote form nothing can be addressed at.
+    #>
+    [CmdletBinding()]
+    [OutputType([pscustomobject])]
+    param(
+        [Parameter()][AllowNull()][AllowEmptyString()][string]$RepoDir,
+        [Parameter()][AllowNull()][AllowEmptyString()][string]$ConfiguredUrl,
+        [Parameter()][switch]$Probe,
+        [Parameter()][int]$TimeoutSeconds = 20
+    )
+    $originUrl = ''
+    if (-not [string]::IsNullOrWhiteSpace($RepoDir) -and (Test-Path -LiteralPath (Join-Path $RepoDir '.git'))) {
+        try {
+            $raw = & git -C $RepoDir config --get remote.origin.url 2>$null
+            if ([int]$LASTEXITCODE -eq 0 -and $raw) { $originUrl = "$(@($raw)[0])".Trim() }
+        } catch { Write-Verbose "Get-HostRepositoryAccess: remote.origin.url read failed: $($_.Exception.Message)" }
+    }
+    $name = Get-GitRepositoryName -Url $originUrl
+    if ($name) {
+        return [pscustomobject]@{ Access = $name; AccessState = 'readable'; Source = 'clone'; Url = (Resolve-GitRemoteLink -Url $originUrl).Url }
+    }
+
+    $url = "$ConfiguredUrl".Trim()
+    if (-not $url) { return [pscustomobject]@{ Access = ''; AccessState = 'unconfigured'; Source = 'unconfigured'; Url = '' } }
+    # Nothing to point at while the answer is still pending: the caller renders
+    # a blank for this, and a link under a blank name leads somewhere the
+    # operator has not been told about yet.
+    if (-not $Probe) { return [pscustomobject]@{ Access = ''; AccessState = 'unprobed'; Source = 'unprobed'; Url = '' } }
+
+    $link = (Resolve-GitRemoteLink -Url $url).Url
+    $result = Test-GitRemoteAccess -Url $url -TimeoutSeconds $TimeoutSeconds
+    if ($result.Reachable) {
+        # Reachable but not cloned: the configured URL names the repository this
+        # host is about to hold, and it is the same name the clone will report.
+        return [pscustomobject]@{ Access = (Get-GitRepositoryName -Url $url); AccessState = 'readable'; Source = 'probe'; Url = $link }
+    }
+    return [pscustomobject]@{ Access = ''; AccessState = 'denied'; Source = $result.Reason; Url = $link }
+}
+
+# Shared PSGallery module-install policy for the two dependency bootstrappers below:
+# return $true when already discoverable, honor -WhatIf via ShouldProcess, else
+# Install-Module at CurrentUser scope with -Force -AllowClobber (-Force suppresses the
+# untrusted-repository prompt that would otherwise hang an unattended run), and warn +
+# return $false on failure. Every message derives from $Name, so the two public
+# wrappers below need no message text of their own.
+function Install-YurunaGalleryModuleIfMissing {
+    [CmdletBinding(SupportsShouldProcess)]
+    [OutputType([bool])]
+    param([Parameter(Mandatory)][string]$Name)
+
+    if (Get-Module -ListAvailable -Name $Name -ErrorAction SilentlyContinue) {
+        Write-Verbose "$Name already installed."
+        return $true
+    }
+    if (-not $PSCmdlet.ShouldProcess($Name, (Format-YurunaOperatorMessage -Key 'runner.operator_d1cad15ad73fa685'))) {
+        Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_edb2828b379baee5' -Arguments @{ name = "$Name" }) -InformationAction Continue
+        return $false
+    }
+    try {
+        Install-Module -Name $Name -Scope CurrentUser -Force -AllowClobber -ErrorAction Stop
+        Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_28dfcee33e40b77b' -Arguments @{ name = "$Name" }) -InformationAction Continue
+        return $true
+    } catch {
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_67a649b2f9792d49' -Arguments @{ name = "${Name}"; message = "$($_.Exception.Message)"; name2 = "$Name" })
+        return $false
+    }
+}
+
+function Install-PowerShellYamlIfMissing {
+<#
+.SYNOPSIS
+    Ensure the powershell-yaml module is available to the runner.
+.DESCRIPTION
+    Test.SequencePlanner.Resolve-CyclePlan reads project/test/
+    test.runner.yml and every per-sequence baseline file via
+    Read-SequenceFile, which Import-Modules powershell-yaml on demand.
+    pwsh 7 doesn't ship it, so on a freshly-imaged host the planner
+    throws -- the inner runner's try/catch then falls back to the
+    legacy guestSequence list, which leaves Start-GuestOS with an
+    empty sequence array and records every guest as "skipped" in
+    status.json with no log line. Installing here at host-prep time
+    keeps that silent-skip trap out of the cycle.
+
+    Idempotent: returns $true immediately when the module is already
+    discoverable on PSModulePath. CurrentUser scope, so no elevation
+    is required. -Force suppresses the PSGallery "untrusted repository"
+    prompt that would otherwise hang an unattended Enable-TestAutomation
+    run.
+.OUTPUTS
+    [bool] $true when the module is available afterwards (already
+    installed or just installed); $false on install failure.
+#>
+    [CmdletBinding(SupportsShouldProcess)]
+    [OutputType([bool])]
+    param()
+    return Install-YurunaGalleryModuleIfMissing -Name 'powershell-yaml' @PSBoundParameters
+}
+
+function Install-PSScriptAnalyzerIfMissing {
+<#
+.SYNOPSIS
+    Ensure the PSScriptAnalyzer module is available to the harness and to
+    editor / CI lint flows.
+.DESCRIPTION
+    PSScriptAnalyzer surfaces rule violations across the harness's
+    PowerShell sources (`.ps1` and `.psm1`). pwsh 7 does not ship it,
+    so install it once per host (re-runs are no-ops). Installed right
+    after powershell-yaml so the "install PowerShell + Yaml support,
+    then add PSScriptAnalyzer" ordering is honored on a fresh box.
+
+    Idempotent: returns $true immediately when the module is already
+    discoverable on PSModulePath. CurrentUser scope, so no elevation
+    is required. -Force suppresses the PSGallery "untrusted repository"
+    prompt that would otherwise hang an unattended Enable-TestAutomation
+    run.
+.OUTPUTS
+    [bool] $true when the module is available afterwards (already
+    installed or just installed); $false on install failure.
+#>
+    [CmdletBinding(SupportsShouldProcess)]
+    [OutputType([bool])]
+    param()
+    return Install-YurunaGalleryModuleIfMissing -Name 'PSScriptAnalyzer' @PSBoundParameters
+}
+
+Export-ModuleMember -Function Invoke-GitPull, Get-GitUpstreamStatus, Get-GitUnmergedPath, Test-GitWorktreeMerged, Get-CurrentGitCommit, Get-FileLockingProcess, Update-ProjectClone, Restore-ProjectCloneSwap, Test-ProjectCloneHealth, Remove-ProjectCloneDirectory, Resolve-GitRepositoryWebUrl, Resolve-GitRemoteLink, Get-GitRepositoryName, Test-GitRemoteAccess, Get-HostRepositoryAccess, Install-PowerShellYamlIfMissing, Install-PSScriptAnalyzerIfMissing, Test-GitRemoteAuthFailure, Get-GitFirstOutputLine, Get-GitAuthRefreshRemedy, Write-GitAuthRefreshBanner, Invoke-GitNetworkCommand, Get-YurunaGitCredentialArg, Get-YurunaGhCliCredentialArg, Get-YurunaGitAuthAttemptList

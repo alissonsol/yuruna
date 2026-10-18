@@ -1,0 +1,33 @@
+# LICENSEURI https://yuruna.link/license
+# Copyright (c) 2019-2026 by Alisson Sol et al.
+# macOS/UTM (QEMU) overlay for ubuntu.server.base.user-data.
+# Anchor sections in base-file order. An empty section emits nothing at that anchor.
+# === YURUNA_OVERLAY_HOST_AGENT_PKG ===
+    # See https://yuruna.link/42e220c4-0006
+    # Empty: UTM supplies its own address channel and fallback discovery paths.
+# === YURUNA_OVERLAY_NETWORK ===
+  # --- REGION: network
+  # See https://yuruna.link/4220a755-000b
+  # See https://yuruna.link/429f3d06-0015
+  # Pin the installer lease before /target exists, and refuse IPv6 router advertisements.
+  network:
+    version: 2
+    ethernets:
+      enp0s1:
+        dhcp4: true
+        dhcp6: false
+        accept-ra: false
+        dhcp-identifier: mac
+# === YURUNA_OVERLAY_EARLY_COMMANDS ===
+  # --- REGION: early-commands
+  early-commands:
+    # --- REGION: https://yuruna.link/429f3d06-0025
+    # Quiet the installer kernel; installed-system GRUB settings apply only after reboot.
+    - dmesg -n 1 2>/dev/null || true
+    # --- REGION: https://yuruna.link/429f3d06-009c
+    # The live system's 15-minute tmpfiles-clean timer otherwise races curtin's /target/run unmount.
+    - systemctl stop systemd-tmpfiles-clean.timer 2>/dev/null || true
+# === YURUNA_OVERLAY_LATE_HOST_AGENT ===
+    # Empty: nothing to enable -- see the package section above.
+# === YURUNA_OVERLAY_GRUB_PRE_CONSOLE_QUIET ===
+# === YURUNA_OVERLAY_GRUB_POST_CONSOLE_QUIET ===

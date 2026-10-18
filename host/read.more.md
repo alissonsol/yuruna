@@ -1,0 +1,69 @@
+# Hosts -- Nerd-Level Details
+
+The crisp version lives in [Hosts -- ...](README.md); this file covers
+macOS TCC grants, VM resizing, and IP discovery.
+
+## macOS TCC grants
+
+The harness needs **both** TCC (Transparency, Consent, and Control)
+permissions on macOS, granted to the terminal app at
+**System Settings -> Privacy & Security**:
+
+- **Accessibility** -- keystroke injection to UTM VMs.
+- **Screen Recording** -- window enumeration
+  (`CGWindowListCopyWindowInfo` returns titles only to callers holding
+  this grant) and per-window capture. Without it,
+  `tapOn` loops on "UTM window for `<vm>` not found".
+
+`Enable-TestAutomation.ps1` fires the consent dialog for each, but TCC
+forbids automating the toggle itself. Dismissed a dialog? Toggle it
+manually, then **fully quit and relaunch the terminal** -- TCC grants
+don't apply to the running process.
+
+## VM sizing and connectivity
+
+Most VMs are **12 GB RAM, 4 vCPU**; disks are dynamic/thin and vary by
+guest (64 GB for the Ubuntu Server guests, up to 512 GB for
+Windows 11 -- see [README.md](README.md));
+the stash-service, pool-control-service and download-agent-service
+guests are smaller (2 GB), and caching-proxy-service stays at 12 GB
+because Squid's `cache_mem` is budgeted against it; the KVM guests are
+sized down further. Change for **new VMs**: edit
+`New-VM.ps1` (Hyper-V: replace `12288MB`; UTM: replace
+`__MEMORY_SIZE__`; KVM: replace `--memory`).
+
+Existing VMs:
+
+```
+# Hyper-V (stop first):
+Stop-VM -Name "<vm>" -Force
+Set-VM  -Name "<vm>" -MemoryStartupBytes 32768MB -MemoryMinimumBytes 32768MB -MemoryMaximumBytes 32768MB
+Start-VM -Name "<vm>"
+```
+
+UTM: VM settings -> **System** -> **Memory**.
+
+Find the guest IP:
+
+```
+# Hyper-V:
+Get-VM -Name "<vm>" | Select-Object -ExpandProperty NetworkAdapters | Select IPAddresses
+```
+
+```
+# UTM console shows `eth0: <ip>` at the login prompt; or
+awk -F'[ =]' '/name=<vm>/{f=1} f && /ip_address/{print $NF; exit}' /var/db/dhcpd_leases
+```
+
+Then `ssh <user>@<ip>` (Linux) or `mstsc /v:<ip>` / `ssh User@<ip>`
+(Windows).
+
+---
+
+LICENSEURI https://yuruna.link/license
+
+Copyright (c) 2019-2026 by Alisson Sol et al.
+
+Last review: 2026.10.14
+
+Back to [Yuruna](../README.md)

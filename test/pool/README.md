@@ -1,0 +1,59 @@
+# Pool admin
+
+The whole pool-admin CLI -- everything that reads or writes a lab's pool
+configuration store -- plus the sample configuration files under [`examples/`](examples/).
+
+| Script | Purpose |
+|---|---|
+| `New-Pool.ps1` | create a pool |
+| `Remove-Pool.ps1` | delete one |
+| `Add-HostToPool.ps1` | add a host to a pool's members |
+| `Remove-HostFromPool.ps1` | remove a host from ONE pool's members |
+| `Move-PoolHostIdentity.ps1` | replace a re-keyed host ID in one pool-configuration commit |
+| `Remove-PoolHost.ps1` | purge a stale host: delete its NAS records and strip ALL memberships |
+| `Set-PoolRepository.ps1` | set a pool's framework and project repository URLs (both, replacing any previous pair), or clear them with `-Clear` |
+| `Set-PoolConfiguredState.ps1` | flip a pool between `run`, `paused` and `drain` |
+| `Get-PoolConfiguration.ps1` | dump the whole configuration store as JSON |
+| `Get-PoolStatus.ps1` | read a pool's members and its framework and project repositories |
+| `Test-PoolConfiguration.ps1` | schema-validate `pools.yml` (+ `guests.compatibility.yml`) and enforce the one-pool-per-host invariant |
+| `Update-PoolConfigurationSchema.ps1` | migrate the configuration store to `pools.yml` schemaVersion 4 once; a re-run changes nothing |
+| `Convert-ToPoolWorker.ps1` | turn a standalone machine into a worker of an existing lab |
+| `Sync-PoolDashboardOnProxy.ps1` | push the canonical dashboard assets to the lab's caching-proxy-service |
+| `Sync-PoolHostMetricsOnProxy.ps1` | push host metrics configuration to the lab's caching-proxy-service |
+
+```
+pwsh test/pool/Test-PoolConfiguration.ps1
+pwsh test/pool/Set-PoolConfiguredState.ps1 -PoolId lab -State paused -ConfigurationGitUrl <writable-url>
+```
+
+Full command table, parameters and workflow:
+[Pool admin](../../docs/pool-admin.md).
+
+## The pool-control-service daemon shells out to these
+
+`test/extension/pool-control-service/` drives this CLI rather than
+reimplementing git + YAML + schema validation in Go. It carries each script
+as a `test/`-relative path -- the `exec` calls in
+`server/internal/configuration/configuration.go`, the `poolAdminCLIs` presence probe in
+`server/internal/httpsrv/diagnostics.go`, and the skip guard in
+`server/internal/configuration/cliargs_test.go`. Moving a script out of this folder
+means editing all three, and the last one matters most: it guards the only
+check that catches Go/PowerShell parameter drift, and a wrong path there
+makes that check *skip* rather than fail.
+
+The daemon is `go build`-ed inside its guest at VM bring-up, so a running
+pool-control-service VM keeps the paths it was built with until rebuilt.
+
+## Cross-folder callers
+
+`Convert-ToPoolWorker.ps1` reaches outside this folder for
+`../lab/Sync-HostConfiguration.ps1` and `../Test-Config.ps1`, and hands
+`$paths.TestRoot` (never `$PSScriptRoot`) to the `Test.PoolWorker` teardown
+helpers, which resolve service scripts under `test/service/`.
+
+## Path base
+
+Each script resolves its roots through
+`Initialize-YurunaEntryPoint -ScriptRoot $PSScriptRoot -InsideSubfolder`,
+which walks one level up to `test/`. Pre-prelude module imports use
+`Join-Path $PSScriptRoot '../modules/<name>.psm1'`.

@@ -1,0 +1,342 @@
+{
+  "schema": "yuruna.catalog/v1",
+  "domain": "cache",
+  "locale": "en-US",
+  "messages": {
+    "cache.caching_proxy_service": {
+      "message": "Caching proxy service",
+      "description": "Visible text in test/extension/caching-proxy-service/ui.go; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "cache.pause_auto_refresh": {
+      "message": "Pause auto-refresh",
+      "description": "Visible text in test/extension/caching-proxy-service/ui.go; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "cache.switches": {
+      "message": "Switches",
+      "description": "Visible text in test/extension/caching-proxy-service/ui.go; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "cache.registry": {
+      "message": "Registry",
+      "description": "Visible text in test/extension/caching-proxy-service/ui.go; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "cache.value1_mode_v_value2_refreshed_value3": {
+      "message": "({value1} mode, v{value2}, refreshed {value3})",
+      "description": "Operator-facing browser message in test/extension/caching-proxy-service/ui.go. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active",
+      "placeholders": {
+        "value1": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        },
+        "value2": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        },
+        "value3": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        }
+      }
+    },
+    "cache.remote_mode_the_switches_are_readable_here_but_can_only_be_applie": {
+      "message": "Remote mode: the switches are readable here but can only be applied by the daemon on the proxy VM itself.",
+      "description": "Operator-facing browser message in test/extension/caching-proxy-service/ui.go. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active"
+    },
+    "cache.flip_a_switch_post_api_switches_offline_on_true_with_the_internal": {
+      "message": "Flip a switch: POST /api/switches/offline {\"on\":true} with the internal authentication key as a bearer.",
+      "description": "Operator-facing browser message in test/extension/caching-proxy-service/ui.go. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active"
+    },
+    "cache.refresh_failed": {
+      "message": "(refresh failed)",
+      "description": "Operator-facing browser message in test/extension/caching-proxy-service/ui.go. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active"
+    },
+    "cache.refresh_failed_the_values_below_are_from_the_last_successful_read": {
+      "message": "Refresh failed. The values below are from the last successful read.",
+      "description": "Operator-facing browser message in test/extension/caching-proxy-service/ui.go. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active"
+    },
+    "cache.resume_auto_refresh": {
+      "message": "Resume auto-refresh",
+      "description": "Operator-facing browser message in test/extension/caching-proxy-service/ui.go. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active"
+    },
+    "cache.reachable": {
+      "message": "reachable",
+      "description": "Operator-facing browser message in test/extension/caching-proxy-service/ui.go. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active"
+    },
+    "cache.yes": {
+      "message": "yes",
+      "description": "Operator-facing browser message in test/extension/caching-proxy-service/ui.go. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active"
+    },
+    "cache.version": {
+      "message": "version",
+      "description": "Operator-facing browser message in test/extension/caching-proxy-service/ui.go. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active"
+    },
+    "cache.uptime_s": {
+      "message": "uptime (s)",
+      "description": "Operator-facing browser message in test/extension/caching-proxy-service/ui.go. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active"
+    },
+    "cache.requests": {
+      "message": "requests",
+      "description": "Operator-facing browser message in test/extension/caching-proxy-service/ui.go. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active"
+    },
+    "cache.hit_ratio_5min": {
+      "message": "hit ratio (5min %)",
+      "description": "Operator-facing browser message in test/extension/caching-proxy-service/ui.go. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active"
+    },
+    "cache.cache_size_kb": {
+      "message": "cache size (KB)",
+      "description": "Operator-facing browser message in test/extension/caching-proxy-service/ui.go. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active"
+    },
+    "cache.file_descriptors": {
+      "message": "file descriptors",
+      "description": "Operator-facing browser message in test/extension/caching-proxy-service/ui.go. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active"
+    },
+    "cache.no": {
+      "message": "no",
+      "description": "Operator-facing browser message in test/extension/caching-proxy-service/ui.go. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active"
+    },
+    "cache.error": {
+      "message": "error",
+      "description": "Operator-facing browser message in test/extension/caching-proxy-service/ui.go. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active"
+    },
+    "cache.offline_mode": {
+      "message": "offline mode",
+      "description": "Operator-facing browser message in test/extension/caching-proxy-service/ui.go. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active"
+    },
+    "cache.on": {
+      "message": "on",
+      "description": "Operator-facing browser message in test/extension/caching-proxy-service/ui.go. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active"
+    },
+    "cache.off": {
+      "message": "off",
+      "description": "Operator-facing browser message in test/extension/caching-proxy-service/ui.go. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active"
+    },
+    "cache.no_upstream": {
+      "message": "no upstream",
+      "description": "Operator-facing browser message in test/extension/caching-proxy-service/ui.go. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active"
+    },
+    "cache.read_from": {
+      "message": "read from",
+      "description": "Operator-facing browser message in test/extension/caching-proxy-service/ui.go. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active"
+    },
+    "cache.note": {
+      "message": "note",
+      "description": "Operator-facing browser message in test/extension/caching-proxy-service/ui.go. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active"
+    },
+    "cache.repositories": {
+      "message": "repositories",
+      "description": "Operator-facing browser message in test/extension/caching-proxy-service/ui.go. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active"
+    },
+    "cache.canary": {
+      "message": "canary",
+      "description": "Operator-facing browser message in test/extension/caching-proxy-service/ui.go. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active"
+    },
+    "cache.ok": {
+      "message": "ok",
+      "description": "Operator-facing browser message in test/extension/caching-proxy-service/ui.go. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active"
+    },
+    "cache.not_ok": {
+      "message": "not ok",
+      "description": "Operator-facing browser message in test/extension/caching-proxy-service/ui.go. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active"
+    },
+    "cache.canary_latency_s": {
+      "message": "canary latency (s)",
+      "description": "Operator-facing browser message in test/extension/caching-proxy-service/ui.go. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active"
+    },
+    "cache.prewarm_last_run": {
+      "message": "prewarm last run",
+      "description": "Operator-facing browser message in test/extension/caching-proxy-service/ui.go. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active"
+    },
+    "cache.prewarm_held": {
+      "message": "prewarm held",
+      "description": "Operator-facing browser message in test/extension/caching-proxy-service/ui.go. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active"
+    },
+    "cache.everything_this_lab_serves_and_whether_it_is_reachable_right_now": {
+      "message": "Everything this lab serves, and whether it is reachable right now.",
+      "description": "Server-rendered service landing page; links and discovered addresses remain machine values.",
+      "lifecycle": "active"
+    },
+    "cache.dashboards_may_demand_a_compatible_browser": {
+      "message": "Dashboards (may demand a compatible browser)",
+      "description": "Server-rendered service landing page; links and discovered addresses remain machine values.",
+      "lifecycle": "active"
+    },
+    "cache.extension_hosts": {
+      "message": "Extension hosts",
+      "description": "Server-rendered service landing page; links and discovered addresses remain machine values.",
+      "lifecycle": "active"
+    },
+    "cache.yuruna_hosts": {
+      "message": "Yuruna hosts",
+      "description": "Server-rendered service landing page; links and discovered addresses remain machine values.",
+      "lifecycle": "active"
+    },
+    "cache.hosts_and_test_execution_progress": {
+      "message": "Hosts and test execution progress",
+      "description": "Server-rendered service landing page; links and discovered addresses remain machine values.",
+      "lifecycle": "active"
+    },
+    "cache.yuruna_caching_proxy_service": {
+      "message": "Yuruna caching-proxy service",
+      "description": "Server-rendered service landing page; links and discovered addresses remain machine values.",
+      "lifecycle": "active"
+    },
+    "cache.caching_proxy_statistics": {
+      "message": "Caching proxy statistics",
+      "description": "Server-rendered service landing page; links and discovered addresses remain machine values.",
+      "lifecycle": "active"
+    },
+    "cache.zot_official_grafana_id_20501": {
+      "message": "Zot (official, Grafana ID 20501)",
+      "description": "Server-rendered service landing page; links and discovered addresses remain machine values.",
+      "lifecycle": "active"
+    },
+    "cache.community_zot_statistics": {
+      "message": "Community Zot statistics",
+      "description": "Server-rendered service landing page; links and discovered addresses remain machine values.",
+      "lifecycle": "active"
+    },
+    "cache.statistics_summary": {
+      "message": "Statistics summary",
+      "description": "Server-rendered service landing page; links and discovered addresses remain machine values.",
+      "lifecycle": "active"
+    },
+    "cache.download_agent_service": {
+      "message": "Download-agent service",
+      "description": "Server-rendered service landing page; links and discovered addresses remain machine values.",
+      "lifecycle": "active"
+    },
+    "cache.download_agent_control": {
+      "message": "Download agent control",
+      "description": "Server-rendered service landing page; links and discovered addresses remain machine values.",
+      "lifecycle": "active"
+    },
+    "cache.pool_control_service": {
+      "message": "Pool-control service",
+      "description": "Server-rendered service landing page; links and discovered addresses remain machine values.",
+      "lifecycle": "active"
+    },
+    "cache.assign_hosts_to_pools_and_pools_to_test_sequences": {
+      "message": "Assign hosts to pools and pools to test sequences",
+      "description": "Server-rendered service landing page; links and discovered addresses remain machine values.",
+      "lifecycle": "active"
+    },
+    "cache.stash_service": {
+      "message": "Stash service",
+      "description": "Server-rendered service landing page; links and discovered addresses remain machine values.",
+      "lifecycle": "active"
+    },
+    "cache.stash_inspection_and_creating": {
+      "message": "Stash inspection and creating",
+      "description": "Server-rendered service landing page; links and discovered addresses remain machine values.",
+      "lifecycle": "active"
+    },
+    "cache.landing_unavailable": {
+      "message": "{description} (unavailable)",
+      "description": "Description of a service or dashboard for which no live destination was found.",
+      "lifecycle": "active",
+      "placeholders": {
+        "description": {
+          "type": "text",
+          "trust": "internal",
+          "example": "Statistics summary"
+        }
+      }
+    },
+    "cache.landing_caching_proxy_service": {
+      "message": "Caching-proxy service",
+      "description": "Name of the caching proxy service in the service landing directory.",
+      "lifecycle": "active"
+    },
+    "cache.upstream_fetch_refused": {
+      "message": "Upstream fetch refused",
+      "description": "Squid no-upstream static error page, localized at VM provisioning using the configured language or provisioning host culture. The URL macro remains Squid-owned data.",
+      "lifecycle": "active"
+    },
+    "cache.no_upstream_explanation": {
+      "message": "This cache is in no-upstream mode. The object below is not stored locally, and this cache will not fetch it.",
+      "description": "Squid no-upstream static error page, localized at VM provisioning using the configured language or provisioning host culture. The URL macro remains Squid-owned data.",
+      "lifecycle": "active"
+    },
+    "cache.no_upstream_instruction": {
+      "message": "To let it through, run {command} on the caching-proxy VM, re-run the fetch, then turn it back on.",
+      "description": "Squid no-upstream static error page, localized at VM provisioning using the configured language or provisioning host culture. The URL macro remains Squid-owned data.",
+      "lifecycle": "active",
+      "placeholders": {
+        "command": {
+          "type": "text",
+          "trust": "internal",
+          "example": "sudo yuruna-no-upstream off"
+        }
+      }
+    },
+    "cache.read_only_json": {
+      "message": "Read-only. JSON:",
+      "description": "Footer prefix introducing the diagnostic API links. JSON is the protocol format name.",
+      "lifecycle": "active"
+    },
+    "cache.registry_unconfigured": {
+      "message": "no registry URL configured",
+      "description": "Complete operator-facing service failure. Raw identifiers and external error details remain separate data.",
+      "lifecycle": "active"
+    },
+    "cache.registry_http": {
+      "message": "registry catalog: HTTP {status}",
+      "description": "Complete operator-facing service failure. Raw identifiers and external error details remain separate data.",
+      "lifecycle": "active",
+      "placeholders": {
+        "status": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        }
+      }
+    },
+    "cache.registry_invalid_json": {
+      "message": "registry catalog is not JSON: {detail}",
+      "description": "Complete operator-facing service failure. Raw identifiers and external error details remain separate data.",
+      "lifecycle": "active",
+      "placeholders": {
+        "detail": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        }
+      }
+    }
+  }
+}

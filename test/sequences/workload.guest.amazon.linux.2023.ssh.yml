@@ -1,0 +1,39 @@
+# yaml-language-server: $schema=../schemas/sequence.schema.yml
+
+# LICENSEURI https://yuruna.link/license
+# Copyright (c) 2019-2026 by Alisson Sol et al.
+
+sequenceGuid: 42450c58-14b7-4458-80f0-ac05c42761df
+sequenceRevision: 1
+
+description: "Amazon Linux 2023 (SSH): install the Desktop package group and verify."
+keystrokeMechanism: ssh
+
+# --- REGION: resource
+resource:
+  amazon.linux.2023:
+    - start.guest.amazon.linux.2023.ssh
+variables:
+  username: yauser1
+
+# --- REGION: component
+component:
+  - action: sshWaitReady
+    timeoutSeconds: 300
+    description: "Wait for sshd after reboot"
+
+  - action: sshExec
+    command: "whoami && hostname"
+    description: "Smoke test: whoami/hostname"
+
+# --- REGION: workload
+workload:
+  - action: sshFetchAndExecute
+    command: 'sudo dnf groupinstall -y "Desktop"'
+    timeoutSeconds: 1800
+    description: "GUI install"
+
+  - action: sshExec
+    command: 'dnf list installed "*desktop*"'
+    allowFailure: true
+    description: "Show installed desktop packages"

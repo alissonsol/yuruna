@@ -1,0 +1,5 @@
+<?xml version='1.0' encoding='utf-8'?>
+<SoftwareIdentity xmlns="http://standards.iso.org/iso/19770/-2/2015/schema.xsd" xmlns:sbom="urn:yuruna:sbom:1" name="terraform-aws-modules/eks/aws" tagId="urn:uuid:d3a6a971-4395-5efb-baf4-4b9498e677f5" version="unspecified" versionScheme="alphanumeric" tagVersion="0" corpus="true">
+  <Entity name="Alisson Sol et al." regid="yuruna.com" role="tagCreator" />
+  <Meta sbom:generator="tools/Sync-Sbom.py" sbom:scope="repository" sbom:inventory-kind="declared-source" sbom:declaration="{&quot;completeness&quot;: &quot;unresolved&quot;, &quot;ecosystem&quot;: &quot;terraform-module&quot;, &quot;evidence&quot;: [{&quot;detail&quot;: &quot;Module eks; declared source=terraform-aws-modules/eks/aws&quot;, &quot;line&quot;: 12, &quot;path&quot;: &quot;global/resources/aws/eks-cluster/cluster.tf&quot;}], &quot;notes&quot;: [&quot;Declared source only; no provider/module restore, lock selection, or transitive graph was resolved.&quot;], &quot;scope&quot;: &quot;build&quot;, &quot;versionConstraint&quot;: &quot;~&gt; 21.24&quot;}" />
+</SoftwareIdentity>

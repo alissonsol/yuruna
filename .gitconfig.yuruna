@@ -1,0 +1,25 @@
+# Yuruna per-repo git defaults. Applied by the install scripts via
+# `git config --local --add include.path ../.gitconfig.yuruna` so the
+# values themselves stay version-controlled and future tweaks land
+# via a normal commit instead of a re-install.
+#
+# Scope: local to this clone (.git/config includes this file). The
+# operator's global ~/.gitconfig is unaffected, and any local key the
+# operator sets on top of these still wins because local config is
+# evaluated after the include.
+#
+# Opt out on a single machine:
+#   git -C <yuruna> config --local --unset-all include.path
+
+[pull]
+	rebase = true
+
+[rebase]
+	autoStash = true
+
+[core]
+	# Activate the repo-tracked git hooks. tools/githooks/pre-commit runs the
+	# ASCII/no-BOM gate (tools/Test-AsciiNoBom.ps1) so a BOM/non-ASCII byte can't
+	# land in a byte-parsed bootstrap script. Path is relative to the worktree
+	# root. See CONTRIBUTING.md; opt out per the include note above.
+	hooksPath = tools/githooks

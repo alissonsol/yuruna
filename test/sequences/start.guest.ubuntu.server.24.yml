@@ -1,0 +1,200 @@
+# yaml-language-server: $schema=../schemas/sequence.schema.yml
+
+# LICENSEURI https://yuruna.link/license
+# Copyright (c) 2019-2026 by Alisson Sol et al.
+
+sequenceGuid: 42946cbc-c2ec-48e4-a4ba-8e25a71c1286
+sequenceRevision: 10
+
+description: "Ubuntu Server 24.04: first login, change password, run update script, reboot."
+keystrokeMechanism: gui
+
+# --- REGION: resource
+resource:
+  ubuntu.server.24: []
+variables:
+  username: yuuser24
+  currentPassword: ${ext:authentication.GetPassword(${username})}
+  newPassword: ${ext:authentication.NewRandomPassword()}
+
+# --- REGION: component
+component:
+  # See https://yuruna.link/42e220c4-0007
+  - action: waitForAndEnter
+    pattern: ["Continue with autoinstall?", "subiquity/Install/install/configure_apt", "subiquity/Install/install/curtin_install"]
+    noSegmentMatch: true
+    timeoutSeconds: 1800
+    text: "yes"
+    # Only stages Subiquity opens after confirmation prove the prompt is
+    # past. The parent Install/install context and the Mirror apt-config
+    # check both print before the prompt, so matching them skips the answer.
+    skipInputPattern: ["subiquity/Install/install/configure_apt", "subiquity/Install/install/curtin_install"]
+    blindAfterSeconds: 120
+    # The language menu means autoinstall never engaged, so this prompt is not
+    # live and never will be. That screen satisfies the blind answer's own test
+    # -- a menu waiting on a keystroke is static, and the keystroke moves it --
+    # so without this the answer is typed into the list and reported consumed.
+    blindSkipPattern: ["Bahasa Indonesia", "subiquity/Install/install/configure_apt", "subiquity/Install/install/curtin_install"]
+    description: "OCR: Continue with autoinstall?"
+
+  - action: retry
+    maxAttempts: 3
+    restartVmBeforeRetry: arm64HyperVColdPowerCycle
+    # An incomplete install restarts from the live ISO, so restore the one
+    # piece of boot state needed before another login wait can be meaningful.
+    stepsAfterVmRestart:
+      - action: waitForAndEnter
+        pattern: ["Continue with autoinstall?", "${hostLabel} login:", "subiquity/Install/install/configure_apt", "subiquity/Install/install/curtin_install"]
+        noSegmentMatch: true
+        timeoutSeconds: 1800
+        text: "yes"
+        skipInputPattern: ["${hostLabel} login:", "subiquity/Install/install/configure_apt", "subiquity/Install/install/curtin_install"]
+        blindAfterSeconds: 120
+        blindSkipPattern: ["Bahasa Indonesia", "subiquity/Install/install/configure_apt", "subiquity/Install/install/curtin_install"]
+        description: "OCR after cold restart: Continue with autoinstall?"
+    description: "Wait for installed login prompt (cold restart on ARM64 Hyper-V timeout)"
+    steps:
+      # See https://yuruna.link/42e220c4-0007
+      - action: pressKey
+        name: Enter
+        description: "Push agetty to redraw a fresh login"
+
+      - action: waitForSeconds
+        seconds: 2
+        description: "Let agetty redraw"
+
+      # See https://yuruna.link/42e220c4-0007
+      - action: waitForTextWithNudge
+        pattern: "${hostLabel} login:"
+        noSegmentMatch: true
+        timeoutSeconds: 1800
+        nudgeKey: Enter
+        nudgeIntervalSeconds: 60
+        freshMatch: true
+        # Fail promptly on installer crashes or a rejected password rotation.
+        failurePatterns:
+          - "install_fail.crash"
+          - "Press enter to start a shell"
+          - "An error occurred"
+          - "passwords do not match"
+          - "Authentication token manipulation error"
+        description: "OCR: ${hostLabel} login:"
+
+  # Password mutation is intentionally outside the retry above. Once PAM has
+  # accepted either new-password prompt, neither a VM restart nor a replay with
+  # the old password has a well-defined result.
+  - action: passwdPrompt
+    pattern: "${hostLabel} login:"
+    freshMatch: true
+    text: "${username}"
+    description: "OCR: ${hostLabel} login:"
+
+  # See https://yuruna.link/42e220c4-0007
+  - action: passwdPrompt
+    pattern: "Password:"
+    timeoutSeconds: 30
+    sinceStepStart: true
+    failurePatterns:
+      - "BdsDxe:"
+      - "GNU GRUB"
+    text: "${currentPassword}"
+    description: "OCR: Password:"
+
+  - action: passwdPrompt
+    pattern: ["Current password", "urrent password:"]
+    sinceStepStart: true
+    # A login that skips the forced change means the install never ran its
+    # late-commands: they expire the password and silence this motd banner.
+    failurePatterns:
+      - "Welcome to Ubuntu"
+      - "${username}@${hostLabel}:"
+    text: "${currentPassword}"
+    description: "OCR: Current password"
+
+  # Keep the full token distinct from the current-password and retype prompts.
+  - action: passwdPrompt
+    pattern: "New password"
+    sinceStepStart: true
+    text: "${newPassword}"
+    description: "OCR: New password"
+
+  - action: passwdPrompt
+    pattern: ["Retype new password", "etype new password:"]
+    sinceStepStart: true
+    text: "${newPassword}"
+    description: "OCR: Retype new password"
+
+  # See https://yuruna.link/42e220c4-0007
+  - action: waitForSeconds
+    seconds: 3
+    description: "Let the login shell finish drawing before typing at it"
+
+  # A leading space absorbs a dropped first keystroke on ARM64 Hyper-V.
+  - action: inputTextAndEnter
+    text: " echo yuruna_$(seq -s '' 1 9)_ok"
+    description: "Ask the shell to expand a token agetty cannot"
+
+  # Detect PAM rejection before persisting the password; ignore recovered login failures.
+  # Enter only submits the harmless probe, or an empty line if it already ran.
+  - action: waitForTextWithNudge
+    pattern: "yuruna_123456789_ok"
+    nudgeKey: Enter
+    nudgeIntervalSeconds: 15
+    timeoutSeconds: 90
+    freshMatch: true
+    failurePatterns:
+      - "passwords do not match"
+      - "BAD PASSWORD: The password fails the dictionary check"
+      - "Authentication token manipulation error"
+    description: "OCR: yuruna_123456789_ok"
+
+  # Persist only after the shell has proved that the rotated login completed.
+  - action: callExtension
+    method: authentication.SetPassword
+    args:
+      Username: "${username}"
+      NewPassword: "${newPassword}"
+    description: "Commit confirmed new password to auth system"
+
+# --- REGION: workload
+workload:
+  - action: fetchAndExecute
+    text: "/usr/local/lib/yuruna/fetch-and-execute.sh guest/ubuntu.server.24/ubuntu.server.24.update.sh"
+    description: "ubuntu.server.24.update.sh"
+    waitPattern: "FETCHED AND EXECUTED:"
+    timeoutSeconds: 1800
+
+  - action: saveSystemDiagnostic
+    id: yuruna.update
+    description: "Capture diagnostics"
+
+  - action: inputTextAndEnter
+    text: "clear; sudo reboot now"
+    description: "Reboot the VM"
+
+  # See https://yuruna.link/42e220c4-0007
+  - action: waitForSeconds
+    seconds: 15
+    description: "Let the reboot take the console"
+
+  # A running ARM64 Hyper-V guest can livelock before networking or agetty
+  # starts. Console reconnects cannot change that guest state, so escalate to
+  # a bounded cold restart only after the ordinary login wait has expired.
+  # Password mutation and provisioning are outside this retry and never replay.
+  - action: retry
+    maxAttempts: 3
+    restartVmBeforeRetry: arm64HyperVColdPowerCycle
+    stepsAfterVmRestart:
+      - action: waitForSeconds
+        seconds: 15
+        description: "Let the cold-restarted guest take the console"
+    description: "Wait for post-provision login prompt (cold restart on ARM64 Hyper-V timeout)"
+    steps:
+      - action: waitForTextWithNudge
+        pattern: "${hostLabel} login:"
+        noSegmentMatch: true
+        timeoutSeconds: 600
+        nudgeKey: Enter
+        nudgeIntervalSeconds: 60
+        freshMatch: true
+        description: "OCR: ${hostLabel} login:"

@@ -1,0 +1,207 @@
+<#PSScriptInfo
+.VERSION 2026.07.15
+.GUID 424c3d85-6f03-4c68-b42d-34204ceb41ef
+.AUTHOR Alisson Sol et al.
+.COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
+.TAGS yuruna test cachingproxy endpoint precedence pester
+.LICENSEURI https://yuruna.link/license
+.PROJECTURI https://yuruna.com
+.ICONURI
+.EXTERNALMODULEDEPENDENCIES
+.REQUIREDSCRIPTS
+.EXTERNALSCRIPTDEPENDENCIES
+.RELEASENOTES
+.PRIVATEDATA
+#>
+
+#requires -version 7
+
+<#
+.SYNOPSIS
+    Pins the operator-source precedence of Resolve-CachingProxyServiceEndpoint:
+    vmStart.cachingProxyIp (config) is probed FIRST and wins when its
+    HTTP proxy port answers; $env:YURUNA_CACHING_PROXY_SERVICE_IP is probed only
+    when the config candidate is absent, invalid, or unreachable; when
+    no candidate answers the effective IP clears to '' (probe and
+    clear); when neither source is set the resolver is a no-op.
+.DESCRIPTION
+    Invoke-CachingProxyServiceProbe is mocked in module scope (each It embeds
+    its own reachability rule), because real TCP probes cannot be made
+    fast here: dead-address SYNs are silently dropped on a
+    stealth-firewall host, so every unreachable candidate would burn the
+    probe's full 3-attempt x 3 s budget. Which candidate was probed --
+    and in what order -- is asserted through the resolver's OWN
+    diagnostic Lines (the "(source: ...)" probe headers it emits before
+    each probe call), not through mock bookkeeping, so the assertions
+    hold against the production code path. Candidate IPs are TEST-NET
+    (192.0.2.x); the mock intercepts before any packet would be sent.
+
+    The throw-based Assert-* helpers live at script scope and are
+    referenced from It blocks, so this runs under Pester 5.x.
+
+    Run: pwsh -NoProfile -File test/modules/Test.CachingProxyServiceEndpoint.Tests.ps1
+#>
+
+BeforeAll {
+$here = Split-Path -Parent $PSCommandPath
+$vmUtilityModule    = Join-Path $here 'Test.VMUtility.psm1'
+$cachingProxyModule = Join-Path $here 'Test.CachingProxyService.psm1'
+
+Import-Module (Join-Path (Split-Path -Parent $PSCommandPath) 'Test.Assert.psm1') -Force -Global -DisableNameChecking
+
+function Get-SourceProbeIndex {
+<#
+.SYNOPSIS
+    Index of the "== Probing caching-proxy service at ... (source: <tag>) =="
+    header in the resolver's Lines output, or -1 when that candidate was
+    never probed. Probe order = header order, so comparing two indexes
+    asserts which source the resolver tried first.
+#>
+    [OutputType([int])]
+    param(
+        [string[]]$Lines,
+        [string]$SourceTag
+    )
+    for ($i = 0; $i -lt $Lines.Count; $i++) {
+        if ($Lines[$i] -like "== Probing caching-proxy service at*source: $SourceTag*") { return $i }
+    }
+    return -1
+}
+
+$script:configTag = 'vmStart.cachingProxyIp'
+$script:envTag    = '$env:YURUNA_CACHING_PROXY_SERVICE_IP'
+
+# --- REGION: Module fixture import
+# See https://yuruna.link/42e220c4-0014
+Import-Module $vmUtilityModule -Global -Force -DisableNameChecking
+Import-Module $cachingProxyModule -Force -DisableNameChecking
+
+}
+
+Describe 'Resolve-CachingProxyServiceEndpoint source precedence' {
+    BeforeEach {
+        $script:PreviousProxyIp = [Environment]::GetEnvironmentVariable('YURUNA_CACHING_PROXY_SERVICE_IP', 'Process')
+        $env:YURUNA_CACHING_PROXY_SERVICE_IP = ''
+    }
+    AfterEach {
+        [Environment]::SetEnvironmentVariable('YURUNA_CACHING_PROXY_SERVICE_IP', $script:PreviousProxyIp, 'Process')
+    }
+
+    Context 'config candidate is probed first' {
+        It 'accepts a reachable config IP without ever probing the env candidate' {
+            Mock Invoke-CachingProxyServiceProbe -ModuleName Test.CachingProxyService {
+                @{ Success = $true; HttpProxyReachable = ($CacheIp -eq '192.0.2.10'); PassCount = 4; WarnCount = 0; FailCount = 0; HttpPort = 3128; HttpsPort = 3129; Lines = @("  [mock] probed $CacheIp") }
+            }
+            $r = Resolve-CachingProxyServiceEndpoint -EnvIp '192.0.2.20' -ConfigIp '192.0.2.10'
+            Assert-Equal -Expected '192.0.2.10' -Actual $r.EffectiveIp -Because 'reachable config candidate wins'
+            Assert-True $r.Probed 'a candidate was probed'
+            Assert-True ((Get-SourceProbeIndex -Lines $r.Lines -SourceTag $script:configTag) -ge 0) 'config candidate probed'
+            Assert-Equal -Expected (-1) -Actual (Get-SourceProbeIndex -Lines $r.Lines -SourceTag $script:envTag) -Because 'env candidate must not be probed when the config candidate wins'
+        }
+        It 'probes config before env when both are dead' {
+            Mock Invoke-CachingProxyServiceProbe -ModuleName Test.CachingProxyService {
+                @{ Success = $false; HttpProxyReachable = $false; PassCount = 0; WarnCount = 1; FailCount = 3; HttpPort = 3128; HttpsPort = 3129; Lines = @("  [mock] probed $CacheIp") }
+            }
+            $r = Resolve-CachingProxyServiceEndpoint -EnvIp '192.0.2.20' -ConfigIp '192.0.2.10'
+            $configIdx = Get-SourceProbeIndex -Lines $r.Lines -SourceTag $script:configTag
+            $envIdx    = Get-SourceProbeIndex -Lines $r.Lines -SourceTag $script:envTag
+            Assert-True ($configIdx -ge 0) 'config candidate probed'
+            Assert-True ($envIdx -ge 0) 'env candidate probed after config failure'
+            Assert-True ($configIdx -lt $envIdx) 'config candidate must be probed before the env candidate'
+        }
+    }
+
+    Context 'env candidate is the fallback' {
+        It 'falls back to the env IP when the config probe fails' {
+            Mock Invoke-CachingProxyServiceProbe -ModuleName Test.CachingProxyService {
+                @{ Success = $false; HttpProxyReachable = ($CacheIp -eq '192.0.2.20'); PassCount = 1; WarnCount = 1; FailCount = 2; HttpPort = 3128; HttpsPort = 3129; Lines = @("  [mock] probed $CacheIp") }
+            }
+            $r = Resolve-CachingProxyServiceEndpoint -EnvIp '192.0.2.20' -ConfigIp '192.0.2.10'
+            Assert-Equal -Expected '192.0.2.20' -Actual $r.EffectiveIp -Because 'env candidate wins only after the config candidate failed'
+            $configIdx = Get-SourceProbeIndex -Lines $r.Lines -SourceTag $script:configTag
+            $envIdx    = Get-SourceProbeIndex -Lines $r.Lines -SourceTag $script:envTag
+            Assert-True ($configIdx -ge 0 -and $envIdx -gt $configIdx) 'config probed first, env probed second'
+        }
+        It 'falls back to the env IP when the config value is not an IP address' {
+            Mock Invoke-CachingProxyServiceProbe -ModuleName Test.CachingProxyService {
+                @{ Success = $true; HttpProxyReachable = $true; PassCount = 4; WarnCount = 0; FailCount = 0; HttpPort = 3128; HttpsPort = 3129; Lines = @("  [mock] probed $CacheIp") }
+            }
+            $r = Resolve-CachingProxyServiceEndpoint -EnvIp '192.0.2.20' -ConfigIp 'not-an-ip'
+            Assert-Equal -Expected '192.0.2.20' -Actual $r.EffectiveIp -Because 'invalid config candidate is rejected without a probe'
+            $rejected = $false
+            foreach ($line in $r.Lines) {
+                if ($line -like "*'not-an-ip'*not a valid IPv4 or IPv6 address*") { $rejected = $true }
+            }
+            Assert-True $rejected 'invalid config candidate reported as rejected'
+            Assert-Equal -Expected (-1) -Actual (Get-SourceProbeIndex -Lines $r.Lines -SourceTag $script:configTag) -Because 'format-invalid candidate must be rejected before any probe'
+        }
+    }
+
+    Context 'probe and clear' {
+        It 'clears to empty when no candidate has a reachable HTTP proxy port' {
+            Mock Invoke-CachingProxyServiceProbe -ModuleName Test.CachingProxyService {
+                @{ Success = $false; HttpProxyReachable = $false; PassCount = 0; WarnCount = 1; FailCount = 3; HttpPort = 3128; HttpsPort = 3129; Lines = @("  [mock] probed $CacheIp") }
+            }
+            $r = Resolve-CachingProxyServiceEndpoint -EnvIp '192.0.2.20' -ConfigIp '192.0.2.10'
+            Assert-Equal -Expected '' -Actual $r.EffectiveIp -Because 'no reachable candidate clears the choice'
+            Assert-True $r.Probed 'candidates were probed'
+        }
+        It 'is a no-op when neither source is set' {
+            $r = Resolve-CachingProxyServiceEndpoint -EnvIp '' -ConfigIp ''
+            Assert-False $r.Probed 'nothing to probe'
+            Assert-Equal -Expected '' -Actual $r.EffectiveIp -Because 'nothing resolved'
+            Assert-Equal -Expected 0 -Actual (@($r.Lines).Count) -Because 'no diagnostic output for the silent no-op'
+        }
+    }
+}
+
+# --- REGION: Endpoint resolver fixtures
+# See https://yuruna.link/42e220c4-0014
+# Keep AST-only smoke checks and their pure path derivation at file scope.
+$script:discoveryTestCpPath = Join-Path (Split-Path -Parent (Split-Path -Parent $PSCommandPath)) 'Test-CachingProxyService.ps1'
+
+Describe 'Test-CachingProxyService.ps1 resolves through the shared runner-order resolver' {
+    It 'calls Resolve-CachingProxyServiceEndpoint with both -ConfigIp and -EnvIp' {
+        $errs = $null
+        $ast = [System.Management.Automation.Language.Parser]::ParseFile($discoveryTestCpPath, [ref]$null, [ref]$errs)
+        Assert-True (-not $errs) "no parse errors in $discoveryTestCpPath"
+        $calls = @($ast.FindAll({ param($n)
+            $n -is [System.Management.Automation.Language.CommandAst] -and
+            $n.GetCommandName() -eq 'Resolve-CachingProxyServiceEndpoint'
+        }, $true))
+        Assert-True ($calls.Count -ge 1) 'the script routes source resolution through Resolve-CachingProxyServiceEndpoint'
+        $paramNames = @($calls[0].CommandElements | Where-Object {
+            $_ -is [System.Management.Automation.Language.CommandParameterAst]
+        } | ForEach-Object { $_.ParameterName })
+        Assert-True ($paramNames -contains 'ConfigIp') 'the config source (vmStart.cachingProxyIp) is offered to the resolver'
+        Assert-True ($paramNames -contains 'EnvIp') 'the env source (YURUNA_CACHING_PROXY_SERVICE_IP) is offered to the resolver'
+    }
+    It 'reads vmStart.cachingProxyIp from test.config.yml and keeps the local-discovery fallback' {
+        $ast = [System.Management.Automation.Language.Parser]::ParseFile($discoveryTestCpPath, [ref]$null, [ref]$null)
+        $readsConfig = @($ast.FindAll({ param($n)
+            $n -is [System.Management.Automation.Language.CommandAst] -and
+            $n.GetCommandName() -eq 'Read-TestConfig'
+        }, $true))
+        Assert-True ($readsConfig.Count -ge 1) 'the script loads test.config.yml (Read-TestConfig)'
+        $keyRefs = @($ast.FindAll({ param($n)
+            ($n -is [System.Management.Automation.Language.StringConstantExpressionAst] -and $n.Value -eq 'cachingProxyIp') -or
+            ($n -is [System.Management.Automation.Language.MemberExpressionAst] -and $n.Member.Extent.Text -eq 'cachingProxyIp')
+        }, $true))
+        Assert-True ($keyRefs.Count -ge 1) 'the script extracts the vmStart.cachingProxyIp key'
+        $localDiscovery = @($ast.FindAll({ param($n)
+            $n -is [System.Management.Automation.Language.CommandAst] -and
+            $n.GetCommandName() -eq 'Test-CachingProxyServiceAvailable'
+        }, $true))
+        Assert-True ($localDiscovery.Count -ge 1) 'local discovery remains the final fallback'
+    }
+    It 'never publishes into $env:YURUNA_CACHING_PROXY_SERVICE_IP (read-only diagnostic)' {
+        $ast = [System.Management.Automation.Language.Parser]::ParseFile($discoveryTestCpPath, [ref]$null, [ref]$null)
+        $envWrites = @($ast.FindAll({ param($n)
+            $n -is [System.Management.Automation.Language.AssignmentStatementAst] -and
+            $n.Left.Extent.Text -match '(?i)^\$env:YURUNA_CACHING_PROXY_SERVICE_IP$'
+        }, $true))
+        Assert-True ($envWrites.Count -eq 0) 'the runner publishes the winner; the smoke test must not mutate the session'
+    }
+}
+
+# Copyright (c) 2019-2026 by Alisson Sol et al.

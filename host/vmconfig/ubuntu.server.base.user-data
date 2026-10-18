@@ -1,0 +1,511 @@
+#cloud-config
+# LICENSEURI https://yuruna.link/license
+# Copyright (c) 2019-2026 by Alisson Sol et al.
+#vim:syntax=yaml
+# --- REGION: autoinstall
+autoinstall:
+  version: 1
+  # --- REGION: apt
+  # See https://yuruna.link/429f3d06-000a
+  # See https://yuruna.link/429f3d06-000b
+APT_PROXY_BLOCK_PLACEHOLDER
+  locale: en_US.UTF-8
+  keyboard:
+    layout: us
+  # --- REGION: packages
+  packages:
+    - console-setup
+    - keyboard-configuration
+# === YURUNA_OVERLAY_HOST_AGENT_PKG ===
+  # --- REGION: identity
+  identity:
+    hostname: HOSTNAME_PLACEHOLDER
+    username: USERNAME_PLACEHOLDER
+    password: "HASH_PLACEHOLDER"
+# === YURUNA_OVERLAY_NETWORK ===
+  # --- REGION: storage
+  storage:
+    # See https://yuruna.link/429f3d06-0010
+    layout:
+      name: lvm
+      sizing-policy: all
+  # --- REGION: ssh
+  ssh:
+    install-server: true
+    allow-pw: true
+    authorized-keys:
+      - SSH_AUTHORIZED_KEY_PLACEHOLDER
+  # --- REGION: user-data
+  # See https://yuruna.link/429f3d06-000f
+  user-data:
+    no_ssh_fingerprints: true
+    ssh:
+      emit_keys_to_console: false
+  # See https://yuruna.link/429f3d06-0011
+  interactive-sections: []
+# === YURUNA_OVERLAY_EARLY_COMMANDS ===
+  # --- REGION: late-commands
+  late-commands:
+    # --- REGION: https://yuruna.link/4220a755-004c
+    - |
+      mkdir -p /target/etc/ssh/sshd_config.d
+      cat > /target/etc/ssh/sshd_config.d/60-yuruna-keepalive.conf << 'EOF'
+      ClientAliveInterval 15
+      ClientAliveCountMax 4
+      TCPKeepAlive yes
+      EOF
+      chmod 0644 /target/etc/ssh/sshd_config.d/60-yuruna-keepalive.conf
+    # --- REGION: Persistent diagnostic journal
+    - |
+      mkdir -p /target/etc/systemd/journald.conf.d /target/var/log/journal
+      cat > /target/etc/systemd/journald.conf.d/60-yuruna-diagnostic.conf << 'EOF'
+      # --- REGION: [Journal]
+      [Journal]
+      Storage=persistent
+      SystemMaxUse=32M
+      SystemKeepFree=256M
+      RuntimeMaxUse=8M
+      SyncIntervalSec=30s
+      ForwardToConsole=no
+      EOF
+      chmod 0644 /target/etc/systemd/journald.conf.d/60-yuruna-diagnostic.conf
+    # --- REGION: https://yuruna.link/429f3d06-0013
+    - |
+      if [ -n "CACHING_PROXY_URL_PLACEHOLDER" ]; then
+        echo 'Acquire::http::Proxy "CACHING_PROXY_URL_PLACEHOLDER";' > /target/etc/apt/apt.conf.d/99yuruna-apt-cache
+        chmod 0644 /target/etc/apt/apt.conf.d/99yuruna-apt-cache
+        if [ -n "CA_CERT_BASE64_PLACEHOLDER" ]; then
+          mkdir -p /target/usr/local/share/ca-certificates
+          printf '%s' "CA_CERT_BASE64_PLACEHOLDER" | base64 -d > /target/usr/local/share/ca-certificates/yuruna-squid-ca.crt
+          chmod 0644 /target/usr/local/share/ca-certificates/yuruna-squid-ca.crt
+          curtin in-target --target=/target -- update-ca-certificates
+          CACHE_HOST=$(echo "CACHING_PROXY_URL_PLACEHOLDER" | sed -E 's|^https?://([^:/]+).*|\1|')
+          echo "Acquire::https::Proxy \"http://${CACHE_HOST}:3129\";" >> /target/etc/apt/apt.conf.d/99yuruna-apt-cache
+        fi
+      fi
+    # --- REGION: https://yuruna.link/429f3d06-0014
+    - |
+      if [ -n "CACHING_PROXY_URL_PLACEHOLDER" ]; then
+        CACHE_HOST=$(echo "CACHING_PROXY_URL_PLACEHOLDER" | sed -E 's|^https?://([^:/]+).*|\1|')
+        CACHE_HTTP_PORT=$(echo "CACHING_PROXY_URL_PLACEHOLDER" | sed -nE 's|^https?://[^:/]+:([0-9]+).*|\1|p')
+        [ -z "$CACHE_HTTP_PORT" ] && CACHE_HTTP_PORT=3128
+        NO_PROXY_LIST="localhost,127.0.0.1,${CACHE_HOST},YURUNA_STATUS_SERVICE_IP_PLACEHOLDER,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,169.254.0.0/16,::1"
+        cat >> /target/etc/environment << EOF
+      http_proxy="http://${CACHE_HOST}:${CACHE_HTTP_PORT}/"
+      https_proxy="http://${CACHE_HOST}:3129/"
+      HTTP_PROXY="http://${CACHE_HOST}:${CACHE_HTTP_PORT}/"
+      HTTPS_PROXY="http://${CACHE_HOST}:3129/"
+      no_proxy="${NO_PROXY_LIST}"
+      NO_PROXY="${NO_PROXY_LIST}"
+      EOF
+        mkdir -p /target/etc/profile.d
+        cat > /target/etc/profile.d/yuruna-proxy.sh << EOF
+      export http_proxy="http://${CACHE_HOST}:${CACHE_HTTP_PORT}/"
+      export https_proxy="http://${CACHE_HOST}:3129/"
+      export HTTP_PROXY="http://${CACHE_HOST}:${CACHE_HTTP_PORT}/"
+      export HTTPS_PROXY="http://${CACHE_HOST}:3129/"
+      export no_proxy="${NO_PROXY_LIST}"
+      export NO_PROXY="${NO_PROXY_LIST}"
+      EOF
+        chmod 0644 /target/etc/profile.d/yuruna-proxy.sh
+        mkdir -p /target/etc/systemd/system.conf.d
+        cat > /target/etc/systemd/system.conf.d/yuruna-proxy.conf << EOF
+      # --- REGION: [Manager]
+      [Manager]
+      DefaultEnvironment="http_proxy=http://${CACHE_HOST}:${CACHE_HTTP_PORT}/" "https_proxy=http://${CACHE_HOST}:3129/" "HTTP_PROXY=http://${CACHE_HOST}:${CACHE_HTTP_PORT}/" "HTTPS_PROXY=http://${CACHE_HOST}:3129/" "no_proxy=${NO_PROXY_LIST}" "NO_PROXY=${NO_PROXY_LIST}"
+      EOF
+        echo iptables-persistent iptables-persistent/autosave_v4 boolean false | curtin in-target --target=/target -- debconf-set-selections
+        echo iptables-persistent iptables-persistent/autosave_v6 boolean false | curtin in-target --target=/target -- debconf-set-selections
+        curtin in-target --target=/target -- env DEBIAN_FRONTEND=noninteractive apt-get install -y iptables-persistent || \
+          echo "yuruna: iptables-persistent install failed - egress lock will not survive reboot." >&2
+        mkdir -p /target/etc/iptables
+        cat > /target/etc/iptables/rules.v4 << 'EOF'
+      *filter
+      :INPUT ACCEPT [0:0]
+      :FORWARD ACCEPT [0:0]
+      :OUTPUT ACCEPT [0:0]
+      -A OUTPUT -o lo -j ACCEPT
+      -A OUTPUT -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
+      -A OUTPUT -p icmp -j ACCEPT
+      -A OUTPUT -p udp --dport 53 -j ACCEPT
+      -A OUTPUT -p tcp --dport 53 -j ACCEPT
+      -A OUTPUT -p udp --dport 67:68 -j ACCEPT
+      -A OUTPUT -p udp --dport 123 -j ACCEPT
+      -A OUTPUT -d 10.0.0.0/8 -j ACCEPT
+      -A OUTPUT -d 172.16.0.0/12 -j ACCEPT
+      -A OUTPUT -d 192.168.0.0/16 -j ACCEPT
+      -A OUTPUT -d 169.254.0.0/16 -j ACCEPT
+      -A OUTPUT -p tcp --dport 80  -j REJECT --reject-with icmp-port-unreachable
+      -A OUTPUT -p tcp --dport 443 -j REJECT --reject-with icmp-port-unreachable
+      COMMIT
+      EOF
+        cat > /target/etc/iptables/rules.v6 << 'EOF'
+      *filter
+      :INPUT ACCEPT [0:0]
+      :FORWARD ACCEPT [0:0]
+      :OUTPUT ACCEPT [0:0]
+      -A OUTPUT -o lo -j ACCEPT
+      -A OUTPUT -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
+      COMMIT
+      EOF
+        chmod 0644 /target/etc/iptables/rules.v4 /target/etc/iptables/rules.v6
+        curtin in-target --target=/target -- systemctl enable netfilter-persistent || true
+      fi
+    # --- REGION: Reinforce DHCP client identity
+    # See https://yuruna.link/4220a755-000b
+    # Idempotent: a re-run finds the key already present and leaves the file alone.
+    - |
+      for f in /target/etc/netplan/*.yaml; do
+        [ -f "$f" ] || continue
+        grep -q 'dhcp-identifier' "$f" && continue
+        sed -i -E 's/^([[:space:]]*)dhcp4:[[:space:]]*(true|yes)[[:space:]]*$/\1dhcp4: \2\n\1dhcp-identifier: mac/' "$f"
+      done
+    # --- REGION: https://yuruna.link/429f3d06-0016
+    - mkdir -p /target/etc/systemd/system/systemd-networkd-wait-online.service.d
+    - |
+      cat > /target/etc/systemd/system/systemd-networkd-wait-online.service.d/override.conf << 'EOF'
+      # --- REGION: [Service]
+      [Service]
+      ExecStart=
+      ExecStart=/lib/systemd/systemd-networkd-wait-online --any --timeout=15
+      EOF
+    # --- REGION: https://yuruna.link/429f3d06-0018
+    - curtin in-target --target=/target -- passwd --expire USERNAME_PLACEHOLDER
+    # --- REGION: https://yuruna.link/429f3d06-0019
+    - bash -c 'sed -i -E "/^[#[:space:]]*LOGIN_TIMEOUT/d" /target/etc/login.defs && echo "LOGIN_TIMEOUT 180" >> /target/etc/login.defs'
+    # --- REGION: https://yuruna.link/429f3d06-001a
+    - curtin in-target --target=/target -- bash -c 'echo "USERNAME_PLACEHOLDER ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/90-yuruna-USERNAME_PLACEHOLDER && chmod 440 /etc/sudoers.d/90-yuruna-USERNAME_PLACEHOLDER && chown root:root /etc/sudoers.d/90-yuruna-USERNAME_PLACEHOLDER'
+    # --- REGION: https://yuruna.link/429f3d06-001b
+    - sed -i '/ swap / s/^/#/' /target/etc/fstab
+    - curtin in-target --target=/target -- systemctl mask swap.target
+    # --- REGION: https://yuruna.link/429f3d06-001c
+    - curtin in-target --target=/target -- systemctl mask snapd.seeded.service
+    # --- REGION: https://yuruna.link/429f3d06-001d
+    # Tolerate an empty/absent update-motd.d: a bare `chmod ... *` on an empty
+    # glob exits non-zero and aborts the late-command phase (the whole install).
+    - chmod -x /target/etc/update-motd.d/* 2>/dev/null || true
+    - mkdir -p /target/etc/default && test -f /target/etc/default/motd-news && sed -i 's/^ENABLED=1/ENABLED=0/' /target/etc/default/motd-news || echo 'ENABLED=0' > /target/etc/default/motd-news
+# === YURUNA_OVERLAY_LATE_HOST_AGENT ===
+    - mkdir -p /target/etc/default/grub.d
+# === YURUNA_OVERLAY_GRUB_PRE_CONSOLE_QUIET ===
+    # --- REGION: https://yuruna.link/429f3d06-0025
+    - |
+      cat > /target/etc/default/grub.d/99-yuruna-console-quiet.cfg << 'GRUBCFG'
+      GRUB_CMDLINE_LINUX_DEFAULT="${GRUB_CMDLINE_LINUX_DEFAULT} quiet loglevel=3 systemd.show_status=no rd.systemd.show_status=no"
+      GRUBCFG
+# === YURUNA_OVERLAY_GRUB_POST_CONSOLE_QUIET ===
+    # --- REGION: https://yuruna.link/429f3d06-0027
+    - curtin in-target --target=/target -- update-grub
+    # --- REGION: https://yuruna.link/429f3d06-0028
+    - mkdir -p /target/etc/systemd/system/getty@.service.d
+    - |
+      cat > /target/etc/systemd/system/getty@.service.d/override.conf << 'EOF'
+      # --- REGION: [Service]
+      [Service]
+      ExecStartPre=-/usr/bin/cloud-init status --wait
+      EOF
+    # --- REGION: https://yuruna.link/429f3d06-0029
+    - mkdir -p /target/etc/yuruna
+    - |
+      cat > /target/etc/yuruna/host.env << 'EOF'
+      YURUNA_STATUS_SERVICE_IP=YURUNA_STATUS_SERVICE_IP_PLACEHOLDER
+      YURUNA_STATUS_SERVICE_PORT=YURUNA_STATUS_SERVICE_PORT_PLACEHOLDER
+      YURUNA_GITHUB_REPO=YURUNA_GITHUB_REPO_PLACEHOLDER
+      YURUNA_GITHUB_REF=YURUNA_GITHUB_REF_PLACEHOLDER
+      YURUNA_FRAMEWORK_URL=YURUNA_FRAMEWORK_URL_PLACEHOLDER
+      YURUNA_PROJECT_URL=YURUNA_PROJECT_URL_PLACEHOLDER
+      YURUNA_HOST_ID=YURUNA_HOST_ID_PLACEHOLDER
+      YURUNA_CACHING_PROXY_SERVICE_IP=YURUNA_CACHING_PROXY_SERVICE_IP_PLACEHOLDER
+      EOF
+    - |
+      grep -q yuruna-host /target/etc/hosts || \
+        echo "YURUNA_STATUS_SERVICE_IP_PLACEHOLDER yuruna-host" >> /target/etc/hosts
+    # --- REGION: https://yuruna.link/429f3d06-002b
+    - |
+      cat >> /target/etc/wgetrc << 'EOF'
+      no_proxy = YURUNA_STATUS_SERVICE_IP_PLACEHOLDER
+      EOF
+    # --- REGION: https://yuruna.link/429f3d06-002c
+    - mkdir -p /target/usr/local/lib/yuruna /target/usr/local/bin
+    - |
+      printf '%s' "YURUNA_RETRY_LIB_BASE64_PLACEHOLDER" | base64 -d > /target/usr/local/lib/yuruna/yuruna-retry.sh
+      chmod 0644 /target/usr/local/lib/yuruna/yuruna-retry.sh
+    - |
+      printf '%s' "YURUNA_VERSIONS_BASE64_PLACEHOLDER" | base64 -d > /target/usr/local/lib/yuruna/yuruna-versions.sh
+      chmod 0644 /target/usr/local/lib/yuruna/yuruna-versions.sh
+    - |
+      printf '%s' "YURUNA_FAE_BASE64_PLACEHOLDER" | base64 -d > /target/usr/local/lib/yuruna/fetch-and-execute.sh
+      chmod 0755 /target/usr/local/lib/yuruna/fetch-and-execute.sh
+    - |
+      printf '%s' "YURUNA_FETCH_CONTEXT_BASE64_PLACEHOLDER" | base64 -d > /target/usr/local/bin/yfe
+      chmod 0755 /target/usr/local/bin/yfe
+    - |
+      printf '%s' "YURUNA_NETWORK_BASE64_PLACEHOLDER" | base64 -d > /target/usr/local/lib/yuruna/yuruna-network.sh
+      chmod 0755 /target/usr/local/lib/yuruna/yuruna-network.sh
+    - |
+      printf '%s' "YURUNA_HOST_LOCATE_BASE64_PLACEHOLDER" | base64 -d > /target/usr/local/lib/yuruna/yuruna-host-locate.sh
+      chmod 0755 /target/usr/local/lib/yuruna/yuruna-host-locate.sh
+    # --- REGION: https://yuruna.link/429f3d06-002a
+    - |
+      cat > /target/etc/systemd/system/yuruna-host-locate.service << 'EOF'
+      # --- REGION: [Unit]
+      [Unit]
+      Description=Refresh Yuruna host coordinates if the host has changed address
+      After=network.target NetworkManager-wait-online.service systemd-networkd-wait-online.service
+      Before=network-online.target
+
+      # --- REGION: [Service]
+      [Service]
+      Type=oneshot
+      TimeoutStartSec=30
+      ExecStart=/usr/local/lib/yuruna/yuruna-host-locate.sh
+
+      # --- REGION: [Install]
+      [Install]
+      WantedBy=network-online.target
+      EOF
+      cat > /target/etc/systemd/system/yuruna-host-locate.timer << 'EOF'
+      # --- REGION: [Unit]
+      [Unit]
+      Description=Periodic Yuruna host coordinate refresh
+
+      # --- REGION: [Timer]
+      [Timer]
+      OnBootSec=30s
+      OnUnitActiveSec=60s
+      AccuracySec=5s
+
+      # --- REGION: [Install]
+      [Install]
+      WantedBy=timers.target
+      EOF
+      curtin in-target --target=/target -- systemctl enable yuruna-host-locate.service yuruna-host-locate.timer || true
+    # --- REGION: https://yuruna.link/4220a755-000f
+    - |
+      cat > /target/etc/systemd/system/yuruna-dhcp-release.service << 'EOF'
+      # --- REGION: [Unit]
+      [Unit]
+      Description=Return this guest's DHCP lease before shutdown
+      Wants=network.target
+      After=network.target
+
+      # --- REGION: [Service]
+      [Service]
+      Type=oneshot
+      RemainAfterExit=yes
+      ExecStart=/bin/true
+      ExecStop=/bin/bash /usr/local/lib/yuruna/yuruna-network.sh release
+      TimeoutStopSec=15
+
+      # --- REGION: [Install]
+      [Install]
+      WantedBy=multi-user.target
+      EOF
+      curtin in-target --target=/target -- systemctl enable yuruna-dhcp-release.service || true
+    # --- REGION: https://yuruna.link/42fa6f45-000c
+    # git does NOT read GH_TOKEN (a gh(1) convention); without this GIT_ASKPASS shim a private
+    # clone hangs on a username prompt -- "Private repositories" in the REGION topic above.
+    - |
+      cat > /target/usr/local/lib/yuruna/git-askpass.sh << 'EOF'
+      #!/bin/sh
+      case "$1" in
+          Username*) echo "x-access-token" ;;
+          *)         echo "${GH_TOKEN}" ;;
+      esac
+      EOF
+      chmod 0755 /target/usr/local/lib/yuruna/git-askpass.sh
+    # --- REGION: https://yuruna.link/4220a755-004f
+    - |
+      cat > /target/etc/profile.d/yuruna-git-noprompt.sh << 'EOF'
+      export GIT_TERMINAL_PROMPT=0
+      export GIT_ASKPASS=/usr/local/lib/yuruna/git-askpass.sh
+      EOF
+      chmod 0644 /target/etc/profile.d/yuruna-git-noprompt.sh
+      printf 'GIT_TERMINAL_PROMPT=0\nGIT_ASKPASS=/usr/local/lib/yuruna/git-askpass.sh\n' >> /target/etc/environment
+    # --- REGION: Private repository credentials
+    # See https://yuruna.link/4220a755-004f
+    - |
+      if [ -n 'GH_TOKEN_PLACEHOLDER' ]; then
+      cat > /target/etc/profile.d/yuruna-github.sh << 'EOF'
+      export GH_TOKEN="GH_TOKEN_PLACEHOLDER"
+      export GIT_ASKPASS=/usr/local/lib/yuruna/git-askpass.sh
+      export GIT_TERMINAL_PROMPT=0
+      EOF
+      chmod 0644 /target/etc/profile.d/yuruna-github.sh
+      cat >> /target/home/USERNAME_PLACEHOLDER/.bashrc << 'EOF'
+      export GH_TOKEN="GH_TOKEN_PLACEHOLDER"
+      export GIT_ASKPASS=/usr/local/lib/yuruna/git-askpass.sh
+      export GIT_TERMINAL_PROMPT=0
+      EOF
+      curtin in-target --target=/target -- chown USERNAME_PLACEHOLDER:USERNAME_PLACEHOLDER /home/USERNAME_PLACEHOLDER/.bashrc
+      fi
+    # --- REGION: https://yuruna.link/429f3d06-002d
+    - curtin in-target --target=/target -- timedatectl set-ntp true
+    - |
+      curtin in-target --target=/target -- bash -c '
+      set +e
+      PROXY_URL="CACHING_PROXY_URL_PLACEHOLDER"
+      if ! command -v wget >/dev/null 2>&1; then
+        echo "Yuruna => Timezone sync skipped: wget not available" >&2
+      else
+        if [ -n "$PROXY_URL" ]; then
+          GEOTZ=$(http_proxy="$PROXY_URL" HTTP_PROXY="$PROXY_URL" wget -qO - --timeout=10 "http://ip-api.com/line?fields=timezone")
+        else
+          GEOTZ=$(wget -qO - --timeout=10 "http://ip-api.com/line?fields=timezone")
+        fi
+        WRC=$?
+        if [ "$WRC" -ne 0 ]; then
+          echo "Yuruna => Timezone sync failed: geo-IP fetch error (wget rc=$WRC; network or proxy)" >&2
+        elif [ -z "$GEOTZ" ]; then
+          echo "Yuruna => Timezone sync failed: empty geo-IP response" >&2
+        elif timedatectl set-timezone "$GEOTZ"; then
+          echo "Yuruna => Timezone set to $GEOTZ" >&2
+        else
+          echo "Yuruna => Timezone sync failed: timedatectl rejected $GEOTZ" >&2
+        fi
+      fi
+      '
+    # --- REGION: https://yuruna.link/429f3d06-002e
+    - umount -lf /cdrom || true
+    - losetup -D || true
+  # --- REGION: error-commands
+  # See https://yuruna.link/429f3d06-002f
+  error-commands:
+    - |
+      set +e
+      HOST_IP="YURUNA_STATUS_SERVICE_IP_PLACEHOLDER"
+      HOST_PORT="YURUNA_STATUS_SERVICE_PORT_PLACEHOLDER"
+      if [ -z "$HOST_IP" ] || [ -z "$HOST_PORT" ]; then
+          echo "yuruna error-commands: no host coordinates baked in -- skipping log upload" >&2
+          exit 0
+      fi
+      VMNAME=$(hostname 2>/dev/null || echo unknown)
+      STAMP=$(date -u +%Y%m%dT%H%M%SZ)
+      BUCKET="installer-fail/${VMNAME}/${STAMP}"
+      URL_BASE="http://${HOST_IP}:${HOST_PORT}/log-upload/${BUCKET}"
+      echo "Yuruna installer failure artifacts: /log/${BUCKET}/" >&2
+      put_file() {
+          SRC="$1"
+          DEST="$2"
+          [ -r "$SRC" ] || return 0
+          if command -v curl >/dev/null 2>&1; then
+              curl --silent --show-error --fail --max-time 30 --noproxy '*' \
+                  --upload-file "$SRC" "${URL_BASE}/${DEST}" >/dev/null 2>&1 || \
+                  echo "yuruna error-commands: curl PUT failed for $SRC -> $DEST" >&2
+          else
+              wget --quiet --timeout=30 --no-proxy --method=PUT \
+                  --body-file="$SRC" -O /dev/null "${URL_BASE}/${DEST}" || \
+                  echo "yuruna error-commands: wget PUT failed for $SRC -> $DEST" >&2
+          fi
+      }
+      # A busy chroot mount can lose its holder while network probes or uploads
+      # wait. Capture volatile state first, without unmounting or killing holders.
+      capture_probe() (
+          LABEL="$1"
+          shift
+          printf '\n== %s ==\n' "$LABEL"
+          if ! command -v timeout >/dev/null 2>&1; then
+              echo 'unavailable: timeout missing; probe skipped to keep capture bounded'
+              return
+          fi
+          if ! command -v "$1" >/dev/null 2>&1; then
+              echo "unavailable: $1 not installed"
+              return
+          fi
+          PROBE_OUT=$(mktemp) || { echo 'unavailable: cannot create probe output'; return; }
+          timeout --kill-after=1s 3s "$@" > "$PROBE_OUT" 2>&1
+          PROBE_RC=$?
+          head -c 131072 "$PROBE_OUT"
+          if [ "$(wc -c < "$PROBE_OUT")" -gt 131072 ]; then
+              printf '\n[output truncated at 131072 bytes]\n'
+          fi
+          printf '\n[exit=%s; timeout=3s, kill-after=1s; 124=timeout, 137=SIGKILL]\n' "$PROBE_RC"
+          rm -f "$PROBE_OUT"
+      )
+      MOUNTSNAP=$(mktemp 2>/dev/null || echo /tmp/yuruna-mountsnap.txt)
+      {
+          echo '== captured (UTC) =='; date -u
+          capture_probe 'installer mountinfo (mount IDs and propagation)' cat /proc/self/mountinfo
+          capture_probe 'process references into /target (no arguments or environment)' sh -c '
+              for PROC in /proc/[0-9]*; do
+                  PROC_RECORDED=false
+                  for REF in "$PROC/root" "$PROC/cwd" "$PROC"/fd/*; do
+                      LINK=$(readlink "$REF" 2>/dev/null) || continue
+                      case "$LINK" in
+                          /target|/target/*)
+                              if [ "$PROC_RECORDED" = false ]; then
+                                  printf "pid=%s comm=" "${PROC##*/}"; cat "$PROC/comm" 2>/dev/null
+                                  printf "mount-namespace="; readlink "$PROC/ns/mnt" 2>/dev/null
+                                  grep -E " /(target|run)(/[^ ]*)? " "$PROC/mountinfo" 2>/dev/null
+                                  PROC_RECORDED=true
+                              fi
+                              printf "pid=%s reference=%s path=%s\n" "${PROC##*/}" "${REF#"$PROC"/}" "$LINK"
+                              case "$REF" in
+                                  */fd/*) sed -n "/^mnt_id:/p" "$PROC/fdinfo/${REF##*/}" 2>/dev/null ;;
+                              esac
+                              ;;
+                      esac
+                  done
+              done
+          '
+          capture_probe 'process tree identifiers and wait channels (no command arguments)' \
+              ps -e -o pid,ppid,stat,etimes,wchan:32,comm
+          capture_probe 'target mount tree' findmnt --submounts --target /target \
+              --output TARGET,SOURCE,FSTYPE,OPTIONS,PROPAGATION
+          capture_probe 'mount namespaces' lsns --type mnt --output NS,NPROCS,PID,USER
+          # fuser/lsof can include other bind mounts of the same filesystem;
+          # correlate these candidates with mount IDs and /proc references.
+          capture_probe 'filesystem users of /target/run (requires a mountpoint)' fuser -vmM /target/run
+          capture_probe 'open files on the /target/run filesystem' lsof -nP +f -- /target/run
+      } > "$MOUNTSNAP" 2>&1
+      # Capture route evidence before uploads; ordinary installer logs can be empty.
+      NETSNAP=$(mktemp 2>/dev/null || echo /tmp/yuruna-netsnap.txt)
+      {
+          echo "== captured (UTC) =="; date -u
+          echo; echo "== ip addr =="; ip addr 2>&1
+          echo; echo "== ip route (a missing default route IS the errno-101 answer) =="; ip route 2>&1
+          echo; echo "== /etc/resolv.conf =="; cat /etc/resolv.conf 2>&1
+          echo; echo "== apt proxy configuration =="; grep -rs -i proxy /etc/apt/apt.conf.d/ 2>&1
+          echo; echo "== reachability =="
+          APT_PROXY=$(grep -rhs -o 'http://[^"/]*' /etc/apt/apt.conf.d/ 2>/dev/null | head -1)
+          if [ -n "$APT_PROXY" ]; then
+              curl --silent --max-time 10 -o /dev/null \
+                  -w "via apt proxy ${APT_PROXY}: http=%{http_code} time=%{time_total}s\n" \
+                  -x "$APT_PROXY" http://archive.ubuntu.com/ubuntu/dists/ 2>&1 \
+                  || echo "via apt proxy ${APT_PROXY}: FAILED (see curl exit above)"
+          else
+              echo "no apt proxy configured"
+          fi
+          for U in http://archive.ubuntu.com/ubuntu/dists/ http://security.ubuntu.com/ubuntu/dists/; do
+              curl --silent --max-time 10 -o /dev/null --noproxy '*' \
+                  -w "direct ${U}: http=%{http_code} time=%{time_total}s\n" "$U" 2>&1 \
+                  || echo "direct ${U}: FAILED"
+          done
+          echo; echo "== host status service (${HOST_IP}:${HOST_PORT}) =="
+          curl --silent --max-time 10 -o /dev/null --noproxy '*' \
+              -w "livecheck: http=%{http_code} time=%{time_total}s\n" \
+              "http://${HOST_IP}:${HOST_PORT}/livecheck" 2>&1 || echo "livecheck: FAILED"
+      } > "$NETSNAP" 2>&1
+      put_file "$MOUNTSNAP" "mounts-at-failure.txt"
+      put_file "$NETSNAP" "network-at-failure.txt"
+      # Preserve curtin's archive when its separately named logs were never written.
+      put_file /var/log/installer/curtin-errors.tar curtin-errors.tar
+      for SRC in \
+          /var/log/installer/subiquity-curtin-install.log \
+          /var/log/installer/subiquity-server-debug.log \
+          /var/log/installer/curtin-install/main.log \
+          /var/log/installer/autoinstall-user-data \
+          /var/log/installer/installer-journal.txt \
+          /var/log/cloud-init.log \
+          /var/log/cloud-init-output.log; do
+          DEST=$(basename "$SRC")
+          case "$DEST" in
+              *.log|*.txt|*.json|*.err|*.crash) ;;
+              *) DEST="${DEST}.log" ;;
+          esac
+          put_file "$SRC" "$DEST"
+      done
+      for CRASH in /var/crash/*.crash; do
+          [ -r "$CRASH" ] && put_file "$CRASH" "$(basename "$CRASH")"
+      done
+      exit 0

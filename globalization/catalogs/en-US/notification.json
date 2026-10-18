@@ -1,0 +1,171 @@
+{
+  "schema": "yuruna.catalog/v1",
+  "domain": "notification",
+  "locale": "en-US",
+  "messages": {
+    "notification.failure_body": {
+      "message": "Yuruna Test Failure\n\nHost:     {host}\nMachine:  {machine}\nGuest:    {guest}\nStep:     {step}\nError:    {error}\nCycle start: {cycleStart}\nCommit:   {commit}\nTime:     {time}",
+      "description": "Plain-text failure email body; the structured trailer and its marker lines are a separate invariant machine contract.",
+      "lifecycle": "active",
+      "placeholders": {
+        "host": {
+          "type": "detail",
+          "trust": "external",
+          "example": "host.windows.hyper-v"
+        },
+        "machine": {
+          "type": "detail",
+          "trust": "external",
+          "example": "BOX-01"
+        },
+        "guest": {
+          "type": "detail",
+          "trust": "external",
+          "example": "guest.example"
+        },
+        "step": {
+          "type": "detail",
+          "trust": "external",
+          "example": "Deploy workload"
+        },
+        "error": {
+          "type": "detail",
+          "trust": "external",
+          "example": "External failure detail"
+        },
+        "cycleStart": {
+          "type": "token",
+          "trust": "internal",
+          "example": "2026-09-18T12:00:00Z"
+        },
+        "commit": {
+          "type": "token",
+          "trust": "internal",
+          "example": "0123456789abcdef"
+        },
+        "time": {
+          "type": "datetime",
+          "trust": "internal",
+          "example": "2026-09-18T12:00:00Z"
+        }
+      }
+    },
+    "notification.failure_subject": {
+      "message": "Yuruna Test: FAIL on {host} / {subject}",
+      "description": "Failure email subject. FAIL is the established event label; dispatch decisions use the cycle.failure event code.",
+      "lifecycle": "active",
+      "placeholders": {
+        "host": {
+          "type": "detail",
+          "trust": "external",
+          "example": "host.windows.hyper-v"
+        },
+        "subject": {
+          "type": "detail",
+          "trust": "external",
+          "example": "workload.example"
+        }
+      }
+    },
+    "notification.delivered": {
+      "message": "Notification '{eventCode}' delivered to {address}",
+      "description": "Operator confirmation after successful notification delivery.",
+      "lifecycle": "active",
+      "placeholders": {
+        "eventCode": {
+          "type": "token",
+          "trust": "internal",
+          "example": "cycle.failure"
+        },
+        "address": {
+          "type": "detail",
+          "trust": "external",
+          "example": "operator@example.invalid"
+        }
+      }
+    },
+    "notification.unknown_transport": {
+      "message": "Unknown transport '{transport}' for event '{eventCode}'.",
+      "description": "Operator warning for an unsupported notification transport.",
+      "lifecycle": "active",
+      "placeholders": {
+        "transport": {
+          "type": "detail",
+          "trust": "external",
+          "example": "unknown"
+        },
+        "eventCode": {
+          "type": "token",
+          "trust": "internal",
+          "example": "cycle.failure"
+        }
+      }
+    },
+    "notification.delivery_failed": {
+      "message": "Notification delivery failed for '{eventCode}' -> {address}: {detail}",
+      "description": "Notification failure warning; external transport detail is display-only.",
+      "lifecycle": "active",
+      "placeholders": {
+        "eventCode": {
+          "type": "token",
+          "trust": "internal",
+          "example": "cycle.failure"
+        },
+        "address": {
+          "type": "detail",
+          "trust": "external",
+          "example": "operator@example.invalid"
+        },
+        "detail": {
+          "type": "detail",
+          "trust": "external",
+          "example": "Transport unavailable"
+        }
+      }
+    },
+    "notification.config_parse_failed": {
+      "message": "transports.yml parse failed: {detail}. Treating as empty.",
+      "description": "Notification operator guidance; provider diagnostics remain external detail.",
+      "lifecycle": "active",
+      "placeholders": {
+        "detail": {
+          "type": "detail",
+          "trust": "external",
+          "example": "External YAML parse error"
+        }
+      }
+    },
+    "notification.config_mapping_required": {
+      "message": "transports.yml did not parse to a mapping; treating as empty.",
+      "description": "Notification operator guidance; provider diagnostics remain external detail.",
+      "lifecycle": "active"
+    },
+    "notification.resend_config_required": {
+      "message": "transports.resend.apiKey and transports.resend.fromEmail are required.",
+      "description": "Notification operator guidance; provider diagnostics remain external detail.",
+      "lifecycle": "active"
+    },
+    "notification.all_delivery_failed": {
+      "message": "Notification '{eventCode}': all {attempted} delivery attempt(s) failed. Last error: {detail}",
+      "description": "Notification operator guidance; provider diagnostics remain external detail.",
+      "lifecycle": "active",
+      "placeholders": {
+        "eventCode": {
+          "type": "token",
+          "trust": "internal",
+          "example": "cycle.failure"
+        },
+        "attempted": {
+          "type": "integer",
+          "trust": "internal",
+          "example": "2"
+        },
+        "detail": {
+          "type": "detail",
+          "trust": "external",
+          "example": "External delivery error"
+        }
+      }
+    }
+  }
+}

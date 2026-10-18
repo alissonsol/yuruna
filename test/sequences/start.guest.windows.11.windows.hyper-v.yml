@@ -1,0 +1,19 @@
+# yaml-language-server: $schema=../schemas/sequence.schema.yml
+
+# LICENSEURI https://yuruna.link/license
+# Copyright (c) 2019-2026 by Alisson Sol et al.
+
+sequenceGuid: 42d4fe89-6790-4cf1-850b-d64feb30c238
+sequenceRevision: 1
+
+description: "Windows 11: New-VM starts the installer; autounattend.xml drives the installation."
+keystrokeMechanism: gui
+
+# --- REGION: resource
+resource:
+  windows.11: []
+
+# --- REGION: component
+# New-VM already accepted the DVD prompt. Late Enter presses can reach
+# Setup controls instead of the initial boot loader.
+component: []

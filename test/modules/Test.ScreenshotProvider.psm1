@@ -1,0 +1,155 @@
+<#PSScriptInfo
+.VERSION 2026.10.14
+.GUID 424e571a-0f6b-4eef-b112-0794f8d85952
+.AUTHOR Alisson Sol et al.
+.COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
+.TAGS
+.LICENSEURI https://yuruna.link/license
+.PROJECTURI https://yuruna.com
+.ICONURI
+.EXTERNALMODULEDEPENDENCIES
+.REQUIREDSCRIPTS
+.EXTERNALSCRIPTDEPENDENCIES
+.RELEASENOTES
+.PRIVATEDATA
+#>
+
+#requires -version 7
+
+Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
+
+
+# Screenshot-capture provider registry. See
+# ../../docs/host-io.md#backends-today for the registry shape and its seam. -- Test.ScreenshotProvider.psm1
+#
+# --- REGION: https://yuruna.link/4222e5f2-0009
+# Storage: shared Test.Registry primitive; the $global:YurunaScreenshotProviders
+# anchor keeps registrations eviction-safe across -Force re-imports.
+# The paired self-healing primitive is Repair-ScreenshotRing (see its help).
+
+Import-Module (Join-Path $PSScriptRoot 'Test.Registry.psm1') -Force -DisableNameChecking -Global
+
+$script:Reg = New-YurunaRegistry -Name 'ScreenshotProvider' -AnchorVar 'YurunaScreenshotProviders' -Comparer 'OrdinalIgnoreCase'
+
+function Register-ScreenshotProvider {
+    <#
+    .SYNOPSIS
+        Register a screenshot capturer scriptblock for $HostType.
+    .DESCRIPTION
+        Stores the Capturer in the cross-module-eviction-safe global
+        registry so Invoke-ScreenshotProvider can dispatch by HostType
+        without re-importing Test.Transport's per-host backend.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][string]$HostType,
+        [Parameter(Mandatory)][scriptblock]$Capturer
+    )
+    & $script:Reg.Register $HostType $Capturer
+}
+
+function Test-ScreenshotProviderAvailable {
+    <#
+    .SYNOPSIS
+        Returns $true when a screenshot provider is registered for $HostType.
+    .DESCRIPTION
+        Lets the startup capability matrix flag a gap before Wait-ForText
+        falls back to Get-VMScreenshot's legacy contract for a host that
+        has no fast-path capturer wired in.
+    #>
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param([Parameter(Mandatory)][string]$HostType)
+    return [bool](& $script:Reg.Has $HostType)
+}
+
+function Invoke-ScreenshotProvider {
+    <#
+    .SYNOPSIS
+        Dispatch a screenshot capture to the registered provider for
+        $HostType. Throws when unregistered; callers fall back to
+        Get-VMScreenshot (the legacy contract).
+    #>
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param(
+        [Parameter(Mandatory)][string]$HostType,
+        [Parameter(Mandatory)][hashtable]$Arguments
+    )
+    if (-not (& $script:Reg.Has $HostType)) {
+        throw "Screenshot provider not registered for '$HostType'."
+    }
+    return [bool](& (& $script:Reg.Get $HostType) $Arguments)
+}
+
+function Get-ScreenshotProviderMatrix {
+    <#
+    .SYNOPSIS
+        Snapshot of registered screenshot providers as an ordered
+        dictionary keyed by host type.
+    .DESCRIPTION
+        Used by the startup capability matrix to render which hosts
+        have a fast-path screenshot capturer wired in.
+    #>
+    [CmdletBinding()]
+    [OutputType([System.Collections.Specialized.OrderedDictionary])]
+    param()
+    $out = [ordered]@{}
+    foreach ($h in (& $script:Reg.GetMatrix).Keys) { $out[$h] = $true }
+    return $out
+}
+
+function Repair-ScreenshotRing {
+    <#
+    .SYNOPSIS
+        Self-healing primitive: clear the in-memory screenshot ring
+        buffer for a given VM so the next Wait-ForText poll starts
+        fresh against the live framebuffer.
+    .DESCRIPTION
+        Called when OCR recovery needs the next poll to start against a fresh
+        framebuffer. The canonical ring lives under the active cycle folder as
+        screens_<VMName>/ (with the log root as the pre-cycle fallback), resolved
+        by Get-CycleScreenDir. Best-effort: a missing directory or in-flight
+        write is logged Verbose and returns $true so the caller can proceed.
+    #>
+    [CmdletBinding(SupportsShouldProcess)]
+    [OutputType([bool])]
+    param([Parameter(Mandatory)][string]$VMName)
+    $ringDir = $null
+    if (Get-Command Get-CycleScreenDir -ErrorAction SilentlyContinue) {
+        try { $ringDir = Get-CycleScreenDir -VMName $VMName -Confirm:$false } catch { $ringDir = $null }
+    }
+    if (-not $ringDir) {
+        if (-not $env:YURUNA_LOG_DIR) { return $true }
+        $ringDir = Join-Path $env:YURUNA_LOG_DIR "screens_${VMName}"
+    }
+    if (-not (Test-Path -LiteralPath $ringDir)) { return $true }
+    if (-not $PSCmdlet.ShouldProcess($ringDir, (Format-YurunaOperatorMessage -Key 'runner.operator_eb4ca73c6f91b714'))) { return $true }
+    try {
+        Get-ChildItem -LiteralPath $ringDir -Filter '*.png' -ErrorAction SilentlyContinue |
+            Remove-Item -Force -ErrorAction SilentlyContinue
+        return $true
+    } catch {
+        Write-Verbose "Repair-ScreenshotRing: $($_.Exception.Message)"
+        return $false
+    }
+}
+
+function Clear-ScreenshotProvider {
+    <#
+    .SYNOPSIS
+        Drop every registered screenshot provider.
+    .DESCRIPTION
+        Tests-only: production code relies on -Force re-import to
+        refresh registrations. The primitive's Clear rebinds the backing
+        store AND updates the global anchor so the registry is observably
+        empty.
+    #>
+    [CmdletBinding(SupportsShouldProcess)]
+    param()
+    if ($PSCmdlet.ShouldProcess((Format-YurunaOperatorMessage -Key 'runner.operator_fab6e861f7820d90'), (Format-YurunaOperatorMessage -Key 'runner.operator_01286d1a561aca1c'))) {
+        & $script:Reg.Clear
+    }
+}
+
+Export-ModuleMember -Function Register-ScreenshotProvider, Test-ScreenshotProviderAvailable, Invoke-ScreenshotProvider, Get-ScreenshotProviderMatrix, Repair-ScreenshotRing, Clear-ScreenshotProvider

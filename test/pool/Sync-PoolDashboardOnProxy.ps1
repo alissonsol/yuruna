@@ -1,0 +1,330 @@
+<#PSScriptInfo
+.VERSION 2026.10.14
+.GUID 422ccca9-b2ae-4944-9d17-c8d6f481d268
+.AUTHOR Alisson Sol et al.
+.COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
+.TAGS yuruna caching proxy grafana dashboard pool
+.LICENSEURI https://yuruna.link/license
+.PROJECTURI https://yuruna.com
+.ICONURI
+.EXTERNALMODULEDEPENDENCIES
+.REQUIREDSCRIPTS
+.EXTERNALSCRIPTDEPENDENCIES
+.RELEASENOTES
+.PRIVATEDATA
+#>
+
+#requires -version 7
+
+<#
+.SYNOPSIS
+    Push the repo's canonical Yuruna hosts dashboard onto a RUNNING
+    caching-proxy service VM, so a dashboard correction lands without a VM
+    rebuild.
+.DESCRIPTION
+    See https://yuruna.link/42010605-0004.
+.PARAMETER ProxyAddress
+    Proxy host/IP to push to. Omitted, the address is resolved the way the rest
+    of the harness resolves it (Resolve-CachingProxyServiceEndpoint over
+    vmStart.cachingProxyIp and $env:YURUNA_CACHING_PROXY_SERVICE_IP), falling
+    back to the address this host persisted when it provisioned a proxy of its
+    own.
+.PARAMETER User
+    SSH login on the proxy. Defaults to the seed-created service account.
+.PARAMETER TimeoutSeconds
+    Total budget for the in-guest work.
+.EXAMPLE
+    pwsh test/pool/Sync-PoolDashboardOnProxy.ps1
+    # Resolve the proxy, push the canonical dashboard, re-fit the panels.
+.EXAMPLE
+    pwsh test/pool/Sync-PoolDashboardOnProxy.ps1 -WhatIf
+    # Say which proxy would be written to and what would be sent; change nothing.
+.EXAMPLE
+    pwsh test/pool/Sync-PoolDashboardOnProxy.ps1 -ProxyAddress 192.168.7.150
+    # Skip resolution and push to a known address.
+#>
+
+[CmdletBinding(SupportsShouldProcess)]
+param(
+    [Parameter(Position = 0)]
+    [string]$ProxyAddress,
+    [string]$User = 'caching-proxy-service-admin',
+    [int]$TimeoutSeconds = 180
+)
+
+Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
+$ErrorActionPreference = 'Stop'
+$InformationPreference = 'Continue'
+
+# --- REGION: Log level from environment
+# See https://yuruna.link/42162449-0004
+# After the preference assignments above on purpose: an explicit level is the
+# operator's choice and replaces this script's own default. $InformationPreference
+# is re-read afterwards because the script-scoped assignment above shadows the
+# global the cascade writes.
+Import-Module (Join-Path $PSScriptRoot '../modules/Test.LogLevel.psm1') -Global -Force -DisableNameChecking
+Use-LogLevelFromEnv
+$InformationPreference = $global:InformationPreference
+
+Import-Module (Join-Path $PSScriptRoot '../modules/Test.Prelude.psm1') -Global -Force
+$paths       = Initialize-YurunaEntryPoint -ScriptRoot $PSScriptRoot -InsideSubfolder
+$ExitOk      = Get-EntryPointExitCode -Outcome Ok
+$ExitFailure = Get-EntryPointExitCode -Outcome Failure
+
+$repoRoot   = $paths.RepoRoot
+$ModulesDir = $paths.ModulesDir
+
+# CachingProxyService kind loads Test.VMUtility (Test-IpAddress,
+# Get-CachingProxyServicePort, Format-IpUrlHost) + Test.CachingProxyService
+# (the probe + state helpers) + Test.HostContract with -Global -Force.
+Initialize-YurunaEntryPointModuleSet -For CachingProxyService -ModulesDir $ModulesDir
+Import-Module (Join-Path $ModulesDir 'Test.Config.psm1') -Global -Force
+Import-Module (Join-Path $ModulesDir 'Test.Ssh.psm1')    -Global -Force -DisableNameChecking
+
+$DashboardPath = Join-Path $repoRoot 'test/extension/pool-aggregator-service/grafana-pool-dashboard.json'
+$GuestPath     = '/var/lib/grafana/dashboards/pool.json'
+
+# --- REGION: Validate the source
+# Read the repo's canonical dashboard and validate it.
+if (-not (Test-Path -LiteralPath $DashboardPath)) {
+    Write-Error (Format-YurunaOperatorMessage -Key 'runner.operator_369a86d20220ec6e' -Arguments @{ dashboardPath = "$DashboardPath" })
+    exit $ExitFailure
+}
+# Read as bytes and normalize CRLF: the proxy's baked copy comes out of a YAML
+# block scalar and is LF-only, so shipping LF keeps the two copies comparable
+# byte for byte rather than differing on every line.
+$dashboardText = [System.Text.Encoding]::UTF8.GetString([System.IO.File]::ReadAllBytes($DashboardPath)).Replace("`r`n", "`n")
+try {
+    $null = $dashboardText | ConvertFrom-Json
+} catch {
+    Write-Error (Format-YurunaOperatorMessage -Key 'runner.operator_7b5b47de81fd0974' -Arguments @{ dashboardPath = "$DashboardPath"; message = "$($_.Exception.Message)" })
+    exit $ExitFailure
+}
+if ($dashboardText -notmatch 'AGGREGATOR_BASE_PLACEHOLDER') {
+    # The placeholder is what the guest rewrites into a working aggregator URL.
+    # A file that has already been substituted would pin whatever address it was
+    # substituted for, and every /go/* link on the proxy would point there.
+    Write-Error (Format-YurunaOperatorMessage -Key 'runner.operator_6872dfb5a82ac8a9')
+    exit $ExitFailure
+}
+
+# gzip before base64: the raw dashboard is ~30 KB, whose base64 is ~40 KB --
+# past the Windows command-line ceiling the ssh invocation has to fit inside.
+# Compressed it is ~9 KB, which fits with room to spare on every platform.
+$plainBytes = [System.Text.Encoding]::UTF8.GetBytes($dashboardText)
+$buffer = [System.IO.MemoryStream]::new()
+$gzip   = [System.IO.Compression.GZipStream]::new($buffer, [System.IO.Compression.CompressionLevel]::SmallestSize, $true)
+try {
+    $gzip.Write($plainBytes, 0, $plainBytes.Length)
+} finally {
+    $gzip.Dispose()
+}
+$payload = [Convert]::ToBase64String($buffer.ToArray())
+$buffer.Dispose()
+
+# --- REGION: Resolve the proxy address
+if ([string]::IsNullOrWhiteSpace($ProxyAddress)) {
+    $configIp = ''
+    $tcPath = Join-Path $repoRoot 'test/test.config.yml'
+    if (Test-Path -LiteralPath $tcPath) {
+        try {
+            $tc = Read-TestConfig -Path $tcPath
+            if ($tc -and $tc.vmStart -is [System.Collections.IDictionary] -and $tc.vmStart.Contains('cachingProxyIp')) {
+                $configIp = "$($tc.vmStart.cachingProxyIp)".Trim()
+            }
+        } catch { Write-Verbose "test.config.yml read: $($_.Exception.Message)" }
+    }
+    $resolved = Resolve-CachingProxyServiceEndpoint -EnvIp "$($env:YURUNA_CACHING_PROXY_SERVICE_IP)" -ConfigIp $configIp
+    foreach ($line in $resolved.Lines) { Write-Information $line -InformationAction Continue }
+    $ProxyAddress = [string]$resolved.EffectiveIp
+    if ([string]::IsNullOrWhiteSpace($ProxyAddress)) {
+        # The operator-facing sources answered nothing. A host that provisioned a
+        # proxy of its own still records the address it built, and that is a real
+        # claim the shared resolver never consults -- it is deliberately limited
+        # to the two keys an operator edits.
+        try {
+            $state = Read-CachingProxyServiceState
+            if ($state -and $state.ipAddress) { $ProxyAddress = ([string]$state.ipAddress).Trim() }
+        } catch { Write-Verbose "caching-proxy-service state: $($_.Exception.Message)" }
+        if ($ProxyAddress) {
+            Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_ecbacd3a0678ffc7' -Arguments @{ proxyAddress = "$ProxyAddress" }) -InformationAction Continue
+        }
+    }
+}
+if ([string]::IsNullOrWhiteSpace($ProxyAddress)) {
+    Write-Error (Format-YurunaOperatorMessage -Key 'runner.operator_ca0c975d4a14592a')
+    exit $ExitFailure
+}
+# The address lands inside a shell command on the proxy; a quote or whitespace
+# in it would break out of that command and run as code.
+if ($ProxyAddress -match "['`"\s]") {
+    Write-Error (Format-YurunaOperatorMessage -Key 'runner.operator_e9c3c3ea8453bc80' -Arguments @{ proxyAddress = "$ProxyAddress" })
+    exit $ExitFailure
+}
+
+Write-Information '' -InformationAction Continue
+Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_46425a2572cc73ee') -InformationAction Continue
+Write-Information "  Source: $DashboardPath ($($plainBytes.Length) bytes)" -InformationAction Continue
+Write-Information "  Target: ${User}@${ProxyAddress}:$GuestPath" -InformationAction Continue
+
+if (-not $PSCmdlet.ShouldProcess("${User}@${ProxyAddress}", (Format-YurunaOperatorMessage -Key 'runner.operator_25bb41aa4f1d97be' -Arguments @{ guestPath = "$GuestPath" }))) {
+    Write-Information '' -InformationAction Continue
+    Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_a2f90422a8130ef8') -InformationAction Continue
+    Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_391261f99ed607cc' -Arguments @{ length = "$($payload.Length)" }) -InformationAction Continue
+    Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_a814bea7a999026d') -InformationAction Continue
+    Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_cb7ed2ca1a47c653') -InformationAction Continue
+    Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_532dbb5db9d53329') -InformationAction Continue
+    Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_79971ab01372d375' -Arguments @{ guestPath = "$GuestPath" }) -InformationAction Continue
+    Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_61e6e39821922457') -InformationAction Continue
+    Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_e7865766a4e3c101') -InformationAction Continue
+    exit $ExitOk
+}
+
+# --- REGION: Apply and verify
+# Push the dashboard and re-fit its panels.
+# Single-quoted here-string: every $ below is a SHELL variable and PowerShell
+# must not touch it. The payload is injected by literal replace.
+$script = @'
+set -u
+DASH=/var/lib/grafana/dashboards/pool.json
+DIR=$(dirname "$DASH")
+if [ ! -d "$DIR" ]; then
+  if command -v grafana-server >/dev/null 2>&1; then
+    echo "FAILED: grafana is installed but $DIR does not exist; this proxy has no provisioned dashboard directory" >&2
+  else
+    echo "FAILED: grafana is not installed on this host, so there is no dashboard to replace" >&2
+  fi
+  exit 3
+fi
+if ! command -v python3 >/dev/null 2>&1; then
+  echo "FAILED: python3 is missing, so the pushed dashboard cannot be validated before it replaces a working one" >&2
+  exit 4
+fi
+WORK=$(mktemp -d) || exit 5
+trap 'rm -rf "$WORK"' EXIT
+printf '%s' '__PAYLOAD__' | base64 -d 2>/dev/null | gunzip > "$WORK/cand.json" 2>/dev/null
+if [ ! -s "$WORK/cand.json" ]; then
+  echo "FAILED: the transferred dashboard did not decode (empty after base64+gunzip)" >&2
+  exit 6
+fi
+# The same rewrite cloud-init performs, from the guest's own address: the
+# dashboard's /go/* links and its aggregator variable resolve through it.
+AGG_IP="$(hostname -I 2>/dev/null | awk '{print $1}')"
+[ -n "$AGG_IP" ] || AGG_IP=127.0.0.1
+sed -i "s#AGGREGATOR_BASE_PLACEHOLDER#http://${AGG_IP}:9400#g" "$WORK/cand.json"
+if ! python3 -c 'import json,sys; json.load(open(sys.argv[1]))' "$WORK/cand.json" 2>/dev/null; then
+  echo "FAILED: the transferred dashboard is not valid JSON after the aggregator rewrite; $DASH untouched" >&2
+  exit 7
+fi
+# The brand banner is stamped into the dashboards ON THE PROXY, so the candidate
+# is stamped here too, from the same seeded identity. Doing it before the
+# comparison is what keeps an up-to-date proxy reading as unchanged -- and it
+# means the pushed file already carries the banner, rather than losing it until
+# the brander's timer comes round again.
+if [ -x /usr/local/bin/yuruna-brand-dashboards.py ]; then
+  /usr/local/bin/yuruna-brand-dashboards.py --file "$WORK/cand.json" >/dev/null \
+    || echo "BRAND-SKIPPED: the brand banner could not be stamped into the candidate; the timer re-stamps within 15 minutes" >&2
+fi
+# Already current? Compare against what is served, with the geometry the fitter
+# owns taken from the live file -- otherwise every run would look like a change
+# and rewrite a dashboard whose panels are correctly sized.
+python3 - "$WORK/cand.json" "$DASH" <<'PY'
+import json, sys
+
+FITTED = {6, 7, 17}   # the per-host panels yuruna-fit-pool-dashboard.py sizes
+
+try:
+    with open(sys.argv[1], encoding="utf-8") as fh:
+        cand = json.load(fh)
+    with open(sys.argv[2], encoding="utf-8") as fh:
+        live = json.load(fh)
+except (OSError, ValueError):
+    sys.exit(1)   # nothing comparable in place: push
+
+live_panels = {p.get("id"): p for p in live.get("panels", [])}
+for panel in cand.get("panels", []):
+    pid = panel.get("id")
+    if pid in live_panels and (pid in FITTED or panel.get("type") == "row"):
+        panel["gridPos"] = live_panels[pid].get("gridPos", panel.get("gridPos"))
+sys.exit(0 if cand == live else 1)
+PY
+if [ $? -eq 0 ]; then
+  echo "UNCHANGED: $DASH already serves this dashboard"
+  exit 0
+fi
+# Stage inside the dashboards directory so the move is a same-filesystem rename:
+# Grafana's provisioner never sees a partially written file.
+STAGE="$DIR/.pool.json.push"
+sudo cp "$WORK/cand.json" "$STAGE" || { echo "FAILED: could not stage the new dashboard in $DIR" >&2; exit 8; }
+sudo chown root:root "$STAGE" 2>/dev/null || true
+sudo chmod 0644 "$STAGE"
+sudo mv -f "$STAGE" "$DASH" || { echo "FAILED: could not move the new dashboard over $DASH" >&2; sudo rm -f "$STAGE"; exit 9; }
+echo "PUSHED: $DASH replaced (aggregator http://${AGG_IP}:9400)"
+# Panel heights: the canonical file carries pre-collector defaults, so run the
+# fitter now rather than leaving the panels wrong-sized until its timer fires.
+if systemctl cat yuruna-fit-pool-dashboard.service >/dev/null 2>&1; then
+  if sudo systemctl start yuruna-fit-pool-dashboard.service >/dev/null 2>&1; then
+    echo "FITTED: per-host panel heights recomputed for the live host count"
+  else
+    echo "FIT-SKIPPED: yuruna-fit-pool-dashboard.service did not run cleanly; the timer refits within 5 minutes" >&2
+  fi
+else
+  echo "FIT-ABSENT: this proxy has no yuruna-fit-pool-dashboard.service, so panel heights stay at the file's defaults"
+fi
+# Verify what is actually on disk now, not what was sent.
+if ! python3 -c 'import json,sys; json.load(open(sys.argv[1]))' "$DASH" 2>/dev/null; then
+  echo "FAILED: $DASH is not valid JSON after the push" >&2
+  exit 10
+fi
+if grep -q 'AGGREGATOR_BASE_PLACEHOLDER' "$DASH"; then
+  echo "FAILED: $DASH still carries AGGREGATOR_BASE_PLACEHOLDER; its links would not resolve" >&2
+  exit 11
+fi
+if grep -q 'Download-agent service' "$DASH" && grep -q 'Open extension service UI' "$DASH"; then
+  echo "LABELS-OK: the Extension column maps download-agent-service and the hover link reads 'Open extension service UI'"
+else
+  echo "LABELS-MISSING: the pushed dashboard does not carry the corrected Extension labels" >&2
+fi
+exit 0
+'@.Replace('__PAYLOAD__', $payload)
+
+$result = $null
+try {
+    $result = Invoke-GuestSsh -VMName $ProxyAddress -GuestKey 'guest.caching-proxy-service' -User $User -Command $script -TimeoutSeconds $TimeoutSeconds
+} catch {
+    Write-Error @"
+SSH to ${User}@${ProxyAddress} failed: $($_.Exception.Message)
+The push needs the harness SSH key to reach the proxy. Check that the VM is running and
+that this host is the one that built it (a proxy built elsewhere authorized that host's key).
+"@
+    exit $ExitFailure
+}
+$output = if ($result) { [string]$result.output } else { '' }
+foreach ($line in ($output -split "`r?`n")) {
+    if ($line) { Write-Information "  $line" -InformationAction Continue }
+}
+
+if (-not $result -or -not $result.success) {
+    if ($result -and $result.exitCode -eq -1) {
+        Write-Error (Format-YurunaOperatorMessage -Key 'runner.operator_da7462e09d82ae0b' -Arguments @{ user = "${User}"; proxyAddress = "${ProxyAddress}"; timeoutSeconds = "${TimeoutSeconds}" })
+    } else {
+        Write-Error (Format-YurunaOperatorMessage -Key 'runner.operator_e02c18468e4a2397' -Arguments @{ user = "${User}"; proxyAddress = "${ProxyAddress}"; exitCode = "$($result.exitCode)" })
+    }
+    exit $ExitFailure
+}
+
+Write-Information '' -InformationAction Continue
+if ($output -match 'UNCHANGED:') {
+    Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_60576bc9b7a047c1' -Arguments @{ proxyAddress = "$ProxyAddress" }) -InformationAction Continue
+    exit $ExitOk
+}
+if ($output -match 'LABELS-OK:') {
+    Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_1afcd931f67634e9' -Arguments @{ proxyAddress = "$ProxyAddress" }) -InformationAction Continue
+} else {
+    Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_061277b06544b9c8' -Arguments @{ proxyAddress = "$ProxyAddress"; dashboardPath = "$DashboardPath" })
+}
+if ($output -notmatch 'FITTED:') {
+    Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_618d8bbde6f2fd05') -InformationAction Continue
+}
+Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_c23c17ceced71947') -InformationAction Continue
+exit $ExitOk

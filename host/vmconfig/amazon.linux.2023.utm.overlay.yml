@@ -1,0 +1,7 @@
+# LICENSEURI https://yuruna.link/license
+# Copyright (c) 2019-2026 by Alisson Sol et al.
+# macOS/UTM (QEMU) overlay for amazon.linux.2023.base.user-data.
+# Anchor sections in base-file order. An empty section emits nothing at that anchor.
+# === YURUNA_OVERLAY_RUNCMD_CONSOLEBLANK ===
+# === YURUNA_OVERLAY_RUNCMD_QUIET_LOGLEVEL ===
+# === YURUNA_OVERLAY_POWER_STATE ===

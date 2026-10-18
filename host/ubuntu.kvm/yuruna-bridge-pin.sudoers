@@ -1,0 +1,19 @@
+# LICENSEURI https://yuruna.link/license
+# Copyright (c) 2019-2026 by Alisson Sol et al.
+# Sudoers rule that lets the pre-cycle health check pin this host's bridge to a
+# stable DHCP identity without an operator present.
+# See https://yuruna.link/4220a755-0027
+#
+# Install (as root), then verify:
+#   sudo install -m 0440 -o root -g root host/ubuntu.kvm/yuruna-bridge-pin.sudoers /etc/sudoers.d/yuruna-bridge-pin
+#   sudo visudo -cf /etc/sudoers.d/yuruna-bridge-pin
+#
+# `nmcli connection modify` writes the stored profile and does NOT reactivate
+# it, which is what makes the grant safe unattended. The full argument vector
+# is spelled out on purpose: it must stay equal to the one
+# Set-HostBridgeDhcpIdentity builds, and a trailing wildcard would grant far
+# more than the three identity properties.
+#
+# Replace ytest with the account the runner runs as, and yuruna-br0 if this
+# host's bridge is named differently -- in the rule AND in the argument list.
+ytest ALL=(root) NOPASSWD: /usr/bin/nmcli connection modify yuruna-br0 ipv4.dhcp-client-id mac ipv4.dhcp-iaid mac ipv4.dhcp-send-release yes

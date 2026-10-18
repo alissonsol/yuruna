@@ -1,0 +1,317 @@
+<#PSScriptInfo
+.VERSION 2026.10.14
+.GUID 42ba7625-4a32-4a9d-9627-423df940b755
+.AUTHOR Alisson Sol et al.
+.COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
+.TAGS
+.LICENSEURI https://yuruna.link/license
+.PROJECTURI https://yuruna.com
+.ICONURI
+.EXTERNALMODULEDEPENDENCIES
+.REQUIREDSCRIPTS
+.EXTERNALSCRIPTDEPENDENCIES
+.RELEASENOTES
+.PRIVATEDATA
+#>
+
+#requires -version 7
+
+[Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidGlobalVars', '',
+    Justification = '$global:__YurunaLogFile is the cross-module log-file handle this proxy module reads inside every Write-* override to mirror console output to the per-cycle HTML transcript.')]
+[Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidOverwritingBuiltInCmdlets', '',
+    Justification = 'Intentionally overrides Write-Output / Write-Error / Write-Warning / Write-Debug / Write-Verbose / Write-Information so each call forwards to Microsoft.PowerShell.Utility\Write-* AND appends an HTML-encoded copy to the per-cycle log. Module is loaded by the runner; Remove-Module restores the originals.')]
+param()
+
+<#
+.SYNOPSIS
+    Proxy module that overrides Write-Output/Error/Warning/Debug/Verbose/Information
+    so every message is also appended to a log file.
+
+.DESCRIPTION
+    Import this module AFTER setting $global:__YurunaLogFile to the desired
+    log file path. Each proxy calls the real cmdlet (qualified with
+    Microsoft.PowerShell.Utility\) and appends a tagged line to the log.
+    Remove-Module Yuruna.Log restores the original cmdlets.
+
+    One of THREE Yuruna logger modules with disjoint responsibilities --
+    see test/modules/README.md "Three loggers, three jobs" before adding
+    helpers here. Sibling modules: Test.Log (cycle-filesystem owner) and
+    Test.Output (per-script PASS/FAIL tally). This module owns ONLY the
+    tee mechanism; don't add Start-* / Write-Pass / cycle-folder helpers
+    here -- they belong in the other two.
+#>
+
+# See https://yuruna.link/4213a0b3-000d
+function Test-YurunaStepRuleLine {
+    <#
+    .SYNOPSIS
+        Whether one transcript line is a step rule.
+    .OUTPUTS
+        System.Boolean
+    #>
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param([Parameter(Mandatory)][AllowEmptyString()][string]$Text)
+    return ($Text -match '^-+ \[\d+/\d+\] .* -+$')
+}
+
+function New-YurunaStepRuleLine {
+    <#
+    .SYNOPSIS
+        The step rule for one entry, in the one shape the recognizer knows.
+    .DESCRIPTION
+        Callers build the line through this rather than writing the dashes
+        themselves, so a change to the shape cannot leave the recognizer behind.
+    #>
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+        Justification = 'Builds and returns a string; changes nothing.')]
+    [CmdletBinding()]
+    [OutputType([string])]
+    param(
+        [Parameter(Mandatory)][int]$Index,
+        [Parameter(Mandatory)][int]$Total,
+        [Parameter(Mandatory)][string]$Name,
+        [string]$Outcome = ''
+    )
+    $tail = if ($Outcome) { " : $Outcome" } else { '' }
+    return "----- [$Index/$Total] $Name$tail -----"
+}
+
+# Append one already-stringified line to the per-cycle transcript: AppendAllText
+# for per-call durability without pipeline overhead; a failed append degrades to
+# Verbose so logging never breaks the caller. Severity rides as a CSS class on a
+# wrapping <span> (body HtmlEncode'd, markup verbatim; unknown -> 'log-output').
+# --- REGION: https://yuruna.link/42d69dfa-0011
+function Add-YurunaLogLine {
+    param(
+        [Parameter(Mandatory)][AllowEmptyString()][string]$Text,
+        [ValidateSet('output', 'error', 'warning', 'information', 'verbose', 'debug')]
+        [string]$Severity = 'output'
+    )
+    if (-not $global:__YurunaLogFile) { return }
+    try {
+        $encoded = [System.Net.WebUtility]::HtmlEncode($Text)
+        # A step rule is the one line shape in the whole transcript that marks a
+        # section boundary, so it is the only thing that can give the document an
+        # outline. Both the opening rule and its ': PASS' / ': FAIL' twin are
+        # promoted: in a failed cycle the outcome line is the one a reader most
+        # wants to jump to.
+        $class = "log-$Severity"
+        $extra = ''
+        if (Test-YurunaStepRuleLine -Text $Text) {
+            $class = "$class log-step"
+            $extra = ' role="heading" aria-level="2"'
+        }
+        $line = "<span class=`"$class`"$extra>$encoded</span>" + [Environment]::NewLine
+        [System.IO.File]::AppendAllText($global:__YurunaLogFile, $line)
+    } catch { Microsoft.PowerShell.Utility\Write-Verbose "Yuruna.Log append failed (non-fatal): $($_.Exception.Message)" }
+}
+
+function Write-Output {
+    <#
+    .SYNOPSIS
+        Proxy for Write-Output that also appends each object to the log file.
+    .DESCRIPTION
+        Forwards to Microsoft.PowerShell.Utility\Write-Output and writes an
+        HTML-encoded copy of each $InputObject to $global:__YurunaLogFile.
+    .PARAMETER InputObject
+        Objects to emit to the pipeline and log.
+    .PARAMETER NoEnumerate
+        Passed through to the underlying Write-Output.
+    #>
+    [CmdletBinding(DefaultParameterSetName = 'NoEnumerate')]
+    param(
+        [Parameter(Mandatory = $true, Position = 0, ValueFromPipeline = $true, ValueFromRemainingArguments = $true)]
+        [AllowEmptyCollection()]
+        [AllowNull()]
+        [System.Object]$InputObject,
+
+        [Parameter()]
+        [switch]$NoEnumerate
+    )
+    process {
+        if ($global:__YurunaLogFile) {
+            if ($NoEnumerate) {
+                Add-YurunaLogLine "$InputObject" -Severity 'output'
+            } else {
+                foreach ($item in $InputObject) { Add-YurunaLogLine "$item" -Severity 'output' }
+            }
+        }
+        Microsoft.PowerShell.Utility\Write-Output -InputObject $InputObject -NoEnumerate:$NoEnumerate
+    }
+}
+
+function Write-Error {
+    <#
+    .SYNOPSIS
+        Proxy for Write-Error that also appends the error text to the log file.
+    .DESCRIPTION
+        Forwards to Microsoft.PowerShell.Utility\Write-Error and writes the
+        HTML-encoded message text (no level prefix) to $global:__YurunaLogFile.
+    #>
+    [CmdletBinding(DefaultParameterSetName = 'NoException')]
+    param(
+        [Parameter(Mandatory = $true, Position = 0, ParameterSetName = 'NoException', ValueFromPipeline = $true)]
+        [Parameter(ParameterSetName = 'WithException')]
+        [AllowEmptyString()]
+        [AllowNull()]
+        [string]$Message,
+
+        [Parameter(ParameterSetName = 'WithException', Mandatory = $true)]
+        [System.Exception]$Exception,
+
+        [Parameter()]
+        [System.Management.Automation.ErrorCategory]$Category = [System.Management.Automation.ErrorCategory]::NotSpecified,
+
+        [Parameter()]
+        [string]$ErrorId,
+
+        [Parameter()]
+        [System.Object]$TargetObject,
+
+        [Parameter()]
+        [string]$RecommendedAction,
+
+        [Parameter()]
+        [string]$CategoryActivity,
+
+        [Parameter()]
+        [string]$CategoryReason,
+
+        [Parameter()]
+        [string]$CategoryTargetName,
+
+        [Parameter()]
+        [string]$CategoryTargetType
+    )
+    process {
+        if ($global:__YurunaLogFile) {
+            $text = if ($Message) { $Message } elseif ($Exception) { $Exception.Message } else { '' }
+            Add-YurunaLogLine $text -Severity 'error'
+        }
+        # See https://yuruna.link/4213a0b3-000e
+        $forward = @{} + $PSBoundParameters
+        if (-not $forward.ContainsKey('ErrorAction')) { $forward.ErrorAction = $PSCmdlet.SessionState.PSVariable.GetValue('ErrorActionPreference', $ErrorActionPreference) }
+        Microsoft.PowerShell.Utility\Write-Error @forward
+    }
+}
+
+function Write-Warning {
+    <#
+    .SYNOPSIS
+        Proxy for Write-Warning that also appends the message to the log file.
+    .DESCRIPTION
+        Forwards to Microsoft.PowerShell.Utility\Write-Warning and writes the
+        HTML-encoded message text (tagged with the log-warning class) to
+        $global:__YurunaLogFile. The transcript append is UNCONDITIONAL: a
+        warning is durable evidence the operator needs to see, so it must
+        persist even when the console is quiet
+        (WarningPreference=SilentlyContinue at a low logLevel) -- gating the
+        mirror on console verbosity would silently erase warnings from the very
+        artifact kept for post-hoc triage. The Information / Verbose / Debug
+        proxies do gate on their preferences: those streams are chatty progress
+        noise, not evidence.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true, Position = 0, ValueFromPipeline = $true)]
+        [AllowEmptyString()]
+        [string]$Message
+    )
+    process {
+        if ($global:__YurunaLogFile) {
+            Add-YurunaLogLine $Message -Severity 'warning'
+        }
+        $forward = @{} + $PSBoundParameters
+        if (-not $forward.ContainsKey('WarningAction')) { $forward.WarningAction = $PSCmdlet.SessionState.PSVariable.GetValue('WarningPreference', $WarningPreference) }
+        Microsoft.PowerShell.Utility\Write-Warning @forward
+    }
+}
+
+function Write-Debug {
+    <#
+    .SYNOPSIS
+        Proxy for Write-Debug that also appends the message to the log file.
+    .DESCRIPTION
+        Forwards to Microsoft.PowerShell.Utility\Write-Debug and writes the
+        HTML-encoded message text (no level prefix) to $global:__YurunaLogFile
+        -- but only when $DebugPreference is anything other than
+        SilentlyContinue (see Write-Warning for the rationale).
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true, Position = 0, ValueFromPipeline = $true)]
+        [AllowEmptyString()]
+        [string]$Message
+    )
+    process {
+        if (-not $PSBoundParameters.ContainsKey('Debug')) {
+            $DebugPreference = $PSCmdlet.SessionState.PSVariable.GetValue('DebugPreference', $DebugPreference)
+        }
+        if ($global:__YurunaLogFile -and $DebugPreference -ne 'SilentlyContinue') {
+            Add-YurunaLogLine $Message -Severity 'debug'
+        }
+        Microsoft.PowerShell.Utility\Write-Debug @PSBoundParameters
+    }
+}
+
+function Write-Verbose {
+    <#
+    .SYNOPSIS
+        Proxy for Write-Verbose that also appends the message to the log file.
+    .DESCRIPTION
+        Forwards to Microsoft.PowerShell.Utility\Write-Verbose and writes the
+        HTML-encoded message text (no level prefix) to $global:__YurunaLogFile
+        -- but only when $VerbosePreference is anything other than
+        SilentlyContinue (see Write-Warning for the rationale).
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true, Position = 0, ValueFromPipeline = $true)]
+        [AllowEmptyString()]
+        [string]$Message
+    )
+    process {
+        if (-not $PSBoundParameters.ContainsKey('Verbose')) {
+            $VerbosePreference = $PSCmdlet.SessionState.PSVariable.GetValue('VerbosePreference', $VerbosePreference)
+        }
+        if ($global:__YurunaLogFile -and $VerbosePreference -ne 'SilentlyContinue') {
+            Add-YurunaLogLine $Message -Severity 'verbose'
+        }
+        Microsoft.PowerShell.Utility\Write-Verbose @PSBoundParameters
+    }
+}
+
+function Write-Information {
+    <#
+    .SYNOPSIS
+        Proxy for Write-Information that also appends the message to the log file.
+    .DESCRIPTION
+        Forwards to Microsoft.PowerShell.Utility\Write-Information and writes
+        the HTML-encoded message text (no level prefix) to
+        $global:__YurunaLogFile -- but only when $InformationPreference is
+        anything other than SilentlyContinue, so the transcript mirrors the
+        console (Verbose / Debug follow the same gating).
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true, Position = 0, ValueFromPipeline = $true)]
+        [AllowNull()]
+        [System.Object]$MessageData,
+
+        [Parameter(Position = 1)]
+        [string[]]$Tags
+    )
+    process {
+        if (-not $PSBoundParameters.ContainsKey('InformationAction')) {
+            $InformationPreference = $PSCmdlet.SessionState.PSVariable.GetValue('InformationPreference', $InformationPreference)
+        }
+        if ($global:__YurunaLogFile -and $InformationPreference -ne 'SilentlyContinue') {
+            Add-YurunaLogLine "$MessageData" -Severity 'information'
+        }
+        Microsoft.PowerShell.Utility\Write-Information @PSBoundParameters
+    }
+}
+
+Export-ModuleMember -Function Write-Output, Write-Error, Write-Warning, Write-Debug, Write-Verbose, Write-Information, `
+    Test-YurunaStepRuleLine, New-YurunaStepRuleLine

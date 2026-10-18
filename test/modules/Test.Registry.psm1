@@ -1,0 +1,251 @@
+<#PSScriptInfo
+.VERSION 2026.10.14
+.GUID 420753a0-884d-4f10-bd0f-fb04fea52a79
+.AUTHOR Alisson Sol et al.
+.COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
+.TAGS
+.LICENSEURI https://yuruna.link/license
+.PROJECTURI https://yuruna.com
+.ICONURI
+.EXTERNALMODULEDEPENDENCIES
+.REQUIREDSCRIPTS
+.EXTERNALSCRIPTDEPENDENCIES
+.RELEASENOTES
+.PRIVATEDATA
+#>
+
+#requires -version 7
+
+# Closure-bundle registry primitive shared by every self-healing registry
+# in the harness -- see docs/test-harness.md#self-healing-extension-points.
+
+[Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidGlobalVars', '',
+    Justification = 'Cross-module-eviction-safe anchor; the only reliable way to keep registry entries across -Force re-imports.')]
+param()
+
+# Cross-domain directory. Every New-YurunaRegistry call records its
+# (Name, AnchorVar, Store) here so an introspection caller can list ALL
+# Yuruna registries through a single API, with no need for callers
+# to know each module's private $script:* anchor.
+# Anchored under a stable $global: name so a -Force re-import of this
+# module does NOT lose the cross-domain index.
+if (-not (Get-Variable -Name '__YurunaRegistryDirectory' -Scope Global -ErrorAction SilentlyContinue)) {
+    Set-Variable -Name '__YurunaRegistryDirectory' -Scope Global -Value ([ordered]@{})
+}
+
+function New-YurunaRegistry {
+    <#
+    .SYNOPSIS
+        Build a closure-bundle for an in-memory, eviction-safe registry.
+    .DESCRIPTION
+        Returns a hashtable whose values are scriptblocks (Register,
+        Get, Has, GetMatrix, Clear) closing over a shared backing
+        store. The backing store is anchored under
+        $global:__YurunaRegistry__<Name> (or, if -AnchorVar is given,
+        $global:<AnchorVar>) so `-Force` re-imports of the calling
+        module do NOT evict live entries.
+
+        Both Test.SequenceAction and Test.HostIO use
+        `[ordered]@{}` (PowerShell-default case-insensitive). Pass
+        -Comparer when a different case-sensitivity policy is required.
+    .PARAMETER Name
+        Domain identifier (e.g. 'SequenceAction', 'HostIO'). Used to
+        build the default $global: anchor name and for error messages.
+    .PARAMETER AnchorVar
+        Override for the $global: anchor variable name. Used by
+        existing modules that have a stable historical anchor name
+        (e.g. 'YurunaSequenceActions', 'YurunaHostIOProviders') and
+        cannot rename without breaking cross-module visibility.
+    .PARAMETER Comparer
+        'OrdinalIgnoreCase' (default) uses `[ordered]@{}` which is
+        case-insensitive -- matches Test.SequenceAction and Test.HostIO
+        today. 'Ordinal' uses [Hashtable]::new([StringComparer]::Ordinal)
+        for callers that need case-sensitive keys.
+
+        If the $global: anchor already holds a store built under a
+        different comparer, an explicit -Comparer that disagrees is
+        honored by migrating the existing entries into a fresh store
+        under the requested comparer (never silently ignored, so the
+        stricter case-sensitivity a caller asks for is actually applied).
+        The reported Comparer is always derived from the live store's
+        type, so it stays truthful after any migration.
+    .OUTPUTS
+        Hashtable with keys: Register, Get, Has, GetMatrix, Clear,
+        Store (the live backing store, for advanced callers that need
+        direct enumeration in the same style the originals did).
+    #>
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions',
+        '', Justification = 'Returns a closure-bundle; no external state change at construction time.')]
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseLiteralInitializerForHashtable',
+        '', Justification = 'Ordinal branch needs an explicit StringComparer.Ordinal hashtable; literal @{} is case-insensitive by design.')]
+    param(
+        [Parameter(Mandatory)][string]$Name,
+        [string]$AnchorVar,
+        [ValidateSet('OrdinalIgnoreCase', 'Ordinal')]
+        [string]$Comparer = 'OrdinalIgnoreCase'
+    )
+
+    if (-not $AnchorVar) { $AnchorVar = "__YurunaRegistry__$Name" }
+
+    # Acquire or build the backing store. We bind it as a single-element
+    # array reference ($storeRef) so Clear can replace the contents
+    # atomically AND keep the $global: anchor in sync without breaking
+    # any other closure's view of "the current store".
+    $existing = Get-Variable -Name $AnchorVar -Scope Global -ValueOnly -ErrorAction SilentlyContinue
+    $anchorPreExisted = ($null -ne $existing)
+    if ($null -eq $existing) {
+        if ($Comparer -eq 'Ordinal') {
+            $existing = [Hashtable]::new([StringComparer]::Ordinal)
+        } else {
+            $existing = [ordered]@{}
+        }
+        Set-Variable -Name $AnchorVar -Scope Global -Value $existing
+    }
+
+    # The case-sensitivity of the store is a policy, not a cosmetic label: an
+    # OrderedDictionary is case-insensitive; a StringComparer.Ordinal Hashtable is
+    # case-sensitive. This module builds exactly those two shapes, so the live store's
+    # type is an exact, truthful signal of its comparer.
+    $liveComparerOf = {
+        param($store)
+        if     ($store -is [System.Collections.Specialized.OrderedDictionary]) { 'OrdinalIgnoreCase' }
+        elseif ($store -is [System.Collections.Hashtable])                     { 'Ordinal' }
+        else                                                                    { $null }
+    }
+
+    # See https://yuruna.link/4213a0b3-00d9
+    $liveComparer = & $liveComparerOf $existing
+    if ($anchorPreExisted -and $PSBoundParameters.ContainsKey('Comparer') -and
+        $null -ne $liveComparer -and $liveComparer -ne $Comparer) {
+        if ($Comparer -eq 'Ordinal') {
+            $migrated = [Hashtable]::new([StringComparer]::Ordinal)
+        } else {
+            $migrated = [ordered]@{}
+        }
+        # Collapsing case-insensitive -> case-sensitive can surface keys that only
+        # differed by case; last writer wins, matching how the store would have behaved
+        # had it been built under the requested comparer from the start.
+        foreach ($k in @($existing.Keys)) { $migrated[$k] = $existing[$k] }
+        $existing = $migrated
+        Set-Variable -Name $AnchorVar -Scope Global -Value $existing
+    }
+
+    # Report the case-sensitivity of the store ACTUALLY in use, derived from its live
+    # type (never a cached request value): a misreport would lie to introspection
+    # callers and would make Clear rebuild the store with the wrong comparer.
+    $effectiveComparer = & $liveComparerOf $existing
+    if ($null -eq $effectiveComparer) { $effectiveComparer = $Comparer }
+
+    # $storeRef[0] is the live store; Clear rebinds it.
+    $storeRef = , $existing
+    $anchorName = $AnchorVar
+    $domainName = $Name
+    $comparerChoice = $effectiveComparer
+
+    $register = {
+        param([string]$Key, $Value)
+        $storeRef[0][$Key] = $Value
+    }.GetNewClosure()
+
+    $get = {
+        param([string]$Key)
+        $s = $storeRef[0]
+        if ($s.Contains($Key)) { return $s[$Key] }
+        return $null
+    }.GetNewClosure()
+
+    $has = {
+        param([string]$Key)
+        return [bool]($storeRef[0].Contains($Key))
+    }.GetNewClosure()
+
+    $getMatrix = {
+        $out = [ordered]@{}
+        foreach ($k in $storeRef[0].Keys) {
+            $out[$k] = $storeRef[0][$k]
+        }
+        return $out
+    }.GetNewClosure()
+
+    $clear = {
+        if ($comparerChoice -eq 'Ordinal') {
+            $fresh = [Hashtable]::new([StringComparer]::Ordinal)
+        } else {
+            $fresh = [ordered]@{}
+        }
+        $storeRef[0] = $fresh
+        Set-Variable -Name $anchorName -Scope Global -Value $fresh
+    }.GetNewClosure()
+
+    $bundle = @{
+        Name      = $domainName
+        AnchorVar = $anchorName
+        Comparer  = $comparerChoice
+        Store     = $storeRef
+        Register  = $register
+        Get       = $get
+        Has       = $has
+        GetMatrix = $getMatrix
+        Clear     = $clear
+    }
+    # Self-register in the cross-domain directory. Last writer wins on
+    # the same Name (a -Force re-import of a domain module replaces its
+    # entry with a fresh closure-bundle pointing at the same anchor).
+    $global:__YurunaRegistryDirectory[$domainName] = $bundle
+    return $bundle
+}
+
+function Get-YurunaRegistryDirectory {
+    <#
+    .SYNOPSIS
+        Returns every Yuruna registry currently registered, keyed by name.
+    .DESCRIPTION
+        Single introspection entry point for autonomous remediation
+        tooling. The returned table maps domain names (e.g.
+        'SequenceAction', 'HostIO', 'OcrProvider') to their bundles
+        (Register / Get / GetMatrix / Has / Clear scriptblocks plus
+        Store, Name, AnchorVar, Comparer). Mutating the table doesn't
+        affect the live registries; mutating a returned bundle's
+        scriptblocks DOES affect the registry it represents.
+    .OUTPUTS
+        System.Collections.Specialized.OrderedDictionary
+    #>
+    [CmdletBinding()]
+    [OutputType([System.Collections.Specialized.OrderedDictionary])]
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidGlobalVars', '',
+        Justification = 'Reads the cross-domain directory anchor created at module load.')]
+    param()
+    return $global:__YurunaRegistryDirectory
+}
+
+function Get-YurunaRegistrySummary {
+    <#
+    .SYNOPSIS
+        One row per registered registry: name, key count, anchor.
+    .DESCRIPTION
+        Lightweight inventory view for the startup capability matrix /
+        operator dashboards. Each row is a [PSCustomObject] so the
+        caller can pipe to Format-Table for a human-readable layout.
+    #>
+    [CmdletBinding()]
+    [OutputType([System.Object[]])]
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidGlobalVars', '',
+        Justification = 'Reads the cross-domain directory anchor created at module load.')]
+    param()
+    $rows = @()
+    foreach ($name in $global:__YurunaRegistryDirectory.Keys) {
+        $bundle = $global:__YurunaRegistryDirectory[$name]
+        $store  = $bundle.Store[0]
+        $rows += [PSCustomObject]@{
+            Name      = $name
+            AnchorVar = $bundle.AnchorVar
+            Comparer  = $bundle.Comparer
+            KeyCount  = if ($store) { $store.Keys.Count } else { 0 }
+        }
+    }
+    return $rows
+}
+
+Export-ModuleMember -Function New-YurunaRegistry, Get-YurunaRegistryDirectory, Get-YurunaRegistrySummary

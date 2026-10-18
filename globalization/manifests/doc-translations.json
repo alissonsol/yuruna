@@ -1,0 +1,178 @@
+{
+  "schema": "yuruna.doc-translations/v1",
+  "documents": [
+    {
+      "repo": "yuruna",
+      "source": "docs/authentication.md",
+      "locale": "pt-BR",
+      "translated": "docs/pt-BR/authentication.md",
+      "sourceHash": "109aa5fe54d0fc1a331e347100bd7a0c1d6d9e82e1a084fc0eaa6f3a77bfbe2f"
+    },
+    {
+      "repo": "yuruna",
+      "source": "docs/extensions-api.md",
+      "locale": "pt-BR",
+      "translated": "docs/pt-BR/extensions-api.md",
+      "sourceHash": "37eea00638bee2dd3fe265a466140f1a8e444b14b3b27f44770b3ea873720304",
+      "origin": "machine"
+    },
+    {
+      "repo": "yuruna",
+      "source": "docs/failure-schema.md",
+      "locale": "pt-BR",
+      "translated": "docs/pt-BR/failure-schema.md",
+      "sourceHash": "656c187c3610d69533943a58a8210c1b788984d8a6eede4ac3fe14409fafd5b2",
+      "origin": "machine"
+    },
+    {
+      "repo": "yuruna",
+      "source": "docs/framework-implementation-notes.md",
+      "locale": "pt-BR",
+      "translated": "docs/pt-BR/framework-implementation-notes.md",
+      "sourceHash": "8b84095974f0d9830c8858ffe862e83b73e84beaccca9a3bd6e7f4358264cb22",
+      "origin": "machine"
+    },
+    {
+      "repo": "yuruna",
+      "source": "docs/host-implementation-notes.md",
+      "locale": "pt-BR",
+      "translated": "docs/pt-BR/host-implementation-notes.md",
+      "sourceHash": "187e8e2df54ef636c473471b2bee1bec9326d7c0cc1992d4e4cf2611b8d62995",
+      "origin": "machine"
+    },
+    {
+      "repo": "yuruna",
+      "source": "docs/install.md",
+      "locale": "pt-BR",
+      "translated": "docs/pt-BR/install.md",
+      "sourceHash": "c5437b6e7b99d020911f2667cd0c49391b25bb36500e271a2c4643105c27b528",
+      "origin": "machine"
+    },
+    {
+      "repo": "yuruna",
+      "source": "docs/kubernetes.md",
+      "locale": "pt-BR",
+      "translated": "docs/pt-BR/kubernetes.md",
+      "sourceHash": "900e3f70cbcf7ef2f15a908f8ff882a31a2e3e2745eb276ab8f542649cd98dcd",
+      "origin": "machine"
+    },
+    {
+      "repo": "yuruna",
+      "source": "docs/lab-operator.md",
+      "locale": "pt-BR",
+      "translated": "docs/pt-BR/lab-operator.md",
+      "sourceHash": "01db0e05a1016894877bd79048feb1c3d889135e4d23a3792b3bfc4b21c6e65f",
+      "origin": "machine"
+    },
+    {
+      "repo": "yuruna",
+      "source": "docs/operator.md",
+      "locale": "pt-BR",
+      "translated": "docs/pt-BR/operator.md",
+      "sourceHash": "9707e327cd6403e512a236addf6790dbde7ec7636ab15d430ece5913e6f41015",
+      "origin": "machine"
+    },
+    {
+      "repo": "yuruna",
+      "source": "docs/pool-admin.md",
+      "locale": "pt-BR",
+      "translated": "docs/pt-BR/pool-admin.md",
+      "sourceHash": "1868e9d59f16ad9aac9f8447edb5c207430db4af76d80ec8b89717ff53509442",
+      "origin": "machine"
+    },
+    {
+      "repo": "yuruna",
+      "source": "docs/project-implementation-notes.md",
+      "locale": "pt-BR",
+      "translated": "docs/pt-BR/project-implementation-notes.md",
+      "sourceHash": "d56a41cfd29e946b14b6491ca73a76855c59759a510cc53a1e50b422bde9483e",
+      "origin": "machine"
+    },
+    {
+      "repo": "yuruna",
+      "source": "docs/test-harness.md",
+      "locale": "pt-BR",
+      "translated": "docs/pt-BR/test-harness.md",
+      "sourceHash": "299ef1d4e1e14f33d3f03f7221e3c39e57c486a0eb84a9d28a92e7d882f61f8c",
+      "origin": "machine"
+    },
+    {
+      "repo": "yuruna",
+      "source": "docs/vmconfig.md",
+      "locale": "pt-BR",
+      "translated": "docs/pt-BR/vmconfig.md",
+      "sourceHash": "407209d0983b9eb6bd0ab84f7bc082bdb266f39d706d36c938904919dc9e320f",
+      "origin": "machine"
+    },
+    {
+      "repo": "yuruna",
+      "source": "docs/workarounds.md",
+      "locale": "pt-BR",
+      "translated": "docs/pt-BR/workarounds.md",
+      "sourceHash": "b389143bfb165b22776c884265240b0c90273ae96a3b0b503510f0e31cdc29c1",
+      "origin": "machine"
+    },
+    {
+      "repo": "yuruna",
+      "source": "install/README.md",
+      "locale": "pt-BR",
+      "translated": "docs/pt-BR/install/README.md",
+      "sourceHash": "930859a2614b31e6feee3960cc66f944de480645c6d5e1e8055a384b76845ebf",
+      "origin": "machine"
+    },
+    {
+      "repo": "yuruna",
+      "source": "README.md",
+      "locale": "pt-BR",
+      "translated": "docs/pt-BR/README.md",
+      "sourceHash": "434265f1be66b5954e787d62d944ab95cc4a0b6e7d19c5fce684a1020220152d",
+      "origin": "machine"
+    },
+    {
+      "repo": "yuruna-project",
+      "source": "example/README.md",
+      "locale": "pt-BR",
+      "translated": "docs/pt-BR/example/README.md",
+      "sourceHash": "81b749946278625f8ed5094aaf870add371a84c02f090fcc301939214148c131"
+    },
+    {
+      "repo": "yuruna-project",
+      "source": "example/text-to-sql/README.md",
+      "locale": "pt-BR",
+      "translated": "docs/pt-BR/example/text-to-sql/README.md",
+      "sourceHash": "b316c739b3628487d17cb3fca0c09c72fdcae0094807384f137b8992759a80dd",
+      "origin": "machine"
+    },
+    {
+      "repo": "yuruna-project",
+      "source": "example/website/components/frontend/website/README.md",
+      "locale": "pt-BR",
+      "translated": "docs/pt-BR/example/website/components/frontend/website/README.md",
+      "sourceHash": "a7b68208c391ff474b47cc85d40bc16451fb69916fb3cab968fbbb83d19639fc",
+      "origin": "machine"
+    },
+    {
+      "repo": "yuruna-project",
+      "source": "example/website/README.md",
+      "locale": "pt-BR",
+      "translated": "docs/pt-BR/example/website/README.md",
+      "sourceHash": "f7ee40ca694d134ead8e7446ec5d2bb1af5f51bfb2d2a42e9db95152f422b3f0"
+    },
+    {
+      "repo": "yuruna-project",
+      "source": "README.md",
+      "locale": "pt-BR",
+      "translated": "docs/pt-BR/README.md",
+      "sourceHash": "a52699f93422aa89c0b80a9fe05136023d341b0da30d588f375487efbd830a77",
+      "origin": "machine"
+    },
+    {
+      "repo": "yuruna-project",
+      "source": "template/README.md",
+      "locale": "pt-BR",
+      "translated": "docs/pt-BR/template/README.md",
+      "sourceHash": "a2ce4f8b9190249125a91b3986929ea456b71c7438cfcdf25e338e309521590c",
+      "origin": "machine"
+    }
+  ]
+}

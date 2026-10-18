@@ -1,0 +1,683 @@
+// LICENSEURI https://yuruna.link/license
+// Copyright (c) 2019-2026 by Alisson Sol et al.
+
+package httpsrv
+
+import (
+	"context"
+	"net/http"
+	"net/url"
+	"sort"
+	"strings"
+
+	"yuruna.com/test/extension/extension-sdk/i18n"
+	"yuruna.com/test/extension/extension-sdk/pool"
+)
+
+// The operator board's server side. See
+// ../../../../../../docs/pool-admin.md#architecture for why the join between
+// Loki cycle counts and configuration-store membership lives here rather than in the
+// aggregator. -- board.go
+
+// boardRanges is the closed set of windows the board offers, mirroring the
+// aggregator's own allowlist. Anything else is refused before it is forwarded.
+var boardRanges = map[string]bool{"1h": true, "24h": true, "7d": true, "30d": true}
+
+// aggHostStat is one per-host row from the aggregator's /api/v1/pool-stats.
+type aggHostStat struct {
+	HostID string `json:"hostId"`
+	Passed int64  `json:"passed"`
+	Failed int64  `json:"failed"`
+}
+
+// aggPoolStats is the aggregator's pool-stats envelope.
+type aggPoolStats struct {
+	Range      string        `json:"range"`
+	ComputedAt string        `json:"computedAt"`
+	Hosts      []aggHostStat `json:"hosts"`
+}
+
+// boardCard is one pool as the board renders it.
+type boardCard struct {
+	PoolID         string `json:"poolId"`
+	PoolGUID       string `json:"poolGuid"`
+	Display        string `json:"displayName"`
+	HostsTotal     int    `json:"hostsTotal"`
+	HostsReporting int    `json:"hostsReporting"`
+	Passed         int64  `json:"passed"`
+	Failed         int64  `json:"failed"`
+	Total          int64  `json:"total"`
+	// SuccessPct is a POINTER so "no terminal cycle in range" serializes as
+	// null and the UI can render n/a. A float 0 would render as 0.00%, and an
+	// idle pool must never read as catastrophically failing -- nor as a
+	// reassuring 100%.
+	SuccessPct *float64 `json:"successPct"`
+	// FrameworkURL and ProjectURL are the repositories every member runs from
+	// its next cycle. Both empty means each member runs the repositories it
+	// configured for itself, which is always the case on the auto-enrollment
+	// target pool: its runners ignore a pair stored there.
+	FrameworkURL string `json:"frameworkUrl"`
+	ProjectURL   string `json:"projectUrl"`
+	// Blocked lists members that cannot read the pool's project. Advisory:
+	// the board flags the pool, nothing changes state automatically.
+	Blocked []string `json:"blocked"`
+}
+
+// configurationDoc is the shape Get-PoolConfiguration.ps1 emits.
+type configurationDoc struct {
+	OK    bool `json:"ok"`
+	Pools []struct {
+		PoolID   string   `json:"poolId"`
+		PoolGUID string   `json:"poolGuid"`
+		Display  string   `json:"displayName"`
+		Members  []string `json:"members"`
+		// Repositories is nil when the pool carries none, and then every
+		// member runs its own configured repositories.
+		Repositories *struct {
+			FrameworkURL string `json:"frameworkUrl"`
+			ProjectURL   string `json:"projectUrl"`
+		} `json:"repositories"`
+	} `json:"pools"`
+	AutoEnrollment struct {
+		Enabled      bool     `json:"enabled"`
+		TargetPoolID string   `json:"targetPoolId"`
+		Excluded     []string `json:"excluded"`
+	} `json:"autoEnrollment"`
+}
+
+// hostRegistration is the part of a host's self-report the board uses.
+type hostRegistration struct {
+	HostID string `json:"hostId"`
+	// Hostname is the machine name the host's own status page shows. It comes
+	// from the host itself and never from the pool: the aggregator drops it, so
+	// its unauthenticated pool view stays hostname-free.
+	Hostname string `json:"hostname"`
+	// HostType is the prefixed form ("host.ubuntu.kvm"), the same value the
+	// aggregator carries in pool-status.
+	HostType      string `json:"hostType"`
+	ProjectAccess *struct {
+		URL    string `json:"url"`
+		Status string `json:"status"`
+		Detail string `json:"detail"`
+	} `json:"projectAccess"`
+}
+
+// handleBoard serves the board's whole payload: the cards and the range
+// actually used. One request so a phone does a single round trip.
+func (s *Server) handleBoard(w http.ResponseWriter, r *http.Request) {
+	locale := i18n.FromRequest(r)
+	if locale.ResolvedTag == "" {
+		locale = s.negotiator().Resolve(r)
+	}
+	window := r.URL.Query().Get("range")
+	if window == "" {
+		window = "24h"
+	}
+	if !boardRanges[window] {
+		i18n.Apply(w.Header(), locale)
+		writeJSON(w, http.StatusBadRequest, map[string]any{"ok": false, "code": "pool.unsupported_range", "error": Translate(locale, "pool.unsupported_range", nil)})
+		return
+	}
+
+	// Configuration first: it is the authority for which cards exist and what each
+	// pool runs, and the board is still useful when the aggregator is
+	// unreachable.
+	doc, err := s.readConfigurationDoc(r.Context())
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	// Stats are best-effort. A dead aggregator grays the NUMBERS; it must never
+	// hide the cards, because which pools exist and which repositories they run
+	// come from the configuration store, with no aggregator dependency at all.
+	var stats aggPoolStats
+	statsErr := ""
+	if err := s.pool.Get(r.Context(), "/api/v1/pool-stats?range="+url.QueryEscape(window), &stats); err != nil {
+		statsErr = err.Error()
+	}
+	status, _ := s.pool.Status(r.Context())
+
+	passedBy := map[string]int64{}
+	failedBy := map[string]int64{}
+	for _, h := range stats.Hosts {
+		passedBy[h.HostID] = h.Passed
+		failedBy[h.HostID] = h.Failed
+	}
+	reporting := map[string]bool{}
+	baseURLOf := map[string]string{}
+	for _, h := range status.Hosts {
+		reporting[h.HostID] = true
+		baseURLOf[h.HostID] = h.BaseURL
+	}
+
+	// Project access: read each reporting host's registration DIRECTLY. The
+	// aggregator does not carry a host's projectAccess, so relaying through it
+	// is not an option.
+	//
+	// Fanned out under one shared read budget, like every other pool-wide read
+	// here. Served one host at a time, a lab holding a few unreachable machines
+	// makes this wait out each connect timeout in turn -- and the board's first
+	// paint is blocked on exactly this read.
+	ids := make([]string, 0, len(baseURLOf))
+	for hid, burl := range baseURLOf {
+		if burl != "" {
+			ids = append(ids, hid)
+		}
+	}
+	regCtx, cancelRegs := context.WithTimeout(r.Context(), hostReadBudget)
+	defer cancelRegs()
+	regs := eachMember(ids, func(hostID string) *hostRegistration {
+		var reg hostRegistration
+		if err := s.pool.GetURL(regCtx, strings.TrimSuffix(baseURLOf[hostID], "/")+"/runtime/host.registration.json", &reg); err != nil {
+			// A host that did not answer flags nothing; its pool still renders,
+			// with the numbers the aggregator already reported for it.
+			return nil
+		}
+		return &reg
+	})
+	accessDenied := map[string]bool{} // hostId -> cannot read the pool's project
+	for i, reg := range regs {
+		if reg != nil && reg.ProjectAccess != nil && reg.ProjectAccess.Status == "denied" {
+			accessDenied[ids[i]] = true
+		}
+	}
+
+	target := strings.TrimSpace(doc.AutoEnrollment.TargetPoolID)
+	cards := make([]boardCard, 0, len(doc.Pools))
+	for _, p := range doc.Pools {
+		c := boardCard{
+			PoolID: p.PoolID, PoolGUID: p.PoolGUID, Display: p.Display,
+			HostsTotal: len(p.Members),
+		}
+		if c.Display == "" {
+			c.Display = p.PoolID
+		}
+		for _, m := range p.Members {
+			if reporting[m] {
+				c.HostsReporting++
+			}
+			c.Passed += passedBy[m]
+			c.Failed += failedBy[m]
+			if accessDenied[m] {
+				c.Blocked = append(c.Blocked, m)
+			}
+		}
+		c.Total = c.Passed + c.Failed
+		if c.Total > 0 {
+			pct := 100 * float64(c.Passed) / float64(c.Total)
+			c.SuccessPct = &pct
+		}
+		// The target pool's runners ignore a stored pair and keep their own
+		// repositories, so its card must not name a project they do not run.
+		if p.Repositories != nil && (target == "" || p.PoolID != target) {
+			c.FrameworkURL = p.Repositories.FrameworkURL
+			c.ProjectURL = p.Repositories.ProjectURL
+		}
+		cards = append(cards, c)
+	}
+	sort.Slice(cards, func(i, j int) bool { return cards[i].PoolID < cards[j].PoolID })
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"ok":         true,
+		"range":      window,
+		"computedAt": stats.ComputedAt,
+		"statsError": statsErr,
+		"cards":      cards,
+	})
+}
+
+// boardHost is one row of the Hosts page.
+type boardHost struct {
+	HostID string `json:"hostId"`
+	// Hostname is the host's own machine name, as its status page shows it, and
+	// is empty on an unauthenticated read -- see handleHosts.
+	Hostname string `json:"hostname"`
+	// Type is the host type WITHOUT its "host." prefix ("ubuntu.kvm"). The
+	// prefix is on every value and so distinguishes none of them.
+	Type string `json:"type"`
+	// Control is the WIRE value (ready/none/mismatch/skew/unknown), not the
+	// dashboard's two-way collapse: `mismatch` (wrong token) and `skew` (clock)
+	// need different fixes and must not be shown as the same thing.
+	Control string `json:"control"`
+	// Refresh is the host's refresh capability as the aggregator last judged
+	// it, already normalized; a host this daemon only discovered, or that the
+	// aggregator has not reported, carries the never-observed value. No action
+	// is offered from the page for it.
+	Refresh pool.HostRefresh `json:"refresh"`
+	// Access is the pool's question -- can this member read the project its
+	// POOL assigned (ok/denied/unreachable) -- from the host's registration
+	// record. The page's repository columns come from each host's own live
+	// answer instead (/api/hosts/facts); this is carried alongside because
+	// denied is an operator's problem and no other column would name it.
+	Access string `json:"access"`
+	Pool   string `json:"pool"`
+	// Discovered marks a host this daemon found by scanning the network rather
+	// than one the aggregator reported. Such a host is monitored, not enrolled:
+	// it belongs to no pool, and its control and access columns are blank
+	// because both are the pool's reading of a member. What the host says about
+	// itself still fills in -- hardware and its repositories, read from the
+	// address it answered on.
+	Discovered bool `json:"discovered,omitempty"`
+	// Address is where a discovered host answered, and the only identity it has
+	// when its registration record could not be read.
+	Address string `json:"address,omitempty"`
+	// BaseURL is that host's own status service, which for a discovered host is
+	// the ONLY way in: the aggregator's /go/host redirect resolves hosts it
+	// knows about, and a host that never registered is not one of them. Carried
+	// from the probe rather than rebuilt in the page, so the link points at the
+	// port the daemon actually got an answer on.
+	BaseURL string `json:"baseUrl,omitempty"`
+	// LastSeen is when a sweep last confirmed a discovered host, which is the
+	// only liveness signal this page has for one.
+	LastSeen string `json:"lastSeen,omitempty"`
+	// SupersededBy names the host id that answers at this row's address now,
+	// and is set only on a row whose id no longer does. It marks the one case
+	// where two rows are one machine and the operator has to act: the id here
+	// may still hold the pool membership, while the work is being done under
+	// the id named. Empty on every ordinary row.
+	SupersededBy    string   `json:"supersededBy,omitempty"`
+	PreviousHostIDs []string `json:"previousHostIds,omitempty"`
+}
+
+// hostTypeLabel drops the "host." prefix a host serializes its type with, for
+// the registration record's copy of it (pool.Host.HostType already does this
+// for the aggregator's).
+func hostTypeLabel(raw string) string {
+	return strings.TrimPrefix(strings.TrimSpace(raw), "host.")
+}
+
+// hostBase normalizes a status-service base for use as a map key.
+func hostBase(raw string) string {
+	return strings.TrimSuffix(strings.TrimSpace(raw), "/")
+}
+
+// currentHostByBase maps each status-service base to the ONE host id that
+// answers there now, and is only interesting where that is not the only id the
+// aggregator holds for it.
+//
+// A host's id is minted into its runtime directory, so a reimage or a re-clone
+// gives the same machine a new one. The aggregator keys hosts by id and keeps
+// each for its own TTL, so for a day afterwards two ids describe one machine at
+// one address -- and the pool membership sits on the one that went quiet, which
+// is how a re-keyed host silently leaves its pool while still doing the work.
+//
+// One address:port holds one status service, so the ids sharing a base are
+// provably one machine and the newest sighting is the id it reports now.
+// Reachability outranks the stamp: an unreachable entry's stamp is the last
+// probe that worked, and a host that answers now is the one to believe. The id
+// itself is the final tiebreak, so a lab where the aggregator reports two
+// equally-live entries still gets ONE answer per read rather than a page that
+// disagrees with itself between refreshes.
+func currentHostByBase(hosts []pool.Host) map[string]string {
+	current := map[string]pool.Host{}
+	for _, h := range hosts {
+		base := hostBase(h.BaseURL)
+		if base == "" || h.HostID == "" {
+			continue
+		}
+		best, seen := current[base]
+		if !seen || preferredHost(h, best) {
+			current[base] = h
+		}
+	}
+	out := make(map[string]string, len(current))
+	for base, h := range current {
+		out[base] = h.HostID
+	}
+	return out
+}
+
+// preferredHost reports whether a should be believed over b as the occupant of
+// the address they share.
+func preferredHost(a, b pool.Host) bool {
+	if a.Reachable != b.Reachable {
+		return a.Reachable
+	}
+	if a.LastSeenUnixMs != b.LastSeenUnixMs {
+		return a.LastSeenUnixMs > b.LastSeenUnixMs
+	}
+	return a.HostID < b.HostID
+}
+
+// handleHosts lists every host the aggregator knows, with its current pool.
+//
+// Deliberately ALL hosts, not just members: an operator needs to see WHY a host
+// was not auto-enrolled, and "it never enrolled a lab token" is only visible if
+// the host appears at all.
+//
+// The read itself stays open like every other one here, but the hostname is
+// carried ONLY to a request that is through the write gate, and the answer says
+// which of the two it is (hostnamesVisible) so the page can explain a blank
+// column instead of looking broken. Every other field is already public on the
+// LAN through the aggregator; a machine name is not -- the pool view drops it by
+// design, and this page renders on the same kind of unattended wall display.
+func (s *Server) handleHosts(w http.ResponseWriter, r *http.Request) {
+	doc, err := s.readConfigurationDoc(r.Context())
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	poolOf := map[string]string{}
+	for _, p := range doc.Pools {
+		for _, m := range p.Members {
+			poolOf[m] = p.PoolID
+		}
+	}
+	pools := make([]string, 0, len(doc.Pools))
+	for _, p := range doc.Pools {
+		pools = append(pools, p.PoolID)
+	}
+	sort.Strings(pools)
+
+	status, err := s.pool.Status(r.Context())
+	statusErr := ""
+	if err != nil {
+		statusErr = err.Error()
+	}
+
+	hostnamesVisible := s.gate.Authed(r)
+
+	// Access, hostname and the type fallback come from each host's own
+	// registration record, so building this table is a pool-wide fan-out: one
+	// shared read budget and bounded concurrency, or the page waits out every
+	// silent host's timeout in turn before it can paint a single row.
+	ids := make([]string, 0, len(status.Hosts))
+	baseOf := make(map[string]string, len(status.Hosts))
+	for _, h := range status.Hosts {
+		ids = append(ids, h.HostID)
+		baseOf[h.HostID] = strings.TrimSuffix(strings.TrimSpace(h.BaseURL), "/")
+	}
+	regCtx, cancelRegs := context.WithTimeout(r.Context(), hostReadBudget)
+	defer cancelRegs()
+	regs := eachMember(ids, func(hostID string) *hostRegistration {
+		if baseOf[hostID] == "" {
+			return nil
+		}
+		var reg hostRegistration
+		if err := s.pool.GetURL(regCtx, baseOf[hostID]+"/runtime/host.registration.json", &reg); err != nil {
+			return nil
+		}
+		return &reg
+	})
+
+	// Which id actually answers at each address, so a machine the aggregator
+	// holds under more than one can say which of its rows is the live one.
+	currentBy := currentHostByBase(status.Hosts)
+
+	seen := map[string]bool{}
+	seenBase := map[string]bool{}
+	rows := make([]boardHost, 0, len(status.Hosts))
+	for i, h := range status.Hosts {
+		seen[h.HostID] = true
+		base := hostBase(h.BaseURL)
+		if base != "" {
+			seenBase[base] = true
+		}
+		row := boardHost{HostID: h.HostID, Type: h.HostType(), Control: h.Control, Refresh: h.Refresh, Pool: poolOf[h.HostID], Address: h.CurrentIP, PreviousHostIDs: h.PreviousHostIDs}
+		if row.Refresh.Availability == "" {
+			row.Refresh = pool.UnobservedRefresh()
+		}
+		if row.Control == "" {
+			row.Control = "unknown"
+		}
+		if cur := currentBy[base]; cur != "" && cur != h.HostID {
+			row.SupersededBy = cur
+		}
+		if reg := regs[i]; reg != nil {
+			if reg.ProjectAccess != nil {
+				row.Access = reg.ProjectAccess.Status
+			}
+			if hostnamesVisible {
+				row.Hostname = strings.TrimSpace(reg.Hostname)
+			}
+			// A host whose status.json the aggregator could not read still
+			// names its own type here, and the two values have one source.
+			if row.Type == "" {
+				row.Type = hostTypeLabel(reg.HostType)
+			}
+		}
+		rows = append(rows, row)
+	}
+	// Members the aggregator has not heard from still belong to a pool, and an
+	// operator needs to see them -- a silent member is the interesting case.
+	for hid, pid := range poolOf {
+		if !seen[hid] {
+			rows = append(rows, boardHost{HostID: hid, Control: "unknown", Refresh: pool.UnobservedRefresh(), Pool: pid})
+			seen[hid] = true
+		}
+	}
+	// Hosts this daemon found by scanning the network. They are here, and not on
+	// a page of their own, because "which machines does this lab have" is one
+	// question: a host that answers on the subnet but registered with nobody is
+	// the one an operator most needs to see next to the ones that did.
+	rows = append(rows, discoveredRows(s.discovered.List(), seen, seenBase, hostnamesVisible)...)
+	// Address, not host id, for the discovered rows that have no id: sorting on
+	// an empty string would herd them all to one end regardless of where they
+	// live on the network.
+	sort.Slice(rows, func(i, j int) bool { return hostSortKey(rows[i]) < hostSortKey(rows[j]) })
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"ok": true, "hosts": rows, "pools": pools,
+		"targetPoolId":     strings.TrimSpace(doc.AutoEnrollment.TargetPoolID),
+		"statusError":      statusErr,
+		"hostnamesVisible": hostnamesVisible,
+	})
+}
+
+// handleMoveHost moves a host to a pool, or out of every pool.
+//
+// A host is in at most one pool, so "move" is the only correct semantic for a
+// picker: remove from the current pool, then add to the chosen one.
+//
+// Choosing "(none)" ALSO records the host in autoEnrollment.excluded[] -- via
+// Remove-HostFromPool's atomic remove-and-exclude operation. Without
+// that write the sweep would put the host straight back within a minute and the
+// UI would look broken.
+func (s *Server) handleMoveHost(w http.ResponseWriter, r *http.Request) {
+	var body struct{ HostID, PoolID string }
+	if !decode(w, r, &body) {
+		return
+	}
+	if body.HostID == "" {
+		writeErr(w, http.StatusBadRequest, "hostId is required")
+		return
+	}
+	doc, err := s.readConfigurationDoc(r.Context())
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	current := ""
+	for _, p := range doc.Pools {
+		for _, m := range p.Members {
+			if m == body.HostID {
+				current = p.PoolID
+			}
+		}
+	}
+	if body.PoolID == "" {
+		// Membership and exclusion are one durable configuration write, including for
+		// hosts already unassigned or when no enrollment target exists yet.
+		s.relay(w, "move-host", body.HostID, s.configuration.RemoveHost(r.Context(), "", body.HostID, true))
+		return
+	}
+	if current == body.PoolID {
+		writeJSON(w, http.StatusOK, map[string]any{"ok": true, "unchanged": true})
+		return
+	}
+	// Destination validation, old membership removal and destination insertion
+	// share one pools.yml publication. A failed add cannot publish a removal.
+	s.relay(w, "move-host", body.HostID, s.configuration.AddHost(r.Context(), body.PoolID, body.HostID, true))
+}
+
+// handleAdoptRekey hands membership to the live ID, persists an identity alias,
+// and retires the old ID from the aggregator's live view.
+//
+// A host mints its id into its runtime directory, so a reimage or a re-clone
+// leaves the machine running under a new one. Pool membership is keyed by id in
+// the configuration store, so it stays on the id that went quiet: the pool loses a
+// member that is sitting right there doing work, and the operator sees two rows
+// where there is one machine. Repairing that by hand means reading two ids off
+// a table, removing one member and adding the other, in the right pool -- an
+// error at any step moves the wrong machine.
+//
+// The relation is re-derived HERE from the aggregator rather than taken from
+// the request: the pair the browser sends is only its reading of a table it
+// last loaded minutes ago, and acting on a stale reading would move a live
+// host's membership to an id that is no longer the one answering. So the
+// service confirms, now, that both ids share an address and that the new one is
+// the id that address answers with.
+func (s *Server) handleAdoptRekey(w http.ResponseWriter, r *http.Request) {
+	var body struct{ OldHostID, NewHostID string }
+	if !decode(w, r, &body) {
+		return
+	}
+	oldID, newID := strings.TrimSpace(body.OldHostID), strings.TrimSpace(body.NewHostID)
+	if oldID == "" || newID == "" {
+		writeErr(w, http.StatusBadRequest, "oldHostId and newHostId are both required")
+		return
+	}
+	if oldID == newID {
+		writeErr(w, http.StatusBadRequest, "oldHostId and newHostId are the same host")
+		return
+	}
+	if s.opts.AuthToken == "" {
+		writeErr(w, http.StatusServiceUnavailable, "the internal authentication key is required to retire the old host identity")
+		return
+	}
+
+	status, err := s.pool.Status(r.Context())
+	if err != nil {
+		// Without the aggregator there is nothing to confirm the pair against,
+		// and this is the one route that must not proceed on the client's word.
+		writeErr(w, http.StatusServiceUnavailable, "the aggregator could not be read, so the two ids cannot be confirmed to be one machine: "+err.Error())
+		return
+	}
+	oldHost, oldKnown := status.Host(oldID)
+	newHost, newKnown := status.Host(newID)
+	// If the aggregator applied a previous attempt but its response was lost,
+	// the old row is gone. The durable alias proves this is a safe retry.
+	alreadyHanded := false
+	if !oldKnown && newKnown {
+		var alias struct {
+			CanonicalHostID string   `json:"canonicalHostId"`
+			HostIDs         []string `json:"hostIds"`
+		}
+		if err := s.pool.Get(r.Context(), "/api/v1/host-aliases?hostId="+url.QueryEscape(oldID), &alias); err == nil && alias.CanonicalHostID == newID {
+			for _, id := range alias.HostIDs {
+				if id == oldID {
+					alreadyHanded = true
+					break
+				}
+			}
+		}
+	}
+	if (!oldKnown && !alreadyHanded) || !newKnown {
+		writeErr(w, http.StatusNotFound, "the aggregator does not report both of those hosts")
+		return
+	}
+	base := hostBase(newHost.BaseURL)
+	if !alreadyHanded && (base == "" || base != hostBase(oldHost.BaseURL)) {
+		writeErr(w, http.StatusConflict, "those two hosts do not answer at the same address, so they are not one machine that re-keyed")
+		return
+	}
+	if !alreadyHanded && currentHostByBase(status.Hosts)[base] != newID {
+		writeErr(w, http.StatusConflict, "that address does not answer as the new host id; reload the page and read the pair again")
+		return
+	}
+
+	doc, err := s.readConfigurationDoc(r.Context())
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	oldPool, newPool := "", ""
+	for _, p := range doc.Pools {
+		for _, m := range p.Members {
+			switch m {
+			case oldID:
+				oldPool = p.PoolID
+			case newID:
+				newPool = p.PoolID
+			}
+		}
+	}
+
+	// One configuration-store write replaces both IDs. Separate remove/add commits
+	// could leave the machine unassigned if the second write failed.
+	if res := s.configuration.MoveHostIdentity(r.Context(), oldID, newID); !res.OK {
+		writeErr(w, http.StatusInternalServerError, firstNonEmpty(res.Error, res.Stderr, "the host identities could not be moved in the configuration store"))
+		return
+	}
+	// The new id keeps the pool it is already in: it is the live host, and an
+	// operator who has since placed it somewhere deliberately must not have
+	// that undone by a repair.
+	moved := ""
+	if oldPool != "" && newPool == "" {
+		moved = oldPool
+	}
+	if err := s.pool.HandoverHost(r.Context(), oldID, newID, s.opts.AuthToken); err != nil {
+		writeErr(w, http.StatusBadGateway, "pool membership may have moved, but the aggregator could not retire the old identity; retry adopt-rekey: "+err.Error())
+		return
+	}
+	var confirmed struct {
+		CanonicalHostID string   `json:"canonicalHostId"`
+		HostIDs         []string `json:"hostIds"`
+	}
+	if err := s.pool.Get(r.Context(), "/api/v1/host-aliases?hostId="+url.QueryEscape(oldID), &confirmed); err != nil || confirmed.CanonicalHostID != newID {
+		writeErr(w, http.StatusBadGateway, "the aggregator did not confirm the durable identity alias; retry adopt-rekey")
+		return
+	}
+	aliasFound := false
+	for _, id := range confirmed.HostIDs {
+		aliasFound = aliasFound || id == oldID
+	}
+	if !aliasFound {
+		writeErr(w, http.StatusBadGateway, "the aggregator did not retain the old identity in host history; retry adopt-rekey")
+		return
+	}
+	if refreshed, err := s.pool.Status(r.Context()); err != nil {
+		writeErr(w, http.StatusBadGateway, "the aggregator accepted the handover, but its refreshed status could not be read; retry adopt-rekey: "+err.Error())
+		return
+	} else if _, remains := refreshed.Host(oldID); remains {
+		writeErr(w, http.StatusBadGateway, "the aggregator still reports the old identity; retry adopt-rekey")
+		return
+	}
+	// The scan's own list is keyed by id too, so the retired id would go on
+	// showing there as a host of its own. Best-effort: it may never have been
+	// discovered, and a monitored-list entry is not worth failing a repair the
+	// configuration store has already accepted.
+	forgot := s.discovered.Forget(oldID)
+
+	s.auditScan("adopt-rekey", oldID+" -> "+newID)
+	writeJSON(w, http.StatusOK, map[string]any{
+		"ok": true, "oldHostId": oldID, "newHostId": newID,
+		"movedToPool": moved, "keptPool": newPool, "forgotten": forgot, "historyTransferred": true,
+	})
+}
+
+// handleHostHistory exposes merged cycle and event history only to an
+// authenticated operator. The aggregator checks the internal bearer too.
+func (s *Server) handleHostHistory(w http.ResponseWriter, r *http.Request) {
+	if s.opts.AuthToken == "" {
+		writeErr(w, http.StatusServiceUnavailable, "host history is unavailable without the internal authentication key")
+		return
+	}
+	id := strings.TrimSpace(r.URL.Query().Get("hostId"))
+	window := strings.TrimSpace(r.URL.Query().Get("range"))
+	if window == "" {
+		window = "30d"
+	}
+	if id == "" || !boardRanges[window] {
+		writeErr(w, http.StatusBadRequest, "hostId and a supported range are required")
+		return
+	}
+	var history any
+	path := "/api/v1/host-history?hostId=" + url.QueryEscape(id) + "&range=" + url.QueryEscape(window)
+	if err := s.pool.GetAuthenticated(r.Context(), path, s.opts.AuthToken, &history); err != nil {
+		writeErr(w, http.StatusBadGateway, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, history)
+}

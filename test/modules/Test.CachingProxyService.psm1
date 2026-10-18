@@ -1,0 +1,1793 @@
+<#PSScriptInfo
+.VERSION 2026.10.14
+.GUID 422ef01b-468d-4c38-ab4c-8337b8a3ccd5
+.AUTHOR Alisson Sol et al.
+.COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
+.TAGS
+.LICENSEURI https://yuruna.link/license
+.PROJECTURI https://yuruna.com
+.ICONURI
+.EXTERNALMODULEDEPENDENCIES
+.REQUIREDSCRIPTS
+.EXTERNALSCRIPTDEPENDENCIES
+.RELEASENOTES
+.PRIVATEDATA
+#>
+
+#requires -version 7
+
+<#
+.SYNOPSIS
+    Cross-cycle persistence for the yuruna-caching-proxy-service VM state
+    (the caching-proxy-service-admin user's password + the VM's IP address). Single YAML file
+    under the runtime directory.
+
+.DESCRIPTION
+    State lives in a single YAML doc at:
+        <runtime-dir>/yuruna-caching-proxy-service.yml
+    where <runtime-dir> is $env:YURUNA_RUNTIME_DIR (default
+    <repoRoot>/test/status/runtime). One file, host-agnostic location,
+    git-ignored alongside the rest of status/. The authentication
+    extension's vault.yml persists across cycles too, but this
+    file remains the source of truth for the cache VM's caching-proxy-service-admin user --
+    caching-proxy-service New-VM.ps1 re-aligns the vault entry from here on
+    every cycle so the two stay in sync if they ever diverge.
+
+    Save uses merge semantics: only the fields you pass are touched.
+    Atomic write via "write .tmp + Move-Item" so a concurrent reader
+    never sees a half-written file.
+#>
+
+# --- REGION: Path
+Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
+Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Common.psm1') -DisableNameChecking -Verbose:$false
+function Get-CachingProxyServiceStatePath {
+    <#
+    .SYNOPSIS
+        Returns the absolute path of the yuruna-caching-proxy-service state file.
+    .DESCRIPTION
+        Resolves <runtime-dir>/yuruna-caching-proxy-service.yml. Runtime dir defaults
+        to <repoRoot>/test/status/runtime and can be overridden via
+        $env:YURUNA_RUNTIME_DIR. Creates the directory on demand so callers
+        don't have to Test-Path-and-mkdir.
+    #>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param()
+    if ($env:YURUNA_RUNTIME_DIR) {
+        $runtimeDir = $env:YURUNA_RUNTIME_DIR
+    } else {
+        # This module lives at test/modules/; two levels up is test/.
+        $testRoot = Split-Path -Parent $PSScriptRoot
+        $runtimeDir = Join-Path -Path $testRoot -ChildPath 'status' -AdditionalChildPath 'runtime'
+    }
+    if (-not (Test-Path -LiteralPath $runtimeDir)) {
+        New-Item -ItemType Directory -Path $runtimeDir -Force | Out-Null
+    }
+    return (Join-Path -Path $runtimeDir -ChildPath 'yuruna-caching-proxy-service.yml')
+}
+
+# --- REGION: Read
+function Read-CachingProxyServiceState {
+    <#
+    .SYNOPSIS
+        Returns the persisted state as a hashtable. Empty hashtable when
+        the file is missing or unparseable; never $null.
+    .OUTPUTS
+        [hashtable] with keys 'password' and 'ipAddress' (each a string,
+        possibly empty). Additional keys round-trip through Save unchanged.
+    #>
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param()
+    $path = Get-CachingProxyServiceStatePath
+    $empty = @{ password = ''; ipAddress = ''; caCert = ''; caCertSourceHost = '' }
+    if (-not (Test-Path -LiteralPath $path)) { return $empty }
+    if (-not (Get-Module powershell-yaml)) {
+        try {
+            Import-Module powershell-yaml -Global -Verbose:$false -ErrorAction Stop
+        } catch {
+            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_39e2bd9c183f2610' -Arguments @{ message = "$($_.Exception.Message)" })
+            return $empty
+        }
+    }
+    $parsed = Read-CachingProxyServiceStateFile -Path $path
+    if ($null -ne $parsed) { return $parsed }
+    # Primary file unparseable. Try a `.backup` rotated by Save-CachingProxyServiceState
+    # so the cache VM's IP / vault password isn't silently lost on a torn
+    # write or disk corruption. The backup is one rotation behind by design
+    # -- if BOTH files corrupt simultaneously the operator gets an empty
+    # dict (caller re-discovers IP and rebuilds vault from yuruna-vault.yml),
+    # but the warning + corrupt-file rotation below leaves a forensics trail.
+    $backupPath = "$path.backup"
+    if (Test-Path -LiteralPath $backupPath) {
+        $fallback = Read-CachingProxyServiceStateFile -Path $backupPath
+        if ($null -ne $fallback) {
+            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_a6d14fb704d40904' -Arguments @{ path = "$path"; backupPath = "$backupPath" })
+            return $fallback
+        }
+    }
+    # Both main and backup unparseable (or backup absent). Rotate the
+    # broken main aside with a timestamp suffix so it can be diff'd
+    # against the next good write; the cycle continues with $empty.
+    try {
+        $stamp = (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH-mm-ss-fffZ', [Globalization.CultureInfo]::InvariantCulture)
+        $corruptPath = "$path.corrupt.$stamp"
+        Move-Item -LiteralPath $path -Destination $corruptPath -Force -ErrorAction Stop
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_b1b930c492312c50' -Arguments @{ path = "$path"; corruptPath = "$corruptPath" })
+    } catch {
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_7b7fd33f97bf5cca' -Arguments @{ path = "$path"; message = "$($_.Exception.Message)" })
+    }
+    return $empty
+}
+
+function Read-CachingProxyServiceStateFile {
+    <#
+    .SYNOPSIS
+        Parse a single caching-proxy-service state YAML file. Returns the hashtable
+        on success, $null on any parse / shape failure. Caller decides
+        whether to escalate (warning, fallback, rotate-corrupt).
+    #>
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param([Parameter(Mandatory)][string]$Path)
+    try {
+        $raw = Get-Content -Raw -LiteralPath $Path
+        if (-not $raw -or -not $raw.Trim()) { return $null }
+        $parsed = $raw | ConvertFrom-Yaml
+        if ($parsed -isnot [System.Collections.IDictionary]) { return $null }
+        $h = @{ password = ''; ipAddress = ''; caCert = ''; caCertSourceHost = '' }
+        foreach ($k in $parsed.Keys) { $h[[string]$k] = [string]$parsed[$k] }
+        return $h
+    } catch {
+        Write-Verbose "Read-CachingProxyServiceStateFile: $Path parse failed: $($_.Exception.Message)"
+        return $null
+    }
+}
+
+# --- REGION: Save
+function Save-CachingProxyServiceState {
+    <#
+    .SYNOPSIS
+        Merges the given fields into the persisted state and writes the
+        file atomically. Existing fields not named here are preserved.
+    .PARAMETER Secret
+        yuruna OS user password (named -Secret to avoid the rule that flags
+        plaintext-typed parameters whose name contains 'password' -- the
+        on-disk YAML key is still `password:`). Pass '' to clear; omit to
+        leave unchanged.
+    .PARAMETER IpAddress
+        Current VM IP. Pass '' to clear; omit to leave unchanged.
+    .OUTPUTS
+        [string] The path of the file written.
+    .NOTES
+        The on-disk YAML key remains `password:` -- the parameter name dodges
+        PSAvoidUsingPlainTextForPassword (the rule matches parameter NAMES
+        containing 'password'/'passphrase' but does not inspect hashtable
+        keys or file contents). Renaming the on-disk key would be a breaking
+        change to the file format; renaming just the parameter keeps the
+        file format stable and the rule satisfied.
+    #>
+    [CmdletBinding(SupportsShouldProcess)]
+    [OutputType([string])]
+    param(
+        # The caching-proxy-service-admin user's password value to persist; on-disk YAML key is
+        # `password:`. Pass '' to clear; omit to leave unchanged.
+        [string]$Secret,
+        [string]$IpAddress,
+        # Last-good caching-proxy-service CA, base64 of the PEM text (same encoding the
+        # guest seed's CA_CERT_BASE64 carries). Persisted so a later provision
+        # whose live fetch flaps can fall back to it, and so the status service
+        # can serve it. Pass '' to clear; omit to leave unchanged.
+        [string]$CaCert,
+        # The host string the persisted CA was fetched from (cache IP or the
+        # host-forwarder the guest reaches it through). Guards reuse: a fallback
+        # is only trusted when the current fetch host matches, so a CA saved for
+        # one cache is never baked against a different one. Pass '' to clear.
+        [string]$CaCertSourceHost
+    )
+    $path = Get-CachingProxyServiceStatePath
+    $state = Read-CachingProxyServiceState
+    # Merge: only update keys the caller actually passed.
+    if ($PSBoundParameters.ContainsKey('Secret'))    { $state.password  = [string]$Secret }
+    if ($PSBoundParameters.ContainsKey('IpAddress')) { $state.ipAddress = [string]$IpAddress }
+    if ($PSBoundParameters.ContainsKey('CaCert'))    { $state.caCert    = [string]$CaCert }
+    if ($PSBoundParameters.ContainsKey('CaCertSourceHost')) { $state.caCertSourceHost = [string]$CaCertSourceHost }
+    if (-not $PSCmdlet.ShouldProcess($path, (Format-YurunaOperatorMessage -Key 'runner.operator_4fca99e95d9dedef'))) { return $path }
+    if (-not (Get-Module powershell-yaml)) {
+        Import-Module powershell-yaml -Global -Verbose:$false -ErrorAction Stop
+    }
+    # Sort keys for stable diffs; ConvertTo-Yaml on an unordered hashtable
+    # otherwise re-emits in random order on every save.
+    $ordered = [ordered]@{}
+    foreach ($k in ($state.Keys | Sort-Object)) { $ordered[$k] = $state[$k] }
+    $yaml = $ordered | ConvertTo-Yaml
+    $tmp = "$path.tmp"
+    # UTF-8 without BOM: shell consumers on the macOS/Linux side don't
+    # parse a BOM cleanly. .NET's UTF8Encoding($false) is the BOM-less
+    # variant; Set-Content -Encoding utf8 is already BOM-less on PS7 but
+    # using WriteAllText keeps the encoding choice explicit and matches
+    # the pattern used elsewhere in the repo for shell-consumed files.
+    $utf8NoBom = [System.Text.UTF8Encoding]::new($false)
+    [System.IO.File]::WriteAllText($tmp, $yaml, $utf8NoBom)
+    # Rotate the prior main file aside as `.backup` before swapping the new
+    # version in. Read-CachingProxyServiceState falls back to this backup when the
+    # main file is corrupt, so the cache VM IP and vault password survive
+    # a single torn write. Best-effort: copy failures degrade silently
+    # because the new write is the primary safety guarantee.
+    $backupPath = "$path.backup"
+    if (Test-Path -LiteralPath $path) {
+        try {
+            Copy-Item -LiteralPath $path -Destination $backupPath -Force -ErrorAction Stop
+        } catch {
+            Write-Verbose "Save-CachingProxyServiceState: could not rotate prior main to $backupPath (non-fatal): $($_.Exception.Message)"
+        }
+    }
+    Move-Item -LiteralPath $tmp -Destination $path -Force
+    return $path
+}
+
+# --- REGION: Probe
+function Test-TcpPortReachable {
+    <#
+    .SYNOPSIS
+        Bounded, retrying TCP-connect reachability probe that always closes its
+        socket. Returns $true on a successful connect, $false otherwise.
+    .DESCRIPTION
+        Single home for the TcpClient + BeginConnect + WaitOne(timeout) pattern
+        the caching-proxy-service callers otherwise hand-roll, so the timeout policy and
+        the close-in-finally live in one place. A per-attempt WaitOne caps a
+        black-holed host at $TimeoutMs instead of the OS default; the socket is
+        closed in a finally on every path (connect, timeout, or throw) so no
+        attempt leaks a handle.
+
+        Retries the connect rather than trusting a single deadline. On a wired
+        host the first attempt answers in well under a millisecond, so the extra
+        attempts never run. Over Wi-Fi the connect latency has a fat tail: a cold
+        radio waking from power-save plus an ARP-over-air round trip can burn most
+        of the budget on its own, and a single AP retransmit or roam pushes it
+        past the cliff -- producing a spurious miss on a port that is actually up.
+        The first attempt warms ARP / wakes the radio; a follow-up then connects
+        in milliseconds. A genuinely dead port still misses every attempt.
+    .PARAMETER TargetHost
+        Host or IP literal to connect to (IPv4, IPv6, or name).
+    .PARAMETER Port
+        TCP port to probe.
+    .PARAMETER Attempts
+        Number of connect attempts before giving up (>=1).
+    .PARAMETER TimeoutMs
+        Per-attempt connect deadline in milliseconds.
+    .PARAMETER BackoffMs
+        Delay before each retry (not applied before the first attempt).
+    .OUTPUTS
+        [bool] $true if any attempt connected, else $false.
+    #>
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param(
+        [Parameter(Mandatory)][string]$TargetHost,
+        [Parameter(Mandatory)][int]$Port,
+        [int]$Attempts = 3,
+        [int]$TimeoutMs = 3000,
+        [int]$BackoffMs = 200
+    )
+    $ok = $false
+    for ($attempt = 1; $attempt -le $Attempts -and -not $ok; $attempt++) {
+        if ($attempt -gt 1) { Start-Sleep -Milliseconds $BackoffMs }
+        $tcp = New-Object System.Net.Sockets.TcpClient
+        try {
+            $async = $tcp.BeginConnect($TargetHost, $Port, $null, $null)
+            $ok    = ($async.AsyncWaitHandle.WaitOne($TimeoutMs) -and $tcp.Connected)
+        } catch {
+            Write-Verbose "TCP probe ${TargetHost}:$Port attempt $attempt failed: $($_.Exception.Message)"
+        } finally {
+            $tcp.Close()
+        }
+    }
+    return $ok
+}
+
+<#
+.SYNOPSIS
+    Smoke-tests the caching-proxy-service at the given IP. Shared core between
+    Test-CachingProxyService.ps1 and the cycle-start gate in Invoke-TestRunnerInnerLoop.ps1.
+.DESCRIPTION
+    Probes :3128 / :3129 / :80 / :3000 and fetches /yuruna-squid-ca.crt off
+    Apache. PASS / WARN / FAIL classification matches the standalone script:
+    :3128 / :3129 / :3000 are FAIL on unreachable (hard requirements);
+    :80 and the CA cert are WARN (HTTPS caching disabled on guests, HTTP
+    still works).
+
+    IP resolution, host system-proxy and outbound-proxy checks stay in the
+    standalone script -- those are host-state-dependent, not cache-state-
+    dependent. This function is the cache-side subset both callers need.
+
+    Requires Test.VMUtility.psm1 (Get-CachingProxyServicePort, Format-IpUrlHost)
+    to be imported by the caller.
+.PARAMETER CacheIp
+    Resolved cache IP (IPv4 or IPv6). The caller is expected to have
+    validated the format with Test-IpAddress; this function does not
+    re-check.
+.PARAMETER CacheSource
+    Free-form label rendered into the "Target:" diagnostic header (e.g.
+    "$Env:YURUNA_CACHING_PROXY_SERVICE_IP" or "vmStart.cachingProxyIp"). Empty
+    omits the header line.
+.OUTPUTS
+    [hashtable] with keys:
+        Success              [bool] -- FailCount == 0 (full-suite pass)
+        HttpProxyReachable   [bool] -- :3128 (HTTP proxy) answered
+        PassCount / WarnCount / FailCount [int]
+        HttpPort / HttpsPort [int]
+        Lines                [string[]] -- diagnostic output
+
+    Callers wanting a strict "fully healthy" verdict check Success;
+    callers that only need "usable as an HTTP forward proxy" check
+    HttpProxyReachable. The latter is the criterion the cycle-start
+    gate in Invoke-TestRunnerInnerLoop.ps1 uses so a barebones squid
+    (without Grafana / ssl-bump) is still accepted as a working
+    proxy -- the runner only relies on :3128 for guest installs.
+#>
+function Invoke-CachingProxyServiceProbe {
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param(
+        [Parameter(Mandatory)] [string]$CacheIp,
+        [string]$CacheSource = ''
+    )
+
+    $passCount = 0
+    $warnCount = 0
+    $failCount = 0
+    $lines     = [System.Collections.Generic.List[string]]::new()
+    $httpProxyReachable = $false
+
+    if ($CacheSource) {
+        $lines.Add("  Target: $CacheIp  (source: $CacheSource)")
+        $lines.Add('')
+    }
+
+    $httpPort  = Get-CachingProxyServicePort -Scheme http
+    $httpsPort = Get-CachingProxyServicePort -Scheme https
+    $ports = @(
+        @{ Port = $httpPort;  Name = 'Squid HTTP proxy';      Level = 'FAIL' }
+        @{ Port = $httpsPort; Name = 'Squid ssl-bump (HTTPS)'; Level = 'FAIL' }
+        @{ Port = 80;         Name = 'Apache (CA cert)';       Level = 'WARN' }
+        @{ Port = 3000;       Name = 'Grafana dashboard';      Level = 'FAIL' }
+    )
+    # See https://yuruna.link/4213a0b3-0028
+    $connectAttempts    = 3
+    $connectTimeoutMs   = 3000
+    $connectBackoffMs   = 200
+    foreach ($p in $ports) {
+        $label = "{0,-5} ({1})" -f $p.Port, $p.Name
+        $ok = Test-TcpPortReachable -TargetHost $CacheIp -Port $p.Port `
+            -Attempts $connectAttempts -TimeoutMs $connectTimeoutMs -BackoffMs $connectBackoffMs
+        if ($ok) {
+            $lines.Add("  [PASS] TCP :$label")
+            $passCount++
+            if ($p.Port -eq $httpPort) { $httpProxyReachable = $true }
+        } elseif ($p.Level -eq 'WARN') {
+            $lines.Add("  [WARN] TCP :$label -- not reachable (HTTPS caching will be disabled on guests, HTTP unaffected)")
+            $warnCount++
+        } else {
+            $lines.Add("  [FAIL] TCP :$label -- not reachable")
+            $failCount++
+        }
+    }
+
+    # CA cert fetch. Only meaningful if :80 is up; failures are WARN
+    # because HTTP caching still works even without CA distribution.
+    # -NoProxy: this request goes to the cache's own Apache on :80; an
+    # existing host proxy (stale or fresh) would loop or fail the call.
+    $caUrl = "http://$(Format-IpUrlHost $CacheIp)/yuruna-squid-ca.crt"
+    try {
+        $resp = $null
+        $raw = Get-CachingProxyServiceCaPem -Url $caUrl -TimeoutSec 5 -Response ([ref]$resp)
+        if ($resp.StatusCode -eq 200 -and $resp.RawContentLength -gt 0) {
+            if ($raw -match '-----BEGIN CERTIFICATE-----' -and $raw -match '-----END CERTIFICATE-----') {
+                try {
+                    # Decode the PEM to DER first: [X509Certificate2]::new(PEM bytes)
+                    # works on Windows but FAILS on macOS (DER-expecting backend).
+                    $cert = ConvertFrom-YurunaPemCertificate -Pem $raw
+                    $lines.Add("  [PASS] CA cert $caUrl -> $($cert.Subject) (expires $($cert.NotAfter.ToString('yyyy-MM-dd', [Globalization.CultureInfo]::InvariantCulture)))")
+                    $passCount++
+                    $cert.Dispose()
+                } catch {
+                    $lines.Add("  [WARN] CA cert $caUrl returned PEM-looking bytes but X509 parse failed: $($_.Exception.Message)")
+                    $warnCount++
+                }
+            } else {
+                $lines.Add("  [WARN] CA cert $caUrl returned $($raw.Length) bytes but no BEGIN/END CERTIFICATE markers found.")
+                $warnCount++
+            }
+        } else {
+            $lines.Add("  [WARN] CA cert $caUrl returned HTTP $($resp.StatusCode) with $($resp.RawContentLength) bytes.")
+            $warnCount++
+        }
+    } catch {
+        $lines.Add("  [WARN] CA cert $caUrl fetch failed: $($_.Exception.Message)")
+        $warnCount++
+    }
+
+    return @{
+        Success            = ($failCount -eq 0)
+        HttpProxyReachable = $httpProxyReachable
+        PassCount          = $passCount
+        WarnCount          = $warnCount
+        FailCount          = $failCount
+        HttpPort           = $httpPort
+        HttpsPort          = $httpsPort
+        Lines              = $lines.ToArray()
+    }
+}
+
+function Test-SequenceRequiresCacheRegistry {
+    <#
+    .SYNOPSIS
+        Returns true when any sequence name identifies Kubernetes guest work.
+    .DESCRIPTION
+        Kubernetes sequences use a dotted `k8s` segment in their stable file
+        names. Those guests configure containerd to use the caching proxy's
+        registry when a cache is selected, so accepting Squid alone is not a
+        sufficient cycle-start readiness verdict.
+    #>
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param([AllowNull()][AllowEmptyCollection()][string[]]$SequenceName)
+    foreach ($candidate in @($SequenceName)) {
+        if ([string]::IsNullOrWhiteSpace($candidate)) { continue }
+        $leaf = [IO.Path]::GetFileNameWithoutExtension($candidate)
+        if ($leaf -match '(?i)(^|\.)k8s(\.|$)') { return $true }
+    }
+    return $false
+}
+
+function Test-CachingProxyRegistryReady {
+    <#
+    .SYNOPSIS
+        Probes the registry's required image path instead of treating an open
+        port or its root endpoint as ready.
+    .DESCRIPTION
+        Zot can return 200 from `/v2/` while required manifests still return
+        503 during a rebuild. The cache publishes its machine-readable warm-set
+        state at `/zot-meta`; this probe requires complete Kubernetes and CNI
+        sets, then GETs one held Kubernetes manifest with the same `ns=` query
+        containerd uses. This catches a live registry whose sync path is not
+        ready for guest work.
+    #>
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param(
+        [Parameter(Mandatory)][string]$CacheIp,
+        [Parameter(Mandatory)][int]$Port,
+        [int]$MetadataPort = 80,
+        [ValidateRange(1, 30)][int]$TimeoutSeconds = 3
+    )
+    $rootUri = [UriBuilder]::new('http', $CacheIp, $Port, '/v2/').Uri.AbsoluteUri
+    try {
+        $response = Invoke-WebRequest -Uri $rootUri -Method Get -NoProxy -UseBasicParsing `
+            -TimeoutSec $TimeoutSeconds -SkipHttpErrorCheck -ErrorAction Stop -Verbose:$false
+        $statusCode = [int]$response.StatusCode
+        if ($statusCode -lt 200 -or $statusCode -ge 300) {
+            return @{ Ready = $false; Reason = "registry root HTTP $statusCode"; StatusCode = $statusCode; Uri = $rootUri }
+        }
+    } catch {
+        return @{ Ready = $false; Reason = $_.Exception.Message; StatusCode = 0; Uri = $rootUri }
+    }
+
+    $metadataUri = [UriBuilder]::new('http', $CacheIp, $MetadataPort, '/zot-meta').Uri.AbsoluteUri
+    try {
+        $metadataResponse = Invoke-WebRequest -Uri $metadataUri -Method Get -NoProxy -UseBasicParsing `
+            -TimeoutSec $TimeoutSeconds -SkipHttpErrorCheck -ErrorAction Stop -Verbose:$false
+        $metadataStatus = [int]$metadataResponse.StatusCode
+        if ($metadataStatus -lt 200 -or $metadataStatus -ge 300) {
+            return @{ Ready = $false; Reason = "warm-set metadata HTTP $metadataStatus"; StatusCode = $metadataStatus; Uri = $metadataUri }
+        }
+        $metadata = if ($metadataResponse.Content -is [byte[]]) {
+            [Text.Encoding]::UTF8.GetString($metadataResponse.Content)
+        } else { [string]$metadataResponse.Content }
+    } catch {
+        return @{ Ready = $false; Reason = $_.Exception.Message; StatusCode = 0; Uri = $metadataUri }
+    }
+
+    # The cache's own sync self-test outranks the warm-set counts below: when
+    # its zot release refuses images the upstream serves, those counts only
+    # show the result, and no wait changes it -- so the wait ends here.
+    $selfTest = ConvertFrom-ZotSelfTestMetric -Metadata $metadata
+    if ($selfTest.Verdict -eq 'incompatible') {
+        $healthUri = [UriBuilder]::new('http', $CacheIp, $MetadataPort, '/cache-health').Uri.AbsoluteUri
+        return @{ Ready = $false; Terminal = $true; Reason = (Format-ZotSelfTestSummary -SelfTest $selfTest -HealthUrl $healthUri)
+            StatusCode = 200; Uri = $metadataUri }
+    }
+    if ($metadata -notmatch '(?m)^yuruna_prewarm_state_available\s+1(?:\.0+)?\s*$') {
+        return @{ Ready = $false; Reason = 'required image warm set is not available'; StatusCode = 200; Uri = $metadataUri }
+    }
+    foreach ($setName in 'k8s', 'cni') {
+        $totalMatch = [regex]::Match($metadata, "(?m)^yuruna_prewarm_images_total\{set=`"$setName`"\}\s+(?<value>\d+(?:\.\d+)?)\s*$")
+        $heldMatch = [regex]::Match($metadata, "(?m)^yuruna_prewarm_images_resident\{set=`"$setName`"\}\s+(?<value>\d+(?:\.\d+)?)\s*$")
+        if (-not $totalMatch.Success -or -not $heldMatch.Success) {
+            return @{ Ready = $false; Reason = "warm-set metadata is missing the $setName counts"; StatusCode = 200; Uri = $metadataUri }
+        }
+        $total = [int][double]::Parse($totalMatch.Groups['value'].Value, [Globalization.CultureInfo]::InvariantCulture)
+        $held = [int][double]::Parse($heldMatch.Groups['value'].Value, [Globalization.CultureInfo]::InvariantCulture)
+        if ($total -le 0 -or $held -ne $total) {
+            return @{ Ready = $false; Reason = "$setName warm set holds $held of $total required images"; StatusCode = 200; Uri = $metadataUri }
+        }
+        $refused = @([regex]::Matches($metadata, "(?m)^yuruna_prewarm_images_refused\{[^}\r\n]*set=`"$setName`"[^}\r\n]*\}\s+(?<value>\d+(?:\.\d+)?)\s*$"))
+        $refusedCount = ($refused | ForEach-Object { [double]::Parse($_.Groups['value'].Value, [Globalization.CultureInfo]::InvariantCulture) } | Measure-Object -Sum).Sum
+        if ($refusedCount -gt 0) {
+            return @{ Ready = $false; Reason = "$setName warm set records $refusedCount refused image(s)"; StatusCode = 200; Uri = $metadataUri }
+        }
+    }
+
+    $imageMatch = [regex]::Match($metadata, '(?m)^yuruna_prewarm_manifest_seconds\{set="k8s",image="(?<image>[^"]+)",state="(?:resident|cold)"\}\s+[0-9.]+\s*$')
+    $referenceMatch = if ($imageMatch.Success) {
+        [regex]::Match($imageMatch.Groups['image'].Value, '^(?<upstream>[^/]+)/(?<repo>.+):(?<reference>[^/:]+)$')
+    } else { $null }
+    if (-not $referenceMatch -or -not $referenceMatch.Success) {
+        return @{ Ready = $false; Reason = 'warm-set metadata names no held Kubernetes manifest'; StatusCode = 200; Uri = $metadataUri }
+    }
+    $manifest = [UriBuilder]::new('http', $CacheIp, $Port, "/v2/$($referenceMatch.Groups['repo'].Value)/manifests/$($referenceMatch.Groups['reference'].Value)")
+    $manifest.Query = 'ns=' + [Uri]::EscapeDataString($referenceMatch.Groups['upstream'].Value)
+    $manifestUri = $manifest.Uri.AbsoluteUri
+    $manifestHeaders = @{ Accept = 'application/vnd.oci.image.index.v1+json, application/vnd.oci.image.manifest.v1+json, application/vnd.docker.distribution.manifest.list.v2+json, application/vnd.docker.distribution.manifest.v2+json' }
+    try {
+        $manifestResponse = Invoke-WebRequest -Uri $manifestUri -Method Get -Headers $manifestHeaders -NoProxy -UseBasicParsing `
+            -TimeoutSec $TimeoutSeconds -SkipHttpErrorCheck -ErrorAction Stop -Verbose:$false
+        $manifestStatus = [int]$manifestResponse.StatusCode
+        return @{
+            Ready      = ($manifestStatus -ge 200 -and $manifestStatus -lt 300)
+            Reason     = "required manifest HTTP $manifestStatus"
+            StatusCode = $manifestStatus
+            Uri        = $manifestUri
+        }
+    } catch {
+        return @{ Ready = $false; Reason = $_.Exception.Message; StatusCode = 0; Uri = $manifestUri }
+    }
+}
+
+# --- REGION: zot release
+function Resolve-CachingProxyZotOverride {
+    <#
+    .SYNOPSIS
+        The zot release a host's test.config.yml installs on the
+        caching-proxy-service VM instead of the release the seed pins.
+    .DESCRIPTION
+        vmStart.cachingProxyZotVersion and vmStart.cachingProxyZotSha256 let an
+        operator replace a pinned zot release that cannot sync the lab's images
+        without changing code. Both are baked into a shell assignment in the
+        cloud-init seed, so only a release tag and a 64-hex SHA-256 pass: the
+        seed downloads zot-linux-<arch> of that release and installs it only
+        when its SHA-256 matches, exactly as it does for the pin.
+    .OUTPUTS
+        [hashtable] @{ Version; Sha256 }, both empty when nothing overrides the pin.
+    #>
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param([AllowNull()]$Config)
+    $vmStart = if ($Config) { $Config.vmStart } else { $null }
+    $version = if ($vmStart) { "$($vmStart.cachingProxyZotVersion)".Trim() } else { '' }
+    $sha256 = if ($vmStart) { "$($vmStart.cachingProxyZotSha256)".Trim().ToLowerInvariant() } else { '' }
+    if (-not $version -and -not $sha256) { return @{ Version = ''; Sha256 = '' } }
+    if ($version -notmatch '^v\d+\.\d+\.\d+(-[0-9A-Za-z.]+)?$') {
+        throw "vmStart.cachingProxyZotVersion is '$version', which is not a zot release tag such as v2.1.21 " +
+            '(https://github.com/project-zot/zot/releases). Set both vmStart.cachingProxyZotVersion and ' +
+            'vmStart.cachingProxyZotSha256, or leave both empty to install the release this Yuruna release pins.'
+    }
+    if ($sha256 -notmatch '^[0-9a-f]{64}$') {
+        throw "vmStart.cachingProxyZotSha256 must be the 64-hex-digit SHA-256 of zot-linux-amd64 (or zot-linux-arm64 " +
+            "on an ARM64 host) as https://github.com/project-zot/zot/releases/download/$version/checksums.sha256.txt " +
+            'lists it; the caching-proxy-service VM installs the binary only when that checksum matches.'
+    }
+    return @{ Version = $version; Sha256 = $sha256 }
+}
+
+function ConvertFrom-ZotSelfTestMetric {
+    <#
+    .SYNOPSIS
+        Reads the zot sync self-test series out of the cache's /zot-meta text.
+    .DESCRIPTION
+        The caching-proxy-service VM syncs a probe image per upstream through
+        its zot release when zot is installed and after each warm run, and
+        publishes the verdict as yuruna_zot_selftest_* series. Verdicts: ok,
+        healed (passed once the self-test added an http.compat mode zot asked
+        for), incompatible (zot rejected a probe image its upstream serves),
+        gone (a probe image is no longer published), unanswered or down (no
+        verdict).
+    .OUTPUTS
+        [hashtable] @{ Available; Verdict; Version; Pinned; Override; Failed; Repaired }
+    #>
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param([AllowNull()][AllowEmptyString()][string]$Metadata)
+    $result = @{ Available = $false; Verdict = ''; Version = ''; Pinned = ''; Override = $false; Failed = @(); Repaired = @() }
+    if (-not $Metadata -or $Metadata -notmatch '(?m)^yuruna_zot_selftest_available\s+1(?:\.0+)?\s*$') { return $result }
+    $result.Available = $true
+    $verdict = [regex]::Match($Metadata, '(?m)^yuruna_zot_selftest_verdict\{verdict="(?<v>[a-z]+)"\}\s+1')
+    if ($verdict.Success) { $result.Verdict = $verdict.Groups['v'].Value }
+    $release = [regex]::Match($Metadata, '(?m)^yuruna_zot_selftest_release_info\{version="(?<v>[^"]*)",pinned="(?<p>[^"]*)",override="(?<o>[01])"\}')
+    if ($release.Success) {
+        $result.Version = $release.Groups['v'].Value
+        $result.Pinned = $release.Groups['p'].Value
+        $result.Override = $release.Groups['o'].Value -eq '1'
+    }
+    $result.Failed = @([regex]::Matches($Metadata,
+            '(?m)^yuruna_zot_selftest_probe_failed\{image="(?<i>[^"]*)",stage="(?<s>[^"]*)",status="(?<c>[^"]*)",outcome="(?<o>[^"]*)",compat="(?<m>[^"]*)"\}') |
+        ForEach-Object { @{ Image = $_.Groups['i'].Value; Stage = $_.Groups['s'].Value; Status = $_.Groups['c'].Value
+                Outcome = $_.Groups['o'].Value; Compat = $_.Groups['m'].Value } })
+    $result.Repaired = @([regex]::Matches($Metadata, '(?m)^yuruna_zot_selftest_compat_added\{mode="(?<m>[^"]*)"\}') |
+        ForEach-Object { $_.Groups['m'].Value })
+    return $result
+}
+
+function Format-ZotSelfTestSummary {
+    <#
+    .SYNOPSIS
+        One line naming why the cache's zot release cannot serve guests, and
+        where the fixes are.
+    #>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param([Parameter(Mandatory)][hashtable]$SelfTest, [Parameter(Mandatory)][string]$HealthUrl)
+    $release = if ($SelfTest.Version) { "zot $($SelfTest.Version)" } else { 'zot' }
+    if ($SelfTest.Verdict -eq 'down') {
+        return "the cache's $release did not answer its own sync self-test, so it is not serving images; see $HealthUrl"
+    }
+    $refused = @($SelfTest.Failed | Where-Object { $_.Outcome -eq 'rejected' })
+    $first = $refused | Select-Object -First 1
+    $detail = if ($first) {
+        $answer = if ($first.Status -eq '0') { 'no answer' } else { "HTTP $($first.Status)" }
+        $ask = if ($first.Compat) { "; zot's log asks for http.compat $($first.Compat)" } else { '' }
+        " ($($first.Image): $answer at the $($first.Stage)$ask)"
+    } else { '' }
+    return "the cache's $release is incompatible with the lab's registries: its sync self-test refused " +
+        "$($refused.Count) probe image(s)$detail. That is not a cold cache, and a re-run does not help; " +
+        "the fixes, none of which needs a code change, are at $HealthUrl"
+}
+
+function Read-CachingProxyPage {
+    <#
+    .SYNOPSIS
+        The text of one of the cache's plain-text pages; empty when it does not answer 200.
+    #>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param([Parameter(Mandatory)][string]$Uri, [int]$TimeoutSeconds = 5)
+    try {
+        $response = Invoke-WebRequest -Uri $Uri -Method Get -NoProxy -UseBasicParsing -TimeoutSec $TimeoutSeconds `
+            -SkipHttpErrorCheck -ErrorAction Stop -Verbose:$false
+        if ([int]$response.StatusCode -ne 200) { return '' }
+        if ($response.Content -is [byte[]]) { return [Text.Encoding]::UTF8.GetString($response.Content) }
+        return [string]$response.Content
+    } catch { return '' }
+}
+
+function Get-CachingProxyZotSelfTestReport {
+    <#
+    .SYNOPSIS
+        Whether the cache's zot release can sync the lab's images, as the
+        cache's own sync self-test found, with its fix instructions.
+    .DESCRIPTION
+        Reads the verdict from /zot-meta and the human-readable block, fixes
+        included, from /cache-health, so the instructions an operator reads
+        here are the ones the cache prints. Level is PASS for ok, WARN for a
+        repaired configuration or a result that blames something other than
+        zot, FAIL for an incompatible release or a zot that does not answer,
+        and PENDING when the cache has no result yet.
+    .OUTPUTS
+        [hashtable] @{ Level; SelfTest; Summary; Lines }
+    #>
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param(
+        [Parameter(Mandatory)][string]$CacheIp,
+        [int]$MetadataPort = 80,
+        [ValidateRange(1, 60)][int]$TimeoutSeconds = 5
+    )
+    $metaUri = [UriBuilder]::new('http', $CacheIp, $MetadataPort, '/zot-meta').Uri.AbsoluteUri
+    $healthUri = [UriBuilder]::new('http', $CacheIp, $MetadataPort, '/cache-health').Uri.AbsoluteUri
+    $selfTest = ConvertFrom-ZotSelfTestMetric -Metadata (Read-CachingProxyPage -Uri $metaUri -TimeoutSeconds $TimeoutSeconds)
+    if (-not $selfTest.Available) {
+        return @{ Level = 'PENDING'; SelfTest = $selfTest; Summary = ''
+            Lines = @("  [WARN] zot sync self-test: no result at $metaUri yet. zot is installed near the end of a cache",
+                '    build, and a cache built before the self-test existed has none: rebuild it to get one.') }
+    }
+    $level = switch ($selfTest.Verdict) {
+        'ok' { 'PASS' }
+        { $_ -in 'incompatible', 'down' } { 'FAIL' }
+        default { 'WARN' }
+    }
+    $lines = [Collections.Generic.List[string]]::new()
+    $lines.Add("  [$level] zot sync self-test ($healthUri):")
+    # The block runs from its label line through the indented lines under it.
+    $shown = $false
+    foreach ($line in ((Read-CachingProxyPage -Uri $healthUri -TimeoutSeconds $TimeoutSeconds) -split "`r?`n")) {
+        if ($line -match '^zot sync self-test') { $shown = $true }
+        elseif (-not $line.StartsWith('  ')) { $shown = $false }
+        if ($shown) { $lines.Add("    $line") }
+    }
+    if ($lines.Count -eq 1) { $lines.Add("    verdict: $($selfTest.Verdict) (the health page did not answer)") }
+    if ($level -eq 'FAIL') {
+        $lines.Add('    The cache still serves squid, but Kubernetes guests stop at their control-plane warm pass until')
+        $lines.Add('    one of the fixes above is applied. test/Test-CachingProxyService.ps1 checks it again afterwards.')
+    }
+    if ($level -ne 'PASS') {
+        $lines.Add("    Commands marked sudo run on the cache VM: ssh caching-proxy-service-admin@$CacheIp")
+        $lines.Add('    (the harness key is test/status/ssh/yuruna_ed25519).')
+    }
+    $summary = if ($level -eq 'FAIL') { Format-ZotSelfTestSummary -SelfTest $selfTest -HealthUrl $healthUri } else { '' }
+    return @{ Level = $level; SelfTest = $selfTest; Summary = $summary; Lines = $lines.ToArray() }
+}
+
+function Wait-CachingProxyZotSelfTest {
+    <#
+    .SYNOPSIS
+        After a caching-proxy-service build, waits for the cache's zot sync
+        self-test and reports it, so an incompatible zot release fails the build
+        command instead of the first Kubernetes guest.
+    .DESCRIPTION
+        squid answers well before zot is installed: zot is among the last
+        things cloud-init sets up. Progress goes to the information stream
+        (pass -InformationAction Continue to show it);
+        the verdict and its fix instructions come back as Lines. ExitCode is 1
+        for an incompatible release or a zot that does not answer, and 0
+        otherwise -- including when no result arrives in time, which leaves the
+        build to finish and the verdict to /cache-health.
+    .OUTPUTS
+        [hashtable] @{ ExitCode; Level; Lines }
+    #>
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param(
+        [Parameter(Mandatory)][string]$CacheIp,
+        [int]$TimeoutSeconds = 2400,
+        [int]$IntervalSeconds = 20
+    )
+    $healthUri = [UriBuilder]::new('http', $CacheIp, 80, '/cache-health').Uri.AbsoluteUri
+    Write-Information ("Waiting up to $([int]($TimeoutSeconds / 60)) minutes for the cache to install zot and sync its probe images " +
+        "through it. Ctrl+C is safe: the VM keeps building, and $healthUri shows the verdict later.")
+    $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
+    $started = Get-Date
+    while ($true) {
+        $report = Get-CachingProxyZotSelfTestReport -CacheIp $CacheIp
+        if ($report.Level -ne 'PENDING') {
+            return @{ ExitCode = $(if ($report.Level -eq 'FAIL') { 1 } else { 0 }); Level = $report.Level; Lines = $report.Lines }
+        }
+        if ((Get-Date) -ge $deadline) {
+            return @{ ExitCode = 0; Level = 'PENDING'; Lines = @(
+                    "  [WARN] zot sync self-test: no result within $([int]($TimeoutSeconds / 60)) minutes. cloud-init may still be",
+                    "    running; $healthUri shows the verdict once zot is installed, and test/Test-CachingProxyService.ps1",
+                    '    checks it from this host.') }
+        }
+        Write-Information ("  ... no zot sync self-test result yet ($([int]((Get-Date) - $started).TotalSeconds)s)")
+        Start-Sleep -Seconds $IntervalSeconds
+    }
+}
+
+function Wait-PortConsecutiveSuccess {
+    <#
+    .SYNOPSIS
+        Waits for consecutive successful bounded probes under a shared deadline.
+    .PARAMETER Address
+        The target address.
+    .PARAMETER Port
+        The target port.
+    .PARAMETER Deadline
+        The wall-clock deadline for this leg.
+    .PARAMETER Required
+        Required consecutive successes.
+    .PARAMETER IntervalSeconds
+        Delay between attempts.
+    .PARAMETER Classify
+        Optional TCP outcome command used for diagnostics.
+    .PARAMETER Probe
+        Optional application-level probe. It receives address and port and
+        returns a hashtable with Ready and Reason. When supplied it replaces
+        the TCP-only probe. A result with Terminal set ends the wait at once:
+        it reports a state that waiting cannot change.
+    .PARAMETER OnFirstMiss
+        Callback for the leg's once-only waiting announcement.
+    #>
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param([string]$Address, [int]$Port, [datetime]$Deadline, [int]$Required, [int]$IntervalSeconds, $Classify, [scriptblock]$Probe, [scriptblock]$OnFirstMiss)
+    $probes = 0; $consecutive = 0; $reason = ''; $announced = $false; $terminal = $false
+    while ($true) {
+        if ($probes -gt 0) { Start-Sleep -Seconds $IntervalSeconds }
+        $probes++
+        if ($Probe) {
+            $probeResult = & $Probe $Address $Port
+            $ok = [bool]$probeResult.Ready
+            if (-not $ok) { $reason = [string]$probeResult.Reason; $terminal = [bool]$probeResult.Terminal }
+        } elseif ($Classify) {
+            $outcome = & $Classify -IpAddress $Address -Port $Port -TimeoutMs 3000
+            $ok = [bool]$outcome.Reachable
+            if (-not $ok) { $reason = "$($outcome.Outcome) after $($outcome.ElapsedMs) ms" }
+        } else {
+            $ok = Test-TcpPortReachable -TargetHost $Address -Port $Port -Attempts 1 -TimeoutMs 3000
+            if (-not $ok) { $reason = 'no connect' }
+        }
+        if ($ok) {
+            $consecutive++
+            if ($consecutive -ge $Required) { break }
+        } else {
+            $consecutive = 0
+            if ($terminal) { break }
+            if (-not $announced) { & $OnFirstMiss $reason; $announced = $true }
+        }
+        if ((Get-Date) -ge $Deadline) { break }
+    }
+    return @{ Settled = $consecutive -ge $Required; Probes = $probes; Consecutive = $consecutive; Reason = $reason
+        Announced = $announced; Terminal = $terminal }
+}
+
+function Wait-CachingProxyServiceSettled {
+    <#
+    .SYNOPSIS
+        Wait until the cache's HTTP proxy port has accepted $RequiredConsecutive
+        times in a row, or the budget expires. Returns the verdict plus console
+        lines for the caller to print verbatim.
+    .DESCRIPTION
+        One successful probe says the port answered ONCE. That is not the same
+        as the cache being ready, and the gap between them is not theoretical: a
+        cache VM rebuilt shortly before a cycle starts is still provisioning, and
+        squid restarts once when the build applies its ssl-bump configuration
+        against the freshly minted CA. A cycle that probes in the moment before
+        that restart pins the address as accepted, then spends its next steps
+        reporting the cache as lost -- and every guest created in that window is
+        seeded with a proxy URL that refuses, so package fetches wait or fail.
+
+        Consecutive successes are what separates "up" from "up just then". The
+        restart window is tens of seconds, far wider than the spacing here, so a
+        restart in progress misses every probe instead of slipping between two.
+
+        A caller that does not require the registry can keep the cache optional
+        and use the returned verdict for diagnostics. A Kubernetes caller sets
+        RequireRegistry and must stop before guest work when Ready is false:
+        once a selected cache is written into containerd's mirror configuration,
+        the guest deliberately does not fall through to rate-limited upstreams.
+    .PARAMETER RequiredConsecutive
+        Successes in a row before the cache is called settled.
+    .PARAMETER IntervalSeconds
+        Spacing between probes. Small on purpose -- it only has to be small
+        relative to a restart, and it is charged to every cycle.
+    .PARAMETER TimeoutSeconds
+        Total budget. Generous relative to a service restart, because the
+        alternative is spending a guest step budget on an unavailable service.
+    .PARAMETER RequireRegistry
+        Makes readiness require both the proxy port and the registry's required
+        manifest path. The caller must stop Kubernetes guest work when Ready is
+        false.
+    .OUTPUTS
+        [hashtable] @{ Ready = [bool]; Settled = [bool];
+        RegistrySettled = [Nullable[bool]]; Lines = [string[]] }
+    #>
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param(
+        [Parameter(Mandatory)][string]$CacheIp,
+        [Parameter(Mandatory)][int]$Port,
+        [int]$RequiredConsecutive = 3,
+        [int]$IntervalSeconds = 2,
+        [int]$TimeoutSeconds = 120,
+        # The container registry the cache fronts. Guests that build Kubernetes
+        # pull every image through it, and it comes up AFTER squid on a rebuild
+        # -- so a cycle gated on the proxy port alone starts while the registry
+        # is still absent, and the guest is the thing that discovers it. That
+        # discovery costs the guest its whole step budget and then fails the
+        # cycle; waiting here costs the preamble and fails nothing.
+        [int]$RegistryPort = 5000,
+        # Budget for the registry leg, and OFF by default. It has to be opt-in
+        # because absence and restarting look identical from a probe: a cache
+        # that fronts no registry never answers on this port, and a cache whose
+        # registry is still provisioning does not answer either. Defaulting it
+        # on would charge every registry-less lab the full budget on every
+        # cycle, to wait for something that is never coming. The caller that
+        # knows the lab builds Kubernetes guests is the one that can say.
+        [int]$RegistryTimeoutSeconds = 0,
+        [switch]$RequireRegistry
+    )
+    $lines       = [System.Collections.Generic.List[string]]::new()
+    $consecutive = 0
+    $probes      = 0
+    $lastReason  = ''
+    $announced   = $false
+    # Wall-clock deadline, not an iteration count: each probe costs its own
+    # latency on top of the interval (feedback_iter_counter_wallclock_trap).
+    $deadline = (Get-Date).AddSeconds([Math]::Max(0, $TimeoutSeconds))
+    $classify = Get-Command Test-TcpConnectOutcome -ErrorAction SilentlyContinue
+    $result = Wait-PortConsecutiveSuccess -Address $CacheIp -Port $Port -Deadline $deadline -Required $RequiredConsecutive -IntervalSeconds $IntervalSeconds -Classify $classify -OnFirstMiss {
+        param($reason)
+        $lines.Add("  Cache at ${CacheIp}:${Port} is not settled yet ($reason) -- waiting up to ${TimeoutSeconds}s for it to stay up. A cache rebuilt just before this cycle restarts squid once while provisioning finishes.")
+    }
+    $settled = $result.Settled; $consecutive = $result.Consecutive; $probes = $result.Probes; $lastReason = $result.Reason; $announced = $result.Announced
+    if ($settled -and $announced) {
+        $lines.Add("  Cache settled after $probes probe(s); continuing.")
+    } elseif (-not $settled) {
+        $suffix = if ($RequireRegistry) {
+            'Kubernetes guest work was not started.'
+        } else {
+            'Proceeding anyway because this sequence does not require the cache registry.'
+        }
+        $lines.Add("  Cache at ${CacheIp}:${Port} never accepted $RequiredConsecutive probes in a row within ${TimeoutSeconds}s (last: $lastReason). $suffix")
+    }
+
+    # Registry leg. Only attempted once the proxy itself is up: if squid never
+    # settled the cache is not ready in any sense, and spending a second budget
+    # to confirm that twice just delays the cycle.
+    $registrySettled = $null
+    if ($settled -and $RegistryPort -gt 0 -and $RegistryTimeoutSeconds -gt 0) {
+        $regDeadline = (Get-Date).AddSeconds($RegistryTimeoutSeconds)
+        $result = Wait-PortConsecutiveSuccess -Address $CacheIp -Port $RegistryPort -Deadline $regDeadline -Required $RequiredConsecutive -IntervalSeconds $IntervalSeconds -Probe {
+            param($address, $port)
+            Test-CachingProxyRegistryReady -CacheIp $address -Port $port -TimeoutSeconds 3
+        } -OnFirstMiss {
+            param($reason)
+            $lines.Add("  Cache registry required-image path is not ready yet ($reason) -- waiting up to ${RegistryTimeoutSeconds}s. A guest that starts before it is ready spends its whole step budget discovering that and then fails the cycle.")
+        }
+        $registrySettled = $result.Settled; $regProbes = $result.Probes; $regReason = $result.Reason; $regAnnounced = $result.Announced
+        if ($registrySettled -and $regAnnounced) {
+            $lines.Add("  Cache registry required-image path settled after $regProbes probe(s); continuing.")
+        } elseif ($result.Terminal) {
+            $suffix = if ($RequireRegistry) {
+                'Kubernetes guest work was not started.'
+            } else {
+                'Proceeding anyway because this sequence does not require the cache registry.'
+            }
+            $lines.Add("  Cache registry cannot serve Kubernetes guests, and waiting does not change that: $regReason. $suffix")
+        } elseif (-not $registrySettled) {
+            $suffix = if ($RequireRegistry) {
+                'Kubernetes guest work was not started.'
+            } else {
+                'Proceeding anyway because this sequence does not require the cache registry.'
+            }
+            $lines.Add("  Cache registry required-image path did not return success for $RequiredConsecutive consecutive probes within ${RegistryTimeoutSeconds}s (last: $regReason). $suffix")
+        }
+    } elseif ($RequireRegistry -and $settled) {
+        $registrySettled = $false
+        $lines.Add('  Cache registry readiness is required for Kubernetes guest work, but no positive registry wait budget was supplied. Kubernetes guest work was not started.')
+    }
+    $ready = $settled -and (-not $RequireRegistry -or $registrySettled -eq $true)
+    return @{ Ready = $ready; Settled = $settled; Consecutive = $consecutive; RegistrySettled = $registrySettled; Lines = $lines.ToArray() }
+}
+
+function Resolve-CachingProxyServiceEndpoint {
+    <#
+    .SYNOPSIS
+        Resolve the effective caching-proxy-service IP from the operator's two
+        sources by probing each, keeping the first whose HTTP proxy port
+        is reachable, and clearing the choice when none answers.
+    .DESCRIPTION
+        The runner accepts a caching-proxy service from two operator-controlled
+        sources, in priority order:
+          1. $Config.vmStart.cachingProxyIp -- persistent UI-edited key
+          2. $env:YURUNA_CACHING_PROXY_SERVICE_IP   -- session-scope env var,
+             probed only when the config candidate is absent or its
+             HTTP proxy port does not answer
+        Each candidate is validated as an IP (Test-IpAddress) and then
+        probed with the full Invoke-CachingProxyServiceProbe suite. The first
+        candidate whose HTTP proxy port (:3128) is reachable wins -- that
+        port is the only requirement the runner actually depends on
+        (guest installs route through it); the other probes (:3129 ssl-
+        bump, :3000 Grafana, :80 + CA cert) still run for operator
+        visibility but do not gate acceptance, so a barebones squid cache
+        is not rejected for lacking Grafana/ssl-bump.
+
+        When both sources are empty, EffectiveIp is '' and nothing is
+        probed -- the caller's local-discovery fallback runs unchanged.
+        When sources are set but none has a reachable :3128, EffectiveIp
+        is '' too, so the caller clears the env var and the same local-
+        discovery fallback applies. This "probe and clear" is the policy
+        the inner runner and Debug-TestSequence must share so a syntactically
+        valid but dead IP can't survive into guest cidata.
+    .PARAMETER EnvIp
+        Value of $env:YURUNA_CACHING_PROXY_SERVICE_IP (or ''), second priority:
+        probed only when ConfigIp is absent or fails its probe.
+    .PARAMETER ConfigIp
+        Value of $Config.vmStart.cachingProxyIp (or ''), highest priority.
+    .OUTPUTS
+        [hashtable] {
+            EffectiveIp = the accepted IP, or '' when none answered / none set
+            Probed      = [bool] whether any candidate was probed
+            Lines       = string[] console lines the caller prints verbatim
+        }
+    #>
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param(
+        [string]$EnvIp = '',
+        [string]$ConfigIp = ''
+    )
+    $envIpTrim    = if ($EnvIp)    { $EnvIp.Trim() }    else { '' }
+    $configIpTrim = if ($ConfigIp) { $ConfigIp.Trim() } else { '' }
+    $lines = [System.Collections.Generic.List[string]]::new()
+    # HttpPort rides back so a caller that wants to re-probe the accepted cache
+    # uses the port this resolution actually tested, instead of looking it up
+    # again and risking a different answer.
+    $result = @{ EffectiveIp = ''; Probed = $false; Lines = @(); HttpPort = (Get-CachingProxyServicePort -Scheme http) }
+    if (-not $envIpTrim -and -not $configIpTrim) { return $result }
+
+    $result.Probed = $true
+    $effectiveCacheIp = ''
+    foreach ($cand in @(
+        @{ Ip = $configIpTrim; Source = 'vmStart.cachingProxyIp'        }
+        @{ Ip = $envIpTrim;    Source = '$env:YURUNA_CACHING_PROXY_SERVICE_IP' }
+    )) {
+        if (-not $cand.Ip) { continue }
+        if (-not (Test-IpAddress $cand.Ip)) {
+            $lines.Add("Caching-proxy service '$($cand.Ip)' (source: $($cand.Source)): rejected -- not a valid IPv4 or IPv6 address.")
+            continue
+        }
+        $lines.Add('')
+        $lines.Add("== Probing caching-proxy service at $($cand.Ip) (source: $($cand.Source)) ==")
+        $probe = Invoke-CachingProxyServiceProbe -CacheIp $cand.Ip
+        foreach ($line in $probe.Lines) { $lines.Add($line) }
+        $lines.Add("  Summary: $($probe.PassCount) PASS, $($probe.WarnCount) WARN, $($probe.FailCount) FAIL")
+        if ($probe.HttpProxyReachable) {
+            $effectiveCacheIp = $cand.Ip
+            $result.HttpPort  = $probe.HttpPort
+            if ($probe.Success) {
+                $lines.Add("Caching-proxy service at $($cand.Ip) ACCEPTED (full probe suite passed).")
+            } else {
+                $lines.Add("Caching-proxy service at $($cand.Ip) ACCEPTED (HTTP proxy :$($probe.HttpPort) reachable; see WARN/FAIL above for the non-essential checks that did not pass).")
+            }
+            break
+        }
+        $lines.Add("Caching-proxy service at $($cand.Ip) REJECTED -- HTTP proxy :$($probe.HttpPort) not reachable.")
+    }
+    $result.EffectiveIp = $effectiveCacheIp
+    $result.Lines = $lines.ToArray()
+    return $result
+}
+
+function Get-PoolAggregatorServiceClaim {
+<#
+.SYNOPSIS
+    The deduped, ordered list of addresses that might be running the caching-proxy
+    service, each with the source that claimed it. Never throws.
+.DESCRIPTION
+    Split out so "is there any proxy to talk to at all?" can be answered without
+    probing. Wait-YurunaAggregatorReady needs exactly that distinction: an empty
+    list means this host runs no proxy, and there is nothing to wait for -- waiting
+    the full budget there would stall every standalone host that legitimately has
+    no aggregator.
+
+    An address carrying a quote or whitespace is dropped: the value lands inside a
+    single-quoted env line in a guest seed, and the next claim still gets its turn
+    rather than the seed being corrupted.
+.OUTPUTS
+    [System.Collections.Generic.List[hashtable]] of @{ Address; Source }.
+#>
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseOutputTypeCorrectly', '',
+        Justification = 'The `return ,$claims` idiom below is what makes the caller receive the declared List[hashtable]. Static analysis reads the comma as an [object[]] wrapper; at runtime the pipeline unwraps it and the caller gets the list, whose .Count every caller reads.')]
+    [CmdletBinding()]
+    [OutputType([System.Collections.Generic.List[hashtable]])]
+    param()
+
+    $stateIp = Get-CachingProxyServiceStateIp
+
+    $configIp = ''
+    try {
+        $configPath = $env:YURUNA_CONFIG_PATH
+        if ([string]::IsNullOrWhiteSpace($configPath)) {
+            $configPath = Join-Path (Split-Path -Parent $PSScriptRoot) 'test.config.yml'
+        }
+        if (Test-Path -LiteralPath $configPath) {
+            if (-not (Get-Command Read-TestConfig -ErrorAction SilentlyContinue)) {
+                Import-Module (Join-Path $PSScriptRoot 'Test.Config.psm1') -Global -Force -DisableNameChecking -Verbose:$false
+            }
+            $cfg = Read-TestConfig -Path $configPath
+            if ($cfg.vmStart -is [System.Collections.IDictionary] -and $cfg.vmStart.Contains('cachingProxyIp')) {
+                $configIp = "$($cfg.vmStart.cachingProxyIp)".Trim()
+            }
+        }
+    } catch { Write-Verbose "Get-PoolAggregatorServiceClaim: reading vmStart.cachingProxyIp failed: $($_.Exception.Message)" }
+
+    # Deduped: the same address commonly appears in two claims at once, and
+    # every distinct one costs a round trip to disprove.
+    $claims = [System.Collections.Generic.List[hashtable]]::new()
+    $seen   = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+    foreach ($claim in @(
+        @{ Address = $stateIp;                          Source = 'caching-proxy-service state'          }
+        @{ Address = "$($env:YURUNA_CACHING_PROXY_SERVICE_IP)"; Source = '$env:YURUNA_CACHING_PROXY_SERVICE_IP' }
+        @{ Address = $configIp;                         Source = 'vmStart.cachingProxyIp'       }
+    )) {
+        $address = "$($claim.Address)".Trim()
+        if ([string]::IsNullOrWhiteSpace($address)) { continue }
+        if ($address -match "['\s]") { continue }
+        if (-not $seen.Add($address)) { continue }
+        $claims.Add(@{ Address = $address; Source = $claim.Source })
+    }
+    # Comma: PowerShell would otherwise unroll a 1-item list to a bare hashtable
+    # and a 0-item list to $null, and every caller reads .Count.
+    return ,$claims
+}
+
+function Get-PoolAggregatorServiceSeedUrl {
+<#
+.SYNOPSIS
+    Resolves the pool-aggregator-service base URL (https://<proxy-ip>:9400) to bake
+    into a guest seed, e.g. the stash-service VM's presence-beacon destination.
+.DESCRIPTION
+    The aggregator runs inside the caching-proxy-service VM, so its address is the
+    caching-proxy service's -- and one host can carry three separate claims about
+    where that proxy is:
+
+      1. the persisted caching-proxy-service state (`ipAddress`), written only when
+         THIS host provisions, adopts, or stops a proxy VM of its own,
+      2. $env:YURUNA_CACHING_PROXY_SERVICE_IP, the session-scope override,
+      3. vmStart.cachingProxyIp, the persistent operator key naming a proxy
+         this host USES but did not provision -- the only claim a host whose
+         services all live elsewhere ever has.
+
+    Every claim is PROBED on the aggregator port and the first that answers
+    wins, which makes that order a preference among reachable addresses
+    rather than blind trust in the highest-ranked one. A claim outlives the
+    thing it describes: the state key keeps its last value on a host that
+    stopped running a proxy of its own, and an env var exported for a proxy
+    that has since moved keeps naming the old address. Believing either
+    unprobed strands every consumer on a URL nothing has served for months
+    while a live proxy sits in the claim right behind it -- and a guest seeded
+    from that answer carries the dead address for the life of the VM. This is
+    the probe-and-discard policy Resolve-CachingProxyServiceEndpoint applies to the
+    cycle's own resolution, so the two agree about which addresses are real.
+
+    The probe targets the aggregator port rather than squid's: this
+    function's entire output is an aggregator URL, so the port that proves
+    the answer is the port the answer names.
+
+    A stored claim that loses to a live one is repaired in place, so a stale
+    address costs one probe rather than every future call. A claim this host
+    never stored is left unstored -- that key means "the proxy VM I run", and
+    a host that merely uses someone else's must not begin claiming it.
+
+    https because a provisioned proxy mints the aggregator's TLS leaf in
+    cloud-init; a consumer facing an older plain-HTTP proxy downgrades per
+    attempt (the beacon's https-then-http candidate order), so the baked
+    scheme never strands it.
+
+    Returns '' when no claim answers -- the caller bakes an empty value and
+    the consuming service leaves its aggregator-dependent features off. The
+    value lands inside a single-quoted env line in the seed, so a claim
+    carrying a quote or whitespace is skipped (the next claim still gets its
+    turn) rather than corrupting the seed file.
+.PARAMETER MaxWaitSeconds
+    How long to keep re-probing when NO claim answers the first sweep, so a
+    momentary outage resolves to the right address instead of to ''. 0 (the
+    default) is a single bounded sweep: seed rendering and the pre-cycle
+    extension lookup both sit in front of a cycle and must not delay one.
+    Callers with an operator waiting on the answer -- where resolving ''
+    means a failed enrollment rather than a feature left off -- pass a real
+    budget.
+.OUTPUTS
+    [string] aggregator base URL, or ''.
+#>
+    [CmdletBinding(SupportsShouldProcess)]
+    [OutputType([string])]
+    param(
+        [int]$MaxWaitSeconds = 0
+    )
+    # The aggregator's LAN port: the one the host forwards among the proxy's
+    # service ports, and the one guest seeds beacon to.
+    $aggregatorPort = 9400
+
+    $claims = Get-PoolAggregatorServiceClaim
+    if ($claims.Count -eq 0) { return '' }
+
+    # Repeat calls inside one process -- a render that emits several guests, a
+    # cycle looking up more than one extension area -- must not re-pay the
+    # sweep. Only a resolved address is remembered: a caller that asks again
+    # with a wait budget is asking to keep trying, and a remembered '' would
+    # rob it of exactly that.
+    $claimKey = (($claims | ForEach-Object { $_.Address }) -join '|')
+    if ($script:PoolAggregatorServiceUrlMemo -and
+        $script:PoolAggregatorServiceUrlMemo.Key -eq $claimKey -and
+        $script:PoolAggregatorServiceUrlMemo.ExpiresUtc -gt [datetime]::UtcNow) {
+        return $script:PoolAggregatorServiceUrlMemo.Url
+    }
+
+    # Wall-clock deadline, not a round count: a probe's own duration swings
+    # with the failure shape (a refused connect returns at once, a black-holed
+    # address burns the full timeout), so counting rounds would make the same
+    # budget mean a different wait on every network.
+    $deadlineUtc = [datetime]::UtcNow.AddSeconds([Math]::Max(0, $MaxWaitSeconds))
+    $winner      = $null
+    $backoffMs   = 2000
+    $announced   = $false
+    while ($true) {
+        foreach ($candidate in $claims) {
+            # Two attempts: the first warms ARP and wakes a power-saved radio,
+            # so a live proxy still answers when the first one times out.
+            if (Test-TcpPortReachable -TargetHost $candidate.Address -Port $aggregatorPort -Attempts 2 -TimeoutMs 600 -BackoffMs 150) {
+                $winner = $candidate
+                break
+            }
+            Write-Verbose "Get-PoolAggregatorServiceSeedUrl: $($candidate.Address):$aggregatorPort (source: $($candidate.Source)) did not answer."
+        }
+        if ($winner) { break }
+        $remainingMs = [int][Math]::Floor(($deadlineUtc - [datetime]::UtcNow).TotalMilliseconds)
+        if ($remainingMs -le 0) { break }
+        if (-not $announced) {
+            Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_4a1078b8b01b3640' -Arguments @{ aggregatorPort = "$aggregatorPort"; replace = "$($claimKey -replace '\|', ', ')"; maxWaitSeconds = "$MaxWaitSeconds" }) -InformationAction Continue
+            $announced = $true
+        }
+        Start-Sleep -Milliseconds ([Math]::Min($backoffMs, $remainingMs))
+        # Widen the gap so a long outage is not hammered, capped so a proxy
+        # that does come back is noticed within seconds of doing so.
+        $backoffMs = [Math]::Min(15000, $backoffMs * 2)
+    }
+    if (-not $winner) { return '' }
+
+    # The stored address the repair below decides on. Read here rather than
+    # taken from the claim list: that list holds only the addresses that
+    # survived its filters, and labels them with a display string, whereas
+    # what a repair turns on is the state key's own value. The read is off
+    # the hot path -- a winner exists, so the probes above already ran, and
+    # the resolution is memoized below.
+    $stateIp = Get-CachingProxyServiceStateIp
+
+    # See https://yuruna.link/4213a0b3-0029
+    if ($stateIp -and $stateIp -ne $winner.Address -and
+        $PSCmdlet.ShouldProcess((Format-YurunaOperatorMessage -Key 'runner.operator_78b4ffefb2c4b66c' -Arguments @{ stateIp = "$stateIp" }), (Format-YurunaOperatorMessage -Key 'runner.operator_f89c2e068682b179' -Arguments @{ address = "$($winner.Address)" }))) {
+        try {
+            [void](Save-CachingProxyServiceState -IpAddress $winner.Address -Confirm:$false)
+            Write-Verbose "Get-PoolAggregatorServiceSeedUrl: caching-proxy-service state ipAddress $stateIp -> $($winner.Address) (the stored address did not answer)."
+        } catch {
+            Write-Verbose "Get-PoolAggregatorServiceSeedUrl: could not update the caching-proxy-service state ($($_.Exception.Message)); the resolved address is unaffected."
+        }
+    }
+
+    # Format-IpUrlHost (Test.VMUtility) brackets an IPv6 literal; callers that
+    # haven't loaded that module still get a correct IPv4 URL from the raw IP.
+    $urlHost = if (Get-Command Format-IpUrlHost -ErrorAction SilentlyContinue) { Format-IpUrlHost $winner.Address } else { $winner.Address }
+    $url = "https://${urlHost}:${aggregatorPort}"
+    $script:PoolAggregatorServiceUrlMemo = @{ Key = $claimKey; Url = $url; ExpiresUtc = [datetime]::UtcNow.AddSeconds(60) }
+    return $url
+}
+
+function Wait-YurunaAggregatorReady {
+<#
+.SYNOPSIS
+    Blocks until the pool-aggregator service is serving AND its base URL resolves,
+    or a timeout expires. Returns $true/$false; never throws.
+.DESCRIPTION
+    Gates every caller that is about to BAKE the aggregator URL into a guest seed.
+
+    Get-PoolAggregatorServiceSeedUrl is probe-and-discard by design: asked before
+    :9400 answers, it returns '' -- correctly, since a dead address must never be
+    baked in. But the seed then carries an empty URL, and both guests' presence
+    beacons refuse to start without one (Enabled() requires a non-empty
+    AggregatorURL; Run() returns immediately). The beacons retry their FIRST hello
+    forever, so a late-but-present aggregator self-heals -- an empty URL is never
+    re-resolved. The failure is therefore permanent, and silent: the VM is healthy,
+    the service serves, and only the dashboard row is missing.
+
+    The window is routine rather than rare. The aggregator is compiled from source
+    inside the proxy guest and enabled near the end of runcmd, while
+    Start-CachingProxyServiceVM reports success on a probe suite that does not
+    include :9400 -- so "the proxy is ready" is regularly true minutes before the
+    aggregator exists, which is exactly when an operator starts the next VM.
+
+    Two conditions, in order:
+
+      1. GET <base>/healthz answers 2xx. That route is open and unauthenticated by
+         design (alongside /metrics and /api/v1/pool-status), so no credential is
+         needed. It is strictly stronger than a TCP connect: a hypervisor
+         port-forward accepts the connection whether or not the guest is listening
+         behind it, which would make a port probe pass minutes early.
+      2. Get-PoolAggregatorServiceSeedUrl returns non-empty -- the exact value the
+         caller is about to bake, so the gate tests the real precondition rather
+         than a proxy for it.
+
+    A delay would not do: too short on a slow host, wasted on a fast one, and still
+    silently wrong when it guessed. This signal is exact, and the only place machine
+    speed matters is the timeout.
+.PARAMETER ProxyAddress
+    Address to poll. Omitted (the default), the resolver's own claim resolution
+    supplies it -- which is what the New-VM callers need, holding no address of
+    their own. TLS verification is off for this probe: the leaf is the proxy's
+    self-signed CA, and this is a liveness check, matching the beacon's posture.
+.PARAMETER TimeoutSeconds
+    Total budget. The default 15 minutes covers a slow in-guest Go build with
+    margin; that build, not the caller, is what bounds the wait.
+.PARAMETER PollSeconds
+    Gap between attempts.
+.OUTPUTS
+    [bool] $true when the aggregator is ready to be baked into a seed.
+#>
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param(
+        [string]$ProxyAddress = '',
+        [int]$TimeoutSeconds = 900,
+        [int]$PollSeconds = 5
+    )
+
+    $aggregatorPort = 9400
+    # An explicit -TimeoutSeconds always wins; the env var is for the call sites
+    # that pass none (the six New-VM renderers), matching the tuning knob
+    # Start-PoolControlServiceVM already offers for its own :80 wait. A
+    # non-numeric or negative value is ignored rather than fatal: this runs in
+    # front of VM creation and must not fail on a typo'd variable.
+    if (-not $PSBoundParameters.ContainsKey('TimeoutSeconds') -and $env:YURUNA_AGGREGATOR_READY_TIMEOUT_SECONDS) {
+        $parsed = 0
+        if ([int]::TryParse($env:YURUNA_AGGREGATOR_READY_TIMEOUT_SECONDS, [ref]$parsed) -and $parsed -ge 0) { $TimeoutSeconds = $parsed }
+        else { Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_6e36ede919616409' -Arguments @{ sECONDS = "$($env:YURUNA_AGGREGATOR_READY_TIMEOUT_SECONDS)"; timeoutSeconds = "$TimeoutSeconds" }) }
+    }
+    if ($TimeoutSeconds -lt 0) { $TimeoutSeconds = 0 }
+    if ($PollSeconds -lt 1) { $PollSeconds = 1 }
+
+    # Nothing claims to run a proxy: this host has no aggregator, and there is
+    # nothing to wait for. Returning at once keeps a standalone host -- which
+    # legitimately seeds an empty URL and leaves the beacon off -- from stalling
+    # for the whole budget on every VM it creates.
+    if (-not $ProxyAddress -and (Get-PoolAggregatorServiceClaim).Count -eq 0) {
+        Write-Verbose 'Wait-YurunaAggregatorReady: no caching-proxy service is configured on this host; not waiting.'
+        return $false
+    }
+
+    # https first, then plain http: a proxy provisioned before the aggregator's
+    # TLS leaf existed serves this route in the clear, and the beacon downgrades
+    # the same way. Trying only https would strand exactly those hosts.
+    $healthzOk = {
+        param([string]$BaseUrl)
+        foreach ($candidate in @($BaseUrl, ($BaseUrl -replace '^https://', 'http://')) | Select-Object -Unique) {
+            try {
+                $response = Invoke-WebRequest -Uri "$($candidate.TrimEnd('/'))/healthz" -TimeoutSec 5 -NoProxy `
+                    -SkipCertificateCheck -SkipHttpErrorCheck -ErrorAction Stop
+                if ([int]$response.StatusCode -ge 200 -and [int]$response.StatusCode -lt 300) { return $true }
+                Write-Verbose "Wait-YurunaAggregatorReady: $candidate/healthz answered $($response.StatusCode)."
+            } catch {
+                Write-Verbose "Wait-YurunaAggregatorReady: $candidate/healthz did not answer: $($_.Exception.Message)"
+            }
+        }
+        return $false
+    }
+
+    $startedUtc  = [datetime]::UtcNow
+    $deadlineUtc = $startedUtc.AddSeconds($TimeoutSeconds)
+    $lastReport  = $startedUtc
+    $announced   = $false
+
+    while ($true) {
+        # Resolved every round, not once: before the aggregator answers this is ''
+        # by design, and the whole point of waiting is that it stops being ''.
+        # Only a SUCCESSFUL resolution is memoized, so re-asking is not defeated
+        # by a cached failure.
+        $baseUrl = if ($ProxyAddress) {
+            $urlHost = ConvertTo-CachingProxyUrlHost -Address $ProxyAddress
+            "https://${urlHost}:${aggregatorPort}"
+        } else {
+            Get-PoolAggregatorServiceSeedUrl
+        }
+
+        if ($baseUrl -and (& $healthzOk $baseUrl)) {
+            # healthz answering is not sufficient when an explicit address was
+            # given: the resolver picks from its OWN claims (service state, env,
+            # vmStart.cachingProxyIp), so it can still come back empty for an
+            # aggregator that is plainly serving. Report that precisely -- it is a
+            # configuration gap, and no amount of further waiting fixes it.
+            $seedUrl = Get-PoolAggregatorServiceSeedUrl
+            if ($seedUrl) {
+                $elapsed = [int]([datetime]::UtcNow - $startedUtc).TotalSeconds
+                Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_4a0a1391ff35b7ce' -Arguments @{ seedUrl = "$seedUrl"; elapsed = "${elapsed}" }) -InformationAction Continue
+                return $true
+            }
+            if ($ProxyAddress) {
+                Write-Warning ((Format-YurunaOperatorMessage -Key 'runner.operator_e2c15f417bac228f' -Arguments @{ baseUrl = "$baseUrl"; proxyAddress = "$ProxyAddress" }))
+                return $false
+            }
+        }
+
+        $remainingMs = [int][Math]::Floor(($deadlineUtc - [datetime]::UtcNow).TotalMilliseconds)
+        if ($remainingMs -le 0) { break }
+
+        if (-not $announced) {
+            $where = if ($ProxyAddress) { "$ProxyAddress" } else { 'the configured caching-proxy service' }
+            Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_decd1af5026954d6' -Arguments @{ where = "${where}"; aggregatorPort = "$aggregatorPort"; timeoutSeconds = "$TimeoutSeconds" }) -InformationAction Continue
+            $announced = $true
+        }
+        # Every 30 s, so a long wait reads as work rather than as a hang.
+        if (([datetime]::UtcNow - $lastReport).TotalSeconds -ge 30) {
+            $mins = [Math]::Round(([datetime]::UtcNow - $startedUtc).TotalMinutes, 1)
+            Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_fa266442ac782dfe' -Arguments @{ mins = "$mins" }) -InformationAction Continue
+            $lastReport = [datetime]::UtcNow
+        }
+        Start-Sleep -Milliseconds ([Math]::Min($PollSeconds * 1000, $remainingMs))
+    }
+
+    Write-Warning ((Format-YurunaOperatorMessage -Key 'runner.operator_300e4e9499987ed4' -Arguments @{ timeoutSeconds = "$TimeoutSeconds" }))
+    return $false
+}
+
+function Get-PoolConfigurationSeedUrl {
+<#
+.SYNOPSIS
+    Resolves the pool-configuration git URL to bake into the pool-control-service VM seed.
+.DESCRIPTION
+    The pool-control-service daemon COMMITS to this store, so the resolution prefers a
+    writable location:
+
+      1. An explicit networkStorage/pool `configurationGitUrl` in test.config.yml. The
+         operator said what they want; nothing overrides it -- with one
+         exception. The read-only proxy route (`http://<host>/pool-configuration.git`)
+         is what Set-LabToken seeds into that same key so RUNNERS can pull
+         configuration. It is not a request for this daemon to be read-only, and
+         honoring it here would give the service a store every push fails
+         against, so it yields to option 2 whenever the writable mount exists.
+      2. The bare repo on the pool NAS, addressed by its GUEST mount path. The
+         pool-control-service VM and the caching-proxy-service both mount that share read-write,
+         so it is the one place the daemon can push to without a new credential
+         or a new authenticated endpoint. The guest bring-up creates and seeds
+         the repo when it is absent.
+      3. The proxy's read-only HTTP route, when no pool storage is configured.
+         This is a DEGRADED answer and is returned last on purpose: apache
+         publishes the repo through a plain Alias, so a clone works and every
+         push fails. It leaves the UI able to display configuration rather than
+         nothing at all.
+
+    Returns '' when none resolve, which the seed bakes as an empty value; the
+    guest then reports the reason on its diagnostics page rather than guessing.
+.PARAMETER Config
+    Parsed test.config.yml, or $null.
+.PARAMETER GuestPoolMount
+    Mount point the pool-control-service guest uses for the pool NAS. Matches MOUNT in
+    guest/ubuntu.server.26/ubuntu.server.26.pool-control-service.sh.
+.OUTPUTS
+    [string] configuration git URL, or ''.
+#>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param(
+        $Config,
+        [string]$GuestPoolMount = '/mnt/yuruna-pool'
+    )
+    $configured = ''
+    if ($Config -and $Config.pool -and -not [string]::IsNullOrWhiteSpace([string]$Config.pool.configurationGitUrl)) {
+        $configured = ([string]$Config.pool.configurationGitUrl).Trim()
+    }
+    # Pool storage configured => the guest will mount it and can host the store.
+    $hasPoolStorage = $false
+    if ($Config -and $Config.networkStorage -and -not [string]::IsNullOrWhiteSpace([string]$Config.networkStorage.poolStorageNetworkPath)) {
+        $hasPoolStorage = $true
+    }
+    if ($configured) {
+        # One exception to "the operator said what they want": the read-only
+        # http route that Set-LabToken seeds for RUNNERS. It is the right value
+        # for a host that only pulls configuration, and the wrong one here -- this
+        # daemon COMMITS, and every push to an apache Alias fails. When the
+        # writable pool mount exists, use it; the seeded value is a runner
+        # binding that happens to live in the same config key, not a choice to
+        # make this service read-only.
+        if ($hasPoolStorage -and $configured -match '^https?://[^/]+/pool-(configuration|intent)\.git$') {
+            Write-Verbose "Get-PoolConfigurationSeedUrl: pool.configurationGitUrl ($configured) is the read-only proxy route; the pool-control service needs a writable store, using the pool mount instead."
+        } else {
+            return $configured
+        }
+    }
+    if ($hasPoolStorage) {
+        return ("{0}/pool-configuration.git" -f $GuestPoolMount.TrimEnd('/'))
+    }
+    # Last resort: the proxy's pull-only route, so the UI at least reads.
+    $ip = Get-CachingProxyServiceStateIp
+    if ([string]::IsNullOrWhiteSpace($ip) -and $env:YURUNA_CACHING_PROXY_SERVICE_IP) {
+        $ip = $env:YURUNA_CACHING_PROXY_SERVICE_IP.Trim()
+    }
+    if ([string]::IsNullOrWhiteSpace($ip)) { return '' }
+    # The value lands in an unquoted seed env line the guest sed-extracts, so a
+    # quote or whitespace would corrupt it.
+    if ($ip -match "['\s]") { return '' }
+    $urlHost = ConvertTo-CachingProxyUrlHost -Address $ip
+    return "http://${urlHost}/pool-configuration.git"
+}
+
+function Sync-PoolConfigurationAliasOnProxy {
+<#
+.SYNOPSIS
+    Points the caching-proxy service's read-only pool-configuration route at the pool NAS
+    store, so runners pull the same bytes the pool-control service UI writes.
+.DESCRIPTION
+    A proxy-LOCAL bare repo is not an option: the pool-control-service daemon
+    (on its own VM) cannot push to one. Both boxes mount the pool NAS
+    read-write, so the store lives there and apache serves it -- one store, no
+    mirroring, no divergence between what an operator writes and what a runner
+    pulls.
+
+    This runs from the HOST, not from the pool-control-service VM: the host already
+    holds the harness SSH key, while a guest carries only an authorized PUBLIC
+    key. Doing it guest-side would mean baking a private key that grants
+    sudo-capable access to the proxy into a web-facing VM.
+
+    Idempotent and non-destructive:
+      * refuses unless the NAS store is a real bare repo, so a failed seeding
+        can never repoint apache at a missing path and 404 every runner;
+      * no-ops when the alias already names that path;
+      * backs the conf up, runs `apache2ctl configtest`, and RESTORES the
+        previous conf if the new one is rejected -- a bad edit never leaves the
+        proxy unable to reload.
+
+    Best-effort by contract: it reports rather than throws, because a bring-up
+    must not fail over a serving-path optimization.
+.PARAMETER ProxyAddress
+    Proxy host/IP. Resolved from the persisted caching-proxy-service state (then
+    $env:YURUNA_CACHING_PROXY_SERVICE_IP) when omitted.
+.PARAMETER StorePath
+    Bare repo path AS THE PROXY SEES IT. The proxy mounts the pool NAS at
+    /mnt/ypool-nas; the pool-control-service VM mounts the same share at
+    /mnt/yuruna-pool, so the two paths differ by design.
+.PARAMETER User
+    SSH login on the proxy. Defaults to the seed-created service account.
+.OUTPUTS
+    [hashtable] Ok (bool), Changed (bool), Message (string).
+#>
+    [CmdletBinding(SupportsShouldProcess)]
+    [OutputType([hashtable])]
+    param(
+        [string]$ProxyAddress,
+        [string]$StorePath = '/mnt/ypool-nas/pool-configuration.git',
+        [string]$User = 'caching-proxy-service-admin',
+        [int]$TimeoutSeconds = 60
+    )
+    if ([string]::IsNullOrWhiteSpace($ProxyAddress)) {
+        $ProxyAddress = Get-CachingProxyServiceStateIp
+        if ([string]::IsNullOrWhiteSpace($ProxyAddress) -and $env:YURUNA_CACHING_PROXY_SERVICE_IP) {
+            $ProxyAddress = $env:YURUNA_CACHING_PROXY_SERVICE_IP.Trim()
+        }
+    }
+    if ([string]::IsNullOrWhiteSpace($ProxyAddress)) {
+        return @{ Ok = $false; Changed = $false; Message = (Format-YurunaOperatorMessage -Key 'runner.operator_874c18fbb1148415') }
+    }
+    if (-not (Get-Command 'Test.Ssh\Invoke-GuestSsh' -ErrorAction SilentlyContinue)) {
+        return @{ Ok = $false; Changed = $false; Message = (Format-YurunaOperatorMessage -Key 'runner.operator_91ee4b39a7ef4280') }
+    }
+    # A path carrying a quote would break out of the single-quoted shell
+    # assignment below and run as code on the proxy.
+    if ($StorePath -match "['`"\s]") {
+        return @{ Ok = $false; Changed = $false; Message = (Format-YurunaOperatorMessage -Key 'runner.operator_4833cf9ae009beb5' -Arguments @{ storePath = "$StorePath" }) }
+    }
+    if (-not $PSCmdlet.ShouldProcess($ProxyAddress, (Format-YurunaOperatorMessage -Key 'runner.operator_68683a605e32c8b4' -Arguments @{ storePath = "$StorePath" }))) {
+        return @{ Ok = $true; Changed = $false; Message = (Format-YurunaOperatorMessage -Key 'runner.operator_a02e9e2eb3f772d8') }
+    }
+
+    # Single-quoted here-string: PowerShell must not touch $STORE/$CONF, which
+    # are SHELL variables. The store path is injected by literal replace.
+    $script = @'
+set -u
+STORE='__STORE__'
+CONF=/etc/apache2/conf-available/yuruna-pool-configuration.conf
+CANONICAL_ENABLED=/etc/apache2/conf-enabled/yuruna-pool-configuration.conf
+LEGACY_ENABLED=/etc/apache2/conf-enabled/yuruna-pool-intent.conf
+if [ ! -d "$STORE/refs" ]; then echo "SKIP: no bare repo at $STORE"; exit 0; fi
+if [ -r "$CONF" ] && [ -e "$CANONICAL_ENABLED" ] && [ ! -e "$LEGACY_ENABLED" ] &&
+   grep -qxF "Alias /pool-configuration.git $STORE" "$CONF" &&
+   grep -qxF "Alias /pool-intent.git $STORE" "$CONF"; then
+  echo "OK: alias already serves $STORE"; exit 0
+fi
+had_conf=0
+canonical_enabled=0
+legacy_enabled=0
+if [ -e "$CANONICAL_ENABLED" ]; then canonical_enabled=1; fi
+if [ -e "$LEGACY_ENABLED" ]; then legacy_enabled=1; fi
+if [ -e "$CONF" ]; then
+  sudo cp -p "$CONF" "$CONF.bak" || exit 1
+  had_conf=1
+fi
+restore_alias_configuration() {
+  if [ "$had_conf" -eq 1 ]; then sudo cp -p "$CONF.bak" "$CONF"; else sudo rm -f "$CONF"; fi
+  if [ "$canonical_enabled" -eq 0 ]; then sudo a2disconf yuruna-pool-configuration >/dev/null 2>&1; fi
+  if [ "$legacy_enabled" -eq 1 ]; then sudo a2enconf yuruna-pool-intent >/dev/null 2>&1; fi
+}
+# Both routes serve one store so existing runner URLs keep their meaning.
+if printf 'Alias /pool-configuration.git %s\nAlias /pool-intent.git %s\n<Directory %s>\n    Options +Indexes\n    Require ip 127.0.0.1\n    Require ip 10.0.0.0/8\n    Require ip 172.16.0.0/12\n    Require ip 192.168.0.0/16\n</Directory>\n' "$STORE" "$STORE" "$STORE" | sudo tee "$CONF" >/dev/null &&
+   sudo a2enconf yuruna-pool-configuration >/dev/null 2>&1 &&
+   { [ "$legacy_enabled" -eq 0 ] || sudo a2disconf yuruna-pool-intent >/dev/null 2>&1; } &&
+   sudo apache2ctl configtest 2>&1 | grep -qi 'syntax ok'; then
+  if sudo systemctl reload apache2; then
+    echo "CHANGED: /pool-configuration.git -> $STORE"
+    exit 0
+  fi
+fi
+restore_alias_configuration
+echo "FAILED: apache configuration or reload failed; restored the previous configuration" >&2
+exit 1
+'@.Replace('__STORE__', $StorePath)
+
+    $r = $null
+    try {
+        $r = Test.Ssh\Invoke-GuestSsh -VMName $ProxyAddress -GuestKey 'guest.caching-proxy-service' -User $User -Command $script -TimeoutSeconds $TimeoutSeconds
+    } catch {
+        return @{ Ok = $false; Changed = $false; Message = "ssh to ${User}@${ProxyAddress} failed: $($_.Exception.Message)" }
+    }
+    $out = if ($r) { [string]$r.output } else { '' }
+    return @{
+        Ok      = [bool]($r -and $r.success)
+        Changed = ($out -match 'CHANGED:')
+        Message = if ([string]::IsNullOrWhiteSpace($out)) { "ssh exit $($r.exitCode)" } else { $out.Trim() }
+    }
+}
+
+# --- REGION: CA cert
+function Get-CachingProxyServiceCaPem {
+    <#
+    .SYNOPSIS
+        Fetches the proxy CA directly and decodes UTF-8 response bytes consistently.
+    .PARAMETER Url
+        The CA endpoint.
+    .PARAMETER TimeoutSec
+        The bounded request timeout.
+    .PARAMETER Response
+        Optional response reference for diagnostic status reporting.
+    #>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param([Parameter(Mandatory)][string]$Url, [int]$TimeoutSec = 5, [ref]$Response)
+    $reply = Invoke-WebRequest -Uri $Url -UseBasicParsing -NoProxy -TimeoutSec $TimeoutSec -ErrorAction Stop
+    if ($Response) { $Response.Value = $reply }
+    if ($reply.StatusCode -ne 200 -or $reply.RawContentLength -le 0) { return '' }
+    if ($reply.Content -is [byte[]]) { return [Text.UTF8Encoding]::new($false, $true).GetString($reply.Content) }
+    return [string]$reply.Content
+}
+
+function Get-CachingProxyServiceStateIp {
+    <# .SYNOPSIS
+        Reads and trims the persisted address without throwing on bad state.
+    #>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param()
+    try { return ([string](Read-CachingProxyServiceState).ipAddress).Trim() }
+    catch { Write-Verbose "caching-proxy-service state: $($_.Exception.Message)"; return '' }
+}
+
+function ConvertTo-CachingProxyUrlHost {
+    <# .SYNOPSIS
+        Formats validated IPv4 and IPv6 addresses using the shared URL authority.
+    .PARAMETER Address
+        The address to format.
+    #>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param([Parameter(Mandatory)][string]$Address)
+    if (-not (Get-Command Format-IpUrlHost -ErrorAction SilentlyContinue)) {
+        Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Common.psm1') -Global -Force
+    }
+    return Format-IpUrlHost $Address.Trim()
+}
+
+function Test-CachingProxyServiceCaPem {
+    <#
+    .SYNOPSIS
+        True when $Pem is a well-formed X.509 certificate in PEM form.
+    .DESCRIPTION
+        Guards every path that would bake or serve a CA: a truncated or
+        garbage blob must never be installed (it would fail
+        update-ca-certificates in the guest, or worse install a junk anchor)
+        nor served as if valid. Decodes the base64 DER between the PEM markers
+        and constructs an X509Certificate2 -- feeding the PEM text straight to
+        [X509Certificate2]::new works on Windows but fails on macOS (its
+        backend expects DER), so the DER extraction is mandatory for a
+        host-agnostic check.
+    #>
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param([string]$Pem)
+    if ([string]::IsNullOrWhiteSpace($Pem)) { return $false }
+    if ($Pem -notmatch '-----BEGIN CERTIFICATE-----' -or $Pem -notmatch '-----END CERTIFICATE-----') { return $false }
+    try {
+        $certificate = ConvertFrom-YurunaPemCertificate -Pem $Pem
+        $certificate.Dispose()
+        return $true
+    } catch {
+        Write-Verbose "Test-CachingProxyServiceCaPem: X509 parse failed: $($_.Exception.Message)"
+        return $false
+    }
+}
+
+function Get-CachingProxyServiceCaCertBase64 {
+    <#
+    .SYNOPSIS
+        Resolves the caching-proxy-service CA (base64 of PEM) for a guest seed, with a
+        last-good persisted fallback so a proxy flap during this guest's
+        provisioning window does not strand it CA-less.
+    .DESCRIPTION
+        Shared by every ubuntu.server New-VM across the three host platforms.
+        Order: (1) live-fetch http://<host>/yuruna-squid-ca.crt off the cache's
+        own Apache :80 under the shared capped-backoff retry, -NoProxy so a
+        stale host proxy env can't route the trust-bootstrap request; on success
+        persist it (keyed by -CacheHost) and return it. (2) On exhaustion fall
+        back to the persisted CA, but only when it was saved for the SAME
+        -CacheHost and still parses as X509 -- a mismatched or corrupt fallback
+        is refused so one cache's CA is never baked against another's bump.
+        Exhausted=$true means neither source yielded a usable CA; the caller
+        (New-VM) treats "proxy URL present => CA mandatory" as a hard-fail rather
+        than booting a guest that would hit curl rc=60 on every HTTPS. See
+        feedback_sslbump_rc60_untrusted_chain_and_ca_gate_trap and
+        project_sslbump_ca_gating_durable_fix.
+    .OUTPUTS
+        [hashtable] @{ CaCertBase64 [string]; Source 'live'|'persisted'|'none'; Exhausted [bool] }
+    #>
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param(
+        [Parameter(Mandatory)][string]$CacheCaUrl,
+        [Parameter(Mandatory)][string]$CacheHost,
+        [int]$MaxAttempts = 5
+    )
+    if (-not (Get-Command Invoke-WithYurunaRetry -ErrorAction SilentlyContinue)) {
+        $retryModule = Join-Path (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)) 'automation/Yuruna.Retry.psm1'
+        Import-Module -Name $retryModule -Global -Force -ErrorAction Stop
+    }
+    # Capture into a local so the retry scriptblock closes over it explicitly.
+    $caUrl = $CacheCaUrl
+    $caFetch = Invoke-WithYurunaRetry -Label (Format-YurunaOperatorMessage -Key 'runner.operator_27791792c952ec05') -MaxAttempts $MaxAttempts -InitialDelaySeconds 3 -MaxDelaySeconds 20 -ScriptBlock {
+        $caResp = $null
+        $caPem = Get-CachingProxyServiceCaPem -Url $caUrl -TimeoutSec 10 -Response ([ref]$caResp)
+        if (-not $caPem) {
+            throw (Format-YurunaOperatorMessage -Key 'exceptions.runner_2b1a4abe77bcd371' -Arguments @{ statusCode = "$($caResp.StatusCode)"; rawContentLength = "$($caResp.RawContentLength)" })
+        }
+        if (-not (Test-CachingProxyServiceCaPem -Pem $caPem)) { throw (Format-YurunaOperatorMessage -Key 'exceptions.runner_6305b986d1a90039') }
+        [Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes($caPem))
+    }
+    if ($caFetch.Success) {
+        $b64 = [string]($caFetch.LastOutput | Select-Object -Last 1)
+        try { $null = Save-CachingProxyServiceState -CaCert $b64 -CaCertSourceHost $CacheHost -Confirm:$false }
+        catch { Write-Verbose "Get-CachingProxyServiceCaCertBase64: persist failed (non-fatal): $($_.Exception.Message)" }
+        return @{ CaCertBase64 = $b64; Source = 'live'; Exhausted = $false }
+    }
+    # Live fetch exhausted -- try the last-good persisted CA, but only for the
+    # same cache host and only if it still parses.
+    Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_3172f88b4ea9f8eb' -Arguments @{ attempts = "$($caFetch.Attempts)"; message = "$($caFetch.LastError.Exception.Message)" })
+    $state = Read-CachingProxyServiceState
+    if ($state.caCert -and $state.caCertSourceHost -eq $CacheHost) {
+        try {
+            $pem = [System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String([string]$state.caCert))
+            if (Test-CachingProxyServiceCaPem -Pem $pem) {
+                Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_fcf2add51fb533eb' -Arguments @{ cacheHost = "$CacheHost" })
+                return @{ CaCertBase64 = [string]$state.caCert; Source = 'persisted'; Exhausted = $false }
+            }
+        } catch { Write-Verbose "Get-CachingProxyServiceCaCertBase64: persisted CA decode failed: $($_.Exception.Message)" }
+    }
+    return @{ CaCertBase64 = ''; Source = 'none'; Exhausted = $true }
+}
+
+function Resolve-CachingProxyServiceCaCertPem {
+    <#
+    .SYNOPSIS
+        Resolves the caching-proxy-service CA as PEM text for the host status service's
+        /ca.crt endpoint (guest CA self-heal). Live-read first so the CURRENT
+        cache's CA is always served, sidestepping the stale-after-rebuild trap;
+        the persisted CA is only a labeled last resort.
+    .DESCRIPTION
+        Resolution order: current cache host = $env:YURUNA_CACHING_PROXY_SERVICE_IP else
+        Read-CachingProxyServiceState().ipAddress. If known, live-read
+        http://<host>/yuruna-squid-ca.crt -NoProxy and return it when it parses
+        as X509 (Source='live'). Otherwise fall back to the persisted base64 CA,
+        decoded and re-validated (Source='persisted'). '' with Source='none'
+        when neither yields a usable CA -- the endpoint then 404s so the guest
+        degrades to a diagnosed rc=60 rather than a silent 443 relaxation.
+    .OUTPUTS
+        [hashtable] @{ Pem [string]; Source 'live'|'persisted'|'none' }
+    #>
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param([int]$LiveTimeoutSeconds = 5)
+    $state = Read-CachingProxyServiceState
+    $cacheHost = if ($env:YURUNA_CACHING_PROXY_SERVICE_IP) { $env:YURUNA_CACHING_PROXY_SERVICE_IP.Trim() } else { [string]$state.ipAddress }
+    if ($cacheHost) {
+        $urlHost = ConvertTo-CachingProxyUrlHost -Address $cacheHost
+        try {
+            $pem = Get-CachingProxyServiceCaPem -Url "http://$urlHost/yuruna-squid-ca.crt" -TimeoutSec $LiveTimeoutSeconds
+            if ($pem -and (Test-CachingProxyServiceCaPem -Pem $pem)) { return @{ Pem = $pem; Source = 'live' } }
+        } catch { Write-Verbose "Resolve-CachingProxyServiceCaCertPem: live read of $urlHost failed: $($_.Exception.Message)" }
+    }
+    $persistedHost = [string]$state.caCertSourceHost
+    if ($state.caCert -and $cacheHost -and $persistedHost -and $cacheHost -eq $persistedHost) {
+        try {
+            $pem = [System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String([string]$state.caCert))
+            if (Test-CachingProxyServiceCaPem -Pem $pem) { return @{ Pem = $pem; Source = 'persisted' } }
+        } catch { Write-Verbose "Resolve-CachingProxyServiceCaCertPem: persisted CA decode failed: $($_.Exception.Message)" }
+    }
+    return @{ Pem = ''; Source = 'none' }
+}
+
+Export-ModuleMember -Function Get-CachingProxyServiceStatePath, Read-CachingProxyServiceState, Save-CachingProxyServiceState, Test-TcpPortReachable, Invoke-CachingProxyServiceProbe, Test-SequenceRequiresCacheRegistry, Test-CachingProxyRegistryReady, Wait-CachingProxyServiceSettled, Resolve-CachingProxyZotOverride, Get-CachingProxyZotSelfTestReport, Wait-CachingProxyZotSelfTest, Resolve-CachingProxyServiceEndpoint, Get-PoolAggregatorServiceSeedUrl, Wait-YurunaAggregatorReady, Get-PoolConfigurationSeedUrl, Sync-PoolConfigurationAliasOnProxy, Test-CachingProxyServiceCaPem, Get-CachingProxyServiceCaCertBase64, Resolve-CachingProxyServiceCaCertPem

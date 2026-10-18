@@ -1,0 +1,94 @@
+<#PSScriptInfo
+.VERSION 2026.10.14
+.GUID 42b7a403-f88e-4a99-bea6-e01180846f3b
+.AUTHOR Alisson Sol et al.
+.COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
+.TAGS yuruna test host
+.LICENSEURI https://yuruna.link/license
+.PROJECTURI https://yuruna.com
+.ICONURI
+.EXTERNALMODULEDEPENDENCIES
+.REQUIREDSCRIPTS
+.EXTERNALSCRIPTDEPENDENCIES
+.RELEASENOTES
+.PRIVATEDATA
+#>
+
+#requires -version 7
+
+Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
+
+
+# Yuruna.Host bootstrap: imports the matching host driver
+# (host/<host>/modules/Yuruna.Host.psm1) into the runner's session so
+# every test/ caller resolves the New-VM / Start-VM / Stop-VM / Get-VM /
+# Remove-VM contract without a HostType branch. Also pulls in the
+# Test.Host{Detection,Condition,Git} siblings with -Global so importing
+# THIS module alone gives a caller the full Test.Host* surface area.
+
+# See https://yuruna.link/4213a0b3-0063
+foreach ($mod in @('Test.HostDetection.psm1','Test.HostCondition.psm1','Test.HostGit.psm1')) {
+    $p = Join-Path $PSScriptRoot $mod
+    if ((Test-Path $p) -and -not (Get-Module -Name ([System.IO.Path]::GetFileNameWithoutExtension($mod)))) {
+        Import-Module $p -Global -DisableNameChecking
+    }
+}
+
+function Initialize-YurunaHost {
+    <#
+    .SYNOPSIS
+    Imports the matching host driver (host/<host>/modules/Yuruna.Host.psm1)
+    so test/ orchestration can call interface functions without HostType
+    branches.
+    .DESCRIPTION
+    Determines the current host via Get-HostType, builds the absolute
+    path to its Yuruna.Host.psm1, and imports it with -Global so every
+    test/ caller (Start-TestRunner.ps1, Debug-TestSequence.ps1,
+    sequence extensions, etc.) resolves the interface names directly.
+
+    The driver's New-VM/Start-VM/Stop-VM/Get-VM/Remove-VM exports shadow
+    Hyper-V's same-named cmdlets in the runner's session -- intentional;
+    callers want the harness contract, and the driver's body uses
+    module-qualified Hyper-V\... calls when it needs to talk to the
+    underlying cmdlet.
+
+    Idempotent: Import-Module -Force re-loads the driver if the file
+    changes, otherwise no-ops.
+    .PARAMETER RepoRoot
+    Absolute path to the repo root (parent of host/ and test/). The
+    runner already resolves this; pass it in to avoid re-deriving.
+    .PARAMETER HostType
+    Optional override for the host identifier; default is Get-HostType.
+    Used by tests that simulate other hosts.
+    .OUTPUTS
+    [string] -- absolute path to the imported Yuruna.Host.psm1, or
+    throws if the file is missing for the current host.
+    #>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param(
+        [Parameter(Mandatory)][string]$RepoRoot,
+        [string]$HostType
+    )
+    if (-not $HostType) { $HostType = Get-HostType }
+    $hostFolderRel = Get-HostFolder -HostType $HostType
+    $modulePath    = Join-Path $RepoRoot (Join-Path $hostFolderRel 'modules/Yuruna.Host.psm1')
+    if (-not (Test-Path $modulePath)) {
+        throw (Format-YurunaOperatorMessage -Key 'exceptions.runner_62eaa799b46f377c' -Arguments @{ hostType = "$HostType"; modulePath = "$modulePath" })
+    }
+    Import-Module $modulePath -Force -DisableNameChecking -Global
+    # Test.VMUtility.psm1 holds host-agnostic test helpers (Wait-VMRunning,
+    # ...) that build on the host driver's contract. Imported alongside
+    # the driver so callers can rely on either set without a separate
+    # bootstrap step.
+    $vmCommonPath = Join-Path $RepoRoot 'test/modules/Test.VMUtility.psm1'
+    # Import once: Test.VMUtility is a shared helper other modules pull in transitively, so a
+    # -Force re-import would reset its state out from under them.
+    if ((Test-Path $vmCommonPath) -and -not (Get-Module -Name 'Test.VMUtility')) {
+        Import-Module $vmCommonPath -DisableNameChecking -Global
+    }
+    Write-Verbose "Initialize-YurunaHost: imported $modulePath"
+    return $modulePath
+}
+
+Export-ModuleMember -Function Initialize-YurunaHost

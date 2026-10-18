@@ -1,0 +1,948 @@
+<#PSScriptInfo
+.VERSION 2026.10.14
+.GUID 42f41a3a-96b8-4ab6-ac90-5f5f7b020de7
+.AUTHOR Alisson Sol et al.
+.COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
+.TAGS yuruna test notification dispatch pester
+.LICENSEURI https://yuruna.link/license
+.PROJECTURI https://yuruna.com
+.ICONURI
+.EXTERNALMODULEDEPENDENCIES
+.REQUIREDSCRIPTS
+.EXTERNALSCRIPTDEPENDENCIES
+.RELEASENOTES
+.PRIVATEDATA
+#>
+
+#requires -version 7
+
+<#
+.SYNOPSIS
+    Pester coverage for Test.Notify.psm1: the extension dispatch loop and its
+    delivery ledger, the failure-message body plus its machine-readable
+    trailer, the schema-v2 payload builder, and the cycle-failure envelope.
+.DESCRIPTION
+    The delivery ledger (notification.delivery.json) is the only evidence that
+    an escalation actually left the host, so the dispatch tests assert the
+    RECORD, not just the absence of an exception -- a notification that fails
+    silently reads exactly like one that was delivered.
+
+    Every dispatch here uses an event code with no subscribers, so no transport
+    is ever contacted; the extension resolves the code, finds nobody to mail,
+    and returns. The transport-lookup tests go one step further and point the
+    loader at a private tree of stand-in transports.
+
+    Throw-based assertions rather than Should.
+    Run: pwsh -NoProfile -File test/modules/Test.Notify.Tests.ps1
+#>
+
+BeforeAll {
+$here = Split-Path -Parent $PSCommandPath
+Import-Module powershell-yaml -Force -ErrorAction SilentlyContinue
+Import-Module (Join-Path $here 'Test.Notify.psm1') -Force -DisableNameChecking
+
+Import-Module (Join-Path (Split-Path -Parent $PSCommandPath) 'Test.Assert.psm1') -Force -Global -DisableNameChecking
+
+# --- REGION: https://yuruna.link/42d69dfa-0015
+function Initialize-TestCycleFolder {
+    <#
+    .SYNOPSIS
+        Set the cross-module cycle-folder anchor the notifier reads when no
+        -CycleFolder argument is passed.
+    #>
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidGlobalVars', '',
+        Justification = 'global:__YurunaCycleFolder is the cycle-folder anchor Test.Log sets and Test.Notify reads; the test has to drive it to exercise the fallback.')]
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][AllowEmptyString()][string]$Path)
+    $global:__YurunaCycleFolder = $Path
+}
+
+function Initialize-NotifyCapture {
+    <#
+    .SYNOPSIS
+        Stash what the mocked dispatcher was handed, so the It can assert on it.
+    #>
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidGlobalVars', '',
+        Justification = 'A mock body and the It that asserts on it are separate scopes; a global is the one channel both can reach.')]
+    [CmdletBinding()]
+    param($Value)
+    $global:YurunaNotifyCapture = $Value
+}
+
+function Get-NotifyCapture {
+    <#
+    .SYNOPSIS
+        Read back what Initialize-NotifyCapture stashed.
+    #>
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidGlobalVars', '',
+        Justification = 'Reads the capture slot Initialize-NotifyCapture writes.')]
+    [CmdletBinding()]
+    param()
+    return $global:YurunaNotifyCapture
+}
+
+function Get-DeliveryRecord {
+    <#
+    .SYNOPSIS
+        Parse the JSON Lines delivery ledger of a cycle folder.
+    #>
+    [CmdletBinding()]
+    [OutputType([object[]])]
+    param([Parameter(Mandatory)][string]$CycleFolder)
+    $path = Join-Path $CycleFolder 'notification.delivery.json'
+    if (-not (Test-Path -LiteralPath $path)) { return @() }
+    return @(Get-Content -LiteralPath $path | Where-Object { $_ } | ForEach-Object { $_ | ConvertFrom-Json })
+}
+
+function Get-ActiveNotifyExtension {
+    <#
+    .SYNOPSIS
+        Name of the first active notification extension, as the dispatcher
+        resolves it -- the ledger records deliveries under this name.
+    #>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param()
+    return @(Get-ActiveExtensionName -Area 'notification')[0]
+}
+
+# An event code no transports.yml subscribes to. The extension resolves it,
+# finds no subscribers, and returns -- so the dispatch path is exercised end to
+# end without any transport being contacted, on this host or an operator's.
+$script:UnsubscribedEventCode = 'test.selfcheck.unit'
+
+$script:SavedPublicUrl = $env:YURUNA_STATUS_PUBLIC_URL
+
+$TempRoot = [System.IO.Path]::GetTempPath()
+$PayloadDir = Join-Path $TempRoot ('yuruna-notify-payload-' + [guid]::NewGuid().ToString('N'))
+$script:PayloadFailureFile = Join-Path $PayloadDir 'last_failure.json'
+# The payload builder reads the log ROOT when the cycle folder holds no record
+# yet, which is every in-cycle caller. Pin that root at a private path -- left
+# uncreated except by the test that exercises it -- so a workstation whose real
+# log root still holds a last_failure.json from an earlier failing cycle cannot
+# classify these payloads on the suite's behalf.
+$script:PayloadLogRoot = Join-Path $TempRoot ('yuruna-notify-logroot-' + [guid]::NewGuid().ToString('N'))
+$script:PayloadLogRootFailureFile = Join-Path $script:PayloadLogRoot 'last_failure.json'
+$env:YURUNA_LOG_DIR = $script:PayloadLogRoot
+$LedgerDir = Join-Path $TempRoot ('yuruna-notify-ledger-' + [guid]::NewGuid().ToString('N'))
+$script:LedgerMissingDir = Join-Path $LedgerDir 'no-such-subfolder'
+$script:DispatchDir = Join-Path $TempRoot ('yuruna-notify-dispatch-' + [guid]::NewGuid().ToString('N'))
+$script:EnvelopeDir = Join-Path $TempRoot ('yuruna-notify-envelope-' + [guid]::NewGuid().ToString('N'))
+$script:ResolveDir = Join-Path $TempRoot ('yuruna-notify-resolve-' + [guid]::NewGuid().ToString('N'))
+
+}
+
+Describe 'Format-FailureMessage' {
+    It 'builds a plain-text body from the scalar fields' {
+        $body = Format-FailureMessage -HostType 'host.windows.hyper-v' -Hostname 'BOX-01' -GuestKey 'ubuntu-24' `
+            -StepName 'waitForText' -ErrorMessage 'timed out waiting for login:' -CycleStartUtc 'cycle-000042' -GitCommit 'abc1234'
+        Assert-True ($body -match '(?m)^Host:\s+host\.windows\.hyper-v$')
+        Assert-True ($body -match '(?m)^Machine:\s+BOX-01$')
+        Assert-True ($body -match '(?m)^Guest:\s+ubuntu-24$')
+        Assert-True ($body -match '(?m)^Step:\s+waitForText$')
+        Assert-True ($body -match '(?m)^Error:\s+timed out waiting for login:$')
+        Assert-True ($body -match '(?m)^Cycle start:\s+cycle-000042$')
+        Assert-True ($body -match '(?m)^Commit:\s+abc1234$')
+    }
+    It 'appends no machine-readable trailer for a legacy caller with no payload' {
+        $body = Format-FailureMessage -HostType 'ht' -Hostname 'h' -GuestKey 'g' -StepName 's' -ErrorMessage 'e' -CycleStartUtc 'c' -GitCommit 'gc'
+        Assert-True ($body -notmatch 'yuruna-failure-json') 'the legacy body is untouched'
+        Assert-True ($body -notmatch 'yuruna-failure-summary')
+    }
+    It 'appends the quick-scan summary and the full JSON dump when a payload is supplied' {
+        $data = @{
+            failureClass         = 'ssh_timeout'
+            classificationSource = 'rules'
+            severity             = 'hard'
+            actionVerb           = 'sshWaitReady'
+            cycleFolderUrl       = 'http://box:8080/status/log/cycle-000042/'
+            suggestedRecoveries  = @('restart guest', 'recreate guest')
+            repro                = @{ command = 'pwsh test/Debug-TestSequence.ps1 -Guest ubuntu-24' }
+        }
+        $body = Format-FailureMessage -HostType 'ht' -Hostname 'h' -GuestKey 'g' -StepName 's' -ErrorMessage 'e' -CycleStartUtc 'c' -GitCommit 'gc' -EventData $data
+        Assert-True ($body -match '(?m)^failureClass:\s+ssh_timeout$')
+        Assert-True ($body -match '(?m)^classificationSource:\s+rules$')
+        Assert-True ($body -match '(?m)^severity:\s+hard$')
+        Assert-True ($body -match '(?m)^cycleFolderUrl:\s+http://box:8080/status/log/cycle-000042/$')
+        Assert-True ($body -match '(?m)^suggestedRecoveries:\s+restart guest, recreate guest$') 'the recovery list is flattened for the human reader'
+        Assert-True ($body -match '(?m)^repro:\s+pwsh test/Debug-TestSequence\.ps1 -Guest ubuntu-24$') 'the nested repro.command is lifted out of the JSON'
+        Assert-True ($body -match '--- yuruna-failure-json ---') 'the structured consumer still gets the whole payload'
+        Assert-True ($body -match '--- end yuruna-failure-json ---')
+        Assert-True ($body -match '"failureClass": "ssh_timeout"')
+    }
+    It 'lifts a flat reproCommand when the payload has no nested repro block' {
+        $body = Format-FailureMessage -HostType 'ht' -Hostname 'h' -GuestKey 'g' -StepName 's' -ErrorMessage 'e' -CycleStartUtc 'c' -GitCommit 'gc' `
+            -EventData @{ reproCommand = 'pwsh test/Test-Config.ps1' }
+        Assert-True ($body -match '(?m)^repro:\s+pwsh test/Test-Config\.ps1$')
+    }
+    It 'leaves the summary fields blank rather than failing on a partial payload' {
+        # A bootstrap failure ships before classification has run; the trailer
+        # still has to render.
+        $body = Format-FailureMessage -HostType 'ht' -Hostname 'h' -GuestKey 'g' -StepName 's' -ErrorMessage 'e' -CycleStartUtc 'c' -GitCommit 'gc' `
+            -EventData @{ severity = 'hard' }
+        Assert-True ($body -match '(?m)^severity:\s+hard$')
+        Assert-True ($body -match '(?m)^failureClass:\s*$') 'a missing field renders empty, it does not throw'
+        Assert-True ($body -match '(?m)^repro:\s*$')
+    }
+}
+
+Describe 'Get-FailureEventData' {
+    BeforeAll {
+        $null = New-Item -ItemType Directory -Path $PayloadDir -Force
+        Initialize-TestCycleFolder -Path ''
+        Remove-Item Env:\YURUNA_STATUS_PUBLIC_URL -ErrorAction SilentlyContinue
+    }
+    AfterAll {
+        Initialize-TestCycleFolder -Path ''
+        if ($null -eq $script:SavedPublicUrl) { Remove-Item Env:\YURUNA_STATUS_PUBLIC_URL -ErrorAction SilentlyContinue }
+        else { $env:YURUNA_STATUS_PUBLIC_URL = $script:SavedPublicUrl }
+        Remove-Item -LiteralPath $PayloadDir -Recurse -Force -ErrorAction SilentlyContinue
+    }
+    BeforeEach { Remove-Item -LiteralPath $script:PayloadFailureFile -Force -ErrorAction SilentlyContinue }
+
+    It 'builds a minimal schema-v2 payload for a bootstrap failure with no cycle folder' {
+        # GitPull / ProjectClone fire before Start-LogFile, so there is no
+        # last_failure.json to classify from -- a partial payload still ships.
+        $p = Get-FailureEventData -HostType 'host.ubuntu.kvm' -Hostname 'BOX' -StepName 'GitPull' `
+            -ErrorMessage 'clone failed' -CycleStartUtc 'c1' -GitCommit 'abc' `
+            -DefaultFailureClass 'git_failure' -DefaultSeverity 'hard'
+        Assert-Equal -Expected 2 -Actual $p['schemaVersion']
+        Assert-Equal -Expected 'git_failure' -Actual $p['failureClass']
+        Assert-Equal -Expected 'hard' -Actual $p['severity']
+        Assert-Equal -Expected 'GitPull' -Actual $p['actionVerb']
+        Assert-Equal -Expected 'clone failed' -Actual $p['description']
+        Assert-Equal -Expected 'BOX' -Actual $p['hostname']
+        Assert-Equal -Expected 0 -Actual @($p['suggestedRecoveries']).Count
+        Assert-True (-not $p.Contains('cycleFolderUrl')) 'with no cycle folder there is nothing to deep-link to'
+    }
+    It 'defaults an unclassified bootstrap failure to unknown' {
+        $p = Get-FailureEventData -Hostname 'BOX' -StepName 'ProjectClone' -ErrorMessage 'boom'
+        Assert-Equal -Expected 'unknown' -Actual $p['failureClass']
+        Assert-Equal -Expected 'unknown' -Actual $p['severity']
+    }
+    It 'loads the cycle last_failure.json and augments it with cycle context' {
+        @{
+            schemaVersion       = 2
+            failureClass        = 'ssh_timeout'
+            severity            = 'hard'
+            actionVerb          = 'sshWaitReady'
+            action              = 'ssh connect'
+            description         = 'no route to host'
+            suggestedRecoveries = @('restart guest')
+            guestKey            = 'guest-from-file'
+            hostType            = 'host-from-file'
+        } | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $script:PayloadFailureFile -Encoding utf8NoBOM
+
+        $p = Get-FailureEventData -CycleFolder $PayloadDir -Hostname 'BOX' -CycleStartUtc 'cycle-000042' -GitCommit 'g1' -ProjectCommit 'p1'
+        Assert-Equal -Expected 'ssh_timeout' -Actual $p['failureClass'] -Because 'the classified failure, not a synthesized one'
+        Assert-Equal -Expected 'restart guest' -Actual @($p['suggestedRecoveries'])[0]
+        Assert-Equal -Expected 'cycle-000042' -Actual $p['cycleStartUtc']
+        Assert-Equal -Expected 'g1' -Actual $p['gitCommit']
+        Assert-Equal -Expected 'p1' -Actual $p['projectCommit']
+        Assert-Equal -Expected $PayloadDir -Actual $p['cycleFolder']
+    }
+    It 'reads the live log root while a cycle runs, and prefers the archived copy once there is one' {
+        # The engine writes last_failure.json to $env:YURUNA_LOG_DIR and only
+        # Stop-LogFile copies it into the cycle folder, so an in-cycle caller
+        # asks while the cycle folder is still empty. Reading the cycle folder
+        # alone hands every live consumer the synthesized 'unknown' payload.
+        $null = New-Item -ItemType Directory -Path $script:PayloadLogRoot -Force
+        try {
+            @{ schemaVersion = 2; failureClass = 'ocr_timeout'; severity = 'hard'; stepNumber = 5; sequenceName = 'start.guest.ubuntu.server.26' } |
+                ConvertTo-Json | Set-Content -LiteralPath $script:PayloadLogRootFailureFile -Encoding utf8NoBOM
+
+            $live = Get-FailureEventData -CycleFolder $PayloadDir -Hostname 'BOX' -StepName 'Start-GuestOS'
+            Assert-Equal -Expected 'ocr_timeout' -Actual $live['failureClass'] -Because 'while the cycle runs the record is at the log root'
+            Assert-Equal -Expected 5 -Actual $live['stepNumber']
+            Assert-Equal -Expected 'start.guest.ubuntu.server.26' -Actual $live['sequenceName']
+
+            @{ schemaVersion = 2; failureClass = 'ssh_timeout'; severity = 'hard' } |
+                ConvertTo-Json | Set-Content -LiteralPath $script:PayloadFailureFile -Encoding utf8NoBOM
+            $archived = Get-FailureEventData -CycleFolder $PayloadDir -Hostname 'BOX' -StepName 'Start-GuestOS'
+            Assert-Equal -Expected 'ssh_timeout' -Actual $archived['failureClass'] -Because 'the cycle-folder copy provably belongs to this cycle; the shared root does not'
+        } finally {
+            Remove-Item -LiteralPath $script:PayloadLogRoot -Recurse -Force -ErrorAction SilentlyContinue
+        }
+    }
+    It 'keeps the file values for identity fields the caller left empty' {
+        @{ actionVerb = 'sshWaitReady'; action = 'ssh connect'; guestKey = 'guest-from-file'; hostType = 'host-from-file' } |
+            ConvertTo-Json | Set-Content -LiteralPath $script:PayloadFailureFile -Encoding utf8NoBOM
+
+        $p = Get-FailureEventData -CycleFolder $PayloadDir -Hostname 'BOX'
+        Assert-Equal -Expected 'guest-from-file' -Actual $p['guestKey']
+        Assert-Equal -Expected 'host-from-file' -Actual $p['hostType']
+        Assert-Equal -Expected 'sshWaitReady' -Actual $p['stepName'] -Because 'an empty StepName falls back to the actionVerb'
+        Assert-Equal -Expected 'ssh connect' -Actual $p['errorMessage'] -Because 'an empty ErrorMessage falls back to the action'
+    }
+    It 'lets the caller override the identity fields the file recorded' {
+        @{ guestKey = 'guest-from-file'; hostType = 'host-from-file'; actionVerb = 'sshWaitReady' } |
+            ConvertTo-Json | Set-Content -LiteralPath $script:PayloadFailureFile -Encoding utf8NoBOM
+
+        $p = Get-FailureEventData -CycleFolder $PayloadDir -HostType 'host.macos.utm' -GuestKey 'ubuntu-26' -StepName 'waitForText'
+        Assert-Equal -Expected 'host.macos.utm' -Actual $p['hostType']
+        Assert-Equal -Expected 'ubuntu-26' -Actual $p['guestKey']
+        Assert-Equal -Expected 'waitForText' -Actual $p['stepName']
+    }
+    It 'falls back to a synthesized payload when last_failure.json will not parse' {
+        Set-Content -LiteralPath $script:PayloadFailureFile -Value 'not json {{' -Encoding utf8NoBOM
+        $p = Get-FailureEventData -CycleFolder $PayloadDir -Hostname 'BOX' -StepName 'st' -ErrorMessage 'em' -DefaultFailureClass 'vm_start_failure'
+        Assert-Equal -Expected 'vm_start_failure' -Actual $p['failureClass'] -Because 'a corrupt failure file must not lose the notification'
+        Assert-Equal -Expected 'em' -Actual $p['description']
+    }
+    It 'deep-links the cycle folder through the published status URL when there is one' {
+        $env:YURUNA_STATUS_PUBLIC_URL = 'https://yuruna.example/dash/'
+        try {
+            $p = Get-FailureEventData -CycleFolder $PayloadDir -Hostname 'BOX'
+            $leaf = Split-Path -Leaf $PayloadDir
+            Assert-Equal -Expected "https://yuruna.example/dash/status/log/$leaf/" -Actual $p['cycleFolderUrl'] -Because 'the trailing slash of the base URL is not doubled'
+        } finally {
+            Remove-Item Env:\YURUNA_STATUS_PUBLIC_URL -ErrorAction SilentlyContinue
+        }
+    }
+    It 'guesses the status URL from the cycle hostname when none is published' {
+        $p = Get-FailureEventData -CycleFolder $PayloadDir -Hostname 'BOX'
+        $leaf = Split-Path -Leaf $PayloadDir
+        Assert-Equal -Expected "http://BOX:8080/status/log/$leaf/" -Actual $p['cycleFolderUrl']
+    }
+    It 'falls back to localhost when it has no hostname either' {
+        $p = Get-FailureEventData -CycleFolder $PayloadDir
+        $leaf = Split-Path -Leaf $PayloadDir
+        Assert-Equal -Expected "http://localhost:8080/status/log/$leaf/" -Actual $p['cycleFolderUrl']
+    }
+    It 'falls back to the cycle-folder anchor when no CycleFolder is passed' {
+        Initialize-TestCycleFolder -Path $PayloadDir
+        try {
+            $p = Get-FailureEventData -Hostname 'BOX'
+            Assert-Equal -Expected $PayloadDir -Actual $p['cycleFolder']
+        } finally {
+            Initialize-TestCycleFolder -Path ''
+        }
+    }
+}
+
+Describe 'Get-FailureEventData per-guest attribution' {
+    BeforeAll {
+        $script:AttrRoot = Join-Path $TempRoot ('yuruna-notify-attr-' + [guid]::NewGuid().ToString('N'))
+        $script:AttrCycle = Join-Path $script:AttrRoot 'cycle'
+        $script:AttrLogRoot = Join-Path $script:AttrRoot 'logroot'
+        $script:AttrSavedLogDir = $env:YURUNA_LOG_DIR
+        $null = New-Item -ItemType Directory -Path (Join-Path $script:AttrCycle 'vm-a') -Force
+        $null = New-Item -ItemType Directory -Path (Join-Path $script:AttrCycle 'vm-b') -Force
+        $null = New-Item -ItemType Directory -Path $script:AttrLogRoot -Force
+        $env:YURUNA_LOG_DIR = $script:AttrLogRoot
+    }
+    AfterAll {
+        $env:YURUNA_LOG_DIR = $script:AttrSavedLogDir
+        Remove-Item -LiteralPath $script:AttrRoot -Recurse -Force -ErrorAction SilentlyContinue
+    }
+    BeforeEach {
+        Get-ChildItem -LiteralPath $script:AttrRoot -Filter 'last_failure.json' -Recurse -File -ErrorAction SilentlyContinue |
+            Remove-Item -Force -ErrorAction SilentlyContinue
+    }
+
+    It 'reads the failing guest own mirror ahead of the cycle-folder copy' {
+        '{"schemaVersion":2,"failureClass":"from_the_other_guest","vmName":"vm-b","guestKey":"guest.b"}' |
+            Set-Content -LiteralPath (Join-Path $script:AttrCycle 'last_failure.json') -Encoding utf8NoBOM
+        '{"schemaVersion":2,"failureClass":"ssh_timeout","vmName":"vm-a","guestKey":"guest.a"}' |
+            Set-Content -LiteralPath (Join-Path $script:AttrCycle 'vm-a/last_failure.json') -Encoding utf8NoBOM
+        $p = Get-FailureEventData -CycleFolder $script:AttrCycle -GuestKey 'guest.a' -VMName 'vm-a' -StepName 'Start-GuestOS'
+        Assert-Equal -Expected 'ssh_timeout' -Actual $p['failureClass'] -Because 'the copy inside the guest folder provably belongs to that guest'
+    }
+
+    It 'refuses a cycle-folder record that names a different guest' {
+        # The regression this exists for: a host running several guests per
+        # cycle, where a later guest fails in a way that produces no record of
+        # its own (a warm-resume target not in the list, a missing sequence
+        # file). Inheriting the earlier guest's cause misroutes the dashboard
+        # summary and the per-guest quarantine streak.
+        '{"schemaVersion":2,"failureClass":"provisioning_failure","vmName":"vm-a","guestKey":"guest.a"}' |
+            Set-Content -LiteralPath (Join-Path $script:AttrCycle 'last_failure.json') -Encoding utf8NoBOM
+        $p = Get-FailureEventData -CycleFolder $script:AttrCycle -GuestKey 'guest.b' -VMName 'vm-b' `
+            -StepName 'Start-GuestOS' -ErrorMessage 'warm-resume target sequence not found'
+        Assert-Equal -Expected 'unknown' -Actual $p['failureClass'] -Because 'no record of its own means no classified cause, not another guest cause'
+        Assert-Equal -Expected 'guest.b' -Actual $p['guestKey']
+    }
+
+    It 'refuses a log-root record that names a different guest' {
+        '{"schemaVersion":2,"failureClass":"provisioning_failure","vmName":"vm-a","guestKey":"guest.a"}' |
+            Set-Content -LiteralPath (Join-Path $script:AttrLogRoot 'last_failure.json') -Encoding utf8NoBOM
+        $p = Get-FailureEventData -CycleFolder $script:AttrCycle -GuestKey 'guest.b' -VMName 'vm-b' -StepName 'New-VM'
+        Assert-Equal -Expected 'unknown' -Actual $p['failureClass'] -Because 'the shared root is shared across guests as well as cycles'
+    }
+
+    It 'still offers a record that names no guest at all' {
+        # A host-stage failure belongs to every guest that runs after it.
+        '{"schemaVersion":2,"failureClass":"host_condition_unmet","vmName":"","guestKey":""}' |
+            Set-Content -LiteralPath (Join-Path $script:AttrCycle 'last_failure.json') -Encoding utf8NoBOM
+        $p = Get-FailureEventData -CycleFolder $script:AttrCycle -GuestKey 'guest.b' -VMName 'vm-b' -StepName 'Start-GuestOS'
+        Assert-Equal -Expected 'host_condition_unmet' -Actual $p['failureClass']
+    }
+
+    It 'hands the cycle-folder record to a caller that names no guest' {
+        # Cycle-level consumers -- the end-of-cycle notifier, a post-hoc reader
+        # -- ask without a guest and must still get the cycle's own failure.
+        '{"schemaVersion":2,"failureClass":"provisioning_failure","vmName":"vm-a","guestKey":"guest.a"}' |
+            Set-Content -LiteralPath (Join-Path $script:AttrCycle 'last_failure.json') -Encoding utf8NoBOM
+        $p = Get-FailureEventData -CycleFolder $script:AttrCycle -Hostname 'BOX'
+        Assert-Equal -Expected 'provisioning_failure' -Actual $p['failureClass']
+        Assert-Equal -Expected 'guest.a' -Actual $p['guestKey'] -Because 'with nothing to override, the record identity stands'
+    }
+}
+
+Describe 'Write-NotificationDelivery' {
+    BeforeAll {
+        $null = New-Item -ItemType Directory -Path $LedgerDir -Force
+        Initialize-TestCycleFolder -Path ''
+    }
+    AfterAll {
+        Initialize-TestCycleFolder -Path ''
+        Remove-Item -LiteralPath $LedgerDir -Recurse -Force -ErrorAction SilentlyContinue
+    }
+    BeforeEach { Remove-Item -LiteralPath (Join-Path $LedgerDir 'notification.delivery.json') -Force -ErrorAction SilentlyContinue }
+
+    It 'appends one JSON Lines record per delivery' {
+        Write-NotificationDelivery -ExtensionName 'default' -EventCode 'cycle.failure' -Status 'ok' -CycleFolder $LedgerDir
+        Write-NotificationDelivery -ExtensionName 'webhook' -EventCode 'cycle.failure' -Status 'fail' -ErrorMessage 'HTTP 503' -ModeIsAsync $true -CycleFolder $LedgerDir
+
+        $records = Get-DeliveryRecord -CycleFolder $LedgerDir
+        Assert-Equal -Expected 2 -Actual $records.Count -Because 'the ledger is append-only, one line per extension per send'
+        Assert-Equal -Expected 'default' -Actual $records[0].extension
+        Assert-Equal -Expected 'ok' -Actual $records[0].status
+        Assert-Equal -Expected 'sync' -Actual $records[0].mode
+        Assert-Equal -Expected 'cycle.failure' -Actual $records[0].eventCode
+        Assert-True ([bool]$records[0].timestamp) 'every record is timestamped'
+
+        Assert-Equal -Expected 'fail' -Actual $records[1].status -Because 'a swallowed transport error must be visible in the ledger'
+        Assert-Equal -Expected 'HTTP 503' -Actual $records[1].errorMessage
+        Assert-Equal -Expected 'async' -Actual $records[1].mode
+    }
+    It 'writes to the cycle-folder anchor when no folder is passed' {
+        Initialize-TestCycleFolder -Path $LedgerDir
+        try {
+            Write-NotificationDelivery -ExtensionName 'default' -EventCode 'e' -Status 'ok'
+            Assert-Equal -Expected 1 -Actual (Get-DeliveryRecord -CycleFolder $LedgerDir).Count
+        } finally {
+            Initialize-TestCycleFolder -Path ''
+        }
+    }
+    It 'writes nothing, and throws nothing, when there is no cycle folder at all' {
+        # Bootstrap sends fire before the cycle folder exists.
+        Write-NotificationDelivery -ExtensionName 'default' -EventCode 'e' -Status 'ok'
+        Assert-Equal -Expected 0 -Actual (Get-DeliveryRecord -CycleFolder $LedgerDir).Count
+    }
+    It 'never throws back into the dispatch loop when the ledger cannot be written' {
+        # Best-effort telemetry: a failed ledger write must not abort the send
+        # (or the remaining extensions) that it is only recording.
+        Write-NotificationDelivery -ExtensionName 'default' -EventCode 'e' -Status 'ok' -CycleFolder $script:LedgerMissingDir
+        Assert-True $true 'an unwritable ledger path is swallowed'
+    }
+    It 'rejects a status outside the ok / fail set' {
+        $threw = $false
+        try { Write-NotificationDelivery -ExtensionName 'default' -EventCode 'e' -Status 'maybe' -CycleFolder $LedgerDir } catch { $threw = $true }
+        Assert-True $threw 'the ledger has exactly two outcomes'
+    }
+}
+
+Describe 'Send-Notification' {
+    BeforeAll {
+        $null = New-Item -ItemType Directory -Path $script:DispatchDir -Force
+        Initialize-TestCycleFolder -Path $script:DispatchDir
+    }
+    AfterAll {
+        Initialize-TestCycleFolder -Path ''
+        Get-Job -Name 'Send-Notification-*' -ErrorAction SilentlyContinue | Remove-Job -Force -ErrorAction SilentlyContinue
+        Remove-Item -LiteralPath $script:DispatchDir -Recurse -Force -ErrorAction SilentlyContinue
+    }
+    BeforeEach { Remove-Item -LiteralPath (Join-Path $script:DispatchDir 'notification.delivery.json') -Force -ErrorAction SilentlyContinue }
+
+    # The dispatcher carries a name of its own, distinct from the Send-Notification
+    # contract verb every extension exports. Extensions load -Global, so sharing
+    # that verb would let the first-loaded transport shadow the dispatcher for every
+    # unqualified caller -- see the resolution suite at the bottom of this file.
+    It 'dispatches synchronously and records the delivery in the ledger' {
+        Send-YurunaNotification -EventCode $script:UnsubscribedEventCode -EventMessage 'subject' -EventNote 'body' -Synchronous
+
+        $records = Get-DeliveryRecord -CycleFolder $script:DispatchDir
+        Assert-Equal -Expected 1 -Actual $records.Count -Because 'a send with no ledger record is indistinguishable from a send that never happened'
+        Assert-Equal -Expected (Get-ActiveNotifyExtension) -Actual $records[0].extension
+        Assert-Equal -Expected 'ok' -Actual $records[0].status
+        Assert-Equal -Expected 'sync' -Actual $records[0].mode
+        Assert-Equal -Expected $script:UnsubscribedEventCode -Actual $records[0].eventCode
+    }
+    It 'dispatches asynchronously by default and records the delivery from the thread job' {
+        # The failure path must not block on a multi-second transport roundtrip,
+        # but the outcome still has to land in the ledger.
+        Send-YurunaNotification -EventCode $script:UnsubscribedEventCode -EventMessage 'subject' -EventNote 'body'
+
+        $job = Get-Job -Name "Send-Notification-$(Get-ActiveNotifyExtension)" -ErrorAction SilentlyContinue | Select-Object -First 1
+        Assert-True ($null -ne $job) 'the async path hands the send to a thread job'
+        $null = Wait-Job -Job $job -Timeout 60
+        Remove-Job -Job $job -Force -ErrorAction SilentlyContinue
+
+        $records = Get-DeliveryRecord -CycleFolder $script:DispatchDir
+        Assert-Equal -Expected 1 -Actual $records.Count
+        Assert-Equal -Expected 'async' -Actual $records[0].mode
+        Assert-Equal -Expected 'ok' -Actual $records[0].status
+    }
+}
+
+Describe 'Send-CycleFailureNotification' {
+    BeforeAll {
+        $null = New-Item -ItemType Directory -Path $script:EnvelopeDir -Force
+        Initialize-TestCycleFolder -Path $script:EnvelopeDir
+    }
+    AfterAll {
+        Initialize-TestCycleFolder -Path ''
+        Initialize-NotifyCapture -Value $null
+        Remove-Item -LiteralPath $script:EnvelopeDir -Recurse -Force -ErrorAction SilentlyContinue
+    }
+    BeforeEach { Initialize-NotifyCapture -Value $null }
+
+    It 'ships the cycle.failure envelope synchronously' {
+        # Synchronous by contract: a bootstrap failure calls this immediately
+        # before the process exits, and a fire-and-forget job would be killed on
+        # exit with the escalation still in it.
+        Mock -CommandName Send-YurunaNotification -ModuleName Test.Notify -MockWith {
+            Initialize-NotifyCapture -Value @{
+                EventCode    = $EventCode
+                EventMessage = $EventMessage
+                EventNote    = $EventNote
+                EventData    = $EventData
+                Synchronous  = [bool]$Synchronous
+            }
+        }
+        Send-CycleFailureNotification -HostType 'host.windows.hyper-v' -SubjectSuffix 'ubuntu-24 / waitForText' `
+            -GuestKey 'ubuntu-24' -StepName 'waitForText' -ErrorMessage 'timed out' -CycleStartUtc 'cycle-000042' -GitCommit 'abc1234' `
+            -DefaultFailureClass 'ocr_timeout' -DefaultSeverity 'hard'
+
+        $cap = Get-NotifyCapture
+        Assert-True ($null -ne $cap) 'the dispatcher was called'
+        Assert-Equal -Expected 'cycle.failure' -Actual $cap.EventCode
+        Assert-Equal -Expected 'Yuruna Test: FAIL on host.windows.hyper-v / ubuntu-24 / waitForText' -Actual $cap.EventMessage
+        Assert-Equal -Expected $true -Actual $cap.Synchronous
+        Assert-True ($cap.EventNote -match '(?m)^Error:\s+timed out$') 'the body carries the failure'
+        Assert-Equal -Expected 'ocr_timeout' -Actual $cap.EventData['failureClass'] -Because 'a bootstrap caller lets the helper build the payload'
+        Assert-Equal -Expected 'hard' -Actual $cap.EventData['severity']
+    }
+    It 'ships the caller-supplied payload untouched rather than rebuilding it' {
+        # The in-cycle sites run remediation against the payload BEFORE the send;
+        # rebuilding it here would drop whatever the remediator wrote onto it.
+        Mock -CommandName Send-YurunaNotification -ModuleName Test.Notify -MockWith {
+            Initialize-NotifyCapture -Value @{ EventData = $EventData; EventNote = $EventNote }
+        }
+        $payload = @{ failureClass = 'ssh_timeout'; severity = 'hard'; remediationAttempted = 'restart-guest' }
+        Send-CycleFailureNotification -HostType 'host.ubuntu.kvm' -SubjectSuffix 'g / s' -GuestKey 'g' -StepName 's' `
+            -ErrorMessage 'boom' -CycleStartUtc 'c' -GitCommit 'gc' -EventData $payload
+
+        $cap = Get-NotifyCapture
+        Assert-True ([object]::ReferenceEquals($cap.EventData, $payload)) 'the remediated payload instance is the one that ships'
+        Assert-Equal -Expected 'restart-guest' -Actual $cap.EventData['remediationAttempted']
+        Assert-True ($cap.EventNote -match 'ssh_timeout') 'the body trailer is built from that same payload'
+    }
+    It 'feeds the body the raw scalars, not the payload fallbacks' {
+        # Get-FailureEventData substitutes action / actionVerb for an empty
+        # ErrorMessage. Reading the body's Error: line back out of the payload
+        # would silently change the human text for an empty error.
+        Mock -CommandName Send-YurunaNotification -ModuleName Test.Notify -MockWith {
+            Initialize-NotifyCapture -Value @{ EventNote = $EventNote }
+        }
+        $payload = @{ failureClass = 'unknown'; action = 'FALLBACK-ACTION'; actionVerb = 'FALLBACK-VERB' }
+        Send-CycleFailureNotification -HostType 'ht' -SubjectSuffix 'GitPull' -ErrorMessage '' -StepName '' `
+            -CycleStartUtc 'c' -GitCommit 'gc' -EventData $payload
+
+        $body = (Get-NotifyCapture).EventNote
+        Assert-True ($body -match '(?m)^Error:\s*$') 'an empty error stays empty in the body'
+        Assert-True ($body -match '(?m)^Step:\s*$')
+        Assert-True ($body -match 'FALLBACK-ACTION') 'the payload itself still reaches the JSON trailer'
+    }
+}
+
+Describe 'dispatcher command resolution' {
+    BeforeAll {
+        $null = New-Item -ItemType Directory -Path $script:ResolveDir -Force
+        Initialize-TestCycleFolder -Path $script:ResolveDir
+        # Load the extension, exactly as the first cycle-failure of a process
+        # would. Everything below asserts what is true AFTER that has happened,
+        # because that is when the shadowing hazard exists at all.
+        Send-YurunaNotification -EventCode $script:UnsubscribedEventCode -EventMessage 'warm-up' -EventNote 'warm-up' -Synchronous
+        Remove-Item -LiteralPath (Join-Path $script:ResolveDir 'notification.delivery.json') -Force -ErrorAction SilentlyContinue
+    }
+    AfterAll {
+        Initialize-TestCycleFolder -Path ''
+        Remove-Item -LiteralPath $script:ResolveDir -Recurse -Force -ErrorAction SilentlyContinue
+    }
+
+    # Extensions are imported -Global and every one of them exports the contract
+    # verb Send-Notification. A dispatcher sharing that name would be shadowed by
+    # the first extension to load, and each later unqualified caller would reach a
+    # transport that has no -Synchronous, no -EventData gate and no delivery
+    # ledger -- silently, since the callers wrap the send in try/catch. The
+    # dispatcher therefore owns a name no extension can take.
+    It 'keeps a name the extension cannot shadow, even once the extension is loaded' {
+        $dispatcher = Get-Command Send-YurunaNotification
+        Assert-Equal -Expected 'Test.Notify' -Actual $dispatcher.Module.Name `
+            -Because 'the dispatcher must still be what callers reach after an extension has been imported -Global'
+        Assert-True ($dispatcher.Parameters.ContainsKey('Synchronous')) 'a caller that needs a synchronous send must be able to ask for one'
+        Assert-True ($dispatcher.Parameters.ContainsKey('EventData'))   'the structured payload gate lives on the dispatcher'
+
+        # And the contract verb is free for the extension to own, which is the
+        # whole reason the two names must differ.
+        $transport = Get-Command Send-Notification -ErrorAction SilentlyContinue
+        if ($transport) {
+            Assert-True ($transport.Module.Name -ne 'Test.Notify') `
+                'Send-Notification belongs to the extension; if the dispatcher answered to it too, one of them would be unreachable'
+        }
+    }
+
+    It 'records a delivery for a second dispatch in the same process' {
+        # The outer runner is long-lived and dispatches many times. The failure
+        # this guards is the second send onwards, not the first.
+        $err = $null
+        try {
+            Send-YurunaNotification -EventCode $script:UnsubscribedEventCode -EventMessage 'subject' -EventNote 'body' -Synchronous
+        } catch {
+            $err = $_.Exception.Message
+        }
+        Assert-True ($null -eq $err) "a second dispatch in the same process must not throw: $err"
+        Assert-Equal -Expected 1 -Actual (Get-DeliveryRecord -CycleFolder $script:ResolveDir).Count `
+            -Because 'a dispatch that leaves no ledger record is an alert nobody can confirm was sent'
+    }
+
+    # A source guard, because the runtime one cannot see a caller that is never
+    # exercised here. Any product code invoking the bare contract verb is talking
+    # to a transport directly, skipping the dispatcher's gates and delivery
+    # ledger; this source guard is what stops that from creeping back in.
+    It 'has no product caller invoking the extension contract verb directly' {
+        $root    = Split-Path -Parent (Split-Path -Parent $here)
+        $sources = @(
+            Get-ChildItem (Join-Path $root 'test')  -Recurse -Include *.ps1, *.psm1 -File -ErrorAction SilentlyContinue
+            Get-ChildItem (Join-Path $root 'tools') -Recurse -Include *.ps1, *.psm1 -File -ErrorAction SilentlyContinue
+        ) | Where-Object {
+            # The extension itself defines the verb; the dispatcher's own module
+            # names it when resolving each extension's command through its module
+            # object. Test files are exercise, not product code.
+            $_.FullName -notmatch '[\\/]extension[\\/]' -and
+            $_.Name -ne 'Test.Notify.psm1' -and
+            $_.Name -notlike '*.Tests.ps1'
+        }
+        $offenders = foreach ($f in $sources) {
+            $ast = [System.Management.Automation.Language.Parser]::ParseFile($f.FullName, [ref]$null, [ref]$null)
+            $calls = $ast.FindAll({ param($n)
+                $n -is [System.Management.Automation.Language.CommandAst] -and
+                $n.GetCommandName() -eq 'Send-Notification'
+            }, $true)
+            foreach ($c in $calls) { "$($f.Name):$($c.Extent.StartLineNumber)" }
+        }
+        Assert-Equal -Expected 0 -Actual @($offenders).Count `
+            -Because "these call the transport directly, bypassing the dispatch loop and the delivery ledger: $($offenders -join ', ')"
+    }
+}
+
+Describe 'Send-EmailViaResend -- the message every subscriber actually reads' {
+    # The transport is a private function inside the extension module, so the
+    # assertions run in module scope. Loading it non-Global keeps the module's
+    # own Send-Notification from shadowing the dispatcher for the suites above.
+    BeforeAll {
+        # Eight extension areas each ship a module named 'default', and the
+        # suite shares one runspace. With more than one resident, Pester cannot
+        # tell which module a -ModuleName 'default' mock or an InModuleScope
+        # block means, and refuses -- so this file's module is made the only
+        # one loaded. The failure is order-dependent, which is why it shows up
+        # in a full run and not when this file is run by itself.
+        Get-Module -Name 'default' -All | Remove-Module -Force -ErrorAction SilentlyContinue
+        $script:ResendModule = Join-Path (Split-Path -Parent (Split-Path -Parent $PSCommandPath)) 'extension/notification/default.psm1'
+        Import-Module $script:ResendModule -Force -DisableNameChecking
+    }
+    AfterAll {
+        Remove-Module -Name 'default' -Force -ErrorAction SilentlyContinue
+    }
+
+    It 'sends both a text and an html part, and wraps the html one' {
+        # A single html part leaves the provider to synthesize a plain-text
+        # alternative for clients that ask for one -- a machine's guess at a
+        # message we are holding in its original form.
+        Mock -ModuleName 'default' -CommandName 'Invoke-RestMethod' -MockWith { $script:SentBody = $Body }
+
+        InModuleScope 'default' {
+            Send-EmailViaResend `
+                -ResendCfg @{ apiKey = 'k'; fromEmail = 'a@example.com' } `
+                -ToAddress 'b@example.com' -Subject 's' -BodyText "line one`nline two <b>"
+        }
+
+        $payload = $script:SentBody | ConvertFrom-Json
+        Assert-True ($null -ne $payload.text) 'the request carries a text part'
+        Assert-True ($null -ne $payload.html) 'the request carries an html part'
+        Assert-Equal -Expected "line one`nline two <b>" -Actual $payload.text -Because 'the text part is the message as written, not an encoded copy'
+        Assert-True ($payload.html -match 'lang="[A-Za-z]{2,3}(-[A-Za-z0-9]+)*"')          'the html part declares a document language'
+        Assert-True ($payload.html -match 'pre-wrap')            'the html part wraps instead of scrolling horizontally'
+        Assert-True ($payload.html -match 'line two &lt;b&gt;')  'the html part is still encoded'
+    }
+}
+
+Describe 'dispatcher transport lookup' {
+    # The dispatcher finds each active transport by the FILE it was loaded from,
+    # and imports the transport itself when it is not loaded. These tests point
+    # the loader at a private tree of stand-in transports, so no shipped
+    # transport and no network is involved: each stand-in appends the call it
+    # received, and the marker its module instance holds, to a log file.
+    BeforeAll {
+        function Use-LookupExtensionRoot {
+            <#
+            .SYNOPSIS
+                Point the extension loader at a root, the way the loader suite
+                does: its root is resolved at import, so the module-scope
+                variable is the only handle.
+            #>
+            [CmdletBinding()] [OutputType([void])] param([Parameter(Mandatory)][string]$Path)
+            & (Get-Module Test.Extension) { param($p) $script:ExtensionDir = $p } $Path
+        }
+        function Get-LookupExtensionRoot {
+            <#
+            .SYNOPSIS
+                Read back the loader's current extension root.
+            #>
+            [CmdletBinding()] [OutputType([string])] param()
+            return (& (Get-Module Test.Extension) { $script:ExtensionDir })
+        }
+        function Initialize-LookupLoaderLatch {
+            <#
+            .SYNOPSIS
+                Set the dispatcher's "the loader already ran in this process"
+                latch. Once it is set the dispatcher is on its own: it must find
+                or import every active transport by itself.
+            #>
+            [CmdletBinding()] [OutputType([void])] param([Parameter(Mandatory)][bool]$Loaded)
+            & (Get-Module Test.Notify) { param($v) $script:NotificationExtensionsLoaded = $v } $Loaded
+        }
+        function Get-LookupLoaderLatch {
+            <#
+            .SYNOPSIS
+                Read back the dispatcher's loader latch.
+            #>
+            [CmdletBinding()] [OutputType([bool])] param()
+            return [bool](& (Get-Module Test.Notify) { $script:NotificationExtensionsLoaded })
+        }
+        function Initialize-LookupArea {
+            <#
+            .SYNOPSIS
+                Write <Root>/notification/notification.config.yml naming the
+                active transports, and return the area directory.
+            #>
+            [CmdletBinding()]
+            [OutputType([string])]
+            param([Parameter(Mandatory)][string]$Root, [Parameter(Mandatory)][string[]]$ActiveName)
+            $dir = Join-Path $Root 'notification'
+            $null = New-Item -ItemType Directory -Path $dir -Force
+            $lines = @('active:') + ($ActiveName | ForEach-Object { "  - $_" })
+            Set-Content -LiteralPath (Join-Path $dir 'notification.config.yml') -Value ($lines -join "`n")
+            return $dir
+        }
+        function Add-LookupTransport {
+            <#
+            .SYNOPSIS
+                Write a stand-in transport module and return its path. Its
+                Send-Notification logs "<Tag>|<EventCode>|<Marker>", where Marker
+                is a module-scope value: a test sets it on a loaded instance and
+                a fresh import of the same file comes back without it.
+            #>
+            [CmdletBinding()]
+            [OutputType([string])]
+            param(
+                [Parameter(Mandatory)][string]$Directory,
+                [Parameter(Mandatory)][string]$Name,
+                [Parameter(Mandatory)][string]$Tag
+            )
+            $null = New-Item -ItemType Directory -Path $Directory -Force
+            $file = Join-Path $Directory "$Name.psm1"
+            $log  = $script:LookupCallLog -replace "'", "''"
+            $body = @(
+                "`$script:Marker = ''"
+                'function Send-Notification {'
+                '    param([string]$EventCode, [string]$EventMessage, [string]$EventNote)'
+                "    Add-Content -LiteralPath '$log' -Value (@('$Tag', `$EventCode, `$script:Marker) -join '|')"
+                '}'
+                'Export-ModuleMember -Function Send-Notification'
+            ) -join "`n"
+            Set-Content -LiteralPath $file -Value $body
+            return $file
+        }
+        function Get-LookupCall {
+            <#
+            .SYNOPSIS
+                The calls the stand-in transports logged, oldest first.
+            #>
+            [CmdletBinding()]
+            [OutputType([object[]])]
+            param()
+            if (-not (Test-Path -LiteralPath $script:LookupCallLog)) { return @() }
+            return @(Get-Content -LiteralPath $script:LookupCallLog | Where-Object { $_ })
+        }
+
+        $script:LookupRoot       = New-YurunaTestTempDir -Prefix 'yuruna-notify-lookup'
+        $script:LookupCycleDir   = Join-Path $script:LookupRoot 'cycle'
+        $script:LookupCallLog    = Join-Path $script:LookupRoot 'calls.log'
+        $script:LookupModuleName = @('yznfound', 'yznreload', 'yzntwin', 'yzncase', 'yznblank', 'yznlive')
+        $script:LookupSavedRoot  = Get-LookupExtensionRoot
+        $script:LookupSavedLatch = Get-LookupLoaderLatch
+        $null = New-Item -ItemType Directory -Path $script:LookupCycleDir -Force
+        Initialize-TestCycleFolder -Path $script:LookupCycleDir
+    }
+    AfterAll {
+        Use-LookupExtensionRoot -Path $script:LookupSavedRoot
+        Initialize-LookupLoaderLatch -Loaded $script:LookupSavedLatch
+        Initialize-TestCycleFolder -Path ''
+        foreach ($name in $script:LookupModuleName) {
+            Get-Module -Name $name -All | Remove-Module -Force -ErrorAction SilentlyContinue
+        }
+        Remove-YurunaTestTempDir $script:LookupRoot
+    }
+    BeforeEach {
+        Remove-Item -LiteralPath $script:LookupCallLog -Force -ErrorAction SilentlyContinue
+        Remove-Item -LiteralPath (Join-Path $script:LookupCycleDir 'notification.delivery.json') -Force -ErrorAction SilentlyContinue
+        Initialize-LookupLoaderLatch -Loaded $false
+    }
+
+    It 'calls the transport that is already loaded, without importing it again' {
+        $root    = Join-Path $script:LookupRoot 'found'
+        $areaDir = Initialize-LookupArea -Root $root -ActiveName @('yznfound')
+        $null    = Add-LookupTransport -Directory $areaDir -Name 'yznfound' -Tag 'found'
+        Use-LookupExtensionRoot -Path $root
+
+        Send-YurunaNotification -EventCode 'test.lookup' -EventMessage 'subject' -EventNote 'body' -Synchronous
+        $module = Get-Module -Name 'yznfound'
+        Assert-True ($null -ne $module) 'precondition: the first dispatch loaded the transport'
+        & $module { $script:Marker = 'kept' }
+
+        Send-YurunaNotification -EventCode 'test.lookup' -EventMessage 'subject' -EventNote 'body' -Synchronous
+
+        $calls = @(Get-LookupCall)
+        Assert-Equal -Expected 2 -Actual $calls.Count
+        Assert-Equal -Expected 'found|test.lookup|kept' -Actual $calls[1] `
+            -Because 'the second dispatch must reach the instance that is loaded, not a fresh import of the file'
+        $records = Get-DeliveryRecord -CycleFolder $script:LookupCycleDir
+        Assert-Equal -Expected 2 -Actual $records.Count
+        Assert-Equal -Expected 'yznfound' -Actual $records[1].extension
+        Assert-Equal -Expected 'ok' -Actual $records[1].status
+    }
+    It 'imports the transport itself when the loader ran earlier and the module is not loaded' {
+        $root    = Join-Path $script:LookupRoot 'reload'
+        $areaDir = Initialize-LookupArea -Root $root -ActiveName @('yznreload')
+        $file    = Add-LookupTransport -Directory $areaDir -Name 'yznreload' -Tag 'reload'
+        Use-LookupExtensionRoot -Path $root
+        Initialize-LookupLoaderLatch -Loaded $true
+        Assert-True ($null -eq (Get-Module -Name 'yznreload')) 'precondition: nothing has loaded the transport'
+
+        $w = @()
+        Send-YurunaNotification -EventCode 'test.lookup' -EventMessage 'subject' -EventNote 'body' -Synchronous `
+            -WarningVariable w -WarningAction SilentlyContinue
+
+        Assert-Equal -Expected 0 -Actual @($w).Count -Because "a transport that imports cleanly is imported quietly: $($w -join ' | ')"
+        Assert-Equal -Expected 'reload|test.lookup|' -Actual (@(Get-LookupCall) -join ',')
+        $module = Get-Module -Name 'yznreload'
+        Assert-True ($null -ne $module) 'the import is global, so the next dispatch finds the transport loaded'
+        Assert-Equal -Expected ([System.IO.Path]::GetFullPath($file)) -Actual ([System.IO.Path]::GetFullPath($module.Path))
+        $records = Get-DeliveryRecord -CycleFolder $script:LookupCycleDir
+        Assert-Equal -Expected 1 -Actual $records.Count
+        Assert-Equal -Expected 'ok' -Actual $records[0].status
+    }
+    It 'calls the notification area transport when other loaded modules share its basename' {
+        # Every area names its module default.psm1. A lookup by module name, or a
+        # bare Send-Notification call, reaches whichever of them the module table
+        # happens to list first -- so one namesake is loaded before the transport
+        # and one after, from directories that sort on either side of it.
+        $root    = Join-Path $script:LookupRoot 'twin'
+        $areaDir = Initialize-LookupArea -Root $root -ActiveName @('yzntwin')
+        $null    = Add-LookupTransport -Directory $areaDir -Name 'yzntwin' -Tag 'notification-area'
+        $earlier = Add-LookupTransport -Directory (Join-Path $root 'aaa-other') -Name 'yzntwin' -Tag 'loaded-earlier'
+        $later   = Add-LookupTransport -Directory (Join-Path $root 'zzz-other') -Name 'yzntwin' -Tag 'loaded-later'
+        Use-LookupExtensionRoot -Path $root
+
+        Import-Module -Name $earlier -Global -Force -DisableNameChecking
+        Send-YurunaNotification -EventCode 'test.lookup' -EventMessage 'subject' -EventNote 'body' -Synchronous
+        Import-Module -Name $later -Global -Force -DisableNameChecking
+        Assert-Equal -Expected 3 -Actual @(Get-Module -Name 'yzntwin').Count -Because 'precondition: all three are loaded under one module name'
+
+        Send-YurunaNotification -EventCode 'test.lookup' -EventMessage 'subject' -EventNote 'body' -Synchronous
+
+        Assert-Equal -Expected 'notification-area|test.lookup|,notification-area|test.lookup|' -Actual (@(Get-LookupCall) -join ',') `
+            -Because 'the transport is matched by its file, never by the module name it shares with the others'
+    }
+    It 'matches the loaded transport when the configured name differs only by letter case' {
+        # A module keeps the spelling it was imported with. The differently
+        # spelled name is never looked up on disk here -- the loader latch is set,
+        # so only the dispatcher's own lookup runs -- which keeps the test valid
+        # on a case-sensitive file system.
+        $root    = Join-Path $script:LookupRoot 'case'
+        $areaDir = Initialize-LookupArea -Root $root -ActiveName @('YZNCASE')
+        $file    = Add-LookupTransport -Directory $areaDir -Name 'yzncase' -Tag 'case'
+        Use-LookupExtensionRoot -Path $root
+        $module = Import-Module -Name $file -Global -Force -PassThru -DisableNameChecking
+        & $module { $script:Marker = 'kept' }
+        Initialize-LookupLoaderLatch -Loaded $true
+
+        $w = @()
+        Send-YurunaNotification -EventCode 'test.lookup' -EventMessage 'subject' -EventNote 'body' -Synchronous `
+            -WarningVariable w -WarningAction SilentlyContinue
+
+        Assert-Equal -Expected 0 -Actual @($w).Count -Because "the transport is loaded; nothing needs reporting: $($w -join ' | ')"
+        Assert-Equal -Expected 'case|test.lookup|kept' -Actual (@(Get-LookupCall) -join ',') `
+            -Because 'the loaded instance answers; a letter-case difference must not cause a second import'
+        Assert-Equal -Expected 1 -Actual @(Get-Module -Name 'yzncase').Count
+    }
+    It 'skips loaded modules that have no file path on the way to the transport' {
+        # No real module loads with an empty path, so the module table is
+        # replaced with stand-in rows -- in both modules on the dispatch path
+        # that read it.
+        $root    = Join-Path $script:LookupRoot 'blank'
+        $areaDir = Initialize-LookupArea -Root $root -ActiveName @('yznblank')
+        $file    = Add-LookupTransport -Directory $areaDir -Name 'yznblank' -Tag 'blank'
+        Use-LookupExtensionRoot -Path $root
+        $module = Import-Module -Name $file -Global -Force -PassThru -DisableNameChecking
+        Initialize-LookupLoaderLatch -Loaded $true
+        $script:LookupTable = @(
+            [pscustomobject]@{ Name = 'yznopath';   Path = '';    ExportedCommands = @{} }
+            [pscustomobject]@{ Name = 'yznullpath'; Path = $null; ExportedCommands = @{} }
+            $module
+        )
+        Mock -CommandName Get-Module -ModuleName Test.Notify -MockWith { $script:LookupTable }
+        Mock -CommandName Get-Module -ModuleName Test.Extension -MockWith { $script:LookupTable }
+
+        $w = @()
+        $failure = @()
+        Send-YurunaNotification -EventCode 'test.lookup' -EventMessage 'subject' -EventNote 'body' -Synchronous `
+            -WarningVariable w -WarningAction SilentlyContinue -ErrorVariable failure
+
+        Assert-Equal -Expected 'blank|test.lookup|' -Actual (@(Get-LookupCall) -join ',')
+        Assert-Equal -Expected 0 -Actual @($w).Count -Because "the transport is loaded; nothing needs reporting: $($w -join ' | ')"
+        Assert-Equal -Expected 0 -Actual @($failure).Count -Because "a module with no file path is skipped, never handed to the path API: $($failure -join ' | ')"
+    }
+    It 'warns and moves on to the next transport when one cannot be imported' {
+        $root    = Join-Path $script:LookupRoot 'ghost'
+        $areaDir = Initialize-LookupArea -Root $root -ActiveName @('yznghost', 'yznlive')
+        $null    = Add-LookupTransport -Directory $areaDir -Name 'yznlive' -Tag 'live'
+        Use-LookupExtensionRoot -Path $root
+        Initialize-LookupLoaderLatch -Loaded $true
+
+        $w = @()
+        $threw = $null
+        try {
+            Send-YurunaNotification -EventCode 'test.lookup' -EventMessage 'subject' -EventNote 'body' -Synchronous `
+                -WarningVariable w -WarningAction SilentlyContinue
+        } catch {
+            $threw = $_.Exception.Message
+        }
+
+        Assert-True ($null -eq $threw) "one transport that cannot be imported must not fail the dispatch: $threw"
+        $ghostFile  = [System.IO.Path]::GetFullPath((Join-Path $areaDir 'yznghost.psm1'))
+        $aboutGhost = @($w | Where-Object { "$_" -like '*yznghost*' })
+        Assert-Equal -Expected 2 -Actual $aboutGhost.Count `
+            -Because "one warning for the import that failed, one for the transport that could not be called: $($w -join ' | ')"
+        Assert-True (@($aboutGhost | Where-Object { "$_".Contains($ghostFile) }).Count -ge 1) 'the operator is told which file was looked for'
+        Assert-Equal -Expected 'live|test.lookup|' -Actual (@(Get-LookupCall) -join ',') `
+            -Because 'the transports listed after the broken one still receive the event'
+        $records = Get-DeliveryRecord -CycleFolder $script:LookupCycleDir
+        Assert-Equal -Expected 1 -Actual $records.Count -Because 'only a transport that was called leaves a delivery record'
+        Assert-Equal -Expected 'yznlive' -Actual $records[0].extension
+        Assert-Equal -Expected 'ok' -Actual $records[0].status
+    }
+}

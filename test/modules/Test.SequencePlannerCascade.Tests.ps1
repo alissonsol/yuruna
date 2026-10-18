@@ -1,0 +1,55 @@
+<#PSScriptInfo
+.VERSION 2026.10.14
+.GUID 4218f53d-2ce9-4dd2-9793-e239cc92136d
+.AUTHOR Alisson Sol et al.
+.COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
+.TAGS yuruna test sequence planner cascade variables pester
+.LICENSEURI https://yuruna.link/license
+.PROJECTURI https://yuruna.com
+.ICONURI
+.EXTERNALMODULEDEPENDENCIES
+.REQUIREDSCRIPTS
+.EXTERNALSCRIPTDEPENDENCIES
+.RELEASENOTES
+.PRIVATEDATA
+#>
+
+#requires -version 7
+
+<#
+.SYNOPSIS
+    Structural Pester guard on test/modules/Test.SequencePlanner.psm1: the
+    subtle chain variable-cascade merge rules live in ONE helper
+    (Merge-SequenceVariableCascade), not copy-pasted between the two planners.
+.DESCRIPTION
+    Add-CyclePlanEntriesForTopLevel and Resolve-NamedSequenceChain both merged
+    each chain member's variables into an ordered map with the same 'skip a key
+    already set, skip null, skip a whitespace-only string' rules. That subtle
+    inner loop was byte-identical in both (only the outer path-resolution and its
+    warnings differ, which stay per-site). These guards assert the merge rules
+    now exist once, in the helper, and both planners delegate to it. Source-text
+    only. Runs under Pester 5.x (script-scoped throw helper).
+#>
+
+BeforeAll {
+$here = Split-Path -Parent $PSCommandPath
+$script:src  = Get-Content (Join-Path $here 'Test.SequencePlanner.psm1') -Raw
+
+Import-Module (Join-Path (Split-Path -Parent $PSCommandPath) 'Test.Assert.psm1') -Force -Global -DisableNameChecking
+
+}
+
+Describe 'sequenceplanner-cascade -- the variable-merge rules are shared by one helper' {
+    It 'defines a Merge-SequenceVariableCascade helper' {
+        Assert-True ($script:src -match '(?m)^function Merge-SequenceVariableCascade\b') `
+            'the duplicated cascade-merge loop must collapse into one helper'
+    }
+    It 'the whitespace-only-skip rule appears exactly once (only in the helper)' {
+        $n = ([regex]::Matches($script:src, [regex]::Escape('-not $vv.Trim()'))).Count
+        Assert-True ($n -eq 1) "expected one whitespace-skip after dedup, found $n"
+    }
+    It 'both planners delegate to Merge-SequenceVariableCascade' {
+        $n = ([regex]::Matches($script:src, [regex]::Escape('Get-SequenceChainContext -Chain $chain -Paths $paths'))).Count
+        Assert-True ($n -eq 2) "expected both planners to delegate, found $n"
+    }
+}

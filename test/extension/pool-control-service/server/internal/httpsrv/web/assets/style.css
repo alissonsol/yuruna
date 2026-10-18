@@ -1,0 +1,537 @@
+/* LICENSEURI https://yuruna.link/license */
+/* Copyright (c) 2019-2026 by Alisson Sol et al. */
+
+/* Page tokens. The --chrome-* set is the shared one: see the page-chrome block
+   below for why it must not drift between services.
+
+   --line and --control-edge are deliberately different values for the same
+   visual idea. --line draws dividers -- table rules, card edges -- which are
+   decorative, so a soft hairline is correct there. --control-edge draws the
+   boundary of a text input or a select, and for those the border is the ONLY
+   thing that says a control is present: their fill is --bg, the same value the
+   page behind them paints. That makes it a graphical object required to
+   identify a component, which must clear 3:1 against both surfaces it meets.
+   Raising --line to satisfy that would make every table rule shout.
+
+   --accent and --accent-fill split for the same reason: --accent is a
+   foreground (link text), and the dark theme lightens it so it reads on a dark
+   page. --accent-fill is a background under --accent-fill-fg, where lightening
+   moves the pair the wrong way. One value cannot serve both roles; when it did,
+   the dark-theme primary button was white on #74b8ff. */
+:root { color-scheme: light dark;
+        --fg:#111827; --muted:#6b7280; --line:#e5e7eb; --accent:#2563eb; --bg:#fff; --err:#b00020; --ok:#1a7f37;
+        --control-edge:#6b7280;
+        --accent-fill:#2563eb; --accent-fill-fg:#ffffff;
+        --btn-bg:#f6f8fa; --btn-hover:#eef1f4;
+        --band-odd:#f6f8fa; --band-even:#ffffff;
+        --warn:#854d0e; --warn-bg:#fef3c7; --warn-line:#d97706;
+        --ok-bg:#e8f5ec; --ok-line:#b7e0c2; --err-bg:#fde8ea; --err-line:#f3b6bd;
+        --chrome-bg:#111827; --chrome-fg:#f9fafb; --chrome-muted:#9ca3af; --chrome-line:#374151;
+        --chrome-raised:#1f2937; --chrome-hover:#374151; --chrome-input-bg:#0b1220;
+        --chrome-control-edge:#8b93a1;
+        --touch-min: 2.75rem;
+        --mono: ui-monospace, Menlo, Consolas, monospace; }
+
+@media (prefers-color-scheme: dark) {
+  :root { --fg:#e5e7eb; --muted:#94a3b8; --line:#1f2937; --accent:#74b8ff; --bg:#0b1220; --err:#fca5a5; --ok:#4ade80;
+          --control-edge:#64748b;
+          --accent-fill:#1d4ed8;
+          --btn-bg:#111827; --btn-hover:#1f2937;
+          --band-odd:#111827; --band-even:#0b1220;
+          --warn:#fde68a; --warn-bg:#422006; --warn-line:#ca8a04;
+          --ok-bg:#14532d; --ok-line:#166534; --err-bg:#7f1d1d; --err-line:#991b1b;
+          --chrome-bg:#030712; --chrome-muted:#94a3b8; --chrome-line:#1f2937;
+          --chrome-raised:#111827; --chrome-hover:#1f2937; --chrome-input-bg:#020617; }
+}
+
+* { box-sizing: border-box; }
+/* Every page toggles visibility with the `hidden` ATTRIBUTE. A class rule that
+   sets `display:` on the same element outranks the user-agent
+   `[hidden] { display: none }` on specificity, so `el.hidden = true` becomes a
+   silent no-op -- and for an overlay, an undismissable one. Keep this ahead of
+   every layout rule so the attribute always wins. */
+[hidden] { display: none !important; }
+/* iOS Safari boosts text inside any block wider than the viewport, and the
+   phone breakpoint below deliberately makes tables wider than the screen (they
+   scroll themselves). Without this pin a table paints at a different size from
+   the rest of the page. Prefixed form is the one Safari implements; the
+   standard form covers the others. */
+html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%;
+       /* The footer bar is fixed at the bottom, so the browser's own
+          scroll-into-view can land a freshly focused control underneath it --
+          entirely hidden, for a one-line link inside a table row. Padding on
+          <main> reserves space past the LAST element only; scroll-padding is
+          what the focus scroll itself honors. */
+       scroll-padding-bottom: 3.5rem;
+       scroll-padding-bottom: calc(3.5rem + env(safe-area-inset-bottom)); }
+body { font: 15px/1.5 -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; color: var(--fg); background: var(--bg); margin: 0; }
+
+/* ===========================================================================
+   PAGE CHROME -- the black header bar, its menu, and the black footer bar.
+   Header and footer are one surface, and every Yuruna UI carries the same one:
+   same tokens, same type scale, same menu in the same corner, so the host
+   status pages and the service UIs read as one product rather than four
+   lookalikes.
+
+   Keep this block, and the --chrome-* tokens it reads, byte-identical across
+   the status pages' yuruna.common.css and the three services' style.css. Each
+   daemon embeds its own copy because //go:embed cannot reach outside its own
+   module -- the duplication is forced, so drift is the thing to watch for, and
+   Test.ExtensionUiChrome.Tests.ps1 fails when the copies stop matching.
+   =========================================================================== */
+header.app {
+  background: var(--chrome-bg); color: var(--chrome-fg);
+  display: flex; align-items: center; flex-wrap: nowrap;
+  /* Fold the iPhone safe-area-inset into the horizontal padding so the
+     full-bleed bar stays readable under the notch (every page sets
+     viewport-fit=cover); env() resolves to 0 on non-notched devices. */
+  padding: .55rem 1rem;
+  padding: .55rem max(1rem, env(safe-area-inset-right)) .55rem max(1rem, env(safe-area-inset-left));
+}
+/* Keep the first header item flush with the edge while spacing later items. */
+header.app > * + * { margin-left: 1rem; }
+/* Service name with its version stacked underneath, so the two read as one
+   identity block rather than two unrelated header items. */
+header.app .brand { display: flex; flex-direction: column; line-height: 1.15; min-width: 0; }
+header.app .brand .name { font-size: 1rem; font-weight: 600; white-space: nowrap; }
+header.app .brand a { color: inherit; text-decoration: none; }
+header.app .version { color: var(--chrome-muted); font-family: var(--mono); font-size: .72rem; font-weight: 400; }
+header.app .spacer { flex: 1; }
+/* The host id is the header's one variable-width item, so it is the one that
+   gives: it truncates rather than pushing the menu button off a phone. */
+header.app .machine { color: var(--chrome-muted); font-family: var(--mono); font-size: .8rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* A plain header action sits on the black bar and cannot inherit the page's
+   light button styling. :not(.primary) leaves the accent-filled ones alone --
+   they already read on black. Scoped to .btn, never to bare `button`: a
+   `header.app button` selector would outrank .menu-button's own rules below and
+   flatten its open state. */
+header.app .btn:not(.primary) {
+  background: transparent; color: var(--chrome-fg); border-color: var(--chrome-line);
+}
+header.app .btn:not(.primary):hover { background: var(--chrome-raised); }
+
+/* Right-hand page menu. Every service carries the same control in the same
+   corner, so moving between pages does not change from one Yuruna UI to the
+   next. The links are static markup, not built in JS, so they survive a script
+   failure; common.js only wires open/close. */
+.menu { position: relative; flex-shrink: 0; }
+.menu-button {
+  display: inline-flex; align-items: center; justify-content: center;
+  min-height: 2rem; padding: .3rem .6rem;
+  font: inherit; font-size: .85rem; line-height: 1;
+  color: var(--chrome-fg); background: transparent;
+  border: 1px solid var(--chrome-line); border-radius: 6px; cursor: pointer;
+}
+.menu-button:hover, .menu-button[aria-expanded="true"] { background: var(--chrome-raised); }
+.menu-button .menu-icon { font-size: 1rem; line-height: 1; }
+.menu-button .menu-icon + .menu-label { margin-left: .4rem; }
+.menu-panel {
+  position: absolute; top: calc(100% + .45rem); right: 0;
+  min-width: 12rem; padding: .3rem;
+  background: var(--chrome-raised); color: var(--chrome-fg);
+  border: 1px solid var(--chrome-line); border-radius: 8px;
+  box-shadow: 0 10px 28px rgba(0,0,0,.45);
+  /* Above the fixed footer bar (3), any sticky page furniture (1) and the
+     board's confirm sheet (10); below the unlock overlay (20), which stays
+     modal even when the menu was left open behind it. */
+  z-index: 15;
+}
+.menu-panel a {
+  display: block; padding: .5rem .6rem; border-radius: 6px;
+  color: var(--chrome-fg); font-size: .9rem; text-decoration: none; white-space: nowrap;
+}
+.menu-panel a:hover, .menu-panel a:focus { background: var(--chrome-hover); text-decoration: none; }
+.menu-panel a[aria-current="page"] { font-weight: 600; }
+.menu-panel a[aria-current="page"]::after { content: "\2713"; float: right; margin-left: 1.5rem; }
+/* The trailing link leaves the service; the rule says so before it is followed. */
+.menu-panel .menu-out { margin-top: .3rem; padding-top: .4rem; border-top: 1px solid var(--chrome-line); border-radius: 0 0 6px 6px; }
+
+/* Footer bar (server IPs - loaded - refresh countdown), the same surface as the
+   header above -- fixed at the bottom, with a readonly mono textarea for the
+   (possibly long) IP list. main pads its bottom so the fixed bar never covers
+   the last row of a table. margin-top/text-align are restated because one page
+   carries this id on a <footer class="app"> that centers its flow content. */
+#footer-bar {
+  position: fixed; bottom: 0; left: 0; right: 0;
+  background: var(--chrome-bg); color: var(--chrome-muted);
+  margin-top: 0; text-align: left;
+  /* Fixed bar: pad left/right and bottom by the safe-area-inset so it clears
+     the iPhone home indicator and the landscape notch. */
+  padding: .35rem 1rem;
+  padding: .35rem max(1rem, env(safe-area-inset-right)) max(.35rem, env(safe-area-inset-bottom)) max(1rem, env(safe-area-inset-left));
+  font-size: .6875rem;
+  /* A floor above what either footer variant needs, so the bar that holds the
+     IP control and the bar that holds one line of text are the same height --
+     content-derived heights would otherwise differ by a few px per platform,
+     from the textarea's own font metrics. */
+  min-height: 2.25rem;
+  display: flex; justify-content: space-between; align-items: center;
+  z-index: 3;
+}
+#footer-bar > * + * { margin-left: .75rem; }
+#footer-bar a { color: var(--chrome-muted); }
+#footer-ips { flex: 0 1 33%; max-width: 33%; min-width: 0; display: flex; align-items: center; }
+#footer-ips > * + * { margin-left: .5rem; }
+#footer-ips .label { flex-shrink: 0; }
+textarea#footer-ip-list {
+  flex: 1 1 auto; min-width: 0;
+  font-family: var(--mono); font-size: .6875rem;
+  color: var(--chrome-muted); background: var(--chrome-input-bg); border: 1px solid var(--chrome-control-edge);
+  border-radius: 3px; padding: .15rem .35rem;
+  resize: none; overflow: auto; white-space: pre;
+  line-height: 1.25; vertical-align: middle;
+  scrollbar-width: none;
+}
+textarea#footer-ip-list::-webkit-scrollbar { display: none; }
+/* The page class makes the fixed-footer clearance explicit on pages that need it. */
+body.has-footer-bar main { padding-bottom: 3rem; padding-bottom: calc(3rem + env(safe-area-inset-bottom)); }
+
+/* The in-flow footer of a page with no data feed of its own (create, detail).
+   Same surface, same padding and same type scale as the fixed bar above, so a
+   page that ends early ends on a bar of identical height and color instead of
+   trailing off into the page background. */
+footer.app {
+  background: var(--chrome-bg); color: var(--chrome-muted);
+  /* Deliberately NOT a flex container: this variant holds a run of inline text
+     around its link, and flex would promote each text run to its own anonymous
+     item and eat the spaces at their edges. The taller padding centers that one
+     line inside the shared min-height instead. */
+  padding: .6rem 1rem;
+  padding: .6rem max(1rem, env(safe-area-inset-right)) max(.6rem, env(safe-area-inset-bottom)) max(1rem, env(safe-area-inset-left));
+  margin-top: 2rem; font-size: .6875rem; text-align: center;
+  /* Same floor as the fixed bar above -- these are one bar in two placements. */
+  min-height: 2.25rem;
+}
+footer.app a { color: var(--chrome-muted); }
+
+/* Phone: the menu is how you leave a page, so it keeps a full touch target
+   while its label drops -- the glyph alone survives a 320px viewport. */
+@media (max-width: 600px) {
+  .menu-button { min-height: var(--touch-min); min-width: var(--touch-min); font-size: 16px; }
+  .menu-button .menu-label { display: none; }
+  .menu-panel a { min-height: var(--touch-min); padding: .65rem .6rem; line-height: 1.7; }
+  #footer-bar .linkish { display: inline-flex; align-items: center; justify-content: center; min-height: var(--touch-min); min-width: var(--touch-min); }
+  header.app .btn { padding: .4rem .6rem; font-size: .85rem; }
+  #footer-bar {
+    padding-left: .5rem; padding-left: max(.5rem, env(safe-area-inset-left));
+    padding-right: .5rem; padding-right: max(.5rem, env(safe-area-inset-right));
+    flex-wrap: wrap;
+  }
+  /* The IP field claims its own row. Reserve space for the touch-height
+     controls below it so a fixed footer cannot cover the last table row. */
+  #footer-ips { flex-basis: 100%; max-width: 100%; }
+  body.has-footer-bar main { padding-bottom: 6.5rem; padding-bottom: calc(6.5rem + env(safe-area-inset-bottom)); }
+}
+@media (pointer: coarse) {
+  .menu-button { min-height: var(--touch-min); min-width: var(--touch-min); }
+  .menu-panel a { min-height: var(--touch-min); line-height: 1.7; }
+}
+/* Footer controls that read as text. Both are real <button>s: the refresh was
+   an <a href="#"> that never navigated -- announced as a link, behaving as a
+   button, and silent to Space -- and the pause needs a pressed state, which
+   only a button has. */
+#footer-bar .linkish {
+  appearance: none; -webkit-appearance: none;
+  background: none; border: 0; padding: 0; margin: 0;
+  font: inherit; color: var(--chrome-muted);
+  text-decoration: underline; cursor: pointer;
+}
+#footer-bar .linkish[aria-pressed="true"] { color: var(--chrome-fg); font-weight: 600; }
+/* REGION: Right-to-left mirror */
+/*
+   The right-to-left mirror for the chrome above.
+
+   The safe-area insets are physical, so the chrome states each side for the
+   page's reading direction. Only the sides are mirrored: sizes, colors and
+   the tick glyph are the same in both directions.
+
+   These rules live in the shared chrome block so every service presents the
+   same header direction.
+   -------------------------------------------------------------------------- */
+[dir="rtl"] header.app > * + * { margin-left: 0; margin-right: 1rem; }
+[dir="rtl"] .menu-button .menu-icon + .menu-label { margin-left: 0; margin-right: .4rem; }
+[dir="rtl"] .menu-panel a[aria-current="page"]::after { float: left; margin-left: 0; margin-right: 1.5rem; }
+[dir="rtl"] #footer-bar { text-align: right; }
+[dir="rtl"] #footer-bar > * + * { margin-left: 0; margin-right: .75rem; }
+[dir="rtl"] #footer-ips > * + * { margin-left: 0; margin-right: .5rem; }
+/* The safe-area pair swaps with the direction too: the notch a phone puts on
+   the physical left still needs the physical left inset, but the padding that
+   opens the row's reading edge moves to the other side. Plain value first, as
+   every env()/max() declaration here does, so the floor keeps the fallback. */
+@media (max-width: 600px) {
+[dir="rtl"] #footer-bar {
+  padding-left: .5rem;
+  padding-left: max(.5rem, env(safe-area-inset-left));
+  padding-right: .5rem;
+  padding-right: max(.5rem, env(safe-area-inset-right));
+}
+}
+
+/* === end page chrome ====================================================== */
+
+/* Wider than the other Yuruna UIs on purpose. Every page here is a table whose
+   columns are each load-bearing -- a pool, its repositories, its members and
+   their state -- and at 1100px the member and framework/project columns wrap
+   into unreadable stacks. The Hosts table carries ten such columns, four of
+   them hardware facts, and wraps its cells at 1400px on a display with room
+   to spare. The cap is still a cap: prose keeps a readable measure on a 4K
+   display instead of running the full width. */
+main {
+  max-width: 1700px; margin: 0 auto;
+  padding: 1.25rem;
+  padding: 1.25rem max(1.25rem, env(safe-area-inset-right)) 1.25rem max(1.25rem, env(safe-area-inset-left));
+}
+h1 { font-size: 1.15rem; margin: 0 0 1rem; }
+table { border-collapse: collapse; width: 100%; margin-top: .5rem; }
+th, td { text-align: start; padding: .5rem .6rem; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { color: var(--muted); font-weight: 600; font-size: .82rem; text-transform: uppercase; letter-spacing: .03em; }
+/* Banded rows. Every table here is wide enough that the eye loses its row
+   between the first and the last column; the alternating background is what
+   carries it across. The pair is a token, and the same two values in every
+   Yuruna UI, so one service cannot band its tables in a shade of its own --
+   each daemon embeds its own stylesheet (//go:embed cannot reach outside its
+   module), so the values are duplicated and must move together.
+   Scoped to tbody: a thead/tfoot row is not part of the alternation. A cell
+   that paints its own background still wins, because a td's background paints
+   over its tr's. */
+tbody tr:nth-child(odd) { background: var(--band-odd); }
+tbody tr:nth-child(even) { background: var(--band-even); }
+/* A host type is ONE name that happens to contain dots and a hyphen
+   ("windows.hyper-v"), and auto table layout treats both as break points --
+   it hands the width to the columns beside it and leaves a lone "v" on a
+   second line while the row still has room. The value is only readable as a
+   single token, so it never wraps; the column then reserves what it needs and
+   the phone breakpoint's horizontal scroll absorbs the rest. */
+td.host-type { white-space: nowrap; }
+button { font: inherit; padding: .35rem .7rem; border: 1px solid var(--line); background: var(--btn-bg); color: var(--fg); border-radius: 5px; cursor: pointer; }
+button:hover { background: var(--btn-hover); }
+button.primary { background: var(--accent-fill); color: var(--accent-fill-fg); border-color: var(--accent-fill); }
+button:disabled { opacity: .5; cursor: default; }
+input, select, textarea { font: inherit; padding: .35rem .5rem; border: 1px solid var(--control-edge); background: var(--bg); color: var(--fg); border-radius: 5px; }
+.row { display: flex; flex-wrap: wrap; align-items: center; margin-bottom: 1rem; }
+.row > * + * { margin-inline-start: .5rem; }
+.hint { color: var(--muted); font-size: .82rem; margin-top: .25rem; font-family: var(--mono); }
+.mono { font-family: var(--mono); font-size: .85rem; word-break: break-all; }
+/* The expand-on-click id (Y.idCell). A real <button> for the keyboard and the
+   screen reader, stripped back to reading as the text it replaces -- the chrome
+   of a button around an id would say "act on this", and it only reveals. */
+.id-toggle {
+  padding: 0; border: none; background: none; color: inherit; text-align: start;
+  word-break: break-all; cursor: pointer;
+}
+.id-toggle:hover { background: none; text-decoration: underline; }
+/* A sortable column header: the same idea as .id-toggle -- a real <button> for
+   the keyboard and the screen reader, stripped back to reading as the header
+   text it replaces. The arrow is drawn from aria-sort, which is also what is
+   announced, so the two cannot disagree. */
+th > button.sort {
+  padding: 0; border: none; background: none; cursor: pointer;
+  font: inherit; color: inherit; text-transform: inherit; letter-spacing: inherit;
+  text-align: start; white-space: nowrap;
+}
+th > button.sort:hover { background: none; color: var(--fg); text-decoration: underline; }
+th[aria-sort] > button.sort { color: var(--fg); }
+th[aria-sort="ascending"] > button.sort::after { content: " \25B2"; font-size: .7em; }
+th[aria-sort="descending"] > button.sort::after { content: " \25BC"; font-size: .7em; }
+/* The counter column (Y.numCell). It numbers positions on screen rather than
+   rows of data, so it is furniture: muted, as narrow as its digits, and
+   aligned to the end of the line on tabular figures so the units line up as
+   the count passes ten. */
+th.rownum, td.rownum {
+  width: 1%; text-align: end; white-space: nowrap;
+  color: var(--muted); font-variant-numeric: tabular-nums;
+}
+/* The footnote a column header marks with an asterisk: one line under the
+   table, so a hint that is the same for every row is stated once. */
+.footnote { color: var(--muted); font-size: .82rem; margin-top: .75rem; }
+.footnote code { font-family: var(--mono); word-break: break-all; }
+.notice { display: none; padding: .6rem .8rem; border-radius: 6px; margin-bottom: 1rem; }
+.notice.ok { background: var(--ok-bg); color: var(--ok); border: 1px solid var(--ok-line); }
+.notice.error { background: var(--err-bg); color: var(--err); border: 1px solid var(--err-line); }
+/* hosts.js raises a 'warn' notice when the aggregator is unavailable. Without
+   this rule that message rendered as bare unframed text -- present, but not
+   reading as a notice at all. */
+.notice.warn { background: var(--warn-bg); color: var(--warn); border: 1px solid var(--warn-line); }
+.muted { color: var(--muted); }
+h2 { font-size: 1rem; margin: 1.75rem 0 .25rem; }
+code { font-family: var(--mono); font-size: .85rem; word-break: break-all; }
+/* Check verdicts. Scoped to table cells so they do not collide with the
+   .notice.ok / .notice.error banner rules above. */
+td.ok { color: var(--ok); font-weight: 600; }
+td.error { color: var(--err); font-weight: 600; }
+/* Probe output is captured verbatim (version banners, stderr), so keep the
+   newlines but let long single lines wrap instead of widening the table. */
+pre.detail { font-family: var(--mono); font-size: .85rem; margin: 0; white-space: pre-wrap; word-break: break-word; }
+
+/* The network field on the Scan page. The label sits above its input rather
+   than beside it so the two stay together when the row wraps on a phone. */
+/* A visible label stacked over its control. .labeled-field is the general
+   form; .scan-field adds the monospace face and the width floor that a CIDR
+   field wants and a display name does not. Both exist because a placeholder is
+   only a name until the first keystroke -- after that the control is unlabeled
+   for anyone who was interrupted, is using voice input, or sees one row at a
+   time under magnification. */
+/* min-width:0 for the same reason the status board's grid items need it: a
+   flex item's min-width defaults to `auto`, i.e. its min-content width, so a
+   wrapper around a size="40" input refuses to shrink and takes the whole page
+   into a two-dimensional scroll on a phone. The width cap lets the input give
+   before the row does. */
+/* A following control gets a margin while the first stays flush with its label. */
+.scan-field, .labeled-field { display: flex; flex-direction: column; min-width: 0; }
+.scan-field > * + *, .labeled-field > * + * { margin-top: .15rem; }
+.labeled-field input { max-width: 100%; }
+.scan-label { color: var(--muted); font-size: .82rem; }
+.scan-field input { font-family: var(--mono); min-width: 14rem; }
+/* The Pools table's Framework / Project cell: two single-line text boxes, one
+   over the other, each as wide as the column. A text input scrolls its value
+   under the caret and never draws a scrollbar or wraps, which a textarea
+   would. min-width holds the column open when the table is tight: automatic
+   table layout otherwise gives a percentage-width box the browser's default
+   input width, about twenty characters, too narrow to read a repository URL. */
+.repo-url { display: block; width: 100%; min-width: 16rem; }
+.repo-url + .repo-url { margin-top: .3rem; }
+/* The shared control rule above paints every input in the page's own colors,
+   which outranks the browser's dimming of a disabled one, so the boxes of the
+   auto-enrollment pool would read as editable. Dimmed the way a disabled
+   button already is. */
+.repo-url:disabled { opacity: .6; cursor: default; }
+/* A field the daemon would refuse. Color is not the only signal: the hint
+   under it says what is wrong in words, and the input carries aria-invalid. */
+input[aria-invalid="true"] { border-color: var(--err); }
+.hint.scan-invalid { color: var(--err); }
+.scan-note { font-size: .82rem; margin-top: .25rem; }
+/* The address ticker: one line that must not reflow the page as it changes, so
+   it holds its height when empty and clips rather than wraps. */
+.scan-current {
+  height: 1.4rem; margin-top: .35rem; overflow: hidden; white-space: nowrap;
+  color: var(--muted); font-size: .8rem;
+}
+progress { vertical-align: middle; width: 12rem; max-width: 40vw; }
+/* The Hosts table's first column when the row carries more than an id: a host
+   found by scanning (id when it gave one, address, marker), or a registered one
+   whose id has been superseded at its address (id, the live id, marker, the
+   repair). Left to right in that order. */
+.discovered-host, .host-flags { display: inline-flex; flex-wrap: wrap; align-items: baseline; }
+/* Following host markers need a gutter even when this inline row wraps. */
+.discovered-host > * + *, .host-flags > * + * { margin-inline-start: .4rem; }
+.badge {
+  font-size: .72rem; text-transform: uppercase; letter-spacing: .03em;
+  padding: .05rem .35rem; border-radius: 4px; border: 1px solid var(--line); color: var(--muted);
+}
+/* The one badge that means a row needs an operator rather than a reading: two
+   ids for one machine, with the pool membership on the wrong one. Carries the
+   error color the notices and row feedback already define, so it reads as
+   actionable in both themes without introducing a token of its own. */
+.badge.rekeyed { border-color: var(--err); color: var(--err); }
+
+@media (max-width: 600px) {
+  /* The 4-6 column tables overflow a 375px phone; scroll the table itself
+     instead of the whole page (matches the stash UI's .table-wrap idiom). */
+  table { display: block; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  /* iOS Safari zooms the viewport when a focused text control computes under
+     16px and never zooms back out; keep desktop density, pay 16px on phones.
+     min-height widens the tap targets toward the 44px touch minimum. */
+  input, select, button { font-size: 16px; min-height: var(--touch-min); }
+  /* min-height alone still leaves a single-glyph control -- the per-host remove
+     button -- around 32px wide. Square the floor so it clears 44px on both axes,
+     matching the touch minimum the status and stash UIs share; mis-tapping it
+     drops a host from a pool with no confirmation. */
+  button { min-width: var(--touch-min); }
+  /* The 16px bump also widens the size="40" URL inputs past the content box of a
+     375px phone, and a flex item's automatic minimum stops them shrinking, so the
+     page scrolls sideways. min-width: 0 lets flex-shrink do its job. */
+  .row > input { min-width: 0; }
+}
+
+/* The wait indicator (Y.busy in common.js). Deliberately OUTSIDE the page-chrome
+   block above, which is byte-copied between UIs.
+
+   Every page here opens on a read that fans out to every host in the lab, and
+   the first one of the day is the slow one -- long enough that a blank table
+   reads as a stuck page, and the operator reaches for reload, which throws the
+   pending fetch away and starts the same wait over. */
+.loading { display: flex; align-items: center; justify-content: center; padding: 2rem 1rem; color: var(--muted); }
+.loading .loading-text { margin-inline-start: .6rem; font-size: .95rem; }
+/* A ring with one colored quarter: it is the rotation that reads as motion, so
+   the ring must be visibly incomplete. flex-shrink keeps it circular when the
+   message beside it is long enough to compete for the row. */
+.spinner {
+  width: 1.5rem; height: 1.5rem; flex-shrink: 0;
+  border: 3px solid var(--line); border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: yuruna-spin .9s linear infinite;
+}
+@keyframes yuruna-spin { to { transform: rotate(360deg); } }
+/* The same indicator, on the black footer bar, for a refresh nobody asked for:
+   small, off to the side, and it never moves the text around it. */
+#footer-busy {
+  display: inline-block; width: .7rem; height: .7rem; margin-inline-start: .4rem;
+  vertical-align: -1px;
+  border: 2px solid var(--chrome-line); border-top-color: var(--chrome-fg);
+  border-radius: 50%;
+  animation: yuruna-spin .9s linear infinite;
+}
+/* Spinning is what this element says, so a reader who asked for no motion still
+   needs it to say something -- but it has to say it without moving. A second
+   perpetual animation (an opacity throb) is not a reduction: it is the same
+   request denied in a quieter register. The ring holds still with its colored
+   quarter left in place, which reads as "busy" from shape alone. */
+@media (prefers-reduced-motion: reduce) {
+  .spinner, #footer-busy { animation: none; }
+}
+
+/* The Lab-token prompt (Y.unlock in common.js). Built in code rather than
+   marked up per page, so every page that changes pool configuration shows the
+   same prompt at the same moment: when the change is attempted, never on
+   arrival -- reads are open. */
+.unlock-overlay {
+  position: fixed; top: 0; inset-inline-end: 0; bottom: 0; inset-inline-start: 0;
+  background: rgba(0,0,0,0.45);
+  display: flex; align-items: center; justify-content: center;
+  z-index: 20; padding: 1rem;
+}
+.unlock-overlay .login {
+  width: 100%; max-width: 22rem; text-align: center;
+  background: var(--bg); color: var(--fg);
+  border: 1px solid var(--line);
+  border-radius: 16px; padding: 1.25rem;
+}
+.unlock-overlay .login h2 { font-size: 1.2rem; margin: 0 0 0.5rem; }
+.unlock-overlay .login-hint { font-size: 0.9rem; margin: 0 0 1rem; line-height: 1.4; }
+.unlock-overlay .login form { display: flex; flex-direction: column; }
+.unlock-overlay .login form > * + * { margin-top: 0.6rem; }
+.unlock-overlay .login input,
+.unlock-overlay .login button { min-height: 44px; font-size: 1rem; border-radius: 10px; padding: 0 0.7rem; }
+.unlock-overlay .login input {
+  border: 1px solid var(--line); background: var(--bg); color: var(--fg);
+  text-align: center; letter-spacing: 0.2em; text-transform: lowercase;
+}
+.unlock-overlay .login-error { color: var(--err); font-size: 0.9rem; margin: 0.6rem 0 0; }
+
+/* Outcome of a per-row action, shown in the row that produced it. The banner
+   at the top of <main> stays -- this is the copy a magnifier user can actually
+   see, because at 400% zoom the banner and a row forty down are never on
+   screen together. */
+.row-feedback:empty { display: none; }
+.row-feedback { margin-top: .25rem; font-size: .8rem; }
+.row-feedback.ok { color: var(--ok); }
+.row-feedback.error { color: var(--err); }
+
+/* A touch pointer can coexist with a mouse on a wide viewport. */
+@media (any-pointer: coarse) {
+  button, input, .row > input, select, textarea, .id-toggle,
+  th > button.sort, #footer-bar .linkish {
+    min-height: 44px; min-width: 44px;
+  }
+  #footer-bar .linkish {
+    display: inline-flex; align-items: center; justify-content: center;
+  }
+}
+
+/* A taller fixed footer must not cover the last content row. */
+@media (any-pointer: coarse) and (min-width: 601px) {
+  body.has-footer-bar main {
+    padding-bottom: calc(44px + .7rem);
+    padding-bottom: calc(44px + .7rem + env(safe-area-inset-bottom));
+  }
+}

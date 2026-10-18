@@ -1,0 +1,78 @@
+<!doctype html>
+<!--
+  LICENSEURI https://yuruna.link/license
+  Copyright (c) 2019-2026 by Alisson Sol et al.
+
+  The operator board: how is each pool doing.
+  Built for a phone first -- one column, big targets, no table.
+
+  Script and style ship as same-origin /assets files, NOT inline: the CSP served
+  with every page is `script-src 'self'` with no nonce and no hash, so an inline
+  <script> would be blocked and this page would render as a dead skeleton.
+-->
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title data-i18n="pool.board_yuruna_pool_control">Board &mdash; Yuruna Pool Control</title>
+  <link rel="stylesheet" href="/assets/style.css">
+  <link rel="stylesheet" href="/assets/board.css">
+</head>
+<body class="board has-footer-bar">
+  <header class="app">
+    <div class="brand">
+      <span class="name"><a href="/" data-i18n="pool.yuruna_pool_control">Yuruna Pool Control</a></span>
+      <span class="version" id="header-version"></span>
+    </div>
+    <span class="spacer"></span>
+    <span class="machine" id="machine"></span>
+    <div class="menu">
+      <button type="button" class="menu-button" id="menu-button" aria-haspopup="true" aria-expanded="false" aria-controls="menu-panel">
+        <span class="menu-icon" aria-hidden="true">&#9776;</span><span class="menu-label" data-i18n="pool.menu">Menu</span>
+      </button>
+      <nav class="menu-panel" id="menu-panel" aria-label="Pages" hidden data-i18n-aria-label="pool.pages">
+        <a href="/" aria-current="page" data-i18n="pool.board">Board</a>
+        <a href="/hosts" data-i18n="pool.hosts">Hosts</a>
+        <a href="/pools" data-i18n="pool.pools">Pools</a>
+        <a href="/scan" data-i18n="pool.scan">Scan</a>
+        <a href="/diagnostics" data-i18n="pool.diagnostics">Diagnostics</a>
+        <a class="menu-out" href="https://yuruna.link/4207d71a-000c" target="_blank" rel="noopener" data-i18n="pool.guide">Guide</a>
+      </nav>
+    </div>
+  </header>
+
+  <!-- Reads are open, so the board renders for anyone on the LAN. It changes
+       nothing itself: a pool is edited on the Pools page, which asks for the
+       Lab token at the moment a change is attempted. -->
+
+  <main id="board" hidden>
+    <h1 data-i18n="pool.board">Board</h1>
+    <!-- role="group", not <nav>: these are toggles that change what the cards
+         below show, not links to anywhere. aria-pressed carries the selected
+         state, and board.css deliberately keeps a visible border and a
+         heavier weight on the selected one so the state survives grayscale
+         too. -->
+    <div class="periods" role="group" aria-label="Time period" data-i18n-aria-label="pool.time_period">
+      <button type="button" data-range="1h" aria-pressed="false" data-i18n="pool.label_1h">1h</button>
+      <button type="button" data-range="24h" class="on" aria-pressed="true" data-i18n="pool.label_24h">24h</button>
+      <button type="button" data-range="7d" aria-pressed="false" data-i18n="pool.label_7d">7d</button>
+      <button type="button" data-range="30d" aria-pressed="false" data-i18n="pool.label_30d">30d</button>
+    </div>
+    <p id="stats-banner" role="status" class="stats-banner" hidden></p>
+    <div id="cards"></div>
+    <p id="empty" role="status" class="muted" hidden data-i18n="pool.no_pools_yet_create_one_from_menu_pools">No pools yet. Create one from Menu &rarr; Pools.</p>
+  </main>
+
+  <footer id="footer-bar">
+    <span id="footer-ips"><span class="label" id="footer-ips-label" data-i18n="pool.ips">IPs:</span><textarea id="footer-ip-list" readonly rows="1" spellcheck="false" inputmode="none" autocorrect="off" autocapitalize="off" aria-labelledby="footer-ips-label">--</textarea></span>
+    <span><span data-i18n="pool.loaded">Loaded:</span> <span id="last-loaded">--</span><span id="footer-busy" aria-hidden="true" hidden></span></span>
+    <span><button type="button" id="footer-refresh" class="linkish" data-i18n="pool.refresh">Refresh</button>: <span id="countdown">60</span>s <button type="button" id="footer-pause" class="linkish" aria-pressed="false" data-i18n="pool.pause">Pause</button></span>
+  </footer>
+
+  <!-- The shared runtime first: it installs the baseline shims (fetch, KeyboardEvent.key)
+       and defines Y, which every script below extends rather than rebuilds. -->
+  <script src="/assets/yuruna.core.js"></script>
+  <script src="/assets/common.js"></script>
+  <script src="/assets/board.js"></script>
+</body>
+</html>

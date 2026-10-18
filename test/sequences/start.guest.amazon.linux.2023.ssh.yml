@@ -1,0 +1,43 @@
+# yaml-language-server: $schema=../schemas/sequence.schema.yml
+
+# LICENSEURI https://yuruna.link/license
+# Copyright (c) 2019-2026 by Alisson Sol et al.
+
+# key auth bypasses the cloud-init forced first-login password change, so the
+# GUI console password dance (login/Password/Current/New/Retype + SetPassword)
+# is dropped entirely.
+
+sequenceGuid: 421d080c-70fe-4436-ba34-d71d6534274e
+sequenceRevision: 1
+
+description: "Amazon Linux 2023 (SSH): drive everything over SSH once cloud-init has brought up sshd -- no console password dance (key auth bypasses the forced first-login change)."
+keystrokeMechanism: ssh
+
+# --- REGION: resource
+resource:
+  amazon.linux.2023: []
+variables:
+  username: yauser1
+
+# --- REGION: component
+component:
+  - action: sshWaitReady
+    timeoutSeconds: 300
+    description: "Wait for sshd + authorized_keys"
+
+  - action: sshExec
+    command: "whoami && hostname"
+    description: "Smoke test: whoami/hostname"
+
+# --- REGION: workload
+workload:
+  - action: sshFetchAndExecute
+    command: "/usr/local/lib/yuruna/fetch-and-execute.sh guest/amazon.linux.2023/amazon.linux.2023.update.sh"
+    timeoutSeconds: 1800
+    description: "amazon.linux.2023.update.sh"
+
+  - action: sshExec
+    command: "sudo reboot now && while :; do sleep 1; done"
+    timeoutSeconds: 60
+    allowFailure: true
+    description: "Reboot the VM"

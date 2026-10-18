@@ -1,0 +1,351 @@
+<a id="4222e5f2-0001"></a>
+
+# Host I/O registry
+
+Every sequence step that drives the guest GUI (keystrokes, text input,
+mouse clicks) goes through a thin dispatcher in
+[`Test.SequenceEngine.psm1`](../test/modules/Test.SequenceEngine.psm1), which
+looks up the current host's backend in a registry exported by
+[`test/modules/Test.HostIO.psm1`](../test/modules/Test.HostIO.psm1).
+
+The registry pattern mirrors the OCR provider model
+([OCR providers](ocr.md)) and seeds the
+[capability matrix](test-harness.md#capability-matrix-and-cycle-plan-gate): every (host, action) pair
+is enumerable at startup.
+
+<a id="4222e5f2-0002"></a>
+
+## The public surface
+
+| Function   | Signature                                                          | Used by |
+|------------|--------------------------------------------------------------------|---------|
+| `Send-Key`   | `-HostType -VMName -KeyName`                                     | sequence engine, `Yuruna.Host\Send-Key` contract |
+| `Send-Text`  | `-HostType -VMName -Text -CharDelayMs [-ShellEscape]`            | sequence engine, `Yuruna.Host\Send-Text` contract |
+| `Send-Click` | `-HostType -VMName -X -Y [-Capture]`                             | sequence engine, `Yuruna.Host\Send-Click` contract |
+
+Each dispatcher is a five-line `try { Invoke-HostIOAction ... } catch
+{ Write-Warning; return $false }` wrapper over `Test.HostIO`.
+
+<a id="4222e5f2-0003"></a>
+
+## Why the registry over inline dispatch
+
+The registry centralizes the `(HostType, Action)` binding in one
+lookup table. Adding a new host or a new action verb is a single
+`Register-HostIOProvider` call; nothing in the dispatcher changes.
+Adding the same host across three separate `if/elseif` chains
+(one per action) invites "Send-Key works on the new host but
+Send-Text was forgotten" drift -- with every pair enumerable, the
+[capability gate](test-harness.md#capability-matrix-and-cycle-plan-gate) refuses cycles that reference
+an unwired backend rather than failing mid-step. The same pattern
+recurs across the workspace: [SequenceAction](test-sequences.md#handler-contract)
+(verb registry), [Component registry login](authentication.md#component-registry-login)
+and [Host-condition registry](test-harness.md#host-condition-registry) (provider
+matrices), [Remediation dispatcher](failure-schema.md#remediation-dispatcher) (failure-class
+handlers). Four of the five share the
+[`New-YurunaRegistry`](../test/modules/Test.Registry.psm1) primitive
+and surface through `Get-YurunaRegistryDirectory` for autonomous
+tooling; the component-login credential-provider registry uses the same
+eviction-safe global-anchor pattern but is hand-rolled in
+[`automation/Yuruna.CredentialProvider.psm1`](../automation/Yuruna.CredentialProvider.psm1)
+(so it is not in `Get-YurunaRegistryDirectory`), which keeps it out of
+`test/`, where `New-YurunaRegistry` lives.
+
+<a id="4222e5f2-0004"></a>
+
+## Backends today
+
+| Host                 | `Send-Key`        | `Send-Text`       | `Send-Click`     |
+|----------------------|-------------------|-------------------|------------------|
+| `host.windows.hyper-v` | `Send-KeyHyperV` (PS/2 scancodes via WMI Msvm_Keyboard) | `Send-TextHyperV` (per-char scancodes with modifier-reset prefix) | `Send-ClickHyperV` (SendInput) |
+| `host.macos.utm`     | VNC first, then AppleScript fallback | VNC first, then JXA/CGEvent | `Send-ClickUtm` (CGEvent in window coords) |
+| `host.ubuntu.kvm`    | `Send-KeyKvm` (`virsh send-key`) | `Send-TextKvm` (one libvirt connection per burst) | _(not implemented -- KVM guests use SSH after GUI bring-up)_ |
+
+KVM text uses `/usr/bin/python3` with its optional system `libvirt` binding
+to avoid starting a process for every character. Each character still sends
+one simultaneous key chord with an explicit 1 ms pulse, followed by
+`max(charDelayMs, 10)` milliseconds. QEMU otherwise applies its default delay
+after each key press and release; a rapid burst can overflow its input queue
+and drop modifier releases. Requested delays below 10 ms, including zero and
+negative values, use this safety floor.
+The child is bounded by the intended typing time plus 15 seconds for setup
+and key RPCs, including cleanup. Numeric chords and the literal VM name pass
+through a temporary file created with owner-only permissions. A missing
+interpreter or binding falls back to `virsh` before any key RPC; a runtime
+failure or timeout fails the send without replaying potentially delivered text.
+
+The macOS Send-Key VNC-first / AppleScript-fallback decision lives in
+the registered scriptblock, in one place -- not a branch repeated across
+three dispatchers. VNC comes first because UTM's SwiftUI VM display
+does not route Accessibility keyboard events into the guest:
+`AXUIElementPostKeyboardEvent` reports success but the keys never reach
+the VM. `Send-Click` goes straight to
+the AppleScript/CGEvent backend: UTM's QEMU does not expose mouse-state
+changes on its VNC channel reliably enough for a VNC pointer path.
+
+`KeyName` also accepts a modifier chord (`CtrlU`, `CtrlC`) on every
+host. A chord is a named key rather than a separate modifier parameter
+so the dispatcher, the registry scriptblocks and the three
+`Yuruna.Host\Send-Key` facades keep forwarding one string. Chords
+resolve from their own `*-Chord` map family: the `*-Named` maps hold a
+single code per name and every backend dereferences them as a scalar,
+so a chord cannot live there. On macOS a chord takes the CGEvent path
+even when AppleScript would serve a plain key -- `key code` cannot hold
+a modifier down across the base key.
+
+**VNC connection caching and recovery.** `Test.Transport` caches a single VNC
+handle (`$script:CachedVnc`, `$script:CachedVncVM`) and reuses it across
+steps on macOS UTM -- fast (saves roughly 200 ms per VNC `Send-Key` call) but
+brittle: a guest reboot, a network partition, or a VNC server restart leaves
+the handle in a closed state, and the next VNC text send silently drops every
+keystroke until the cache is invalidated. `Test.VncProvider`'s
+`Repair-VncConnection` is the recovery primitive that forces the next call to
+re-handshake. It is invoked from `Wait-ForText`'s bounded no-text self-heal
+(several consecutive polls with no OCR text is a likely sign the cached
+handle is feeding frozen frames) and is available to any `host_io_blocked`
+recovery path.
+
+**Screenshot capture is the same shape**, in `Test.ScreenshotProvider`:
+per-host capture implementations register, and `Wait-ForText` /
+`saveDebugScreenshot` dispatch through `Invoke-ScreenshotProvider`. The
+legacy `Yuruna.Host\Get-VMScreenshot` contract still works; the registry is
+the seam for adding a fast-path capturer (a delta-only frame grabber, say)
+or a fallback for when WMI / `virsh screenshot` times out. Its own
+self-healing primitive is `Repair-ScreenshotRing`.
+
+**The SSH driver is a parallel path, not another backend in this table.**
+`Test.Ssh.psm1` bypasses the GUI keystroke flow entirely: selected by
+`test.config.yml`'s `keystrokeMechanism` (`GUI`|`SSH`, case-insensitive,
+normalized uppercase by the validator), it drives a guest over SSH instead of
+through the registry above. A per-host ed25519 key pair lives under
+`test/status/ssh/` (runtime, gitignored) and is injected into each guest's
+cloud-init user-data via `SSH_AUTHORIZED_KEY_PLACEHOLDER`. Host-key checking
+is deliberately disabled: Yuruna recreates guests constantly and reuses VM
+names and NAT-assigned IPs, so a fresh guest routinely presents a different
+host key on an address that previously answered with a different one. Every
+SSH call site must therefore pass all three of `-o StrictHostKeyChecking=no`,
+`-o UserKnownHostsFile=/dev/null`, and `-o GlobalKnownHostsFile=/dev/null` --
+the third closes the trap where `ssh-keyscan` would otherwise still write
+into `/etc/ssh/ssh_known_hosts`. Microsoft's OpenSSH port accepts
+`/dev/null` verbatim, so the same one-liner works on every host.
+
+<a id="4222e5f2-0005"></a>
+
+## Hyper-V PS/2 scancode behavior
+
+The Hyper-V backends drive the guest through `Msvm_Keyboard`'s `TypeScancodes`,
+and two properties of the emulated PS/2 controller shape how `Send-TextHyperV`
+uses it.
+
+After a batched Hyper-V scancode send or the JXA UTM CGEvent path, the
+transport waits 200 ms before the next action. The guest keyboard buffer drains
+asynchronously; without that settle window, Enter or a screenshot can race a
+half-typed field. The default came from 16-character login fields on the lab
+hardware and can be overridden with `vmCommunication.settleMs` in
+`test.config.yml`.
+
+**Every send starts with a modifier-release prefix.** The controller keeps a
+flat "is key down" state per scan code, and the only thing that flips a key back
+to up is the matching break code. If a prior keyboard event left a modifier
+held -- a dropped LShift break from a canceled `Send-Text`, a make/break race
+during a VM reboot, an operator clicking the vmconnect window with Shift held,
+an IDE stealing focus mid-send -- every character sent afterward inherits that
+modifier and lands shifted. The recognizable symptom is the test user arriving
+at the login prompt as `YAUSER!` instead of `yauser1`, normally first seen on a
+failure screenshot through OCR. Break codes for LShift, RShift, LCtrl, RCtrl,
+LAlt, RAlt, LMeta and RMeta are therefore issued as a one-shot burst before any
+character typing, which forces every modifier to the released state. A break for
+a key that is not pressed is a no-op on PS/2, so the prefix is idempotent and
+harmless in the normal case; the right-side modifiers are E0-prefixed and need
+that escape byte before each release. A prefix that fails is a warning, not an
+abort -- the character writes may still succeed, and the warning puts the
+divergence in the cycle log.
+
+**On AMD64 the whole payload goes in one CIM call.** One call per character plus
+a sleep after each costs roughly N x (5-15 ms of CIM plus the 20 ms default
+delay) -- a 16-character password spends 400-560 ms of wall clock on typing
+alone. `TypeScancodes` queues the entire byte payload internally and feeds the
+guest's PS/2 buffer at its own fast pace, so batching cuts the cost to about a
+single call. Shifted characters keep the standard per-character sequence
+(LShift make, char make, char break, LShift break), concatenated into the
+batch. Batching also changes what `CharDelayMs` means: it becomes a wall-clock
+settle budget applied AFTER the batch, so an explicit non-zero value asks the
+guest to drain before the next action while the default is minimal pacing.
+
+**On ARM64 it must not.** An ARM64 Hyper-V guest receives *nothing* from a
+batched payload. `TypeScancodes` returns 0, `Send-Text` reports success, and the
+guest's console shows an empty line -- so a username, a password and a command
+all arrive as a bare Enter, which reads downstream as a wrong credential or a
+prompt that would not advance. Single-key sends work on the same host and the
+same guest at the same moment, which is what makes the failure so hard to place
+from a transcript: `pressKey` lands, `inputText` does not. Sending each
+character in its own call, paced by `CharDelayMs`, arrives intact.
+`Send-TextHyperV` therefore defaults to per-char pacing when the HOST is ARM64
+(the drop is in the synthetic keyboard, so the guest OS does not enter into it)
+and keeps the batch on AMD64. `vmCommunication.batchedTextSend` overrides the
+default in either direction. The shift pair always travels with its character:
+splitting them across the pacing sleep would leave Shift held and upshift
+whatever the guest read next.
+
+**The modifier-release prefix is batched-only.** On the same ARM64 host the
+prefix does active harm: every character sent after it is swallowed too, so a
+string that types perfectly on its own types nothing once the prefix leads it.
+Neither the E0 escapes nor the gap after the burst account for it -- a
+four-byte prefix with a 250 ms settle behind it loses the characters just the
+same, and the identical characters land when nothing precedes them. Per-char
+sending does not need the defense the prefix provides anyway: each call carries
+its character's make AND break, and a shifted character's Shift pair with them,
+so nothing can be left latched for the next character to inherit. The prefix
+therefore runs only in batched mode, where a single call cannot self-correct
+mid-payload and a latched modifier really would upshift the rest of it.
+
+<a id="4222e5f2-0006"></a>
+
+## The registry API
+
+```
+Register-HostIOProvider   -HostType -Action -Implementation
+Test-HostIOActionAvailable -HostType -Action
+Invoke-HostIOAction        -HostType -Action -Arguments
+Get-HostIOProviderMatrix   # @{ host.X.Y = @('Send-Key','Send-Text',...) }
+Clear-HostIOProvider       # for tests
+```
+
+Each `Implementation` is a `param([hashtable]$a)` scriptblock returning
+`[bool]`. The dispatcher passes named arguments through the hashtable.
+
+<a id="4222e5f2-0007"></a>
+
+## Adding a new host
+
+1. Implement the per-host backend functions (the keystroke delivery
+   mechanism -- WMI / VNC / virsh / something new).
+2. Add a per-host module `test/modules/Test.HostIO.<NewHost>.psm1`
+   owning its `Register-HostIOProvider` calls (mirror
+   `Test.HostIO.HyperV.psm1` / `Test.HostIO.Utm.psm1` /
+   `Test.HostIO.Kvm.psm1`), and add its `Import-Module` line to
+   `Test.SequenceEngine.psm1`:
+
+   ```powershell
+   Register-HostIOProvider -HostType 'host.your.new.host' -Action 'Send-Key' -Implementation {
+       param([hashtable]$a)
+       return (Send-KeyYourNewHost -VMName $a.VMName -KeyName $a.KeyName)
+   }
+   # ... and Send-Text, Send-Click as applicable
+   ```
+3. The startup capability matrix picks up the new registration;
+   sequences referencing actions your backend does not implement
+   fail the cycle gate with a list of what IS available on the host.
+
+<a id="4222e5f2-0008"></a>
+
+## Adding a new action
+
+1. Pick a verb name (`Send-Scroll`, `Send-Drag`, etc.).
+2. Implement per supported host.
+3. Register each implementation.
+4. Register the verb in
+   [`Test.SequenceAction`](../test/modules/Test.SequenceAction.psm1)
+   with its `-HostIORequirement` so the
+   [capability gate](test-harness.md#capability-matrix-and-cycle-plan-gate) refuses cycles on hosts
+   without a backend.
+5. Add a dispatcher (`Send-Scroll`, three-line wrapper) and export it
+   from `Test.SequenceEngine.psm1` so the
+   `Yuruna.Host\Send-Scroll` contract can route through it.
+
+<a id="4222e5f2-0009"></a>
+
+## Why the registry uses a global anchor
+
+`Test.HostIO`'s registry table is anchored on
+`$global:YurunaHostIOProviders` so `-Force` re-imports of the module
+(triggered by sibling-module imports during cycle startup) do not
+empty the table. See repo memory
+`feedback_module_force_import_evicts_global.md` for the trap class.
+
+The paired provider registries (`Test.ScreenshotProvider`,
+`Test.VncProvider`, ...) follow the same pattern: each delegates storage
+to the shared `Test.Registry` primitive (`New-YurunaRegistry`) so there
+is one registry mechanism across the harness and every domain shows up
+in the cross-domain introspection directory
+(`Get-YurunaRegistryDirectory`/`Summary`), and each reuses a `$global:`
+anchor name (`$global:YurunaScreenshotProviders`,
+`$global:YurunaVncProviders`, ...) as the backing store so registrations
+survive `-Force` re-imports and cross-module eviction.
+
+<a id="4222e5f2-000a"></a>
+
+## Backend module layout
+
+[`Test.Transport.psm1`](../test/modules/Test.Transport.psm1) holds the
+per-host I/O backends consumed by the registry:
+
+- **Key code maps** -- `UTMKeyMap`, `MacCharKeyCodes`, `PS2ScanCodes`,
+  `CharScanCodes` (KVM key map lives inside `Get-KvmCharKeyMap`).
+- **Cached connections** -- `Get-HyperVKeyboard` +
+  `script:CachedKb`/`KbVM`; `Connect-VNC` / `Disconnect-VNC` + the
+  cached VNC handle.
+- **Send-Key backends** -- `Send-KeyHyperV` / `Send-KeyVNC` /
+  `Send-KeyUTM` / `Send-KeyKvm` / `Send-KeyAXUI`, plus `Send-ChordUTM`
+  for the macOS modifier-chord path.
+- **Send-Text backends** -- `Send-TextHyperV` / `Send-TextVNC` /
+  `Send-TextUTM` / `Send-TextKvm` / `Send-TextAXUI`, plus the
+  `Test-HardCharsInText` + `ConvertTo-ShellEscapedText` helpers used
+  only by `Send-TextUTM`.
+- **Send-Click backends** -- `Initialize-HyperVMouseType`,
+  `Send-ClickHyperV`, `Send-ClickUtm`.
+- **Send-ScanCode** -- Hyper-V PS/2 scancode-burst primitive.
+
+`Test.SequenceEngine.psm1` exports the three dispatchers (`Send-Key`,
+`Send-Text`, `Send-Click`) and routes them through `Test.HostIO`'s
+registry; the registered scriptblocks in the per-host
+`Test.HostIO.<Host>.psm1` modules call the bare backend names above,
+which resolve via the global session table once `Test.Transport` is
+imported with `-Global`.
+
+<a id="4222e5f2-000b"></a>
+
+## Transport config reload at module load
+
+`Test.Transport` reads transport-level defaults (`charDelayMs`,
+`vncPort`, ...) from `test.config.yml` at module-load time via
+`Test.Config` (mtime-cached, so this is cheap even on re-import).
+Modules are re-imported every cycle, so a freshly-committed
+`vmCommunication.charDelayMs` / `vmCommunication.vncPort` takes
+effect on the next step rather than requiring a runner restart. This
+mirrors the broader live-edit responsiveness contract -- an operator
+clicking "Stop on failure" in the dashboard at step 5 must abort the
+cycle at step 6, not wait for the next cycle.
+
+A per-step throttle collapses repeated `-Force` re-imports to a single
+parse. The `Read-TestConfig` mtime check short-circuits the parse when
+the file is unchanged, but the function call + `Test-Path` + `Get-Item`
+still cost ~1-2 ms each, compounding across 8+ re-imports per step.
+
+<a id="4222e5f2-000c"></a>
+
+## Hyper-V click coordinates and DPI awareness
+
+Click-by-OCR feeds the captured image's pixel coordinates straight back as
+client coordinates: the capture is taken so that image `(x, y)` equals the
+vmconnect client `(x, y)`. `HyperVCapture` grabs that frame under
+Per-Monitor-V2 awareness, so the image is in the window's true physical pixels,
+and the click has to map those same physical client coordinates. That is why
+`ClientToScreen` and `SetCursorPos` run under a matching Per-Monitor-V2
+context. A system-DPI-aware mapping on a monitor scaled above 100% would land
+the click off target by the scale factor.
+
+The switch is thread-scoped and reversible. `Initialize-HyperVMouseType`
+defines it as `EnterPerMonitorV2` and `RestoreThreadDpiContext`; when the API
+is absent, `EnterPerMonitorV2` returns `IntPtr.Zero` and the process-wide
+awareness from `EnsureDpiAware` stays in force.
+
+---
+
+LICENSEURI https://yuruna.link/license
+
+Copyright (c) 2019-2026 by Alisson Sol et al.
+
+Last review: 2026.10.14
+
+Back to [Yuruna](../README.md)

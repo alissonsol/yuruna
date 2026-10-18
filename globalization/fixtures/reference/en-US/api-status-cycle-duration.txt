@@ -1,0 +1,17 @@
+{
+  "schema": "yuruna.message/v1",
+  "code": "status.cycle_duration",
+  "args": {
+    "elapsed": {
+      "$type": "duration",
+      "milliseconds": "253000"
+    }
+  },
+  "rendered": {
+    "text": "Duration: 4m 13s",
+    "messageKey": "status.cycle_duration",
+    "locale": "en-US",
+    "catalogHash": "<sha256>",
+    "authoritative": false
+  }
+}

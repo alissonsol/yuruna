@@ -1,0 +1,106 @@
+<#PSScriptInfo
+.VERSION 2026.10.14
+.GUID 424ac6f6-cc32-4fff-beb1-ec808f35ab29
+.AUTHOR Alisson Sol et al.
+.COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
+.TAGS
+.LICENSEURI https://yuruna.link/license
+.PROJECTURI https://yuruna.com
+.ICONURI
+.EXTERNALMODULEDEPENDENCIES
+.REQUIREDSCRIPTS
+.EXTERNALSCRIPTDEPENDENCIES
+.RELEASENOTES
+.PRIVATEDATA
+#>
+
+#requires -version 7
+
+# Test-only Repair-Credential / matrix / reset helpers over the
+# credential-provider registry in automation/Yuruna.CredentialProvider.psm1 --
+# see docs/authentication.md#component-registry-login.
+
+[Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidGlobalVars', '',
+    Justification = 'Cross-module-eviction-safe anchor.')]
+param()
+
+# The registry itself (the $global:YurunaCredentialProviders anchor,
+# Register-CredentialProvider, Get-CredentialProvider, and the five built-in
+# provider registrations) lives in the neutral automation-layer module so the
+# runtime component-push pipeline no longer imports from test/. Import it here
+# -Global -Force so the registry is populated and Register/Get are re-exposed
+# to test callers and to the surviving test-only helpers below, which read the
+# same $script:Providers alias of the global anchor.
+Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
+Import-Module (Join-Path -Path (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)) -ChildPath 'automation' -AdditionalChildPath 'Yuruna.CredentialProvider.psm1') -Global -Force
+
+$script:Providers = $global:YurunaCredentialProviders
+
+function Get-CredentialProviderMatrix {
+    <#
+    .SYNOPSIS
+        Snapshot of registered providers as an ordered dictionary keyed
+        by provider type, value = the match Pattern.
+    .DESCRIPTION
+        Available to render the active providers in a capability matrix.
+        Get-HostCapabilityMatrix does NOT carry a credentials key today, so
+        nothing calls this; it is kept because the shape it returns is the
+        one such a matrix would need. Reads the active
+        credential providers without exposing the Authenticator
+        scriptblock.
+    #>
+    [CmdletBinding()]
+    [OutputType([System.Collections.Specialized.OrderedDictionary])]
+    param()
+    $out = [ordered]@{}
+    foreach ($k in $script:Providers.Keys) { $out[$k] = $script:Providers[$k].Pattern }
+    return $out
+}
+
+function Repair-Credential {
+    <#
+    .SYNOPSIS
+        Re-authenticate against the registry whose Pattern matches $Target.
+
+        NOT WIRED. No production path calls this: the remediation dispatcher
+        classifies a 401 as credential_expired and returns a recommendation
+        rather than acting on it. Invoking a real `az acr login` / `docker
+        login` from a failure path is a behavior change on a live push, and
+        needs a class allow-list plus an attempt cap first, so a misclassified
+        failure cannot drive repeated logins.
+    #>
+    [CmdletBinding(SupportsShouldProcess)]
+    [OutputType([bool])]
+    param(
+        [Parameter(Mandatory)][string]$Target,
+        [hashtable]$ProviderArguments = @{}
+    )
+    $provider = Get-CredentialProvider -Target $Target
+    if (-not $provider) {
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_8b69701262e375fd' -Arguments @{ target = "$Target"; join = "$(($script:Providers.Values | ForEach-Object { $_.Pattern }) -join ', ')" })
+        return $false
+    }
+    if (-not $PSCmdlet.ShouldProcess($Target, (Format-YurunaOperatorMessage -Key 'runner.operator_eb97d7107fd767ed' -Arguments @{ type = "$($provider.Type)" }))) { return $true }
+    try { return [bool](& $provider.Authenticator $Target $ProviderArguments) }
+    catch { Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_82e2d413b8bcacb5' -Arguments @{ type = "$($provider.Type)"; message = "$($_.Exception.Message)" }); return $false }
+}
+
+function Clear-CredentialProvider {
+    <#
+    .SYNOPSIS
+        Drop every registered credential provider.
+    .DESCRIPTION
+        Tests-only: production code relies on -Force re-import to
+        refresh registrations. Empties the registry in place so it is
+        observably empty to EVERY holder of it.
+    #>
+    [CmdletBinding(SupportsShouldProcess)]
+    param()
+    if ($PSCmdlet.ShouldProcess((Format-YurunaOperatorMessage -Key 'runner.operator_e8f6d3426c95163d'), (Format-YurunaOperatorMessage -Key 'runner.operator_01286d1a561aca1c'))) {
+        # See https://yuruna.link/4213a0b3-0048
+        $global:YurunaCredentialProviders.Clear()
+        $script:Providers = $global:YurunaCredentialProviders
+    }
+}
+
+Export-ModuleMember -Function Get-CredentialProviderMatrix, Repair-Credential, Clear-CredentialProvider

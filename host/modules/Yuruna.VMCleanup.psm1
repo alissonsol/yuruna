@@ -1,0 +1,152 @@
+<#PSScriptInfo
+.VERSION 2026.10.14
+.GUID 4298bdda-71c7-493e-b5d5-cd146860d6ea
+.AUTHOR Alisson Sol et al.
+.COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
+.TAGS yuruna host orphaned-vm cleanup
+.LICENSEURI https://yuruna.link/license
+.PROJECTURI https://yuruna.com
+.ICONURI
+.EXTERNALMODULEDEPENDENCIES
+.REQUIREDSCRIPTS
+.EXTERNALSCRIPTDEPENDENCIES
+.RELEASENOTES
+.PRIVATEDATA
+#>
+
+#requires -version 7
+
+Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
+
+
+<#
+.SYNOPSIS
+    Shared helpers for the per-platform Remove-OrphanedVMFiles.ps1 scripts.
+.DESCRIPTION
+    The three platform scripts ([host/windows.hyper-v/Remove-OrphanedVMFiles.ps1](../windows.hyper-v/Remove-OrphanedVMFiles.ps1),
+    [host/macos.utm/Remove-OrphanedVMFiles.ps1](../macos.utm/Remove-OrphanedVMFiles.ps1),
+    [host/ubuntu.kvm/Remove-OrphanedVMFiles.ps1](../ubuntu.kvm/Remove-OrphanedVMFiles.ps1))
+    need the same Write-CleanupMessage routing, (on KVM + UTM) [int64] folder
+    sizing (Get-VMFolderSize), and (on Hyper-V + UTM) the same
+    base-image-name discovery loop, so those helpers live here and stay in
+    lockstep. All three route -Quiet through Set-VMCleanupQuiet; the scripts
+    never touch the module-internal $script:QuietOutput flag directly.
+#>
+
+$script:QuietOutput = $false
+
+function Set-VMCleanupQuiet {
+    <#
+    .SYNOPSIS
+        Toggle the module-wide quiet flag.
+    .DESCRIPTION
+        The cleanup scripts route their progress chatter through
+        Write-CleanupMessage. When the operator passes -Quiet (or when
+        Remove-TestVMFiles.ps1 calls the script with -Quiet for an
+        unattended sweep), messages drop to Write-Verbose so the host
+        log stays clean while diagnostics survive on -Verbose.
+        Warnings + errors are untouched -- those always represent an
+        actual problem the operator must see.
+    .PARAMETER Quiet
+        $true to route Write-CleanupMessage to Write-Verbose;
+        $false to route it to Write-Output (the default).
+    #>
+    [CmdletBinding(SupportsShouldProcess)]
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+        Justification = 'ShouldProcess gates the actual write to module state; this attribute is for the wrapper.')]
+    param(
+        [bool]$Quiet = $false
+    )
+    if ($PSCmdlet.ShouldProcess((Format-YurunaOperatorMessage -Key 'host.operator_6601168fcb0f609c'), (Format-YurunaOperatorMessage -Key 'host.operator_8a8cf24e6264519b' -Arguments @{ quiet = "$Quiet" }))) {
+        $script:QuietOutput = $Quiet
+    }
+}
+
+function Write-CleanupMessage {
+    <#
+    .SYNOPSIS
+        Route an operator-facing progress line through Write-Output or
+        Write-Verbose depending on the module-wide quiet flag.
+    .PARAMETER Message
+        The line to surface. Pipeline-bound so the scripts can stream
+        multi-line banners without a foreach loop.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(ValueFromPipeline)][string]$Message
+    )
+    process {
+        if ($script:QuietOutput) { Write-Verbose $Message } else { Write-Output $Message }
+    }
+}
+
+function Get-VMFolderSize {
+    <#
+    .SYNOPSIS
+        Recursively sum the byte length of every file under a directory,
+        returning a consistent [int64].
+    .DESCRIPTION
+        Enumerates the literal directory and returns Int64, including zero for
+        empty, missing, or unreadable paths. See https://yuruna.link/42ec97cd-001b.
+    .PARAMETER Path
+        Directory to size. Enumerated with -Recurse -File.
+    .OUTPUTS
+        [int64] total bytes; 0 when the directory is empty or unreadable.
+    #>
+    [CmdletBinding()]
+    [OutputType([int64])]
+    param(
+        [Parameter(Mandatory)][string]$Path
+    )
+    $sum = (Get-ChildItem -LiteralPath $Path -Recurse -File -ErrorAction SilentlyContinue |
+        Measure-Object -Property Length -Sum).Sum
+    if ($null -eq $sum) { return [int64]0 }
+    return [int64]$sum
+}
+
+function Resolve-BaseImageName {
+    <#
+    .SYNOPSIS
+        Discover the base-image filenames the host's Get-Image.ps1 scripts
+        write under host/&lt;short&gt;/guest.&lt;name&gt;/.
+    .DESCRIPTION
+        Base images follow the convention `host.&lt;short&gt;.guest.&lt;name&gt;`
+        (e.g. `host.windows.hyper-v.guest.amazon.linux.2023`). The cleanup
+        scripts need the full name list so the orphan check skips them
+        even when no VM currently references them. KVM doesn't use this
+        -- its base images live outside the per-VM tree -- so this helper
+        is only called by the Hyper-V and UTM scripts.
+
+        The list also carries base images that no single guest folder owns:
+        the extension services share one image, so its name cannot be
+        derived from a `guest.*` folder. Without it the Hyper-V sweep --
+        which classifies every unclaimed file under VirtualHardDiskPath as
+        orphaned -- would delete the shared image out from under all three
+        services.
+    .PARAMETER HostScriptDir
+        Absolute path to the directory holding the Remove-OrphanedVMFiles.ps1
+        script (e.g. `&lt;repo-root&gt;/host/windows.hyper-v`). The leaf becomes
+        `&lt;short&gt;`; subdirectories matching `guest.*` enumerate the guests.
+    .OUTPUTS
+        [hashtable] @{ HostFolder = 'host.&lt;short&gt;'; BaseImageNames = @(...) }
+    #>
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param(
+        [Parameter(Mandatory)][string]$HostScriptDir
+    )
+    $hostFolder = "host.$(Split-Path -Leaf $HostScriptDir)"
+    $names      = New-Object System.Collections.Generic.List[string]
+    $guestDirs  = Get-ChildItem -LiteralPath $HostScriptDir -Directory -Filter 'guest.*' -ErrorAction SilentlyContinue
+    foreach ($g in $guestDirs) {
+        $names.Add("$hostFolder.$($g.Name)")
+    }
+    # Shared base image behind every extension service; no guest.* folder owns
+    # it, so the stem comes from Yuruna.Image.psm1's canonical helper.
+    Import-Module (Join-Path $PSScriptRoot 'Yuruna.Image.psm1') -Force -DisableNameChecking
+    $names.Add((Get-UbuntuExtensionImageBaseName -HostType (Split-Path -Leaf $HostScriptDir)))
+    return @{ HostFolder = $hostFolder; BaseImageNames = $names.ToArray() }
+}
+
+# --- REGION: Exports
+Export-ModuleMember -Function Set-VMCleanupQuiet, Write-CleanupMessage, Get-VMFolderSize, Resolve-BaseImageName

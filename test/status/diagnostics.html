@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<!-- LICENSEURI https://yuruna.link/license -->
+<!-- Copyright (c) 2019-2026 by Alisson Sol et al. -->
+<!-- REGION: html -->
+<!-- See https://yuruna.link/42fa6f45-001e -->
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <!-- viewport-fit=cover + safe-area-inset support; see yuruna.common.css. -->
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta http-equiv="Cache-Control" content="public, max-age=60, must-revalidate">
+  <title data-i18n="status.diagnostics_yuruna">Diagnostics — Yuruna</title>
+  <link rel="stylesheet" href="yuruna.common.css">
+  <style>
+    /* dvh first-class, vh as the fallback: iOS Safari's 100vh is the large
+       viewport, so the last flex child sits below the fold until the toolbars
+       retract. */
+    body { min-height: 100vh; min-height: 100dvh; display: flex; flex-direction: column; }
+
+    #banner-user-row {
+      margin-inline-start: auto;
+      flex: 0 0 auto;
+      font-size: .75rem;
+      color: rgba(255,255,255,.92);
+      background: transparent;
+    }
+    #banner-user {
+      font-family: var(--font-mono);
+      font-weight: 600;
+    }
+
+    /* Plain shorthand first as the fallback; the max()/env() longhand then holds
+       the dump clear of the notch in landscape, where viewport-fit=cover lets
+       <main> reach the display edge. env() is 0 without a safe area. */
+    main {
+      flex: 1; max-width: 1100px; width: 100%; margin: 0 auto;
+      padding: 1.25rem 1.5rem;
+      padding: 1.25rem max(1.5rem, env(safe-area-inset-right)) 1.25rem max(1.5rem, env(safe-area-inset-left));
+    }
+    pre#diagnostics-output {
+      background: var(--bg-elevated); border: 1px solid var(--border); border-radius: .5rem;
+      padding: 1rem 1.25rem;
+      font-family: var(--font-mono); font-size: .75rem;
+      line-height: 1.4;
+      white-space: pre-wrap; word-break: break-word;
+      color: var(--fg-primary);
+    }
+    pre#diagnostics-output.loading { color: var(--fg-faint); font-style: italic; }
+    pre#diagnostics-output.error   { color: var(--fail-fg); background: var(--fail-soft-bg); border-color: var(--fail-soft-border); }
+  </style>
+</head>
+<body>
+
+<header class="app">
+  <div class="brand">
+    <span class="name"><a href="index.html"><span id="header-title">Yuruna</span></a></span>
+    <span class="version" id="header-version"></span>
+  </div>
+  <span class="spacer"></span>
+  <span class="machine" id="header-machine"></span>
+  <div class="menu">
+    <button type="button" class="menu-button" id="menu-button" aria-haspopup="true" aria-expanded="false" aria-controls="menu-panel">
+      <span class="menu-icon" aria-hidden="true">&#9776;</span><span class="menu-label" data-i18n="status.menu">Menu</span>
+    </button>
+    <nav class="menu-panel" id="menu-panel" aria-label="Pages" hidden data-i18n-aria-label="status.pages">
+      <a href="index.html" data-i18n="status.status">Status</a>
+      <a href="config.html" data-i18n="status.config">Config</a>
+      <a href="performance.html" data-i18n="status.performance">Performance</a>
+      <a href="diagnostics.html" aria-current="page" data-i18n="status.diagnostics">Diagnostics</a>
+      <a class="menu-out" href="https://yuruna.link/42ad660e" target="_blank" rel="noopener" data-i18n="status.guide">Guide</a>
+    </nav>
+  </div>
+</header>
+
+<div id="banner" class="idle">
+  <span class="dot"></span>
+  <span id="banner-text" role="status" aria-atomic="true" data-i18n="status.loading">Loading…</span>
+  <span id="banner-user-row"><span data-i18n="status.user_account">User account:</span> <span id="banner-user">—</span></span>
+</div>
+
+<main>
+  <h1 class="sr-only" data-i18n="status.host_diagnostics">Host diagnostics</h1>
+  <pre id="diagnostics-output" role="status" class="loading">Running Get-SystemDiagnostic on host…</pre>
+</main>
+
+<script src="yuruna.common.js"></script>
+
+</body>
+</html>

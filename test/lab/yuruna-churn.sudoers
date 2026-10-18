@@ -1,0 +1,18 @@
+# LICENSEURI https://yuruna.link/license
+# Copyright (c) 2019-2026 by Alisson Sol et al.
+# Sudoers rule for test/lab/Invoke-HostAddressChurn.ps1: the churn injector
+# forces the host's bridge to take a fresh DHCP lease, and the test runner is
+# deliberately not root, so this grants the one activation it needs.
+# See https://yuruna.link/4220a755-002a
+#
+# Install (as root), then verify:
+#   sudo install -m 0440 -o root -g root test/lab/yuruna-churn.sudoers /etc/sudoers.d/yuruna-churn
+#   sudo visudo -cf /etc/sudoers.d/yuruna-churn
+#
+# The commands are spelled out rather than given as `nmcli *` on purpose: a
+# wildcard would also grant the calls that can take this host off the network.
+#
+# Replace ytest with the account the runner runs as, and yuruna-br0 if this
+# host's bridge is named differently.
+ytest ALL=(root) NOPASSWD: /usr/bin/nmcli --version
+ytest ALL=(root) NOPASSWD: /usr/bin/nmcli connection up yuruna-br0

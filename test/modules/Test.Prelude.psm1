@@ -1,0 +1,757 @@
+<#PSScriptInfo
+.VERSION 2026.10.14
+.GUID 421b40b9-fcaf-4a1a-bb31-9464b1ad442a
+.AUTHOR Alisson Sol et al.
+.COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
+.TAGS
+.LICENSEURI https://yuruna.link/license
+.PROJECTURI https://yuruna.com
+.ICONURI
+.EXTERNALMODULEDEPENDENCIES
+.REQUIREDSCRIPTS
+.EXTERNALSCRIPTDEPENDENCIES
+.RELEASENOTES
+.PRIVATEDATA
+#>
+
+#requires -version 7
+
+# Cross-entry-point prelude. See ../../docs/test-harness.md#entry-points
+# for the shared path bundle and the 0/1 exit-code contract. -- Test.Prelude.psm1
+
+Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
+function Initialize-YurunaEntryPoint {
+    <#
+    .SYNOPSIS
+        Return the canonical path bundle for any entry-point script.
+    .PARAMETER ScriptRoot
+        Caller passes $PSScriptRoot verbatim.
+    .PARAMETER InsideSubfolder
+        Set when the caller lives one level below test/ -- test/modules/,
+        test/service/, test/pool/, test/check/ -- rather than in test/
+        itself. Walks one more level up to reach TestRoot; ModulesDir is
+        always <TestRoot>/modules regardless of which subfolder the
+        caller sits in.
+    .PARAMETER ConfigPath
+        Optional override; when null, defaults to <TestRoot>/test.config.yml.
+    .OUTPUTS
+        [ordered]@{ TestRoot; RepoRoot; ModulesDir; SequencesDir; StatusDir; ConfigPath }
+    #>
+    [CmdletBinding()]
+    [OutputType([System.Collections.Specialized.OrderedDictionary])]
+    param(
+        [Parameter(Mandatory)][string]$ScriptRoot,
+        [switch]$InsideSubfolder,
+        [string]$ConfigPath
+    )
+    $testRoot   = if ($InsideSubfolder) { Split-Path -Parent $ScriptRoot } else { $ScriptRoot }
+    $modulesDir = Join-Path $testRoot 'modules'
+    $repoRoot     = Split-Path -Parent $testRoot
+    $sequencesDir = Join-Path $testRoot 'sequences'
+    $statusDir    = Join-Path $testRoot 'status'
+    if (-not $ConfigPath) { $ConfigPath = Join-Path $testRoot 'test.config.yml' }
+    return [ordered]@{
+        TestRoot     = $testRoot
+        RepoRoot     = $repoRoot
+        ModulesDir   = $modulesDir
+        SequencesDir = $sequencesDir
+        StatusDir    = $statusDir
+        ConfigPath   = $ConfigPath
+    }
+}
+
+# See https://yuruna.link/4213a0b3-00d1
+$script:ExitOk        = 0
+$script:ExitFailure   = 1
+$script:ExitCannotRun = 2
+
+function Get-EntryPointExitCode {
+    <#
+    .SYNOPSIS
+        Return the canonical exit code for 'Ok' (0), 'Failure' (1) or
+        'CannotRun' (2).
+    .DESCRIPTION
+        Centralized so a change to the contract lands in one place.
+
+        'CannotRun' is for a gate that could not produce a verdict: its
+        input, tool or environment is missing. It is distinct from
+        'Failure', which means the gate ran and found a defect.
+    #>
+    [CmdletBinding()]
+    [OutputType([int])]
+    param(
+        [Parameter(Mandatory)][ValidateSet('Ok','Failure','CannotRun')][string]$Outcome
+    )
+    switch ($Outcome) {
+        'Ok'        { return $script:ExitOk }
+        'CannotRun' { return $script:ExitCannotRun }
+        default     { return $script:ExitFailure }
+    }
+}
+
+function Initialize-YurunaEntryPointModuleSet {
+    <#
+    .SYNOPSIS
+        Import the canonical module set for an entry-point kind.
+    .DESCRIPTION
+        Each of the four entry points (Outer = Start-TestRunner.ps1,
+        Inner = Invoke-TestRunnerInnerLoop.ps1, Project = Invoke-TestProject.ps1,
+        Sequence = Debug-TestSequence.ps1) would otherwise hand-roll its own
+        Import-Module sequence (6-13 lines per script), which drifts
+        whenever a new module lands. Centralizing the lists here makes
+        adding a new shared module one edit, not four.
+
+        Entry points still issue their own Import-Module calls for
+        modules outside the shared core (e.g. status-service-only helpers,
+        per-host drivers). The "shared core" here is the set of modules
+        that every entry point of the same kind loads.
+
+        -Global -Force is applied so re-running the function across
+        cycle boundaries refreshes mid-run git-pull'd code changes.
+    .PARAMETER For
+        Which entry-point kind is calling: Outer, Inner, Project, Sequence,
+        StatusService, CachingProxyService, PoolAdmin or Refresh (the
+        host-refresh entry point and its worker, which must not load the
+        outer loop's tree-kill helpers).
+    .PARAMETER ModulesDir
+        Absolute path to test/modules/. Caller passes
+        $paths.ModulesDir from Initialize-YurunaEntryPoint.
+    #>
+    [CmdletBinding()]
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions',
+        '', Justification = 'Module-import side effects only; the operator has no -WhatIf intent here.')]
+    param(
+        [Parameter(Mandatory)][ValidateSet('Outer','Inner','Project','Sequence','StatusService','CachingProxyService','PoolAdmin','Refresh')][string]$For,
+        [Parameter(Mandatory)][string]$ModulesDir
+    )
+    # Canonical per-kind module lists. Order matters where a downstream
+    # module depends on an upstream one being already loaded with -Global
+    # (e.g. Test.HostContract imports Test.VMUtility as a side effect; later
+    # callers expect Test.VMUtility's exports to be in scope).
+    $sets = @{
+        Outer    = @(
+            'Test.SingleInstance.psm1', 'Test.HostContract.psm1', 'Test.YurunaDir.psm1',
+            'Test.Config.psm1', 'Test.InnerSpawn.psm1',
+            'Test.ConfigPreflight.psm1', 'Test.Capability.psm1',
+            # Test.RunnerElevation: the launch-time sudo contract the outer
+            # asserts before its first spawn. Outer-only on purpose -- the
+            # inner must never re-open the question mid-cycle, where there is
+            # nobody to answer. Leaf; resolves sudo/id at call time.
+            'Test.RunnerElevation.psm1',
+            # See https://yuruna.link/4213a0b3-00d2
+            'Test.FailureTaxonomy.psm1', 'Test.EventSchema.psm1', 'Test.StateFile.psm1',
+            'Test.Log.psm1', 'Test.Recovery.psm1', 'Test.RunnerState.psm1',
+            # Watchdog + outer-loop body live in their own modules so
+            # the Start-Job heartbeat watcher and the cycle dispatcher
+            # are unit-testable independent of Start-TestRunner.ps1.
+            # Test.RunnerWatchdog before Test.RunnerOuterLoop because
+            # Invoke-RunnerOuterLoop calls Start-Watchdog / Stop-Watchdog
+            # at the cycle boundary. Test.OuterLog carries the outer.log
+            # writer the loop re-exports, so it loads first.
+            'Test.OuterLog.psm1', 'Test.RunnerWatchdog.psm1',
+            # The recovery contract owns the cycle outcome record and the typed
+            # result; the ledger and the repairs registered on it sit above it. All
+            # three load before the loop that calls them, and after Test.Log so the
+            # events they emit have a writer.
+            'Test.RecoveryContract.psm1', 'Test.RecoveryLedger.psm1', 'Test.RecoveryActions.psm1',
+            'Test.RunnerOuterLoop.psm1',
+            # Test.PoolSync: the optional, default-off pool-configuration PULL the outer
+            # loop calls (Get-Command-gated) at each cycle start. Leaf; loaded so
+            # Invoke-RunnerOuterLoop resolves Sync-YurunaPoolConfiguration /
+            # Resolve-YurunaPoolConfiguredState when a pool is configured.
+            'Test.PoolSync.psm1'
+        )
+        Inner    = @(
+            # See https://yuruna.link/4213a0b3-00d3
+            'Test.SingleInstance.psm1', 'Test.YurunaDir.psm1', 'Test.Backoff.psm1',
+            # Test.ConfigPreflight owns the cycle-start gate. The inner runs the
+            # cycle's only Test-Config.ps1 preflight, so the module has to be in
+            # the bootstrap set rather than reached transitively.
+            'Test.ConfigPreflight.psm1',
+            # Test.Config supplies the config readers plus
+            # Resolve-CleanupVmNamePrefix, which the cycle-start and teardown
+            # sweeps call to decide which VM names are disposable. The inner
+            # loop resolves that set on every cycle, so the module has to be
+            # in this set rather than reached transitively.
+            'Test.Config.psm1',
+            # Test.ConfigSync (test.config.yml <-> template overlay) is leaf
+            # apart from Get-EntryPointExitCode (Test.Prelude, always loaded)
+            # and powershell-yaml; loaded early so the cycle-start
+            # Update-TestConfigFromTemplate call resolves it.
+            'Test.ConfigSync.psm1',
+            # Test.RunnerInnerLoop holds the inner runner's per-cycle helpers
+            # (Write-InnerLog, working-tree-drift guard, caching-proxy-service
+            # reachability probe). Leaf at load time; its functions resolve
+            # git / sockets / env at call time.
+            'Test.RunnerInnerLoop.psm1',
+            # Test.RunnerHeartbeat: the threadpool runner.heartbeat timer
+            # (compiled C# helper). Leaf; the [type] guard makes the per-cycle
+            # -Force re-import a no-op.
+            'Test.RunnerHeartbeat.psm1',
+            'Test.Extension.psm1', 'Test.HostContract.psm1', 'Test.Status.psm1',
+            # Test.ExtensionService + Test.LabHealth: the lab-health gate the
+            # orchestrator and the sequence engine hold on. The gate derives its
+            # probe set from every area's service manifest, so the manifest
+            # reader has to be loaded with it -- absent, the gate finds no areas
+            # and silently never holds.
+            'Test.ExtensionService.psm1', 'Test.LabHealth.psm1',
+            'Test.Notify.psm1', 'Test.Provenance.psm1',
+            'Test.Start-GuestOS.psm1', 'Test.Start-GuestWorkload.psm1',
+            # Order: Test.EventSchema + Test.StateFile before Test.Log so
+            # Send-CycleEventSafely finds Test-CycleEventSchema and the
+            # `.incomplete` marker write resolves Write-YurunaStateFileJson
+            # at module-load time; Test.Recovery + Test.Remediation +
+            # Test.RunnerState after Test.Log so their module-load Send-
+            # CycleEventSafely calls resolve cleanly. Test.SnapshotManifest
+            # depends on Test.StateFile; Test.LogRotation is leaf.
+            'Test.FailureTaxonomy.psm1', 'Test.EventSchema.psm1', 'Test.StateFile.psm1', 'Test.Log.psm1',
+            'Test.Recovery.psm1', 'Test.Remediation.psm1', 'Test.RunnerState.psm1',
+            # The checkout, admission and replay steps every entry point shares.
+            'Test.RecoveryContract.psm1',
+            # Test.GuestQuarantine (circuit breaker): the runner's guest-loop
+            # skip-gate + outcome-register. Leaf; its Send-CycleEventSafely /
+            # Write-YurunaStateFileJson calls resolve at runtime and are
+            # Get-Command-guarded, so it loads cleanly after Test.Log/StateFile.
+            'Test.GuestQuarantine.psm1',
+            # Test.WarmResume: the warm-resume decision core + checkpoint reader
+            # + warm_resume event builder the runner's workload-retry loop calls.
+            # Leaf; Send-CycleEventSafely is resolved by the runner, not here.
+            'Test.WarmResume.psm1',
+            'Test.SnapshotManifest.psm1', 'Test.LogRotation.psm1',
+            'Test.SequencePlanner.psm1',
+            # Test.SequenceRunner: chain planning + execution (Resolve-TestSequencePlan,
+            # Invoke-TestSequenceChain). Test.Orchestrator calls both, so it must load
+            # first. Standalone Debug-TestSequence.ps1 imports it explicitly; the Inner path
+            # relies on this set, so omitting it fails the orchestrator's guest run.
+            'Test.SequenceRunner.psm1',
+            # Test.Orchestrator: runs an orchestration top-level (InvokeTestSequence
+            # steps) as one cycle. The runner dispatches a test.runner.yml
+            # orchestration entry to Invoke-OrchestrationSequence; leaf at load
+            # time (its callees resolve at runtime), so it loads after the planner.
+            'Test.Orchestrator.psm1',
+            'Test.CachingProxyService.psm1', 'Test.CachingProxyServiceLock.psm1', 'Test.Perf.psm1',
+            # Test.ServiceVm: the service-VM roster + the cycle-start restore that
+            # starts a service left registered-but-stopped by a host reboot. Leaf
+            # at load time -- it resolves the per-host VM contract by name at CALL
+            # time, so loading it here (before Initialize-YurunaHost) is correct.
+            'Test.ServiceVm.psm1',
+            'Test.HostIO.psm1', 'Test.Capability.psm1',
+            # Test.PoolPlanner: reads runtime/pool.manifest.json (the pool's
+            # framework and project repositories) for the inner runner. After
+            # Test.SequencePlanner (Get-PoolProjectTestDir uses Get-CycleConfigPath
+            # when it is loaded); leaf at load time.
+            'Test.PoolPlanner.psm1',
+            'Test.KeyCodeRegistry.psm1', 'Test.Transport.psm1',
+            # Paired registry + bounded recovery primitives: Repair-VncConnection
+            # (clear a stale cached VNC handle so the next capture/send
+            # re-handshakes) and Repair-ScreenshotRing. Loaded so Wait-ForText's
+            # no-text self-heal can reach them and the capability banner can show
+            # which hosts have a reconnect provider.
+            'Test.VncProvider.psm1', 'Test.ScreenshotProvider.psm1'
+        )
+        Project  = @(
+            'Test.Config.psm1', 'Test.YurunaDir.psm1',
+            'Test.ConfigPreflight.psm1', 'Test.HostContract.psm1', 'Test.InnerSpawn.psm1',
+            # Test.SingleInstance lets Assert-NoOtherRunner see runner.pid so
+            # an Invoke-TestProject run refuses to race a live Start-TestRunner
+            # instead of silently overlapping it on the same runtime dir.
+            'Test.SingleInstance.psm1',
+            # See https://yuruna.link/4213a0b3-00d4
+            'Test.Recovery.psm1',
+            # The checkout step and the typed result this entry point records.
+            'Test.RecoveryContract.psm1'
+        )
+        Sequence = @(
+            'Test.LogLevel.psm1', 'Test.Config.psm1', 'Test.SequenceAction.psm1',
+            'Test.HostIO.psm1', 'Test.HostContract.psm1',
+            # Test.SingleInstance is loaded so Assert-NoOtherRunner can read
+            # runner.pid + runner.start and refuse the run if a real
+            # Start-TestRunner already owns the runtime dir. Outer-runner
+            # takeover semantics live in the caller; this entry point only
+            # uses the read side of the contract.
+            'Test.SingleInstance.psm1',
+            'Test.FailureTaxonomy.psm1', 'Test.EventSchema.psm1', 'Test.StateFile.psm1',
+            'Test.Log.psm1', 'Test.Remediation.psm1',
+            # The checkout and admission steps and the typed result this entry
+            # point records.
+            'Test.RecoveryContract.psm1',
+            'Test.SnapshotManifest.psm1', 'Test.LogRotation.psm1',
+            'Test.Backoff.psm1',
+            # The lab-health gate, with the manifest reader it derives its probe
+            # set from. Loaded here so a Debug-TestSequence run holds on a lab
+            # service the same way a runner cycle does -- an operator debugging
+            # a sequence is the person least helped by a step that fails on a
+            # service that is merely being rebuilt.
+            'Test.Extension.psm1', 'Test.ExtensionService.psm1', 'Test.LabHealth.psm1',
+            # Test.Status is loaded so Debug-TestSequence can register the run
+            # as its own cycle in status.json (otherwise the dashboard's
+            # cycle history skips Debug-TestSequence runs and break-active.json
+            # has no live cycle to anchor the Continue button to).
+            'Test.Status.psm1',
+            # Test.Recovery archives any stale break-active.json left
+            # behind by a prior Debug-TestSequence / Start-TestRunner that
+            # crashed mid-break. Without this sweep, the new run inherits
+            # the parked breakpoint state and the status UI keeps showing
+            # the stale Continue button.
+            'Test.Recovery.psm1',
+            # Test.Perf must be loaded wherever Invoke-Sequence runs: its
+            # perf calls are Get-Command-guarded, so an absent module is not
+            # an error, it is a silently unmeasured run. That covers both
+            # shapes of a Debug-TestSequence process -- a standalone run opening
+            # its own perf cycle, and a nested one (a host action re-entering
+            # us in a child pwsh) adopting the owner's published cycle handle.
+            'Test.Perf.psm1',
+            'Test.SequenceEngine.psm1', 'Test.SequencePlanner.psm1',
+            'Test.YurunaDir.psm1', 'Test.OcrEngine.psm1',
+            'Test.Tesseract.psm1', 'Test.ConfigPreflight.psm1',
+            # Bounded recovery primitives reached by Wait-ForText's no-text
+            # self-heal (Repair-VncConnection / Repair-ScreenshotRing).
+            'Test.VncProvider.psm1', 'Test.ScreenshotProvider.psm1'
+        )
+        StatusService = @(
+            # See https://yuruna.link/4213a0b3-00d5
+            'Test.YurunaDir.psm1', 'Test.VMUtility.psm1',
+            'Test.CachingProxyService.psm1', 'Test.PortOwner.psm1',
+            'Test.HostContract.psm1'
+        )
+        CachingProxyService = @(
+            # See https://yuruna.link/4213a0b3-00d6
+            'Test.VMUtility.psm1', 'Test.CachingProxyService.psm1', 'Test.CachingProxyServiceLock.psm1',
+            'Test.HostContract.psm1'
+        )
+        PoolAdmin = @(
+            # The pool admin CLI (New-Pool / Add-HostToPool / ... / Test-PoolConfiguration):
+            # Test.YurunaDir for the runtime dir (default clone path), Test.Config
+            # for Read-TestConfig (Get-YurunaPoolConfig path resolution),
+            # Test.ConfigValidator for Test-AgainstSchema (it pulls Test.Output +
+            # Test.HostGit), and Test.PoolSync for Get-YurunaPoolConfig + the
+            # bounded, credential-prompt-proof Invoke-PoolSyncGit the CLI shares.
+            'Test.YurunaDir.psm1', 'Test.Config.psm1',
+            'Test.ConfigValidator.psm1', 'Test.PoolSync.psm1', 'Test.PoolAdmin.psm1'
+        )
+        # The host-refresh entry point and its worker. Dependencies before
+        # dependents. Test.RunnerOuterLoop is deliberately absent: it brings
+        # Stop-ProcessTree, the unpruned tree kill a refresh must never reach.
+        # So are Test.Log, Test.EventSchema and Test.SequenceFailureState -- the
+        # worker writes no cycle events and no last_failure.json -- and
+        # Test.ExtensionService, which Test.ServiceVm and Test.ServiceCensus
+        # import themselves.
+        Refresh = @(
+            'Test.HostContract.psm1', 'Test.YurunaDir.psm1', 'Test.Config.psm1', 'Test.StateFile.psm1', 'Test.OuterLog.psm1',
+            'Test.SingleFlightLock.psm1', 'Test.CriticalRecord.psm1', 'Test.SingleInstance.psm1', 'Test.InnerSpawn.psm1',
+            'Test.Recovery.psm1', 'Test.ServiceCensus.psm1', 'Test.ServiceVm.psm1', 'Test.HostRefreshIntent.psm1', 'Test.HostRefresh.psm1'
+        )
+    }
+    foreach ($modName in $sets[$For]) {
+        $modPath = Join-Path $ModulesDir $modName
+        if (-not (Test-Path -LiteralPath $modPath)) {
+            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_5eb94d6047f29167' -Arguments @{ modName = "$modName"; modPath = "$modPath"; for = "$For" })
+            continue
+        }
+        Import-Module -Name $modPath -Global -Force -DisableNameChecking -Verbose:$false
+    }
+}
+
+function Wait-WithProgress {
+    <#
+    .SYNOPSIS
+        Wait up to a deadline, drawing one updating Write-Progress bar
+        instead of per-tick scroll output. Optional check scriptblock
+        breaks the loop early on truthy return.
+    .DESCRIPTION
+        Replaces the "Start-Sleep + periodic Write-Output 'still waiting'"
+        idiom. The progress bar updates every $PollSeconds and is
+        dismissed (-Completed) on every exit path (success, timeout,
+        thrown error). Write-Progress is wrapped in try/catch per
+        feedback_pwsh_linux_write_progress_setcursor.md so the loop
+        keeps polling silently on hosts that can't render a bar
+        (tmux/sshd PTYs without TERM); the post-loop result still
+        tells the caller whether the wait succeeded.
+
+        If $Test is supplied, it is invoked once per poll tick. Any
+        truthy return ends the wait and is returned to the caller.
+        Exceptions inside $Test are swallowed (treated as "not done")
+        so a transient probe failure doesn't abort the wait.
+    .PARAMETER Activity
+        Bar title (e.g. "Status service", "inter-cycle delay").
+    .PARAMETER TotalSeconds
+        Maximum time to wait. <= 0 returns $null immediately.
+    .PARAMETER PollSeconds
+        Sleep between iterations + how often the bar updates. Default 1.
+    .PARAMETER Test
+        Optional scriptblock evaluated at the TOP of each iteration;
+        return any truthy value to exit the wait early. Whatever it
+        returns is what Wait-WithProgress returns to the caller.
+    .PARAMETER Id
+        Progress -Id (lets a caller own a dedicated row when nested
+        progress bars are in play). Default 0.
+    .OUTPUTS
+        The truthy value returned by $Test on early exit, or $null
+        when the deadline elapsed without $Test ever returning truthy.
+        When no $Test is supplied the wait always returns $null after
+        $TotalSeconds (timed-sleep mode).
+    #>
+    [CmdletBinding()]
+    [OutputType([object])]
+    param(
+        [Parameter(Mandatory)][string]$Activity,
+        [Parameter(Mandatory)][int]$TotalSeconds,
+        [int]$PollSeconds = 1,
+        [scriptblock]$Test,
+        [int]$Id = 0
+    )
+    if ($TotalSeconds -le 0) { return $null }
+    if ($PollSeconds  -le 0) { $PollSeconds = 1 }
+
+    $clock = [Diagnostics.Stopwatch]::StartNew()
+    $result   = $null
+    try {
+        while ($clock.Elapsed.TotalSeconds -lt $TotalSeconds) {
+            if ($Test) {
+                $r = $null
+                try { $r = & $Test } catch { $r = $null }
+                if ($r) { $result = $r; break }
+            }
+            $elapsedSeconds   = [int]$clock.Elapsed.TotalSeconds
+            $remainingSeconds = [math]::Max(0, $TotalSeconds - $elapsedSeconds)
+            $pct          = [math]::Min(100, [math]::Max(0, [int](($elapsedSeconds * 100) / $TotalSeconds)))
+            try {
+                Write-Progress -Id $Id -Activity $Activity `
+                    -Status (Format-YurunaOperatorMessage -Key 'runner.operator_c28443177bbd5207' -FormatValues ($remainingSeconds, $TotalSeconds) -FormatBindings @{ remainingSeconds = '0'; totalSeconds = '1' }) `
+                    -PercentComplete $pct -SecondsRemaining $remainingSeconds
+            } catch { $null = $_ }
+            $sleepMs = [int][math]::Max(0, [math]::Min($PollSeconds * 1000, ($TotalSeconds - $clock.Elapsed.TotalSeconds) * 1000))
+            if ($sleepMs -gt 0) { Start-Sleep -Milliseconds $sleepMs }
+        }
+    } finally {
+        try { Write-Progress -Id $Id -Activity $Activity -Completed } catch { $null = $_ }
+    }
+    return $result
+}
+
+function Initialize-SequenceEngineRegistry {
+    <#
+    .SYNOPSIS
+        Reset the per-shell sequence-action + host-I/O registries and
+        repopulate the action registry from Test.SequenceEngine.psm1.
+    .DESCRIPTION
+        Debug-TestSequence is the only entry point that can be re-invoked
+        inside the same shell. The `$global:` registry anchors that
+        protect built-in handlers from `-Force` re-imports also keep
+        stale extension registrations alive across runs, so a renamed
+        verb today could be silently shadowed by a "myCustomAction"
+        registered yesterday in the same pwsh.
+        Clear-SequenceAction + Clear-HostIOProvider wipe the registries;
+        re-importing Test.SequenceEngine.psm1 re-runs its module-load body,
+        which re-registers `retry` / `recoverFromSnapshot` AND triggers
+        Test.SequenceHandler.psm1 to register every other built-in verb
+        (waitForText, passwdPrompt, fetchAndExecute, ...). Without the
+        re-import the engine's per-step lookup fails with
+        "Unknown action 'retry' -- treating as failure." on the first
+        verb of the chain.
+        Host I/O providers are re-registered later via
+        Initialize-YurunaHost (per-host Test.HostIO.<Host>.psm1 loads
+        there), so Clear-HostIOProvider does not need a matching
+        refresh here.
+    .PARAMETER ModulesDir
+        Absolute path to test/modules/. Caller passes
+        $paths.ModulesDir from Initialize-YurunaEntryPoint.
+    #>
+    [CmdletBinding(SupportsShouldProcess)]
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions',
+        '', Justification = 'ShouldProcess gates each registry write; this attribute is for the wrapper.')]
+    param(
+        [Parameter(Mandatory)][string]$ModulesDir
+    )
+    if (-not $PSCmdlet.ShouldProcess((Format-YurunaOperatorMessage -Key 'runner.operator_5dcd5b979f692173'), 'Reset + repopulate')) { return }
+    Clear-SequenceAction -Confirm:$false
+    Clear-HostIOProvider -Confirm:$false
+    Import-Module -Name (Join-Path $ModulesDir 'Test.SequenceEngine.psm1') `
+        -Global -Force -DisableNameChecking -Verbose:$false
+}
+
+function Assert-NoOtherRunner {
+    <#
+    .SYNOPSIS
+        Return $false (and print a banner) when a live Start-TestRunner
+        already owns runner.pid in the given runtime dir, or a host refresh
+        holds this host's runner.
+    .DESCRIPTION
+        Start-TestRunner ([test/Start-TestRunner.ps1](../Start-TestRunner.ps1))
+        owns runner.pid for its whole lifetime and takes over an
+        OtherRunner via Stop-StaleRunner. The dev / project entry
+        points (Debug-TestSequence, Invoke-TestProject) need the opposite
+        contract: refuse to start so they do not interfere with a
+        cycle in progress, or with a host refresh that is holding every
+        runner spawn.
+
+        The banner goes to the Information stream, so the success stream
+        carries exactly one [bool] and `-not (Assert-NoOtherRunner ...)`
+        means what it says; a banner on the success stream would turn the
+        result into a non-empty array that no caller could refuse on.
+    .OUTPUTS
+        [bool] $true when the runtime dir is unowned or owned by us and no
+        refresh holds the runner; $false otherwise (caller should exit).
+    #>
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param(
+        [Parameter(Mandatory)][string]$RuntimeDir,
+        [Parameter(Mandatory)][string]$CallerName
+    )
+    if (Get-Command Get-YurunaRefreshGateState -ErrorAction SilentlyContinue) {
+        $gate = Get-YurunaRefreshGateState -RuntimeDir $RuntimeDir
+        if (-not $gate.SpawnAllowed) {
+            Write-Information (Format-YurunaOperatorMessage -Key 'runner.no_other_runner_refresh_active' -Arguments @{
+                callerName = "$CallerName"; requestId = "$($gate.RequestId)"; state = "$($gate.State)" }) -InformationAction Continue
+            return $false
+        }
+    } else {
+        Write-Verbose "$CallerName : Test.SingleInstance not loaded; skipping the host-refresh gate check."
+    }
+    if (-not (Get-Command Get-RunnerInstanceState -ErrorAction SilentlyContinue)) {
+        Write-Verbose "$CallerName : Test.SingleInstance not loaded; skipping no-other-runner check."
+        return $true
+    }
+    $runnerPidFile   = Join-Path $RuntimeDir 'runner.pid'
+    $runnerStartFile = Join-Path $RuntimeDir 'runner.start'
+    $state = Get-RunnerInstanceState -RunnerPidFile $runnerPidFile -RunnerStartFile $runnerStartFile
+    if ($state.status -ne 'OtherRunner') { return $true }
+    foreach ($line in @(
+        ''
+        '========'
+        (Format-YurunaOperatorMessage -Key 'runner.operator_5375f3983fa12ae6')
+        "  PID:    $($state.pid)"
+        (Format-YurunaOperatorMessage -Key 'runner.operator_225c9051c6604c3b' -Arguments @{ callerName = "$CallerName" })
+        (Format-YurunaOperatorMessage -Key 'runner.operator_bc15af7415320b3e')
+        (Format-YurunaOperatorMessage -Key 'runner.operator_134f1bf954b9d352')
+        '========'
+    )) {
+        Write-Information $line -InformationAction Continue
+    }
+    return $false
+}
+
+function Register-EntryPointCancelHandler {
+    <#
+    .SYNOPSIS
+        Register a CancelKeyPress handler that flips a shared shutdown
+        flag instead of letting Ctrl+C tear down the runspace mid-step.
+    .DESCRIPTION
+        Same shape as Start-TestRunner.ps1's handler -- callers poll
+        the returned hashtable['Requested'] at safe points (end of
+        step, finally block) and surrender voluntarily.
+        Register-ObjectEvent is used (not a raw .NET delegate) because
+        the handler must run on the pipeline thread; see
+        feedback_scriptblock_timer_callback.md for the threadpool-trap that
+        otherwise applies. Non-interactive sessions (no Console attached)
+        catch the registration failure and return a state whose
+        Requested flag never flips; the caller still gets a usable
+        hashtable so its `if ($state['Requested'])` guard does not
+        need a null check.
+    .OUTPUTS
+        [hashtable] Shared state with key 'Requested' = $false; flips
+        to $true on the next Ctrl+C.
+    #>
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param(
+        [string]$SourceIdentifier = 'YurunaCancelKey',
+        # Label in the Ctrl+C warning: the outer runner surrenders after the current
+        # 'cycle', the single-sequence entry point after the current 'step'. Rides on
+        # the shared MessageData so the event-thread -Action block (which does not
+        # close over this function's locals) can read it back.
+        [string]$ExitAfterLabel = 'step'
+    )
+    $state = @{ Requested = $false; ExitAfterLabel = $ExitAfterLabel }
+    try {
+        Unregister-Event -SourceIdentifier $SourceIdentifier -ErrorAction SilentlyContinue
+        Remove-Job -Name $SourceIdentifier -Force -ErrorAction SilentlyContinue
+        $null = Register-ObjectEvent -InputObject ([Console]) -EventName CancelKeyPress `
+            -SourceIdentifier $SourceIdentifier -MessageData $state -Action {
+                $Event.SourceEventArgs.Cancel = $true
+                $Event.MessageData['Requested'] = $true
+                Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_0fac9c35eb687cbe' -Arguments @{ exitAfterLabel = "$($Event.MessageData['ExitAfterLabel'])" })
+            }
+    } catch {
+        Write-Verbose "Could not register CancelKeyPress handler (non-interactive session): $($_.Exception.Message)"
+    }
+    return $state
+}
+
+function Unregister-EntryPointCancelHandler {
+    <#
+    .SYNOPSIS
+        Tear down the handler registered by Register-EntryPointCancelHandler.
+    .DESCRIPTION
+        Safe to call from any exit path (success, failure, mid-finally)
+        even when registration failed earlier -- both calls are
+        SilentlyContinue.
+    #>
+    [CmdletBinding()]
+    param(
+        [string]$SourceIdentifier = 'YurunaCancelKey'
+    )
+    Unregister-Event -SourceIdentifier $SourceIdentifier -ErrorAction SilentlyContinue
+    Remove-Job -Name $SourceIdentifier -Force -ErrorAction SilentlyContinue
+}
+
+function Resolve-StatusServiceStart {
+    <#
+    .SYNOPSIS
+        Decide whether the built-in HTTP status service should start this run and
+        on which port, from test.config.yml's statusService node plus the
+        caller's -NoStatusService switch.
+    .DESCRIPTION
+        Pure decision: the single source of the gating + port-resolution rules
+        the entry points share (the inner runner, Debug-TestSequence, Invoke-TestProject).
+        Keeping it separate from the invocation makes the gate unit-testable.
+    .OUTPUTS
+        [hashtable] @{ ShouldStart = [bool]; Port = [int] }
+    #>
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param(
+        [AllowNull()]$Config,
+        [switch]$NoStatusService
+    )
+    $svc     = if ($Config -is [System.Collections.IDictionary]) { $Config['statusService'] } else { $null }
+    $enabled = [bool]($svc -is [System.Collections.IDictionary] -and $svc['enabled'])
+    $port    = if ($svc -is [System.Collections.IDictionary] -and $svc['port']) { [int]$svc['port'] } else { 8080 }
+    return @{ ShouldStart = ($enabled -and -not $NoStatusService); Port = $port }
+}
+
+function Start-YurunaStatusServiceIfEnabled {
+    <#
+    .SYNOPSIS
+        Start (or restart) the status service when statusService.enabled and
+        -NoStatusService was not requested -- the one gate the entry-point trio shares
+        so they honor enabled, -NoStatusService, the port, and the restart policy
+        identically.
+    .DESCRIPTION
+        -Restart forces a kill+relaunch (Debug-TestSequence and the inner runner's
+        per-cycle refresh, which must pick up file/config changes). Omitting it
+        lets Start-StatusService.ps1 compare the running server's persisted
+        server.sha against the current framework HEAD and skip the relaunch when
+        the code in memory is still current -- zero downtime on the common
+        no-change cycle (the inner runner's startup path).
+    .OUTPUTS
+        [hashtable] the Resolve-StatusServiceStart decision (ShouldStart, Port).
+    #>
+    [CmdletBinding()]
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+        Justification = 'Thin gate over Start-StatusService.ps1, which owns its own start/restart/compare-and-skip semantics; -WhatIf here would only duplicate that.')]
+    [OutputType([hashtable])]
+    param(
+        [AllowNull()]$Config,
+        [Parameter(Mandatory)][string]$StartScript,
+        [switch]$NoStatusService,
+        [switch]$Restart
+    )
+    $decision = Resolve-StatusServiceStart -Config $Config -NoStatusService:$NoStatusService
+    if ($decision.ShouldStart) {
+        try {
+            if ($Restart) { & $StartScript -Port $decision.Port -Restart | ForEach-Object { Write-Information $_ -InformationAction Continue } }
+            else          { & $StartScript -Port $decision.Port | ForEach-Object { Write-Information $_ -InformationAction Continue } }
+        } catch {
+            # Start-StatusService.ps1 tags an unrecoverable status-port conflict
+            # (port owned by another user / another checkout) so the cycle can
+            # refuse instead of running blind without its dashboard + breakpoint
+            # controls. The banner is already printed there; exit terminates the
+            # calling entry point (Debug-TestSequence, the inner runner,
+            # Start-CachingProxyServiceVM) the same way Assert-NoOtherRunner's refusal
+            # does -- no stack trace. Re-throw anything that is not this tag.
+            if ($_.Exception.Data -and $_.Exception.Data['YurunaPortConflict']) {
+                exit (Get-EntryPointExitCode -Outcome Failure)
+            }
+            throw
+        }
+    }
+    return $decision
+}
+
+function Resolve-ConfigServiceStart {
+    <#
+    .SYNOPSIS
+        Decide whether the config service (mTLS NAS-credential endpoint)
+        should run this host, and on which port, from test.config.yml's
+        configService node.
+    .DESCRIPTION
+        Pure decision (no I/O), the twin of Resolve-StatusServiceStart. The
+        service defaults to ENABLED when the node/flag is absent so existing
+        configs (and any host that has not adopted the configService node) still
+        serve NAS credentials -- matching the in-code defaults in
+        Start-ConfigService.ps1. Default port 8443.
+    .OUTPUTS
+        [hashtable] @{ ShouldStart = [bool]; Port = [int] }
+    #>
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param([AllowNull()]$Config)
+    $svc     = if ($Config -is [System.Collections.IDictionary]) { $Config['configService'] } else { $null }
+    $enabled = $true
+    if ($svc -is [System.Collections.IDictionary] -and $svc.Contains('enabled')) { $enabled = [bool]$svc['enabled'] }
+    $port    = if ($svc -is [System.Collections.IDictionary] -and $svc['port']) { [int]$svc['port'] } else { 8443 }
+    return @{ ShouldStart = $enabled; Port = $port }
+}
+
+function Start-YurunaConfigServiceIfEnabled {
+    <#
+    .SYNOPSIS
+        Ensure the config service is running when configService.enabled --
+        the gate every entry point shares so the mTLS NAS-credential endpoint has
+        the SAME runner-managed lifecycle as the status service.
+    .DESCRIPTION
+        Idempotent + best-effort. Start-ConfigService.ps1 is a no-op when a
+        healthy instance is already serving (so the runner can call this every
+        cycle cheaply) and re-launches when none is, so the service self-heals
+        after a host reboot or crash -- the same way the status service is kept
+        alive, rather than relying on a one-shot Start-CachingProxyServiceVM run. A failure
+        here NEVER aborts the caller: the harness keeps testing even when the
+        NAS-credential channel (Extension hosts + ypool-nas rotation) is down; it
+        is re-ensured on the next cycle. Pass -Restart to force a relaunch (new
+        service code).
+    .OUTPUTS
+        [hashtable] the Resolve-ConfigServiceStart decision (ShouldStart, Port).
+    #>
+    [CmdletBinding()]
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+        Justification = 'Thin gate over Start-ConfigService.ps1, which owns its own skip-if-healthy / replace semantics.')]
+    [OutputType([hashtable])]
+    param(
+        [AllowNull()]$Config,
+        [Parameter(Mandatory)][string]$StartScript,
+        [switch]$Restart
+    )
+    $decision = Resolve-ConfigServiceStart -Config $Config
+    if ($decision.ShouldStart) {
+        if (Test-Path -LiteralPath $StartScript) {
+            try {
+                if ($Restart) { & $StartScript -Port $decision.Port -Restart | ForEach-Object { Write-Information $_ -InformationAction Continue } }
+                else          { & $StartScript -Port $decision.Port | ForEach-Object { Write-Information $_ -InformationAction Continue } }
+            } catch {
+                Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_81ca660efffe92cc' -Arguments @{ message = "$($_.Exception.Message)" })
+            }
+        } else {
+            Write-Verbose "Start-ConfigService.ps1 not found at '$StartScript'; skipping config-service ensure."
+        }
+    }
+    return $decision
+}
+
+function Get-GitHubHeadingSlug {
+    <# .SYNOPSIS
+        Create a GitHub-compatible slug from Markdown heading text. #>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param([Parameter(Mandatory)][AllowEmptyString()][string]$Heading)
+    $t = $Heading -replace '^#{1,6}\s+', ''
+    $t = [regex]::Replace($t, '`([^`]*)`', '$1')
+    $t = [regex]::Replace($t, '\*\*?([^*]*)\*\*?', '$1')
+    $t = [regex]::Replace($t, '\[([^\]]*)\]\([^)]*\)', '$1')
+    $t = $t.ToLowerInvariant()
+    $t = [regex]::Replace($t, '[^\p{L}\p{Nd}_ -]', '')
+    return $t.Replace(' ', '-')
+}
+
+Export-ModuleMember -Function Get-GitHubHeadingSlug, Initialize-YurunaEntryPoint, Get-EntryPointExitCode, Initialize-YurunaEntryPointModuleSet, Wait-WithProgress, Initialize-SequenceEngineRegistry, Assert-NoOtherRunner, Register-EntryPointCancelHandler, Unregister-EntryPointCancelHandler, Resolve-StatusServiceStart, Start-YurunaStatusServiceIfEnabled, Resolve-ConfigServiceStart, Start-YurunaConfigServiceIfEnabled

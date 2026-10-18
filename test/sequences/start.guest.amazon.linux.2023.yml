@@ -1,0 +1,138 @@
+# yaml-language-server: $schema=../schemas/sequence.schema.yml
+
+# LICENSEURI https://yuruna.link/license
+# Copyright (c) 2019-2026 by Alisson Sol et al.
+
+sequenceGuid: 4224b44c-5e04-47e8-a61b-865d2a191b84
+sequenceRevision: 5
+
+description: "Amazon Linux 2023: first login, change password, run update script, reboot."
+keystrokeMechanism: gui
+
+# --- REGION: resource
+resource:
+  amazon.linux.2023: []
+variables:
+  username: yauser1
+  currentPassword: ${ext:authentication.GetPassword(${username})}
+  newPassword: ${ext:authentication.NewRandomPassword()}
+
+# --- REGION: component
+component:
+  - action: retry
+    maxAttempts: 3
+    description: "Wait for installed login prompt (retry on timeout)"
+    steps:
+      # See https://yuruna.link/42e220c4-0007
+      - action: pressKey
+        name: Enter
+        description: "Push agetty to redraw a fresh login"
+
+      - action: waitForSeconds
+        seconds: 2
+        description: "Let agetty redraw"
+
+      - action: waitForText
+        pattern: "login:"
+        noSegmentMatch: true
+        timeoutSeconds: 300
+        failurePatterns:
+          - "passwords do not match"
+          - "Authentication token manipulation error"
+        description: "OCR: login:"
+
+  # Password mutation must never replay after PAM accepts a new password.
+  # See https://yuruna.link/42e220c4-0007
+  - action: passwdPrompt
+    pattern: "login:"
+    text: "${username}"
+    description: "OCR: login:"
+
+  # See https://yuruna.link/42e220c4-0007
+  - action: passwdPrompt
+    pattern: "Password:"
+    timeoutSeconds: 30
+    sinceStepStart: true
+    failurePatterns:
+      - "BdsDxe:"
+      - "GNU GRUB"
+    text: "${currentPassword}"
+    description: "OCR: Password:"
+
+  - action: passwdPrompt
+    pattern: ["Current password", "urrent password:"]
+    sinceStepStart: true
+    text: "${currentPassword}"
+    description: "OCR: Current password"
+
+  # Keep the full token distinct from the current-password and retype prompts.
+  - action: passwdPrompt
+    pattern: "New password"
+    sinceStepStart: true
+    text: "${newPassword}"
+    description: "OCR: New password"
+
+  - action: passwdPrompt
+    pattern: ["Retype new password", "etype new password:"]
+    sinceStepStart: true
+    text: "${newPassword}"
+    description: "OCR: Retype new password"
+
+  # See https://yuruna.link/42e220c4-0007
+  - action: waitForSeconds
+    seconds: 3
+    description: "Let the login shell finish drawing before typing at it"
+
+  - action: inputTextAndEnter
+    text: " echo yuruna_$(seq -s '' 1 9)_ok"
+    description: "Ask the shell to expand a token agetty cannot"
+
+  # Detect PAM rejection before persisting the password; ignore recovered login failures.
+  # Enter only submits the harmless probe, or an empty line if it already ran.
+  - action: waitForTextWithNudge
+    pattern: "yuruna_123456789_ok"
+    nudgeKey: Enter
+    nudgeIntervalSeconds: 15
+    timeoutSeconds: 90
+    freshMatch: true
+    failurePatterns:
+      - "passwords do not match"
+      - "BAD PASSWORD: The password fails the dictionary check"
+      - "Authentication token manipulation error"
+    description: "OCR: yuruna_123456789_ok"
+
+  # Persist only after the shell has proved that the rotated login completed.
+  - action: callExtension
+    method: authentication.SetPassword
+    args:
+      Username: "${username}"
+      NewPassword: "${newPassword}"
+    description: "Commit confirmed new password to auth system"
+
+# --- REGION: workload
+workload:
+  - action: fetchAndExecute
+    text: "/usr/local/lib/yuruna/fetch-and-execute.sh guest/amazon.linux.2023/amazon.linux.2023.update.sh"
+    description: "amazon.linux.2023.update.sh"
+    waitPattern: "FETCHED AND EXECUTED:"
+    timeoutSeconds: 1800
+
+  - action: saveSystemDiagnostic
+    id: yuruna.update
+    description: "Capture diagnostics"
+
+  - action: inputTextAndEnter
+    text: "clear; sudo reboot now"
+    description: "Reboot the VM"
+
+  # See https://yuruna.link/42e220c4-0007
+  - action: waitForSeconds
+    seconds: 15
+    description: "Let the reboot take the console"
+
+  - action: waitForText
+    pattern: "login:"
+    noSegmentMatch: true
+    timeoutSeconds: 600
+    freshMatch: true
+    description: "OCR: login:"

@@ -1,0 +1,52 @@
+# yaml-language-server: $schema=../schemas/sequence.schema.yml
+
+# LICENSEURI https://yuruna.link/license
+# Copyright (c) 2019-2026 by Alisson Sol et al.
+
+sequenceGuid: 42f51c93-670c-4995-9034-c06c275a357e
+sequenceRevision: 2
+
+description: "Ubuntu Server 24.04: log in, install VS Code via the guest.ubuntu.server.24 workload scripts."
+keystrokeMechanism: gui
+
+# --- REGION: resource
+resource:
+  ubuntu.server.24:
+    - start.guest.ubuntu.server.24
+variables:
+  username: yuuser24
+
+# --- REGION: component
+component:
+  - action: retry
+    maxAttempts: 2
+    description: "Login + retry"
+    steps:
+      - snippet: firstLoginPrime
+
+      - action: passwdPrompt
+        pattern: "login:"
+        timeoutSeconds: 600
+        text: "${username}"
+        description: "OCR: login:"
+
+      - action: passwdPrompt
+        pattern: "Password:"
+        text: "${ext:authentication.GetPassword(${username})}"
+        description: "OCR: Password:"
+
+  # See https://yuruna.link/42e220c4-0007
+  - snippet: shellInputPrime
+
+# --- REGION: workload
+workload:
+  # See https://yuruna.link/42e220c4-0007
+  - action: fetchAndExecute
+    text: "/usr/local/lib/yuruna/fetch-and-execute.sh guest/ubuntu.server.24/ubuntu.server.24.code.sh"
+    description: "ubuntu.server.24.code.sh"
+    waitPattern: "FETCHED AND EXECUTED:"
+    timeoutSeconds: 1800
+
+  - action: inputTextAndEnter
+    text: "clear; exit;"
+    description: "Exit back to login"

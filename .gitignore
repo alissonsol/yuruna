@@ -1,0 +1,488 @@
+# OS files
+.DS_Store
+Thumbs.db
+
+# Various IDEs and editors
+*.tmproj
+.idea/
+.project
+.vs/
+.vscode/
+
+# Claude
+.claude/
+
+# Yuruna test harness SSH keys are generated per-host on first run and now
+# live under test/status/ssh/ (covered by the umbrella status-subdirs
+# ignore below). The legacy test/.ssh/ path is kept here so that an
+# upgrade with a stale per-host key folder doesn't suddenly appear as
+# untracked in `git status`.
+test/.ssh/
+
+# User-specific files
+*.rsuser
+*.sln.docstates
+*.suo
+*.user
+*.userosscache
+
+# User-specific files (MonoDevelop/Xamarin Studio)
+*.userprefs
+
+# Mono auto generated files
+mono_crash.*
+
+# Build results
+bld/
+build/
+dist/
+x64/
+x86/
+[Bb]in/
+[Dd]ebug/
+[Dd]ebugPublic/
+[Ll]og/
+[Ll]ogs/
+[Oo]bj/
+[Rr]elease/
+[Rr]eleases/
+
+# Distribution packages
+*-dist-*.zip
+
+# Visual Studio 2017 auto generated files
+Generated\ Files/
+
+# MSTest test Results
+[Bb]uild[Ll]og.*
+[Tt]est[Rr]esult*/
+
+# NUnit
+*.VisualState.xml
+nunit-*.xml
+TestResult.xml
+
+# Build Results of an ATL Project
+dlldata.c
+[Dd]ebugPS/
+[Rr]eleasePS/
+
+# Benchmark Results
+BenchmarkDotNet.Artifacts/
+
+# .NET Core
+artifacts/
+project.fragment.lock.json
+project.lock.json
+
+# StyleCop
+StyleCopReport.xml
+
+# Files built by Visual Studio
+*.ilk
+*.iobj
+*.ipdb
+*.log
+*.meta
+*.obj
+*.pch
+*.pdb
+*.pgc
+*.pgd
+*.pidb
+*.rsp
+*.sbr
+*.scc
+*.svclog
+*.tlb
+*.tlh
+*.tli
+*.tmp
+*.tmp_proj
+*.vspscc
+*.vssscc
+*_h.h
+*_i.c
+*_p.c
+*_wpftmp.csproj
+.builds
+
+# Chutzpah Test files
+_Chutzpah*
+
+# Visual C++ cache files
+*.aps
+*.cachefile
+*.ncb
+*.opendb
+*.opensdf
+*.sdf
+*.VC.db
+*.VC.VC.opendb
+ipch/
+
+# Visual Studio profiler
+*.psess
+*.sap
+*.vsp
+*.vspx
+
+# Visual Studio Trace Files
+*.e2e
+
+# TFS 2012 Local Workspace
+$tf/
+
+# Guidance Automation Toolkit
+*.gpState
+
+# ReSharper is a .NET coding add-in
+*.DotSettings.user
+*.[Rr]e[Ss]harper
+_ReSharper*/
+
+# TeamCity is a build add-in
+_TeamCity*
+
+# DotCover is a Code Coverage Tool
+*.dotCover
+
+# AxoCover is a Code Coverage Tool
+.axoCover/*
+!.axoCover/settings.json
+
+# Visual Studio code coverage results
+*.coverage
+*.coveragexml
+
+# NCrunch
+.*crunch*.local.xml
+nCrunchTemp_*
+_NCrunch_*
+
+# MightyMoose
+*.mm.*
+AutoTest.Net/
+
+# Web workbench (sass)
+.sass-cache/
+
+# Installshield output folder
+[Ee]xpress/
+
+# DocProject is a documentation generator add-in
+DocProject/buildhelp/
+DocProject/Help/*.hhc
+DocProject/Help/*.hhk
+DocProject/Help/*.hhp
+DocProject/Help/*.HxC
+DocProject/Help/*.HxT
+DocProject/Help/html
+DocProject/Help/Html2
+
+# Click-Once directory
+publish/
+
+# Publish Web Output
+*.azurePubxml
+*.publishproj
+*.pubxml
+*.[Pp]ublish.xml
+
+# Microsoft Azure Web App publish settings
+PublishScripts/
+
+# NuGet Packages
+**/[Pp]ackages/*
+!**/[Pp]ackages/build/
+*.nuget.props
+*.nuget.targets
+*.nupkg
+*.snupkg
+
+# Microsoft Azure Build Output
+*.build.csdef
+csx/
+
+# Microsoft Azure Emulator
+ecf/
+rcf/
+
+# Windows Store app package directories and files
+*.appx
+*.appxbundle
+*.appxupload
+AppPackages/
+BundleArtifacts/
+Package.StoreAssociation.xml
+_pkginfo.txt
+
+# Visual Studio cache files
+*.[Cc]ache
+!?*.[Cc]ache/
+
+# Others
+*.dbmdl
+*.dbproj.schemaview
+*.jfm
+*.pfx
+*.publishsettings
+*~
+ClientBin/
+orleans.codegen.cs
+~$*
+
+# RIA/Silverlight projects
+Generated_Code/
+
+# Backup & report files from converting an old project file
+*.rptproj.bak
+Backup*/
+ServiceFabricBackup/
+UpgradeLog*.htm
+UpgradeLog*.XML
+_UpgradeReport_Files/
+
+# SQL Server files
+*.ldf
+*.mdf
+*.ndf
+
+# Business Intelligence projects
+*- [Bb]ackup ([0-9]).rdl
+*- [Bb]ackup ([0-9][0-9]).rdl
+*- [Bb]ackup.rdl
+*.bim.layout
+*.bim_*.settings
+*.rdl.data
+*.rptproj.rsuser
+
+# Microsoft Fakes
+FakesAssemblies/
+
+# GhostDoc plugin setting file
+*.GhostDoc.xml
+
+# Node.js
+.ntvs_analysis.dat
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Visual Studio 6 build log
+*.plg
+
+# Visual Studio 6 workspace options file
+*.opt
+
+# Visual Studio 6 auto-generated workspace file
+*.vbw
+
+# Visual Studio LightSwitch build output
+**/*.DesktopClient/GeneratedArtifacts
+**/*.DesktopClient/ModelManifest.xml
+**/*.HTMLClient/GeneratedArtifacts
+**/*.Server/GeneratedArtifacts
+**/*.Server/ModelManifest.xml
+_Pvt_Extensions
+
+# Paket dependency manager
+.paket/paket.exe
+paket-files/
+
+# FAKE - F# Make
+.fake/
+
+# CodeRush personal settings
+.cr/personal
+
+# Python
+*.pyc
+__pycache__/
+
+# Tabs Studio
+*.tss
+
+# Telerik's JustMock configuration file
+*.jmconfig
+
+# BizTalk build output
+*.btm.cs
+*.btp.cs
+*.odx.cs
+*.xsd.cs
+
+# OpenCover UI analysis results
+OpenCover/
+
+# Azure Stream Analytics local run output
+ASALocalRun/
+
+# MSBuild Binary and Structured Log
+*.binlog
+
+# NVidia Nsight GPU debugger configuration file
+*.nvuser
+
+# MFractors (Xamarin productivity tool) working folder
+.mfractor/
+
+# Local History for Visual Studio
+.localhistory/
+
+# BeatPulse healthcheck temp database
+healthchecksdb
+
+# Backup folder for Package Reference Convert tool in Visual Studio 2017
+MigrationBackup/
+
+# Ionide (cross platform F# VS Code tools) working folder
+.ionide/
+
+# OpenTofu / Terraform
+**/.terraform*
+*.tfstate
+*.tfstate.*
+*_override.tf
+*_override.tf.json
+override.tf
+override.tf.json
+
+# Web libraries
+**/wwwroot/lib/*
+
+# Kube config
+kubeconfig_*
+
+# Crash log files
+crash.log
+
+# Test configuration (contains credentials)
+test/test-config.json
+test/test.config.yml
+test/test.config.yml.backup
+# Migration backup: Update-TestConfigNaming.ps1 copies the live config here
+# before rewriting it, so it holds the same real credentials the live file does.
+test/test.config.yml.pre-renaming
+test/test.config.yml.pre-renaming.*
+
+# What THIS operator answered setup.ps1, rewritten at the same path on every
+# guided run. It describes one machine -- its project path, its NAS host name
+# and share account -- and is carried to the next machine by hand, so it is an
+# operator artifact rather than repository source.
+install/setup.answers.*.yml
+
+# Project tree (cloned per cycle from test.config.yml's repositories.projectUrl)
+project/
+# A refresh clones beside the checkout and swaps it in; these hold the
+# replacement and the displaced copy while a swap is in flight.
+project.incoming/
+project.previous/
+
+# All harness runtime state lives under test/status/<subdir>/ -- one
+# umbrella rule covers every subdirectory the runner creates:
+#   test/status/runtime/    pids, status.json, control flags,
+#                           ipaddresses.txt, caching-proxy-service.txt, server.err,
+#                           yuruna-caching-proxy-service.yml, host.uuid,
+#                           .status-service.ps1, etc. See Test.YurunaDir.psm1
+#                           -- $env:YURUNA_RUNTIME_DIR defaults here so the
+#                           status service can serve /runtime/<name>.
+#   test/status/log/        HTML transcripts, OCR debug artifacts, failure
+#                           screenshots. See Test.YurunaDir.psm1 --
+#                           $env:YURUNA_LOG_DIR defaults here so the status
+#                           server can serve /log/<name>.
+#   test/status/perf/       JSONL perf rows + content-addressed host/guest
+#                           dump sidecars.
+#   test/status/extension/  Per-extension runtime state. Today:
+#                           authentication/vault.yml, vault.lock,
+#                           events.log (plaintext); notification/
+#                           transports.yml (Resend API key).
+#   test/status/captures/   Sequence debug screenshots
+#                           (sequences/*.png) and per-cycle training
+#                           captures (training/<guest>__<cp>.png). The
+#                           committed reference PNGs live in
+#                           test/screenshots/<guest>/reference/ -- those
+#                           ARE source content and stay tracked.
+#   test/status/ssh/        Generated per-host ed25519 key pair injected
+#                           into every guest's cloud-init.
+# Only the committed UI files at the test/status/ root (index.html,
+# diagnostics.html, config.html, yuruna.common.css, yuruna.common.js,
+# status.json.template) and the .gitkeep stay tracked.
+test/status/*/
+
+# Legacy paths from before the status reorg. The umbrella rule above
+# catches the new locations; these explicit rules cover the OLD paths so
+# an upgrade with leftover files does not surface them as untracked.
+test/status/track/
+test/extension/authentication/vault.lock
+test/extension/authentication/vault.yml
+test/extension/notification/notification.transports.yml
+test/screenshots/*/captures/
+test/sequences/captures/
+
+# yuruna
+**/*.certificate-authority
+**/*.client-certificate
+**/*.client-key
+**/.yuruna/*
+**/resources.output.copy.yml
+**/resources.output.local.yml
+**/resources.output.yml
+**/website-tls.crt
+**/website-tls.key
+# Fido is external code fetched to a temp directory at the moment of need and
+# deleted after use, so it is never enlistment content -- and Get-Image.ps1
+# clears any copy sitting beside it. The rule is the safety net for one pulled
+# in by hand: external code must stay uncommittable.
+Fido.ps1
+
+# Rust/Cargo
+**/build-script-build.exe
+**/build_script_build*.exe
+**/build_script_build*.pdb
+**/target/
+
+# Bazel
+**/bazel-*/*
+.bazel
+.bazel-cache
+.bazelrc.user
+MODULE.bazel.lock
+test/extension/pool-aggregator-service/pool-aggregator-service.exe
+
+# Generated CIDATA seed images. New-VM.ps1 writes seed.iso per run --
+# it holds the per-cycle vault password + the harness SSH key, so it must never
+# be committed (a `git add -A` next to the guest source dir would leak them).
+seed.iso
+**/seed.iso
+*.seed.img
+test/status/launch-runner.ps1
+project-poc.tar.gz
+out.txt
+**/yuruna-archive.tar.gz
+test/extension/pool-aggregator/pool-aggregator.exe
+test/extension/caching-proxy-parser-service/caching-proxy-parser-service
+test/extension/caching-proxy-service/caching-proxy-service
+
+# Local test-suite run output (tools/Invoke-TestSuite.ps1); the tracked
+# reference is test/modules/suite-baseline.json.
+.test-results/
+
+# Compiled Go service binaries: built on the guest by cloud-init from source,
+# never installed from the enlistment. Tracking one makes every `go build`
+# dirty the tree.
+test/extension/pool-aggregator-service/pool-aggregator-service
+
+# The localization exchange is a workspace, not repository content. It carries
+# the English out and the translated text back, and translated text is not
+# ASCII -- a tracked bundle could never pass the raw-ASCII gate. The census
+# counts whatever is not ignored, so an export would also stale it every time.
+# What is durable is the placed translation, and that is tracked.
+dev-only/localization-input/
+dev-only/localization-output/
+
+# Batch folders of the localization exchange: request and return data is
+# non-ASCII JSON that could never pass the raw-ASCII gate. The placed
+# translation in the tracked tree is the durable record.
+/dev-only/localization-pro/*/*/

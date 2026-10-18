@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "host": null,
+  "hostname": null,
+  "cycleStartUtc": null,
+  "startedAt": null,
+  "finishedAt": null,
+  "overallStatus": "idle",
+  "stepPaused": false,
+  "cyclePaused": false,
+  "gitCommits": [],
+  "lastGetImageAt": null,
+  "cycle": 0,
+  "guests": [],
+  "nested": {},
+  "history": []
+}

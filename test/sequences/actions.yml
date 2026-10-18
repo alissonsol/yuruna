@@ -1,0 +1,302 @@
+# yaml-language-server: $schema=../schemas/actions.schema.yml
+
+# LICENSEURI https://yuruna.link/license
+# Copyright (c) 2019-2026 by Alisson Sol et al.
+# Action names follow the Register-SequenceAction registry; see
+# https://yuruna.link/428e4df6-0001 for the catalog contract and host notes.
+# Snippet references use a separate step form; see https://yuruna.link/428e4df6-000a.
+
+# Define defaults per sequence file. ${vmName}, ${hostType}, ${guestKey}
+# and ${hostname} are built-in; ${hostname} is seeded from the VM name and
+# is overridden by a sequence's variables: block when declared.
+# Use ${varName} in step parameters.
+
+actions:
+  break: >
+    Cooperative breakpoint. Writes a marker file under the per-guest
+    cycleGuestDataFolder (or the log dir root when no cycle folder is
+    established) and busy-waits until an operator either deletes the
+    marker OR clicks the "Continue" button that appears on the status
+    UI (http://localhost:8080/status/) for the running guest -- intended
+    as a "stop here so I can take control" debugging primitive. NOT a
+    failure: the step succeeds either way. Set YURUNA_BREAK_DISABLED=1
+    in the environment to turn the action into a no-op (logs a warning
+    and continues) so CI / unattended runs do not deadlock. The marker
+    filename embeds the step number (`.yuruna-break-<NNN>.lock`) so two
+    breakpoints in the same sequence do not collide. The status UI
+    learns the break is parked by polling /track/break-active.json,
+    which the action writes on entry and clears on exit. Continue
+    POSTs to /control/break-continue; the action sees the flag. When
+    `restoreOnContinue: true` AND `id` names an existing snapshot it calls
+    Restore-VMDiskSnapshot -Id <break.id> then Start-VM; otherwise it
+    resumes in place (no snapshot restore -- the usual breakpoint
+    semantics; `id` alone is just a label). Manual marker-delete always
+    resumes in place. Login (and any other guest-side recovery) is
+    the sequence author's responsibility -- place login steps after
+    the break so the post-Continue, fresh-from-snapshot guest reaches
+    the same state the sequence expects. Parameters: reason (string,
+    optional -- free-form text written into the marker file so the
+    operator knows why execution stopped here), id (string, optional
+    -- snapshot id; a pure label by default, restored on Continue only
+    when restoreOnContinue is true; commonly the id of a same-cycle
+    saveDiskSnapshot earlier in the sequence), restoreOnContinue
+    (boolean, optional, default false -- when true, restore the snapshot
+    named by id and restart the VM on Continue instead of resuming in
+    place).
+
+  callExtension: >
+    Side-effecting call into the active extension for an area
+    (e.g. authentication.SetPassword) -- used as the dedicated write verb
+    when variable substitution is not allowed to have side effects.
+    Parameters: method (string, 'area.Method' -- area selects which extension
+    family loads, Method is a function exported by that extension),
+    args (object, named parameters forwarded to the extension method;
+    string values support ${var} and ${ext:...} substitution).
+
+  fetchAndExecute: >
+    Type a command + Enter, then wait for a completion pattern
+    (freshMatch). Parameters: text (string), charDelayMs (number,
+    default = vmCommunication.charDelayMs), delaySeconds (number, drain pause before Enter,
+    default 2), waitPattern (string), timeoutSeconds (number, OCR-wait
+    deadline for waitPattern; default = vmCommunication.timeoutSeconds),
+    noSegmentMatch (boolean, default false; require bounded per-line OCR matching),
+    pollSeconds (number, OCR poll interval while waiting for waitPattern;
+    default = vmCommunication.pollSeconds), freshMatchTailLines (number,
+    default 24 -- how many trailing OCR lines the completion marker is
+    looked for in. Raise it when the guest keeps writing to the console
+    after the marker, which otherwise fails a run that succeeded; the
+    wait's timeout reports the value to use. Raise it ONLY when the step
+    clears the screen first, or is the sequence's only fetchAndExecute:
+    the window is what stops an earlier step's marker from satisfying
+    this one, and sequences share a single generic marker string),
+    failurePatterns (string or string-array -- anti-patterns that abort
+    the wait early. Replaces the default, which is the fetch-and-execute
+    wrapper's non-zero-exit sentinel; set it only when the step's script
+    announces its own failures some other way).
+
+
+    One further fast-fail is always in force and is not affected by
+    failurePatterns, because it is about the typed line rather than about
+    the script: for the first seconds after Enter, the shell's own refusal
+    of the command line -- "command not found", "No such file or
+    directory" -- ends the wait, because nothing started and the
+    completion marker can never arrive. Those strings are also ordinary
+    output from a healthy script, which is why they stop being consulted
+    once the payload owns the console.
+
+  pressKey: >
+    Send a single keystroke. Parameters: name (string).
+    Supported: Enter, Tab, Space, Escape, Up, Down, Left, Right, F1-F12.
+
+  retry: >
+    Failure-recovery wrapper around a block of inner steps. Re-runs the
+    block from its first step on any inner-step failure, up to a maximum
+    attempt count. The block succeeds when one attempt completes every
+    inner step; if all attempts fail, the retry step fails the sequence
+    and the deepest inner failure label is wrapped with a
+    "retry exhausted (N attempts)" prefix in last_failure.json. retry
+    blocks may nest. Parameters: maxAttempts (integer, default 3, must
+    be >= 1), steps (array of step objects -- the same shape as a
+    top-level sequence's `steps:` list, recursively), restartVmBeforeRetry
+    (optional enum; arm64HyperVColdPowerCycle cold-restarts only an ARM64
+    Hyper-V VM after a waitForTextWithNudge login timeout and before another
+    attempt), stepsAfterVmRestart (optional recursive step array run only
+    after that cold restart succeeds; use it to restore or settle boot state).
+
+  saveGuestClockSnapshot: >
+    Capture two bounded guest clock and per-CPU accounting samples around an
+    ARM64 Hyper-V CPU restart using an already proven SSH address. Advisory:
+    unavailable evidence and accounting warnings do not fail the sequence.
+    Parameters: phase (before-cpu-restart or after-cpu-restart). The SSH wall
+    budget is five seconds; other host architectures skip this action.
+    See https://yuruna.link/428e4df6-003a.
+
+  startVm: >
+    Wait for a guest-requested clean shutdown, then start the VM through the
+    host driver. On host.windows.hyper-v, arm64HyperVProcessorCount optionally
+    changes the processor count while the VM is off; the Hyper-V helper is a
+    no-op on AMD64. Parameters: timeoutSeconds (integer, default 120 -- maximum
+    time to wait for the VM to become stopped), arm64HyperVProcessorCount
+    (positive integer or substituted string, optional).
+
+  inputText: >
+    Type a text string. Parameters: text (string), sensitive
+    (boolean, masks output), charDelayMs (number, delay between chars
+    in ms, default = vmCommunication.charDelayMs). Hyper-V: uses Msvm_Keyboard.TypeText.
+
+  inputTextAndEnter: >
+    Type a text string, wait, then press Enter. Parameters: text
+    (string), sensitive (boolean, masks output), charDelayMs (number,
+    default = vmCommunication.charDelayMs), delaySeconds (number, default 2).
+
+  networkRelease: >
+    Release the guest DHCP lease / network resources at end of sequence so
+    the address returns to the pool instead of lingering until lease expiry
+    (keeps a churning fleet from exhausting a shared LAN's DHCP pool). gui
+    mode types `bash /usr/local/lib/yuruna/yuruna-network.sh release` on the
+    guest console for Ubuntu / Amazon Linux guests; Windows.11 is a no-op
+    reminder (TODO). Parameters: text (string, optional override of the typed
+    command), charDelayMs (number, default = vmCommunication.charDelayMs).
+
+  passwdPrompt: >
+    Like waitForAndEnter, but `text` is always treated as sensitive
+    (no `sensitive` field needed) -- for PAM password prompts
+    (e.g. `Current password:`, `Retype new password:`) that get
+    overwritten on the framebuffer by late console messages. The step
+    waits for the pattern, then types the secret + Enter. Parameters:
+    pattern (string or string-array), timeoutSeconds (number,
+    default = vmCommunication.timeoutSeconds), pollSeconds (number,
+    default = vmCommunication.pollSeconds), freshMatch (boolean),
+    freshMatchTailLines (number, default 12), sinceStepStart (boolean),
+    noSegmentMatch (boolean, default true; require bounded per-line matching
+    so installer text cannot assemble a prompt from scattered words),
+    failurePatterns (string
+    or string-array), text (string), tabCount (number, Tab presses
+    before typing to navigate focus, default 0), charDelayMs (number,
+    default = vmCommunication.charDelayMs), delaySeconds (number, default 2).
+
+  saveDiskSnapshot: >
+    Disk-only snapshot of the sequence's VM via Yuruna.Host's
+    Save-VMDiskSnapshot contract. The host driver stops the VM first
+    if running (graceful, with Stop-VMForce fallback) and LEAVES IT
+    STOPPED on return -- a sequence that wants to keep going must
+    follow up with an explicit host-specific start step. No RAM-state
+    is captured. Pre-existing snapshots with the same Id are
+    overwritten. Backends: Hyper-V Checkpoint-VM on the offline guest;
+    KVM `virsh snapshot-create-as --atomic`; UTM `qemu-img snapshot -c`
+    against every *.qcow2 in the bundle's Data/ folder.
+    AFTER the snapshot succeeds, the VM is RENAMED to the snapshot Id
+    (and storage relocated where the host supports it) so the next
+    cycle's Remove-TestVMFiles.ps1 -- which sweeps every name matching
+    the test-* prefix -- leaves the persisted VM and its snapshot
+    alone. Rename support: Hyper-V (full: Rename-VM + Move-VMStorage);
+    KVM (full: `virsh domrename` + dir rename + XML disk-path rewrite);
+    UTM (best-effort: AppleScript `set name`, which is read-only in
+    some UTM builds; on failure the snapshot is preserved but the VM
+    will be wiped by the next cleanup). The sequence engine updates
+    its internal $VMName to the new name on success, so subsequent
+    steps target the persisted VM transparently.
+    Parameters: id (string, REQUIRED -- snapshot name AND the new VM
+    name; must be valid as a VM name on every host you target).
+
+  loadDiskSnapshot: >
+    Revert the sequence's VM to a previously saved disk-only snapshot
+    via Yuruna.Host's Restore-VMDiskSnapshot contract, then start the
+    VM so the next step interacts with a live guest. The host driver
+    stops the VM first if running, restores the disk, and returns; the
+    sequence engine then calls Start-VM (Hyper-V / KVM / UTM all
+    implement the contract). No RAM-state is restored -- the guest
+    boots fresh from the snapshot disk, so callers must expect a
+    re-DHCP and an SSH re-handshake (gate downstream consumers on
+    sshWaitReady, and on-screen consumers on waitForText for the
+    login prompt).
+    Parameters: id (string, REQUIRED -- snapshot name previously
+    written by saveDiskSnapshot).
+
+  saveSystemDiagnostic: >
+    Mid-sequence checkpoint dump. SSHes into the guest, runs
+    automation/Get-SystemDiagnostic.ps1, and writes the captured text
+    into the per-guest cycleGuestDataFolder as
+    `yyyy-MM-dd.HH-mm.system.diagnostic.<id>.txt`. Soft-failing on
+    every rung -- the step is informational, so an unreachable guest
+    or missing pwsh does not break the sequence. Capture is opt-in:
+    place this step explicitly wherever a snapshot is wanted
+    (e.g. right after a workload deploy, before tearing down state,
+    or as the final step in a guest sequence). The runner does not
+    auto-invoke it. Parameters: id (string, REQUIRED -- appended to
+    the saved filename so two captures in the same cycle don't
+    collide; e.g. 'after.k8s.bootstrap', 'before.reboot').
+
+  takeScreenshot: >
+    Capture a screenshot for debugging. Parameters: label
+    (string, used in filename; default 'step<n>').
+
+  sshExec: >
+    Run a command on the guest over SSH. Non-zero exit fails the step
+    unless allowFailure=true. On failure the captured output is included
+    in the warning. Parameters: command (string), timeoutSeconds
+    (number, default = vmCommunication.timeoutSeconds), allowFailure
+    (boolean), sensitive (boolean,
+    masks command in logs).
+
+  sshFetchAndExecute: >
+    Run a long-lived command over SSH (SSH equivalent of
+    fetchAndExecute). No OCR polling, no password-prompt handling --
+    sudo is expected to be passwordless or the command handles its
+    own auth. Parameters: command (string), timeoutSeconds (number,
+    default = vmCommunication.timeoutSeconds).
+
+  sshWaitReady: >
+    Wait until the guest accepts SSH using the yuruna harness key
+    (handshakes to an authenticated shell, not just TCP/22).
+    Parameters: timeoutSeconds (number,
+    default = vmCommunication.timeoutSeconds), pollSeconds
+    (number, default = vmCommunication.pollSeconds),
+    installerFailurePatterns (string or string-array of anti-patterns;
+    when set, the wait is chunked and the guest framebuffer is OCR'd
+    between chunks -- matching any pattern aborts the wait immediately
+    with a fail label that names the matched pattern). Canonical use
+    is subiquity's 'install_fail.crash' / 'Press enter to start a
+    shell' / 'An error occurred' so a crashed install fails the cycle
+    in ~30 s instead of consuming the full timeoutSeconds for an sshd
+    that will never come up. Pairs with the yuruna_retry exp-backoff
+    auto-retry in Invoke-TestRunnerInnerLoop: a transient installer flake
+    fails fast, then the next cycle auto-retries on a fresh VM. When
+    omitted (default) the action retains its original single-shot
+    Wait-SshReady contract with no OCR overhead.
+
+  tapOn: >
+    Wait for a button label to appear on the VM screen via OCR, then
+    click at the label's center. Parameters: label (string or
+    string-array of candidate labels), timeoutSeconds (number,
+    default = vmCommunication.timeoutSeconds), pollSeconds (number,
+    default = vmCommunication.pollSeconds), offsetX (number,
+    pixel offset from center, default 0), offsetY (number, default 0).
+    Hyper-V: uses vmconnect window + SendInput; vmconnect must be
+    open. UTM: not yet implemented.
+
+  waitForAndEnter: >
+    Wait for text pattern on screen via OCR, then type a string and
+    press Enter. Parameters: pattern (string or string-array),
+    timeoutSeconds (number, default = vmCommunication.timeoutSeconds),
+    pollSeconds (number, default = vmCommunication.pollSeconds),
+    freshMatch (boolean), freshMatchTailLines (number,
+    default 12), sinceStepStart (boolean), noSegmentMatch (boolean, default false;
+    require bounded per-line matching, also for skipInputPattern and confirmPattern),
+    failurePatterns (string or string-array -- see
+    waitForText), text (string), sensitive (boolean), tabCount
+    (number, Tab presses before typing to navigate focus, default 0),
+    charDelayMs (number, default = vmCommunication.charDelayMs), delaySeconds
+    (number, default 2), skipInputPattern (optional string or string-array;
+    if the matching OCR frame contains it, succeed without typing text).
+
+  waitForSeconds: >
+    Wait a fixed number of seconds. Parameters: seconds (number).
+
+  waitForText: >
+    Capture + OCR the VM screen until pattern appears. Parameters:
+    pattern (string or string-array), timeoutSeconds (number,
+    default = vmCommunication.timeoutSeconds), pollSeconds (number,
+    default = vmCommunication.pollSeconds),
+    freshMatch (boolean, restricts matching to the trailing OCR lines),
+    freshMatchTailLines (number, default 12),
+    sinceStepStart (boolean, matches only lines the guest printed after the
+    wait began -- for a prompt whose words also occur in the text above it),
+    noSegmentMatch (boolean, default false; disable unrestricted segment
+    matching while preserving OCR character tolerance; enable for login waits),
+    failurePatterns (string
+    or string-array of anti-patterns; matching any short-circuits the
+    wait and fails the step with a label that names the matched pattern
+    -- canonical use: subiquity's 'install_fail.crash' / 'Press enter to
+    start a shell' so an installer crash fails the cycle in ~20s
+    instead of waiting the full timeoutSeconds for a login prompt that
+    will never come). Uses ${var} substitution.
+
+  waitForTextWithNudge: >
+    Like waitForText, but periodically presses nudgeKey while retaining one
+    wall-clock timeoutSeconds deadline. Positive and failure patterns are
+    checked before each nudge, so a visible prompt completes without another
+    keypress and an installer crash still aborts immediately. Parameters are
+    waitForText's set plus nudgeKey (required key name) and
+    nudgeIntervalSeconds (required integer >= 1). Canonical use: redraw an
+    agetty login prompt that late console output can scroll off screen.

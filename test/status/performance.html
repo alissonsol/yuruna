@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<!-- LICENSEURI https://yuruna.link/license -->
+<!-- Copyright (c) 2019-2026 by Alisson Sol et al. -->
+<!-- REGION: html -->
+<!-- See https://yuruna.link/42fa6f45-0024 -->
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <!-- viewport-fit=cover + safe-area-inset support; see yuruna.common.css. -->
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta http-equiv="Cache-Control" content="public, max-age=60, must-revalidate">
+  <title data-i18n="status.perf_yuruna">Perf — Yuruna</title>
+  <link rel="stylesheet" href="yuruna.common.css">
+  <style>
+    /* dvh first-class, vh as the fallback: iOS Safari's 100vh is the large
+       viewport, so the last flex child sits below the fold until the toolbars
+       retract. */
+    body { min-height: 100vh; min-height: 100dvh; display: flex; flex-direction: column; }
+
+    #perf-recalc {
+      margin-inline-start: auto;
+      flex: 0 0 auto;
+      border-radius: .375rem;
+      font-weight: 600;
+      font-family: inherit; cursor: pointer;
+      background: var(--banner-overlay-bg); color: var(--fg-header);
+      border: 1px solid var(--banner-overlay-border);
+    }
+    #perf-recalc:hover:not([disabled]) { background: var(--banner-overlay-hover-bg); }
+    #perf-recalc[disabled] { cursor: default; opacity: .55; }
+
+    /* Plain shorthand first as the fallback; the max()/env() longhand then holds
+       the charts clear of the notch in landscape, where viewport-fit=cover lets
+       <main> reach the display edge. env() is 0 without a safe area. */
+    main {
+      flex: 1; max-width: 1100px; width: 100%; margin: 0 auto;
+      padding: 1.25rem 1.5rem;
+      padding: 1.25rem max(1.5rem, env(safe-area-inset-right)) 1.25rem max(1.5rem, env(safe-area-inset-left));
+    }
+
+    /* Narrow viewport: keep the controls and chart usable. */
+    @media (max-width: 600px) {
+      main { padding: 1rem .75rem; }
+      .seq-card { padding: .75rem .85rem; }
+    }
+
+    .perf-message {
+      font-size: .75rem; color: var(--fg-muted); margin-bottom: 1.25rem;
+      font-family: var(--font-mono);
+    }
+    .perf-message.error { color: var(--fail-fg); }
+
+    .perf-controls {
+      display: flex; align-items: center; flex-wrap: wrap; gap: .5rem;
+      margin: 0 0 1rem; font-size: .75rem;
+    }
+    .perf-controls label { font-weight: 600; }
+    .perf-controls input[type="range"] { width: 15rem; max-width: 45vw; cursor: pointer; }
+    .perf-controls output { min-width: 2.5rem; font-family: var(--font-mono); }
+    .perf-controls button { font: inherit; cursor: pointer; }
+
+    .seq-card {
+      background: var(--bg-elevated); border: 1px solid var(--border); border-radius: .5rem;
+      padding: .875rem 1.125rem; margin-bottom: 1rem;
+    }
+    .seq-name {
+      font-weight: 600; font-size: .875rem;
+      font-family: var(--font-mono);
+      overflow-wrap: break-word;
+      color: var(--fg-primary); margin-bottom: .15rem;
+    }
+    .seq-meta {
+      font-size: .6875rem; color: var(--fg-muted); margin-bottom: .65rem;
+    }
+    /* Rows and their axis share one horizontal scroll area. SVGs are drawn
+       in CSS pixels so labels stay readable on narrow screens. */
+    .cycle-scroll { overflow-x: auto; max-width: 100%; direction: ltr; }
+    .cycle-scroll:focus { outline: 2px solid var(--link-strong); outline-offset: 2px; }
+    .cycle-scroll:focus-visible { outline: 2px solid var(--link-strong); outline-offset: 2px; }
+    .cycle-rows { margin-top: .15rem; }
+    .cycle-row  { margin-bottom: .45rem; }
+    .cycle-row-head {
+      display: flex; align-items: baseline; justify-content: space-between;
+      position: sticky; inset-inline-start: 0; z-index: 1; background: var(--bg-elevated);
+      font-family: var(--font-mono); font-size: .6875rem; margin-bottom: .1rem;
+    }
+    .cycle-link {
+      min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+      color: var(--link-strong); text-decoration: underline dotted;
+    }
+    .cycle-link.nolink { color: var(--fg-muted); text-decoration: none; cursor: default; }
+    .cycle-dur { flex: 0 0 auto; margin-inline-start: .5rem; color: var(--fg-muted); }
+    .cycle-dur.fail { color: var(--fail-fg); font-weight: 600; }
+    svg.cycle-flame { width: 100%; height: auto; max-width: none; display: block; }
+    .cycle-flame .flame-cell          { stroke: rgba(0,0,0,.22); stroke-width: .5; }
+    .cycle-flame .flame-cell.ckpt     { stroke: rgba(255,255,255,.55); stroke-width: .5; }
+    .cycle-flame .flame-cell.fail     { stroke: var(--fail-fg); stroke-width: 1.5; }
+    .cycle-flame .flame-cell.fallback { fill: var(--border-input); stroke: var(--fg-muted); stroke-width: .5; }
+    /* Dark glyphs with a white halo (paint-order: stroke draws the halo
+       behind the fill) stay legible on any palette color — and on touch
+       devices, which never get the hover <title> tooltip. */
+    .cycle-flame .flame-label {
+      fill: #1b1b1b; font-size: 9px; font-family: var(--font-mono);
+      paint-order: stroke; stroke: rgba(255,255,255,.85); stroke-width: 2px;
+      stroke-linejoin: round; pointer-events: none;
+    }
+    .axis-row { margin-top: .1rem; }
+    .cycle-flame .flame-axis-line { stroke: var(--fg-faint); stroke-width: 1; }
+    .cycle-flame .flame-axis-text { fill: var(--fg-muted); font-size: 9px; font-family: var(--font-mono); }
+
+    .stale-banner {
+      background: var(--warn-bg); color: var(--warn-fg);
+      border: 1px solid var(--pending-bg); border-radius: .375rem;
+      padding: .65rem .85rem;
+      font-size: .75rem; line-height: 1.5;
+      margin-bottom: 1rem;
+    }
+    .stale-banner code {
+      background: rgba(0,0,0,.06); padding: .05rem .3rem;
+      border-radius: .2rem; font-family: var(--font-mono);
+    }
+    /* .no-data lives in yuruna.common.css (shared with index.html). */
+  .flame-cell.partial { stroke: #b45309; stroke-width: 2; }
+
+    /* A touch pointer can coexist with a mouse on a wide viewport. */
+    @media (any-pointer: coarse) {
+      .perf-controls input[type="range"] { min-height: 44px; }
+    }
+</style>
+</head>
+<body>
+
+<header class="app">
+  <div class="brand">
+    <span class="name"><a href="index.html"><span id="header-title">Yuruna</span></a></span>
+    <span class="version" id="header-version"></span>
+  </div>
+  <span class="spacer"></span>
+  <span class="machine" id="header-machine"></span>
+  <div class="menu">
+    <button type="button" class="menu-button" id="menu-button" aria-haspopup="true" aria-expanded="false" aria-controls="menu-panel">
+      <span class="menu-icon" aria-hidden="true">&#9776;</span><span class="menu-label" data-i18n="status.menu">Menu</span>
+    </button>
+    <nav class="menu-panel" id="menu-panel" aria-label="Pages" hidden data-i18n-aria-label="status.pages">
+      <a href="index.html" data-i18n="status.status">Status</a>
+      <a href="config.html" data-i18n="status.config">Config</a>
+      <a href="performance.html" aria-current="page" data-i18n="status.performance">Performance</a>
+      <a href="diagnostics.html" data-i18n="status.diagnostics">Diagnostics</a>
+      <a class="menu-out" href="https://yuruna.link/42ad660e" target="_blank" rel="noopener" data-i18n="status.guide">Guide</a>
+    </nav>
+  </div>
+</header>
+
+<div id="banner" class="idle">
+  <span class="dot"></span>
+  <span id="banner-text" role="status" aria-atomic="true" data-i18n="status.loading">Loading…</span>
+  <button id="perf-recalc" type="button" title="Re-scan test/status/perf/cycles/*.jsonl and refresh every chart." data-i18n="status.recalculate" data-i18n-title="status.re_scan_test_status_perf_cycles_jsonl_and_refresh_every_chart">Recalculate</button>
+</div>
+
+<main>
+  <h1 class="sr-only" data-i18n="status.cycle_performance">Cycle performance</h1>
+  <p class="seq-meta" data-i18n="status.each_row_is_one_sequence_invocation_bars_show_elapsed_time_hover_">Each row is one sequence invocation. Bars show elapsed time; hover for work and retry details.</p>
+  <div id="perf-message" role="status" class="perf-message" data-i18n="status.loading_perf_aggregates">Loading perf aggregates…</div>
+  <div class="perf-controls">
+    <label for="perf-zoom" data-i18n="status.performance_zoom">Time zoom</label>
+    <input id="perf-zoom" type="range" min="0" max="5" step="1" value="0" aria-describedby="perf-zoom-value">
+    <output id="perf-zoom-value" for="perf-zoom">1×</output>
+    <button id="perf-fit" type="button" data-i18n="status.performance_fit">Fit all</button>
+  </div>
+  <div id="perf-body"></div>
+</main>
+
+<script src="yuruna.common.js"></script>
+
+</body>
+</html>

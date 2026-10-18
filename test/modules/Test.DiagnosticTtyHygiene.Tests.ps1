@@ -1,0 +1,403 @@
+<#PSScriptInfo
+.VERSION 2026.10.14
+.GUID 4277d76d-71f9-4057-a9d2-4d6341c5dd2d
+.AUTHOR Alisson Sol et al.
+.COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
+.TAGS yuruna test diagnostic console tty pester
+.LICENSEURI https://yuruna.link/license
+.PROJECTURI https://yuruna.com
+.ICONURI
+.EXTERNALMODULEDEPENDENCIES
+.REQUIREDSCRIPTS
+.EXTERNALSCRIPTDEPENDENCIES
+.RELEASENOTES
+.PRIVATEDATA
+#>
+
+#requires -version 7
+
+<#
+.SYNOPSIS
+    Guards the tty hygiene around the console diagnostics rung: the line
+    buffer is cleared before the one-liner is typed, and a failed rung
+    leaves the guest on a clean prompt.
+.DESCRIPTION
+    The console rung types a ~240-character command into the guest's tty.
+    Anything already on that line concatenates with it, and anything left
+    on the line after a failed rung concatenates with the NEXT sequence
+    step -- which is how a following 'clear; sudo reboot now' can be
+    swallowed as arguments to a command still sitting unsubmitted.
+
+    Keystroke injection and the status service are stubbed, so these run
+    with no host, no VM and no network: Send-Text / Send-Key record into a
+    file-scope log, and the module-private endpoint resolver is replaced in
+    module scope. The rung's failure paths are then driven for real
+    (injection throw, upload timeout) and the recorded key order asserted.
+
+    Throw-based assertions (no Should), so the file runs standalone.
+    Run: pwsh -NoProfile -File test/modules/Test.DiagnosticTtyHygiene.Tests.ps1
+#>
+
+BeforeAll {
+$here    = Split-Path -Parent $PSCommandPath
+$modPath = Join-Path $here 'Test.Diagnostic.psm1'
+Import-Module $modPath -Force
+
+Import-Module (Join-Path (Split-Path -Parent $PSCommandPath) 'Test.Assert.psm1') -Force -Global -DisableNameChecking
+
+# Fixtures live at FILE scope, above the first Describe: a Describe body runs
+# during discovery and its variables are thrown away before any It executes.
+# The temp folder is named from $PID rather than a fresh GUID -- the file body
+# executes once per Pester pass, and a per-pass GUID would point the module at
+# one folder while the assertions read another.
+$TtyTestRoot = Join-Path ([System.IO.Path]::GetTempPath()) "yrn-ttyhygiene-$PID"
+Remove-Item -LiteralPath $TtyTestRoot -Recurse -Force -ErrorAction SilentlyContinue
+New-Item -ItemType Directory -Force -Path (Join-Path $TtyTestRoot 'cyclebase/vm1') | Out-Null
+$script:TtyFolder = Join-Path $TtyTestRoot 'cyclebase/vm1'
+
+# All mutable stub state hangs off ONE object held in an unqualified
+# file-scope variable. Both parts matter: an It block gets a fresh scope, so
+# it can read a file-scope variable but cannot assign to one, and mutating a
+# shared object's properties needs no assignment at all. The stubs read the
+# same variable from their own scope chain, which reaches this script scope
+# because that is where they are defined.
+$TtyStub = [pscustomobject]@{
+    Log         = [System.Collections.Generic.List[string]]::new()
+    ThrowOnKey  = $false
+    ThrowOnText = $false
+    # Fail ONE named key (throw) or make it report $false, leaving the others
+    # working. A whole-transport failure cannot express the case that matters:
+    # a restore whose first chord dies must still send its second, and a
+    # retype whose keystrokes are refused must not be read as a verdict about
+    # the guest. Both need per-key control.
+    ThrowOnKeyName = $null
+    FalseOnKeyName = $null
+    FalseOnText    = $false
+    # When set, the Enter that submits the one-liner writes this path,
+    # standing in for the guest running the command and POSTing its capture
+    # back. The file has to appear DURING the wait, not before it: the rung
+    # snapshots the target's mtime before typing and ignores a file that has
+    # not advanced past that baseline, so a pre-created file is correctly
+    # treated as a stale leftover rather than this attempt's upload.
+    UploadPath  = $null
+}
+
+# Stubs stand in for the Yuruna.Host facade, which the diagnostics module
+# resolves through the global command table. They assert the call shape the
+# rung is contractually required to use -- a hygiene key sent over anything
+# but the gui mechanism would never reach the guest console.
+function global:Send-Key {
+    param([string]$VMName, [string]$Key, [string]$Mechanism = 'gui')
+    if (-not $VMName) { throw 'Send-Key stub: called without -VMName' }
+    if ($Mechanism -ne 'gui') { throw "Send-Key stub: tty hygiene must use the gui mechanism, got '$Mechanism'" }
+    $TtyStub.Log.Add("key:$Key")
+    if ($TtyStub.ThrowOnKey) { throw 'simulated keystroke failure' }
+    if ($TtyStub.ThrowOnKeyName -eq $Key) { throw "simulated keystroke failure for '$Key'" }
+    if ($TtyStub.FalseOnKeyName -eq $Key) { return $false }
+    if ($Key -eq 'Enter' -and $TtyStub.UploadPath) {
+        Set-Content -LiteralPath $TtyStub.UploadPath -Value 'captured' -Encoding utf8
+    }
+    return $true
+}
+function global:Send-Text {
+    param([string]$VMName, [string]$Text, [string]$Mechanism = 'gui')
+    if (-not $VMName) { throw 'Send-Text stub: called without -VMName' }
+    if ($Mechanism -ne 'gui') { throw "Send-Text stub: expected the gui mechanism, got '$Mechanism'" }
+    if ($Text -notmatch 'curl') { throw 'Send-Text stub: expected the diagnostics one-liner' }
+    $TtyStub.Log.Add('text')
+    if ($TtyStub.ThrowOnText) { throw 'simulated keystroke injection failure' }
+    if ($TtyStub.FalseOnText) { return $false }
+    return $true
+}
+
+# The endpoint resolver reads test.config.yml and needs a discoverable guest
+# IP; replace it inside the module's own session state so the rung runs
+# without a host. `script:` is required: a bare `function` inside an invoked
+# scriptblock lands in a CHILD scope and is discarded the moment the block
+# returns, leaving the real resolver in place.
+& (Get-Module Test.Diagnostic) {
+    function script:Resolve-StatusServiceEndpoint {
+        param([string]$VMName)
+        if (-not $VMName) { throw 'endpoint stub: called without -VMName' }
+        return @{ ip = '127.0.0.1'; port = 8080; url = 'http://127.0.0.1:8080' }
+    }
+    # Force the echo verdict without a screenshot or OCR engine, so the
+    # retype and abandon branches can be driven deterministically. The queue
+    # of verdicts lives in module scope, the only scope both this replacement
+    # and the test that loads it can reach. An empty queue yields 'unknown',
+    # which is the real verdict on a host with no capture path, so every other
+    # test keeps its straight-to-Enter route.
+    function script:Get-ConsoleEchoVerdict {
+        param([string]$VMName, [string]$Expected)
+        if (-not $VMName)   { throw 'echo stub: called without -VMName' }
+        if (-not $Expected) { throw 'echo stub: called without -Expected' }
+        $q = $script:TtyEchoVerdicts
+        if ($q -and $q.Count -gt 0) { return $q.Dequeue() }
+        return 'unknown'
+    }
+}
+
+function Invoke-EchoVerdictQueue {
+    # Loads the module-scope verdict queue the echo stub reads, then runs the
+    # console rung once so the queued verdicts drive its retype/abandon paths.
+    param([string[]]$Verdicts, [string]$FolderPath, [string]$FileName, [int]$TimeoutSeconds = 1)
+    & (Get-Module Test.Diagnostic) {
+        param($v)
+        $script:TtyEchoVerdicts = [System.Collections.Queue]::new([object[]]$v)
+    } $Verdicts
+    try {
+        return Invoke-ConsoleRung -FolderPath $FolderPath -FileName $FileName -TimeoutSeconds $TimeoutSeconds
+    } finally {
+        & (Get-Module Test.Diagnostic) { $script:TtyEchoVerdicts = $null }
+    }
+}
+
+function Invoke-ConsoleRung {
+    # Drives the module-private console rung in module scope so the helper
+    # stays private, clearing the keystroke log first.
+    param([string]$FolderPath, [string]$FileName, [int]$TimeoutSeconds = 1)
+    $TtyStub.Log.Clear()
+    & (Get-Module Test.Diagnostic) {
+        param($f, $n, $t)
+        Invoke-RemoteDiagnosticsConsole -VMName 'vm1' -FailureFolderPath $f `
+            -DiagnosticsFileName $n -TimeoutSeconds $t
+    } $FolderPath $FileName $TimeoutSeconds
+}
+
+function Invoke-TtyHelper {
+    # Invokes one of the module-private hygiene helpers in module scope.
+    param([string]$Name)
+    $TtyStub.Log.Clear()
+    & (Get-Module Test.Diagnostic) {
+        param($n)
+        & $n -VMName 'vm1'
+    } $Name
+}
+
+}
+
+Describe 'Clear-GuestTtyLine' {
+    It 'sends exactly one Ctrl-U' {
+        Invoke-TtyHelper -Name 'Clear-GuestTtyLine'
+        Assert-Equal -Expected 'key:CtrlU' -Actual ($TtyStub.Log -join ',') `
+            -Because 'Ctrl-U is VKILL: it discards the pending line without signaling any process'
+    }
+    It 'swallows a keystroke failure instead of throwing' {
+        # A failed clear must not stop the payload from being typed, and must
+        # not turn the soft-failing diagnostics path into a thrown exception.
+        $TtyStub.ThrowOnKey = $true
+        try {
+            $err = $null
+            try { Invoke-TtyHelper -Name 'Clear-GuestTtyLine' } catch { $err = $_ }
+            Assert-True ($null -eq $err) "Clear-GuestTtyLine must not rethrow: $err"
+        } finally {
+            $TtyStub.ThrowOnKey = $false
+        }
+    }
+}
+
+Describe 'Reset-GuestTtyPrompt' {
+    It 'sends Ctrl-C before Enter' {
+        # Order is load-bearing: an Enter sent first would EXECUTE whatever
+        # corrupted line is pending instead of discarding it.
+        Invoke-TtyHelper -Name 'Reset-GuestTtyPrompt'
+        Assert-Equal -Expected 'key:CtrlC,key:Enter' -Actual ($TtyStub.Log -join ',')
+    }
+    It 'swallows a keystroke failure instead of throwing' {
+        $TtyStub.ThrowOnKey = $true
+        try {
+            $err = $null
+            try { Invoke-TtyHelper -Name 'Reset-GuestTtyPrompt' } catch { $err = $_ }
+            Assert-True ($null -eq $err) "Reset-GuestTtyPrompt must not rethrow: $err"
+        } finally {
+            $TtyStub.ThrowOnKey = $false
+        }
+    }
+    It 'still sends Enter when Ctrl-C throws' {
+        # The two chords repair different things, so one try around both would
+        # let a dead Ctrl-C silently cancel the Enter and turn the whole
+        # restore into a no-op -- leaving the pending line for the next
+        # sequence step's text to extend.
+        $TtyStub.ThrowOnKeyName = 'CtrlC'
+        try {
+            Invoke-TtyHelper -Name 'Reset-GuestTtyPrompt' | Out-Null
+            Assert-Equal -Expected 'key:CtrlC,key:Enter' -Actual ($TtyStub.Log -join ',') `
+                -Because 'a throw on the first chord must not skip the second'
+        } finally {
+            $TtyStub.ThrowOnKeyName = $null
+        }
+    }
+    It 'reports failure when a chord is refused rather than thrown' {
+        # Send-Key reports transport failure by returning $false, not by
+        # throwing. A restore that reads only the exception path calls that a
+        # success and the caller never learns the tty is still dirty.
+        $TtyStub.FalseOnKeyName = 'CtrlC'
+        try {
+            $r = Invoke-TtyHelper -Name 'Reset-GuestTtyPrompt'
+            Assert-Equal -Expected $false -Actual ([bool]$r) `
+                -Because 'a refused Ctrl-C means the pending line was never discarded'
+        } finally {
+            $TtyStub.FalseOnKeyName = $null
+        }
+    }
+    It 'reports success only when both chords land' {
+        $r = Invoke-TtyHelper -Name 'Reset-GuestTtyPrompt'
+        Assert-Equal -Expected $true -Actual ([bool]$r)
+    }
+}
+
+Describe 'Console rung tty bracket' {
+    It 'clears the line buffer before typing the one-liner' {
+        $r = Invoke-ConsoleRung -FolderPath $script:TtyFolder -FileName 'never.arrives.txt'
+        Assert-Equal -Expected $false -Actual $r.success -Because 'no file lands, so the rung fails'
+        $log = @($TtyStub.Log)
+        Assert-Equal -Expected 'key:CtrlU' -Actual $log[0] `
+            -Because 'residue on the line would otherwise concatenate with the command'
+        Assert-Equal -Expected 'text' -Actual $log[1]
+    }
+    It 'restores the prompt after an upload timeout' {
+        $r = Invoke-ConsoleRung -FolderPath $script:TtyFolder -FileName 'never.arrives.txt'
+        Assert-Equal -Expected $false -Actual $r.success
+        Assert-Equal -Expected 'key:CtrlU,text,key:Enter,key:CtrlC,key:Enter' `
+            -Actual ($TtyStub.Log -join ',') `
+            -Because 'the timeout path must leave the guest on a clean prompt'
+    }
+    It 'restores the prompt when keystroke injection throws' {
+        # The throw happens part-way through Send-Text, so characters may
+        # already have reached the tty -- that half-line is exactly what has
+        # to be cleared.
+        $TtyStub.ThrowOnText = $true
+        try {
+            $r = Invoke-ConsoleRung -FolderPath $script:TtyFolder -FileName 'never.arrives.txt'
+            Assert-Equal -Expected $false -Actual $r.success
+            Assert-Equal -Expected 'key:CtrlU,text,key:CtrlC,key:Enter' `
+                -Actual ($TtyStub.Log -join ',')
+        } finally {
+            $TtyStub.ThrowOnText = $false
+        }
+    }
+    It 'does not interrupt the guest when the rung succeeds' {
+        # On success the guest ran the command and returned to its own
+        # prompt; a Ctrl-C there could kill whatever the next step started.
+        $fileName = 'landed.system.diagnostic.ok.txt'
+        $TtyStub.UploadPath = Join-Path $script:TtyFolder $fileName
+        try {
+            $r = Invoke-ConsoleRung -FolderPath $script:TtyFolder -FileName $fileName -TimeoutSeconds 5
+            Assert-Equal -Expected $true -Actual $r.success
+            Assert-Equal -Expected 'key:CtrlU,text,key:Enter' -Actual ($TtyStub.Log -join ',') `
+                -Because 'no Ctrl-C on the success path'
+        } finally {
+            $TtyStub.UploadPath = $null
+        }
+    }
+}
+
+Describe 'Console rung echo-corruption recovery' {
+    It 'clears the line, retypes once, and submits when the echo recovers' {
+        # First capture reads corrupt, the retype reads intact: the rung must
+        # discard the bad line (Ctrl-U), type the command again, and only then
+        # press Enter to submit -- one Ctrl-U + text pair more than the clean
+        # path, with a single submitting Enter.
+        $fileName = 'landed.system.diagnostic.ok.txt'
+        $TtyStub.UploadPath = Join-Path $script:TtyFolder $fileName
+        try {
+            $r = Invoke-EchoVerdictQueue -Verdicts @('corrupt', 'intact') `
+                -FolderPath $script:TtyFolder -FileName $fileName -TimeoutSeconds 5
+            Assert-Equal -Expected $true -Actual $r.success -Because 'a recovered line must be submitted'
+            Assert-Equal -Expected 'key:CtrlU,text,key:CtrlU,text,key:Enter' -Actual ($TtyStub.Log -join ',') `
+                -Because 'Ctrl-U precedes the retype, and the recovered line is submitted with one Enter'
+        } finally {
+            $TtyStub.UploadPath = $null
+        }
+    }
+
+    It 'abandons on a refused retype without asking for a second verdict' {
+        # The retype keystrokes are refused, so the console still holds exactly
+        # what the first verdict read. Re-measuring that unchanged screen can
+        # only return 'corrupt' again, which would blame the guest for a
+        # malformed command when nothing was ever sent. Only ONE verdict is
+        # queued: if the rung consumes a second, the stub falls through to
+        # 'unknown' and the rung would submit -- so an Enter in the log is
+        # proof the guard did not hold.
+        $TtyStub.FalseOnText = $true
+        try {
+            $r = Invoke-EchoVerdictQueue -Verdicts @('corrupt') `
+                -FolderPath $script:TtyFolder -FileName 'never.arrives.txt'
+            Assert-Equal -Expected $false -Actual $r.success
+            $joined = $TtyStub.Log -join ','
+            Assert-Equal -Expected 'key:CtrlU,text,key:CtrlU,text,key:CtrlC,key:Enter' -Actual $joined `
+                -Because 'the rung abandons after the refused retype and restores the prompt'
+            Assert-True ($joined.IndexOf('key:Enter') -gt $joined.IndexOf('key:CtrlC')) `
+                'the only Enter must be the restore Enter: nothing may be submitted'
+        } finally {
+            $TtyStub.FalseOnText = $false
+        }
+    }
+
+    It 'abandons without ever submitting when the echo stays corrupt' {
+        # Both captures read corrupt: the rung must NOT press the submitting
+        # Enter -- that would run exactly the malformed command it detected.
+        # It returns failure, and the finally restores the prompt (Ctrl-C then
+        # Enter) so the next sequence step does not land on the dirty line.
+        $r = Invoke-EchoVerdictQueue -Verdicts @('corrupt', 'corrupt') `
+            -FolderPath $script:TtyFolder -FileName 'never.arrives.txt'
+        Assert-Equal -Expected $false -Actual $r.success
+        $joined = $TtyStub.Log -join ','
+        Assert-Equal -Expected 'key:CtrlU,text,key:CtrlU,text,key:CtrlC,key:Enter' -Actual $joined `
+            -Because 'the corrupted line is discarded and the prompt reset, never submitted'
+        # The load-bearing property, asserted independently of the exact log:
+        # the only Enter is the restore Enter, which comes AFTER Ctrl-C. A
+        # submitting Enter would appear before any Ctrl-C.
+        Assert-True ($joined.IndexOf('key:Enter') -gt $joined.IndexOf('key:CtrlC')) `
+            'no Enter may precede the restore Ctrl-C: the malformed line must never be submitted'
+    }
+}
+
+Describe 'Console rung structure' {
+    It 'brackets the typing in a finally so no failure path can skip the restore' {
+        $errs = $null
+        $ast = [System.Management.Automation.Language.Parser]::ParseFile($modPath, [ref]$null, [ref]$errs)
+        if ($errs) { throw "Parse errors in $($modPath): $($errs[0].Message)" }
+        $fn = @($ast.FindAll({ param($n)
+            $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and
+            $n.Name -eq 'Invoke-RemoteDiagnosticsConsole'
+        }, $true))[0]
+        Assert-True ($null -ne $fn) 'Invoke-RemoteDiagnosticsConsole must exist'
+        $finallyBlocks = @($fn.FindAll({ param($n)
+            $n -is [System.Management.Automation.Language.TryStatementAst] -and $n.Finally
+        }, $true))
+        Assert-True ($finallyBlocks.Count -ge 1) 'the rung must wrap its typing in try/finally'
+        $restoreInFinally = @($finallyBlocks | Where-Object {
+            $_.Finally.Extent.Text -match 'Reset-GuestTtyPrompt'
+        })
+        Assert-True ($restoreInFinally.Count -ge 1) `
+            'the tty restore must run from a finally, not from a single failure branch'
+    }
+    It 'never signals the guest from a guard that runs before any typing' {
+        # A Ctrl-C into a guest we never touched could interrupt a healthy
+        # foreground command. Every Reset-GuestTtyPrompt call site must
+        # therefore sit inside a finally, not on an early-return path.
+        $errs = $null
+        $ast = [System.Management.Automation.Language.Parser]::ParseFile($modPath, [ref]$null, [ref]$errs)
+        if ($errs) { throw "Parse errors in $($modPath): $($errs[0].Message)" }
+        $calls = @($ast.FindAll({ param($n)
+            $n -is [System.Management.Automation.Language.CommandAst] -and
+            $n.GetCommandName() -eq 'Reset-GuestTtyPrompt'
+        }, $true))
+        Assert-Equal -Expected 1 -Actual $calls.Count -Because 'one restore site, in the finally'
+        $inFinally = @($ast.FindAll({ param($n)
+            $n -is [System.Management.Automation.Language.TryStatementAst] -and
+            $n.Finally -and $n.Finally.Extent.Text -match 'Reset-GuestTtyPrompt'
+        }, $true))
+        Assert-True ($inFinally.Count -ge 1) 'the only restore site must be inside a finally block'
+    }
+}
+
+AfterAll {
+    # Cleanup belongs here, not at end of file: file-level code runs during
+    # discovery, before any It, so a trailing Remove-Item would delete the
+    # folder the tests are about to use.
+    Remove-Item -LiteralPath $TtyTestRoot -Recurse -Force -ErrorAction SilentlyContinue
+    Remove-Item -LiteralPath Function:\Send-Key  -ErrorAction SilentlyContinue
+    Remove-Item -LiteralPath Function:\Send-Text -ErrorAction SilentlyContinue
+}

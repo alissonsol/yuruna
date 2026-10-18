@@ -1,0 +1,290 @@
+#cloud-config
+# LICENSEURI https://yuruna.link/license
+# Copyright (c) 2019-2026 by Alisson Sol et al.
+#vim:syntax=yaml
+# --- REGION: users
+users:
+  - default
+  - name: USERNAME_PLACEHOLDER
+    sudo: ALL=(ALL) NOPASSWD:ALL
+    shell: /bin/bash
+    lock_passwd: false
+    ssh_authorized_keys:
+      - SSH_AUTHORIZED_KEY_PLACEHOLDER
+# --- REGION: ssh_authorized_keys
+# See https://yuruna.link/429f3d06-000e
+ssh_authorized_keys:
+  - SSH_AUTHORIZED_KEY_PLACEHOLDER
+# --- REGION: chpasswd
+# See https://yuruna.link/429f3d06-000c
+# chpasswd default expire=true is LOAD-BEARING: it fires the first-login Current/New/Retype prompt.
+chpasswd:
+  list: |
+    USERNAME_PLACEHOLDER:PLAINTEXT_PASSWORD_PLACEHOLDER
+# --- REGION: ssh_pwauth
+ssh_pwauth: true
+
+# --- REGION: write_files
+write_files:
+  # --- REGION: Persistent diagnostic journal
+  - path: /etc/systemd/journald.conf.d/60-yuruna-diagnostic.conf
+    permissions: '0644'
+    content: |
+      # --- REGION: [Journal]
+      [Journal]
+      Storage=persistent
+      SystemMaxUse=32M
+      SystemKeepFree=256M
+      RuntimeMaxUse=8M
+      SyncIntervalSec=30s
+      ForwardToConsole=no
+  # --- REGION: https://yuruna.link/429f3d06-001f
+  - path: /etc/modprobe.d/denylist-hv-balloon.conf
+    content: |
+      blacklist hv_balloon
+    permissions: '0644'
+  # --- REGION: https://yuruna.link/429f3d06-002c
+  - path: /usr/local/lib/yuruna/yuruna-retry.sh
+    encoding: base64
+    content: YURUNA_RETRY_LIB_BASE64_PLACEHOLDER
+    permissions: '0644'
+  - path: /usr/local/lib/yuruna/yuruna-versions.sh
+    encoding: base64
+    content: YURUNA_VERSIONS_BASE64_PLACEHOLDER
+    permissions: '0644'
+  - path: /usr/local/lib/yuruna/fetch-and-execute.sh
+    encoding: base64
+    content: YURUNA_FAE_BASE64_PLACEHOLDER
+    permissions: '0755'
+  - path: /usr/local/bin/yfe
+    encoding: base64
+    content: YURUNA_FETCH_CONTEXT_BASE64_PLACEHOLDER
+    permissions: '0755'
+  - path: /usr/local/lib/yuruna/yuruna-network.sh
+    encoding: base64
+    content: YURUNA_NETWORK_BASE64_PLACEHOLDER
+    permissions: '0755'
+  - path: /usr/local/lib/yuruna/yuruna-host-locate.sh
+    encoding: base64
+    content: YURUNA_HOST_LOCATE_BASE64_PLACEHOLDER
+    permissions: '0755'
+  # --- REGION: https://yuruna.link/429f3d06-002a
+  - path: /etc/systemd/system/yuruna-host-locate.service
+    permissions: '0644'
+    content: |
+      # --- REGION: [Unit]
+      [Unit]
+      Description=Refresh Yuruna host coordinates if the host has changed address
+      After=network.target NetworkManager-wait-online.service systemd-networkd-wait-online.service
+      Before=network-online.target
+
+      # --- REGION: [Service]
+      [Service]
+      Type=oneshot
+      TimeoutStartSec=30
+      ExecStart=/usr/local/lib/yuruna/yuruna-host-locate.sh
+
+      # --- REGION: [Install]
+      [Install]
+      WantedBy=network-online.target
+  # --- REGION: https://yuruna.link/4220a755-000f
+  - path: /etc/systemd/system/yuruna-dhcp-release.service
+    permissions: '0644'
+    content: |
+      # --- REGION: [Unit]
+      [Unit]
+      Description=Return this guest's DHCP lease before shutdown
+      Wants=network.target
+      After=network.target
+
+      # --- REGION: [Service]
+      [Service]
+      Type=oneshot
+      RemainAfterExit=yes
+      ExecStart=/bin/true
+      ExecStop=/bin/bash /usr/local/lib/yuruna/yuruna-network.sh release
+      TimeoutStopSec=15
+
+      # --- REGION: [Install]
+      [Install]
+      WantedBy=multi-user.target
+  - path: /etc/systemd/system/yuruna-host-locate.timer
+    permissions: '0644'
+    content: |
+      # --- REGION: [Unit]
+      [Unit]
+      Description=Periodic Yuruna host coordinate refresh
+
+      # --- REGION: [Timer]
+      [Timer]
+      OnBootSec=30s
+      OnUnitActiveSec=60s
+      AccuracySec=5s
+
+      # --- REGION: [Install]
+      [Install]
+      WantedBy=timers.target
+  # --- REGION: https://yuruna.link/42fa6f45-000c
+  # git does NOT read GH_TOKEN (a gh(1) convention); without this GIT_ASKPASS shim a private
+  # clone hangs on a username prompt -- "Private repositories" in the REGION topic above.
+  - path: /usr/local/lib/yuruna/git-askpass.sh
+    permissions: '0755'
+    content: |
+      #!/bin/sh
+      case "$1" in
+          Username*) echo "x-access-token" ;;
+          *)         echo "${GH_TOKEN}" ;;
+      esac
+  # --- REGION: https://yuruna.link/4220a755-000b
+  # See https://yuruna.link/4220a755-000c
+  - path: /etc/systemd/network/98-yuruna-fallback-dhcp.network
+    permissions: '0644'
+    content: |
+      # --- REGION: [Match]
+      [Match]
+      Name=eth* en*
+      # --- REGION: [Network]
+      [Network]
+      DHCP=yes
+      # --- REGION: [DHCPv4]
+      [DHCPv4]
+      ClientIdentifier=mac
+
+# --- REGION: runcmd
+runcmd:
+  # --- REGION: Persistent diagnostic journal
+  - mkdir -p /var/log/journal
+  - timeout --kill-after=1 10 systemctl restart systemd-journald.service && timeout --kill-after=1 10 journalctl --flush || echo 'Yuruna => persistent journal activation failed; inspect systemd-journald' >&2
+  # --- REGION: https://yuruna.link/429f3d06-001f
+  - rmmod hv_balloon 2>/dev/null || true
+  # --- REGION: Reinforce DHCP client identity
+  # See https://yuruna.link/4220a755-000b
+  # See https://yuruna.link/4220a755-000c
+  - |
+    bash -c 'command -v networkctl >/dev/null 2>&1 || exit 0
+      for f in /etc/systemd/network/10-cloud-init-*.network; do
+        [ -e "$f" ] || continue
+        mkdir -p "${f}.d" || { echo "Yuruna => could not create ${f}.d" >&2; continue; }
+        if ! printf "[DHCPv4]\nClientIdentifier=mac\n" > "${f}.d/yuruna-dhcp-identity.conf"; then
+          echo "Yuruna => could not write ${f}.d/yuruna-dhcp-identity.conf" >&2
+        fi
+      done
+      networkctl reload 2>/dev/null || echo "Yuruna => networkctl reload failed; drop-ins apply on next activation" >&2
+      for i in /sys/class/net/*; do
+        i=$(basename "$i")
+        case "$i" in eth*|en*) ;; *) continue ;; esac
+        [ -e "/sys/class/net/$i/device" ] || continue
+        w=0
+        while [ "$w" -lt 10 ] && [ -z "$(ip -4 -o address show dev "$i" scope global 2>/dev/null)" ]; do
+          w=$((w+1)); sleep 1
+        done
+        if [ -z "$(ip -4 -o address show dev "$i" scope global 2>/dev/null)" ]; then
+          echo "Yuruna => no IPv4 on $i after the reload settled; reconfiguring once"
+          networkctl reconfigure "$i" || echo "Yuruna => networkctl reconfigure $i failed" >&2
+        fi
+      done'
+  # Best-effort NetworkManager sibling; logs when nmcli is unavailable and leaves non-NM NICs unchanged.
+  - |
+    bash -c 'command -v nmcli >/dev/null 2>&1 || { echo "Yuruna => nmcli not present; identity rides the networkd drop-in on this build"; exit 0; }
+      nmcli -t -f NAME connection show | while IFS= read -r c; do
+        [ -n "$c" ] || continue
+        nmcli connection modify "$c" ipv4.dhcp-client-id mac || \
+          echo "Yuruna => could not pin dhcp-client-id on connection $c" >&2
+      done'
+  # --- REGION: https://yuruna.link/429f3d06-0019
+  - bash -c 'sed -i -E "/^[#[:space:]]*LOGIN_TIMEOUT/d" /etc/login.defs && echo "LOGIN_TIMEOUT 180" >> /etc/login.defs'
+  # --- REGION: https://yuruna.link/429f3d06-0021
+  - systemctl enable --now sshd || true
+  # --- REGION: https://yuruna.link/429f3d06-0022
+  - systemctl enable --now getty@tty1.service || true
+  - chvt 1 2>/dev/null || true
+  - bash -c 'setterm --blank 0 --powersave off --cursor on > /dev/tty1 2>/dev/null || true'
+# === YURUNA_OVERLAY_RUNCMD_CONSOLEBLANK ===
+  # --- REGION: https://yuruna.link/429f3d06-0025
+  - bash -c 'command -v grubby >/dev/null 2>&1 && grubby --update-kernel=ALL --args="quiet loglevel=3 systemd.show_status=no rd.systemd.show_status=no" || true'
+# === YURUNA_OVERLAY_RUNCMD_QUIET_LOGLEVEL ===
+  # --- REGION: https://yuruna.link/429f3d06-0023
+  - mkdir -p /etc/xdg/autostart
+  - |
+    cat > /etc/xdg/autostart/open-terminal.desktop << 'DESKTOP'
+    # --- REGION: [Desktop Entry]
+    [Desktop Entry]
+    Type=Application
+    Name=Open Terminal
+    Exec=ptyxis --new-window
+    X-GNOME-Autostart-enabled=true
+    NoDisplay=true
+    DESKTOP
+  # --- REGION: https://yuruna.link/429f3d06-0029
+  - mkdir -p /etc/yuruna
+  - |
+    cat > /etc/yuruna/host.env << 'EOF'
+    YURUNA_STATUS_SERVICE_IP=YURUNA_STATUS_SERVICE_IP_PLACEHOLDER
+    YURUNA_STATUS_SERVICE_PORT=YURUNA_STATUS_SERVICE_PORT_PLACEHOLDER
+    YURUNA_GITHUB_REPO=YURUNA_GITHUB_REPO_PLACEHOLDER
+    YURUNA_GITHUB_REF=YURUNA_GITHUB_REF_PLACEHOLDER
+    YURUNA_FRAMEWORK_URL=YURUNA_FRAMEWORK_URL_PLACEHOLDER
+    YURUNA_PROJECT_URL=YURUNA_PROJECT_URL_PLACEHOLDER
+    YURUNA_HOST_ID=YURUNA_HOST_ID_PLACEHOLDER
+    YURUNA_CACHING_PROXY_SERVICE_IP=YURUNA_CACHING_PROXY_SERVICE_IP_PLACEHOLDER
+    EOF
+  - bash -c 'grep -q yuruna-host /etc/hosts || echo "YURUNA_STATUS_SERVICE_IP_PLACEHOLDER yuruna-host" >> /etc/hosts'
+  # --- REGION: https://yuruna.link/429f3d06-002a
+  - systemctl enable --now yuruna-host-locate.service yuruna-host-locate.timer || true
+  # --- REGION: https://yuruna.link/4220a755-000f
+  # --now so the unit is active from this boot: its ExecStop only runs for a
+  # unit that is running, so one enabled but not started would sit inert until
+  # the reboot after this one and release nothing in between.
+  - systemctl enable --now yuruna-dhcp-release.service || true
+  # --- REGION: https://yuruna.link/4220a755-004f
+  - |
+    cat > /etc/profile.d/yuruna-git-noprompt.sh << 'EOF'
+    export GIT_TERMINAL_PROMPT=0
+    export GIT_ASKPASS=/usr/local/lib/yuruna/git-askpass.sh
+    EOF
+    chmod 0644 /etc/profile.d/yuruna-git-noprompt.sh
+    printf 'GIT_TERMINAL_PROMPT=0\nGIT_ASKPASS=/usr/local/lib/yuruna/git-askpass.sh\n' >> /etc/environment
+  # --- REGION: Private repository credentials
+  # See https://yuruna.link/4220a755-004f
+  - |
+    if [ -n 'GH_TOKEN_PLACEHOLDER' ]; then
+    cat > /etc/profile.d/yuruna-github.sh << 'EOF'
+    export GH_TOKEN="GH_TOKEN_PLACEHOLDER"
+    export GIT_ASKPASS=/usr/local/lib/yuruna/git-askpass.sh
+    export GIT_TERMINAL_PROMPT=0
+    EOF
+    chmod 0644 /etc/profile.d/yuruna-github.sh
+    cat >> /home/USERNAME_PLACEHOLDER/.bashrc << 'EOF'
+    export GH_TOKEN="GH_TOKEN_PLACEHOLDER"
+    export GIT_ASKPASS=/usr/local/lib/yuruna/git-askpass.sh
+    export GIT_TERMINAL_PROMPT=0
+    EOF
+    chown USERNAME_PLACEHOLDER:USERNAME_PLACEHOLDER /home/USERNAME_PLACEHOLDER/.bashrc
+    fi
+  # --- REGION: https://yuruna.link/429f3d06-002b
+  - |
+    cat >> /etc/wgetrc << 'EOF'
+    no_proxy = YURUNA_STATUS_SERVICE_IP_PLACEHOLDER
+    EOF
+  # --- REGION: https://yuruna.link/429f3d06-002d
+  - timedatectl set-ntp true
+  - |
+    # Best-effort timezone from geo-IP; explicit branches so a failure names its
+    # cause (curl missing / fetch error / empty response / timedatectl reject).
+    set +e
+    if ! command -v curl >/dev/null 2>&1; then
+      echo "Yuruna => Timezone sync skipped: curl not available" >&2
+    else
+      GEOTZ=$(curl -s --max-time 10 "http://ip-api.com/line?fields=timezone")
+      CRC=$?
+      if [ "$CRC" -ne 0 ]; then
+        echo "Yuruna => Timezone sync failed: geo-IP fetch error (curl rc=$CRC; network or API)" >&2
+      elif [ -z "$GEOTZ" ]; then
+        echo "Yuruna => Timezone sync failed: empty geo-IP response" >&2
+      elif timedatectl set-timezone "$GEOTZ"; then
+        echo "Yuruna => Timezone set to $GEOTZ" >&2
+      else
+        echo "Yuruna => Timezone sync failed: timedatectl rejected $GEOTZ" >&2
+      fi
+    fi
+# === YURUNA_OVERLAY_POWER_STATE ===

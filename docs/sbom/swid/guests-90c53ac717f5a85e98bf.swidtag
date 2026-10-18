@@ -1,0 +1,5 @@
+<?xml version='1.0' encoding='utf-8'?>
+<SoftwareIdentity xmlns="http://standards.iso.org/iso/19770/-2/2015/schema.xsd" xmlns:sbom="urn:yuruna:sbom:1" name="Helm" tagId="urn:uuid:f9919e0b-368b-57fe-870c-6ea7a49974bf" version="4.3.0" versionScheme="alphanumeric" tagVersion="0" corpus="true">
+  <Entity name="Alisson Sol et al." regid="yuruna.com" role="tagCreator" />
+  <Meta sbom:generator="tools/Sync-Sbom.py" sbom:scope="guests" sbom:inventory-kind="declared-source" sbom:declaration="{&quot;completeness&quot;: &quot;source-declared&quot;, &quot;ecosystem&quot;: &quot;generic&quot;, &quot;evidence&quot;: [{&quot;detail&quot;: &quot;target=shared-or-configured; Central guest provisioning declaration YURUNA_HELM_VERSION; exact installer pin&quot;, &quot;line&quot;: 15, &quot;path&quot;: &quot;automation/yuruna-versions.sh&quot;}], &quot;group&quot;: &quot;yuruna:guests:shared-or-configured&quot;, &quot;notes&quot;: [&quot;Conditional source declaration; installed state and transitive dependencies are not resolved.&quot;], &quot;scope&quot;: &quot;runtime&quot;}" />
+</SoftwareIdentity>

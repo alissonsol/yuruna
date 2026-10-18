@@ -1,0 +1,138 @@
+// LICENSEURI https://yuruna.link/license
+// Copyright (c) 2019-2026 by Alisson Sol et al.
+
+package state
+
+import (
+	"encoding/json"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+	"time"
+)
+
+func TestRecordWritesAuditAndStatus(t *testing.T) {
+	dir := t.TempDir()
+	now := time.Date(2026, 7, 22, 12, 0, 0, 0, time.UTC)
+	s := New(filepath.Join(dir, "pool-control-service"), now)
+	if !s.Enabled() {
+		t.Fatal("store with a dir must be Enabled")
+	}
+	s.Record(now, AuditEntry{Publish: true, TimeUTC: now.Format(time.RFC3339), Action: "new-pool", Target: "lab", OK: true})
+
+	audit, err := os.ReadFile(filepath.Join(dir, "pool-control-service", "audit.jsonl"))
+	if err != nil || !strings.Contains(string(audit), `"action":"new-pool"`) {
+		t.Fatalf("audit.jsonl missing the entry: %v %q", err, string(audit))
+	}
+	st := s.Health()
+	if !st.Healthy || st.Writes != 1 || st.LastAction != "new-pool" || !st.LastPublishOK {
+		t.Fatalf("status not updated: %+v", st)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "pool-control-service", "status.json")); err != nil {
+		t.Fatalf("status.json not written: %v", err)
+	}
+}
+
+func TestAuditSurvivesRestart(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "pc")
+	now := time.Date(2026, 7, 22, 12, 0, 0, 0, time.UTC)
+	s1 := New(dir, now)
+	s1.Record(now, AuditEntry{Publish: true, TimeUTC: now.Format(time.RFC3339), Action: "new-pool", Target: "lab", OK: true})
+	// A fresh Store (a service restart) appends to the same audit log; prior lines survive.
+	s2 := New(dir, now.Add(time.Minute))
+	s2.Record(now.Add(time.Minute), AuditEntry{Publish: true, TimeUTC: now.Add(time.Minute).Format(time.RFC3339), Action: "set-repositories", Target: "lab", OK: true})
+	audit, _ := os.ReadFile(filepath.Join(dir, "audit.jsonl"))
+	lines := strings.Count(strings.TrimSpace(string(audit)), "\n") + 1
+	if lines != 2 || !strings.Contains(string(audit), "new-pool") || !strings.Contains(string(audit), "set-repositories") {
+		t.Fatalf("audit log must accumulate across restarts; got %d line(s):\n%s", lines, string(audit))
+	}
+}
+
+func TestDisabledStoreIsNoOp(t *testing.T) {
+	s := New("", time.Now())
+	if s.Enabled() {
+		t.Fatal("empty dir must be disabled")
+	}
+	s.Record(time.Now(), AuditEntry{Publish: true, Action: "x", OK: true}) // must not panic / touch disk
+	if !s.Health().Healthy {
+		t.Fatal("disabled store reports healthy")
+	}
+}
+
+func TestBeatUpdatesHeartbeat(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "pc")
+	now := time.Date(2026, 7, 22, 12, 0, 0, 0, time.UTC)
+	s := New(dir, now)
+	s.Beat(now.Add(30*time.Second), true)
+	st := s.Health()
+	if st.HeartbeatUTC == "" || !st.ConfigurationReadable {
+		t.Fatalf("beat did not update heartbeat/configuration-readable: %+v", st)
+	}
+	data, err := os.ReadFile(filepath.Join(dir, "status.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var persisted map[string]any
+	if err := json.Unmarshal(data, &persisted); err != nil {
+		t.Fatal(err)
+	}
+	if persisted["configurationReadable"] != true {
+		t.Fatalf("status.json did not report configuration readability: %s", data)
+	}
+}
+
+func TestAuditFailureSurvivesStatusWritesAndRecoversOnlyAfterAuditWrite(t *testing.T) {
+	dir := t.TempDir()
+	s := New(dir, time.Now())
+	audit := filepath.Join(dir, "audit.jsonl")
+	if err := os.Mkdir(audit, 0700); err != nil {
+		t.Fatal(err)
+	}
+	s.Record(time.Now(), AuditEntry{Publish: true, Action: "assign", OK: true})
+	s.Beat(time.Now(), true)
+	if st := s.Health(); st.Healthy || !strings.Contains(st.LastError, "audit write:") {
+		t.Fatalf("audit failure was erased: %+v", st)
+	}
+	data, err := os.ReadFile(filepath.Join(dir, "status.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var persisted Status
+	if err = json.Unmarshal(data, &persisted); err != nil {
+		t.Fatal(err)
+	}
+	if persisted.Healthy || !strings.Contains(persisted.LastError, "audit write:") {
+		t.Fatalf("persisted status=%+v", persisted)
+	}
+	if err = os.Remove(audit); err != nil {
+		t.Fatal(err)
+	}
+	s.Record(time.Now(), AuditEntry{Publish: true, Action: "assign", OK: true})
+	if st := s.Health(); !st.Healthy || st.LastError != "" {
+		t.Fatalf("successful audit did not recover: %+v", st)
+	}
+	data, err = os.ReadFile(filepath.Join(dir, "status.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = json.Unmarshal(data, &persisted); err != nil {
+		t.Fatal(err)
+	}
+	if !persisted.Healthy {
+		t.Fatalf("recovery was not persisted: %+v", persisted)
+	}
+}
+
+func TestAuditEventsCannotReplacePublishStatus(t *testing.T) {
+	now := time.Now()
+	s := New(t.TempDir(), now)
+	s.Record(now, AuditEntry{Publish: true, TimeUTC: now.UTC().Format(time.RFC3339), Action: "new-pool", OK: true})
+	for _, action := range []string{"unlock", "refresh-credential", "scan"} {
+		s.Record(now.Add(time.Minute), AuditEntry{TimeUTC: now.Add(time.Minute).UTC().Format(time.RFC3339), Action: action, OK: false})
+	}
+	got := s.Health()
+	if got.LastAction != "new-pool" || !got.LastPublishOK || got.Writes != 1 || got.LastWriteUTC != now.UTC().Format(time.RFC3339) {
+		t.Fatalf("audit event changed publish status: %+v", got)
+	}
+}

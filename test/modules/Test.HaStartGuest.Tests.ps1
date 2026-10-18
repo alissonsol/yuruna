@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.14
+.VERSION 2026.10.18
 .GUID 42a8c19c-6467-464c-bbe1-27786a9557d2
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -166,7 +166,7 @@ Describe 'ha-startguest: the dispatcher loop is shared, not duplicated' {
             }
             $r = Start-GuestOS -HostType h -GuestKey g -VMName vm -RepoRoot r -SequencesDir s -SequenceNames @('seq1', 'seq2')
             $r.success | Should -BeTrue
-            Assert-MockCalled Invoke-SequenceByName -ModuleName 'Test.SequenceEngine' -Times 1 -Exactly -ParameterFilter {
+            Should -Invoke Invoke-SequenceByName -ModuleName 'Test.SequenceEngine' -Times 1 -Exactly -ParameterFilter {
                 $Name -eq 'seq2' -and $VMName -eq 'vm-renamed'
             }
         }
@@ -181,7 +181,7 @@ Describe 'ha-startguest: the dispatcher loop is shared, not duplicated' {
             $vars = [ordered]@{ username = 'yuser1'; currentPassword = 'p@ss' }
             $r = Start-GuestWorkload -HostType h -GuestKey g -VMName vm -RepoRoot r -SequencesDir s -SequenceNames @('seq1') -EffectiveVariables $vars
             $r.success | Should -BeTrue
-            Assert-MockCalled Invoke-SequenceByName -ModuleName 'Test.SequenceEngine' -Times 1 -Exactly -ParameterFilter {
+            Should -Invoke Invoke-SequenceByName -ModuleName 'Test.SequenceEngine' -Times 1 -Exactly -ParameterFilter {
                 $Name -eq 'seq1' -and $EffectiveVariables['username'] -eq 'yuser1' -and $EffectiveVariables['currentPassword'] -eq 'p@ss'
             }
         }

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.14
+.VERSION 2026.10.18
 .GUID 4243f981-9a67-4b29-81f5-966316b4be67
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -55,16 +55,37 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
+# Under tools/Invoke-TestSuite.ps1 the runner already gave this process a temp
+# folder of its own and removes it after this process ends, killed or not. Run
+# directly, this script does the same for itself: every process the suite
+# starts inherits the folder, so whatever a test or a killed child leaves
+# behind goes with it. See the matching block in Invoke-TestSuite.ps1 for why
+# /tmp and why DOTNET_EnableDiagnostics.
+$ownedTempRoot = $null
+$savedTempEnvironment = @{}
+if ([string]::IsNullOrWhiteSpace($env:YURUNA_TEST_TEMP_ROOT)) {
+    $tempBase = if ($IsWindows) { [IO.Path]::GetTempPath() } else { '/tmp' }
+    $ownedTempRoot = Join-Path $tempBase ('yrn-suite-' + [guid]::NewGuid().ToString('N').Substring(0, 12))
+    $null = New-Item -ItemType Directory -Force -Path $ownedTempRoot
+    foreach ($name in 'TMPDIR', 'TMP', 'TEMP', 'YURUNA_TEST_TEMP_ROOT', 'DOTNET_EnableDiagnostics') {
+        $savedTempEnvironment[$name] = [Environment]::GetEnvironmentVariable($name)
+        $value = if ($name -eq 'DOTNET_EnableDiagnostics') { '0' } else { $ownedTempRoot }
+        [Environment]::SetEnvironmentVariable($name, $value)
+    }
+}
+
 try {
     $pesterModule = Get-Module -ListAvailable Pester |
-        Where-Object { $_.Version -ge [version]'5.0.0' -and $_.Version -lt [version]'6.0.0' } |
+        Where-Object { $_.Version -ge [version]'6.0.0' -and $_.Version -lt [version]'7.0.0' } |
         Sort-Object Version -Descending | Select-Object -First 1
-    if (-not $pesterModule) { throw 'Pester 5.x is required; install Pester 5.9.1.' }
+    if (-not $pesterModule) { throw 'Pester 6.x is required; install Pester 6.2.0.' }
     Import-Module $pesterModule.Path -Force -ErrorAction Stop
     $PesterPreference = New-PesterConfiguration
     $PesterPreference.Output.Verbosity      = 'None'
     $PesterPreference.TestResult.Enabled    = $true
     $PesterPreference.TestResult.OutputPath = $Xml
+    # Pinned rather than defaulted: the coordinator parses the NUnit 2.5 schema.
+    $PesterPreference.TestResult.OutputFormat = 'NUnitXml'
     # Left at its default ($false) deliberately: Run.Exit does not reach this
     # process through the call operator, so enabling it would only suggest an
     # exit-code contract that does not hold.
@@ -92,4 +113,9 @@ try {
     # which still produce readable NUnit evidence for the caller to judge.
     Write-Error ("suite process failed: {0}" -f $_.Exception.Message) -ErrorAction Continue
     exit 2
+} finally {
+    if ($ownedTempRoot) {
+        foreach ($name in $savedTempEnvironment.Keys) { [Environment]::SetEnvironmentVariable($name, $savedTempEnvironment[$name]) }
+        Remove-Item -LiteralPath $ownedTempRoot -Recurse -Force -ErrorAction SilentlyContinue
+    }
 }

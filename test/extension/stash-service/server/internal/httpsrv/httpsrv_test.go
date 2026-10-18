@@ -33,7 +33,7 @@ const testHostID = "42aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" // 32 hex, hostId-shaped
 // testVersion stands in for the framework version the guest build stamps in
 // through -ldflags. A daemon that loses that wiring reports the zero value and
 // the UI footer shows nothing, which no other assertion here would notice.
-const testVersion = "2026.10.14"
+const testVersion = "2026.10.18"
 
 func newTestUI(t *testing.T) (*httptest.Server, *Server, string) {
 	return newTestUIHost(t, testHostID)
@@ -351,7 +351,7 @@ func TestDeleteRemoteOnShare(t *testing.T) {
 	y, mo, d := now.Date()
 	dir := filepath.Join(stashRoot, remote, config.FilesDirName,
 		pad4(y), pad2(int(mo)), pad2(d))
-	if err := writeRemoteStash(dir, "rr01", "peer.txt", "peer bytes"); err != nil {
+	if err := writeRemoteStash(dir, "rr01", "peer.txt", "peer bytes", time.Now().UTC()); err != nil {
 		t.Fatalf("seed remote: %v", err)
 	}
 	artifact := filepath.Join(dir, "rr01.txt")
@@ -506,7 +506,7 @@ func TestPoolWideRemoteSidecar(t *testing.T) {
 	y, mo, d := now.Date()
 	dayDir := filepath.Join(stashRoot, remote, config.FilesDirName,
 		pad4(y), pad2(int(mo)), pad2(d))
-	if err := writeRemoteStash(dayDir, "ef12", "remote.txt", "remote body"); err != nil {
+	if err := writeRemoteStash(dayDir, "ef12", "remote.txt", "remote body", time.Now().UTC()); err != nil {
 		t.Fatalf("seed remote: %v", err)
 	}
 	ui.pool.Refresh()
@@ -719,7 +719,7 @@ func TestStaticPagesAndAssets(t *testing.T) {
 }
 
 // --- REGION: Helpers
-func writeRemoteStash(dayDir, id, name, body string) error {
+func writeRemoteStash(dayDir, id, name, body string, createdAt time.Time) error {
 	if err := os.MkdirAll(dayDir, 0o700); err != nil {
 		return err
 	}
@@ -727,14 +727,13 @@ func writeRemoteStash(dayDir, id, name, body string) error {
 	if err := os.WriteFile(artifact, []byte(body), 0o600); err != nil {
 		return err
 	}
-	now := time.Now().UTC()
 	rec := &meta.Record{
 		ID:               id,
 		StoredPath:       artifact,
 		OriginalFilename: name,
 		Username:         "remoteuser",
-		CreatedAt:        now,
-		ReceivedAt:       &now,
+		CreatedAt:        createdAt,
+		ReceivedAt:       &createdAt,
 		Status:           meta.StatusComplete,
 		SizeBytes:        int64(len(body)),
 		MimeType:         "text/plain",

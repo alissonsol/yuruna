@@ -63,7 +63,10 @@ They select scripts for [Amazon Linux 2023](../../guest/amazon.linux.2023/),
 [Windows 11](../../guest/windows.11/), and [macOS 26](../../guest/macos.26/).
 Host drivers execute on the hypervisor host and import harness modules for
 configuration, logging, SSH, and sequences; guest scripts execute in the VM and
-source the automation shell helpers. Project guest scripts, rather than
+source the automation shell helpers. GUI fetch execution crosses that boundary:
+the harness [prepares and types the command](../../test/modules/Test.SequenceHandler.psm1),
+while the guest [validates the envelope](../../automation/yuruna-fetch-context.sh)
+before invoking the downloaded script. Project guest scripts, rather than
 framework guest scripts, invoke the deploy engine inside a test guest. The
 bootstrappers check tool version floors through
 [Test-Requirement](../../automation/Test-Requirement.ps1).

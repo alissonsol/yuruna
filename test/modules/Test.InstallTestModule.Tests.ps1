@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.14
+.VERSION 2026.10.18
 .GUID 42318205-4701-4ec4-97ce-64b0837ff71b
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -19,15 +19,17 @@
 <#
 .SYNOPSIS
     Behavioral Pester guard on how the host installers provide the test
-    modules: the newest Pester 5.x and PSScriptAnalyzer, and the preflight that
-    says whether the installed Pester is one the runner will load.
+    modules: the newest Pester 6.x and PSScriptAnalyzer, and the preflight
+    that says whether the installed Pester is one the runner will load.
 .DESCRIPTION
-    The gallery's newest Pester is a 6.x, which the runner refuses, so the
-    policy turns on choices no install log shows:
+    The gallery's newest Pester can be on a later major, so the line is
+    requested by its own bounds, and the policy turns on choices no install
+    log shows:
 
-      * only the 5.x line counts. A Pester 6 installed alone is not a usable
-        Pester, and one installed beside a 5.x does not fail the host.
-      * an unreachable gallery is a problem only when no usable 5.x is present.
+      * a line counts only its own copies. A Pester 5 installed alone is not a
+        usable 6.x, and the helper answers for whichever major it is asked.
+      * an unreachable gallery is a problem only when no usable copy of that line
+        is present.
       * every failure reaches the installer's closing summary and none stops it.
 
     tools/Install-TestModule.ps1 holds the policy; the three installers only
@@ -44,7 +46,7 @@ BeforeAll {
     Import-Module (Join-Path $here 'Test.Assert.psm1') -Force -Global -DisableNameChecking
 
     $moduleScript = Join-Path $script:RepoRoot 'tools/Install-TestModule.ps1'
-    foreach ($name in @('Get-InstalledPester5', 'Install-NewestPester5', 'Install-PSScriptAnalyzerIfAbsent')) {
+    foreach ($name in @('Get-InstalledPester', 'Install-NewestPester', 'Install-PSScriptAnalyzerIfAbsent')) {
         $ast = Get-YurunaTestFunctionAst -Path $moduleScript -Name $name
         if (-not $ast) { throw "$name not found in tools/Install-TestModule.ps1" }
         . ([scriptblock]::Create($ast.Extent.Text))
@@ -63,14 +65,14 @@ BeforeAll {
     }
 }
 
-Describe 'Install-NewestPester5' {
+Describe 'Install-NewestPester -Major 5' {
     BeforeEach {
         Mock Find-Module { [pscustomobject]@{ Name = 'Pester'; Version = '5.9.1' } }
         Mock Install-Module { }
     }
     It 'installs the newest 5.x beside an older 5.x' {
         Mock Get-Module { Get-StandInModule -Name Pester -Version '5.8.0' } -ParameterFilter { $Name -eq 'Pester' }
-        $out = @(Install-NewestPester5)
+        $out = @(Install-NewestPester -Major 5)
         Should -Invoke Install-Module -Times 1 -Exactly -ParameterFilter {
             $Name -eq 'Pester' -and $RequiredVersion -eq '5.9.1' -and $Scope -eq 'CurrentUser' -and $SkipPublisherCheck
         }
@@ -79,40 +81,105 @@ Describe 'Install-NewestPester5' {
     It 'asks the gallery only for the 5.x line' {
         # The gallery's newest Pester is a 6.x; an unbounded lookup would answer with it.
         Mock Get-Module { } -ParameterFilter { $Name -eq 'Pester' }
-        $null = Install-NewestPester5
+        $null = Install-NewestPester -Major 5
         Should -Invoke Find-Module -Times 1 -Exactly -ParameterFilter {
             $Name -eq 'Pester' -and $MinimumVersion -eq '5.0' -and $MaximumVersion -eq '5.999.999'
         }
     }
     It 'does not count a lone Pester 6 as installed' {
         Mock Get-Module { Get-StandInModule -Name Pester -Version '6.2.0' } -ParameterFilter { $Name -eq 'Pester' }
-        $null = Install-NewestPester5
+        $null = Install-NewestPester -Major 5
         Should -Invoke Install-Module -Times 1 -Exactly -ParameterFilter { $RequiredVersion -eq '5.9.1' }
     }
     It 'leaves a host already on the newest 5.x alone, whatever else is installed' {
         Mock Get-Module { Get-StandInModule -Name Pester -Version '4.10.1', '5.9.1', '6.2.0' } -ParameterFilter { $Name -eq 'Pester' }
-        $out = @(Install-NewestPester5)
+        $out = @(Install-NewestPester -Major 5)
         Should -Invoke Install-Module -Times 0 -Exactly
         Assert-Match 'Pester 5\.9\.1 is the newest 5\.x' ($out -join "`n") 'the host is reported as current'
     }
     It 'keeps a usable 5.x without an issue when the gallery is unreachable' {
         Mock Get-Module { Get-StandInModule -Name Pester -Version '5.8.0' } -ParameterFilter { $Name -eq 'Pester' }
         Mock Find-Module { throw "Unable to find repository 'PSGallery'." }
-        $out = @(Install-NewestPester5) -join "`n"
+        $out = @(Install-NewestPester -Major 5) -join "`n"
         Assert-True ($out -notmatch 'MODULE-ISSUE') 'a host that can already run the suites has no issue to report'
         Assert-Match 'Pester 5\.8\.0 is installed' $out 'the version in use is named'
     }
     It 'reports a host with no usable Pester and no gallery' {
         Mock Get-Module { Get-StandInModule -Name Pester -Version '4.10.1' } -ParameterFilter { $Name -eq 'Pester' }
         Mock Find-Module { throw "Unable to find repository 'PSGallery'." }
-        $out = @(Install-NewestPester5) -join "`n"
+        $out = @(Install-NewestPester -Major 5) -join "`n"
         Assert-Match '(?m)^MODULE-ISSUE: Pester 5 is not installed and PSGallery could not be reached' $out 'the gap reaches the closing summary'
     }
     It 'reports a failed install with the version it aimed for' {
         Mock Get-Module { } -ParameterFilter { $Name -eq 'Pester' }
         Mock Install-Module { throw 'disk full' }
-        $out = @(Install-NewestPester5) -join "`n"
+        $out = @(Install-NewestPester -Major 5) -join "`n"
         Assert-Match '(?m)^MODULE-ISSUE: Installing Pester 5\.9\.1 failed: disk full' $out 'the failure names the version and the cause'
+    }
+}
+
+Describe 'Get-InstalledPester' {
+    It 'answers from the line it is asked for and no other' {
+        Mock Get-Module { Get-StandInModule -Name Pester -Version '5.9.1', '6.2.0' } -ParameterFilter { $Name -eq 'Pester' }
+        Assert-StringEqual -Expected '6.2.0' -Actual (Get-InstalledPester -Major 6).Version.ToString() 'the 6.x line answers with its copy'
+        Assert-StringEqual -Expected '5.9.1' -Actual (Get-InstalledPester -Major 5).Version.ToString() 'the 5.x line answers with its copy'
+    }
+    It 'answers nothing for a line that is not installed' {
+        Mock Get-Module { Get-StandInModule -Name Pester -Version '5.9.1' } -ParameterFilter { $Name -eq 'Pester' }
+        Assert-True ($null -eq (Get-InstalledPester -Major 6)) 'a 5.x alone is not a 6.x'
+    }
+}
+
+Describe 'Install-NewestPester -Major 6' {
+    BeforeEach {
+        Mock Find-Module { [pscustomobject]@{ Name = 'Pester'; Version = '6.2.0' } }
+        Mock Install-Module { }
+    }
+    It 'installs the newest 6.x beside an installed 5.x' {
+        Mock Get-Module { Get-StandInModule -Name Pester -Version '5.9.1' } -ParameterFilter { $Name -eq 'Pester' }
+        $out = @(Install-NewestPester -Major 6)
+        Should -Invoke Install-Module -Times 1 -Exactly -ParameterFilter {
+            $Name -eq 'Pester' -and $RequiredVersion -eq '6.2.0' -and $Scope -eq 'CurrentUser' -and $SkipPublisherCheck
+        }
+        Assert-Match 'installing Pester 6\.2\.0' ($out -join "`n") 'the install is announced with its version'
+    }
+    It 'asks the gallery only for the 6.x line' {
+        # The gallery's newest Pester can be on a later major, and an unbounded lookup would answer with it.
+        Mock Get-Module { } -ParameterFilter { $Name -eq 'Pester' }
+        $null = Install-NewestPester -Major 6
+        Should -Invoke Find-Module -Times 1 -Exactly -ParameterFilter {
+            $Name -eq 'Pester' -and $MinimumVersion -eq '6.0' -and $MaximumVersion -eq '6.999.999'
+        }
+    }
+    It 'does not count a lone Pester 5 as installed' {
+        Mock Get-Module { Get-StandInModule -Name Pester -Version '5.9.1' } -ParameterFilter { $Name -eq 'Pester' }
+        $null = Install-NewestPester -Major 6
+        Should -Invoke Install-Module -Times 1 -Exactly -ParameterFilter { $RequiredVersion -eq '6.2.0' }
+    }
+    It 'leaves a host already on the newest 6.x alone, whatever else is installed' {
+        Mock Get-Module { Get-StandInModule -Name Pester -Version '5.9.1', '6.1.0', '6.2.0' } -ParameterFilter { $Name -eq 'Pester' }
+        $out = @(Install-NewestPester -Major 6)
+        Should -Invoke Install-Module -Times 0 -Exactly
+        Assert-Match 'Pester 6\.2\.0 is the newest 6\.x' ($out -join "`n") 'the host is reported as current'
+    }
+    It 'keeps a usable 6.x without an issue when the gallery is unreachable' {
+        Mock Get-Module { Get-StandInModule -Name Pester -Version '6.1.0' } -ParameterFilter { $Name -eq 'Pester' }
+        Mock Find-Module { throw "Unable to find repository 'PSGallery'." }
+        $out = @(Install-NewestPester -Major 6) -join "`n"
+        Assert-True ($out -notmatch 'MODULE-ISSUE') 'a host that can already run the 6.x has no issue to report'
+        Assert-Match 'Pester 6\.1\.0 is installed' $out 'the version in use is named'
+    }
+    It 'reports a host with no usable 6.x and no gallery' {
+        Mock Get-Module { Get-StandInModule -Name Pester -Version '5.9.1' } -ParameterFilter { $Name -eq 'Pester' }
+        Mock Find-Module { throw "Unable to find repository 'PSGallery'." }
+        $out = @(Install-NewestPester -Major 6) -join "`n"
+        Assert-Match '(?m)^MODULE-ISSUE: Pester 6 is not installed and PSGallery could not be reached' $out 'the gap reaches the closing summary'
+    }
+    It 'reports a failed install with the version it aimed for' {
+        Mock Get-Module { } -ParameterFilter { $Name -eq 'Pester' }
+        Mock Install-Module { throw 'disk full' }
+        $out = @(Install-NewestPester -Major 6) -join "`n"
+        Assert-Match '(?m)^MODULE-ISSUE: Installing Pester 6\.2\.0 failed: disk full' $out 'the failure names the version and the cause'
     }
 }
 
@@ -177,10 +244,10 @@ pwsh() { [[ -f "$FAKE_ROOT/pwsh.out" ]] && cat "$FAKE_ROOT/pwsh.out"; return "${
     It 'sends MODULE-ISSUE lines to the closing summary and prints the rest' {
         $root = Join-Path $TestDrive 'relay'
         $r = Invoke-InstallTestModuleShell -Root $root -Output (@(
-                '  installing Pester 5.9.1 (CurrentUser scope)'
+                '  installing Pester 6.2.0 (CurrentUser scope)'
                 'MODULE-ISSUE: Installing PSScriptAnalyzer failed: gallery unavailable'
             ) -join "`n")
-        Assert-Match '(?m)^  installing Pester 5\.9\.1' $r.Output 'progress lines are printed as they came'
+        Assert-Match '(?m)^  installing Pester 6\.2\.0' $r.Output 'progress lines are printed as they came'
         Assert-Match '(?m)^ISSUE Installing PSScriptAnalyzer failed: gallery unavailable$' $r.Output 'the issue is recorded without its prefix'
         Assert-Match 'COUNT 1' $r.Output 'exactly the one reported problem is recorded'
         Assert-Equal -Expected 0 -Actual $r.ExitCode 'a module problem does not stop the install'
@@ -224,12 +291,12 @@ Describe 'Install-YurunaTestModule in the Windows installer' {
     }
     It 'sends MODULE-ISSUE lines to the issue list and prints the rest' {
         $root = New-ModuleScriptRoot -Root (Join-Path $TestDrive 'win-relay') -Body @'
-Write-Output '  installing Pester 5.9.1 (CurrentUser scope)'
+Write-Output '  installing Pester 6.2.0 (CurrentUser scope)'
 Write-Output 'MODULE-ISSUE: Installing PSScriptAnalyzer failed: gallery unavailable'
 exit 0
 '@
         $out = @(Install-YurunaTestModule -Root $root) -join "`n"
-        Assert-Match '(?m)^  installing Pester 5\.9\.1' $out 'progress lines are printed'
+        Assert-Match '(?m)^  installing Pester 6\.2\.0' $out 'progress lines are printed'
         Assert-Equal -Expected 1 -Actual $script:Issues.Count 'exactly the one reported problem is recorded'
         Assert-StringEqual -Expected 'Installing PSScriptAnalyzer failed: gallery unavailable' -Actual $script:Issues[0] 'the issue is recorded without its prefix'
     }
@@ -271,28 +338,28 @@ exit 0
 
 Describe 'Invoke-Preflight bounds for Pester' {
     It 'reports the newest copy below the ceiling, not a newer major beside it' {
-        Mock Get-Module { Get-StandInModule -Name Pester -Version '4.10.1', '5.9.1', '6.2.0' } -ParameterFilter { $Name -eq 'Pester' }
-        $version = Select-ModuleVersion -Name Pester -MaxVersion '6.0'
-        Assert-StringEqual -Expected '5.9.1' -Actual $version 'the copy the runner loads is the one reported'
-        Assert-StringEqual -Expected '' -Actual (Get-VersionBoundProblem -Version $version -MinVersion '5.0' -MaxVersion '6.0') `
-            'a usable 5.x beside a 6.x passes'
+        Mock Get-Module { Get-StandInModule -Name Pester -Version '5.9.1', '6.2.0', '7.0.0' } -ParameterFilter { $Name -eq 'Pester' }
+        $version = Select-ModuleVersion -Name Pester -MaxVersion '7.0'
+        Assert-StringEqual -Expected '6.2.0' -Actual $version 'the copy the runner loads is the one reported'
+        Assert-StringEqual -Expected '' -Actual (Get-VersionBoundProblem -Version $version -MinVersion '6.0' -MaxVersion '7.0') `
+            'a usable 6.x beside a 7.x passes'
     }
     It 'reports a lone newer major by its own version, as outside the bounds' {
-        Mock Get-Module { Get-StandInModule -Name Pester -Version '6.2.0' } -ParameterFilter { $Name -eq 'Pester' }
-        $version = Select-ModuleVersion -Name Pester -MaxVersion '6.0'
-        Assert-StringEqual -Expected '6.2.0' -Actual $version 'the only copy present is the one named'
-        Assert-StringEqual -Expected 'found 6.2.0, needs a version below 6.0' `
-            -Actual (Get-VersionBoundProblem -Version $version -MinVersion '5.0' -MaxVersion '6.0') 'a 6.x alone fails the row'
+        Mock Get-Module { Get-StandInModule -Name Pester -Version '7.0.0' } -ParameterFilter { $Name -eq 'Pester' }
+        $version = Select-ModuleVersion -Name Pester -MaxVersion '7.0'
+        Assert-StringEqual -Expected '7.0.0' -Actual $version 'the only copy present is the one named'
+        Assert-StringEqual -Expected 'found 7.0.0, needs a version below 7.0' `
+            -Actual (Get-VersionBoundProblem -Version $version -MinVersion '6.0' -MaxVersion '7.0') 'a 7.x alone fails the row'
     }
     It 'still holds the floor' {
-        Assert-StringEqual -Expected 'found 4.10.1, needs 5.0 or newer' `
-            -Actual (Get-VersionBoundProblem -Version '4.10.1' -MinVersion '5.0' -MaxVersion '6.0') 'a 4.x fails on the floor'
+        Assert-StringEqual -Expected 'found 5.9.1, needs 6.0 or newer' `
+            -Actual (Get-VersionBoundProblem -Version '5.9.1' -MinVersion '6.0' -MaxVersion '7.0') 'a 5.x fails on the floor'
         Assert-StringEqual -Expected '' -Actual (Get-VersionBoundProblem -Version '7.0.1' -MinVersion '7.0') `
             'a row without a ceiling is unaffected by one'
     }
-    It 'gives the Pester row the 5.x bounds' {
+    It 'gives the Pester row the 6.x bounds' {
         $text = Get-Content -LiteralPath (Join-Path $script:RepoRoot 'tools/Invoke-Preflight.ps1') -Raw
-        Assert-Match "Module = 'Pester';[^\r\n]*\r?\n\s*MinVersion = '5\.0'; MaxVersion = '6\.0'" $text `
+        Assert-Match "Module = 'Pester';[^\r\n]*\r?\n\s*MinVersion = '6\.0'; MaxVersion = '7\.0'" $text `
             'the preflight must refuse a Pester the runner will not load'
     }
 }

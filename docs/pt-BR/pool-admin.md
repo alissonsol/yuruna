@@ -327,6 +327,51 @@ ainda está ativo é redescoberto na próxima consulta do agregador, portanto pa
 antes de esquecê-lo. O comando recusa o UUID deste próprio hospedeiro, ou um registro visto pela última vez há < 24 h,
 a menos que `-Force` seja usado. Execute-o em um hospedeiro com o compartilhamento do grupo montado.
 
+<a id="4207d71a-0025"></a>
+
+<a id="a-step-failure-names-the-caching-proxy"></a>
+
+## Uma falha de etapa nomeia o proxy de cache
+
+Uma mensagem do lado do convidado que culpa o proxy de cache -- um pull de imagem
+que não alcançou o cache de registro, um download de pacote que expirou no cache
+web -- tem duas causas que parecem idênticas de dentro do convidado: o proxy está
+fora, ou aquele único convidado perdeu seu caminho até o laboratório. Três
+verificações, nesta ordem, as distinguem. Pare na primeira que responder.
+
+1. **O painel Yuruna hosts, linha *Drill-down: caching proxy*.** Ajuste o intervalo
+   de tempo em torno do minuto da falha; o painel *Step failures that name the
+   caching proxy* dessa linha lista o evento com sua hora UTC. Blocos de liveness e
+   de caminho de pull verdes, a linha de todos os outros convidados ainda presente
+   nos painéis por cliente, e a linha do convidado com falha ausente, é um
+   convidado que perdeu o próprio caminho -- o proxy está inocentado, siga para a
+   verificação 2. Blocos vermelhos, ou todas as linhas de clientes terminando ao
+   mesmo tempo, é o proxy: continue no painel cache-health (o painel da própria VM
+   do proxy) e deixe o convidado em paz. O significado de cada bloco e painel está
+   em [pool-dashboard](https://yuruna.link/422226cb).
+2. **A pasta da falha no hospedeiro, ao lado de `last_failure.json`.** O hospedeiro
+   grava ali dois arquivos no momento da falha: `network-cross-check.json`, cujo
+   veredito registra o que o próprio hospedeiro ainda alcançava naquele instante, e,
+   em hospedeiros Hyper-V, `vm-network.state.txt`, o estado do adaptador de rede e
+   do switch virtual do convidado como o hospedeiro os viu. Leia o veredito primeiro:
+   um hospedeiro que alcançou o proxy enquanto o adaptador de seu convidado estava desconectado, ou
+   ligado a um switch sem uplink, nomeia uma falha do lado do hospedeiro, e o
+   arquivo de estado diz qual; um hospedeiro que não alcançou nada nomeia seu
+   próprio uplink.
+3. **Os logs do proxy para o endereço do próprio convidado, no minuto da falha.**
+   No Grafana Explore contra a fonte de dados Loki, com o intervalo de tempo
+   ajustado para aquele minuto e o endereço de laboratório do convidado no lugar do
+   exemplo:
+
+   ```
+   {job="squid"} |= "192.0.2.57"
+   {job="zot"} | json | clientIP=~"192.0.2.57:.*"
+   ```
+
+   Linhas de outros clientes e nenhuma deste convidado confirmam que ele nunca
+   alcançou a VM do proxy. Linhas deste convidado com status lento ou com falha
+   dizem que ele alcançou, e devolvem a pergunta ao proxy.
+
 <a id="4207d71a-000b"></a>
 
 <a id="command-summary"></a>
@@ -1197,6 +1242,8 @@ e depois à execução independente -- um grupo nunca impede um hospedeiro de te
 - [test/extension/pool-aggregator-service/README.md](../../test/extension/pool-aggregator-service/README.md) --
   o painel de grupos somente para leitura e o coletor de telemetria.
 - [test-config.md](../test-config.md) -- as chaves de configuração de `pool` no hospedeiro.
+- [pool-dashboard.md](../pool-dashboard.md) -- o significado de cada painel do painel Yuruna
+  hosts, incluindo a linha do proxy de cache de onde a receita de triagem acima começa.
 
 ---
 
@@ -1204,6 +1251,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.14
+Last review: 2026.10.18
 
 Voltar para [Yuruna](../../README.md)

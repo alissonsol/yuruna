@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.14
+.VERSION 2026.10.18
 .GUID 425dfdd4-fd92-4c1a-9012-e60152b4c11b
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -94,6 +94,29 @@ Describe 'A refused connection is not an unreachable one' {
         $r = Test-TcpConnectOutcome -IpAddress '127.0.0.1' -Port (Get-ClosedLoopbackPort) -TimeoutMs 3000
         Assert-StringEqual -Expected 'refused' -Actual $r.Outcome
         Assert-True (-not $r.Reachable) 'a refusal is still a failure'
+    }
+
+    It 'records the socket family and actual connected peer without guessing from DNS' {
+        $l = New-LoopbackListener
+        try {
+            $r = Test-TcpConnectOutcome -IpAddress 'localhost' -Port $l.LocalEndpoint.Port -TimeoutMs 3000
+            $r.Reachable | Should -BeTrue
+            $r.SocketAddressFamily | Should -BeIn @('InterNetwork', 'InterNetworkV6')
+            $peer = [Net.IPAddress]::Parse($r.RemoteAddress)
+            if ($peer.IsIPv4MappedToIPv6) { $peer = $peer.MapToIPv4() }
+            [Net.IPAddress]::IsLoopback($peer) | Should -BeTrue
+            $r.RemoteAddressFamily | Should -Be ([string]$peer.AddressFamily)
+            $r.SocketErrorCode | Should -BeNullOrEmpty
+        } finally { $l.Stop() }
+    }
+
+    It 'preserves the socket error code without inventing a connected peer on refusal' {
+        $r = Test-TcpConnectOutcome -IpAddress '127.0.0.1' -Port (Get-ClosedLoopbackPort) -TimeoutMs 3000
+        $r.Outcome | Should -Be 'refused'
+        $r.SocketErrorCode | Should -Be 'ConnectionRefused'
+        $r.SocketAddressFamily | Should -BeNullOrEmpty
+        $r.RemoteAddress | Should -BeNullOrEmpty
+        $r.RemoteAddressFamily | Should -BeNullOrEmpty
     }
 
     It 'returns a refusal far inside the deadline' {

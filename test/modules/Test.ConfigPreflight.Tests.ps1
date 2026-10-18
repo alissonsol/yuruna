@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.14
+.VERSION 2026.10.18
 .GUID 42871662-c8fc-4b5a-9380-fa9ff5c48ae5
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -381,6 +381,11 @@ Describe 'Configuration gate evidence survives the attempt' {
         foreach ($dir in @($script:gateRoot, $script:planRoot)) { $null = New-Item -ItemType Directory -Path $dir -Force }
         Set-Content -LiteralPath (Join-Path $script:gateRoot 'Test-Config.ps1') -Value $script:stubGateBody
     }
+    # The earlier Describes' teardowns have already run, so this one rebuilds
+    # the tree and has to remove it itself.
+    AfterAll {
+        Remove-Item -LiteralPath (Join-Path ([System.IO.Path]::GetTempPath()) "yuruna-configpreflight-tests-$PID") -Recurse -Force -ErrorAction SilentlyContinue
+    }
 
     It 'preserves the full transcript and structured findings with current provenance' {
         $dir = Join-Path $TestDrive 'gate-evidence'
@@ -413,6 +418,78 @@ Describe 'Configuration gate evidence survives the attempt' {
         $status.overallStatus | Should -Be 'pass'
         $status.cycle | Should -Be 7
         $status.runnerState | Should -Be 'in-cycle'
+    }
+
+    It 'keeps a failed attempt discoverable after a passing preflight clears the current fault' {
+        $dir = Join-Path $TestDrive 'gate-history'
+        $gate = @{ passed = $false; skipped = $false; exitCode = 1; startedAtUtc = [DateTime]::UtcNow.AddMinutes(-1).ToString('o'); lines = @('network unavailable'); failureLines = @('connection refused'); structuredResult = $null }
+        $failed = Write-ConfigGateArtifact -RuntimeDir $dir -Gate $gate -AttemptGeneration 'runner:failed' -FrameworkCommitSha 'source-sha' -Confirm:$false
+        $gate.passed = $true; $gate.exitCode = 0; $gate.failureLines = @(); $gate.startedAtUtc = [DateTime]::UtcNow.ToString('o')
+        $null = Write-ConfigGateArtifact -RuntimeDir $dir -Gate $gate -AttemptGeneration 'runner:recovered' -Confirm:$false
+        $index = Get-Content -LiteralPath (Join-Path $dir 'runner-attempts/index.json') -Raw | ConvertFrom-Json
+        $index.schemaVersion | Should -Be 1
+        @($index.attempts).Count | Should -Be 2
+        $index.attempts[0].attemptGeneration | Should -Be 'runner:recovered'
+        $index.attempts[0].passed | Should -BeTrue
+        $index.attempts[1].attemptGeneration | Should -Be 'runner:failed'
+        $index.attempts[1].passed | Should -BeFalse
+        $index.attempts[1].description | Should -Be 'connection refused'
+        $index.attempts[1].frameworkCommitSha | Should -Be 'source-sha'
+        $index.attempts[1].recordPath | Should -Be $failed.recordPath
+        Test-Path -LiteralPath (Join-Path $dir $index.attempts[1].transcriptPath) | Should -BeTrue
+    }
+
+    It 'rebuilds absent or corrupt history from retained gate artifacts and keeps retained links valid' {
+        $dir = Join-Path $TestDrive 'gate-history-rebuild'
+        $gate = @{ passed = $false; skipped = $false; exitCode = 1; startedAtUtc = [DateTime]::UtcNow.AddMinutes(-1).ToString('o'); lines = @('unavailable'); failureLines = @(); structuredResult = $null }
+        $first = Write-ConfigGateArtifact -RuntimeDir $dir -Gate $gate -AttemptGeneration 'runner:1' -Confirm:$false
+        $indexPath = Join-Path $dir 'runner-attempts/index.json'
+        Remove-Item -LiteralPath $indexPath -Force -ErrorAction SilentlyContinue
+        $null = Write-ConfigGateArtifact -RuntimeDir $dir -Gate $gate -AttemptGeneration 'runner:2' -MaxAttempts 2 -Confirm:$false
+        @((Get-Content -Raw -LiteralPath $indexPath | ConvertFrom-Json).attempts).Count | Should -Be 2
+        Set-Content -LiteralPath $indexPath -Value '{partial'
+        $null = Write-ConfigGateArtifact -RuntimeDir $dir -Gate $gate -AttemptGeneration 'runner:3' -MaxAttempts 2 -Confirm:$false
+        $index = Get-Content -Raw -LiteralPath $indexPath | ConvertFrom-Json
+        @($index.attempts).Count | Should -Be 2
+        $index.attempts[0].attemptGeneration | Should -Be 'runner:3'
+        Test-Path -LiteralPath (Join-Path $dir $first.recordPath) | Should -BeFalse
+        foreach ($attempt in $index.attempts) {
+            Test-Path -LiteralPath (Join-Path $dir $attempt.recordPath) | Should -BeTrue
+            Test-Path -LiteralPath (Join-Path $dir $attempt.transcriptPath) | Should -BeTrue
+        }
+    }
+
+    It 'does not trust recorded paths when rebuilding or retiring attempt evidence' {
+        $dir = Join-Path $TestDrive 'gate-history-paths'
+        $gate = @{ passed = $false; skipped = $false; exitCode = 1; startedAtUtc = [DateTime]::UtcNow.AddMinutes(-1).ToString('o'); lines = @('unavailable'); failureLines = @(); structuredResult = $null }
+        $artifact = Write-ConfigGateArtifact -RuntimeDir $dir -Gate $gate -AttemptGeneration 'runner:old' -Confirm:$false
+        $recordFile = Join-Path $dir $artifact.recordPath
+        $record = Get-Content -Raw -LiteralPath $recordFile | ConvertFrom-Json -AsHashtable
+        $record['recordPath'] = '../../unrelated/important.json'
+        $record['transcriptPath'] = '../../unrelated/important.log'
+        Set-Content -LiteralPath $recordFile -Value ($record | ConvertTo-Json -Depth 32)
+        $unrelated = Join-Path $dir 'unrelated'
+        $null = New-Item -ItemType Directory -Path $unrelated
+        Set-Content -LiteralPath (Join-Path $unrelated 'important.json') -Value 'keep'
+        $null = Write-ConfigGateArtifact -RuntimeDir $dir -Gate $gate -AttemptGeneration 'runner:new' -MaxAttempts 1 -Confirm:$false
+        Get-Content -LiteralPath (Join-Path $unrelated 'important.json') | Should -Be 'keep'
+        Test-Path -LiteralPath $recordFile | Should -BeFalse
+        $index = Get-Content -Raw -LiteralPath (Join-Path $dir 'runner-attempts/index.json') | ConvertFrom-Json
+        @($index.attempts).Count | Should -Be 1
+        $index.attempts[0].recordPath | Should -Match '^runner-attempts/[0-9a-f]{24}/config-gate.json$'
+    }
+
+    It 'keeps indexed evidence when publishing the replacement index fails' {
+        $dir = Join-Path $TestDrive 'gate-history-write-failure'
+        $gate = @{ passed = $false; skipped = $false; exitCode = 1; startedAtUtc = [DateTime]::UtcNow.AddMinutes(-1).ToString('o'); lines = @('unavailable'); failureLines = @(); structuredResult = $null }
+        $artifact = Write-ConfigGateArtifact -RuntimeDir $dir -Gate $gate -AttemptGeneration 'runner:old' -Confirm:$false
+        $indexPath = Join-Path $dir 'runner-attempts/index.json'
+        $original = Get-Content -Raw -LiteralPath $indexPath
+        Mock -ModuleName Test.RunnerAttemptHistory Write-YurunaStateFileJson { $false }
+        { Write-ConfigGateArtifact -RuntimeDir $dir -Gate $gate -AttemptGeneration 'runner:new' -MaxAttempts 1 -Confirm:$false } | Should -Throw '*history index*'
+        Get-Content -Raw -LiteralPath $indexPath | Should -BeExactly $original
+        Test-Path -LiteralPath (Join-Path $dir $artifact.recordPath) | Should -BeTrue
+        Test-Path -LiteralPath (Join-Path $dir $artifact.transcriptPath) | Should -BeTrue
     }
 }
 

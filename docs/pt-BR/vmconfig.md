@@ -507,9 +507,12 @@ loopback+conntrack, para que netfilter-persistent tenha um arquivo válido para 
 
 O bloco `network:` de autoinstall no
 `host/vmconfig/ubuntu.server.utm.overlay.yml` fixa `enp0s1` em
-`dhcp4: true; dhcp6: false; accept-ra: false; dhcp-identifier: mac`.
+`dhcp4: true; dhcp6: false; accept-ra: false; dhcp-identifier: mac; critical: true`.
 Os overlays Hyper-V e KVM correspondem aos nomes `en*` e `eth*` e fixam
-`dhcp-identifier: mac` sem aplicar a política de RA IPv6 do UTM.
+`dhcp-identifier: mac` e `critical: true` sem aplicar a política de RA IPv6
+do UTM. `critical: true` impede que o kernel expire o endereço pelo seu
+próprio relógio enquanto a concessão ainda é válida; veja
+[Why the DHCP address is pinned as critical](../network.md#4220a755-000b).
 
 Apenas o backend QEMU do macOS precisa disso: em
 QEMU + `-netdev vmnet-shared`, a implementação VMnet do hospedeiro envia anúncios de
@@ -893,8 +896,13 @@ Em um hospedeiro ARM64, `console=ttyS0` não é apenas silencioso: identifica um
 dispositivo que o convidado não tem, pois a UART ali é a SBSA PL011,
 `ttyAMA0`. Um console serial ligado a `ttyS0` permanece vazio, qualquer que seja o resultado da
 inicialização, deixando o framebuffer como único canal, a menos que a
-linha de comando seja substituída --
+linha de comando nomeie a porta certa --
 [host-hyperv.md](../host-hyperv.md#the-converted-arm64-image-does-not-boot).
+Por isso o overlay Hyper-V escolhe a porta dentro do instalador: `ttyAMA0`
+quando ele roda em aarch64, `ttyS0` nos demais casos, tanto para o argumento
+`console=` do kernel quanto para o encaminhamento do journald, de modo que a
+captura da COM1 carregue o relato do próprio convidado sobre um silêncio em
+qualquer das duas arquiteturas.
 
 UTM omite esse bloco por completo: sua janela de exibição lê o console
 serial diretamente, sem depender do framebuffer.
@@ -1000,8 +1008,7 @@ status e nunca reconhece `Current password:`.
   GRUBCFG
 ```
 
-A classe de armadilha bochs-DRM do KVM (registrada em
-`feedback_kvm_bochs_drm_resolute_install_trap.md`) provoca um oops do kernel em
+A classe de armadilha bochs-DRM do KVM provoca um oops do kernel em
 `ovl_iterate_merged` e uso intenso de CPU em `drm_fb_helper_damage_work` no
 instalador live-server de resolute quando o vídeo padrão q35+UEFI controla
 o subiquity. O kernel da fase de instalação não pode ser acessado externamente
@@ -1615,9 +1622,10 @@ de instalação de Windows Server, modelos completos de VMs de desenvolvimento).
 limite não aloca disco; apenas muda o limiar de rejeição.
 
 **Objetos até o disco estar quase cheio.** `cache_swap_high 99` / `cache_swap_low 98`:
-nunca liberar sem necessidade -- remover apenas quando o disco estiver mais de 99%
-cheio, parando em 98%. Os padrões do squid (90/95) começariam a remover
-com ~5 GB ainda livres, o que é inadequado para um cache de snapshot persistente.
+nunca liberar sem necessidade -- a remoção só começa quando o disco estiver mais
+de 98% cheio (~7,7 GB livres de 384 GB) e fica mais agressiva perto de 99%. Os
+padrões do squid (baixo 90, alto 95) começariam a remover com ~38 GB ainda livres,
+o que é inadequado para um cache de snapshot persistente.
 
 **Reprodução com offline_mode.** `offline_mode on` serve objetos do cache sem
 nunca revalidá-los com a origem. Agressivo de propósito -- esta VM
@@ -2744,8 +2752,7 @@ convertê-lo para raw:
   APFS de 4 KiB com `EINVAL` ("Invalid argument"). Uma imagem raw abre
   espaços vazios na granularidade de descarte de 512 bytes do convidado e atinge essa falha; qcow2
   só abre esses espaços nos limites de seus clusters de 64 KiB, sempre
-  alinhados a 4 KiB. Veja `feedback_macos-qemu-punchhole-alignment.md` (o
-  registro dessa classe de armadilha na memória).
+  alinhados a 4 KiB.
 
 Ambos os fluxos de infraestrutura UTM correspondem, e o mesmo raciocínio se aplica ao
 seu `New-VM.ps1`: o disco de inicialização por VM é uma cópia de qcow2, nunca uma conversão
@@ -2931,6 +2938,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.14
+Last review: 2026.10.18
 
 Back to [Yuruna](../../README.md)

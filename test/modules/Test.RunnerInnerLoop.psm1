@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.14
+.VERSION 2026.10.18
 .GUID 42479415-ffbe-4fef-9daa-15edda547208
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -533,6 +533,23 @@ function Copy-FailureArtifactsToStatusLog {
             $failureHostSnapshot = Save-YurunaHostSampleSnapshot -DestinationDirectory $destSeqDir -RuntimeDirectory $env:YURUNA_RUNTIME_DIR
         } catch { Write-Verbose "  Host sample unavailable: $($_.Exception.Message)" }
 
+        # Which of the two ends a failure gets blamed on -- the caching proxy
+        # and the guest -- can the HOST still reach right now? Taken before the
+        # guest diagnostic's own SSH attempts so it reads the network as the
+        # failure left it, and before any artifact names a culprit. Leaf
+        # module, imported lazily like the diagnostic: a host that never fails
+        # never pays for it.
+        $networkCrossCheck = $null
+        try {
+            if (-not (Get-Command Invoke-GuestNetworkCrossCheck -ErrorAction SilentlyContinue)) {
+                Import-Module (Join-Path $ModulesDir 'Test.GuestNetworkCrossCheck.psm1') -Force -Global
+            }
+            $networkCrossCheck = Invoke-GuestNetworkCrossCheck -VMName $VMName -GuestKey $GuestKey -OutputDirectory $destSeqDir
+            Write-Verbose "  network cross-check: $($networkCrossCheck.verdict)"
+        } catch {
+            Write-Verbose "  network cross-check unavailable: $($_.Exception.Message)"
+        }
+
         # Remote system-diagnostics capture. Soft-failing: an unreachable
         # guest, a missing pwsh on the guest, a missing vault entry, all
         # degrade to a Write-Warning -- the cycle's failure flow continues
@@ -550,11 +567,17 @@ function Copy-FailureArtifactsToStatusLog {
             $failureDiagnostic = @{ diagnosticOutcome='unavailable'; reasonCode='capture-exception'; reason=$_.Exception.GetType().Name }
             Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_3f7277de3faa3266' -Arguments @{ message = "$($_.Exception.Message)" })
         }
+        # The manifest may carry an SSH readiness reading; a manifest without
+        # it, or a capture that produced none, reports null here.
+        $failureSshReadiness = $null
+        try { $failureSshReadiness = $failureDiagnostic.sshReadiness } catch { $failureSshReadiness = $null }
         Send-CycleEventSafely -EventRecord @{
             timestamp=[datetime]::UtcNow.ToString('o'); event='failure_diagnostic'; vmName=$VMName; guestKey=$GuestKey
             stepInvocationId=$failureCaptureContext.StepInvocationId; sequenceInvocationId=$failureCaptureContext.SequenceInvocationId
             diagnosticOutcome=$failureDiagnostic.diagnosticOutcome; reasonCode=$failureDiagnostic.reasonCode
             hostSnapshot=$failureHostSnapshot; guestSnapshot=$failureDiagnostic.guestSnapshot
+            networkCrossCheck=$(if ($networkCrossCheck -and $networkCrossCheck.verdict) { [string]$networkCrossCheck.verdict } else { 'unavailable' })
+            sshReadiness=$failureSshReadiness
         }
 
         # See https://yuruna.link/4213a0b3-00e6
@@ -690,7 +713,8 @@ function Copy-FailureArtifactsToStatusLog {
             Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_c8408d1fb61db057' -Arguments @{ message = "$($_.Exception.Message)" })
         }
         # The guest's own account of a silence: what it wrote to its serial port
-        # while SSH and the console stopped answering. Hyper-V only today.
+        # while SSH and the console stopped answering. Only the Hyper-V driver
+        # provides Save-VMSerialCapture; elsewhere this step is skipped.
         try {
             if (Get-Command Save-VMSerialCapture -ErrorAction SilentlyContinue) {
                 if (Save-VMSerialCapture -VMName $VMName -OutputDirectory $destSeqDir) {
@@ -699,6 +723,21 @@ function Copy-FailureArtifactsToStatusLog {
             }
         } catch {
             Write-Verbose "serial console capture not saved: $($_.Exception.Message)"
+        }
+        # The host's own reading of the guest's network at failure time: adapter
+        # connection, the addresses the integration services reported, the
+        # neighbor cache, TCP 22 and the Hyper-V worker's recent events. The
+        # serial log and the DHCP capture are what the guest said and asked;
+        # this is what the host saw. Only the Hyper-V driver provides
+        # Save-VMNetworkState; elsewhere this step is skipped.
+        try {
+            if (Get-Command Save-VMNetworkState -ErrorAction SilentlyContinue) {
+                if (-not (Save-VMNetworkState -VMName $VMName -OutputDirectory $destSeqDir)) {
+                    Write-Verbose "  VM network state not saved for '$VMName'."
+                }
+            }
+        } catch {
+            Write-Verbose "VM network state not saved: $($_.Exception.Message)"
         }
 
         # Cycle-log inline link. Label adapts to which artifact dominates so
@@ -2068,6 +2107,118 @@ function Invoke-RunnerBootstrapFailureGate {
 }
 
 
+function Invoke-RunnerTempHousekeeping {
+    <#
+    .SYNOPSIS
+        Remove what killed processes and killed cycles left in the temp
+        folders, and say how much, once per cycle.
+    .DESCRIPTION
+        Two sweeps, each owned by the module that knows the shapes it removes:
+        Remove-YurunaOrphanedRuntimeIpc (the .NET runtime entries of processes
+        that are gone) and Remove-YurunaStaleTempEntry (the harness's own temp
+        names, past their age). Both are bounded and never throw; a failure
+        here costs a line in the log, never the cycle.
+    .OUTPUTS
+        [pscustomobject] RuntimeIpc, HarnessTemp (the two sweep summaries, or
+        $null for a sweep that was not available).
+    #>
+    [CmdletBinding()]
+    [OutputType([pscustomobject])]
+    param()
+    $result = [ordered]@{ RuntimeIpc = $null; HarnessTemp = $null }
+    foreach ($sweep in @(
+            @{ Name = 'RuntimeIpc'; Command = 'Remove-YurunaOrphanedRuntimeIpc' }
+            @{ Name = 'HarnessTemp'; Command = 'Remove-YurunaStaleTempEntry' })) {
+        if (-not (Get-Command -Name $sweep.Command -ErrorAction SilentlyContinue)) { continue }
+        try {
+            $summary = & $sweep.Command -Confirm:$false
+            $result[$sweep.Name] = $summary
+            if ($summary -and [int]$summary.Removed -gt 0) {
+                $line = Format-YurunaOperatorMessage -Key 'runner.temp_housekeeping_removed' -Arguments @{
+                    removed = "$($summary.Removed)"; sweep = "$($sweep.Name)"; roots = "$(@($summary.Roots) -join ', ')"
+                }
+                Write-Information $line -InformationAction Continue
+                if (Get-Command Write-InnerLog -ErrorAction SilentlyContinue) { Write-InnerLog $line }
+            }
+        } catch {
+            Write-Verbose "Invoke-RunnerTempHousekeeping: $($sweep.Command) failed: $($_.Exception.Message)"
+        }
+    }
+    return [pscustomobject]$result
+}
+
+function Test-RunnerHypervisorControlGate {
+    <#
+    .SYNOPSIS
+        Ask the host driver, before the cycle builds anything, whether the
+        hypervisor still acts on lifecycle verbs.
+    .DESCRIPTION
+        A hypervisor can keep answering state queries while every start, stop
+        and delete waits out its timeout. Nothing in the cycle preamble sends a
+        lifecycle verb, so without this gate that state surfaces an hour later,
+        as a host action or a VM start that "exited 1". The driver's probe, asked to
+        exercise one no-op lifecycle verb, answers in seconds; a corroborated
+        timeout on that verb is the one outcome that fails this gate, filed as
+        hypervisor_unresponsive with the driver's control snapshot beside it.
+        Every other answer -- a responsive hypervisor, a probe that could not
+        decide, a driver without the lifecycle probe -- passes, and says why
+        in Reason, because this gate names one fault and refuses nothing else.
+    .PARAMETER HostType
+        The detected host type, for the record.
+    .PARAMETER Config
+        The cycle configuration; vmStart.testVmNamePrefix names the VMs the
+        probe prefers for its no-op verb.
+    .PARAMETER TimeoutSeconds
+        Cap for each hypervisor call the probe makes.
+    .OUTPUTS
+        [pscustomobject] HostType, Ok, Probed, Reason, Message, Probe, Snapshot.
+    #>
+    [CmdletBinding()]
+    [OutputType([pscustomobject])]
+    param(
+        [Parameter(Mandatory)][AllowEmptyString()][string]$HostType,
+        [AllowNull()]$Config,
+        [ValidateRange(1, 600)][int]$TimeoutSeconds = 20
+    )
+    $record = [ordered]@{ HostType = $HostType; Ok = $true; Probed = $false; Reason = 'not-applicable'; Message = ''; Probe = $null; Snapshot = $null }
+    $probeCommand = Get-Command -Name Test-VirtualizationResponsive -ErrorAction SilentlyContinue
+    if (-not $probeCommand -or -not $probeCommand.Parameters.ContainsKey('LifecycleProbe')) { return [pscustomobject]$record }
+    $prefix = [System.Collections.Generic.List[string]]::new()
+    try {
+        $vmStart = if ($Config -is [System.Collections.IDictionary]) { $Config['vmStart'] } elseif ($null -ne $Config) { $Config.vmStart } else { $null }
+        $configured = if ($vmStart -is [System.Collections.IDictionary]) { $vmStart['testVmNamePrefix'] } elseif ($null -ne $vmStart) { $vmStart.testVmNamePrefix } else { $null }
+        if (-not [string]::IsNullOrWhiteSpace("$configured")) { $prefix.Add([string]$configured) }
+    } catch { Write-Verbose "Test-RunnerHypervisorControlGate: no VM name prefix in the configuration: $($_.Exception.Message)" }
+    if ($prefix.Count -eq 0) { $prefix.Add('test-') }
+    $probe = $null
+    try {
+        # No dialog window: the only timeout this gate acts on follows an
+        # answered listing, which already rules the consent dialog out.
+        $probe = Test-VirtualizationResponsive -TimeoutSeconds $TimeoutSeconds -LifecycleProbe -LifecycleProbePrefix ([string[]]$prefix.ToArray()) `
+            -Corroborate -DialogWindowSeconds 0
+    } catch {
+        $record.Reason = "probe-threw: $($_.Exception.Message)"
+        return [pscustomobject]$record
+    }
+    $record.Probed = $true
+    $record.Probe = $probe
+    if ($null -eq $probe) { $record.Reason = 'probe-empty'; return [pscustomobject]$record }
+    $record.Reason = "$($probe.state)/$($probe.reason)"
+    $lifecycle = $null
+    if ($probe.evidence -and $probe.evidence.PSObject.Properties['lifecycle']) { $lifecycle = $probe.evidence.lifecycle }
+    if ([string]$probe.state -eq 'Unresponsive' -and [string]$probe.reason -eq 'timeout' -and $lifecycle -and [string]$lifecycle.outcome -eq 'timeout') {
+        $record.Ok = $false
+        $record.Message = Format-YurunaOperatorMessage -Key 'runner.hypervisor_control_unresponsive' -Arguments @{
+            state = "$($probe.state)"; reason = "$($probe.reason)"; lifecycle = "$($lifecycle.verb) $($lifecycle.vmName): $($lifecycle.outcome)"
+        }
+        if (Get-Command -Name Save-UtmControlSnapshot -ErrorAction SilentlyContinue) {
+            try { $record.Snapshot = Save-UtmControlSnapshot -Trigger 'cycle-start-control-gate' -VMName $lifecycle.vmName -Confirm:$false }
+            catch { Write-Verbose "Test-RunnerHypervisorControlGate: snapshot failed: $($_.Exception.Message)" }
+        }
+    }
+    return [pscustomobject]$record
+}
+
 function Sync-RunnerBootstrapGateCounter {
     <#
     .SYNOPSIS
@@ -2290,7 +2441,11 @@ do {
     try { $null = Initialize-HostMetricsExporter -HostType $HostType }
     catch { Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_e208ce7a4ad46b27' -Arguments @{ message = "$($_.Exception.Message)" }) }
 
-    $CycleCount++
+    # Temp-folder housekeeping, once per cycle on every host type. Each pwsh a
+    # bounded command, a watchdog or a timeout killed left its runtime IPC
+    # entries behind, and the harness's own temp files from a cycle that was
+    # killed have nobody else to remove them; neither is ever read again.
+    $null = Invoke-RunnerTempHousekeeping
     $OverallPassed  = $true
     $FailedGuest    = $null
     $FailedStep     = $null
@@ -2503,31 +2658,15 @@ do {
     }
 
     # --- REGION: Capture project repo HEAD
-    # Now that the project is freshly cloned at <RepoRoot>/project/, snapshot
-    # its HEAD short-SHA so the dashboard can link both repos' latest changes
-    # for this cycle. Empty/skipped repositories.projectUrl (in-tree fallback path)
-    # leaves $ProjectGitCommit as $null; if `Get-CurrentGitCommit` returns
-    # 'unknown' (no .git/, or git missing) we also leave it $null so the
-    # array we hand to Initialize-StatusDocument stays clean.
-    $ProjectGitCommit = $null
+    # Use the same project provenance as the orchestration and standalone
+    # sequence owners. A skipped clone is the in-tree fallback and must not
+    # publish the framework's HEAD as a separate project revision.
+    $projectCommitReference = $null
     if ($cloneRes.success -and -not $cloneRes.skipped) {
-        $projectDir = Join-Path $RepoRoot 'project'
-        if (Test-Path (Join-Path $projectDir '.git')) {
-            $maybe = Get-CurrentGitCommit -RepoRoot $projectDir
-            if ($maybe -and $maybe -ne 'unknown') { $ProjectGitCommit = $maybe }
-        }
+        $projectCommitReference = Get-ProjectGitCommitReference -RepoRoot $RepoRoot -ProjectUrl $projUrl
     }
-    # The gitCommits entry's repoUrl is a commit deep-link base, and the status
-    # page / pool dashboard only link http(s) values. repositories.projectUrl may
-    # legitimately be a local clone path or an ssh remote (both valid clone
-    # sources), so resolve it to the underlying web URL for the link; keep the
-    # raw value when nothing resolves so the project SHA still shows (unlinked)
-    # rather than dropping out of the Commit column.
-    $projLinkUrl = $projUrl
-    if ($ProjectGitCommit) {
-        $resolvedProjUrl = Resolve-GitRepositoryWebUrl -Url $projUrl
-        if ($resolvedProjUrl) { $projLinkUrl = $resolvedProjUrl }
-    }
+    $ProjectGitCommit = if ($projectCommitReference) { $projectCommitReference.sha } else { $null }
+    $projLinkUrl = if ($projectCommitReference) { $projectCommitReference.repoUrl } else { $projUrl }
 
     # --- REGION: Unconditional working-tree-drift warning
     # /yuruna-archive.tar.gz and /yuruna-project-archive.tar.gz only ship
@@ -2540,6 +2679,35 @@ do {
     # --- REGION: Re-import modules
     # A mid-run `git pull` propagates code changes through this re-import.
     Update-CycleModuleImport -RepoRoot $RepoRoot -HostType $HostType -ModulesDir $ModulesDir
+
+    # --- REGION: Hypervisor control gate
+    # A hypervisor whose control channel still answers state queries but no
+    # longer acts on lifecycle verbs fails every VM start and stop at its
+    # timeout, an hour into the cycle. One no-op verb probed here, with the
+    # host driver just loaded, costs seconds and names the fault before
+    # anything is built; a driver without the LifecycleProbe parameter passes
+    # through (the macOS UTM driver implements it). Same exit shape as the
+    # ProjectAccess refusal above.
+    $controlGate = Test-RunnerHypervisorControlGate -HostType $HostType -Config $Config
+    if (-not $controlGate.Ok) {
+        Write-Warning $controlGate.Message
+        $staleFailureRecord = if ($env:YURUNA_LOG_DIR) { Join-Path $env:YURUNA_LOG_DIR 'last_failure.json' } else { $null }
+        if ($staleFailureRecord -and (Test-Path -LiteralPath $staleFailureRecord)) {
+            Remove-Item -LiteralPath $staleFailureRecord -Force -ErrorAction SilentlyContinue
+        }
+        $OverallPassed = $false
+        Write-CycleInfraFailure -Stage 'HypervisorControl' -FailureClass 'hypervisor_unresponsive' -HostType $HostType `
+            -Severity 'hard' -GuestKey '(host)' -ErrorMessage $controlGate.Message
+        Sync-RunnerBootstrapGateCounter -State $gatingState -Failures $ConsecutiveFailures -Successes $ConsecutiveSuccesses -Armed $AlertArmed
+        $controlGateState = $gatingState
+        Invoke-RunnerBootstrapFailureGate -GatingState $controlGateState -Stage 'HypervisorControl' `
+            -ErrorMessage $controlGate.Message -GitCommit (Get-CurrentGitCommit -RepoRoot $RepoRoot) `
+            -FailureClass 'hypervisor_unresponsive' -HostType $HostType
+        $ConsecutiveFailures  = $controlGateState.ConsecutiveFailures
+        $ConsecutiveSuccesses = $controlGateState.ConsecutiveSuccesses
+        $AlertArmed           = $controlGateState.AlertArmed
+        break
+    }
 
     # See https://yuruna.link/4213a0b3-00f4
     Reset-StatusDocumentForCycleStart -StatusFilePath $StatusFile -Confirm:$false
@@ -4163,4 +4331,5 @@ Export-ModuleMember -Function `
     Sync-RunnerStepConfig, `
     Resolve-RunnerLogLevel, Copy-FailureArtifactsToStatusLog, Invoke-RunnerInnerCycle, `
     Write-CycleInfraFailure, Get-YurunaRefreshInnerMode, Invoke-YurunaRefreshPreflight, `
-    Wait-YurunaRefreshRelease, Wait-YurunaHeldControlBarrier, Test-YurunaRefreshCycleGate
+    Wait-YurunaRefreshRelease, Wait-YurunaHeldControlBarrier, Test-YurunaRefreshCycleGate, `
+    Test-RunnerHypervisorControlGate, Invoke-RunnerTempHousekeeping

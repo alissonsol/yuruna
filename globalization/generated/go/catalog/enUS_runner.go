@@ -60,6 +60,27 @@ const DataenUSrunner = `{
       "trust": "external"
     }
   ],
+  "runner.config_value_replaced": [
+    "test.config.yml: ",
+    {
+      "arg": "path",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    ": ",
+    {
+      "arg": "previous",
+      "type": "detail",
+      "trust": "external"
+    },
+    " -> ",
+    {
+      "arg": "current",
+      "type": "detail",
+      "trust": "external"
+    },
+    ". The template overlay must keep every value you set, so this replacement is a defect in the overlay, not a schema change; restore the previous value by hand if it was not intended and report the defect."
+  ],
   "runner.critical_record_replace": "Replace a private critical record",
   "runner.cycle_outcome_rejected_kept": [
     "[outer cycle ",
@@ -303,6 +324,26 @@ const DataenUSrunner = `{
     "Guest folder not found: ",
     {
       "arg": "folder",
+      "type": "detail",
+      "trust": "external"
+    }
+  ],
+  "runner.host_action_exit_detail": [
+    "host action '",
+    {
+      "arg": "name",
+      "type": "detail",
+      "trust": "external"
+    },
+    "' exited ",
+    {
+      "arg": "exit",
+      "type": "detail",
+      "trust": "external"
+    },
+    ": ",
+    {
+      "arg": "detail",
       "type": "detail",
       "trust": "external"
     }
@@ -1015,6 +1056,9 @@ const DataenUSrunner = `{
     },
     "); automatic host refresh will not count it."
   ],
+  "runner.host_refresh_hung_hypervisor_manual_hyperv": "The hypervisor control channel is hung and no reachable rung repairs that on this host. Restart the Hyper-V management service from an elevated console (Restart-Service vmms) or reboot the host by hand, then resume with: pwsh test/lab/Invoke-HostRefresh.ps1 -Resume. A resume without that repair only re-probes and spends one of the bounded attempts.",
+  "runner.host_refresh_hung_hypervisor_manual_kvm": "The hypervisor control channel is hung and no reachable rung repairs that on this host. Restart the libvirt daemons (sudo systemctl restart libvirtd) or reboot the host by hand, then resume with: pwsh test/lab/Invoke-HostRefresh.ps1 -Resume. A resume without that repair only re-probes and spends one of the bounded attempts.",
+  "runner.host_refresh_hung_hypervisor_manual_utm": "The hypervisor control channel is hung and no reachable rung repairs that on this host. Quit and reopen UTM from the logged-in desktop session or reboot the host by hand, then resume with: pwsh test/lab/Invoke-HostRefresh.ps1 -Resume. A resume without that repair only re-probes and spends one of the bounded attempts.",
   "runner.host_refresh_identity_refused": [
     "Invoke-HostRefresh: refusing to run as ",
     {
@@ -1570,6 +1614,27 @@ const DataenUSrunner = `{
     }
   ],
   "runner.host_refresh_verified_noop": "Invoke-HostRefresh: the hypervisor answered and the runner is healthy; nothing was changed.",
+  "runner.hypervisor_control_unresponsive": [
+    "The hypervisor control channel on this host answers state queries but no longer acts on lifecycle requests (probe ",
+    {
+      "arg": "state",
+      "type": "token",
+      "trust": "internal"
+    },
+    "/",
+    {
+      "arg": "reason",
+      "type": "token",
+      "trust": "internal"
+    },
+    "; lifecycle verb: ",
+    {
+      "arg": "lifecycle",
+      "type": "detail",
+      "trust": "external"
+    },
+    "). The cycle stops before building anything, because every VM start and stop would wait out its timeout. Restart the hypervisor application on this host (on macOS quit UTM.app from the desktop session, or run test/lab/Invoke-HostRefresh.ps1), then resume the runner."
+  ],
   "runner.inner_attempt_exited": [
     "The runner attempt exited ",
     {
@@ -22399,6 +22464,41 @@ const DataenUSrunner = `{
     " must be a non-empty URL with no whitespace or control characters, and it must not start with '-'."
   ],
   "runner.pool_status_repositories_none": "  repositories: (none)",
+  "runner.preflight_network_diagnostics": [
+    "Network diagnostics: ",
+    {
+      "arg": "diagnostics",
+      "type": "detail",
+      "trust": "external"
+    }
+  ],
+  "runner.preflight_tcp_failed": [
+    "TCP connectivity to ",
+    {
+      "arg": "hostName",
+      "type": "detail",
+      "trust": "external"
+    },
+    ":",
+    {
+      "arg": "port",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " failed after ",
+    {
+      "arg": "attemptCount",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " attempt(s): ",
+    {
+      "arg": "outcome",
+      "type": "detail",
+      "trust": "external"
+    },
+    ". See the network diagnostics for all attempts."
+  ],
   "runner.prior_runner_cleanup_action": "  Action:  stopping it and running\n           Remove-TestVMFiles.ps1 before start",
   "runner.process_start_record_write_action": "Write a process start-time record",
   "runner.project_previous_cleanup_failed": [
@@ -22575,6 +22675,29 @@ const DataenUSrunner = `{
       "trust": "internal"
     },
     "] the host-refresh gate released the runner; cycles resume."
+  ],
+  "runner.refresh_gate_status_ensure_failed": [
+    "Start-TestRunner: the status service could not be started while the gate holds: ",
+    {
+      "arg": "message",
+      "type": "detail",
+      "trust": "external"
+    }
+  ],
+  "runner.refresh_gate_status_ensured": [
+    "Start-TestRunner: host refresh ",
+    {
+      "arg": "requestId",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    " has no live worker; the status service was started on port ",
+    {
+      "arg": "port",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " so its dashboard can show and resume the unresolved request. The runner start stays refused until the request is resolved."
   ],
   "runner.refresh_gate_unreadable": [
     "[outer cycle ",
@@ -22769,6 +22892,27 @@ const DataenUSrunner = `{
       "trust": "internal"
     },
     "). Nothing was changed; the runner waits for the refresh."
+  ],
+  "runner.refresh_status_ensure_orphaned": [
+    "[outer cycle ",
+    {
+      "arg": "cycle",
+      "type": "integer",
+      "trust": "internal"
+    },
+    "] host refresh ",
+    {
+      "arg": "requestId",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    " holds the runner (gate ",
+    {
+      "arg": "state",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    ") and its worker is no longer running; re-ensuring the status service so its dashboard can show and resume the unresolved request."
   ],
   "runner.refresh_status_ensure_skipped": [
     "[outer cycle ",
@@ -23621,6 +23765,27 @@ const DataenUSrunner = `{
       "trust": "external"
     },
     "). The cycle continues, but its event stream is now incomplete; the count and the reason are in cycle.events.delivery.json. Further losses this cycle are counted, not repeated."
+  ],
+  "runner.temp_housekeeping_removed": [
+    "Temp housekeeping (",
+    {
+      "arg": "sweep",
+      "type": "token",
+      "trust": "internal"
+    },
+    ") removed ",
+    {
+      "arg": "removed",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " leftover item(s) from ",
+    {
+      "arg": "roots",
+      "type": "detail",
+      "trust": "external"
+    },
+    "."
   ],
   "runner.transcript_title": "Yuruna test-runner log",
   "runner.vault_retired_entries": [

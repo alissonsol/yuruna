@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.14
+.VERSION 2026.10.18
 .GUID 425315a1-f9bf-4a7b-98ca-d7dfb8a509a4
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -28,8 +28,8 @@
     aggregator's TLS leaf must chain to the published pool CA, else the request is refused
     (a MITM with any other cert can never receive the token). The pinning uses a COMPILED
     C# validation delegate, not a PowerShell scriptblock -- the cert callback fires on a
-    threadpool thread during the TLS handshake, where a scriptblock-as-delegate hits the
-    GetContextFromTLS crash class (feedback_scriptblock_timer_callback).
+    threadpool thread during the TLS handshake, where a scriptblock-as-delegate has no
+    runspace to run in and hits the GetContextFromTLS crash class.
 
     Every call is bounded (HttpClient timeout) and best-effort: any failure is swallowed and
     the events are simply re-pulled. The forwarder is spawned DETACHED per cycle (mirroring

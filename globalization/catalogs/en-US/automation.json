@@ -7290,6 +7290,11 @@
         }
       }
     },
+    "automation.runtime_ipc_remove_action": {
+      "message": "Remove the leftover .NET runtime entry of a process that is gone",
+      "description": "ShouldProcess action text for Remove-YurunaOrphanedRuntimeIpc in automation/Yuruna.Common.psm1.",
+      "lifecycle": "active"
+    },
     "automation.setup_service_vm_reason_intended_stopped": {
       "message": "it was stopped on purpose; rebuilding because setup was asked to bring it up",
       "description": "Reason clause in install/setup.ps1 (Test-ServiceVMAdoptable) when the service was stopped by an explicit Stop request and setup rebuilds it; shown inside a sentence, keep it lowercase.",
@@ -7316,6 +7321,11 @@
           "example": "timeout"
         }
       }
+    },
+    "automation.stale_temp_remove_action": {
+      "message": "Remove the stale Yuruna temp entry",
+      "description": "ShouldProcess action text for Remove-YurunaStaleTempEntry in automation/Yuruna.Common.psm1.",
+      "lifecycle": "active"
     },
     "automation.system_diagnostic_registry_images_refused": {
       "message": "REGISTRY: the cache refused {refused} of {total} images in the {set} set a guest pulls (HTTP {statuses}). A refusal is an answer, not a copy in progress: every guest that asks for those images gets it again until the cause is fixed. zot's sync log names the cause in the \"Sync / upstream lines\" panel of the cache-health dashboard.",

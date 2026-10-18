@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.14
+.VERSION 2026.10.18
 .GUID 42029610-1d57-467e-bf3b-f8b731e657c1
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -76,6 +76,10 @@ Describe 'KVM text request and fallback contracts' {
             $script:KvmTextArguments = $null
             $script:KvmTextTimeout = $null
             $script:KvmTextProbeOverride = $null
+            # Captured and mocked inside InModuleScope, where $script: is the
+            # module's scope: calls the filter below does not match stay real.
+            $script:RealTestPath = Get-Command Test-Path -CommandType Cmdlet
+            Mock Test-Path { & $script:RealTestPath @PesterBoundParameters }
             Mock Test-Path { $true } -ParameterFilter { $LiteralPath -eq '/usr/bin/python3' }
             Mock Send-TextKvmLegacy { $true }
             Mock Invoke-BoundedNativeCommand {
@@ -125,8 +129,14 @@ Describe 'KVM text request and fallback contracts' {
         }
 
         It 'skips unsupported Unicode with one warning and preserves mapped characters' -Skip:$IsWindows {
-            Send-TextKvm -VMName 'vm' -Text ('a' + [char]0x4F60 + 'B') -WarningVariable warnings -WarningAction SilentlyContinue | Should -BeTrue
-            @($warnings).Count | Should -Be 1
+            # Send-TextKvm is not an advanced function, so -WarningVariable and
+            # -WarningAction would bind nothing; redirection captures the stream.
+            $output = @(Send-TextKvm -VMName 'vm' -Text ('a' + [char]0x4F60 + 'B') 3>&1)
+            $warnings = @($output | Where-Object { $_ -is [System.Management.Automation.WarningRecord] })
+            $result = @($output | Where-Object { $_ -isnot [System.Management.Automation.WarningRecord] })
+            $result.Count | Should -Be 1
+            $result[0] | Should -BeTrue
+            $warnings.Count | Should -Be 1
             ($script:KvmTextRequest.chords | ConvertTo-Json -Compress) | Should -Be '[[30],[42,48]]'
         }
 
@@ -148,7 +158,7 @@ Describe 'KVM text request and fallback contracts' {
             @{ Flag = 'TimedOut' }, @{ Flag = 'DrainTimedOut' }, @{ Flag = 'OutputTruncated' }, @{ Flag = 'KillFailed' }
         ) -Skip:$IsWindows {
             $script:KvmTextProbeOverride = @{ Started = $true; ExitCode = 78; StdOut = '{"status":"unavailable","sent":0}'; $Flag = $true }
-            Send-TextKvm -VMName 'vm' -Text 'abc' -WarningAction SilentlyContinue | Should -BeFalse
+            Send-TextKvm -VMName 'vm' -Text 'abc' 3>$null | Should -BeFalse
             Should -Invoke Send-TextKvmLegacy -Times 0
             Test-Path -LiteralPath $script:KvmTextRequestPath | Should -BeFalse
             $result = Invoke-KvmTextBurst -VMName 'vm' -Chords (,([int[]]@(30))) -CharDelayMs 0
@@ -172,7 +182,7 @@ Describe 'KVM text request and fallback contracts' {
             @{ Name = 'missing count'; Code = 0; Json = '{"status":"ok"}' }
         ) -Skip:$IsWindows {
             $script:KvmTextProbeOverride = @{ Started = ($Code -ne -1); ExitCode = $Code; StdOut = $Json }
-            Send-TextKvm -VMName 'vm' -Text 'abc' -WarningAction SilentlyContinue | Should -BeFalse
+            Send-TextKvm -VMName 'vm' -Text 'abc' 3>$null | Should -BeFalse
             Should -Invoke Send-TextKvmLegacy -Times 0
         }
 

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.14
+.VERSION 2026.10.18
 .GUID 42c500e1-53a2-2a0c-075b-981a925571bd
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -5064,6 +5064,7 @@
             'trust' = 'external'
         }
     )
+    'automation.runtime_ipc_remove_action' = 'Remove the leftover .NET runtime entry of a process that is gone'
     'automation.setup_service_vm_reason_intended_stopped' = 'it was stopped on purpose; rebuilding because setup was asked to bring it up'
     'automation.setup_service_vm_reason_lock_unavailable' = 'its operation lock could not be taken'
     'automation.setup_service_vm_reason_operation_busy' = 'another start or stop of this service is still running'
@@ -5076,6 +5077,7 @@
         }
         ')'
     )
+    'automation.stale_temp_remove_action' = 'Remove the stale Yuruna temp entry'
     'automation.system_diagnostic_registry_images_refused' = @(
         'REGISTRY: the cache refused '
         @{

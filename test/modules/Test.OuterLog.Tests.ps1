@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.14
+.VERSION 2026.10.18
 .GUID 4218a8b5-0788-4d72-b8ee-d63d1a86be71
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -49,7 +49,7 @@ BeforeAll {
     }
 
     # Removed, not set to '' or $null: an empty variable is still inherited
-    # by every child process (feedback_setenvironmentvariable-null-sets-empty.md).
+    # by every child process.
     function Restore-RuntimeDir {
         param()
         if ($script:HadRuntimeDir) { $env:YURUNA_RUNTIME_DIR = $script:SavedRuntimeDir }

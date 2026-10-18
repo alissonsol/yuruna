@@ -1,7 +1,7 @@
 {
   "bomFormat": "CycloneDX",
   "specVersion": "1.7",
-  "serialNumber": "urn:uuid:4f167aa9-a5e9-55f0-a04c-bcdc6985311c",
+  "serialNumber": "urn:uuid:e2fd5c58-a9c0-548f-a4b1-36900795ff48",
   "version": 1,
   "metadata": {
     "component": {
@@ -11,14 +11,14 @@
       "properties": [
         {
           "name": "yuruna:source-inputs-sha256",
-          "value": "179a79ed5f5fa0e1a5befcaa93d85faa50898690920793606327e72223e9b0f6"
+          "value": "97e4c0635dfcb4fdc665583da7da83967296161bc437743e44eea83dc3d21383"
         },
         {
           "name": "yuruna:inventory-kind",
           "value": "declared-source"
         }
       ],
-      "version": "2026.10.14"
+      "version": "2026.10.18"
     }
   },
   "components": [
@@ -1051,7 +1051,7 @@
       "properties": [
         {
           "name": "yuruna:declaration",
-          "value": "{\"completeness\": \"unresolved\", \"ecosystem\": \"toolchain\", \"evidence\": [{\"detail\": \"Compatible HCL engine requirement\", \"line\": 5, \"path\": \"global/resources/aws/eks-cluster/versions.tf\"}, {\"detail\": \"Compatible HCL engine requirement\", \"line\": 7, \"path\": \"global/resources/aws/registry/versions.tf\"}, {\"detail\": \"Compatible HCL engine requirement\", \"line\": 7, \"path\": \"global/resources/azure/aks-cluster/versions.tf\"}, {\"detail\": \"Compatible HCL engine requirement\", \"line\": 7, \"path\": \"global/resources/azure/postgresql/versions.tf\"}, {\"detail\": \"Compatible HCL engine requirement\", \"line\": 7, \"path\": \"global/resources/azure/registry/versions.tf\"}, {\"detail\": \"Compatible HCL engine requirement\", \"line\": 7, \"path\": \"global/resources/azure/resource-group/versions.tf\"}, {\"detail\": \"Compatible HCL engine requirement\", \"line\": 7, \"path\": \"global/resources/azure/storage-share/versions.tf\"}, {\"detail\": \"Compatible HCL engine requirement\", \"line\": 7, \"path\": \"global/resources/azure/vm-linux/versions.tf\"}, {\"detail\": \"Compatible HCL engine requirement\", \"line\": 9, \"path\": \"global/resources/localhost/context-copy/versions.tf\"}, {\"detail\": \"Compatible HCL engine requirement\", \"line\": 9, \"path\": \"global/resources/localhost/registry/versions.tf\"}], \"notes\": [\"Declared source only; no provider/module restore, lock selection, or transitive graph was resolved.\"], \"scope\": \"build\", \"versionConstraint\": \">= 1.13.0\"}"
+          "value": "{\"completeness\": \"unresolved\", \"ecosystem\": \"toolchain\", \"evidence\": [{\"detail\": \"Compatible HCL engine requirement\", \"line\": 5, \"path\": \"global/resources/aws/eks-cluster/versions.tf\"}, {\"detail\": \"Compatible HCL engine requirement\", \"line\": 7, \"path\": \"global/resources/aws/registry/versions.tf\"}, {\"detail\": \"Compatible HCL engine requirement\", \"line\": 7, \"path\": \"global/resources/azure/aks-cluster/versions.tf\"}, {\"detail\": \"Compatible HCL engine requirement\", \"line\": 7, \"path\": \"global/resources/azure/postgresql/versions.tf\"}, {\"detail\": \"Compatible HCL engine requirement\", \"line\": 7, \"path\": \"global/resources/azure/registry/versions.tf\"}, {\"detail\": \"Compatible HCL engine requirement\", \"line\": 7, \"path\": \"global/resources/azure/resource-group/versions.tf\"}, {\"detail\": \"Compatible HCL engine requirement\", \"line\": 7, \"path\": \"global/resources/azure/storage-share/versions.tf\"}, {\"detail\": \"Compatible HCL engine requirement\", \"line\": 7, \"path\": \"global/resources/azure/vm-linux/versions.tf\"}, {\"detail\": \"Compatible HCL engine requirement\", \"line\": 9, \"path\": \"global/resources/localhost/context-copy/versions.tf\"}, {\"detail\": \"Compatible HCL engine requirement\", \"line\": 9, \"path\": \"global/resources/localhost/registry/versions.tf\"}], \"notes\": [\"Declared source only; no provider/module restore, lock selection, or transitive graph was resolved.\"], \"scope\": \"build\", \"versionConstraint\": \">= 1.13.1\"}"
         }
       ]
     }

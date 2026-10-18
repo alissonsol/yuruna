@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.14
+.VERSION 2026.10.18
 .GUID 423c6a1c-f359-436b-9533-31e9a82bfb68
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -191,12 +191,14 @@ function Read-StreamLine {
 }
 
 function ConvertTo-HeadLine {
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseOutputTypeCorrectly', '',
+        Justification = 'The comma keeps a one-line head a [string[]]: unrolled, it reaches callers as a string, and [0] of a string is its first character.')]
     [CmdletBinding()]
     [OutputType([string[]])]
     param([Parameter(Mandatory)][byte[]]$Buffer, [Parameter(Mandatory)][int]$Count)
     $text = [Text.Encoding]::UTF8.GetString($Buffer, 0, $Count)
     if ($text.Length -gt 0 -and $text[0] -eq [char]0xFEFF) { $text = $text.Substring(1) }
-    return [string[]]@(($text -split "`r?`n") | Select-Object -First $HeaderWindow)
+    return ,[string[]]@(($text -split "`r?`n") | Select-Object -First $HeaderWindow)
 }
 
 function Read-FileHead {

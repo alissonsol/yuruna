@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.14
+.VERSION 2026.10.18
 .GUID 42e5c0b7-3a91-4d68-b2f4-8c07d15e9a36
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -60,16 +60,17 @@ $ErrorActionPreference = 'Stop'
 # exists rather than being left out of the report.
 $Rows = @(
     @{ Name = 'pwsh'; Kind = 'command'; Command = 'pwsh'; Required = $true
-       MinVersion = '7.0'
+       MinVersion = '7.4'
        Gate = 'every PowerShell gate and the whole suite'
        Missing = 'nothing can run' }
     @{ Name = 'git'; Kind = 'command'; Command = 'git'; Required = $true
        Gate = 'the registry coverage checks, which enumerate the tracked tree'
        Missing = 'a shipped source could leave every gate unnoticed' }
-    # The runner loads only 5.x: Pester 6 removes commands suites still call.
-    # tools/Install-TestModule.ps1 installs the newest 5.x.
+    # The runner loads the 6.x line by resolved path, so an older line left on
+    # the host is never selected; the row reports the copy the runner will load.
+    # tools/Install-TestModule.ps1 installs the newest 6.x.
     @{ Name = 'Pester'; Kind = 'module'; Module = 'Pester'; Required = $true
-       MinVersion = '5.0'; MaxVersion = '6.0'
+       MinVersion = '6.0'; MaxVersion = '7.0'
        Gate = 'tools/Invoke-TestSuite.ps1'
        Missing = 'no test runs' }
     @{ Name = 'PSScriptAnalyzer'; Kind = 'module'; Module = 'PSScriptAnalyzer'; Required = $true

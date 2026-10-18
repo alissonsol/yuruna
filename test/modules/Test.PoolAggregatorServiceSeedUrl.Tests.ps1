@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.14
+.VERSION 2026.10.18
 .GUID 4278d388-a2bd-4339-8e7c-b8dad60dc368
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -88,7 +88,7 @@ Describe 'Get-PoolAggregatorServiceSeedUrl believes a claim only once it answers
             Mock Test-TcpPortReachable  -ModuleName Test.CachingProxyService { return ($TargetHost -eq '192.0.2.14') }
             Use-ConfigProxyAddress '192.0.2.14'
             [void](Get-PoolAggregatorServiceSeedUrl)
-            Assert-MockCalled Save-CachingProxyServiceState -ModuleName Test.CachingProxyService -Scope It -Times 1 -Exactly `
+            Should -Invoke Save-CachingProxyServiceState -ModuleName Test.CachingProxyService -Scope It -Times 1 -Exactly `
                 -ParameterFilter { $IpAddress -eq '192.0.2.14' }
         }
         It 'skips a claim carrying a quote and lets the next one resolve' {
@@ -113,7 +113,7 @@ Describe 'Get-PoolAggregatorServiceSeedUrl believes a claim only once it answers
             Mock Test-TcpPortReachable  -ModuleName Test.CachingProxyService { $true }
             Use-ConfigProxyAddress '192.0.2.23'
             [void](Get-PoolAggregatorServiceSeedUrl)
-            Assert-MockCalled Save-CachingProxyServiceState -ModuleName Test.CachingProxyService -Scope It -Times 0 -Exactly
+            Should -Invoke Save-CachingProxyServiceState -ModuleName Test.CachingProxyService -Scope It -Times 0 -Exactly
         }
     }
 
@@ -123,7 +123,7 @@ Describe 'Get-PoolAggregatorServiceSeedUrl believes a claim only once it answers
             Mock Test-TcpPortReachable  -ModuleName Test.CachingProxyService { $true }
             Use-ConfigProxyAddress '192.0.2.30'
             [void](Get-PoolAggregatorServiceSeedUrl)
-            Assert-MockCalled Test-TcpPortReachable -ModuleName Test.CachingProxyService -Scope It -Times 1 -Exactly `
+            Should -Invoke Test-TcpPortReachable -ModuleName Test.CachingProxyService -Scope It -Times 1 -Exactly `
                 -ParameterFilter { $Port -eq 9400 }
         }
     }
@@ -135,7 +135,7 @@ Describe 'Get-PoolAggregatorServiceSeedUrl believes a claim only once it answers
             Use-ConfigProxyAddress '192.0.2.40'
             Assert-Equal -Expected 'https://192.0.2.40:9400' -Actual (Get-PoolAggregatorServiceSeedUrl)
             # An empty key means "I run no proxy", not "I have not noticed one yet".
-            Assert-MockCalled Save-CachingProxyServiceState -ModuleName Test.CachingProxyService -Scope It -Times 0 -Exactly
+            Should -Invoke Save-CachingProxyServiceState -ModuleName Test.CachingProxyService -Scope It -Times 0 -Exactly
         }
     }
 
@@ -151,14 +151,14 @@ Describe 'Get-PoolAggregatorServiceSeedUrl believes a claim only once it answers
             Mock Test-TcpPortReachable  -ModuleName Test.CachingProxyService { $false }
             Use-ConfigProxyAddress '192.0.2.53'
             [void](Get-PoolAggregatorServiceSeedUrl)
-            Assert-MockCalled Save-CachingProxyServiceState -ModuleName Test.CachingProxyService -Scope It -Times 0 -Exactly
+            Should -Invoke Save-CachingProxyServiceState -ModuleName Test.CachingProxyService -Scope It -Times 0 -Exactly
         }
         It 'returns empty without probing when no claim exists at all' {
             Mock Read-CachingProxyServiceState -ModuleName Test.CachingProxyService { @{ ipAddress = '' } }
             Mock Test-TcpPortReachable  -ModuleName Test.CachingProxyService { $true }
             Use-ConfigProxyAddress ''
             Assert-Equal -Expected '' -Actual (Get-PoolAggregatorServiceSeedUrl)
-            Assert-MockCalled Test-TcpPortReachable -ModuleName Test.CachingProxyService -Scope It -Times 0 -Exactly
+            Should -Invoke Test-TcpPortReachable -ModuleName Test.CachingProxyService -Scope It -Times 0 -Exactly
         }
     }
 
@@ -176,7 +176,7 @@ Describe 'Get-PoolAggregatorServiceSeedUrl believes a claim only once it answers
             [void](Get-PoolAggregatorServiceSeedUrl -WhatIf)
             # -WhatIf does not reach a module on its own, so the ShouldProcess
             # gate inside it is the only thing that can honor one.
-            Assert-MockCalled Save-CachingProxyServiceState -ModuleName Test.CachingProxyService -Scope It -Times 0 -Exactly
+            Should -Invoke Save-CachingProxyServiceState -ModuleName Test.CachingProxyService -Scope It -Times 0 -Exactly
         }
     }
 
@@ -189,7 +189,11 @@ Describe 'Get-PoolAggregatorServiceSeedUrl believes a claim only once it answers
             $second = Get-PoolAggregatorServiceSeedUrl
             Assert-Equal -Expected $first -Actual $second
             # A render that emits several guests must not re-probe for each one.
-            Assert-MockCalled Test-TcpPortReachable -ModuleName Test.CachingProxyService -Scope It -Times 1 -Exactly
+            Should -Invoke Test-TcpPortReachable -ModuleName Test.CachingProxyService -Scope It -Times 1 -Exactly
         }
     }
+}
+
+AfterAll {
+    Remove-Item -LiteralPath (Join-Path ([System.IO.Path]::GetTempPath()) 'yuruna-aggregator-url-tests') -Recurse -Force -ErrorAction SilentlyContinue
 }

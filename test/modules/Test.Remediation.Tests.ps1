@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.14
+.VERSION 2026.10.18
 .GUID 42430431-3a59-45e7-9caa-8e653f023904
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -146,6 +146,16 @@ Describe 'Invoke-Remediation routes the infra-stage failure classes' {
         Assert-Equal -Expected 'operator_intervention_required' -Actual $r1.Recommendation -Because 'git divergence needs an operator'
         $r2 = Invoke-Remediation -FailureRecord @{ failureClass = 'plan_invalid'; severity = 'hard'; vmName = '(planner)' }
         Assert-Equal -Expected 'operator_intervention_required' -Actual $r2.Recommendation -Because 'plan errors need an operator'
+    }
+    It 'routes hypervisor_unresponsive to operator_intervention_required and quotes the record' {
+        $record = @{ failureClass = 'hypervisor_unresponsive'; severity = 'hard'; vmName = ''
+            description = 'The hypervisor control channel stopped acting on start requests (first seen on amisad-edge-b)' }
+        $r = Invoke-Remediation -FailureRecord $record
+        Assert-Equal -Expected 'operator_intervention_required' -Actual $r.Recommendation -Because 'only a restart of the hypervisor application repairs it'
+        Assert-False $r.AutoApply 'nothing is applied unattended'
+        Assert-Match 'first seen on amisad-edge-b' $r.Rationale 'the record description is quoted'
+        Assert-True (@($r.Actions).Count -ge 3) 'restart, evidence and resume steps are named'
+        Assert-True ([bool](@($r.Actions) -match 'utm-control-snapshot')) 'the reader is sent to the control snapshot'
     }
     It 'has a registered handler for every canonical FailureClass (no unrouted class)' {
         $enum = @(Get-FailureClassEnum)

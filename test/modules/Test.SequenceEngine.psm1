@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.14
+.VERSION 2026.10.18
 .GUID 4210c3aa-ab5b-4b2b-9259-5c68ad1cb72e
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -1518,6 +1518,16 @@ function Wait-ForText {
                         if ($installerStageSinceUtc) {
                             $script:Fail.WaitForTextInstallerStageSeconds = [int]([DateTime]::UtcNow - $installerStageSinceUtc).TotalSeconds
                         }
+                        # The hypervisor's view belongs on a pattern match as much
+                        # as on a timeout: a script that gave up because the guest
+                        # lost its network reads the same on the console as one
+                        # whose peer was down, and only the host recording shows
+                        # which processor was trapping in place at that moment.
+                        $patternLivelock = Get-GuestLivelockVerdict -VMName $VMName -Since $livelockSinceUtc
+                        if ($patternLivelock) {
+                            $script:Fail.WaitForTextGuestLivelock = $patternLivelock
+                            $script:Fail.WaitForTextGuestLivelocked = ($patternLivelock.Verdict -eq 'livelocked')
+                        }
                         return $false
                     }
                 }
@@ -2511,7 +2521,7 @@ function Invoke-Sequence {
             foreach ($cause in @('WaitForTextMatchedFailurePattern', 'WaitForTextOcrTail',
                 'WaitForTextClosestOnScreen', 'WaitForTextConsoleFlood', 'StepGuestAddressUnresolved',
                 'StepGuestTransportLost', 'StepGuestRunLost', 'StepGuestPayloadUnavailable', 'StepInputLost',
-                'StepVmNotStopped', 'WaitForTextGuestLivelock', 'WaitForTextOutputStaticSeconds', 'StepProgressAdvisory')) {
+                'StepLauncherRejection', 'StepVmNotStopped', 'WaitForTextGuestLivelock', 'WaitForTextOutputStaticSeconds', 'StepProgressAdvisory')) {
                 $script:Fail[$cause] = $null
             }
             $script:Fail.WaitForTextPatternsSought = [string[]]@()
@@ -2682,14 +2692,20 @@ function Invoke-Sequence {
             } else {
                 $sshResponsiveness = 'unavailable'
                 $heartbeatAge = $null
+                $clockWarningCodes = [string[]]@()
                 if ($ctx -and $ctx.ExecutionProfile) {
+                    # The client's own connect failure (exit 255 with a timeout or
+                    # no-route line) is as much a measurement as a harness kill.
                     if ($ctx.ExecutionProfile.sshResponsive) { $sshResponsiveness='responsive' }
-                    elseif ($ctx.ExecutionProfile.timedOut) { $sshResponsiveness='unresponsive' }
+                    elseif ($ctx.ExecutionProfile.timedOut -or $ctx.ExecutionProfile.transportFailed -or
+                        ([string]$ctx.ExecutionProfile.reasonCode -in @('profile-ssh-timeout','profile-ssh-unreachable'))) { $sshResponsiveness='unresponsive' }
                     $heartbeatAge = $ctx.ExecutionProfile.recorder.heartbeatAgeSeconds
+                    $clockWarningCodes = [string[]]@($ctx.ExecutionProfile.recorder.clockAnalysis.warnings |
+                        ForEach-Object { if ($_) { [string]$_.code } } | Where-Object { $_ })
                 }
                 $script:Fail.StepProgressAdvisory = Get-GuestProgressAdvisory `
                     -OutputStaticSeconds $script:Fail.WaitForTextOutputStaticSeconds `
-                    -HeartbeatAgeSeconds $heartbeatAge -SshResponsiveness $sshResponsiveness
+                    -HeartbeatAgeSeconds $heartbeatAge -SshResponsiveness $sshResponsiveness -ClockWarningCodes $clockWarningCodes
                 $script:Fail.OriginatingStepInvocationId = $stepInvocationId
                 $script:Fail.OriginatingSequenceInvocationId = $sequenceInvocationId
             }

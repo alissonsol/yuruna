@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.14
+.VERSION 2026.10.18
 .GUID 42d3bc19-cf65-4604-a69f-39ddfab7231d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -42,6 +42,16 @@ Describe 'host counter capability and cooked samples' {
         $guest.Status | Should -Be 'present'
         $guest.Paths | Should -Be '\Prozessor(*)\Gastzeit'
         ($rows | Where-Object Counter -EQ 'Total Intercepts/sec' | Select-Object -First 1).Status | Should -Be 'absent'
+    }
+    It 'treats the virtual network adapter and switch port objects as guest counters' {
+        $rows = @(Resolve-YurunaHostCounterCapability -CounterSets @() -RunningVmCount 0)
+        foreach ($object in 'Hyper-V Virtual Network Adapter', 'Hyper-V Virtual Switch Port') {
+            $row = $rows | Where-Object Object -EQ $object | Select-Object -First 1
+            $row | Should -Not -BeNullOrEmpty -Because "$object must be part of the bounded counter set"
+            $row.Guest | Should -BeTrue
+            $row.Status | Should -Be 'not-applicable'
+        }
+        @($rows | Where-Object { $_.Object -eq 'Hyper-V Virtual Network Adapter' -and $_.Counter -eq 'Dropped Packets Incoming/sec' }).Count | Should -Be 1
     }
     It 'distinguishes an idle host from unknown VM enumeration' {
         (@(Resolve-YurunaHostCounterCapability -CounterSets @() -RunningVmCount 0) | Where-Object Guest | Select-Object -First 1).Status | Should -Be 'not-applicable'
@@ -387,6 +397,37 @@ Describe 'guest livelock verdict from host samples' {
         $vp1.Counters['SysReg Accesses/sec'].Status | Should -Be unavailable
         $vp1.UnaccountedEstimatePerSecond | Should -BeNullOrEmpty
         $vp1.ResidualStatus | Should -Be 'unavailable-incomplete-counters'
+    }
+    It 'names the trapping processor and the moment the storm moved to its sibling' {
+        $samples = @(New-RunSampleSeries -Count 21 -Processors {
+            param($index)
+            if ($index -lt 14) {
+                @{ '0' = (New-Processor -Guest 7 -Hypervisor 91 -Intercepts 3500000 -Cause @{ 'External Interrupts/sec' = 3499000 })
+                   '1' = (New-Processor -Guest 40 -Hypervisor 6 -Intercepts 200000 -Cause @{ 'External Interrupts/sec' = 199000 }) }
+            } else {
+                @{ '0' = (New-Processor -Guest 40 -Hypervisor 7 -Intercepts 230000 -Cause @{ 'External Interrupts/sec' = 229000 })
+                   '1' = (New-Processor -Guest 7 -Hypervisor 91 -Intercepts 3530000 -Cause @{ 'External Interrupts/sec' = 3529000 }) }
+            }
+        })
+        $verdict = Get-YurunaVmLivelockVerdict -VMName $script:LivelockVm -Sample $samples -NowUtc $script:LivelockNow
+        $verdict.Verdict | Should -Be 'not-livelocked' -Because 'one processor at a time is never the all-processor predicate'
+        $window = $verdict.ProcessorWindow
+        $vp1 = $window.Processors | Where-Object Processor -EQ '1'
+        $vp1.Stormed | Should -BeTrue
+        $vp1.DominantIntercept | Should -Be 'External Interrupts/sec'
+        $window.StormedProcessors | Should -Contain '1'
+        @($window.StormTransitions).Count | Should -Be 1
+        @($window.StormTransitions[0].Processors) | Should -Be @('1')
+        $window.StormTransitions[0].Utc | Should -Be $samples[14].Utc.ToString('o')
+        ($window.Processors | Where-Object Processor -EQ '0').HypervisorShare | Should -BeGreaterThan 0.5
+    }
+    It 'leaves a quiet guest unflagged' {
+        $samples = @(New-RunSampleSeries -Count 5 -Processors { @{ '0' = (New-Processor -Guest 30 -Hypervisor 5 -Intercepts 20000) } })
+        $window = (Get-YurunaVmLivelockVerdict -VMName $script:LivelockVm -Sample $samples -NowUtc $script:LivelockNow).ProcessorWindow
+        $window.Processors[0].Stormed | Should -BeFalse
+        $window.Processors[0].HypervisorShare | Should -BeLessThan 0.2
+        @($window.StormedProcessors).Count | Should -Be 0
+        @($window.StormTransitions).Count | Should -Be 0
     }
     It 'counts each available counter independently and retains capability failures' {
         $samples = @(New-RunSampleSeries -Count 3 -Processors {

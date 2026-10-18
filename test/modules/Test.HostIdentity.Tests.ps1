@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.14
+.VERSION 2026.10.18
 .GUID 42c5c7b3-f42f-44df-81b8-ce01b38b4d9d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -188,7 +188,7 @@ Describe 'New-HostInfoRecordObject + ConvertFrom-HostInfoRecord (YAML round-trip
 }
 
 Describe 'Write-HostInfoRecord + Find-PriorHostIdentity (temp share)' {
-    It 'writes hosts/info.<uuid>.yml and finds + ranks it back' {
+    It 'writes hosts/info.`<uuid`>.yml and finds + ranks it back' {
         $root = New-TempDir
         try {
             $fp = Get-TestFingerprint

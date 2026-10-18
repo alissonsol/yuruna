@@ -822,6 +822,26 @@
       "sourceHash": "54a50a071a048dc31a5a13431ed770e6b51b351116d8496581ca6523658a6011",
       "origin": "machine",
       "message": "בדקו בטבלת החכירות של השרת את כתובת MAC של אורח זה -- שתי חכירות פעילות לכתובת MAC אחת מעידות שהשרת משתמש כמפתח בערך client-id שהאורח עדיין משנה"
+    },
+    "remediation.hypervisor_unresponsive_rationale": {
+      "sourceHash": "2f998c743ab3c1cec54505c1b17107f3f2f8991135fec6e6fb459449263bb58d",
+      "origin": "machine",
+      "message": "hypervisor_unresponsive: ערוץ הבקרה של ההיפרווייזר הפסיק לבצע בקשות מחזור חיים בעודו ממשיך לענות לשאילתות מצב, ולכן כל הפעלה, עצירה ומחיקה של מכונה וירטואלית ממתינה עד תום פסק הזמן שלה, ושום דבר שמחזור עושה אינו יכול לשקם זאת. ניסיון חוזר חוזר על אותם פסקי זמן; את היישום שבבעלותו הערוץ יש להפעיל מחדש במארח, וזאת יכולה לעשות רק הפעלת שולחן עבודה או רענון מארח.{detail}"
+    },
+    "remediation.hypervisor_unresponsive_action_restart": {
+      "sourceHash": "97ca8bc51d0af80b1cfe79b20f6194b18a1660cef55ca9f16df928298c75be1f",
+      "origin": "machine",
+      "message": "הפעילו מחדש את יישום הבקרה של ההיפרווייזר במארח: ב-macOS צאו מ-⁦UTM.app⁩ מתוך הפעלת שולחן העבודה (או הריצו ⁦test/lab/Invoke-HostRefresh.ps1⁩), ואז ודאו ש-⁦`utmctl stop`⁩ על מכונה וירטואלית עצורה חוזר מיד"
+    },
+    "remediation.hypervisor_unresponsive_action_evidence": {
+      "sourceHash": "6d57a4653306a025d082176dc079f1a4c935941c4c3c0879b4cb2803c4f8e680",
+      "origin": "machine",
+      "message": "קראו את ⁦utm-control-snapshot.*.json⁩ ואת ⁦utm-log-show.*.txt⁩ בתיקיית המחזור: מזהה תהליך או זמן התחלה של UTM שהשתנו באמצע המחזור מעידים על קריסה והפעלה מחדש, וקטע היומן המאוחד מציין מה קדם לכך"
+    },
+    "remediation.hypervisor_unresponsive_action_resume": {
+      "sourceHash": "a0b153ba81d5e39ad1edf6b83e5055b55997ea899c746373607b95405d75aa9e",
+      "origin": "machine",
+      "message": "חדשו את פעולת המריץ ברגע שפועל מחזור חיים חוזר לענות; המחזור הבא בודק את ערוץ הבקרה לפני שהוא בונה דבר"
     }
   }
 }

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.14
+.VERSION 2026.10.18
 .GUID 4295c2e6-31ed-4bb7-902e-162727b73349
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -315,7 +315,7 @@ Describe 'Invoke-PoolNotifierCycle keeps draining on an unreadable transport but
             Assert-False $s.ready 'not elected-ready on unreadable'
             Assert-Equal -Expected 'transports.yml unreadable this cycle' -Actual $s.reason -Because 'distinct reason'
             Assert-Equal -Expected 2 -Actual $s.delivered -Because 'already-queued messages drained'
-            Assert-MockCalled -ModuleName Test.PoolNotifier Invoke-PoolNotifierDelivery -Times 1 -Exactly -Scope It
+            Should -Invoke -ModuleName Test.PoolNotifier Invoke-PoolNotifierDelivery -Times 1 -Exactly -Scope It
         } finally { $env:YURUNA_RUNTIME_DIR = $saved }
     }
     It 'drains queued messages when a ready transport has no readable aggregator gauge' -ForEach @(
@@ -357,7 +357,7 @@ Describe 'Invoke-PoolNotifierCycle keeps draining on an unreadable transport but
             $s = Invoke-PoolNotifierCycle
             Assert-False $s.ran 'unconfigured -> clean no-op, did not run'
             Assert-Equal -Expected 'pool.alert transport not configured on this host' -Actual $s.reason -Because 'unconfigured reason'
-            Assert-MockCalled -ModuleName Test.PoolNotifier Invoke-PoolNotifierDelivery -Times 0 -Exactly -Scope It
+            Should -Invoke -ModuleName Test.PoolNotifier Invoke-PoolNotifierDelivery -Times 0 -Exactly -Scope It
         } finally { $env:YURUNA_RUNTIME_DIR = $saved }
     }
 }

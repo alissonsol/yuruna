@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.14
+.VERSION 2026.10.18
 .GUID 4209caff-b7ce-46f6-896a-1d6710c120e8
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -134,101 +134,103 @@ foreach ($f in @($baseUserData, $overlayUserData, $MetaDataTemplate)) {
 Import-Module (Join-Path $repoRoot 'automation/Yuruna.CloudInitTemplate.psm1') -Force
 
 # --- REGION: Stage the cloud-init seed directory
-# 4-digit entropy is weak by design (10k cases) but enough to defeat the
-# deterministic-path symlink trap: an attacker dropping a symlink at
-# %TEMP%\seed_<VMName>\ before New-VM runs can't predict the trailing 4
-# digits per run.
-$SeedDir = Join-Path $env:TEMP ("seed_${VMName}_{0:D4}" -f (Get-Random -Maximum 10000))
-if (Test-Path -LiteralPath $SeedDir) { Remove-Item -LiteralPath $SeedDir -Recurse -Force }
-New-Item -ItemType Directory -Force -Path $SeedDir | Out-Null
+# New-YurunaSeedDirectory creates the folder exclusively under a random name,
+# so nothing planted at a predictable %TEMP% path is ever reused.
+Import-Module (Join-Path $PSScriptRoot '../../../automation/Yuruna.Common.psm1') -DisableNameChecking
+try {
+    $SeedDir = New-YurunaSeedDirectory -VMName $VMName
 
-$MetaData = (Get-Content -Raw $MetaDataTemplate) `
-    -replace 'INSTANCE_ID_PLACEHOLDER', $VMName `
-    -replace 'HOSTNAME_PLACEHOLDER', $GuestHostname
-Set-Content -Path "$SeedDir/meta-data" -Value $MetaData -NoNewline
+    $MetaData = (Get-Content -Raw $MetaDataTemplate) `
+        -replace 'INSTANCE_ID_PLACEHOLDER', $VMName `
+        -replace 'HOSTNAME_PLACEHOLDER', $GuestHostname
+    Set-Content -Path "$SeedDir/meta-data" -Value $MetaData -NoNewline
 
-# --- REGION: Yuruna harness SSH key
-# Use the shared key for post-boot harness access.
-$TestSshModule = Join-Path (Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSScriptRoot))) "test/modules/Test.Ssh.psm1"
-Import-Module $TestSshModule -Force
-$SshAuthorizedKey = Get-YurunaSshPublicKey
-if (-not $SshAuthorizedKey) { Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_6424990f88c7f7bc' -Arguments @{ testSshModule = "$TestSshModule" }); exit 1 }
+    # --- REGION: Yuruna harness SSH key
+    # Use the shared key for post-boot harness access.
+    $TestSshModule = Join-Path (Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSScriptRoot))) "test/modules/Test.Ssh.psm1"
+    Import-Module $TestSshModule -Force
+    $SshAuthorizedKey = Get-YurunaSshPublicKey
+    if (-not $SshAuthorizedKey) { Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_6424990f88c7f7bc' -Arguments @{ testSshModule = "$TestSshModule" }); exit 1 }
 
-# --- REGION: Vault user password
-# See https://yuruna.link/42e220c4-0004
-# Read the persistent authentication vault; a new cycle must not reset credentials.
-$_repoRootForExt = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSScriptRoot))
-Import-Module (Join-Path $_repoRootForExt 'test/modules/Test.Extension.psm1') -Global -Force -Verbose:$false
-Import-Module (Join-Path $PSScriptRoot '../../../automation/Yuruna.Common.psm1') -Force -DisableNameChecking
-$_authActiveName = @(Import-Extension -Area 'authentication' -RequireSingle)[0]
-$Password = Get-LocalOsPassword -Username $Username
-if (-not $Password) { Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_a8c8c2c47e517a44' -Arguments @{ username = "$Username" }); exit 1 }
-Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_762658980a25b8fb' -Arguments @{ authActiveName = "$_authActiveName" })
-Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_c427eb2402415f42' -Arguments @{ authentication = "$(Resolve-ExtensionAreaDir -Area 'authentication')" })
+    # --- REGION: Vault user password
+    # See https://yuruna.link/42e220c4-0004
+    # Read the persistent authentication vault; a new cycle must not reset credentials.
+    $_repoRootForExt = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSScriptRoot))
+    Import-Module (Join-Path $_repoRootForExt 'test/modules/Test.Extension.psm1') -Global -Force -Verbose:$false
+    Import-Module (Join-Path $PSScriptRoot '../../../automation/Yuruna.Common.psm1') -Force -DisableNameChecking
+    $_authActiveName = @(Import-Extension -Area 'authentication' -RequireSingle)[0]
+    $Password = Get-LocalOsPassword -Username $Username
+    if (-not $Password) { Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_a8c8c2c47e517a44' -Arguments @{ username = "$Username" }); exit 1 }
+    Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_762658980a25b8fb' -Arguments @{ authActiveName = "$_authActiveName" })
+    Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_c427eb2402415f42' -Arguments @{ authentication = "$(Resolve-ExtensionAreaDir -Area 'authentication')" })
 
-# --- REGION: Select the guest network
-# See https://yuruna.link/42e220c4-0004
-# Select the switch before resolving the host address reachable through it.
-$switchName = Resolve-HyperVGuestSwitch
+    # --- REGION: Select the guest network
+    # See https://yuruna.link/42e220c4-0004
+    # Select the switch before resolving the host address reachable through it.
+    $switchName = Resolve-HyperVGuestSwitch
 
-# --- REGION: Yuruna host coordinates
-# See https://yuruna.link/4220a755-001b
-# Bake the status-service address reachable through the selected guest network.
-$YurunaHostIp = Get-GuestReachableHostIp -SwitchName $switchName
-if (-not $YurunaHostIp) { $YurunaHostIp = '' }
-Import-Module (Join-Path (Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSScriptRoot))) 'test/modules/Test.Config.psm1') -Global -Force
-$_statusSeed = Get-YurunaStatusServiceSeed -RepoRoot (Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)))
-$YurunaHostPort = $_statusSeed.Port
+    # --- REGION: Yuruna host coordinates
+    # See https://yuruna.link/4220a755-001b
+    # Bake the status-service address reachable through the selected guest network.
+    $YurunaHostIp = Get-GuestReachableHostIp -SwitchName $switchName
+    if (-not $YurunaHostIp) { $YurunaHostIp = '' }
+    Import-Module (Join-Path (Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSScriptRoot))) 'test/modules/Test.Config.psm1') -Global -Force
+    $_statusSeed = Get-YurunaStatusServiceSeed -RepoRoot (Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)))
+    $YurunaHostPort = $_statusSeed.Port
 
-# --- REGION: Render user-data / meta-data
-# New-CloudInitUserData merges base+overlay, auto-bakes yuruna-retry.sh /
-# fetch-and-execute.sh / yuruna-network.sh from $repoRoot/automation/ as base64
-# write_files entries, then resolves the per-cycle placeholders below.
-$UserData = New-CloudInitUserData `
-    -BasePath    $baseUserData `
-    -OverlayPath $overlayUserData `
-    -RepoRoot    $repoRoot `
-    -Replacement @{
-        USERNAME_PLACEHOLDER           = $Username
-        PLAINTEXT_PASSWORD_PLACEHOLDER = $Password
-        SSH_AUTHORIZED_KEY_PLACEHOLDER = $SshAuthorizedKey
-        YURUNA_STATUS_SERVICE_IP_PLACEHOLDER     = $YurunaHostIp
-        YURUNA_STATUS_SERVICE_PORT_PLACEHOLDER   = $YurunaHostPort
-    } -Confirm:$false
-Set-Content -Path "$SeedDir/user-data" -Value $UserData -NoNewline
-# --- REGION: https://yuruna.link/4220a755-000b
-# Amazon Linux preserves cloud-init fallback networking; pin DHCP identity in user-data.
+    # --- REGION: Render user-data / meta-data
+    # New-CloudInitUserData merges base+overlay, auto-bakes yuruna-retry.sh /
+    # fetch-and-execute.sh / yuruna-network.sh from $repoRoot/automation/ as base64
+    # write_files entries, then resolves the per-cycle placeholders below.
+    $UserData = New-CloudInitUserData `
+        -BasePath    $baseUserData `
+        -OverlayPath $overlayUserData `
+        -RepoRoot    $repoRoot `
+        -Replacement @{
+            USERNAME_PLACEHOLDER           = $Username
+            PLAINTEXT_PASSWORD_PLACEHOLDER = $Password
+            SSH_AUTHORIZED_KEY_PLACEHOLDER = $SshAuthorizedKey
+            YURUNA_STATUS_SERVICE_IP_PLACEHOLDER     = $YurunaHostIp
+            YURUNA_STATUS_SERVICE_PORT_PLACEHOLDER   = $YurunaHostPort
+        } -Confirm:$false
+    Set-Content -Path "$SeedDir/user-data" -Value $UserData -NoNewline
+    # --- REGION: https://yuruna.link/4220a755-000b
+    # Amazon Linux preserves cloud-init fallback networking; pin DHCP identity in user-data.
 
-# --- REGION: Generate cloud-init seed ISO
-$SeedIso = Join-Path $vmDir "seed.iso"
-$VolumeId = "cidata"
-CreateIso -SourceDir $SeedDir -OutputFile $SeedIso -VolumeId $VolumeId
+    # --- REGION: Generate cloud-init seed ISO
+    $SeedIso = Join-Path $vmDir "seed.iso"
+    $VolumeId = "cidata"
+    CreateIso -SourceDir $SeedDir -OutputFile $SeedIso -VolumeId $VolumeId
 
-# --- REGION: Create and configure the Hyper-V VM
-Write-Verbose "Creating new VM '$VMName' on switch '$switchName'..."
-Hyper-V\New-VM -Name $VMName -Generation 2 -MemoryStartupBytes 12288MB -SwitchName $switchName -VHDPath $vhdxFile | Out-Null
+    # --- REGION: Create and configure the Hyper-V VM
+    Write-Verbose "Creating new VM '$VMName' on switch '$switchName'..."
+    Hyper-V\New-VM -Name $VMName -Generation 2 -MemoryStartupBytes 12288MB -SwitchName $switchName -VHDPath $vhdxFile | Out-Null
 
-# --- REGION: https://yuruna.link/42e220c4-0004
-# Key the MAC by durable guest identity so rebuilds and VM renames keep the DHCP lease.
-$YurunaGuestMac = Get-YurunaGuestMacAddress -VMName $GuestHostname
-Hyper-V\Set-VMNetworkAdapter -VMName $VMName -StaticMacAddress ($YurunaGuestMac -replace ':','')
-Write-Verbose "Deterministic guest MAC for '$GuestHostname': $YurunaGuestMac"
+    # --- REGION: https://yuruna.link/42e220c4-0004
+    # Key the MAC by durable guest identity so rebuilds and VM renames keep the DHCP lease.
+    $YurunaGuestMac = Get-YurunaGuestMacAddress -VMName $GuestHostname
+    Hyper-V\Set-VMNetworkAdapter -VMName $VMName -StaticMacAddress ($YurunaGuestMac -replace ':','')
+    Write-Verbose "Deterministic guest MAC for '$GuestHostname': $YurunaGuestMac"
 
-Set-VM -Name $VMName -MemoryStartupBytes 12288MB -MemoryMinimumBytes 12288MB -MemoryMaximumBytes 12288MB -AutomaticCheckpointsEnabled $false | Out-Null
-Set-VMMemory -VMName $VMName -DynamicMemoryEnabled $false
-Set-VMFirmware -VMName $VMName -EnableSecureBoot Off | Out-Null
-Add-VMDvdDrive -VMName $VMName -Path $SeedIso | Out-Null
-# --- REGION: https://yuruna.link/42fa6f45-0015
-$vmCores = [math]::Max(4, [math]::Floor($hostCores / 2))
-Set-VMProcessor -VMName $VMName -Count $vmCores | Out-Null
+    Set-VM -Name $VMName -MemoryStartupBytes 12288MB -MemoryMinimumBytes 12288MB -MemoryMaximumBytes 12288MB -AutomaticCheckpointsEnabled $false | Out-Null
+    Set-VMMemory -VMName $VMName -DynamicMemoryEnabled $false
+    Set-VMFirmware -VMName $VMName -EnableSecureBoot Off | Out-Null
+    Add-VMDvdDrive -VMName $VMName -Path $SeedIso | Out-Null
+    # --- REGION: https://yuruna.link/42fa6f45-0015
+    $vmCores = [math]::Max(4, [math]::Floor($hostCores / 2))
+    Set-VMProcessor -VMName $VMName -Count $vmCores | Out-Null
 
-# WARNING: The test harness OCR is calibrated for 1920x1080.
-# Changing this resolution may break automated screen-text detection
-# in waitForText sequence steps.
-Set-VMVideo -VMName $VMName -HorizontalResolution 1920 -VerticalResolution 1080 -ResolutionType Single
+    # WARNING: The test harness OCR is calibrated for 1920x1080.
+    # Changing this resolution may break automated screen-text detection
+    # in waitForText sequence steps.
+    Set-VMVideo -VMName $VMName -HorizontalResolution 1920 -VerticalResolution 1080 -ResolutionType Single
 
-# --- REGION: Clean up temporary files
-Remove-Item -LiteralPath $SeedDir -Recurse -Force -ErrorAction SilentlyContinue
+    # --- REGION: Clean up temporary files
+} finally {
+    # The seed holds the guest's admin credentials; it must not outlive this
+    # script on any path, an early exit or a throw included.
+    Remove-Item -LiteralPath $SeedDir -Recurse -Force -ErrorAction SilentlyContinue
+}
 
 # --- REGION: Guidance
 Write-Verbose "VM '$VMName' created and configured."

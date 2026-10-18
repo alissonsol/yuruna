@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.14
+.VERSION 2026.10.18
 .GUID 42f2943e-7155-4ed8-aedb-db7d6166f795
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -247,11 +247,17 @@ Describe 'Tesseract child environment and complete capture' {
 }
 
 Describe 'Tesseract actual native child compatibility' {
+    AfterAll {
+        [Console]::OutputEncoding = $script:PriorConsoleEncoding
+    }
     BeforeAll {
         Import-Module (Join-Path $here '../../automation/Yuruna.Common.psm1') -Global -Force -DisableNameChecking
         Import-Module $modulePath -Global -Force -DisableNameChecking
+        $script:PriorConsoleEncoding = [Console]::OutputEncoding
+        [Console]::OutputEncoding = [Text.UTF8Encoding]::new($false)
         $script:NativeFixture = Join-Path $TestDrive "OCR `u{fc} [1]; child.ps1"
         @'
+[Console]::OutputEncoding = [Text.UTF8Encoding]::new($false)
 if ($args.Count -ne 3 -and $args.Count -ne 4) { exit 17 }
 if ($args[0] -ne 'stdout' -or $args[1] -ne '--psm' -or $args[2] -ne '6') { exit 18 }
 [Console]::Error.WriteLine("diagnostic `u{fc} stderr")

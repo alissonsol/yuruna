@@ -1271,7 +1271,6 @@ qualquer shell tolerante a BOM; portanto, um BOM UTF-8 ou um byte não ASCII os
 interrompe na linha 1. Incorpore a proteção compartilhada Test-AsciiNoBom a esta
 verificação anterior ao ciclo, para que uma recodificação acidental bloqueie o
 ciclo aqui, em vez de quebrar a primeira instalação no convidado.
-Veja feedback_bootstrap_installer_no_bom.md.
 
 <a id="42010605-0045"></a>
 
@@ -3367,8 +3366,16 @@ nomes de fase e regras de admissão. Ambos chamam `Start-AmisAdEdge`: iniciam as
 duas bordas antes de esperar, descartam relatórios de inicializações anteriores,
 exigem um endereço IP novo e válido para cada borda e param antes dos cenários
 se qualquer uma falhar. Os motivos da falha permanecem associados à borda.
-A transferência da chave pública usa esses endereços verificados, sem reler um
-relatório não confirmado. `-WhatIf` mantém intocados os relatórios e as VMs.
+Toda chamada SSH que a transferência da chave pública faz a uma borda (sondagem de
+prontidão, instalação da chave, prova de login) usa esses endereços verificados,
+passados a `Invoke-GuestSsh` como `-ResolvedAddress`, sem reler um relatório não
+confirmado nem depender da descoberta do hospedeiro, que pode não retornar nada
+enquanto a borda está acessível. A transferência espera um tempo limitado pelo SSH
+de cada borda, porque um relatório de endereço não prova que o sshd já aceita
+logins. Quando falha, `edge-address-evidence.json` no diretório de logs da etapa
+registra o endereço relatado por cada borda e o horário do relatório, o que a
+descoberta retorna naquele momento e, no Hyper-V, a captura de `Save-VMNetworkState`.
+`-WhatIf` mantém intocados os relatórios e as VMs.
 
 <a id="42010605-00a8"></a>
 

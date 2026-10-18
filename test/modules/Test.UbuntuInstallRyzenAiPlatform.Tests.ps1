@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.14
+.VERSION 2026.10.18
 .GUID 421942f3-d52f-4211-83d4-3fe55a882f99
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -51,6 +51,21 @@
     Run: pwsh -NoProfile -Command "Invoke-Pester -Path test/modules/Test.UbuntuInstallRyzenAiPlatform.Tests.ps1"
 #>
 
+BeforeDiscovery {
+    $script:SymlinkPermitted = $false
+    $probeRoot = Join-Path ([System.IO.Path]::GetTempPath()) ('yuruna-ln-probe-' + [guid]::NewGuid().ToString('N'))
+    try {
+        $null = New-Item -ItemType Directory -Path $probeRoot -Force
+        Set-Content -LiteralPath (Join-Path $probeRoot 'target') -Value 'probe' -Encoding ascii
+        & ln -s (Join-Path $probeRoot 'target') (Join-Path $probeRoot 'link') 2>$null
+        $script:SymlinkPermitted = [bool](Get-Item -LiteralPath (Join-Path $probeRoot 'link') -Force -ErrorAction SilentlyContinue).LinkType
+    } catch {
+        $script:SymlinkPermitted = $false
+    } finally {
+        Remove-Item -LiteralPath $probeRoot -Recurse -Force -ErrorAction SilentlyContinue
+    }
+}
+
 BeforeAll {
 $here      = Split-Path -Parent $PSCommandPath
 $repoRoot  = (Resolve-Path (Join-Path -Path $here -ChildPath '..' -AdditionalChildPath '..')).Path
@@ -68,7 +83,8 @@ $script:Lifted = Get-YurunaTestShellFunction -Text $installerText -Name @(
     'tool_below_floor', 'confirm_tool_floor', 'raise_tool_from_suite',
     'bring_amd_ryzen_ai_platform_to_floors', 'remove_standalone_python',
     'floor_check_tools', 'virt_install_runs', 'osinfo_db_diag', 'local_git_incomplete',
-    'osinfo_has_variant', 'check_virt_install_ready', 'ensure_osinfo_db_has_ubuntu24', 'report_floor_check')
+    'osinfo_has_variant', 'check_virt_install_ready', 'ensure_osinfo_db_has_ubuntu24', 'report_floor_check',
+    'yuruna_track_tmp')
 
 # Stubs for everything the repair reaches beyond its own decisions. apt raises a
 # tool by rewriting the version file its stand-in binary prints, and so does the
@@ -354,7 +370,7 @@ Describe 'remove_standalone_python' {
             return Invoke-PlatformShell -Root $Root -Body "remove_standalone_python '$Tree/local/bin' '$Tree/opt'; echo DONE"
         }
     }
-    It 'removes the python3 shadow, its sibling links, its version directory and the emptied tree' {
+    It 'removes the python3 shadow, its sibling links, its version directory and the emptied tree' -Skip:(-not $script:SymlinkPermitted) {
         $root = New-PlatformSandbox -Version $script:Below
         try {
             $tree = New-ShadowTree -Root (Join-Path $root 'shadow') -Dir 'opt/3.14.8/bin', 'elsewhere' `
@@ -367,7 +383,7 @@ Describe 'remove_standalone_python' {
             Assert-False (Test-Path -LiteralPath (Join-Path $tree 'opt')) 'the version directory goes, and the tree it emptied with it'
         } finally { Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue }
     }
-    It 'keeps an interpreter in the tree that only a python3.N link reaches' {
+    It 'keeps an interpreter in the tree that only a python3.N link reaches' -Skip:(-not $script:SymlinkPermitted) {
         # python3.12 shadows nothing; only the python3 name breaks virt-install.
         $root = New-PlatformSandbox -Version $script:Below
         try {
@@ -414,6 +430,11 @@ Describe 'local_git_incomplete' {
         # A stand-in for the /usr/local build: --exec-path names a directory
         # that holds git-subtree unless told otherwise, and a Perl-only grep
         # succeeds unless the build is told it has no PCRE2.
+        function ConvertTo-MsysPath {
+            param([Parameter(Mandatory)][string]$Path)
+            if ($Path -match '^([A-Za-z]):(.*)$') { return '/' + $Matches[1].ToLowerInvariant() + ($Matches[2] -replace '\\', '/') }
+            return $Path
+        }
         function New-LocalGit {
             [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
                 Justification = 'Test fixture: writes a stand-in git under a temp sandbox the test removes; not user-facing state.')]
@@ -441,7 +462,7 @@ Describe 'local_git_incomplete' {
         $root = New-PlatformSandbox -Version $script:AtFloor
         try {
             $git = New-LocalGit -Root $root
-            $r = Invoke-PlatformShell -Root $root -Body "PATH=`"$(Split-Path $git):`$PATH`"; local_git_incomplete '$git' && echo INCOMPLETE || echo COMPLETE"
+            $r = Invoke-PlatformShell -Root $root -Body "PATH=`"$(ConvertTo-MsysPath (Split-Path $git)):`$PATH`"; local_git_incomplete '$(ConvertTo-MsysPath $git)' && echo INCOMPLETE || echo COMPLETE"
             Assert-Match 'COMPLETE' $r.Output 'a full build is not rebuilt'
             Assert-True ($r.Output -notmatch 'INCOMPLETE') 'a full build is not reported incomplete'
         } finally { Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue }
@@ -450,10 +471,10 @@ Describe 'local_git_incomplete' {
         $root = New-PlatformSandbox -Version $script:AtFloor
         try {
             $git = New-LocalGit -Root (Join-Path $root 'nosub') -NoSubtree
-            $r = Invoke-PlatformShell -Root $root -Body "PATH=`"$(Split-Path $git):`$PATH`"; local_git_incomplete '$git' && echo INCOMPLETE"
+            $r = Invoke-PlatformShell -Root $root -Body "PATH=`"$(ConvertTo-MsysPath (Split-Path $git)):`$PATH`"; local_git_incomplete '$(ConvertTo-MsysPath $git)' && echo INCOMPLETE"
             Assert-Match 'INCOMPLETE' $r.Output 'a build missing git-subtree is rebuilt'
             $git = New-LocalGit -Root (Join-Path $root 'nopcre') -NoPcre
-            $r = Invoke-PlatformShell -Root $root -Body "PATH=`"$(Split-Path $git):`$PATH`"; local_git_incomplete '$git' && echo INCOMPLETE"
+            $r = Invoke-PlatformShell -Root $root -Body "PATH=`"$(ConvertTo-MsysPath (Split-Path $git)):`$PATH`"; local_git_incomplete '$(ConvertTo-MsysPath $git)' && echo INCOMPLETE"
             Assert-Match 'INCOMPLETE' $r.Output 'a build that cannot run git grep -P is rebuilt'
         } finally { Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue }
     }

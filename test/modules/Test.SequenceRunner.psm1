@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.14
+.VERSION 2026.10.18
 .GUID 42876323-908f-424a-bc58-2069b325aa64
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -307,9 +307,8 @@ function Save-ChainFailureArtifact {
         }
         # The capture reports each artifact on the SUCCESS stream. Callers here
         # return a hashtable the caller captures, and a bare call would join those
-        # strings to it (feedback_powershell_writeoutput_pipeline_pollution), so
-        # the lines are re-emitted as information: the transcript still shows
-        # them, and no return value can absorb them.
+        # strings to it, so the lines are re-emitted as information: the
+        # transcript still shows them, and no return value can absorb them.
         Copy-FailureArtifactsToStatusLog -VMName $VMName -GuestKey $GuestKey `
             -RepoRoot $RepoRoot -ModulesDir $ModulesDir -LogFile ([string]$global:__YurunaLogFile) |
             ForEach-Object { Write-Information ([string]$_) -InformationAction Continue }

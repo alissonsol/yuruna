@@ -524,6 +524,37 @@ future installer that stops carrying its own network config into the target. It
 cannot replace the seed, for the timing reason above: by the time a late-command
 runs, the installer has already taken a lease.
 
+**Why the DHCP address is pinned as critical.** Both installer-side pins, the
+overlays' `network:` block and the late-command patch of the installed netplan,
+also set `critical: true` on each interface, and the reason is a clock, not a
+lease. systemd-networkd installs the DHCPv4 address in the kernel with a valid
+lifetime (`valid_lft`) equal to the lease lifetime, and from then on two
+clocks run: the kernel expires the address by its own jiffies-based clock
+(`check_lifetime` in `net/ipv4/devinet.c`), while networkd's renewal timers
+run on `CLOCK_BOOTTIME`. They agree until a guest clock anomaly advances
+jiffies past the lease -- the ARM64 Hyper-V host has produced jumps of tens of
+thousands of seconds -- at which point the kernel deletes the address and its
+routes while networkd still believes the lease is valid and never asks for
+another. From outside, that is a guest that vanished from the network with a
+healthy lease still on the server. netplan renders `critical: true` as
+`KeepConfiguration=true` in the generated `.network` file (`yes`/`true`
+includes `dynamic`, whose older spelling is `dhcp`), and under that setting
+networkd installs the address with an infinite kernel lifetime
+(`dhcp4_request_address` in `networkd-dhcp4.c` sets the valid lifetime to
+`USEC_INFINITY`), so the kernel never expires it and only the lease's own
+bookkeeping can take it away. Lease renewal still runs on networkd's timers.
+The release on shutdown is unaffected: `network_release` brings the link down
+with `networkctl down`, which stops the DHCP client and sends the
+`DHCPRELEASE` whatever lifetime the address was installed with
+([Test.GuestLeaseRelease](../test/modules/Test.GuestLeaseRelease.Tests.ps1)).
+In the late-command, the critical pin is a second pass with its own
+`grep -q 'critical:'` guard, anchored on the `dhcp-identifier: mac` line the
+first pass guarantees: the identity guard skips every file the installer
+already wrote from the overlay, which is the common case, so a pin folded into
+that pass would never land there.
+[Test.GuestDhcpIdentity](../test/modules/Test.GuestDhcpIdentity.Tests.ps1)
+pins both places.
+
 <a id="4220a755-000c"></a>
 
 <a id="why-the-networkmanager-guest-gets-no-seed-network-config"></a>
@@ -724,6 +755,17 @@ systemd-networkd DHCP client. The file is `source`d by
 its failure output) and invoked by the `networkRelease` sequence action
 (for `network_release`).
 
+The same file carries two bounded helpers the Kubernetes guest script's
+cache-liveness wait uses: `yuruna_net_tcp_verdict HOST [PORT]` prints one
+line naming what the guest itself can see about a connection that failed
+(no IPv4 address, a name that does not resolve, no default route, no route,
+no ARP reply from the next hop, refused, timed out, or connected), and
+`yuruna_net_self_report HOST [PORT]` prints a fixed-height view of the
+guest's addresses, default route, neighbor entry, carrier and clocks with
+that verdict last, sized for the console frame the host OCRs. Both exist
+because curl reports every connect failure with the same words, which sent
+readers after a healthy service when the guest had lost its own address.
+
 <a id="4220a755-0011"></a>
 
 ### Defining network diag
@@ -866,13 +908,11 @@ egress, so a CA-less guest fails every HTTPS request with curl rc=60
 ("self-signed certificate in certificate chain"). That is why the CA
 fetch is retried under the shared capped-backoff policy -- one blip
 against a slow or flapping caching-proxy-service must not strand the guest
-without the CA. See the memory capture
-`feedback_sslbump_rc60_untrusted_chain_and_ca_gate_trap` for the incident
-class.
+without the CA.
 
 A finite host-side retry budget can still be outlasted by a longer proxy
 flap, so the empty-CA case is recovered at two further layers without
-relaxing egress (`project_sslbump_ca_gating_durable_fix`):
+relaxing egress:
 
 - **Host-side fallback.** `Get-CachingProxyServiceCaCertBase64` (in
   `Test.CachingProxyService.psm1`, shared by all six ubuntu `New-VM.ps1`) persists
@@ -1122,7 +1162,7 @@ caching-proxy-service already forwards `:80` for its CA-cert endpoint --
 reusing it would publish the cache at the URL the
 pool-control bring-up prints; and the download-agent service takes
 `:8082`, the next free port clear of all three. The allocation is
-therefore fixed per service rather than picked at run time:
+therefore fixed per service rather than picked at runtime:
 
 | Service | Host port on a Shared NAT Mac | Guest port |
 |---|---|---|

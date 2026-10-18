@@ -294,17 +294,30 @@ Duas maneiras pelas quais um PID inocente chega à lista de candidatos:
   ceifar o `tee` do próprio log do instalador (SIGPIPE sem nenhum trap de
   PIPE instalado -- o instalador morre) ou seu keepalive do sudo.
 
-Restringir pelo nome do executável fecha os dois casos: `pwsh` para todo
-alvo real; `bash` / `tee` / `sleep` / ... para tudo que NÃO deve ser
-tocado. Os instaladores bash leem `ps -o comm=` -- o nome do executável,
+Restringir pelo nome do executável fecha o segundo caso, e o primeiro
+sempre que o PID reciclado pertence agora a algo que não seja PowerShell:
+`pwsh` para todo alvo real; `bash` / `tee` / `sleep` / ... para tudo que
+NÃO deve ser tocado. Os instaladores bash leem `ps -o comm=` -- o nome do executável,
 NÃO o argv, que o caminho de inicialização contamina com os nomes dos
 padrões -- usando `-ww` para que o `ps` do BSD/macOS não trunque a saída
-quando nenhum TTY está anexado (a classe de armadilha
-`feedback_bsd_ps_args_truncation`). Um `comm` vazio para um pid VIVO
+quando nenhum TTY está anexado. Um `comm` vazio para um pid VIVO
 significa que o `ps` não conseguiu reportá-lo; o pid é mantido em vez de
 desabilitar silenciosamente a parada (uma degradação para o comportamento
 anterior à validação). Isso espelha a verificação de identidade de PID do
 lado PowerShell (a proteção de pid obsoleto do `Start-TestRunner.ps1`).
+
+O nome do executável não distingue um executor de um processo PowerShell
+não relacionado que herdou seu PID -- entre eles, o shell que iniciou o
+instalador. Por isso, um PID lido de um arquivo de PID também precisa
+ainda pertencer ao seu dono: o processo executa um dos scripts do canal 2,
+ou foi iniciado, com diferença de até dois segundos, no instante que o
+registro `.start` ao lado do arquivo de PID indica (`runner.start` do
+executor externo, `inner.start` do laço interno, ambos em ISO-8601 UTC).
+O `server.pid` não tem registro de início, então o serviço de status é
+reconhecido apenas pela linha de comando. O Windows lê a linha de comando de uma única
+listagem de `Win32_Process`, que também atende o canal 2, e o instante de
+início de `Get-Process`; os instaladores bash leem `ps -o args=` e
+`ps -o lstart=`.
 
 <a id="429fb30b-000c"></a>
 
@@ -578,6 +591,32 @@ máquina nova). O `Install-PowerShellYamlIfMissing` (definido em
 e reexportado via `Test.HostContract`) ainda é chamado a partir do
 `Enable-TestAutomation.ps1` como rede de segurança para bootstraps com
 clone manual.
+
+<a id="429fb30b-003b"></a>
+
+### Instalação do Pester
+
+Os instaladores de hospedeiro executam [`tools/Install-TestModule.ps1`](../../tools/Install-TestModule.ps1),
+que instala o Pester **6.x** mais recente no escopo CurrentUser; 6.2.0 é a
+versão documentada. O executor das suítes carrega essa linha (veja
+[Executar as suítes](../test-harness.md#running-the-suites)), e o passo de testes do
+pre-commit a exige no hospedeiro.
+
+O instalador não remove nada. Um Pester mais antigo deixado no hospedeiro nunca é
+selecionado: `tools/Invoke-TestSuite.ps1` e `tools/_InvokeOneSuite.ps1` importam
+o 6.x mais recente pelo caminho resolvido. Um `Invoke-Pester` sem qualificação carrega a
+cópia instalada mais recente, seja qual for a linha, então execute as suítes pelo executor.
+
+O PSScriptAnalyzer é instalado junto com eles quando está ausente. Uma falha chega ao
+resumo final do instalador, e o instalador segue em frente.
+
+Um commit que prepara um arquivo de teste é recusado em um hospedeiro que tem `pwsh` mas
+não tem Pester 6.x. A recusa nomeia o comando que instala a versão documentada
+manualmente:
+
+```
+Install-Module Pester -RequiredVersion 6.2.0 -Scope CurrentUser -SkipPublisherCheck
+```
 
 ---
 
@@ -1240,6 +1279,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Última revisão: 2026.10.14
+Última revisão: 2026.10.18
 
 Voltar para [Yuruna](../../README.md)

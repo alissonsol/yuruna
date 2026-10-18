@@ -417,8 +417,8 @@ Sources:
 
 ### Why the diagnostic shows recent .yuruna/ file mtime as cycle footprint?
 
-The yuruna runner streams its real-time log to a `GetTempFileName`
-transcript that lives OUTSIDE the project tree
+The yuruna runner streams its real-time log to a transcript in the
+bounded `yuruna-transcripts` temp folder, OUTSIDE the project tree
 (`Resolve-YurunaTranscriptPath`, called by `Set-Resource.ps1` and `Set-Workload.ps1`), so the diagnostic
 dump can't reach it from the project root. What it CAN show is which
 files the last cycle wrote: the top-N most-recently-modified files
@@ -612,7 +612,7 @@ Source:
 ### Pester file-scope fixtures
 
 Helper functions and fixtures belong in a `BeforeAll`, which is the
-scope Pester 5 shares with every `It` body. A `Describe` body runs
+scope Pester shares with every `It` body. A `Describe` body runs
 during discovery and its variables and functions are discarded before
 any `It` executes, so a fixture defined there is gone by the time a
 test reads it.
@@ -1582,8 +1582,7 @@ pipeline output and trip callers' hashtable-shape check
 The inner scriptblock's pipeline is therefore split at the call site:
 hashtables go to `$state.manifest`, everything else routes to the
 host via `Out-Default` (the caller's `Start-Transcript` still
-captures it). See
-`feedback_powershell_writeoutput_pipeline_pollution.md` for the trap.
+captures it).
 
 State is held in a hashtable so the `ForEach-Object` child scope can
 mutate it; a plain `$manifest = $_` would only write the child scope.
@@ -1745,6 +1744,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.14
+Last review: 2026.10.18
 
 Back to [Yuruna](../README.md)

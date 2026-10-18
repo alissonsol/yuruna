@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.14
+.VERSION 2026.10.18
 .GUID 42930196-b800-4c0a-baac-f213d39f8eba
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -351,7 +351,7 @@ Describe 'Publish-GuestFileSha256 and Get-PublishedSha256' {
     }
 }
 
-Describe 'the ${ext:digest.<Method>(...)} syntax' {
+Describe 'the ${ext:digest.`<Method`>(...)} syntax' {
     BeforeAll {
         Import-Module (Join-Path $script:RepoRoot 'test/modules/Test.SequenceVariable.psm1') -Force -Global -DisableNameChecking
         $script:Server2 = [YurunaDigestFixtureServer]::new()

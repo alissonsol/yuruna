@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.14
+.VERSION 2026.10.18
 .GUID 42ff5f78-3c96-4742-aa2e-f64ce54e850a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -297,6 +297,9 @@ $out
 # Read at discovery, because -ForEach is: every pinned corpus becomes a case
 # of its own, so a new locale's fixture is covered the moment it exists.
 $script:PluralCorpora = @(Get-ChildItem -LiteralPath (Join-Path (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)) 'globalization/fixtures') -Filter '*-plurals.json' | Sort-Object Name | ForEach-Object { @{ Path = $_.FullName; Name = $_.Name } })
+# An empty case list fails discovery outright with a message that names the
+# missing input, rather than retiring the Describe or leaving a bare throw.
+if ($script:PluralCorpora.Count -eq 0) { throw 'discovery found no *-plurals.json corpus under globalization/fixtures; the pinned cardinal rules would be checked against nothing' }
 
 Describe 'Pinned numeric cardinal rules' {
     It 'matches every pinned plural corpus <Name>' -ForEach $script:PluralCorpora {

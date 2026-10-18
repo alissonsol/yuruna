@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.14
+.VERSION 2026.10.18
 .GUID 4201387d-cf87-45af-987c-08f11f4a809c
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -511,7 +511,7 @@ Describe 'new suite registration preserves the historical protection floor' {
         Set-FixtureSuite -Root $script:RegistrationRoot -Name Alpha -Body $script:PassingSuite
         $script:RegistrationBaseline = Join-Path $script:RegistrationRoot 'test/modules/suite-baseline.json'
         $historical = [ordered]@{
-            schemaVersion=1; recordedUtc='2026-09-01T00:00:00Z'; pesterVersion='5.9.0'
+            schemaVersion=1; recordedUtc='2026-09-01T00:00:00Z'; pesterVersion='6.2.0'
             totals=[ordered]@{suites=1;tests=2;failed=0;skipped=0}
             suites=[ordered]@{'test/modules/Alpha.Tests.ps1'=[ordered]@{total=2;skipped=0;seconds=7.25}}
         }
@@ -633,7 +633,7 @@ Describe 'result reporting failures preserve diagnostics and evidence' {
         $script:ReportingBaseline = Join-Path $script:ReportingRoot 'test/modules/suite-baseline.json'
         $script:ReportingXml = Join-Path $script:ReportingDirectory 'nunit-test_modules_Alpha.Tests.ps1.xml'
         $baseline = [ordered]@{
-            schemaVersion = 1; recordedUtc = '2026-09-01T00:00:00Z'; pesterVersion = '5.9.0'
+            schemaVersion = 1; recordedUtc = '2026-09-01T00:00:00Z'; pesterVersion = '6.2.0'
             totals = [ordered]@{ suites = 1; tests = 45; failed = 0; skipped = 0 }
             suites = [ordered]@{ 'test/modules/Alpha.Tests.ps1' = [ordered]@{ total = 45; skipped = 0; seconds = 1 } }
         }
@@ -838,5 +838,133 @@ Describe 'result export failure' {
         $xml = [xml]([IO.File]::ReadAllText($script:ReportingXml))
         @($xml.SelectNodes('//test-case[failure]')).Count | Should -Be 12
         $xml.SelectSingleNode('//test-case/failure/message').InnerText.Length | Should -BeGreaterThan 3000
+    }
+}
+
+Describe 'each suite runs in a temp folder of its own that the runner removes' {
+    BeforeAll {
+        # What the fixture suite saw, written to the fixture root (outside the
+        # suite's temp folder, which is gone by the time the test reads it).
+        $script:ObserveTemp = @'
+BeforeAll {
+$record = Join-Path (Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSCommandPath))) 'temp-observed.txt'
+$child = & ([Environment]::ProcessPath) -NoProfile -NonInteractive -Command '[IO.Path]::GetTempPath()'
+$tempPath = [IO.Path]::GetTempPath()
+Set-Content -LiteralPath (Join-Path $tempPath 'left-by-a-test.txt') -Value 'leak'
+@(
+    "root=$env:YURUNA_TEST_TEMP_ROOT"
+    "tmpdir=$env:TMPDIR"
+    "tmp=$env:TMP"
+    "temp=$env:TEMP"
+    "diagnostics=$env:DOTNET_EnableDiagnostics"
+    "path=$tempPath"
+    "child=$child"
+) | Set-Content -LiteralPath $record
+}
+'@
+        function Read-ObservedTemp {
+            param([string]$Root)
+            $map = @{}
+            foreach ($line in Get-Content -LiteralPath (Join-Path $Root 'temp-observed.txt')) {
+                $name, $value = $line -split '=', 2
+                $map[$name] = $value
+            }
+            $map
+        }
+        function Get-TrimmedPath { param([string]$Path) $Path.TrimEnd('/', '\') }
+    }
+
+    It 'points the suite and every child it starts at the same run-owned folder, keeps it until the run ends, then removes it' {
+        $root = New-FixtureTree
+        try {
+            Set-FixtureSuite -Root $root -Name 'Alpha' -Body ($script:ObserveTemp + "`nDescribe 'contained' { It 'runs' { 1 | Should -Be 1 } }")
+            # Beta starts alongside Alpha, waits for Alpha's record, then checks that
+            # Alpha's folder survived Alpha's exit: the folder lives until the run ends.
+            $beta = @'
+BeforeAll {
+    $fixtureRoot = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSCommandPath))
+    $record = Join-Path $fixtureRoot 'temp-observed.txt'
+    $deadline = [DateTime]::UtcNow.AddSeconds(60)
+    while ([DateTime]::UtcNow -lt $deadline) {
+        if ((Test-Path -LiteralPath $record) -and @(Get-Content -LiteralPath $record).Count -ge 7) { break }
+        Start-Sleep -Milliseconds 200
+    }
+    $alphaRoot = (@(Get-Content -LiteralPath $record) | Where-Object { $_ -like 'root=*' } | Select-Object -First 1).Substring(5)
+    Start-Sleep -Seconds 3
+    Set-Content -LiteralPath (Join-Path $fixtureRoot 'beta-saw.txt') -Value ([string](Test-Path -LiteralPath $alphaRoot))
+}
+Describe 'b' { It 'c' { 1 | Should -Be 1 } }
+'@
+            Set-FixtureSuite -Root $root -Name 'Beta' -Body $beta
+            $run = Invoke-Runner -Root $root -ThrottleLimit 2
+            $run.ExitCode | Should -Be 0 -Because $run.Output
+            Get-Content -LiteralPath (Join-Path $root 'beta-saw.txt') -Raw | Should -Match 'True' -Because 'Alpha''s folder outlived Alpha'
+            $seen = Read-ObservedTemp -Root $root
+            [IO.Path]::GetFileName($seen.root) | Should -Match '^yrn-suite-[0-9a-f]{12}$'
+            $master = Split-Path -Parent $seen.root
+            [IO.Path]::GetFileName($master) | Should -Match '^yrn-run-[0-9a-f]{12}$' -Because 'each suite folder sits in the run master'
+            if (-not $IsWindows) {
+                Split-Path -Parent $master | Should -Be '/tmp' -Because 'a short base keeps runtime socket paths under the Unix length cap'
+            }
+            foreach ($name in 'tmpdir', 'tmp', 'temp') { $seen[$name] | Should -BeExactly $seen.root -Because "$name must name the suite folder" }
+            Get-TrimmedPath $seen.path | Should -BeExactly $seen.root
+            Get-TrimmedPath $seen.child | Should -BeExactly $seen.root -Because 'a child process inherits the containment'
+            $seen.diagnostics | Should -BeExactly '0'
+            Test-Path -LiteralPath $seen.root | Should -BeFalse -Because 'the run removes the suite folder and what a test left in it when the run ends'
+            Test-Path -LiteralPath $master | Should -BeFalse -Because 'the run removes its master folder when the run ends'
+            @($run.Result.suites)[0].message | Should -Not -Match 'not fully removed'
+        } finally { Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue }
+    }
+
+    It 'removes the folder of a suite it killed at the timeout' {
+        $root = New-FixtureTree
+        try {
+            $body = $script:ObserveTemp + "`nDescribe 'hung' { It 'never returns' { Start-Sleep -Seconds 120 } }"
+            Set-FixtureSuite -Root $root -Name 'Alpha' -Body $body
+            $run = Invoke-Runner -Root $root -TimeoutSeconds 15
+            $run.ExitCode | Should -Not -Be 0
+            ($run.Result.problems -join ' ') | Should -Match 'rc=124'
+            $seen = Read-ObservedTemp -Root $root
+            [IO.Path]::GetFileName($seen.root) | Should -Match '^yrn-suite-[0-9a-f]{12}$'
+            Test-Path -LiteralPath $seen.root | Should -BeFalse -Because 'nothing inside a killed worker can clean up, so the run must, when it ends'
+            Test-Path -LiteralPath (Split-Path -Parent $seen.root) | Should -BeFalse -Because 'the run master goes with it'
+        } finally { Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue }
+    }
+}
+
+Describe 'the single-suite shim contains a direct run the same way' {
+    It 'gives a direct run its own folder, restores the environment and removes the folder' {
+        $root = New-FixtureTree
+        try {
+            $record = Join-Path $root 'shim-observed.txt'
+            $suite = Join-Path $root 'test/modules/Alpha.Tests.ps1'
+            $body = @'
+Describe 'direct' {
+    It 'records its temp root' {
+        $record = Join-Path (Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSCommandPath))) 'shim-observed.txt'
+        Set-Content -LiteralPath (Join-Path ([IO.Path]::GetTempPath()) 'left-by-a-test.txt') -Value 'leak'
+        Set-Content -LiteralPath $record -Value "$env:YURUNA_TEST_TEMP_ROOT|$env:TMPDIR|$env:DOTNET_EnableDiagnostics"
+    }
+}
+'@
+            Set-Content -LiteralPath $suite -Value $body -Encoding utf8NoBOM
+            $shim = Join-Path (Split-Path -Parent $script:Runner) '_InvokeOneSuite.ps1'
+            $xml = Join-Path $root 'direct.xml'
+            # Clear the variables a surrounding runner set, so the shim sees a direct run.
+            $saved = @{}
+            foreach ($name in 'YURUNA_TEST_TEMP_ROOT', 'TMPDIR', 'TMP', 'TEMP', 'DOTNET_EnableDiagnostics') { $saved[$name] = [Environment]::GetEnvironmentVariable($name) }
+            try {
+                [Environment]::SetEnvironmentVariable('YURUNA_TEST_TEMP_ROOT', $null)
+                $output = & ([Environment]::ProcessPath) -NoProfile -NonInteractive -File $shim -Suite $suite -Xml $xml 2>&1 | Out-String
+            } finally {
+                foreach ($name in $saved.Keys) { [Environment]::SetEnvironmentVariable($name, $saved[$name]) }
+            }
+            Test-Path -LiteralPath $record | Should -BeTrue -Because $output
+            $folder, $tmpdir, $diagnostics = (Get-Content -LiteralPath $record -Raw).Trim() -split '\|'
+            [IO.Path]::GetFileName($folder) | Should -Match '^yrn-suite-[0-9a-f]{12}$'
+            $tmpdir | Should -BeExactly $folder
+            $diagnostics | Should -BeExactly '0'
+            Test-Path -LiteralPath $folder | Should -BeFalse
+        } finally { Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue }
     }
 }

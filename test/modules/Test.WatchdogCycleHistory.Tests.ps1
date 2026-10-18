@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.14
+.VERSION 2026.10.18
 .GUID 426ffdec-7946-4b27-9d2c-487151f04ec7
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -43,6 +43,7 @@ BeforeAll {
     Import-Module (Join-Path $here 'Test.StateFile.psm1')               -Force -DisableNameChecking
     Import-Module (Join-Path $here 'Test.Status.psm1')                  -Force -DisableNameChecking
     Import-Module (Join-Path $here 'Test.RunnerOuterLoop.psm1')         -Force -DisableNameChecking
+    Import-Module (Join-Path $here 'Test.ConfigPreflight.psm1')         -Force -DisableNameChecking
 
     function Initialize-TempRuntimeDir {
         $dir = Join-Path ([IO.Path]::GetTempPath()) ("yuruna-wdhist-" + [Guid]::NewGuid().ToString('n'))
@@ -435,8 +436,10 @@ Describe 'Pre-cycle refusal preserves the previous completed cycle' {
             $previous.lastFailure = @{ failureClass = 'historical-soft-failure' }
             $previous.history = @(@{ cycle = 1234; overallStatus = 'pass' })
             $path = Write-StatusDocument -Dir $dir -Document $previous
-            $evidence = @{ frameworkCommitSha = 'new-sha'; recordPath = 'runner-attempts/new/config-gate.json'; transcriptPath = 'runner-attempts/new/config-gate.log' }
             $spawned = [datetime]'2026-09-19T18:01:00Z'
+            $gate = @{ passed = $false; skipped = $false; exitCode = 1; startedAtUtc = $spawned.ToString('o'); lines = @('configuration missing'); failureLines = @('configuration missing'); structuredResult = $null }
+            $artifact = Write-ConfigGateArtifact -RuntimeDir $dir -Gate $gate -AttemptGeneration 'runner:8' -FrameworkCommitSha 'new-sha' -Confirm:$false
+            $evidence = Get-Content -LiteralPath (Join-Path $dir $artifact.recordPath) -Raw | ConvertFrom-Json -AsHashtable
             foreach ($state in 'fault', 'paused') {
                 $null = Update-RunnerFaultStatus -RuntimeDir $dir -RunnerState $state -Reason 'configuration gate refused to start' `
                     -FailureClass 'config_gate_failed' -AttemptGeneration 'runner:8' -SpawnedAtUtc $spawned -AttemptEvidence $evidence -Confirm:$false
@@ -453,6 +456,9 @@ Describe 'Pre-cycle refusal preserves the previous completed cycle' {
             $doc.runnerFault.attemptGeneration | Should -Be 'runner:8'
             $doc.runnerFault.frameworkCommitSha | Should -Be 'new-sha'
             $doc.runnerFault.transcriptPath | Should -Be $evidence.transcriptPath
+            $index = Get-Content -LiteralPath (Join-Path $dir 'runner-attempts/index.json') -Raw | ConvertFrom-Json
+            @($index.attempts).Count | Should -Be 1
+            $index.attempts[0].recordPath | Should -Be $evidence.recordPath
         } finally { Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction SilentlyContinue }
     }
 }
@@ -523,8 +529,14 @@ Describe 'Attempt evidence distinguishes refusals and watchdog kills' {
 
             $result = Read-StatusDocument -Path $path
             $result.runnerFault.failureClass | Should -Be 'wait_timeout'
-            $result.runnerFault.recordPath | Should -BeExactly 'runner.watchdog-kill.json'
+            $result.runnerFault.recordPath | Should -Match '^runner-attempts/[0-9a-f]{24}/runner-fault.json$'
             Test-Path -LiteralPath (Join-Path $dir $result.runnerFault.recordPath) -PathType Leaf | Should -BeTrue
+            Remove-Item -LiteralPath (Join-Path $dir 'runner.watchdog-kill.json') -Force
+            $retained = Get-Content -LiteralPath (Join-Path $dir $result.runnerFault.recordPath) -Raw | ConvertFrom-Json
+            $retained.evidence.failureClass | Should -Be 'wait_timeout'
+            $retained.evidence.attemptGeneration | Should -Be 'runner:2'
+            $index = Get-Content -LiteralPath (Join-Path $dir 'runner-attempts/index.json') -Raw | ConvertFrom-Json
+            $index.attempts[0].recordPath | Should -Be $result.runnerFault.recordPath
             $result.overallStatus | Should -Be 'fail'
         } finally { Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction SilentlyContinue }
     }

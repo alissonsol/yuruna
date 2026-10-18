@@ -69,7 +69,7 @@ Top-level fields, in order:
 | `description` | string | The step's `description:`. |
 | `vmName` / `guestKey` | string | Failing guest identity. |
 | `timestamp` | string | UTC `yyyy-MM-dd HH:mm:ss`. |
-| `failureClass` | enum | Machine-routable class. The canonical set lives in [`Test.FailureTaxonomy`](../test/modules/Test.FailureTaxonomy.psm1) (one source of truth for the verb `ValidateSet` and the event-schema validator). Guest/sequence classes come from the failing verb's registration; `unknown` when the verb is unresolved; `pattern_matched_failure` when `Wait-ForText` short-circuited on a hard-block pattern; the host infra classes `provisioning_failure` / `bootstrap_sync` / `plan_invalid` / `network_timeout` come from the runner's infra stages (see [Infra-stage records](#infra-stage-records)). |
+| `failureClass` | enum | Machine-routable class. The canonical set lives in [`Test.FailureTaxonomy`](../test/modules/Test.FailureTaxonomy.psm1) (one source of truth for the verb `ValidateSet` and the event-schema validator). Guest/sequence classes come from the failing verb's registration; `unknown` when the verb is unresolved; `pattern_matched_failure` when `Wait-ForText` short-circuited on a hard-block pattern; the host infra classes `provisioning_failure` / `bootstrap_sync` / `plan_invalid` / `network_timeout` / `hypervisor_unresponsive` come from the runner's infra stages (see [Infra-stage records](#infra-stage-records)). |
 | `severity` | enum | `hard` / `soft` from the verb; `unknown` when unresolved. |
 | `suggestedRecoveries` | string[] | Verb's `SuggestedRecoveries` (always a JSON array, never `null`). |
 | `actionVerb` | string | The failing verb name (`script_error` for an unattributed crash; the stage name for an infra record). |
@@ -116,7 +116,7 @@ These appear on **both** step and crash records (a crash after step N began stil
 | `cycleFolder` | The cycle's stable identity (step failures only) -- the same value the NDJSON stream stamps, so this file joins to the event stream and resolves to the folder on disk. |
 | `failureScreenshotPath` / `failureOcrPath` | Cycle-dir-relative names of this failure's screen evidence (step failures only). **Absent** unless the artifact exists and was last written after the failing step began: both are sticky per-VM files that only the screen-reading verbs rewrite, so a failure in a verb that reads no text would otherwise point at an earlier step's screen. A reader follows these; nothing audits them, so a present name is a claim the record has to be able to keep. |
 | `staleEvidence` | Each artifact dropped from the two pointers above, named with how many seconds before the failing step it was last written; `[]` when none was. The file is still in the cycle folder under that name, so evidence belonging to an earlier step stays findable while the pointers stay trustworthy -- and an absent pointer is never read as "no screen evidence exists at all", which is a different fact with a different next step. |
-| `causeDetail` | Step records only: `{ ocrTail, patternsSought }` -- the freshest on-screen OCR text (bounded tail, <=1200 chars) and the patterns the wait was seeking at the failure site. Lets a consumer see the runtime cause behind a verb-static `failureClass`. Mirrored flat on the event as `causeOcrTail` / `causePatternsSought`. `patternsSought` is recorded on every timed-out wait, including one whose console never showed readable text. Also carries `freshWindowNearMiss`, `closestOnScreen`, `consoleFlood`, `consoleStaticSeconds`, `blankScreenSeconds`, `guestLivelock`, `installerStage`, `installerStageUnchangedSeconds`, `pauseBeforeStepSeconds`, `pauseReleasedAtUtc`, `vmState`, `vmStateWaitedSeconds`, `vmStateRequestedAtUtc`, `firstGuestSilenceUtc` and `firstGuestSilenceSource` (below). |
+| `causeDetail` | Step records only: `{ ocrTail, patternsSought }` -- the freshest on-screen OCR text (bounded tail, <=1200 chars) and the patterns the wait was seeking at the failure site. Lets a consumer see the runtime cause behind a verb-static `failureClass`. Mirrored flat on the event as `causeOcrTail` / `causePatternsSought`. `patternsSought` is recorded on every timed-out wait, including one whose console never showed readable text. Also carries `freshWindowNearMiss`, `closestOnScreen`, `consoleFlood`, `consoleStaticSeconds`, `blankScreenSeconds`, `guestLivelock`, `installerStage`, `installerStageUnchangedSeconds`, `pauseBeforeStepSeconds`, `pauseReleasedAtUtc`, `vmState`, `vmStateWaitedSeconds`, `vmStateRequestedAtUtc`, `firstGuestSilenceUtc`, `firstGuestSilenceSource` and `launcherRejection` (below). |
 | `crash` | Crash records only: `{ error, origin, stack }`. |
 | `dependencyFailures` | Optional infra evidence for unavailable lab services. Lab-health entries include area, attempted and last known addresses, last success, detail and pool discovery outcome. Stash preflight entries include area, address, endpoint, source, outcome, detail and retry attempt. Discovery HTTP responses remain available to distinguish missing registration from an unreachable service. Mirrored as `dependencyFailures` on the event. |
 | `hostMemory` | Infra records only, and only when the host driver could measure the machine: `{ availableMb, committedBytes, commitLimitBytes, commitAvailableBytes, source }`. A VM's startup memory is charged against the system commit limit -- physical memory plus the current page-file size -- and not against free physical memory, so a provisioning refusal is explained by the commit figures while free physical memory can be at its highest in the same instant. **Absent** when nothing measured, never zeroed: a zeroed block reads as a machine that was measured and found empty, which is a different fact with a different next step. Mirrored flat on the event as `hostAvailableMb` / `hostCommittedBytes` / `hostCommitLimitBytes` / `hostCommitAvailableBytes`. |
@@ -134,11 +134,12 @@ These appear on **both** step and crash records (a crash after step N began stil
 | `blankScreenSeconds` | Seconds the console had read blank -- no OCR engine found any text -- when the wait ended; `0` when its last frame carried text. A blank console leaves `ocrTail` empty and `consoleStaticSeconds` unmeasured, since both read text, so this is the field that says the screen went black rather than that nothing was compared. Mirrored on the event as `causeBlankScreenSeconds`. |
 | `guestLivelock` | The hypervisor's view of the guest when the wait ended, from the host sampler's recording: `{ verdict, livelockedSeconds, minimumSeconds, virtualProcessors, guestRunPercent, hypervisorRunPercent, interceptsPerSecond, dominantIntercept, interceptBreakdown, sampleCount, newestSampleUtc, reason }`. `verdict` is `livelocked` when every virtual processor sat at least 80% busy with the hypervisor holding at least 88% of that time for `minimumSeconds` (300), `not-livelocked` otherwise, and `unavailable` when the recording had no recent readings for the VM. `interceptBreakdown` averages the per-cause intercept rates over the run, highest first, and `dominantIntercept` names the top one. `null` when the host keeps no recording (every host but Windows, or sampling turned off): not measured, which is not the same reading as measured and found running. Mirrored on the event as `causeGuestLivelocked` / `causeGuestLivelockedSeconds`. |
 | `installerStage` / `installerStageUnchangedSeconds` | The last `start:` or `finish:` marker for a substantive Subiquity Install or Mirror stage visible during this wait, and seconds since that marker changed. Network update chatter is excluded. This records the last observed marker, not proof that its command is still running. `''` / `0` when no stage was seen. Mirrored on the event as `causeInstallerStage` / `causeInstallerStageUnchangedSeconds`. |
-| `progressAdvisory` | Independent observations: `outputStaticSeconds`, `heartbeatAgeSeconds`, SSH responsiveness and an advisory verdict. At least two sustained signals yield `progress-suspect`; absent measurements stay null/unavailable. Output is observed during tail-confined waits too, without enabling their disabled recovery signals. `automaticRecoveryAllowed` is always false. |
+| `progressAdvisory` | Independent observations: `outputStaticSeconds`, `heartbeatAgeSeconds`, SSH responsiveness, `clockWarnings` and an advisory verdict. `sshResponsiveness` is `unresponsive` when the harness killed the evidence client or when the client itself reported a dead path (exit 255 with a connect timeout, no route, an unreachable network, a refusal or a name that did not resolve); it is `unavailable` only when no transport was measured. `clockWarnings` lists the codes the clock analysis of the step's recorder samples raised (for example `cpu-idle-exceeds-boot-uptime`), and a non-empty list adds the `guest-clock-anomaly` signal, which is evidence about the guest's time base and never a stall signal on its own. At least two sustained stall signals yield `progress-suspect`; absent measurements stay null/unavailable. Output is observed during tail-confined waits too, without enabling their disabled recovery signals. `automaticRecoveryAllowed` is always false. |
 | `pauseBeforeStepSeconds` | Seconds an operator hold ran, when one was released before the failing step. The pause gate holds the runner and not the guest, so a prompt the guest printed once during the hold is off the screen the resumed step then has to read -- which looks identical to a prompt that never printed. `0` when there was no hold. |
 | `pauseReleasedAtUtc` | When that hold ended, so it can be placed against the step's own start. `''` when there was no hold. |
 | `vmState` / `vmStateWaitedSeconds` / `vmStateRequestedAtUtc` | Set by `stopVm` and `startVm` when the guest never reached the stopped state: the state the host reported when the wait gave up, how long it waited, and when the shutdown was requested. The class is then `wait_timeout`, and the event carries `causeVmState` and `causeVmStateWaitedSeconds`. `''` and `0` otherwise. |
 | `firstGuestSilenceUtc` / `firstGuestSilenceSource` | The earliest moment in the current sequence at which the guest stopped answering, and the mechanism that saw it: an SSH transport dropped mid-command, typed input the console never acknowledged, a diagnostic no rung could reach, or a shutdown request the guest ignored. Set once per sequence by the first observer and never cleared by a later step, so a record names the first symptom rather than the step that finally gave up. `''` when nothing observed a silence. |
+| `launcherRejection` | Set by `fetchAndExecute` when the guest launcher (`yfe --gui`) refused the typed compact envelope, read from the record the launcher leaves under the envelope digest: `{ code, attempt, receivedChars, expectedChars, receivedSha256, expectedSha256, payloadState }`. Every refusal comes before the payload runs, so the class stays the matched failure pattern while this names what the keyboard delivered: one more received character than typed is a key that repeated. A `YFE_GUI_ENCODING` or `YFE_GUI_DIGEST` refusal with `payloadState` `NOT_PREPARED` is typed once more within the step, and a `retry_attempt` event with `stack` `gui-envelope` records it; `attempt` names the attempt this refusal ended. `null` when the launcher refused nothing or predates the record. Mirrored on the event as `causeLauncherRejection` (the code, `''` when none). |
 
 The write is atomic (temp-file + rename via `Write-YurunaStateFile`) so a
 remediator or the status service never observes a truncated record.
@@ -148,15 +149,34 @@ availability even when the all-processor livelock predicate does not hold.
 The event carries it as `guestProcessorWindow`. Per-counter averages use their
 own valid sample counts; missing or invalid readings do not become zeros.
 Residuals require paired measurements of every supported named counter and
-remain estimates because categories may overlap.
+remain estimates because categories may overlap. Each processor also carries
+`hypervisorShare` (its hypervisor time over its busy time), `stormed` (busy
+at least 80% with the hypervisor holding at least 88% of it, or at least a
+million intercepts per second, over the window) and `dominantIntercept`; the
+window lists `stormedProcessors` and `stormTransitions`, the sample instants
+at which the set of stormed processors changed. The verdict is recorded on a
+timed-out wait and on a wait that a failure pattern ended, so a script that
+gave up on the console carries the processors' state at that moment.
 
 Heartbeat age describes recorder and guest sampling liveness; a fresh heartbeat
 does not prove the application made progress.
 
 Fetch step-end events include `executionEvidence` with capture outcome, reason,
-artifact path and retained recorder status. Failure cleanup emits a
-`failure_diagnostic` event carrying independent host/guest snapshot outcomes,
-including capture exceptions. For an exhausted retry, its diagnostic manifest
+artifact path and retained recorder status. The capture names the transport it
+met: `transport` is `responsive`, `timed-out`, `unreachable` or `unknown`,
+`transportDetail` keeps the client line that decided it, and `transportFailed`
+is true for the two dead states; a dead transport keeps its reason code
+(`profile-ssh-timeout` or `profile-ssh-unreachable`) over the log-identity
+verdict, because a path that never reached the guest says nothing about which
+log the guest holds. `recorder.clockAnalysis` runs the advisory clock analysis
+over the retained recorder samples, sorted into time order. Failure cleanup
+emits a `failure_diagnostic` event carrying independent host/guest snapshot
+outcomes, including capture exceptions, plus `sshReadiness` (the cause, target,
+attempts and last client line the readiness wait recorded when no rung reached
+the guest) and `networkCrossCheck` (the verdict of the host's own reachability
+check, below). The after-restart clock snapshot adds `sshProbe`: one bounded
+TCP touch on the proven address with the banner sshd sent, so a daemon still
+starting and a guest off the network read differently without a wait. For an exhausted retry, its diagnostic manifest
 and event use the originating leaf IDs so they join the fetch recorder; the
 failure event retains the outer wrapper IDs and publishes both pairs. A
 distinct outer crash uses its own IDs. Failed retry wrappers retain the leaf's
@@ -255,9 +275,17 @@ git divergence -- `operator_intervention_required`), `plan_invalid`
 (PoolStorageSpaceCheck / PoolStorageMove -- `operator_intervention_required`;
 written by the OUTER loop rather than the sequence engine, since a share that
 cannot hold the results is discovered either before the cycle spawns or after it
-finishes). The runner never clobbers a richer
+finishes), and `hypervisor_unresponsive` (HypervisorControl, the pre-cycle
+probe of the hypervisor's control channel, or a host action whose VM start
+reported the channel hung -- `operator_intervention_required`). The runner never clobbers a richer
 engine-written record and the write is fully guarded so telemetry cannot
 fail the cycle.
+
+A host action (a project's `host:` sequence such as `initialize-lab`) that
+exits non-zero is recorded under its own name with whatever class the action
+itself wrote to `last_failure.json` during its run, else `unknown`; the
+description is the action's last error line, else its last output line, so a cause
+the script named survives outside the transcript.
 
 A stage whose host driver can measure the machine also carries
 [`context.hostMemory`](#context) -- the physical memory available and the system
@@ -308,6 +336,26 @@ Fields:
 (alternative taken), `reason`, and `severity` (`soft` by nature). The emit is
 best-effort (`Send-CycleEventSafely`) and never fails the cycle. A stream
 consumer that counts only failures should skip this event type.
+
+<a id="42820e91-0025"></a>
+
+## `network_cross_check` event (the host's own reachability reading)
+
+Emitted by `Invoke-GuestNetworkCrossCheck` (`Test.GuestNetworkCrossCheck.psm1`)
+during failure cleanup, before the guest diagnostic runs, and written beside
+the failure artifacts as `network-cross-check.json` and `.txt`. From the host
+it probes the caching proxy's registry (`/v2/`) and health page and the guest's
+last proven address (TCP 22, ICMP, the neighbor cache), then names the
+combination: `proxy-reachable-guest-unreachable`, `proxy-unreachable-guest-reachable`,
+`both-reachable`, `both-unreachable`, a one-sided reading when only one of the
+two could be probed (`guest-unreachable-proxy-unknown`, `guest-reachable-proxy-unknown`,
+`proxy-reachable-guest-unknown`, `proxy-unreachable-guest-unknown`) or
+`unavailable` when neither a cache host nor a guest address was known. Fields: `event` = `network_cross_check`,
+`timestamp`, `vmName`, `guestKey`, `verdict`, `cacheHost`, `cacheV2Status`,
+`cacheV2Ms`, `cacheHealthOk`, `guestAddress`, `guestTcp22Ok`, `guestPingOk`,
+`neighborState`. It exists because a guest's console can blame a service the
+guest could not reach for reasons of its own; the host reaching that service
+in the same minute is what separates the two.
 
 <a id="42820e91-001e"></a>
 
@@ -615,6 +663,41 @@ default, limited to a short allow-list, and capped per failure fingerprint in a
 ledger that survives a runner restart, so that a misclassified failure cannot
 drive a repair in a loop.
 
+The dashboard's failure-class links open the matching entry below. A class
+describes the failed operation or observed condition, not necessarily its root
+cause; read the recorded reason, `causeDetail`, and cycle artifacts before
+choosing a recovery. The canonical list comes from
+[`Test.FailureTaxonomy`](../test/modules/Test.FailureTaxonomy.psm1).
+
+| Failure class | Meaning | First check |
+|---|---|---|
+| <a id="failure-class-ocr_timeout"></a>`ocr_timeout` | The expected console text did not appear before the OCR wait expired. | Compare the screenshot and OCR tail with the expected sequence state. |
+| <a id="failure-class-console_flooded"></a>`console_flooded` | Repeated console output prevented the wait from reading the expected text. | Inspect `causeDetail.consoleFlood`, the repeated line, and whether the console was static or changing. |
+| <a id="failure-class-network_timeout"></a>`network_timeout` | A network operation did not become ready or finish within its deadline. | Check the recorded endpoint, DNS, routing, and service availability before retrying with backoff. |
+| <a id="failure-class-credential_expired"></a>`credential_expired` | The guest rejected the configured credential. | Verify that the vault value matches the guest's current credential. |
+| <a id="failure-class-host_io_blocked"></a>`host_io_blocked` | The host could not deliver keyboard, text, or pointer input to the guest. | Check the VNC or hypervisor input connection and reconnect it if stale. |
+| <a id="failure-class-pattern_matched_failure"></a>`pattern_matched_failure` | A registered failure pattern or failure-end marker appeared on the console. | Read `matchedFailurePattern` and the surrounding console output to identify the reported problem. |
+| <a id="failure-class-retry_exhausted"></a>`retry_exhausted` | A retry wrapper consumed its attempt budget without succeeding. | Follow `innerFailureClass` and the last attempt's artifacts to the underlying failure. |
+| <a id="failure-class-snapshot_restore_failed"></a>`snapshot_restore_failed` | Restoring the requested VM snapshot failed. | Check the snapshot's existence, storage, and hypervisor restore diagnostics. |
+| <a id="failure-class-script_error"></a>`script_error` | A command or script reported an execution error. | Read its exit code, error output, and transcript before rerunning it. |
+| <a id="failure-class-wait_timeout"></a>`wait_timeout` | A wait or script-completion marker exceeded its deadline. | Check whether the guest script is still running, blocked on a dependency, or waiting for input. |
+| <a id="failure-class-extension_error"></a>`extension_error` | An extension invocation failed. | Inspect the extension's error and configuration. |
+| <a id="failure-class-instrumentation_failure"></a>`instrumentation_failure` | Capturing a screenshot or diagnostic artifact failed. | Check the capture tool and output path; distinguish missing evidence from guest failure. |
+| <a id="failure-class-provisioning_failure"></a>`provisioning_failure` | Creating, starting, or bringing a VM to its required running state failed. | Check hypervisor diagnostics, available resources, and the VM definition. |
+| <a id="failure-class-bootstrap_sync"></a>`bootstrap_sync` | Framework or project synchronization failed for a non-network reason. | Inspect Git diagnostics for authentication, divergence, or local changes. |
+| <a id="failure-class-plan_invalid"></a>`plan_invalid` | The configured cycle plan is ambiguous or cannot run on this host. | Check duplicate sequences, required backends, and missing guest configuration. |
+| <a id="failure-class-elevation_required"></a>`elevation_required` | A required privileged command needs operator authentication. | Resolve the elevation requirement at the host console. |
+| <a id="failure-class-project_access_denied"></a>`project_access_denied` | The host's credential cannot read the project assigned by the pool. | Have the pool administrator verify the assignment and repository access. |
+| <a id="failure-class-host_network_degraded"></a>`host_network_degraded` | The host's guest-network path is broken, affecting guests attached to it. | Inspect the virtual switch or bridge, uplink binding, and carrier state. |
+| <a id="failure-class-ip_not_discovered"></a>`ip_not_discovered` | No host-side discovery probe found an address for the guest. | Check DHCP and hypervisor address-discovery data before retrying discovery. |
+| <a id="failure-class-payload_unavailable"></a>`payload_unavailable` | The guest fetch wrapper ran, but no source supplied its script. | Check the host's current address, payload-serving endpoint, and fallback access. |
+| <a id="failure-class-pool_storage_full"></a>`pool_storage_full` | The pool share lacks room for cycle results. | Compare the reported free and required space; free or expand storage before resuming. |
+| <a id="failure-class-dhcp_identity_unbounded"></a>`dhcp_identity_unbounded` | A rebuilt guest received a different address despite retaining its intended identity. | Compare the recorded old and new addresses with DHCP leases and client identifiers. |
+| <a id="failure-class-lab_dependency_down"></a>`lab_dependency_down` | A required lab service stayed unavailable through the runner's extended recovery wait. | Check the named service and its last known address on the host that owns it. |
+| <a id="failure-class-input_lost"></a>`input_lost` | Typed shell input did not launch the payload; guest-side checks confirmed it never ran. | Inspect the console and input-delivery diagnostics before repeating the step. |
+| <a id="failure-class-hypervisor_unresponsive"></a>`hypervisor_unresponsive` | The hypervisor answers state queries but its lifecycle control requests time out. | Inspect the control snapshot and the hypervisor application's process or crash logs. |
+| <a id="failure-class-unknown"></a>`unknown` | The failure has no usable classification. | Read `classificationSource` and the artifacts; check for missing verb registration before assigning a cause. |
+
 <a id="42820e91-0015"></a>
 
 ### Why each infra failure class exists
@@ -712,6 +795,23 @@ broke" from a distance -- so each one's reason is recorded here.
   pool it is normally a VM somebody else owns, which is also why the recovery
   text names the service and its last known address rather than sending the
   reader to this host's own network.
+- **`hypervisor_unresponsive`** -- the hypervisor's control channel stopped
+  acting on lifecycle requests while still answering state queries: on macOS,
+  `utmctl list` and `status` return at once while every `start`, `stop` and
+  `delete` waits out the Apple Event timeout. Its own class because the fault
+  sits in the hypervisor application's own process, where neither a retry nor
+  a rebuild reaches it -- each retry only adds another timeout, and the VMs
+  are untouched -- so it routes to `operator_intervention_required` and stays
+  out of every retry allow-list. Distinct from `provisioning_failure`, where
+  the hypervisor acted and the VM did not come up, and from `unknown`, which
+  is what the same outage is filed as when nothing probes the lifecycle path.
+  Recognized either by the pre-cycle control gate, which sends one no-op
+  `stop` to a VM already stopped and fails the cycle in seconds when that
+  verb hangs, or by a driver's start retry reporting two consecutive
+  control-channel timeouts. The driver records a control snapshot in the
+  cycle folder (process census with start times, the raw listing, recent
+  crash reports, a unified-log excerpt) so the reader can tell a crash and
+  relaunch from a wedge.
 - **`console_flooded`** -- a wait spent its whole budget against a console that
   was overwriting itself with one repeating line, so the pattern could not be
   read off the screen whether or not it was ever printed. Its own class because
@@ -819,7 +919,7 @@ validator that gates the cycle event stream.
    at module load warns if the two ever drift). The event-schema
    validator derives its enum from the taxonomy module automatically.
    Built-in infra classes already added this way: `provisioning_failure`,
-   `bootstrap_sync`, `plan_invalid`.
+   `bootstrap_sync`, `plan_invalid`, `hypervisor_unresponsive`.
 2. Register a handler in
    [`Test.Remediation`](../test/modules/Test.Remediation.psm1)'s
    built-in block, or from an external module via
@@ -1036,6 +1136,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.14
+Last review: 2026.10.18
 
 Back to [Yuruna](../README.md)

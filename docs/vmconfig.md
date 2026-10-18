@@ -462,9 +462,12 @@ Anchor: `pin-ipv4-dhcp-refuse-ipv6-ra`
 
 The autoinstall `network:` block in
 `host/vmconfig/ubuntu.server.utm.overlay.yml` pins `enp0s1` to
-`dhcp4: true; dhcp6: false; accept-ra: false; dhcp-identifier: mac`.
+`dhcp4: true; dhcp6: false; accept-ra: false; dhcp-identifier: mac; critical: true`.
 The Hyper-V and KVM overlays match `en*` and `eth*` names and pin
-`dhcp-identifier: mac` without applying UTM's IPv6 RA policy.
+`dhcp-identifier: mac` and `critical: true` without applying UTM's IPv6
+RA policy. `critical: true` keeps the kernel from expiring the address on
+its own clock while the lease is still valid; see
+[Why the DHCP address is pinned as critical](network.md#4220a755-000b).
 
 Only the macOS QEMU backend needs this: on
 QEMU + `-netdev vmnet-shared`, the host's VMnet stub sends IPv6
@@ -823,8 +826,12 @@ On an ARM64 host that `console=ttyS0` is not merely quiet: it names a
 device the guest does not have, because the UART there is the SBSA PL011,
 `ttyAMA0`. A serial console attached to `ttyS0` stays empty however the
 boot goes, which leaves the framebuffer as the only channel unless the
-cmdline is overridden --
+cmdline names the right port --
 [host-hyperv.md](host-hyperv.md#the-converted-arm64-image-does-not-boot).
+The Hyper-V overlay therefore chooses the port inside the installer:
+`ttyAMA0` when it runs on aarch64, `ttyS0` elsewhere, for both the kernel
+`console=` argument and journald's forwarding, so the COM1 capture carries
+the guest's own account of a silence on either architecture.
 
 UTM omits this block entirely: its display window reads the serial
 console directly, with no framebuffer dependency.
@@ -922,8 +929,7 @@ Anchor: `console-fb-safe`
   GRUBCFG
 ```
 
-The KVM bochs-DRM trap class (captured in
-`feedback_kvm_bochs_drm_resolute_install_trap.md`) lands a kernel oops in
+The KVM bochs-DRM trap class lands a kernel oops in
 `ovl_iterate_merged` plus `drm_fb_helper_damage_work` CPU thrash on the
 resolute live-server installer when the q35+UEFI default video drives
 subiquity. The install-phase kernel cannot be reached from outside
@@ -1484,9 +1490,10 @@ cached -- so the 1 GB headroom on top of 64 GB matters. Raising the
 ceiling allocates no disk; it only moves the rejection threshold.
 
 **Objects until near-full.** `cache_swap_high 99` / `cache_swap_low 98`:
-never release unless forced -- evict only when the disk is more than 99%
-full, stopping at 98%. The squid defaults (90/95) would start evicting
-with ~5 GB still free, which is wrong for a sticky snapshot cache.
+never release unless forced -- eviction starts only when the disk is more
+than 98% full (~7.7 GB free of 384 GB) and grows more aggressive toward
+99%. The squid defaults (low 90, high 95) would start evicting with ~38 GB
+still free, which is wrong for a sticky snapshot cache.
 
 **offline_mode replay.** `offline_mode on` serves cached objects without
 ever revalidating them with origin. Aggressive on purpose -- this VM
@@ -2449,8 +2456,7 @@ converting to raw:
   4 KiB block size with `EINVAL` ("Invalid argument"). A raw image punches
   holes at the guest's 512-byte discard granularity and trips that; qcow2
   only ever punches at its 64 KiB cluster boundaries, which are always
-  4 KiB-aligned. See `feedback_macos-qemu-punchhole-alignment.md` (the
-  memory capture of this trap class).
+  4 KiB-aligned.
 
 Both UTM infra pipelines match, and the same reasoning carries into their
 `New-VM.ps1`: the per-VM boot disk is a copy of the qcow2, never a raw
@@ -2618,6 +2624,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.14
+Last review: 2026.10.18
 
 Back to [Yuruna](../README.md)

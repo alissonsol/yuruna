@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.14
+.VERSION 2026.10.18
 .GUID 427dc7e5-42e7-4d34-bef6-83be459c7402
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -107,7 +107,7 @@ function Test-CachingProxyServiceAvailable {
 param([string]$FixtureHome, [string]$Stop, [string]$PowerOff, [string]$Registration, [switch]$Preview)
 $ErrorActionPreference = 'Stop'
 Set-Variable -Name HOME -Value $FixtureHome -Force
-$bundle = Join-Path $HOME 'yuruna/guest.nosync/test-replacement.utm'
+$bundle = "$HOME/yuruna/guest.nosync/test-replacement.utm"
 $disk = Join-Path $bundle 'Data/disk.qcow2'
 $null = New-Item -ItemType Directory -Path (Split-Path $disk -Parent) -Force
 [IO.File]::WriteAllText($disk, 'retained guest bytes')
@@ -365,10 +365,12 @@ Describe 'Hyper-V Ubuntu release wrappers' {
     ) {
         param($Release, $MaximumCores, $SpoofCalls)
         $ast = Get-ProvisionAst -Path (Join-Path $script:RepoRoot 'host/windows.hyper-v/modules/New-UbuntuServerVM.ps1')
-        $policies = @($ast.EndBlock.Statements | Where-Object {
-                $_ -is [Management.Automation.Language.IfStatementAst] -and
-                $_.Clauses[0].Item1.Extent.Text -eq "`$Release -eq '26'"
-            })
+        # At any depth: the script's seed-folder try/finally encloses both.
+        $policies = @($ast.FindAll({
+                    param($node)
+                    $node -is [Management.Automation.Language.IfStatementAst] -and
+                    $node.Clauses[0].Item1.Extent.Text -eq "`$Release -eq '26'"
+                }, $true))
         $policies.Count | Should -Be 2
         $body = @'
 param([string]$Release)

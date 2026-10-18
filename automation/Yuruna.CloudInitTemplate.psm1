@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.14
+.VERSION 2026.10.18
 .GUID 4234ea6a-ddae-4da7-be02-26d47d418045
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -29,9 +29,9 @@ Import-Module (Join-Path $PSScriptRoot 'Yuruna.GitHubSource.psm1') -Force -Disab
 .DESCRIPTION
     Three host platforms (Hyper-V, KVM, UTM) otherwise need three
     near-identical autoinstall user-data files per guest, which drift
-    whenever a fix lands in one copy and not the others
-    ([[feedback_cache_userdata_three_platforms]]). This module shares one
-    base file across hosts and applies a per-host overlay at New-VM time.
+    whenever a fix lands in one copy and not the others. This module
+    shares one base file across hosts and applies a per-host overlay at
+    New-VM time.
 
     The substitution is line-based (not YAML deep-merge) so comments and
     indentation -- which the autoinstall installer relies on for readability

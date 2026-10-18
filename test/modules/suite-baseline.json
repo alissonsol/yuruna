@@ -3,8 +3,8 @@
   "recordedUtc": "2026-09-30T17:16:40.8543919Z",
   "pesterVersion": "5.9.0",
   "totals": {
-    "suites": 391,
-    "tests": 8701,
+    "suites": 399,
+    "tests": 8940,
     "failed": 0,
     "skipped": 39
   },
@@ -288,12 +288,12 @@
       "seconds": 2.71
     },
     "test/modules/Test.DashboardBrand.Tests.ps1": {
-      "total": 23,
+      "total": 27,
       "skipped": 0,
       "seconds": 4.38
     },
     "test/modules/Test.DashboardHostId.Tests.ps1": {
-      "total": 8,
+      "total": 11,
       "skipped": 0,
       "seconds": 1.57
     },
@@ -453,7 +453,7 @@
       "seconds": 2.91
     },
     "test/modules/Test.FailureTaxonomy.Tests.ps1": {
-      "total": 4,
+      "total": 5,
       "skipped": 0,
       "seconds": 2.69
     },
@@ -503,6 +503,11 @@
       "skipped": 0,
       "seconds": 2.39
     },
+    "test/modules/Test.GuestCacheWait.Tests.ps1": {
+      "total": 23,
+      "skipped": 0,
+      "seconds": 1.77
+    },
     "test/modules/Test.GuestCaptureMetadata.Tests.ps1": {
       "total": 10,
       "skipped": 0,
@@ -546,6 +551,11 @@
       "total": 32,
       "skipped": 0,
       "seconds": 5.55
+    },
+    "test/modules/Test.GuestNetworkCrossCheck.Tests.ps1": {
+      "total": 30,
+      "skipped": 0,
+      "seconds": 4.77
     },
     "test/modules/Test.GuestNetworkDiag.Tests.ps1": {
       "total": 42,
@@ -591,6 +601,11 @@
       "total": 5,
       "skipped": 0,
       "seconds": 2.6
+    },
+    "test/modules/Test.GuestTransportEvidence.Tests.ps1": {
+      "total": 11,
+      "skipped": 0,
+      "seconds": 4.87
     },
     "test/modules/Test.GuiFetchStaging.Tests.ps1": {
       "total": 32,
@@ -698,7 +713,7 @@
       "seconds": 3.24
     },
     "test/modules/Test.HostGitWebUrl.Tests.ps1": {
-      "total": 27,
+      "total": 36,
       "skipped": 0,
       "seconds": 2.21
     },
@@ -827,6 +842,11 @@
       "skipped": 0,
       "seconds": 4.33
     },
+    "test/modules/Test.HypervisorControlGate.Tests.ps1": {
+      "total": 15,
+      "skipped": 0,
+      "seconds": 2.02
+    },
     "test/modules/Test.HyperVSwitchHealth.Tests.ps1": {
       "total": 38,
       "skipped": 0,
@@ -876,6 +896,11 @@
       "total": 21,
       "skipped": 0,
       "seconds": 2.3
+    },
+    "test/modules/Test.JsonSchemaError.Tests.ps1": {
+      "total": 5,
+      "skipped": 0,
+      "seconds": 1.19
     },
     "test/modules/Test.JsSuites.Tests.ps1": {
       "total": 6,
@@ -1107,6 +1132,11 @@
       "skipped": 0,
       "seconds": 1.14
     },
+    "test/modules/Test.OrchestratorHostAction.Tests.ps1": {
+      "total": 18,
+      "skipped": 0,
+      "seconds": 2.4
+    },
     "test/modules/Test.OuterLog.Tests.ps1": {
       "total": 8,
       "skipped": 0,
@@ -1312,6 +1342,11 @@
       "skipped": 0,
       "seconds": 3.0
     },
+    "test/modules/Test.QemuImgResolution.Tests.ps1": {
+      "total": 31,
+      "skipped": 0,
+      "seconds": 2.25
+    },
     "test/modules/Test.Recovery.Tests.ps1": {
       "total": 6,
       "skipped": 0,
@@ -1358,7 +1393,7 @@
       "seconds": 9.64
     },
     "test/modules/Test.RegionAnchors.Tests.ps1": {
-      "total": 50,
+      "total": 85,
       "skipped": 0,
       "seconds": 27.18
     },
@@ -1828,6 +1863,11 @@
       "total": 12,
       "skipped": 0,
       "seconds": 7.09
+    },
+    "test/modules/Test.TempHousekeeping.Tests.ps1": {
+      "total": 54,
+      "skipped": 0,
+      "seconds": 4.51
     },
     "test/modules/Test.Terminology.Tests.ps1": {
       "total": 24,
@@ -2379,6 +2419,67 @@
       "sourceSha256": {
         "test/modules/Test.CachingProxyZotRelease.Tests.ps1": "25508498A7713F8F9D545798E9A586A6F9DB98E42136053B392CBF9F8282310D",
         "test/modules/Test.ZotQualification.Tests.ps1": "775238979D04F8A42D8C546A9C98BE692626924953F1CDE6DAFA9CE83F587993"
+      }
+    },
+    {
+      "registeredUtc": "2026-10-15T02:44:10.0703339Z",
+      "pesterVersion": "5.9.1",
+      "suites": [
+        "test/modules/Test.GuestCacheWait.Tests.ps1",
+        "test/modules/Test.GuestNetworkCrossCheck.Tests.ps1",
+        "test/modules/Test.GuestTransportEvidence.Tests.ps1"
+      ],
+      "tests": 64,
+      "sourceSha256": {
+        "test/modules/Test.GuestCacheWait.Tests.ps1": "205089A00CADF8E77B06B7ECE26ADA2192F91023A5CE51E4301687ABB7756424",
+        "test/modules/Test.GuestNetworkCrossCheck.Tests.ps1": "DCE0AA5A5E3EED22A2CDDBEA77D57DF07E468FA55C37A68AEDAE3C3C1EA2CE64",
+        "test/modules/Test.GuestTransportEvidence.Tests.ps1": "53356F8F9FC3FC7CEF9671380304E72B73557EE9390373D0C0B2A02BD6C5A070"
+      }
+    },
+    {
+      "registeredUtc": "2026-10-15T12:20:01.465523Z",
+      "pesterVersion": "5.9.1",
+      "suites": [
+        "test/modules/Test.HypervisorControlGate.Tests.ps1",
+        "test/modules/Test.OrchestratorHostAction.Tests.ps1"
+      ],
+      "tests": 28,
+      "sourceSha256": {
+        "test/modules/Test.HypervisorControlGate.Tests.ps1": "F340A4D155E8FF44D40CF7CF5518CF7F47B3404C98266CC311F70291CC5F361F",
+        "test/modules/Test.OrchestratorHostAction.Tests.ps1": "5DA3C23BC3B7BF1D5A796284A944407AAE05ABA9023A0D2F6282E1064E8AB784"
+      }
+    },
+    {
+      "registeredUtc": "2026-10-15T14:51:16.5111902Z",
+      "pesterVersion": "5.9.1",
+      "suites": [
+        "test/modules/Test.QemuImgResolution.Tests.ps1"
+      ],
+      "tests": 31,
+      "sourceSha256": {
+        "test/modules/Test.QemuImgResolution.Tests.ps1": "BFE92A606AE37ACEDDB011D7DD287CEF49C179CCDDA61171DFB7623A1AC4BF6A"
+      }
+    },
+    {
+      "registeredUtc": "2026-10-15T16:02:43.4629155Z",
+      "pesterVersion": "5.9.1",
+      "suites": [
+        "test/modules/Test.TempHousekeeping.Tests.ps1"
+      ],
+      "tests": 54,
+      "sourceSha256": {
+        "test/modules/Test.TempHousekeeping.Tests.ps1": "083510F307924F6CC10FE1B2AB8A0AD4721898E1DD349E7465A8D1E9912CD208"
+      }
+    },
+    {
+      "registeredUtc": "2026-10-17T14:41:38.2409049Z",
+      "pesterVersion": "6.2.0",
+      "suites": [
+        "test/modules/Test.JsonSchemaError.Tests.ps1"
+      ],
+      "tests": 5,
+      "sourceSha256": {
+        "test/modules/Test.JsonSchemaError.Tests.ps1": "07706A1D6DDD92E36D4E5214215D8D8228D7C031F75A4FA3D19CC9350DFD2726"
       }
     }
   ]

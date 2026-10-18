@@ -5237,6 +5237,7 @@ const DataqpsPlocautomation = `{
     },
     " ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
   ],
+  "automation.runtime_ipc_remove_action": "[Řéɱóṽé ţħé ļéƒţóṽéř .ÑÉŢ řúñţíɱé éñţřý óƒ á ƥřóçéšš ţħáţ íš ğóñé ~~~~~~~~~~~~~~~~~~~~~~~~~~]",
   "automation.setup_service_vm_reason_intended_stopped": "[íţ ŵáš šţóƥƥéď óñ ƥúřƥóšé; řéƀúíļďíñğ ƀéçáúšé šéţúƥ ŵáš ášķéď ţó ƀříñğ íţ úƥ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
   "automation.setup_service_vm_reason_lock_unavailable": "[íţš óƥéřáţíóñ ļóçķ çóúļď ñóţ ƀé ţáķéñ ~~~~~~~~~~~~~~~]",
   "automation.setup_service_vm_reason_operation_busy": "[áñóţħéř šţářţ óř šţóƥ óƒ ţħíš šéřṽíçé íš šţíļļ řúññíñğ ~~~~~~~~~~~~~~~~~~~~~~]",
@@ -5249,6 +5250,7 @@ const DataqpsPlocautomation = `{
     },
     ") ~~~~~~~~~~~~~~~~~~~]"
   ],
+  "automation.stale_temp_remove_action": "[Řéɱóṽé ţħé šţáļé Ýúřúñá ţéɱƥ éñţřý ~~~~~~~~~~~~~~]",
   "automation.system_diagnostic_registry_images_refused": [
     "[ŘÉĞÍŠŢŘÝ: ţħé çáçħé řéƒúšéď ",
     {

@@ -101,6 +101,61 @@ Fetch steps, typed at the console or run over SSH, execute fetch-and-execute.sh 
 
 [Test.Notify.psm1](../../test/modules/Test.Notify.psm1) dispatches configured notification extensions at cycle end. The `failuresBeforeAlert` threshold, the armed latch, and the `successesBeforeRearm` streak gate delivery; the crash counter only drives backoff and the abort. Cycle-failure sends are synchronous, and each outcome is recorded in `notification.delivery.json`; notification failure does not replace the test verdict. [Lifecycle state](04-lifecycle-state.md) explains retries, cleanup, and durable diagnostic preservation.
 
+## GUI fetch transport
+
+The `fetchAndExecute` action in [Test.SequenceHandler.psm1](../../test/modules/Test.SequenceHandler.psm1) builds an integrity-bound command context and probes the guest's `/usr/local/bin/yfe` over [SSH](../../test/modules/Test.Ssh.psm1). When the launcher supports it and the result is smaller, the host types a compressed envelope through the provider. [yuruna-fetch-context.sh](../../automation/yuruna-fetch-context.sh) implements that launcher. The guest participant groups its shell, launcher, refusal record, and [fetch-and-execute.sh](../../automation/fetch-and-execute.sh); these execute inside one VM. Console recognition is the same [OCR path](../../test/modules/Test.SequenceEngine.psm1) used by the preceding cycle diagram.
+
+```mermaid
+sequenceDiagram
+    participant test-sequence-handler-psm1 as Sequence handler
+    participant yuruna-host-contract-psm1 as Host provider
+    participant guest-vm as Guest VM
+    participant test-ocr-engine-psm1 as OCR engines
+    participant start-status-service-ps1 as Status service
+    participant fetch-and-execute-evidence-json as Execution evidence
+    opt Compact candidate available
+        test-sequence-handler-psm1->>guest-vm: SSH launcher capability
+        guest-vm-->>test-sequence-handler-psm1: Capability result
+    end
+    opt Compact envelope selected
+        test-sequence-handler-psm1->>yuruna-host-contract-psm1: Type staged envelope
+        yuruna-host-contract-psm1->>guest-vm: Keys and guard
+        guest-vm->>guest-vm: Validate envelope context
+        alt Launcher accepts envelope
+            guest-vm->>start-status-service-ps1: Fetch bound payload
+            start-status-service-ps1-->>guest-vm: Payload bytes
+            guest-vm->>guest-vm: Verify then execute
+        else Launcher refuses envelope
+            guest-vm->>guest-vm: Record refusal evidence
+            test-sequence-handler-psm1->>yuruna-host-contract-psm1: Capture console
+            yuruna-host-contract-psm1-->>test-sequence-handler-psm1: Failure frame
+            test-sequence-handler-psm1->>test-ocr-engine-psm1: Recognize frame
+            test-ocr-engine-psm1-->>test-sequence-handler-psm1: Failure sentinel
+            test-sequence-handler-psm1->>guest-vm: SSH consume refusal
+            guest-vm-->>test-sequence-handler-psm1: Code length digest
+            test-sequence-handler-psm1->>guest-vm: SSH payload state
+            guest-vm-->>test-sequence-handler-psm1: Prepared running absent
+            opt Eligible first refusal
+                test-sequence-handler-psm1->>fetch-and-execute-evidence-json: Emit retry_attempt event
+                test-sequence-handler-psm1->>yuruna-host-contract-psm1: Clear and retype
+                yuruna-host-contract-psm1->>guest-vm: Keys and guard
+            end
+        end
+        opt Evidence capture required
+            test-sequence-handler-psm1->>fetch-and-execute-evidence-json: Save transfer evidence
+        end
+    end
+```
+
+The accepted branch shows delivery from the status service. The source resolver
+in [fetch-and-execute.sh](../../automation/fetch-and-execute.sh) also supports
+`EXEC_BASE_URL` and a commit-pinned GitHub fallback; transport validation is the
+same whichever source supplies the payload.
+
+The launcher verifies the compressed envelope's decoding and digest before preparing or consuming its command context. A refusal records its code, received character count, and received-text SHA-256 under `$HOME/.local/state/yuruna/gui-rejection/<envelopeDigest>`. After a console failure sentinel, the host reads and removes that record over SSH and independently checks for a prepared context or running fetch. Only `YFE_GUI_ENCODING` or `YFE_GUI_DIGEST` with confirmed `NOT_PREPARED` permits one clear-and-retype attempt. A missing record, unavailable SSH probe, other refusal, or payload failure does not permit this retry. A failure sentinel after a continuation prompt also establishes that staged input closed, even when OCR misreads the returning shell prompt.
+
+The evidence participant groups the cycle event stream and `fetch-and-execute.<stepInvocationId>.evidence.json`. The event uses `retry_attempt` with `stack: gui-envelope`; the manifest records attempted line lengths, sent and received hashes, and launcher rejections. Capture runs for failed or at least 60-second fetches, skips sensitive steps, and needs a valid invocation and cycle folder. [Test.SequenceFailureState.psm1](../../test/modules/Test.SequenceFailureState.psm1) carries the refusal into `causeDetail.launcherRejection` and the `causeLauncherRejection` event field. [Test.Transport.psm1](../../test/modules/Test.Transport.psm1) sends each ordinary VNC key's press and release in one write with TCP `NoDelay`, preventing Nagle buffering from holding a release behind acknowledgment of its press.
+
 ## Pool telemetry
 
 When installed, the aggregator in [main.go](../../test/extension/pool-aggregator-service/main.go) periodically discovers and polls host status services and reads new cycle events. [Invoke-PoolPushForwarder.ps1](../../test/modules/Invoke-PoolPushForwarder.ps1) and [Test.PoolPush.psm1](../../test/modules/Test.PoolPush.psm1) add an optional authenticated push after a cycle.

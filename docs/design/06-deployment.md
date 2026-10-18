@@ -25,8 +25,8 @@ flowchart LR
     operator-host -->|HTTP pages 8080| start-status-service-ps1
     start-test-runner-ps1 -->|local provider calls| yuruna-host-psm1
     yuruna-host-psm1 -->|console and VM state| guest
-    %% optional: sequences select the SSH keystroke mechanism.
-    start-test-runner-ps1 -.->|SSH commands 22| guest
+    %% optional: SSH sequences, GUI launcher probes, and guest evidence capture.
+    start-test-runner-ps1 -.->|SSH commands, evidence 22| guest
     guest -->|HTTP scripts, uploads 8080| start-status-service-ps1
 ```
 
@@ -36,6 +36,7 @@ Sources: [Start-TestRunner](../../test/Start-TestRunner.ps1),
 [inner entry point](../../test/modules/Invoke-TestRunnerInnerLoop.ps1),
 [host contract](../../host/Yuruna.Host.Contract.psm1),
 [SSH transport](../../test/modules/Test.Ssh.psm1),
+[sequence handlers](../../test/modules/Test.SequenceHandler.psm1),
 [Start-StatusService](../../test/service/Start-StatusService.ps1), and
 [fetch-and-execute.sh](../../automation/fetch-and-execute.sh).
 
@@ -45,7 +46,10 @@ input, screenshots, and the VM state used to observe shutdown; Hyper-V also
 captures COM1 through a named pipe. The status service is another host process,
 serving operator pages, controls, runtime evidence, repository script fetches,
 and bounded guest diagnostic and log uploads.
-Sequences selecting SSH also connect directly from the runner to the guest.
+Sequences selecting SSH connect directly from the runner to the guest. Console
+fetches also use SSH for launcher capability checks, refusal records, payload
+state, and execution evidence when the guest is reachable; the payload itself
+still starts through console input. See [GUI fetch transport](03-data-flows.md#gui-fetch-transport).
 The status service can remain available while tests are idle. A browser can run on this same host;
 the operator frame shows the separate-machine case. Six boxes include all three
 host processes/families and the two other network nodes.
@@ -66,6 +70,8 @@ flowchart LR
     end
     subgraph stash-service["Stash VM"]
     end
+    subgraph origin["Publisher origins"]
+    end
     host -->|HTTP proxy 3128/3129| caching-proxy-service
     guest -->|HTTP proxy 3128/3129| caching-proxy-service
     guest -->|OCI pulls 5000| caching-proxy-service
@@ -74,10 +80,17 @@ flowchart LR
     host -->|HTTP health 80| stash-service
     operator-host -->|SCP or SFTP 22| stash-service
     operator-host -->|HTTP browse 80| stash-service
+    caching-proxy-service -->|HTTPS artifacts 443| origin
+    download-agent-service -->|HTTPS freshness 443| origin
+    %% optional: byte downloads can bypass an unavailable or unusable cache.
+    host -.->|direct image download| origin
+    download-agent-service -.->|direct artifact download| origin
 ```
 
 Sources: [host download client](../../host/modules/Yuruna.HostDownload.psm1),
 [host image-agent client](../../host/modules/Yuruna.DownloadAgent.psm1),
+[image publishers](../../host/modules/Yuruna.Image.psm1),
+[agent refresh](../../test/extension/download-agent-service/server/internal/imagestore/refresh.go),
 [cache seed](../../host/vmconfig/caching-proxy-service.base.user-data),
 [stash client](../../test/extension/stash-service/default.psm1),
 [stash server](../../test/extension/stash-service/server/main.go), and the companion
@@ -86,8 +99,11 @@ Sources: [host download client](../../host/modules/Yuruna.HostDownload.psm1),
 Squid handles package/file requests, and Zot handles OCI pulls on the cache VM.
 Hosts and the download agent also fetch the cache CA from Apache on port 80. The
 download-agent serves shared OS images from its own VM and fetches origin bytes
-through the cache. Hosts can fall back to their ordinary image download path
-when the agent cannot supply an image. Stash runs its SCP/SFTP listener on port
+through the cache. Its freshness and checksum requests bypass the cache, and
+its byte downloads can fall back to direct origin access. Hosts can fall back
+to their ordinary image download path when the agent cannot supply an image.
+The seventh frame groups the configured image, package, and registry publishers;
+each URL selects an independent external endpoint. Stash runs its SCP/SFTP listener on port
 22 and its browse/download service on port 80. Uploads come from any `scp` or
 `sftp` client; host code only probes `/healthz`. The
 [stash guest installer](../../guest/ubuntu.server.26/ubuntu.server.26.stash-service.sh)

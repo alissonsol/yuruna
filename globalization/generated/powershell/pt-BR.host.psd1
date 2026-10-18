@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.14
+.VERSION 2026.10.18
 .GUID 42c40d2c-52f3-f14f-800e-6b343505b865
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -8869,6 +8869,15 @@
         }
         '). Restaure o acesso ao UTM ou passe -CachingProxyServiceUrl "" para baixar diretamente.'
     )
+    'host.utm_control_snapshot_action' = @(
+        'Registrar o instantâneo do canal de controle do UTM ('
+        @{
+            'arg' = 'trigger'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+        ')'
+    )
     'host.utm_detached_launch_action' = @(
         'Executar '
         @{
@@ -8971,6 +8980,27 @@
             'trust' = 'internal'
         }
         '; nenhuma solicitação de início foi enviada.'
+    )
+    'host.utm_start_control_hung' = @(
+        'O canal de controle do UTM parou de atender às solicitações de ciclo de vida: '
+        @{
+            'arg' = 'attempts'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        ' solicitação(ões) consecutiva(s) de início da VM '''
+        @{
+            'arg' = 'vmName'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ''' ficaram sem resposta, e a última relatou '''
+        @{
+            'arg' = 'lastError'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '''. O utmctl ainda alcançou o UTM.app para consultas de estado, portanto o aplicativo está em execução, mas não executa mais start, stop ou delete, e tentar de novo só acrescenta outro tempo limite. Reinicie o UTM.app nesta máquina (encerre-o na sessão da área de trabalho ou execute test/lab/Invoke-HostRefresh.ps1) e inicie a VM novamente. A VM nunca foi iniciada e o disco dela está intacto.'
     )
     'host.utm_start_dropped' = @(
         'A VM '''

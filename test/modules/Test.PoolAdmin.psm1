@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.14
+.VERSION 2026.10.18
 .GUID 42771d17-19c8-478e-adde-9418cf0f9f10
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -18,6 +18,8 @@
 
 Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
 Import-Module (Join-Path $PSScriptRoot 'Test.PoolSync.psm1') -Global -DisableNameChecking
+# Get-YurunaJsonSchemaError names the violation Test-Json reports without a record.
+Import-Module (Join-Path $PSScriptRoot 'Test.LocalizationExchange.psm1') -DisableNameChecking
 
 
 # Shared helpers for the pool admin CLI (New-Pool / Add-HostToPool / ... /
@@ -107,7 +109,11 @@ function Test-YurunaPoolDocValid {
         $je = $null
         $ok = Test-Json -Json $docJson -Schema $schemaJson -ErrorVariable je -ErrorAction SilentlyContinue
         if ($ok) { return @{ Ok = $true; Errors = @() } }
-        return @{ Ok = $false; Errors = @($je | ForEach-Object { [string]$_ }) }
+        $errors = @($je | ForEach-Object { [string]$_ })
+        # PowerShell 7.6.7 answers $false with no error record for a violation
+        # nested below the document's first level.
+        if ($errors.Count -eq 0) { $errors = @(Get-YurunaJsonSchemaError -Json $docJson -Schema $schemaJson) }
+        return @{ Ok = $false; Errors = $errors }
     } catch {
         return @{ Ok = $false; Errors = @($_.Exception.Message) }
     }

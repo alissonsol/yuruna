@@ -24,7 +24,7 @@ exports the supporting modules also produce.
 These dependency modules are imported -Global: Yuruna.Host is -Force re-imported
 mid-cycle, and a bare -Force import here lands in Yuruna.Host's nested scope and
 EVICTS the global copy other modules call via qualified names (e.g.
-Test.Ssh\Invoke-GuestSsh) -- feedback_module_force_import_evicts_global.
+Test.Ssh\Invoke-GuestSsh).
 
 `Resolve-HostTag` also protects retained function references after a forced
 re-import tears down their original module state. An empty `$script:HostTag`
@@ -178,9 +178,7 @@ Applies to:
 
 Import once and reuse, matching Send-Key below. Re-importing -Force on
 every call evicts the global Invoke-Sequence (and its nested modules
-+ $script: state) that the outer loop still calls
-(feedback_module_force_import_evicts_global,
-feedback_module_script_state_reset_by_force_reimport). Paying that per
++ $script: state) that the outer loop still calls. Paying that per
 keystroke is not just overhead: it churns the module state that this
 driver's own -HostType argument is read from, so the very act of
 typing can disable the keystrokes that follow it.
@@ -1146,9 +1144,8 @@ way to suppress it (it is a deliberate security gate), so reuse the same
 osascript watchdog Start-UtmVM uses for the Start-TestRunner path.
 Ensure the macOS host module (which exports the watchdog) is loaded --
 Step 2/3's Get-Image / New-VM run -Force imports that can evict the
-copy Step 1 loaded (feedback_module_force_import_evicts_global); only
-re-import when the function is actually missing so we don't trigger
-unnecessary nested-import churn.
+copy Step 1 loaded; only re-import when the function is actually missing so
+we don't trigger unnecessary nested-import churn.
 
 On a freshly-imported bundle, `utmctl start` can return 0 at the RPC
 level while UTM is still finalizing bundle ingestion, and the start

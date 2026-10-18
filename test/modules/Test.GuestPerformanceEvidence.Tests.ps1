@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.14
+.VERSION 2026.10.18
 .GUID 42f463f6-e84a-4c17-b6df-5f7f46b59e05
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -22,6 +22,20 @@
 #>
 
 BeforeAll {
+    # The wrapper writes its recorder folder and trace under the guest's /tmp
+    # and names both in its log; a guest prunes them on its next run, so a test
+    # that runs the wrapper here removes them itself, on every path.
+    function Remove-WrapperTmpArtifact {
+        [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '', Justification = 'Removes only /tmp artifacts a fixture run named in its own log.')]
+        [CmdletBinding()]
+        param([string]$LogPath)
+        if (-not $LogPath -or -not (Test-Path -LiteralPath $LogPath)) { return }
+        foreach ($line in @(Get-Content -LiteralPath $LogPath)) {
+            if ($line -match '^# (?:recorder|profile):\s*(/tmp/yuruna-fae-(?:recorder|profile)\.[A-Za-z0-9]+)\s*$') {
+                Remove-Item -LiteralPath $Matches[1] -Recurse -Force -ErrorAction SilentlyContinue
+            }
+        }
+    }
     Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Globalization.psm1') -Global -DisableNameChecking
     $repo = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
     Import-Module (Join-Path $PSScriptRoot 'Test.Diagnostic.psm1') -Force
@@ -249,7 +263,8 @@ function Save-FetchExecutionEvidence { param($Context,$Succeeded,$ElapsedSeconds
 
     It 'preserves a matching bounded trace and rejects a stale invocation log' -Skip:(-not $IsLinux) {
         $script:profileProbeLog=Join-Path $TestDrive 'execution.log'
-        $trace=Join-Path ([IO.Path]::GetTempPath()) ('yuruna-fae-profile.'+[guid]::NewGuid().ToString('N'))
+        # The guest probe reads a profile only from /tmp, which the suite's own temp folder is not.
+        $trace=Join-Path '/tmp' ('yuruna-fae-profile.'+[guid]::NewGuid().ToString('N'))
         [IO.File]::WriteAllText($trace,('x'*500000))
         [IO.File]::WriteAllText($script:profileProbeLog,"# stepInvocationId: current`n# profile: $trace`ncommand output")
         Mock Invoke-GuestEvidenceSsh -ModuleName Test.Diagnostic {
@@ -327,16 +342,19 @@ printf '# Yuruna fetch-and-execute log\n# script: guest/test.sh\n# stepInvocatio
 wget() { local arg; for arg in "$@"; do case "$arg" in --post-file=*) cp -- "${arg#*=}" '__POST__';; esac; done; }
 '@
             [IO.File]::WriteAllText($scriptPath,$preamble.Replace('__EXIT__',[string]$exitCode).Replace('__POST__',$post).Replace('__LOG__',$log)+"`n"+$tail)
-            $output=& bash $scriptPath
-            $LASTEXITCODE | Should -Be $exitCode
-            ($output -join "`n") | Should -Match 'YURUNA_EXECUTION stepInvocationId=step-test sequenceInvocationId=sequence-test'
-            $checkpoint=Get-Content $post -Raw | ConvertFrom-Json
-            $checkpoint.stepInvocationId | Should -Be 'step-test'
-            $checkpoint.sequenceInvocationId | Should -Be 'sequence-test'
-            $checkpoint.checkpoints[0].name | Should -Be 'first phase'
-            $profileArtifact=(Get-Content $log | Where-Object {$_ -match '^# profile:'}) -replace '^# profile:\s*',''
-            Test-Path $profileArtifact | Should -BeTrue
-            Remove-Item -LiteralPath $profileArtifact
+            try {
+                $output=& bash $scriptPath
+                $LASTEXITCODE | Should -Be $exitCode
+                ($output -join "`n") | Should -Match 'YURUNA_EXECUTION stepInvocationId=step-test sequenceInvocationId=sequence-test'
+                $checkpoint=Get-Content $post -Raw | ConvertFrom-Json
+                $checkpoint.stepInvocationId | Should -Be 'step-test'
+                $checkpoint.sequenceInvocationId | Should -Be 'sequence-test'
+                $checkpoint.checkpoints[0].name | Should -Be 'first phase'
+                $profileArtifact=(Get-Content $log | Where-Object {$_ -match '^# profile:'}) -replace '^# profile:\s*',''
+                Test-Path $profileArtifact | Should -BeTrue
+            } finally {
+                Remove-WrapperTmpArtifact -LogPath $log
+            }
         }
     }
 }
@@ -381,34 +399,41 @@ printf '# Yuruna fetch-and-execute log\n# script: guest/test.sh\n# stepInvocatio
 '@
         $scriptPath=Join-Path $fixture 'run.sh'
         [IO.File]::WriteAllText($scriptPath,$preamble.Replace('__BIN__',$bin).Replace('__ENDED__',$ended).Replace('__LOG__',$log)+"`n"+$tail)
-        $clock=[Diagnostics.Stopwatch]::StartNew()
-        $output=& bash $scriptPath
-        $LASTEXITCODE | Should -Be 7
-        $clock.Elapsed.TotalSeconds | Should -BeLessThan 8
-        ($output -join "`n") | Should -Match 'NONZERO SCRIPT EXIT:'
-        Test-Path $upload | Should -BeTrue
-        [long](Get-Content $uploadClock) | Should -BeLessThan ([long](Get-Content $ended))
-        (Get-Item $upload).Length | Should -BeLessThan 1100000
-        $captured=Get-Content $upload -Raw
-        $captured | Should -Match 'recorderSchema=1'
-        $captured | Should -Match 'stepInvocationId=recorder-live-test'
-        $captured | Should -Match '/proc/sys/kernel/random/boot_id'
-        $captured | Should -Match '/proc/uptime'
-        $captured | Should -Match 'per-thread CPU/state'
-        $captured | Should -Not -Match 'fixture-recorder-private-token'
-        $recorder=(Get-Content $log | Where-Object {$_ -match '^# recorder:'}) -replace '^# recorder:\s*',''
-        $tracePath=(Get-Content $log | Where-Object {$_ -match '^# profile:'}) -replace '^# profile:\s*',''
-        $deadline=[Diagnostics.Stopwatch]::StartNew()
-        do {
-            $status=Get-Content (Join-Path $recorder 'status') -Raw
-            $kernelStatus=if (Test-Path (Join-Path $recorder 'kernel.status')) { Get-Content (Join-Path $recorder 'kernel.status') -Raw } else { '' }
-            if ($status -match 'state=stopped' -and ($status -match 'upload=complete' -or $kernelStatus -match 'state=stopped.*upload=complete')) { break }
-            Start-Sleep -Milliseconds 100
-        } while ($deadline.Elapsed.TotalSeconds -lt 10)
-        $status | Should -Match 'state=stopped samples=2 upload=(complete|delegated-kernel)'
-        if ($status -match 'upload=delegated-kernel') { $kernelStatus | Should -Match 'state=stopped.*upload=complete' }
-        Remove-Item -LiteralPath $recorder -Recurse -Force
-        Remove-Item -LiteralPath $tracePath
+        try {
+            $clock=[Diagnostics.Stopwatch]::StartNew()
+            $output=& bash $scriptPath
+            $LASTEXITCODE | Should -Be 7
+            $clock.Elapsed.TotalSeconds | Should -BeLessThan 8
+            ($output -join "`n") | Should -Match 'NONZERO SCRIPT EXIT:'
+            Test-Path $upload | Should -BeTrue
+            [long](Get-Content $uploadClock) | Should -BeLessThan ([long](Get-Content $ended))
+            (Get-Item $upload).Length | Should -BeLessThan 1100000
+            $captured=Get-Content $upload -Raw
+            $captured | Should -Match 'recorderSchema=1'
+            $captured | Should -Match 'stepInvocationId=recorder-live-test'
+            $captured | Should -Match '/proc/sys/kernel/random/boot_id'
+            $captured | Should -Match '/proc/uptime'
+            $captured | Should -Match 'per-thread CPU/state'
+            $captured | Should -Match '--- network ---'
+            $captured | Should -Match '--- ip -4 route ---'
+            $captured | Should -Match '--- /proc/net/dev ---'
+            $captured | Should -Match '--- systemd-networkd journal ---'
+            $vmbusDevices=[Math]::Min(64,@(Get-ChildItem -LiteralPath /sys/bus/vmbus/devices -ErrorAction SilentlyContinue).Count)
+            $captured | Should -Match "vmbusDeviceSamples=$vmbusDevices cap=64"
+            $captured | Should -Not -Match 'fixture-recorder-private-token'
+            $recorder=(Get-Content $log | Where-Object {$_ -match '^# recorder:'}) -replace '^# recorder:\s*',''
+            $deadline=[Diagnostics.Stopwatch]::StartNew()
+            do {
+                $status=Get-Content (Join-Path $recorder 'status') -Raw
+                $kernelStatus=if (Test-Path (Join-Path $recorder 'kernel.status')) { Get-Content (Join-Path $recorder 'kernel.status') -Raw } else { '' }
+                if ($status -match 'state=stopped' -and ($status -match 'upload=complete' -or $kernelStatus -match 'state=stopped.*upload=complete')) { break }
+                Start-Sleep -Milliseconds 100
+            } while ($deadline.Elapsed.TotalSeconds -lt 10)
+            $status | Should -Match 'state=stopped samples=2 upload=(complete|delegated-kernel)'
+            if ($status -match 'upload=delegated-kernel') { $kernelStatus | Should -Match 'state=stopped.*upload=complete' }
+        } finally {
+            Remove-WrapperTmpArtifact -LogPath $log
+        }
     }
 
     It 'filters known credentials, assignments, authorization, and multiline private keys before retention' -Skip:(-not $IsLinux) {
@@ -691,7 +716,8 @@ Describe 'Evidence credential and tail boundaries' {
 
     It 'drops the initial partial trace line at the byte boundary while preserving following commands' -Skip:(-not $IsLinux) {
         $script:boundaryExecutionLog=Join-Path $TestDrive 'boundary-execution.log'
-        $tracePath=Join-Path ([IO.Path]::GetTempPath()) ('yuruna-fae-profile.'+[guid]::NewGuid().ToString('N'))
+        # The guest probe reads a profile only from /tmp, which the suite's own temp folder is not.
+        $tracePath=Join-Path '/tmp' ('yuruna-fae-profile.'+[guid]::NewGuid().ToString('N'))
         [IO.File]::WriteAllText($tracePath,('x'*500000)+"known-private-suffix`n+ echo following-command`n")
         [IO.File]::WriteAllText($script:boundaryExecutionLog,"# stepInvocationId: boundary`n# profile: $tracePath`ncommand output")
         Mock Invoke-GuestEvidenceSsh -ModuleName Test.Diagnostic {

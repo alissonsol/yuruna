@@ -270,7 +270,8 @@ The collapsed row under the timeline. Its panels share the dashboard time range:
   pool-wide incidents -- a cross-host incident requires the same class. From the
   aggregator's incident correlation (`src=incident` in Loki).
 - **Failures by class & severity** -- the failure-class histogram of `step_failure`
-  events, sorted so the dominant failure modes across the pool lead.
+  events, sorted so the dominant failure modes across the pool lead. Click a failure
+  class to open its meaning and diagnostic guidance on yuruna.link.
 - **Recent step failures** -- the failing step's action, number, class, severity and
   reason per host/cycle, with deep-links into that host's full cycle artifacts.
 - **Cycle event stream** -- every per-cycle NDJSON event tailed from each host; filter
@@ -282,29 +283,110 @@ The collapsed row under the timeline. Its panels share the dashboard time range:
   class, distinct from the step_failure histogram above, which counts events whether
   or not they formed an incident.
 
+<a id="422226cb-000d"></a>
+
+## Drill-down: caching proxy
+
+The collapsed row between the incidents drill-down and the host memory row. It exists
+for one question: when a guest's step failure blames the caching proxy -- the registry
+cache (zot) or the web cache (squid) on the proxy VM -- was the proxy down, or did that
+one guest lose its path to the lab? From inside the guest the two are the same event, a
+connection that never answers, and only the proxy's own account of that minute tells
+them apart.
+
+The four status tiles share the top row. The two per-client request panels sit below
+them, followed by the step-failure log.
+
+- **zot /v2/ liveness** -- whether the registry cache answers `GET /v2/`, the check
+  every guest-side gate performs before a pull. Green `up`, red `DOWN`, `n/a` when the
+  probe has not run. Driven by `yuruna_zot_v2_up`.
+- **Guest pull path** -- the request a guest actually makes (a manifest GET through
+  the cache's `ns=` path), judged by the deadline a real client applies. Green `ok`
+  means a pull started now would succeed; red `FAILING` means a client would have
+  abandoned it, whether the cache answered late or not at all. Driven by
+  `yuruna_zot_guest_path_ok_under_client_patience`.
+- **Manifest path** -- the canary manifest HEAD under the same deadline
+  (`yuruna_zot_manifest_ok_under_client_patience`). Red beside a green liveness tile is
+  the signature of a sync stall: `/v2/` answers in milliseconds while every pull times
+  out, so guests report the proxy as unreachable although the endpoint is up. The
+  latency history behind this tile is on the proxy VM's own
+  [cache-health dashboard](https://yuruna.link/4227a895).
+- **Docker Hub budget** -- pulls left in the current Docker Hub window for the proxy's
+  egress address, shared by every guest behind it: green at 25 or more, amber from 10,
+  red below. Exhaustion never reaches a guest as a clean 429; the guest sees a cache
+  that stopped answering in time. `n/a` means the budget could not be read,
+  deliberately not painted as zero -- the value is `yuruna_dockerhub_ratelimit_remaining`
+  gated on `yuruna_dockerhub_ratelimit_probe_ok`.
+- **zot requests per client, per minute** and **squid requests per client, per
+  minute** -- the proxy's own account of who it was serving: zot's request log
+  (`{job="zot"}`, one line per client address, the source port stripped so one guest is
+  one line) and squid's access log (`{job="squid"}`, whose third field is the client).
+  A guest fetches packages through squid and images through zot, so the two panels
+  together say whether a guest reached the proxy VM at all. `127.0.0.1` in the zot
+  panel is the proxy VM's own probe.
+- **Step failures that name the caching proxy** -- the `step_failure` events whose
+  reason or console tail mentions the caching proxy, over the selected time range.
+  **Start here.** Each line carries the host, the cycle and the UTC time of the
+  failure, and that minute is the one to read every other panel in the row at.
+
+**How to read it.** Set the time range around the failing minute, then:
+
+- **Liveness and pull path green, every other guest's line still present in the
+  per-client panels, the failing guest's line absent or ended** -- that guest lost its
+  path to the lab, not the proxy. The proxy never saw it leave, so nothing on the proxy
+  VM will explain the failure; continue on the host that runs the guest, with the
+  recipe in [pool-admin](https://yuruna.link/4207d71a).
+- **Liveness green, pull path or manifest path red** -- the proxy is up but not
+  serving pulls: a sync stall, or an exhausted pull budget. Every guest fails the same
+  way at once, and the per-client panels keep showing their requests, because the
+  attempts that time out are still logged. Continue on the cache-health dashboard.
+- **Liveness red or `n/a`, every client line ended at the same time** -- the proxy
+  itself, or the path to the proxy VM, is down, and every host that reaches the
+  internet through it will report the same minute.
+
+The four tiles are read on the proxy VM and say nothing about any particular guest;
+the per-client panels are where one guest becomes visible. A guest present in the squid
+panel but absent from the zot panel in the failing minute had a registry problem, not a
+network one.
+
 <a id="422226cb-000b"></a>
 
 ## Drill-down: host memory
 
-This second collapsed row contains the only panels on this board that read the pool
-hosts themselves rather than the collector's view of them. They are fed by the metrics
-exporter each Windows host runs, scraped straight by the same Prometheus: a host of
-another type, or one with no exporter running, has no line.
+The two tables in this collapsed row combine the collector's host inventory with
+memory readings scraped directly from each Windows host's metrics exporter. Every
+host in the inventory has a row, including hosts without a memory reading. Missing
+readings show `n/a`.
 
 - **Available memory per host** -- physical memory the host has free.
 - **Commit headroom per host** -- the commit limit minus committed bytes: how much
   more memory the host can still promise before an allocation is refused outright.
   A virtual machine asks for its whole allocation at once, so a start is measured
   against this floor rather than against free physical memory, and the floor itself
-  moves while Windows resizes the paging file.
+  moves while Windows resizes the paging file. This is a Windows memory measure;
+  Linux and macOS memory counters do not have an interchangeable meaning.
 
-The host list is discovered, not configured: the collector publishes the hosts it
-currently reaches and Prometheus follows that list, so a host that is switched off
-drops out instead of showing as a failing target. Series are keyed on `hostId`, the
-same identity every table above uses -- the scrape address is a DHCP lease and would
-split one host's history each time the lease moved. That shared key is also what lets
-a memory reading sit beside a cycle outcome for the same host: `on(hostId)` joins the
-two.
+**Host ID** shows the first 8 characters, just as in *Pool hosts*. Click it to see the
+full GUID and open that host's status page. **Type** identifies the host platform.
+**Minimum** is the lowest reading in the selected time window; **Latest** shows the
+last reading in that window, with a sparkline of its history. These are recorded
+readings, so a latest value can remain visible while the exporter is down.
+
+**Exporter** describes the scrape at the end of the selected window:
+
+- **Up** -- Prometheus successfully scraped the exporter. A missing memory value
+  still means that the requested metric was not supplied.
+- **Down** -- the exporter scrape failed. The host's status page can remain reachable
+  while its exporter port is blocked or the metrics request times out.
+- **Not scraped** -- there is no current scrape result. Only reachable Windows hosts
+  are discovered as exporter targets; other platforms and unreachable hosts have no
+  target. Their inventory rows remain visible.
+
+The collector discovers exporter addresses from the hosts it currently reaches;
+Prometheus follows that list. Series use the stable `hostId`, including as their
+scrape identity, so a DHCP address change keeps the same memory history. The tables
+join that history to the inventory on `hostId` and exclude retired host IDs. An absent
+reading stays unavailable rather than becoming a zero-byte reading.
 
 <a id="422226cb-000c"></a>
 
@@ -374,6 +456,9 @@ without it a cycle written in that hour would be written twice.
   host from the dashboard's buttons, and the one-time enrollment that enables it.
 - [collector-down](https://yuruna.link/collector-down) -- restoring the
   pool-aggregator-service collector this whole dashboard depends on.
+- [cache-health dashboard](https://yuruna.link/4227a895) -- the proxy VM's own board:
+  manifest latency, upstream reach and the pull budget, where the caching-proxy row
+  sends you when the proxy itself is at fault.
 - [pool-admin](https://yuruna.link/4207d71a) -- running a pool: membership,
   framework and project repositories, configured state.
 - [lab-operator](https://yuruna.link/42383647) -- bringing a lab up.
@@ -384,6 +469,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.14
+Last review: 2026.10.18
 
 Back to [Yuruna](../README.md)

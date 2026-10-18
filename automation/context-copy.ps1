@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.14
+.VERSION 2026.10.18
 .GUID 42633ca0-2c76-450c-a1f8-ca4342cfa81e
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -50,6 +50,7 @@ kubectl config unset contexts.$destinationContext *>&1 | Write-Verbose
 # overwritten.
 $originalContext = kubectl config current-context
 $originalKubeConfig = (Test-Path Env:KUBECONFIG) ? $env:KUBECONFIG : $null
+$tempFile = $null
 kubectl config use-context $sourceContext *>&1 | Write-Verbose
 
 # Restore both the kube context and the KUBECONFIG env var in a finally so
@@ -88,13 +89,14 @@ try {
     # on Move-Item, so a non-zero exit here MUST short-circuit.
     if ($LASTEXITCODE -ne 0) { Write-Information (Format-YurunaOperatorMessage -Key 'automation.operator_4bcda64ddc713b3c' -Arguments @{ lASTEXITCODE = "$LASTEXITCODE" }); return $false; }
 
-    Remove-Item -Path $tempFile -Force -ErrorAction SilentlyContinue
     if (-Not (Test-Path -Path $combinedConfig)) { Write-Information (Format-YurunaOperatorMessage -Key 'automation.operator_2f89b400662cacb4' -Arguments @{ currentConfig = "$currentConfig" }); return $false; }
     if ((Get-Item $combinedConfig).Length -eq 0) { Write-Information (Format-YurunaOperatorMessage -Key 'automation.operator_2f89b400662cacb4' -Arguments @{ currentConfig = "$currentConfig" }); return $false; }
 
     Move-Item -Path $combinedConfig -Destination $currentConfig -Force
 }
 finally {
+    # The kubectl failure return above, and any throw, skip the success path.
+    if ($tempFile) { Remove-Item -LiteralPath $tempFile.FullName -Force -ErrorAction SilentlyContinue }
     if ($null -ne $originalKubeConfig) {
         Set-Item -Path Env:KUBECONFIG -Value $originalKubeConfig
     } else {

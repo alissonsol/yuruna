@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.14
+.VERSION 2026.10.18
 .GUID 42a2e5eb-3669-4a46-8c83-b6e76b040378
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -305,12 +305,15 @@ function Set-GuestFailureArtifact { param($GuestKey,$RelativeUrl) $null=$GuestKe
 Describe 'execution profile attribution' {
     BeforeAll {
         $profileSource=Get-AttributionFunction $script:diagnosticAst 'Save-GuestExecutionProfile'
+        # The profile capture classifies the SSH client's own text before it
+        # judges the log's identity, so the classifier travels with it.
+        $transportSource=Get-AttributionFunction $script:diagnosticAst 'Get-GuestTransportVerdict'
         $fixture=@'
 function Invoke-GuestEvidenceSsh { param($VMName,$GuestKey,$Command,$TimeoutSeconds,$MaxCapturedChars) $null=$VMName,$GuestKey,$TimeoutSeconds,$MaxCapturedChars; $script:command=$Command; return $script:response }
 function Protect-GuestEvidenceText { param($Text,$Variables) $null=$Variables; return $Text.Replace('fixture-secret','[REDACTED]') }
 '@
         $script:profileFixture=New-Module -Name AttributionProfile -ScriptBlock ([scriptblock]::Create(
-            $script:verdictSource+"`n"+$profileSource+"`n"+$fixture))
+            $script:verdictSource+"`n"+$transportSource+"`n"+$profileSource+"`n"+$fixture))
     }
 
     AfterAll { Remove-Module $script:profileFixture -Force -ErrorAction SilentlyContinue }

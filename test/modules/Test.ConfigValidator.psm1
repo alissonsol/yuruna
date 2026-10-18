@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.14
+.VERSION 2026.10.18
 .GUID 4233bb36-0ed5-4529-acff-23258b23fec0
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -31,6 +31,8 @@ Import-Module (Join-Path $PSScriptRoot 'Test.HostGit.psm1') -Global -Force
 # fallback, the shared mtime-keyed cache). Import it here so every consumer of this
 # module has the reader -- the validator is also called by the standalone Test-Config.ps1.
 Import-Module (Join-Path $PSScriptRoot 'Test.Config.psm1') -Global -Force
+# Get-YurunaJsonSchemaError names the violation Test-Json reports without a record.
+Import-Module (Join-Path $PSScriptRoot 'Test.LocalizationExchange.psm1') -DisableNameChecking
 
 function Test-IsSet {
     <#
@@ -94,7 +96,10 @@ function Test-AgainstSchema {
             if (Test-Json -Json $docJson -Schema $schemaJson -ErrorAction Stop) {
                 Write-Pass "${Label}: schema-valid ($YamlFull)"
             } else {
-                Write-Fail "${Label}: schema-invalid -- ${YamlFull}" -FullPath $YamlFull
+                # A violation Test-Json reports with a record throws above; PowerShell
+                # 7.6.7 answers $false with none for one nested below the first level.
+                $reason = Get-YurunaJsonSchemaError -Json $docJson -Schema $schemaJson
+                Write-Fail (Format-YurunaOperatorMessage -Key 'runner.operator_f815487911dc3595' -Arguments @{ label = "${Label}"; yamlFull = "${YamlFull}"; message = "$reason" }) -FullPath $YamlFull
             }
         } catch {
             Write-Fail (Format-YurunaOperatorMessage -Key 'runner.operator_f815487911dc3595' -Arguments @{ label = "${Label}"; yamlFull = "${YamlFull}"; message = "$($_.Exception.Message)" }) -FullPath $YamlFull

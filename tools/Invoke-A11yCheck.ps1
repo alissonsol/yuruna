@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.14
+.VERSION 2026.10.18
 .GUID 420b9d4a-e9ff-472b-9afa-d978ada39114
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -171,7 +171,24 @@ function Stop-A11yBrowserProfile {
         [Parameter(Mandatory)][string]$ProfileDirectory
     )
 
-    if (-not $IsWindows) { return 0 }
+    if (-not $IsWindows) {
+        # Linux and macOS: the same identity, read from the process table. A
+        # browser that relaunched itself, or a helper the tree kill missed,
+        # keeps writing into the profile the caller is about to remove.
+        $ownedArg = '(?:^|\s)--user-data-dir=' + [regex]::Escape($ProfileDirectory) + '(?:\s|$)'
+        $stopped = 0
+        $deadline = [DateTime]::UtcNow.AddSeconds(5)
+        do {
+            $running = @(& ps -eo 'pid=,args=' 2>$null | ForEach-Object {
+                    if ("$_" -match '^\s*(\d+)\s+(.*)$' -and [int]$Matches[1] -ne $PID -and $Matches[2] -match $ownedArg) { [int]$Matches[1] }
+                })
+            foreach ($processId in $running) {
+                try { Stop-Process -Id $processId -Force -ErrorAction Stop; $stopped++ } catch { Write-Verbose "browser stop: $($_.Exception.Message)" }
+            }
+            if ($running.Count) { Start-Sleep -Milliseconds 200 }
+        } while ($running.Count -and [DateTime]::UtcNow -lt $deadline)
+        return $stopped
+    }
     $image = [IO.Path]::GetFileName($FilePath).Replace("'", "''")
     $owned = '--user-data-dir="?' + [regex]::Escape($ProfileDirectory) + '(?:"|\s|$)'
     $stopped = 0
@@ -756,34 +773,42 @@ window.addEventListener('securitypolicyviolation', function (event) {
     # is independent: one that cannot complete must not strand the next one, and
     # a teardown error must never replace the finding that caused it.
     if ($socket) { try { $socket.Dispose() } catch { Write-Verbose "socket dispose: $($_.Exception.Message)" } }
-    # A launcher that has already exited handed the session to a browser it
-    # started, so there is nothing left of it to kill.
-    $launcherReplaced = $chromeProc -and $chromeProc.HasExited
     if ($chromeProc -and -not $chromeProc.HasExited) {
-        try { $chromeProc.Kill(); [void]$chromeProc.WaitForExit(5000) }
+        # The whole tree: Chrome's renderer and GPU helpers outlive the
+        # launcher otherwise, and keep the profile locked against the removal
+        # below.
+        try { $chromeProc.Kill($true); [void]$chromeProc.WaitForExit(5000) }
         catch { Write-Verbose "chrome kill: $($_.Exception.Message)" }
     }
-    if ($launcherReplaced) {
-        try { $null = Stop-A11yBrowserProfile -FilePath $chrome -ProfileDirectory $profileDir }
-        catch { Write-Verbose "chrome profile stop: $($_.Exception.Message)" }
-    }
-    if ($chromeProc -and $chromeProc.HasExited -and $chromeErrorTask) {
+    # Whatever still runs on this profile -- a relaunched browser, a helper the
+    # tree kill missed -- is stopped by the profile on its command line.
+    try { $null = Stop-A11yBrowserProfile -FilePath $chrome -ProfileDirectory $profileDir }
+    catch { Write-Verbose "chrome profile stop: $($_.Exception.Message)" }
+    # Chrome's stderr is evidence only when the browser never became usable;
+    # after a run that measured pages it is noise, and a stale copy from an
+    # earlier failure would mislead whoever opens it.
+    if ($chromeProc -and $chromeProc.HasExited -and $chromeErrorTask -and -not $browserReady) {
         try {
             $chromeError = $chromeErrorTask.GetAwaiter().GetResult()
             [IO.File]::WriteAllText($chromeLog, $chromeError, [Text.UTF8Encoding]::new($false))
         } catch { Write-Verbose "chrome stderr: $($_.Exception.Message)" }
+    } elseif ($browserReady) {
+        Remove-Item -LiteralPath $chromeLog -Force -ErrorAction SilentlyContinue
     }
     if ($chromeProc) { try { $chromeProc.Dispose() } catch { Write-Verbose "chrome dispose: $($_.Exception.Message)" } }
     if ($listener) { try { $listener.Stop(); $listener.Close() } catch { Write-Verbose "listener stop: $($_.Exception.Message)" } }
     if ($serverRunspace) { try { $serverRunspace.Dispose() } catch { Write-Verbose "runspace dispose: $($_.Exception.Message)" } }
-    if (Test-Path -LiteralPath $profileDir) {
+    foreach ($attempt in 1..10) {
+        if (-not (Test-Path -LiteralPath $profileDir)) { break }
         Remove-Item -LiteralPath $profileDir -Recurse -Force -ErrorAction SilentlyContinue
+        if (Test-Path -LiteralPath $profileDir) { Start-Sleep -Milliseconds 300 }
     }
 }
 
 if ($browserPrerequisiteFailure) {
     Write-Line ("{0} page(s), 0 measured -- SKIPPED: browser launch/CDP setup failed: {1}" -f
         $pages.Count, $browserPrerequisiteFailure.Exception.Message)
+    if (Test-Path -LiteralPath $chromeLog) { Write-Line ("Chrome's own error output: {0}" -f $chromeLog) }
     exit 2
 }
 

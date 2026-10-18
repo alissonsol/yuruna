@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.14
+.VERSION 2026.10.18
 .GUID 42cf4f7f-3c33-488c-8cc6-1cb70b8f8836
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -100,6 +100,13 @@ function New-HookRepository {
     foreach ($tool in 'Test-AsciiNoBom', 'Test-SourceMetadata', 'Invoke-CatalogEmbed', 'Test-SuiteBaseline') {
         Write-FixtureFile -Path (Join-Path $root "tools/$tool.ps1") -Text (Get-StubText -Name $tool)
     }
+    # The Pester 6.x answer comes from a flag file. A child pwsh cannot be shown a
+    # machine without Pester 6.x: it adds the default module paths back whatever
+    # PSModulePath says.
+    Write-FixtureFile -Path (Join-Path $root 'tools/Install-TestModule.ps1') -Text (Get-StubText -Name 'Install-TestModule' -Behavior @'
+if ([IO.File]::Exists((Join-Path $base 'pester6-missing'))) { exit 1 }
+exit 0
+'@)
     # The compiler exits 1 when it wrote, so the hook reads success from the
     # summary line; a file beside the repository replaces what it prints.
     Write-FixtureFile -Path (Join-Path $root 'tools/Invoke-CatalogCompile.ps1') -Text (Get-StubText -Name 'Invoke-CatalogCompile' -Behavior @'
@@ -443,6 +450,53 @@ exit 0
         $run = Invoke-HookCommit -Fixture $fixture
         $run.Code | Should -Be 0 -Because $run.Text
         $run.Text | Should -Match 'WARNING: a private test file changed without re-recording'
+    }
+
+    It 'refuses a test commit from a host without Pester 6.x, and names the install command' {
+        $fixture = New-HookRepository -Name 'pester6-missing'
+        Write-FixtureFile -Path (Join-Path $fixture.Root 'test/modules/Test.Probe.Tests.ps1') -Text "Describe 'probe' { It 'runs' { 1 | Should -Be 1 } }`n"
+        $null = Invoke-FixtureGit -Repository $fixture.Root -Argument @('add', '--', 'test/modules/Test.Probe.Tests.ps1')
+        Write-FixtureFile -Path (Join-Path (Split-Path -Parent $fixture.Root) 'pester6-missing') -Text ''
+        $head = Invoke-FixtureGit -Repository $fixture.Root -Argument @('rev-parse', 'HEAD')
+        $run = Invoke-HookCommit -Fixture $fixture
+        $run.Code | Should -Not -Be 0 -Because $run.Text
+        $run.Text | Should -Match 'pre-commit: Pester 6\.x is not installed, and a commit that stages a test file requires it'
+        $run.Text | Should -Match 'Install-TestModule\.ps1'
+        @($run.Calls | Where-Object { $_.tool -eq 'Install-TestModule' -and $_.args -contains '-Check' }).Count | Should -Be 1
+        Invoke-FixtureGit -Repository $fixture.Root -Argument @('rev-parse', 'HEAD') | Should -Be $head
+    }
+
+    It 'refuses a move that takes a test file out of test/modules without Pester 6.x' {
+        $fixture = New-HookRepository -Name 'pester6-moved'
+        Write-FixtureFile -Path (Join-Path $fixture.Root 'test/modules/Test.Probe.Tests.ps1') -Text "Describe 'probe' { It 'runs' { 1 | Should -Be 1 } }`n"
+        $null = Invoke-FixtureGit -Repository $fixture.Root -Argument @('add', '--', 'test/modules/Test.Probe.Tests.ps1')
+        $null = Invoke-FixtureGit -Repository $fixture.Root -Argument @('-c', 'core.hooksPath=', 'commit', '-q', '-m', 'probe suite')
+        $null = Invoke-FixtureGit -Repository $fixture.Root -Argument @('mv', 'test/modules/Test.Probe.Tests.ps1', 'probe-archive.txt')
+        Write-FixtureFile -Path (Join-Path (Split-Path -Parent $fixture.Root) 'pester6-missing') -Text ''
+        $head = Invoke-FixtureGit -Repository $fixture.Root -Argument @('rev-parse', 'HEAD')
+        $run = Invoke-HookCommit -Fixture $fixture
+        $run.Code | Should -Not -Be 0 -Because $run.Text
+        $run.Text | Should -Match 'Pester 6\.x is not installed'
+        Invoke-FixtureGit -Repository $fixture.Root -Argument @('rev-parse', 'HEAD') | Should -Be $head
+    }
+
+    It 'commits a test file when Pester 6.x is installed' {
+        $fixture = New-HookRepository -Name 'pester6-installed'
+        Write-FixtureFile -Path (Join-Path $fixture.Root 'test/modules/Test.Probe.Tests.ps1') -Text "Describe 'probe' { It 'runs' { 1 | Should -Be 1 } }`n"
+        $null = Invoke-FixtureGit -Repository $fixture.Root -Argument @('add', '--', 'test/modules/Test.Probe.Tests.ps1')
+        $run = Invoke-HookCommit -Fixture $fixture
+        $run.Code | Should -Be 0 -Because $run.Text
+        @($run.Calls | Where-Object { $_.tool -eq 'Install-TestModule' -and $_.args -contains '-Check' }).Count | Should -Be 1
+    }
+
+    It 'asks for Pester 6.x only when a test file is staged' {
+        $fixture = New-HookRepository -Name 'pester6-not-asked'
+        Write-FixtureFile -Path (Join-Path (Split-Path -Parent $fixture.Root) 'pester6-missing') -Text ''
+        Write-FixtureFile -Path (Join-Path $fixture.Root 'README.md') -Text "# Fixture, edited`n"
+        $null = Invoke-FixtureGit -Repository $fixture.Root -Argument @('add', '--', 'README.md')
+        $run = Invoke-HookCommit -Fixture $fixture
+        $run.Code | Should -Be 0 -Because $run.Text
+        $run.Tools | Should -Not -Contain 'Install-TestModule'
     }
 
     It 'passes shellcheck' -Skip:(-not (Get-Command shellcheck -ErrorAction SilentlyContinue)) {

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.14
+.VERSION 2026.10.18
 .GUID 42ffd71c-f88c-4908-9c29-47d3a28662d0
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -19,18 +19,22 @@
 <#
 .SYNOPSIS
     Install the PowerShell modules the test suites and the lint need: the
-    newest Pester 5.x and PSScriptAnalyzer.
+    newest Pester 6.x and PSScriptAnalyzer.
 .DESCRIPTION
     The bootstrap installers for every host platform run this once the checkout
     exists, so the version policy is written down once instead of in three
     installers in two languages.
 
-    Pester is held to the 5.x line. tools/Invoke-TestSuite.ps1 refuses Pester 6,
-    which removes Assert-MockCalled and Assert-VerifiableMock that suites still
-    call, and the gallery's newest Pester is a 6.x -- so an unqualified
-    Install-Module would add a version the runner will not load. The newest 5.x
-    goes in beside whatever is already present; nothing is removed, and the
-    runner selects the highest 5.x it finds.
+    The runner, the focused gates and the pre-commit test pass all load the
+    6.x line, so the newest 6.x is what gets installed, and the runner selects
+    the highest 6.x it finds. Nothing is removed: an older line left on a host
+    is never loaded, because every tool imports by resolved path inside the
+    6.x window. The gallery's newest Pester can sit on a later major, so the
+    line is requested by its own bounds rather than by an unqualified
+    Install-Module.
+
+    -Check installs nothing. It exits 0 when a 6.x copy is installed and 1 when
+    none is, which is the answer the pre-commit test pass reads.
 
     PSScriptAnalyzer is installed when absent, the same presence policy
     Enable-TestAutomation applies to it.
@@ -43,49 +47,50 @@
     pwsh -NoProfile -File tools/Install-TestModule.ps1
 #>
 [CmdletBinding()]
-param()
+param([switch]$Check)
 
 $ErrorActionPreference = 'Stop'
 
-# The highest installed Pester the runner would load, or $null.
-function Get-InstalledPester5 {
+# The highest installed Pester on one major line, or $null. A copy on another
+# major line does not count toward this one.
+function Get-InstalledPester {
     [CmdletBinding()]
-    param()
+    param([Parameter(Mandatory)][int]$Major)
     Get-Module -ListAvailable -Name Pester -ErrorAction SilentlyContinue |
-        Where-Object { $_.Version -ge [version]'5.0' -and $_.Version -lt [version]'6.0' } |
+        Where-Object { $_.Version -ge [version]"$Major.0" -and $_.Version -lt [version]"$($Major + 1).0" } |
         Sort-Object Version -Descending | Select-Object -First 1
 }
 
-function Install-NewestPester5 {
+function Install-NewestPester {
     [CmdletBinding()]
     [OutputType([string])]
-    param()
-    $installed = Get-InstalledPester5
+    param([Parameter(Mandatory)][int]$Major)
+    $installed = Get-InstalledPester -Major $Major
     try {
         # A range lookup answers with the single newest version inside it.
-        $newest = Find-Module -Name Pester -Repository PSGallery -MinimumVersion 5.0 -MaximumVersion 5.999.999 -ErrorAction Stop |
+        $newest = Find-Module -Name Pester -Repository PSGallery -MinimumVersion "$Major.0" -MaximumVersion "$Major.999.999" -ErrorAction Stop |
             Select-Object -First 1
     } catch {
         if ($installed) {
-            Write-Output "  Pester $($installed.Version) is installed; PSGallery could not be reached to look for a newer 5.x ($($_.Exception.Message))."
+            Write-Output "  Pester $($installed.Version) is installed; PSGallery could not be reached to look for a newer $Major.x ($($_.Exception.Message))."
         } else {
-            Write-Output "MODULE-ISSUE: Pester 5 is not installed and PSGallery could not be reached ($($_.Exception.Message)). Retry with: pwsh -Command 'Install-Module Pester -MaximumVersion 5.999.999 -Scope CurrentUser -SkipPublisherCheck'"
+            Write-Output "MODULE-ISSUE: Pester $Major is not installed and PSGallery could not be reached ($($_.Exception.Message)). Retry with: pwsh -Command 'Install-Module Pester -MaximumVersion $Major.999.999 -Scope CurrentUser -SkipPublisherCheck'"
         }
         return
     }
     if ($installed -and $installed.Version -ge [version]"$($newest.Version)") {
-        Write-Output "  Pester $($installed.Version) is the newest 5.x"
+        Write-Output "  Pester $($installed.Version) is the newest $Major.x"
         return
     }
     Write-Output "  installing Pester $($newest.Version) (CurrentUser scope)"
     try {
         # -SkipPublisherCheck: Windows ships Pester 3.4.0 signed by Microsoft,
-        # and Pester 5 carries a different publisher certificate, so without it
-        # PowerShellGet refuses the install as a publisher change.
+        # and the Pester 5 and 6 packages carry a different publisher certificate,
+        # so without it PowerShellGet refuses the install as a publisher change.
         Install-Module -Name Pester -RequiredVersion "$($newest.Version)" -Repository PSGallery -Scope CurrentUser `
             -Force -SkipPublisherCheck -AllowClobber -ErrorAction Stop
     } catch {
-        Write-Output "MODULE-ISSUE: Installing Pester $($newest.Version) failed: $($_.Exception.Message) Retry with: pwsh -Command 'Install-Module Pester -MaximumVersion 5.999.999 -Scope CurrentUser -SkipPublisherCheck'"
+        Write-Output "MODULE-ISSUE: Installing Pester $($newest.Version) failed: $($_.Exception.Message) Retry with: pwsh -Command 'Install-Module Pester -MaximumVersion $Major.999.999 -Scope CurrentUser -SkipPublisherCheck'"
     }
 }
 
@@ -107,10 +112,20 @@ function Install-PSScriptAnalyzerIfAbsent {
     }
 }
 
-# Each module reports its own failure, so one that fails does not stop the
-# other; the outer catch covers anything neither anticipated.
+if ($Check) {
+    if (Get-InstalledPester -Major 6) { exit 0 }
+    exit 1
+}
+
+# Pester and PSScriptAnalyzer report their own failures, so one that fails
+# does not stop the other; the catch around each covers anything neither
+# anticipated.
 try {
-    Install-NewestPester5
+    Install-NewestPester -Major 6
+} catch {
+    Write-Output "MODULE-ISSUE: Installing Pester 6 failed unexpectedly: $($_.Exception.Message)"
+}
+try {
     Install-PSScriptAnalyzerIfAbsent
 } catch {
     Write-Output "MODULE-ISSUE: Installing the test modules failed unexpectedly: $($_.Exception.Message)"

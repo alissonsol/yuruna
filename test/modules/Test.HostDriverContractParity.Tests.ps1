@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.14
+.VERSION 2026.10.18
 .GUID 42e5a9c3-7b16-4f02-a8d4-9c3b1e6f5a27
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -26,8 +26,7 @@
     siblings, and an edit that reaches two of them passes every suite that runs
     on the host doing the editing: the third driver only fails when it is
     imported on its own platform, as a missing-verb warning, and a host-neutral
-    caller then stops at command-not-found there
-    (feedback_host-family-triples-drop-out-of-sweeps.md). This suite reads all
+    caller then stops at command-not-found there. This suite reads all
     three drivers through the PowerShell AST -- no driver is imported, so it
     runs identically on every host -- and holds each one to the verb list the
     contract module itself returns.

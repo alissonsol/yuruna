@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.14
+.VERSION 2026.10.18
 .GUID 42367dc8-87ed-6a22-76cb-f406abe4051a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -8885,6 +8885,15 @@
         }
         '）。请恢复 UTM 访问权限，或传入 -CachingProxyServiceUrl "" 以直接下载。'
     )
+    'host.utm_control_snapshot_action' = @(
+        '记录UTM控制通道快照（'
+        @{
+            'arg' = 'trigger'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+        '）'
+    )
     'host.utm_detached_launch_action' = @(
         '启动'
         @{
@@ -8987,6 +8996,27 @@
             'trust' = 'internal'
         }
         's未在UTM中注册；未发出启动请求。'
+    )
+    'host.utm_start_control_hung' = @(
+        'UTM的控制通道已停止执行生命周期请求：对'''
+        @{
+            'arg' = 'vmName'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '''的'
+        @{
+            'arg' = 'attempts'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        '次连续启动请求均未得到响应，最后一次报告的错误为'''
+        @{
+            'arg' = 'lastError'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '''。utmctl仍能连接到UTM.app进行状态查询，因此应用程序仍在运行，但不再执行start、stop或delete，重试只会再增加一次超时。请在此宿主机上重新启动UTM.app（从桌面会话退出它，或运行test/lab/Invoke-HostRefresh.ps1），然后重新启动该虚拟机。该虚拟机从未启动，其磁盘也未被改动。'
     )
     'host.utm_start_dropped' = @(
         "`“"

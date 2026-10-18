@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# Version: 2026.10.14
+# Version: 2026.10.18
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 #
 # tofu data "external" hook -- emit the original public-IP address for
 # the AKS frontend as {"ip_address":"..."}. Bash + az only, no pwsh:
-# a pwsh data-external program here triggers the FileLoadException trap
-# class documented in feedback_pwsh_provisioner_assemblyname_flake.md.
+# a pwsh data-external program here can crash at process startup with a
+# FileLoadException on System.Collections.Specialized before any line runs.
 set -euo pipefail
 
 # Drain stdin: tofu sends a JSON object on stdin even when `query` is

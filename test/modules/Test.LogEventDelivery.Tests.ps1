@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.14
+.VERSION 2026.10.18
 .GUID 4265798a-3d2b-45d8-a5ad-6776ff4a2ad9
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -118,7 +118,7 @@ Describe 'Cycle event delivery ledger' {
         $d.dropped | Should -Be 1
         $d.lastDropReason | Should -Be 'no-cycle-folder'
         $d.lastDroppedEvent | Should -Be 'step_end'
-        Assert-MockCalled -CommandName Write-Warning -ModuleName Test.Log -Times 0 -Exactly -Scope It
+        Should -Invoke -CommandName Write-Warning -ModuleName Test.Log -Times 0 -Exactly -Scope It
         Test-Path -LiteralPath (Join-Path $script:Dir 'cycle.events.delivery.json') | Should -BeFalse
     }
 
@@ -135,7 +135,7 @@ Describe 'Cycle event delivery ledger' {
         $ledger = Get-Content -LiteralPath (Join-Path $script:Dir 'cycle.events.delivery.json') -Raw | ConvertFrom-Json
         $ledger.dropped | Should -Be 2
         $ledger.lastDropReason | Should -Match '^write-failed:'
-        Assert-MockCalled -CommandName Write-Warning -ModuleName Test.Log -Times 1 -Exactly -Scope It
+        Should -Invoke -CommandName Write-Warning -ModuleName Test.Log -Times 1 -Exactly -Scope It
         Test-Path -LiteralPath (Join-Path $script:Dir 'cycle.events.gaps') | Should -BeTrue -Because 'the existing gap sentinel is still written'
     }
 

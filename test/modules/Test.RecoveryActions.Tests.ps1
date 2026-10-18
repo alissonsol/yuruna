@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.14
+.VERSION 2026.10.18
 .GUID 428b7f5c-e722-4d67-858d-b11427a01f39
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -39,6 +39,9 @@ $here = Split-Path -Parent $PSCommandPath
 Import-Module (Join-Path $here 'Test.Assert.psm1') -Force -Global -DisableNameChecking
 Import-Module (Join-Path $here 'Test.RecoveryContract.psm1') -Force -DisableNameChecking
 Import-Module (Join-Path $here 'Test.RecoveryActions.psm1') -Force -DisableNameChecking
+# Captured before any Mock: a filtered mock alone fails the calls its
+# filter does not match, and this suite relies on the real command there.
+$script:RealMoveItem = Get-Command Move-Item -CommandType Cmdlet
 
 # The throwaway repositories must not inherit the developer's git configuration:
 # commit signing would prompt, and a file system monitor would leave a daemon
@@ -764,6 +767,7 @@ Describe 'clear_stale_git_lock' {
     It 'restores what it had already moved when the action stops half way' {
         $head = Add-LockFile -RepoPath $script:Fx.Framework -Relative '.git/HEAD.lock' -MinutesOld 30
         $index = Add-LockFile -RepoPath $script:Fx.Framework -Relative '.git/index.lock' -MinutesOld 30
+        Mock -ModuleName Test.RecoveryActions Move-Item { & $script:RealMoveItem @PesterBoundParameters }
         Mock -ModuleName Test.RecoveryActions Move-Item { throw 'being used by another process' } -ParameterFilter { "$LiteralPath" -like '*index.lock' -and "$Destination" -like '*recovery.quarantine*' }
         $out = Invoke-RecoveryAction -Name 'clear_stale_git_lock' -Context (@{ Result = $script:Result } + $script:Fx.Context) -RuntimeDir $script:Fx.Runtime
         $out.Decision | Should -Be 'failed'

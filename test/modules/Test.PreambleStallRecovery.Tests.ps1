@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.14
+.VERSION 2026.10.18
 .GUID 425d1ef1-c9ad-47cc-8b78-45a0c1156135
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -112,6 +112,21 @@ Describe 'Invoke-BoundedNativeCommand' {
         $r.TimedOut       | Should -Be $false -Because 'the process this call launched (bash) really did exit inside the cap'
         $r.ExitCode       | Should -Be 0
         $r.DrainTimedOut  | Should -Be $true -Because 'stdout/stderr had not reached EOF when the call returned -- the descendant is still holding them'
+        (Test-BoundedNativeResultComplete -Result $r) | Should -Be $false
+    }
+
+    It 'reports a capture whose stream read faulted as incomplete, never as end of file' {
+        # A decoder that refuses the child's bytes faults the read task. That
+        # stream is not polled again, so whatever the child wrote past the
+        # fault is unknown, and the result must say so rather than present
+        # the bytes it did keep as a complete answer.
+        $writer = '$o = [Console]::OpenStandardOutput(); $o.Write([byte[]](0x61, 0xff, 0xfe, 0x62), 0, 4); $o.Flush()'
+        $r = Invoke-BoundedNativeCommand -FilePath $script:Pwsh -ArgumentList @('-NoProfile', '-Command', $writer) `
+            -TimeoutSeconds 60 -StreamEncoding ([Text.UTF8Encoding]::new($false, $true))
+        $r.Started       | Should -Be $true
+        $r.TimedOut      | Should -Be $false
+        $r.ExitCode      | Should -Be 0
+        $r.DrainTimedOut | Should -Be $true -Because 'the stdout read faulted before end of file, so the capture is not a complete answer'
         (Test-BoundedNativeResultComplete -Result $r) | Should -Be $false
     }
 

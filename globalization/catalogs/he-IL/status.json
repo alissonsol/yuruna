@@ -1030,6 +1030,11 @@
       "origin": "machine",
       "message": "המארח דחה את בקשת הרענון: {detail}"
     },
+    "status.host_refresh_remote_viewer": {
+      "sourceHash": "c3e7bea03101a96f1efc6bd91514653375ab2912dc28f925be2a457e67ea5a91",
+      "origin": "machine",
+      "message": "דף זה פתוח ממחשב אחר, ולכן ניתן לצפות בו ברענון מארח אך לא להפעיל אותו. הפעילו אותו במארח עצמו: בלוח המחוונים שלו, או באמצעות pwsh test⁦/lab/Invoke-HostRefresh.ps1⁩."
+    },
     "status.host_refresh_retry": {
       "sourceHash": "0652202c1a5f16f4b6edf8ce72290f62b7c19495dbaf4b9e33d051c0c15e9ff7",
       "origin": "machine",
@@ -2153,6 +2158,31 @@
       "sourceHash": "efb3032d575634590c835beda4b17947d22834772477f19f0c568fc362d4259f",
       "origin": "machine",
       "message": "הצלחות לפני דריכה מחדש"
+    },
+    "status.preflight_failed": {
+      "sourceHash": "25b9509846e9875002e2839c39fbc6ac2589b0d6033595e4e86e366994ecb5f0",
+      "message": "בדיקה מקדימה נכשלה",
+      "origin": "machine"
+    },
+    "status.runner_attempts_title": {
+      "sourceHash": "f424289c7e871ddb789be2cc58a7c586089e2339ddd5144d2def45b926ccb8b6",
+      "message": "כישלונות בניסיונות הרצה",
+      "origin": "machine"
+    },
+    "status.runner_attempts_description": {
+      "sourceHash": "ca4036f65cf8e0840e7fed11fec0db167fd0c6056ccfa940d227fd94a3aa5560",
+      "message": "כישלונות מתוך 20 ניסיונות ההרצה האחרונים נשמרים כאן לאחר ההתאוששות. כישלונות בבדיקה המקדימה מתרחשים לפני תחילת מחזור בדיקות חדש.",
+      "origin": "machine"
+    },
+    "status.runner_attempts_empty": {
+      "sourceHash": "c9d1b0d4291b2e1d28e3c3562b21885552523dbb427ce4f6222f4512e95d4ffd",
+      "message": "אין כישלונות שמורים של ניסיונות הרצה.",
+      "origin": "machine"
+    },
+    "status.runner_attempts_unavailable": {
+      "sourceHash": "61a96ef0db4d80c0ca0b694f9bf762a6598f04c8222b89230edd167fa839b0c2",
+      "message": "היסטוריית ניסיונות ההרצה אינה זמינה.",
+      "origin": "machine"
     }
   }
 }

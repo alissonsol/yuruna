@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.14
+.VERSION 2026.10.18
 .GUID 42b0f4a9-1c73-4e58-8d61-9a5207ebd3f4
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -595,7 +595,7 @@ function Get-PowerShellArtifact {
     $guid = Get-DerivedGuid -Seed "$Locale|$Domain"
     $header = @(
         '<#PSScriptInfo'
-        '.VERSION 2026.10.14'
+        '.VERSION 2026.10.18'
         ".GUID $guid"
         '.AUTHOR Alisson Sol et al.'
         '.COPYRIGHT (c) 2019-2026 by Alisson Sol et al.'
@@ -723,13 +723,8 @@ foreach ($dir in $sourceLocale) {
         # JSON Schema cannot express (cross-file ownership and plural rules),
         # but they do not substitute for validating the source against its
         # declared schema.
-        try {
-            if (-not (Test-Json -Json $text -SchemaFile $schemaPath -ErrorAction Stop)) {
-                Add-Problem "$($file.Name) does not satisfy schema/catalog.schema.json"
-            }
-        } catch {
-            Add-Problem "$($file.Name) does not satisfy schema/catalog.schema.json: $($_.Exception.Message)"
-        }
+        $schemaError = Get-YurunaJsonSchemaError -Json $text -SchemaFile $schemaPath
+        if ($schemaError) { Add-Problem "$($file.Name) does not satisfy schema/catalog.schema.json: $schemaError" }
         Test-CatalogFile -Path $file.FullName -Catalog $parsed -ExpectedLocale $locale `
             -PluralCategory $categories -IsSource:($locale -eq [string]$manifest.default)
         foreach ($p in $parsed.messages.PSObject.Properties) {
@@ -1026,7 +1021,7 @@ foreach ($translationKey in $translationProvenance.Keys) {
 }
 $setManifest = ConvertTo-CanonicalJson -Value ([ordered]@{
     schema          = 'yuruna.catalog-set/v1'
-    compilerVersion = '2026.10.14'
+    compilerVersion = '2026.10.18'
     catalogSchema   = 'yuruna.catalog/v1'
     localeManifest  = Get-Sha256 -Text ([IO.File]::ReadAllText($manifestPath))
     inputs           = $inputHash

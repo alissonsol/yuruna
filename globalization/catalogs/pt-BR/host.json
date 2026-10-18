@@ -4700,6 +4700,16 @@
       "origin": "machine",
       "message": "O UTM não atendeu à solicitação de início da VM '{vmName}' em {attempts} tentativa(s); a última relatou '{lastError}'. O utmctl conseguiu se comunicar com o UTM.app -- as consultas de estado foram respondidas o tempo todo --, mas o início em si nunca foi executado; portanto, a VM nunca foi iniciada e o disco dela está intacto. Tente novamente (utmctl start '{vmName}'); reconstruir a VM não resolve nada neste caso."
     },
+    "host.utm_start_control_hung": {
+      "sourceHash": "c9d057ba43796fb3b9a31f0907dd458da26998e8c7b115bc09ec40206fe11821",
+      "origin": "machine",
+      "message": "O canal de controle do UTM parou de atender às solicitações de ciclo de vida: {attempts} solicitação(ões) consecutiva(s) de início da VM '{vmName}' ficaram sem resposta, e a última relatou '{lastError}'. O utmctl ainda alcançou o UTM.app para consultas de estado, portanto o aplicativo está em execução, mas não executa mais start, stop ou delete, e tentar de novo só acrescenta outro tempo limite. Reinicie o UTM.app nesta máquina (encerre-o na sessão da área de trabalho ou execute test/lab/Invoke-HostRefresh.ps1) e inicie a VM novamente. A VM nunca foi iniciada e o disco dela está intacto."
+    },
+    "host.utm_control_snapshot_action": {
+      "sourceHash": "0edb078c35115edfdd56fc887938f57308ba7770305b9e5b63b3120e5b766edf",
+      "origin": "machine",
+      "message": "Registrar o instantâneo do canal de controle do UTM ({trigger})"
+    },
     "host.utm_start_not_running": {
       "sourceHash": "405cc00b9fe1b1ba8dc88dc3493caf320fe85a56d3fb4c99892bf31b083c3971",
       "origin": "machine",

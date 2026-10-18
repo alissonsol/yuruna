@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.14
+.VERSION 2026.10.18
 .GUID 42645f00-faa2-428e-bbc3-6249194cf5b0
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -474,6 +474,9 @@ Describe 'Get-YurunaRunnerRecordState and Remove-YurunaRunnerRecordGeneration (r
         $script:RecordDir = New-YurunaTestTempDir -Prefix 'yrn-si-record'
         $script:RecPid = Join-Path $script:RecordDir 'runner.pid'
         $script:RecStart = Join-Path $script:RecordDir 'runner.start'
+        # Captured before any Mock: a filtered mock alone fails the calls its
+        # filter does not match, and this suite relies on the real command there.
+        $script:RealFingerprintPart = & (Get-Module Test.SingleInstance) { Get-Command Get-YurunaFileFingerprintPart }
     }
     AfterAll { Remove-YurunaTestTempDir $script:RecordDir }
     BeforeEach { Remove-Item -LiteralPath $script:RecPid, $script:RecStart -Force -ErrorAction SilentlyContinue }
@@ -584,6 +587,7 @@ Describe 'Get-YurunaRunnerRecordState and Remove-YurunaRunnerRecordGeneration (r
     It 'restores a record replaced between the check and the rename' {
         Set-Content -LiteralPath $script:RecPid -Value "$(Get-TestDeadPid)" -Encoding utf8NoBOM
         $s = Get-YurunaRunnerRecordState -PidFile $script:RecPid
+        Mock -ModuleName Test.SingleInstance Get-YurunaFileFingerprintPart -MockWith { & $script:RealFingerprintPart @PesterBoundParameters }
         Mock -ModuleName Test.SingleInstance Get-YurunaFileFingerprintPart -ParameterFilter { $Path -like '*.reclaim.tmp' } -MockWith { 'a-new-writer' }
         $r = Remove-YurunaRunnerRecordGeneration -PidFile $script:RecPid -Fingerprint $s.Fingerprint -Confirm:$false
         Assert-Equal -Expected 'restored' -Actual $r.Reason
@@ -594,6 +598,7 @@ Describe 'Get-YurunaRunnerRecordState and Remove-YurunaRunnerRecordGeneration (r
         Set-Content -LiteralPath $script:RecStart -Value '2026-01-01T00:00:00.0000000Z' -Encoding utf8NoBOM
         $s = Get-YurunaRunnerRecordState -PidFile $script:RecPid -StartFile $script:RecStart
         $startLeaf = Split-Path -Leaf $script:RecStart
+        Mock -ModuleName Test.SingleInstance Get-YurunaFileFingerprintPart -MockWith { & $script:RealFingerprintPart @PesterBoundParameters }
         Mock -ModuleName Test.SingleInstance Get-YurunaFileFingerprintPart -ParameterFilter { $Path -like "*$startLeaf.*.reclaim.tmp" } -MockWith { 'a-new-owner' }
         $r = Remove-YurunaRunnerRecordGeneration -PidFile $script:RecPid -StartFile $script:RecStart -Fingerprint $s.Fingerprint -Confirm:$false
         Assert-Equal -Expected 'removed' -Actual $r.Reason

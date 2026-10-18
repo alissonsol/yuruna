@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.14
+.VERSION 2026.10.18
 .GUID 42bcdf70-8f13-463a-8f88-0dcd1771f9c7
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -465,7 +465,9 @@ Describe 'The refresh forms in install/README.md' {
     }
 }
 
-Describe 'The bash verification snippet under <ShellName>' -ForEach $script:Shells {
+# A host with neither bash nor zsh has no shell to run the snippet under: an
+# empty list is that host's legitimate state, not a discovery fault.
+Describe 'The bash verification snippet under <ShellName>' -ForEach $script:Shells -AllowNullOrEmptyForEach {
     It '<CaseName>' -ForEach $script:BashCases {
         if (-not $script:OpenSsl) { Set-ItResult -Skipped -Because 'openssl is not installed on this host; the snippet verifies with it'; return }
         $result = Invoke-BashSnippet -Case $_ -ShellPath $ShellPath

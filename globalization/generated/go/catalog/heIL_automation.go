@@ -5198,6 +5198,7 @@ const DataheILautomation = `{
       "trust": "external"
     }
   ],
+  "automation.runtime_ipc_remove_action": "הסירו את רשומת זמן הריצה של .NET שנותרה מתהליך שכבר אינו קיים",
   "automation.setup_service_vm_reason_intended_stopped": "הוא נעצר במכוון; מתבצעת בנייה מחדש כי תוכנית ההתקנה התבקשה להפעיל אותו",
   "automation.setup_service_vm_reason_lock_unavailable": "לא ניתן להשיג את נעילת הפעולה שלו",
   "automation.setup_service_vm_reason_operation_busy": "פעולת הפעלה או עצירה אחרת של שירות זה עדיין מתבצעת",
@@ -5210,6 +5211,7 @@ const DataheILautomation = `{
     },
     ")"
   ],
+  "automation.stale_temp_remove_action": "הסירו את הרשומה הזמנית המיושנת של Yuruna",
   "automation.system_diagnostic_registry_images_refused": [
     "REGISTRY: המטמון סירב ל־",
     {

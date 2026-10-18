@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.10.14
+# Version: 2026.10.18
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 #
@@ -116,9 +116,11 @@ guest_evidence_provenance() {
     for path in tools/example-workload.sh tools/Example.Build.psm1 example/website/components/frontend/website/{Dockerfile,Example.Build.psm1} example/text-to-sql/components/frontend/text-to-sql-ui/{Dockerfile,Example.Build.psm1}; do
         guest_evidence_hash "project.$path" "$root/project/$path"
     done
-    for path in fetch-and-execute.sh yuruna-retry.sh yuruna-fetch-context.sh; do
+    for path in fetch-and-execute.sh yuruna-retry.sh; do
         guest_evidence_hash "installed.$path" "/usr/local/lib/yuruna/$path"
     done
+    # The seed installs the context launcher as yfe, not under its source name.
+    guest_evidence_hash installed.yuruna-fetch-context.sh /usr/local/bin/yfe
     if [[ ${FILE_PATH:-} =~ ^[A-Za-z0-9][A-Za-z0-9._/-]*$ ]] && [[ /${FILE_PATH:-}/ != *'/../'* ]]; then
         guest_evidence_hash localPayload "$root/$FILE_PATH"
     fi

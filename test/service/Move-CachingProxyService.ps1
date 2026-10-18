@@ -134,8 +134,7 @@ function Initialize-AskpassHelper {
 <#
 .SYNOPSIS
     Builds a per-run SSH_ASKPASS helper so ssh can take a password
-    non-interactively (no sshpass on Windows; pattern captured in the
-    ssh-password-from-windows feedback memory). The password lives in a
+    non-interactively (no sshpass on Windows). The password lives in a
     tightly-ACLed temp file read by the helper, never on a command line.
 .OUTPUTS
     Hashtable: Directory (to delete when done), Command (SSH_ASKPASS value).
@@ -146,22 +145,29 @@ function Initialize-AskpassHelper {
 
     $dir = Join-Path ([IO.Path]::GetTempPath()) ('yuruna-move-cache-' + [Guid]::NewGuid().ToString('N'))
     New-Item -ItemType Directory -Path $dir -Force | Out-Null
-    if ($IsWindows) {
-        # Lock the directory to the current user BEFORE the secret lands in it.
-        & icacls $dir /inheritance:r /grant:r "${env:USERNAME}:(OI)(CI)F" 2>&1 | Out-Null
-    } else {
-        & chmod 700 $dir 2>&1 | Out-Null
-    }
-    $secretPath = Join-Path $dir 'secret.txt'
-    Set-Content -LiteralPath $secretPath -Value $Secret -NoNewline
+    # The caller deletes the folder only once it holds the returned record; a
+    # throw before then would strand the secret, so this removes it itself.
+    try {
+        if ($IsWindows) {
+            # Lock the directory to the current user BEFORE the secret lands in it.
+            & icacls $dir /inheritance:r /grant:r "${env:USERNAME}:(OI)(CI)F" 2>&1 | Out-Null
+        } else {
+            & chmod 700 $dir 2>&1 | Out-Null
+        }
+        $secretPath = Join-Path $dir 'secret.txt'
+        Set-Content -LiteralPath $secretPath -Value $Secret -NoNewline
 
-    if ($IsWindows) {
-        $helperPath = Join-Path $dir 'askpass.cmd'
-        Set-Content -LiteralPath $helperPath -Value "@echo off`r`ntype `"$secretPath`"`r`n" -NoNewline
-    } else {
-        $helperPath = Join-Path $dir 'askpass.sh'
-        Set-Content -LiteralPath $helperPath -Value "#!/bin/sh`ncat '$secretPath'`n" -NoNewline
-        & chmod 700 $helperPath 2>&1 | Out-Null
+        if ($IsWindows) {
+            $helperPath = Join-Path $dir 'askpass.cmd'
+            Set-Content -LiteralPath $helperPath -Value "@echo off`r`ntype `"$secretPath`"`r`n" -NoNewline
+        } else {
+            $helperPath = Join-Path $dir 'askpass.sh'
+            Set-Content -LiteralPath $helperPath -Value "#!/bin/sh`ncat '$secretPath'`n" -NoNewline
+            & chmod 700 $helperPath 2>&1 | Out-Null
+        }
+    } catch {
+        Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction SilentlyContinue
+        throw
     }
     return @{ Directory = $dir; Command = $helperPath }
 }

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.14
+.VERSION 2026.10.18
 .GUID 425af8de-0326-440d-a6ef-cfcf1c3376cb
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -822,9 +822,8 @@ function Invoke-WinRtOcr {
         $scriptFile = Get-WinRtOcrScriptPath
         # Pin the native-command EAP so a non-zero powershell.exe exit reaches the
         # explicit branch below instead of throwing a bare NativeCommandExitException
-        # on PS 7.4+ under EAP=Stop (feedback_winget_self_upgrade_kills_running_pwsh
-        # class). $LASTEXITCODE survives the 2>&1 variable assignment (no pipeline)
-        # and is snapshotted immediately.
+        # on PS 7.4+ under EAP=Stop. $LASTEXITCODE survives the 2>&1 variable
+        # assignment (no pipeline) and is snapshotted immediately.
         $PSNativeCommandUseErrorActionPreference = $false
         $output = & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $scriptFile $absPath 2>&1
         $exitCode = $LASTEXITCODE

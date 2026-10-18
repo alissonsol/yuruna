@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.14
+.VERSION 2026.10.18
 .GUID 420783b4-e34a-4b51-b88e-e01fa3738a91
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -2510,21 +2510,38 @@ try {
         }
     }
     Get-VersionLine 'qemu-img' {
-        # PATH alone under-reports qemu-img on Windows (its installer skips PATH), and
-        # the set below must match Resolve-QemuImgCommand in
-        # host/modules/Yuruna.Image.psm1.
+        # PATH alone under-reports qemu-img on Windows (its installer skips PATH)
+        # and PATH order alone picks the wrong copy there, so this ranks the same
+        # candidates Resolve-QemuImgCommand in host/modules/Yuruna.Image.psm1
+        # ranks, the same way: the installer's locations, then every copy on
+        # PATH, newest version wins, the earlier one on a tie.
         # See https://yuruna.link/4213a0b3-0197
-        $exe = (Get-Command qemu-img -ErrorAction SilentlyContinue).Source
-        if (-not $exe -and $IsWindows) {
-            $exe = @(
-                "$env:ProgramFiles\qemu\qemu-img.exe"
-                "${env:ProgramFiles(x86)}\qemu\qemu-img.exe"
-            ) | Where-Object { $_ -and (Test-Path -LiteralPath $_) } | Select-Object -First 1
+        $namePath = (Get-Command qemu-img -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1).Source
+        $exe = $namePath
+        $nameLine = $null
+        if ($IsWindows) {
+            $best = $null; $bestVersion = $null
+            $copies = @(@(
+                    "$env:ProgramFiles\qemu\qemu-img.exe"
+                    "${env:ProgramFiles(x86)}\qemu\qemu-img.exe"
+                ) | Where-Object { $_ -and (Test-Path -LiteralPath $_ -PathType Leaf) }) +
+                @(Get-Command qemu-img -CommandType Application -All -ErrorAction SilentlyContinue | ForEach-Object { $_.Source })
+            foreach ($copy in $copies) {
+                $line = & $copy --version 2>$null | Select-Object -First 1
+                $copyVersion = if ("$line" -match 'version\s+(\d+(?:\.\d+){1,3})') { [version]$Matches[1] } else { $null }
+                if (-not $best -or ($copyVersion -and (-not $bestVersion -or $copyVersion -gt $bestVersion))) { $best = $copy; $bestVersion = $copyVersion }
+                if ($namePath -and $copy -eq $namePath) { $nameLine = "$line" -replace ',\s*Copyright.*$','' }
+            }
+            $exe = $best
         }
         if ($exe) {
             # First line is `qemu-img version X.Y.Z, Copyright (c) ... Fabrice Bellard`;
-            # the Copyright tail is constant noise.
-            (& $exe --version 2>$null | Select-Object -First 1) -replace ',\s*Copyright.*$',''
+            # the Copyright tail is constant noise. The path is part of the
+            # answer: a host can carry more than one copy, and which one runs is
+            # the question this line is read for.
+            $text = "$((& $exe --version 2>$null | Select-Object -First 1) -replace ',\s*Copyright.*$','') [$exe]"
+            if ($namePath -and $namePath -ne $exe -and $nameLine) { $text += "; the name qemu-img resolves to $nameLine [$namePath]" }
+            $text
         }
     }
     Get-VersionLine 'oscdimg' {
@@ -3312,6 +3329,21 @@ try {
         $cacheHost = $null
         if ($plainProxyUrl) {
             try { $cacheHost = ([Uri]$plainProxyUrl).Host } catch { $null = $_ }
+        }
+        # The runner host has no http_proxy of its own but knows the cache it
+        # hands its guests, and a guest keeps the same address in host.env;
+        # either names the registry this diagnostic should still probe.
+        if (-not $cacheHost) {
+            $envCacheHost = [string][System.Environment]::GetEnvironmentVariable('YURUNA_CACHING_PROXY_SERVICE_IP')
+            if (-not $envCacheHost -and -not $IsWindows -and (Test-Path -LiteralPath '/etc/yuruna/host.env' -PathType Leaf)) {
+                try {
+                    $envLine = Get-Content -LiteralPath '/etc/yuruna/host.env' -ErrorAction Stop |
+                        Where-Object { $_ -match '^YURUNA_CACHING_PROXY_SERVICE_IP=(\S+)' } | Select-Object -First 1
+                    if ($envLine -match '^YURUNA_CACHING_PROXY_SERVICE_IP=(\S+)') { $envCacheHost = $Matches[1] }
+                } catch { $null = $_ }
+            }
+            $envCacheHost = $envCacheHost.Trim().Trim('"', "'")
+            if ($envCacheHost -and [Uri]::CheckHostName($envCacheHost) -ne [UriHostNameType]::Unknown) { $cacheHost = $envCacheHost }
         }
         if (-not $cacheHost) {
             Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_d67ba5d3e55b2ade')

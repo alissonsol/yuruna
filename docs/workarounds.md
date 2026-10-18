@@ -239,8 +239,6 @@ surrounding `try` usually swallows the resolution error:
   guest provisioners and the status service's fast path re-run full
   discovery on every cycle.
 
-Durable capture: `feedback_module_force_import_evicts_global`.
-
 <a id="42aaf735-0007"></a>
 
 ## `utmctl start` exits 0 without starting the VM
@@ -372,6 +370,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.14
+Last review: 2026.10.18
 
 Back to [Yuruna](../README.md)

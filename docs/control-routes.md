@@ -460,6 +460,7 @@ aggregator reads this route through a 4096-byte reader and refuses a larger answ
 | `reason` | Empty when available; otherwise why not: `no_qualified_rung`, `protocol_unreadable`, `journal_unreadable`, `unsupported_host`, `capability_unavailable`, or `listener_dependency_missing` (a module the route needs did not load; see `server.err`). |
 | `remote` | Remote-refresh provisioning: `provisioned`, `missing`, `invalid` or `unqualified`. It carries no key material. |
 | `state` | `idle`, `active` (a request is queued or running), `recovery_pending` (restoration is still owed) or `unknown`. |
+| `caller` | The requesting connection's vantage: `loopback` or `remote`. A non-loopback `POST control/host-refresh` needs the refresh proof, which the Config page never carries, so the page keeps its Start button disabled for `remote` and explains why; the aggregator ignores the field. |
 
 The capability is recomputed on every request from two small files, with no native
 command; the remote state is cached for 30 seconds.
@@ -848,6 +849,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.14
+Last review: 2026.10.18
 
 Back to [Yuruna](../README.md)

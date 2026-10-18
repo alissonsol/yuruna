@@ -1005,7 +1005,7 @@ um (Get-Process -Id $PID).Path simples é null no macOS (sem /proc), e um
 caminho null de pwsh filho faz a inicialização abaixo lançar uma exceção.
 O ponto de entrada Sequence carrega esta barreira SEM Test.InnerSpawn,
 portanto importe-o sob demanda; -Global evita a classe de remoção global por
-importação aninhada (feedback_module_force_import_evicts_global.md). A chamada
+importação aninhada. A chamada
 é qualificada pelo módulo porque o módulo de hospedeiro Windows exporta um
 Get-PwshExePath de mesmo nome com semântica diferente.
 
@@ -1034,7 +1034,7 @@ criada por ESTE hospedeiro. Persistido em $env:YURUNA_RUNTIME_DIR/host-config-ca
 (ignorado pelo git). Consulte docs/test-config.md.
 
 A criptografia é uma postura de segurança aprovada pelo operador (não altere
-sem autorização; consulte feedback_no_unauthorized_security_changes):
+sem autorização):
 EC P-256, SHA-256, CA 10y, certificados folha 2y. O SAN do certificado folha
 do servidor é um nome dns ESTÁVEL (ConfigServerSan); os convidados alcançam
 o IP atual do hospedeiro via `curl --connect-to <san>:<port>:<hostIp>:<port>`,
@@ -1212,7 +1212,6 @@ herda e mantém aberto o pipe stdout do chamador, e a reinicialização trava
 silenciosamente e sem limite. Descrição completa da armadilha e por que o
 redirecionamento para arquivo não a corrige:
 docs/workarounds.md#a-detached-grandchild-pins-the-callers-pipe-on-windows
-(também registrada em feedback_windows-detached-grandchild-pins-pipe.md).
 
 <a id="4213a0b3-0044"></a>
 
@@ -1351,7 +1350,7 @@ pré-Enter. Todo consumidor sonda novamente com Get-Command e degrada para
 -Force remove um módulo já global para o escopo privado DESTE módulo, e a
 próxima chamada Get-EnabledOcrProvider de qualquer outro chamador falha com
 "not
-recognized" (feedback_module_force_import_evicts_global.md).
+recognized".
 
 <a id="4213a0b3-004b"></a>
 
@@ -1458,7 +1457,6 @@ DHCP da rede de convidados -- um vSwitch External, uma rede libvirt bridge-forwa
 cache só encontra o convidado enquanto ele estiver falando conosco. Sem isso,
 a resolução de endereço retorna o nome da VM, e Wait-SshReady gasta todo o
 orçamento em "Could not resolve hostname", que nada informa sobre a falha real.
-(nota de memória: hyperv_external_vswitch_arp_discovery)
 
 Um verbo de contrato, não uma sondagem por nome: todo driver responde, e cada
 um decide o que aquecer significa para si. Um driver cujo Get-VMIp já amplia
@@ -2356,7 +2354,13 @@ Os coletores que este hospedeiro deve publicar e por que cada um está na lista:
   logical_disk -- espaço livre, cuja falta impede a criação do disco de um convidado da mesma
                   maneira silenciosa como um limite de comprometimento impede a memória.
   hyperv       -- estado por VM, para que o inventário de VMs de um hospedeiro durante um incidente seja uma
-                  série registrada em vez de uma lembrança do que estava em execução.
+                  série registrada em vez de uma lembrança do que estava em execução;
+                  suas famílias virtual_network_adapter e virtual_switch são
+                  as únicas séries em que o adaptador ou a porta de switch de
+                  um convidado emudecendo deixa rastro.
+  net          -- bytes, pacotes e erros por adaptador nas próprias NICs do
+                  hospedeiro, para que uma falha de uplink do hospedeiro deixe
+                  rastro em vez de uma lacuna.
 Mantido deliberadamente curto: todos os coletores são consultados a cada intervalo, e
 os padrões do exportador diferem entre versões, portanto o conjunto é declarado em vez
 de herdado.
@@ -2403,8 +2407,8 @@ Os fluxos deliberadamente NÃO são redirecionados, e não se usa -Wait nem
 WaitForExit() sem parâmetros. Redirecionar qualquer fluxo habilita a
 herança de identificadores para toda a subárvore, permitindo que um descendente que
 permaneça ativo após esta chamada mantenha aberto o pipe lido por um processo envolvente e o trave
-sem saída e sem tempo limite (veja feedback_windows-detached-grandchild-
-pins-pipe). Não fornecer fluxos faz desta uma criação por ShellExecute, que
+sem saída e sem tempo limite. Não fornecer fluxos faz desta uma criação
+por ShellExecute, que
 não transmite nenhum identificador herdável; a sobrecarga de WaitForExit com tempo limite
 espera apenas por este processo; e o diagnóstico vai para o próprio arquivo de log
 do gerenciador de pacotes.
@@ -2988,7 +2992,7 @@ variáveis de ambiente é a única maneira de alcançar processos filhos pwsh.
 Os dois valores abaixo deliberadamente NÃO ficam no escopo do módulo. `Import-Module
 -Force` cria uma nova instância do módulo com novo estado de sessão, portanto uma proteção
 mantida em $script: deixa de proteger assim que um script aninhado no mesmo processo
-reimporta este módulo (feedback_module_force_import_evicts_global) -- e
+reimporta este módulo -- e
 ambos descrevem o processo, não uma instância do módulo. O escopo $global:
 pertence ao runspace, e uma reimportação forçada o deixa intacto, portanto ele é o
 escopo de variável mais amplo acessível daqui; o carregamento do módulo, por isso, nunca deve
@@ -3358,8 +3362,7 @@ PASS/FAIL por script + banner Write-Summary + auxiliar Exit-WithSummary.
 Contadores resistentes à remoção de módulo: $global:YurunaOutputState ancora o estado
 ativo para que os auxiliares de Test-Config e qualquer módulo que importe este
 (por exemplo, Test.ConfigValidator) compartilhem a mesma contagem PASS/FAIL/WARN
-independentemente das reimportações com -Force. Veja repo-memory
-feedback_module_force_import_evicts_global.md.
+independentemente das reimportações com -Force.
 
 <a id="4213a0b3-00bc"></a>
 
@@ -3506,7 +3509,7 @@ de configuração analisado ou $null quando a funcionalidade está efetivamente 
 resolúvel, Read-TestConfig não carregado ou uma exceção na leitura). Read-TestConfig é SEMPRE
 chamado com o $Path RESOLVIDO -- nunca pelo nome com $Path omitido -- porque seu
 $Path Mandatory travaria para sempre na solicitação interativa de parâmetro sob o
-executor sem interface (veja feedback_byname_detection_mandatory_param_prompt_hang). A
+executor sem interface. A
 alternativa com Read-TestConfig não carregado impede que um chamador que nunca importou Test.Config
 (um leitor de armazenamento pode ser carregado por dot-source de forma independente) lance uma exceção. CallerName apenas
 identifica o diagnóstico detalhado para que a linha de log de cada leitor continue se identificando.
@@ -4565,7 +4568,6 @@ de endereço não tem uma fonte no próprio canal para consultar e recorre à le
 cache do hospedeiro que só contém o convidado enquanto ele estiver se comunicando
 conosco. Preparar esse cache primeiro é o que faz a consulta abaixo
 responder na primeira tentativa em vez da quinta.
-(memória: feedback_hyperv_external_vswitch_arp_discovery.md)
 Um verbo de contrato, portanto todo driver responde: cada um decide por si
 se uma varredura é a ação correta e limita seu próprio custo.
 
@@ -5130,8 +5132,7 @@ auxiliar entre hospedeiros. -Global é essencial: o laço de consulta abaixo cha
 Test-CombinedOcrMatch (módulo Test.OcrMatch), que resolve
 Get-EnabledOcrProvider / Invoke-OcrProvider pelo estado de sessão
 global. Um -Force aninhado SEM -Global remove Test.OcrEngine do
-escopo global (a classe de regressão por remoção de módulo,
-feedback_module_force_import_evicts_global.md), portanto a próxima
+escopo global (a classe de regressão por remoção de módulo), portanto a próxima
 chamada de Test-CombinedOcrMatch falha com "Get-EnabledOcrProvider is not
 recognized".
 
@@ -6058,8 +6059,7 @@ três é essencial: um -Force aninhado SEM -Global remove o
 módulo da sessão pai (global). Test-CombinedOcrMatch
 (módulo Test.OcrMatch, chamado abaixo) resolve Get-EnabledOcrProvider
 / Invoke-OcrProvider pelo escopo global; portanto, remover Test.OcrEngine aqui
-faz a análise OCR falhar (a classe de regressão por remoção de módulo,
-feedback_module_force_import_evicts_global.md).
+faz a análise OCR falhar (a classe de regressão por remoção de módulo).
 
 <a id="4213a0b3-0161"></a>
 
@@ -6139,7 +6139,7 @@ Importar Resolve-SequencePath e Read-SequenceFile do módulo do mecanismo
 para que os pré-requisitos sejam resolvidos da mesma forma que em Invoke-Sequence.
 
 -Global é necessário: -Force sem -Global retira o módulo do mecanismo da
-sessão global (ver a armadilha module-force-evict na memória do repositório). O
+sessão global. O
 executor importa Invoke-Sequence na inicialização; se alguma importação posterior com -Force aqui
 o remover, todo chamador que construiu uma referência de função, por exemplo a
 Invoke-SequenceByName / Read-SequenceFile, perde a visibilidade.
@@ -6248,8 +6248,7 @@ e de arquivos. Uma análise estática deste arquivo fixa a regra.
 
 Os timestamps são autoritativos como números ...UnixMs. Nada aqui analisa uma
 string ISO de volta para tomar uma decisão: ConvertFrom-Json as transforma em valores DateTime
-locais, e comparar esses valores varia com o fuso horário do hospedeiro
-(feedback_datetime-compare-is-timezone-sensitive.md).
+locais, e comparar esses valores varia com o fuso horário do hospedeiro.
 
 <a id="4213a0b3-016b"></a>
 
@@ -6677,8 +6676,7 @@ $PSNativeCommandUseErrorActionPreference é fixado em $false neste escopo para q
 uma saída de tesseract diferente de zero alcance o ramo explícito abaixo, em vez de
 lançar uma NativeCommandExitException isolada que ignora a mensagem
 de diagnóstico (a preferência é $false por padrão, mas um chamador ou perfil pode ativá-la
-sob EAP=Stop; ver feedback_winget_self_upgrade_kills_running_pwsh para
-a classe de proteção).
+sob EAP=Stop).
 
 <a id="4213a0b3-0183"></a>
 
@@ -7045,11 +7043,17 @@ O PATH sozinho subnotifica o qemu-img no Windows, da mesma forma que faz com o
 tesseract: o instalador do QEMU não se registra no PATH; portanto, um hospedeiro cuja
 conversão de qcow2 para VHDX funciona bem imprime "(not installed)" -- e este relatório
 é lido durante a triagem da preparação de imagens, exatamente onde essa divergência
-envia o leitor atrás de um binário que não está ausente. Os diretórios que a sondagem
-verifica espelham `Resolve-QemuImgCommand` em `host/modules/Yuruna.Image.psm1` literal
-por literal; eles precisam continuar sendo o mesmo conjunto, ou o relatório volta a
-divergir do resolvedor que descreve. Não há candidatos fora do Windows, porque o
-resolvedor também não tem nenhum.
+envia o leitor atrás de um binário que não está ausente. A ordem do PATH sozinha também
+escolhe a cópia errada ali: o qemu-img de outro pacote no PATH (tipicamente a versão
+2.3.0 portada pela Cloudbase) seria relatado, e executado, antes da cópia atual em
+Program Files. A sondagem classifica os mesmos candidatos que `Resolve-QemuImgCommand`
+em `host/modules/Yuruna.Image.psm1` classifica -- os diretórios do instalador literal
+por literal, depois todas as cópias no PATH, vencendo a versão mais nova -- e imprime o
+caminho escolhido ao lado da versão, além da cópia para a qual o nome resolve quando
+ela é outra. Eles precisam continuar sendo o mesmo conjunto e a mesma regra, ou o
+relatório volta a divergir do resolvedor que descreve. Não há candidatos fora do
+Windows além daquele para o qual o nome resolve, porque o resolvedor também não tem
+nenhum outro.
 
 <a id="4213a0b3-0198"></a>
 

@@ -7,6 +7,17 @@ package catalog
 // DataenUSremediation is the compiled catalog for this locale and domain. It is a
 // string so the package carries no init cost until a caller decodes it.
 const DataenUSremediation = `{
+  "remediation.hypervisor_unresponsive_action_evidence": "Read utm-control-snapshot.*.json and utm-log-show.*.txt in the cycle folder: a UTM pid or start time that changed mid-cycle is a crash and relaunch, and the unified-log excerpt names what preceded it",
+  "remediation.hypervisor_unresponsive_action_restart": "Restart the hypervisor control application on the host: on macOS quit UTM.app from the desktop session (or run test/lab/Invoke-HostRefresh.ps1), then confirm that ` + "`" + `utmctl stop` + "`" + ` on a stopped VM returns at once",
+  "remediation.hypervisor_unresponsive_action_resume": "Resume the runner once a lifecycle verb answers again; the next cycle probes the control channel before it builds anything",
+  "remediation.hypervisor_unresponsive_rationale": [
+    "hypervisor_unresponsive: the hypervisor's control channel stopped acting on lifecycle requests while still answering state queries, so every VM start, stop and delete waits out its timeout and nothing a cycle does can recover it. Retrying repeats the same timeouts; the application that owns the channel has to be restarted on the host, which only a desktop session or a host refresh can do.",
+    {
+      "arg": "detail",
+      "type": "detail",
+      "trust": "external"
+    }
+  ],
   "remediation.operator_00fd2209b1a993b2": "inspect last_failure.json manually",
   "remediation.operator_01b3c9512f168859": [
     "console_flooded on ",

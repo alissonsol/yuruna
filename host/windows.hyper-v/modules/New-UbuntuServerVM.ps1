@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.14
+.VERSION 2026.10.18
 .GUID 42aeab54-8f84-4752-b632-c84283524072
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -177,72 +177,70 @@ if (-not (Test-Path -LiteralPath $vhdxFile)) {
     exit 1
 }
 
-# Autoinstall seed ISO. 4-digit entropy is weak by design (10k cases)
-# but enough to defeat the deterministic-path symlink trap: an attacker
-# dropping a symlink at %TEMP%\seed_<VMName>\ before New-VM runs can't
-# predict the trailing 4 digits per run.
-$SeedDir = Join-Path $env:TEMP ("seed_${VMName}_{0:D4}" -f (Get-Random -Maximum 10000))
-if (Test-Path -LiteralPath $SeedDir) { Remove-Item -LiteralPath $SeedDir -Recurse -Force }
-New-Item -ItemType Directory -Force -Path $SeedDir | Out-Null
+# Autoinstall seed ISO.
+# New-YurunaSeedDirectory creates the folder exclusively under a random name,
+# so nothing planted at a predictable %TEMP% path is ever reused.
+try {
+    $SeedDir = New-YurunaSeedDirectory -VMName $VMName
 
-# user-data AND meta-data are shared under host/vmconfig/ (the meta-data is
-# byte-identical across the three host platforms; ubuntu.server.24 and .26
-# share one file). Anchor contract: automation/Yuruna.CloudInitTemplate.psm1.
-$RepoRoot        = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $ScriptDir))
-$HostVmConfigDir = Join-Path $RepoRoot 'host/vmconfig'
-$BaseUserData    = Join-Path $HostVmConfigDir 'ubuntu.server.base.user-data'
-$OverlayUserData = Join-Path $HostVmConfigDir 'ubuntu.server.hyperv.overlay.yml'
-$MetaDataTemplate = Join-Path $HostVmConfigDir 'ubuntu.server.meta-data'
-foreach ($p in @($BaseUserData, $OverlayUserData)) {
-    if (-not (Test-Path -LiteralPath $p)) { Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_fcf4372c1612b691' -Arguments @{ p = "$p" }); exit 1 }
-}
-Import-Module (Join-Path $RepoRoot 'automation/Yuruna.CloudInitTemplate.psm1') -Force
-Import-Module (Join-Path $RepoRoot 'automation/Yuruna.GuestSeed.psm1') -Force
-
-# --- REGION: Yuruna harness SSH key
-# SSH public key used by the test harness.
-$TestSshModule = Join-Path (Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $ScriptDir))) "test/modules/Test.Ssh.psm1"
-Import-Module $TestSshModule -Force
-$SshAuthorizedKey = Get-YurunaSshPublicKey
-if (-not $SshAuthorizedKey) { Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_6424990f88c7f7bc' -Arguments @{ testSshModule = "$TestSshModule" }); exit 1 }
-
-# --- REGION: Detect the caching-proxy service
-# See https://yuruna.link/42e220c4-0004
-# Missing or stopped cache permits direct fetching; a running but unresponsive cache fails.
-if ($PSBoundParameters.ContainsKey('CachingProxyServiceUrl')) {
-    # URL forwarded by the test runner. Skip discovery so this script
-    # and the runner agree on one cache URL. On Hyper-V the race is
-    # narrower than UTM (MAC-scoped neighbor lookup, not subnet scan),
-    # but one source of truth still simplifies debugging.
-    if ($CachingProxyServiceUrl) {
-        Write-Verbose "  caching-proxy service URL forwarded by caller: $CachingProxyServiceUrl -- skipping local discovery."
-    } else {
-        Write-Verbose "  No proxy forwarded by caller -- guest will download directly."
+    # user-data AND meta-data are shared under host/vmconfig/ (the meta-data is
+    # byte-identical across the three host platforms; ubuntu.server.24 and .26
+    # share one file). Anchor contract: automation/Yuruna.CloudInitTemplate.psm1.
+    $RepoRoot        = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $ScriptDir))
+    $HostVmConfigDir = Join-Path $RepoRoot 'host/vmconfig'
+    $BaseUserData    = Join-Path $HostVmConfigDir 'ubuntu.server.base.user-data'
+    $OverlayUserData = Join-Path $HostVmConfigDir 'ubuntu.server.hyperv.overlay.yml'
+    $MetaDataTemplate = Join-Path $HostVmConfigDir 'ubuntu.server.meta-data'
+    foreach ($p in @($BaseUserData, $OverlayUserData)) {
+        if (-not (Test-Path -LiteralPath $p)) { Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_fcf4372c1612b691' -Arguments @{ p = "$p" }); exit 1 }
     }
-} else {
-$CachingProxyServiceUrl = ""
-$cacheVM = Get-VM -Name "yuruna-caching-proxy-service" -ErrorAction SilentlyContinue
-if (-not $cacheVM) {
-    Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_ebeb445282eb5c15')
-    Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_d3a388ccdbaaa347')
-} elseif ($cacheVM.State -ne 'Running') {
-    Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_e715d99e397197d5' -Arguments @{ state = "$($cacheVM.State)" })
-    Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_e0834681caaac111')
-} else {
-    # KVP+ARP discovery + :3128 probe live in Yuruna.Host.psm1
-    # (Get-WorkingCachingProxyServiceUrl). One module means this consumer, the
-    # producer, and Start-CachingProxyServiceVM.ps1's summary all see the same
-    # answer (avoids the regression class where a KVP-only summary
-    # reports "discovery failed" while the ARP path already found it).
-    $CachingProxyServiceUrl = Get-WorkingCachingProxyServiceUrl -VMName "yuruna-caching-proxy-service"
-    if ($CachingProxyServiceUrl) {
-        Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_21498b86b803ec5f' -Arguments @{ cachingProxyServiceUrl = "$CachingProxyServiceUrl" })
+    Import-Module (Join-Path $RepoRoot 'automation/Yuruna.CloudInitTemplate.psm1') -Force
+    Import-Module (Join-Path $RepoRoot 'automation/Yuruna.GuestSeed.psm1') -Force
+
+    # --- REGION: Yuruna harness SSH key
+    # SSH public key used by the test harness.
+    $TestSshModule = Join-Path (Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $ScriptDir))) "test/modules/Test.Ssh.psm1"
+    Import-Module $TestSshModule -Force
+    $SshAuthorizedKey = Get-YurunaSshPublicKey
+    if (-not $SshAuthorizedKey) { Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_6424990f88c7f7bc' -Arguments @{ testSshModule = "$TestSshModule" }); exit 1 }
+
+    # --- REGION: Detect the caching-proxy service
+    # See https://yuruna.link/42e220c4-0004
+    # Missing or stopped cache permits direct fetching; a running but unresponsive cache fails.
+    if ($PSBoundParameters.ContainsKey('CachingProxyServiceUrl')) {
+        # URL forwarded by the test runner. Skip discovery so this script
+        # and the runner agree on one cache URL. On Hyper-V the race is
+        # narrower than UTM (MAC-scoped neighbor lookup, not subnet scan),
+        # but one source of truth still simplifies debugging.
+        if ($CachingProxyServiceUrl) {
+            Write-Verbose "  caching-proxy service URL forwarded by caller: $CachingProxyServiceUrl -- skipping local discovery."
+        } else {
+            Write-Verbose "  No proxy forwarded by caller -- guest will download directly."
+        }
     } else {
-        $cacheIps = Get-CacheVmCandidateIp -VM $cacheVM
-        $ipList = if ($cacheIps) { $cacheIps -join ', ' } else { '(none discovered)' }
-        # $Host.UI.WriteLine keeps Write-Host-style color without the
-        # PSScriptAnalyzer complaint.
-        $detail = @"
+    $CachingProxyServiceUrl = ""
+    $cacheVM = Get-VM -Name "yuruna-caching-proxy-service" -ErrorAction SilentlyContinue
+    if (-not $cacheVM) {
+        Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_ebeb445282eb5c15')
+        Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_d3a388ccdbaaa347')
+    } elseif ($cacheVM.State -ne 'Running') {
+        Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_e715d99e397197d5' -Arguments @{ state = "$($cacheVM.State)" })
+        Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_e0834681caaac111')
+    } else {
+        # KVP+ARP discovery + :3128 probe live in Yuruna.Host.psm1
+        # (Get-WorkingCachingProxyServiceUrl). One module means this consumer, the
+        # producer, and Start-CachingProxyServiceVM.ps1's summary all see the same
+        # answer (avoids the regression class where a KVP-only summary
+        # reports "discovery failed" while the ARP path already found it).
+        $CachingProxyServiceUrl = Get-WorkingCachingProxyServiceUrl -VMName "yuruna-caching-proxy-service"
+        if ($CachingProxyServiceUrl) {
+            Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_21498b86b803ec5f' -Arguments @{ cachingProxyServiceUrl = "$CachingProxyServiceUrl" })
+        } else {
+            $cacheIps = Get-CacheVmCandidateIp -VM $cacheVM
+            $ipList = if ($cacheIps) { $cacheIps -join ', ' } else { '(none discovered)' }
+            # $Host.UI.WriteLine keeps Write-Host-style color without the
+            # PSScriptAnalyzer complaint.
+            $detail = @"
 
 ========
 ERROR: yuruna-caching-proxy-service VM is running but port 3128 is not reachable.
@@ -266,193 +264,197 @@ To intentionally skip the cache:
   Stop-VM yuruna-caching-proxy-service   (guest will then WARN and download direct).
 ========
 "@
-        $Host.UI.WriteLine([ConsoleColor]::Red, $Host.UI.RawUI.BackgroundColor, $detail)
+            $Host.UI.WriteLine([ConsoleColor]::Red, $Host.UI.RawUI.BackgroundColor, $detail)
+            exit 1
+        }
+    }
+    }
+
+    # --- REGION: Build the autoinstall apt block
+    # See https://yuruna.link/429f3d06-000a
+    # Use the shared apt builder to keep mirror selection and retry budgets identical.
+    switch ([System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture) {
+        'X64'   { $primaryUri = 'http://archive.ubuntu.com/ubuntu' }
+        'Arm64' { $primaryUri = 'http://ports.ubuntu.com/ubuntu-ports' }
+        default {
+            Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_1f5a3a41f93d6b9f' -Arguments @{ oSArchitecture = "$([System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture)" })
+            exit 1
+        }
+    }
+    $AptProxyBlock = New-AptProxyBlock -PrimaryUri $primaryUri -CachingProxyServiceUrl $CachingProxyServiceUrl
+
+    # --- REGION: Select the guest network
+    # See https://yuruna.link/42e220c4-0004
+    # Select the switch before resolving the host address reachable through it.
+    $switchName = Resolve-HyperVGuestSwitch
+
+    # --- REGION: Yuruna host coordinates
+    # Yuruna host (status service) IP+port baked into the seed for the dev
+    # iteration loop. Guest scripts read /etc/yuruna/host.env (written by
+    # the user-data late-commands) to resolve a local URL before falling
+    # back to GitHub. Default Switch's host IP changes across host
+    # reboots -- see Test-YurunaHost.ps1 for the in-guest probe.
+    $YurunaHostIp = Get-GuestReachableHostIp -SwitchName $switchName
+    if (-not $YurunaHostIp) { $YurunaHostIp = '' }
+    Import-Module (Join-Path (Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $GuestScriptRoot))) 'test/modules/Test.Config.psm1') -Global -Force
+    $_statusSeed = Get-YurunaStatusServiceSeed -RepoRoot (Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $GuestScriptRoot)))
+    $YurunaHostPort = $_statusSeed.Port
+
+    # --- REGION: Fetch caching-proxy-service CA cert
+    # Embedded in the seed as base64.
+    # See https://yuruna.link/4220a755-0015
+    # An empty $CaCertBase64 is NOT a harmless no-op (curl rc=60 SSL-bump gate).
+    $CaCertBase64 = ""
+    if ($CachingProxyServiceUrl) {
+        Import-Module -Name (Join-Path $GuestScriptRoot '../../../test/modules/Test.CachingProxyService.psm1') -Force -DisableNameChecking
+        $uri = [System.Uri]$CachingProxyServiceUrl
+        $cacheHost = Format-IpUrlHost $uri.IdnHost
+        $ca = Get-CachingProxyServiceCaCertBase64 -CacheCaUrl "http://$cacheHost/yuruna-squid-ca.crt" -CacheHost $uri.IdnHost
+        $CaCertBase64 = $ca.CaCertBase64
+        if ($ca.Exhausted) {
+            Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_f2bb24df290cd0c1')
+        }
+    }
+
+    # --- REGION: Render user-data / meta-data
+    # See https://yuruna.link/4220a755-0003
+    # Bake yuruna-retry.sh + fetch-and-execute.sh into the seed as base64-encoded
+    # write_files entries, so both files are on disk before any guest script
+    # runs and the guest needs no network fetch to bootstrap.
+    $null = New-CloudInitUserData `
+        -BasePath    $BaseUserData `
+        -OverlayPath $OverlayUserData `
+        -RepoRoot    $RepoRoot `
+        -OutputPath  "$SeedDir/user-data" `
+        -Replacement @{
+            HOSTNAME_PLACEHOLDER           = $GuestHostname
+            USERNAME_PLACEHOLDER           = $Username
+            HASH_PLACEHOLDER               = $PasswordHash
+            SSH_AUTHORIZED_KEY_PLACEHOLDER = $SshAuthorizedKey
+            APT_PROXY_BLOCK_PLACEHOLDER    = $AptProxyBlock
+            CACHING_PROXY_URL_PLACEHOLDER  = $CachingProxyServiceUrl
+            CA_CERT_BASE64_PLACEHOLDER     = $CaCertBase64
+            YURUNA_STATUS_SERVICE_IP_PLACEHOLDER     = $YurunaHostIp
+            YURUNA_STATUS_SERVICE_PORT_PLACEHOLDER   = $YurunaHostPort
+        } -Confirm:$false
+
+    $MetaData = (Get-Content -Raw $MetaDataTemplate) `
+        -replace 'INSTANCE_ID_PLACEHOLDER', $VMName `
+        -replace 'HOSTNAME_PLACEHOLDER', $GuestHostname
+    Set-Content -Path "$SeedDir/meta-data" -Value $MetaData -NoNewline
+    # --- REGION: https://yuruna.link/4220a755-000b
+    # The shared network-config pins DHCP identity during installation and after reboot.
+    Copy-Item -LiteralPath (Join-Path $HostVmConfigDir 'guest-dhcp.network-config') `
+        -Destination "$SeedDir/network-config" -Force
+
+    # --- REGION: Generate cloud-init seed ISO
+    $SeedIso = Join-Path $vmDir "seed.iso"
+    Write-Verbose "Generating seed.iso with autoinstall configuration..."
+    CreateIso -SourceDir $SeedDir -OutputFile $SeedIso -VolumeId "cidata"
+
+    # --- REGION: Create and configure the Hyper-V VM
+    # See https://yuruna.link/42fa6f45-0016
+    # Static (min=max=startup, dynamic disabled) so a hung swap/paging never
+    # distorts a cycle -- see https://yuruna.link/429f3d06-001b.
+    try { $vmMemoryBytes = ConvertTo-MemoryStartupBytes $MemoryStartupBytes } catch { Write-Error $_.Exception.Message; exit 1 }
+    if ($vmMemoryBytes -le 0) { $vmMemoryBytes = 12288MB }
+    Write-Verbose "VM memory: $([math]::Round($vmMemoryBytes / 1GB, 2)) GB ($vmMemoryBytes bytes)."
+    Write-Verbose "Creating new VM '$VMName' on switch '$switchName'..."
+    Hyper-V\New-VM -Name $VMName -Generation 2 -MemoryStartupBytes $vmMemoryBytes -SwitchName $switchName -VHDPath $vhdxFile | Out-Null
+
+    # --- REGION: https://yuruna.link/4220a755-000a
+    # Hyper-V takes bare hex, no separators.
+    # Keyed on the guest's durable identity, not on the name the VM carries now: a
+    # guest is built in a per-kind slot and renamed to its real name when its
+    # baseline is snapshotted, and an address that moved with that rename would
+    # re-DHCP a guest whose own state already records the one it was built on.
+    $YurunaGuestMac = Get-YurunaGuestMacAddress -VMName $GuestHostname
+    Hyper-V\Set-VMNetworkAdapter -VMName $VMName -StaticMacAddress ($YurunaGuestMac -replace ':','')
+    Write-Verbose "Deterministic guest MAC for '$GuestHostname': $YurunaGuestMac"
+
+    if (-not (Hyper-V\Get-VM -Name $VMName -ErrorAction SilentlyContinue)) {
+        Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_b99bf50072be5d3d' -Arguments @{ vMName = "$VMName" })
         exit 1
     }
-}
-}
-
-# --- REGION: Build the autoinstall apt block
-# See https://yuruna.link/429f3d06-000a
-# Use the shared apt builder to keep mirror selection and retry budgets identical.
-switch ([System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture) {
-    'X64'   { $primaryUri = 'http://archive.ubuntu.com/ubuntu' }
-    'Arm64' { $primaryUri = 'http://ports.ubuntu.com/ubuntu-ports' }
-    default {
-        Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_1f5a3a41f93d6b9f' -Arguments @{ oSArchitecture = "$([System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture)" })
-        exit 1
+    Set-VM -Name $VMName -MemoryStartupBytes $vmMemoryBytes -MemoryMinimumBytes $vmMemoryBytes -MemoryMaximumBytes $vmMemoryBytes -AutomaticCheckpointsEnabled $false | Out-Null
+    Set-VMMemory -VMName $VMName -DynamicMemoryEnabled $false
+    Set-VMFirmware -VMName $VMName -EnableSecureBoot Off | Out-Null
+    # --- REGION: Serial console pipe
+    # See https://yuruna.link/42e220c4-0007
+    # COM1 to a named pipe the host reads during the cycle: the one guest-side
+    # record that survives a guest whose VMBus devices stop answering. Harmless
+    # when the guest never opens the port.
+    try {
+        Hyper-V\Set-VMComPort -VMName $VMName -Number 1 -Path "\\.\pipe\yuruna-serial-$VMName" -ErrorAction Stop
+    } catch {
+        Write-Verbose "Serial console pipe not configured for '$VMName': $($_.Exception.Message)"
     }
-}
-$AptProxyBlock = New-AptProxyBlock -PrimaryUri $primaryUri -CachingProxyServiceUrl $CachingProxyServiceUrl
 
-# --- REGION: Select the guest network
-# See https://yuruna.link/42e220c4-0004
-# Select the switch before resolving the host address reachable through it.
-$switchName = Resolve-HyperVGuestSwitch
+    # --- REGION: https://yuruna.link/42dc5bb9-0005
+    # No-op on AMD64. Disabling Heartbeat helped affected ARM64 boots pass early
+    # stalls and soft lockups. The observed VMBus stack does not isolate Heartbeat
+    # as the cause. Set this before the first guest boot.
+    $null = Disable-HyperVHeartbeatForLinuxGuest -VMName $VMName -Confirm:$false
 
-# --- REGION: Yuruna host coordinates
-# Yuruna host (status service) IP+port baked into the seed for the dev
-# iteration loop. Guest scripts read /etc/yuruna/host.env (written by
-# the user-data late-commands) to resolve a local URL before falling
-# back to GitHub. Default Switch's host IP changes across host
-# reboots -- see Test-YurunaHost.ps1 for the in-guest probe.
-$YurunaHostIp = Get-GuestReachableHostIp -SwitchName $switchName
-if (-not $YurunaHostIp) { $YurunaHostIp = '' }
-Import-Module (Join-Path (Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $GuestScriptRoot))) 'test/modules/Test.Config.psm1') -Global -Force
-$_statusSeed = Get-YurunaStatusServiceSeed -RepoRoot (Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $GuestScriptRoot)))
-$YurunaHostPort = $_statusSeed.Port
-
-# --- REGION: Fetch caching-proxy-service CA cert
-# Embedded in the seed as base64.
-# See https://yuruna.link/4220a755-0015
-# An empty $CaCertBase64 is NOT a harmless no-op (curl rc=60 SSL-bump gate).
-$CaCertBase64 = ""
-if ($CachingProxyServiceUrl) {
-    Import-Module -Name (Join-Path $GuestScriptRoot '../../../test/modules/Test.CachingProxyService.psm1') -Force -DisableNameChecking
-    $uri = [System.Uri]$CachingProxyServiceUrl
-    $cacheHost = Format-IpUrlHost $uri.IdnHost
-    $ca = Get-CachingProxyServiceCaCertBase64 -CacheCaUrl "http://$cacheHost/yuruna-squid-ca.crt" -CacheHost $uri.IdnHost
-    $CaCertBase64 = $ca.CaCertBase64
-    if ($ca.Exhausted) {
-        Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_f2bb24df290cd0c1')
+    # --- REGION: https://yuruna.link/42e220c4-0004
+    # Ubuntu 26.04 needs MAC spoofing to avoid installer stalls from early link-change events.
+    if ($Release -eq '26') {
+        Set-VMNetworkAdapter -VMName $VMName -MacAddressSpoofing On | Out-Null
     }
-}
 
-# --- REGION: Render user-data / meta-data
-# See https://yuruna.link/4220a755-0003
-# Bake yuruna-retry.sh + fetch-and-execute.sh into the seed as base64-encoded
-# write_files entries. Eliminates the legacy network-dependent wget+wget
-# bootstrap and ensures both files are on disk before any guest script runs.
-$null = New-CloudInitUserData `
-    -BasePath    $BaseUserData `
-    -OverlayPath $OverlayUserData `
-    -RepoRoot    $RepoRoot `
-    -OutputPath  "$SeedDir/user-data" `
-    -Replacement @{
-        HOSTNAME_PLACEHOLDER           = $GuestHostname
-        USERNAME_PLACEHOLDER           = $Username
-        HASH_PLACEHOLDER               = $PasswordHash
-        SSH_AUTHORIZED_KEY_PLACEHOLDER = $SshAuthorizedKey
-        APT_PROXY_BLOCK_PLACEHOLDER    = $AptProxyBlock
-        CACHING_PROXY_URL_PLACEHOLDER  = $CachingProxyServiceUrl
-        CA_CERT_BASE64_PLACEHOLDER     = $CaCertBase64
-        YURUNA_STATUS_SERVICE_IP_PLACEHOLDER     = $YurunaHostIp
-        YURUNA_STATUS_SERVICE_PORT_PLACEHOLDER   = $YurunaHostPort
-    } -Confirm:$false
+    # --- REGION: https://yuruna.link/429f3d06-0093
+    # Prune stale per-VM ACEs accumulated on this SHARED base image before
+    # Hyper-V appends this VM's ACE on attach; the DACL otherwise grows unbounded
+    # across runs and the attach fails with 0x8007053C.
+    $prunedAce = Remove-OrphanedVMFileAccess -Path $baseImageFile
+    if ($prunedAce -gt 0) { Write-Verbose "Pruned $prunedAce stale per-VM ACE(s) from base image before attach." }
+    Add-VMDvdDrive -VMName $VMName -Path $baseImageFile | Out-Null
+    Add-VMDvdDrive -VMName $VMName -Path $SeedIso | Out-Null
 
-$MetaData = (Get-Content -Raw $MetaDataTemplate) `
-    -replace 'INSTANCE_ID_PLACEHOLDER', $VMName `
-    -replace 'HOSTNAME_PLACEHOLDER', $GuestHostname
-Set-Content -Path "$SeedDir/meta-data" -Value $MetaData -NoNewline
-# --- REGION: https://yuruna.link/4220a755-000b
-# The shared network-config pins DHCP identity during installation and after reboot.
-Copy-Item -LiteralPath (Join-Path $HostVmConfigDir 'guest-dhcp.network-config') `
-    -Destination "$SeedDir/network-config" -Force
+    $dvdDrive = Get-VMDvdDrive -VMName $VMName | Where-Object { $_.Path -eq $baseImageFile }
+    Set-VMFirmware -VMName $VMName -FirstBootDevice $dvdDrive
 
-# --- REGION: Generate cloud-init seed ISO
-$SeedIso = Join-Path $vmDir "seed.iso"
-Write-Verbose "Generating seed.iso with autoinstall configuration..."
-CreateIso -SourceDir $SeedDir -OutputFile $SeedIso -VolumeId "cidata"
-
-# --- REGION: Create and configure the Hyper-V VM
-# See https://yuruna.link/42fa6f45-0016
-# Static (min=max=startup, dynamic disabled) so a hung swap/paging never
-# distorts a cycle -- see https://yuruna.link/429f3d06-001b.
-try { $vmMemoryBytes = ConvertTo-MemoryStartupBytes $MemoryStartupBytes } catch { Write-Error $_.Exception.Message; exit 1 }
-if ($vmMemoryBytes -le 0) { $vmMemoryBytes = 12288MB }
-Write-Verbose "VM memory: $([math]::Round($vmMemoryBytes / 1GB, 2)) GB ($vmMemoryBytes bytes)."
-Write-Verbose "Creating new VM '$VMName' on switch '$switchName'..."
-Hyper-V\New-VM -Name $VMName -Generation 2 -MemoryStartupBytes $vmMemoryBytes -SwitchName $switchName -VHDPath $vhdxFile | Out-Null
-
-# --- REGION: https://yuruna.link/4220a755-000a
-# Hyper-V takes bare hex, no separators.
-# Keyed on the guest's durable identity, not on the name the VM carries now: a
-# guest is built in a per-kind slot and renamed to its real name when its
-# baseline is snapshotted, and an address that moved with that rename would
-# re-DHCP a guest whose own state already records the one it was built on.
-$YurunaGuestMac = Get-YurunaGuestMacAddress -VMName $GuestHostname
-Hyper-V\Set-VMNetworkAdapter -VMName $VMName -StaticMacAddress ($YurunaGuestMac -replace ':','')
-Write-Verbose "Deterministic guest MAC for '$GuestHostname': $YurunaGuestMac"
-
-if (-not (Hyper-V\Get-VM -Name $VMName -ErrorAction SilentlyContinue)) {
-    Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_b99bf50072be5d3d' -Arguments @{ vMName = "$VMName" })
-    exit 1
-}
-Set-VM -Name $VMName -MemoryStartupBytes $vmMemoryBytes -MemoryMinimumBytes $vmMemoryBytes -MemoryMaximumBytes $vmMemoryBytes -AutomaticCheckpointsEnabled $false | Out-Null
-Set-VMMemory -VMName $VMName -DynamicMemoryEnabled $false
-Set-VMFirmware -VMName $VMName -EnableSecureBoot Off | Out-Null
-# --- REGION: Serial console pipe
-# See https://yuruna.link/42e220c4-0007
-# COM1 to a named pipe the host reads during the cycle: the one guest-side
-# record that survives a guest whose VMBus devices stop answering. Harmless
-# when the guest never opens the port.
-try {
-    Hyper-V\Set-VMComPort -VMName $VMName -Number 1 -Path "\\.\pipe\yuruna-serial-$VMName" -ErrorAction Stop
-} catch {
-    Write-Verbose "Serial console pipe not configured for '$VMName': $($_.Exception.Message)"
-}
-
-# --- REGION: https://yuruna.link/42dc5bb9-0005
-# No-op on AMD64. Disabling Heartbeat helped affected ARM64 boots pass early
-# stalls and soft lockups. The observed VMBus stack does not isolate Heartbeat
-# as the cause. Set this before the first guest boot.
-$null = Disable-HyperVHeartbeatForLinuxGuest -VMName $VMName -Confirm:$false
-
-# --- REGION: https://yuruna.link/42e220c4-0004
-# Ubuntu 26.04 needs MAC spoofing to avoid installer stalls from early link-change events.
-if ($Release -eq '26') {
-    Set-VMNetworkAdapter -VMName $VMName -MacAddressSpoofing On | Out-Null
-}
-
-# --- REGION: https://yuruna.link/429f3d06-0093
-# Prune stale per-VM ACEs accumulated on this SHARED base image before
-# Hyper-V appends this VM's ACE on attach; the DACL otherwise grows unbounded
-# across runs and the attach fails with 0x8007053C.
-$prunedAce = Remove-OrphanedVMFileAccess -Path $baseImageFile
-if ($prunedAce -gt 0) { Write-Verbose "Pruned $prunedAce stale per-VM ACE(s) from base image before attach." }
-Add-VMDvdDrive -VMName $VMName -Path $baseImageFile | Out-Null
-Add-VMDvdDrive -VMName $VMName -Path $SeedIso | Out-Null
-
-$dvdDrive = Get-VMDvdDrive -VMName $VMName | Where-Object { $_.Path -eq $baseImageFile }
-Set-VMFirmware -VMName $VMName -FirstBootDevice $dvdDrive
-
-# --- REGION: https://yuruna.link/42fa6f45-0015
-$vmCores = [math]::Max(4, [math]::Floor($hostCores / 2))
-# Cascaded variables.cores overrules the default calculation; clamp to the
-# host's physical cores so an over-ask can't fail Set-VMProcessor.
-if ($Cores) {
-    $coresInt = 0
-    if (-not [int]::TryParse($Cores, [ref]$coresInt) -or $coresInt -lt 1) {
-        Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_0e7d8993e0f54ff9' -Arguments @{ cores = "$Cores" })
-        exit 1
+    # --- REGION: https://yuruna.link/42fa6f45-0015
+    $vmCores = [math]::Max(4, [math]::Floor($hostCores / 2))
+    # Cascaded variables.cores overrules the default calculation; clamp to the
+    # host's physical cores so an over-ask can't fail Set-VMProcessor.
+    if ($Cores) {
+        $coresInt = 0
+        if (-not [int]::TryParse($Cores, [ref]$coresInt) -or $coresInt -lt 1) {
+            Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_0e7d8993e0f54ff9' -Arguments @{ cores = "$Cores" })
+            exit 1
+        }
+        if ($coresInt -gt $hostCores) {
+            Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_fb77dad01082953b' -Arguments @{ coresInt = "$coresInt"; hostCores = "$hostCores" })
+            $coresInt = $hostCores
+        }
+        $vmCores = $coresInt
     }
-    if ($coresInt -gt $hostCores) {
-        Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_fb77dad01082953b' -Arguments @{ coresInt = "$coresInt"; hostCores = "$hostCores" })
-        $coresInt = $hostCores
+    # Ubuntu 26 provisions with one ARM64 vCPU; Ubuntu 24 retains the two-vCPU cap.
+    # See https://yuruna.link/42dc5bb9-0006.
+    if ($Release -eq '26') {
+        $vmCores = Limit-HyperVLinuxGuestCoreCount -RequestedCores $vmCores -MaximumCores 1
+    } else {
+        $vmCores = Limit-HyperVLinuxGuestCoreCount -RequestedCores $vmCores
     }
-    $vmCores = $coresInt
-}
-# Ubuntu 26 provisions with one ARM64 vCPU; Ubuntu 24 retains the two-vCPU cap.
-# See https://yuruna.link/42dc5bb9-0006.
-if ($Release -eq '26') {
-    $vmCores = Limit-HyperVLinuxGuestCoreCount -RequestedCores $vmCores -MaximumCores 1
-} else {
-    $vmCores = Limit-HyperVLinuxGuestCoreCount -RequestedCores $vmCores
-}
-# Virtualization extensions only on request (validated in the environment
-# checks above): the flag is unsupported on ARM64 hosts and unnecessary for
-# guests that run no hypervisor of their own.
-$vmProcessorArgs = @{ VMName = $VMName; Count = $vmCores }
-if ($exposeVirt) { $vmProcessorArgs.ExposeVirtualizationExtensions = $true }
-Set-VMProcessor @vmProcessorArgs | Out-Null
+    # Virtualization extensions only on request (validated in the environment
+    # checks above): the flag is unsupported on ARM64 hosts and unnecessary for
+    # guests that run no hypervisor of their own.
+    $vmProcessorArgs = @{ VMName = $VMName; Count = $vmCores }
+    if ($exposeVirt) { $vmProcessorArgs.ExposeVirtualizationExtensions = $true }
+    Set-VMProcessor @vmProcessorArgs | Out-Null
 
-# WARNING: The test harness OCR is calibrated for 1920x1080.
-# Changing this resolution may break automated screen-text detection
-# in waitForText sequence steps.
-Set-VMVideo -VMName $VMName -HorizontalResolution 1920 -VerticalResolution 1080 -ResolutionType Single
+    # WARNING: The test harness OCR is calibrated for 1920x1080.
+    # Changing this resolution may break automated screen-text detection
+    # in waitForText sequence steps.
+    Set-VMVideo -VMName $VMName -HorizontalResolution 1920 -VerticalResolution 1080 -ResolutionType Single
 
-# --- REGION: Clean up temporary files
-Remove-Item -LiteralPath $SeedDir -Recurse -Force -ErrorAction SilentlyContinue
+    # --- REGION: Clean up temporary files
+} finally {
+    # The seed holds the guest's admin credentials; it must not outlive this
+    # script on any path, an early exit or a throw included.
+    Remove-Item -LiteralPath $SeedDir -Recurse -Force -ErrorAction SilentlyContinue
+}
 
 # --- REGION: Guidance
 Write-Verbose "VM '$VMName' created and configured."

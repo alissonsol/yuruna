@@ -141,8 +141,11 @@ func parseLine(line string, s *stats) (Entry, bool) {
 // uncapped sample log would fill the journal with the same failure.
 func recordLine(line string, r *ring, s *stats) bool {
 	if e, ok := parseLine(line, s); ok {
-		s.parsed.Add(1)
+		// Pushed before counted: a reader that polls the counter as a
+		// readiness signal must find the entry in the ring once the count
+		// covers it, and counted first there is a window where it does not.
 		r.push(e)
+		s.parsed.Add(1)
 		return false
 	}
 	s.skipped.Add(1)

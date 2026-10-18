@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.14
+.VERSION 2026.10.18
 .GUID 42d41f07-9c3b-4a15-8e62-5b0f3ca9d7e1
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -311,6 +311,26 @@ Describe 'the host-settings sweep' {
         $assist = @($fn.FindAll({ param($n) $n -is [Management.Automation.Language.CommandAst] -and $n.GetCommandName() -eq 'Invoke-MacOperatorGrantAssist' }, $true))
         Assert-True ($assist.Count -eq 1) 'the grant assist runs once'
         Assert-Match '-NoPrompt:\$NoGuiDisruption' $assist[0].Extent.Text 'and inherits the no-prompt mode'
+    }
+
+    It 'warns with the whole compact instruction when a grant is still missing after the wait' {
+        # The compact renderer emits a single string, which reaches the caller
+        # unrolled; indexing it without @() yields its first character.
+        $grant = @(Get-MacOperatorGrant | Where-Object { $_.Blocking -and $_.Probe })[0]
+        $script:PendingGrant = $grant.PSObject.Copy()
+        $script:PendingGrant.Prompt = $null
+        $expected = @(Get-MacOperatorGrantInstruction -Grant $grant -Compact)[0]
+        Mock -ModuleName Test.HostCondition.Mac Get-MacOperatorGrantState {
+            [pscustomobject]@{ Id = $script:PendingGrant.Id; Title = $script:PendingGrant.Title; State = 'missing'; Blocking = $true; Grant = $script:PendingGrant }
+        }
+        Mock -ModuleName Test.HostCondition.Mac Get-MacSessionKind { 'Console' }
+        Mock -ModuleName Test.HostCondition.Mac Test-YurunaCanPrompt { $true }
+        Mock -ModuleName Test.HostCondition.Mac open { }
+        $warnings = $null
+        $pending = @(Invoke-MacOperatorGrantAssist -WaitSeconds 0 -Confirm:$false -InformationAction SilentlyContinue -WarningVariable warnings -WarningAction SilentlyContinue)
+        Assert-Equal $script:PendingGrant.Id ($pending -join ',') 'the blocking grant is still pending'
+        Assert-Equal 1 @($warnings).Count 'one warning for the grant that was not given'
+        Assert-True ("$($warnings[0])".Contains($expected)) "the warning carries the whole instruction, not its first character: $($warnings[0])"
     }
 
     It 'waits for a click only where somebody can click' {

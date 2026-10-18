@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.14
+.VERSION 2026.10.18
 .GUID 42994830-6205-4cf7-a39c-84254b1669c3
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -146,7 +146,7 @@ Describe 'Cycle generation' {
     AfterEach {
         if ($null -eq $script:SavedGeneration) { Remove-Item Env:YURUNA_CYCLE_GENERATION -ErrorAction SilentlyContinue } else { $env:YURUNA_CYCLE_GENERATION = $script:SavedGeneration }
     }
-    It 'mints <instance>:1 for a one-shot entry point' {
+    It 'mints `<instance`>:1 for a one-shot entry point' {
         New-CycleGeneration | Should -Match '^[0-9a-f]{32}:1$'
     }
     It 'keeps the generation the runner issued' {

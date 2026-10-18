@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.14
+.VERSION 2026.10.18
 .GUID 42a42fc4-3899-4caf-9b13-53b48db992a8
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -172,9 +172,14 @@ Describe 'Website deployment budgets agree across console and SSH' -Skip:(-not $
 }
 
 Describe 'Bundled example Docker process contract' -Skip:(-not $script:ProjectAvailable) {
+    AfterAll {
+        [Console]::OutputEncoding = $script:PriorConsoleEncoding
+    }
     BeforeAll {
         $projectRoot = Join-Path (Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSScriptRoot))) 'yuruna-project'
         $script:BuildModule = Import-Module (Join-Path $projectRoot 'tools/Example.Build.psm1') -Force -PassThru
+        $script:PriorConsoleEncoding = [Console]::OutputEncoding
+        [Console]::OutputEncoding = [Text.UTF8Encoding]::new($false)
         $script:NativePowerShell = (Get-Process -Id $PID).Path
         & $script:BuildModule {
             param($NativePath)
@@ -215,7 +220,7 @@ Describe 'Bundled example Docker process contract' -Skip:(-not $script:ProjectAv
     }
 
     It 'preserves empty spaced quoted Unicode and trailing-backslash arguments' {
-        $fixture = Write-ProjectDockerFixture -Body '[Console]::Out.Write((ConvertTo-Json -InputObject @($args) -Compress))'
+        $fixture = Write-ProjectDockerFixture -Body '[Console]::OutputEncoding = [Text.UTF8Encoding]::new($false); [Console]::Out.Write((ConvertTo-Json -InputObject @($args) -Compress))'
         $values = @('', 'path with spaces', 'a"b', "caf`u{e9}", 'C:\folder with spaces\', '$literal;$(text)', '-option')
         $result = Invoke-ProjectDockerFixture -Arguments (@('-NoProfile', '-File', $fixture) + $values)
         $result.Codes.Count | Should -Be 1

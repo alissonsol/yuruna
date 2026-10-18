@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.14
+.VERSION 2026.10.18
 .GUID 42d6d3a9-02a1-4fb8-87ed-a2137333c910
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -47,10 +47,16 @@ function Get-YurunaHostCounterSpecification {
         'System' = @('Context Switches/sec','Processor Queue Length')
         'Memory' = @('Available MBytes','Committed Bytes','Commit Limit','Pages/sec')
         'PhysicalDisk' = @('Avg. Disk sec/Read','Avg. Disk sec/Write','Avg. Disk Read Queue Length','Avg. Disk Write Queue Length')
+        # Per-VM network objects: a guest whose packets stop at its virtual
+        # adapter or switch port looks idle in every processor counter, and
+        # these are the only host-side readings that show the traffic itself.
+        'Hyper-V Virtual Network Adapter' = @('Bytes Received/sec','Bytes Sent/sec','Packets Received/sec','Packets Sent/sec','Dropped Packets Incoming/sec','Dropped Packets Outgoing/sec')
+        'Hyper-V Virtual Switch Port' = @('Packets Received/sec','Packets Sent/sec','Dropped Packets Incoming/sec','Dropped Packets Outgoing/sec')
     }
+    $guestObjects = @('Hyper-V Hypervisor Virtual Processor', 'Hyper-V Virtual Network Adapter', 'Hyper-V Virtual Switch Port')
     foreach ($object in $groups.Keys) {
         foreach ($counter in $groups[$object]) {
-            [pscustomobject]@{ Object = $object; Counter = $counter; Guest = ($object -eq 'Hyper-V Hypervisor Virtual Processor') }
+            [pscustomobject]@{ Object = $object; Counter = $counter; Guest = ($object -in $guestObjects) }
         }
     }
 }
@@ -660,18 +666,62 @@ function Get-YurunaVmProcessorWindow {
             }
             if ($complete) { $residuals.Add([math]::Max(0, $total - $sum)) }
         }
+        # One processor can sit in the hypervisor while its sibling runs the
+        # guest, which the all-processor predicate ignores by design; the
+        # per-processor reading is kept so a record can still say which
+        # processor was trapping and on what.
+        $guestAverage = $counters['% Guest Run Time'].Average
+        $hypervisorAverage = $counters['% Hypervisor Run Time'].Average
+        $interceptAverage = $counters['Total Intercepts/sec'].Average
+        $busy = if ($null -ne $guestAverage -and $null -ne $hypervisorAverage) { $guestAverage + $hypervisorAverage } else { $null }
+        $hypervisorShare = if ($null -ne $busy -and $busy -gt 0) { [math]::Round($hypervisorAverage / $busy, 3) } else { $null }
+        $dominant = ''; $dominantRate = 0.0
+        foreach ($cause in $script:LivelockCauseCounters) {
+            $rate = $counters[$cause].Average
+            if ($null -ne $rate -and $rate -gt $dominantRate) { $dominantRate = $rate; $dominant = $cause }
+        }
         [pscustomobject]@{
             Processor = [string]$id; Counters = $counters
+            HypervisorShare = $hypervisorShare
+            Stormed = [bool](($null -ne $busy -and $busy -ge 80 -and $null -ne $hypervisorShare -and $hypervisorShare -ge 0.88) -or
+                ($null -ne $interceptAverage -and $interceptAverage -ge 1000000))
+            DominantIntercept = $dominant
             UnaccountedEstimatePerSecond = if ($residuals.Count) { [math]::Round(($residuals | Measure-Object -Average).Average) } else { $null }
             ResidualSampleCount = $residuals.Count
             ResidualStatus = if ($residuals.Count) { 'estimate-counter-categories-may-overlap' } else { 'unavailable-incomplete-counters' }
             ResidualUnavailableCounters = @($Reading[-1].CounterCapabilities | Where-Object { $_.Counter -in $script:LivelockCauseCounters -and $_.Status -in @('absent','not-applicable') } | ForEach-Object Counter)
         }
     })
+    # The storm moving from one processor to another is itself a reading: the
+    # moment it lands on the processor that services a device channel is when
+    # that device stops answering. Transitions are judged sample by sample.
+    $transitions = [Collections.Generic.List[object]]::new()
+    $previousSet = $null
+    for ($i = $window.Count - 1; $i -ge 0; $i--) {
+        $row = $window[$i]
+        $set = @(foreach ($id in $processorIds) {
+            $vp = $row.VMs[$VMKey][$id]
+            if (-not $vp) { continue }
+            $g = $vp['% Guest Run Time']; $h = $vp['% Hypervisor Run Time']; $t = $vp['Total Intercepts/sec']
+            $measured = ($null -ne $g -and $null -ne $h -and [double]::IsFinite([double]$g) -and [double]::IsFinite([double]$h) -and
+                $g -ge 0 -and $h -ge 0 -and $g -le 100.5 -and $h -le 100.5)
+            $pinned = $measured -and (($g + $h) -ge 80) -and (($h / [math]::Max(0.001, $g + $h)) -ge 0.88)
+            $storming = ($null -ne $t -and [double]::IsFinite([double]$t) -and $t -ge 1000000)
+            if ($pinned -or $storming) { [string]$id }
+        })
+        $key = ($set -join ',')
+        if ($null -ne $previousSet -and $key -ne $previousSet) {
+            $transitions.Add([pscustomobject]@{ Utc = $row.Utc.ToString('o'); Processors = @($set) })
+        }
+        $previousSet = $key
+    }
+    if ($transitions.Count -gt 8) { $transitions = $transitions.GetRange($transitions.Count - 8, 8) }
     [pscustomobject]@{
         SampleCount=$window.Count; WindowSeconds=$WindowSeconds
         OldestSampleUtc=$window[-1].Utc.ToString('o'); NewestSampleUtc=$newest.ToString('o')
         Processors=$processors; CounterCapabilities=@($Reading[-1].CounterCapabilities)
+        StormedProcessors=@($processors | Where-Object Stormed | ForEach-Object Processor)
+        StormTransitions=@($transitions)
     }
 }
 

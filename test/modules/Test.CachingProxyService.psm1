@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.14
+.VERSION 2026.10.18
 .GUID 422ef01b-468d-4c38-ab4c-8337b8a3ccd5
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -893,7 +893,7 @@ function Wait-CachingProxyServiceSettled {
     $lastReason  = ''
     $announced   = $false
     # Wall-clock deadline, not an iteration count: each probe costs its own
-    # latency on top of the interval (feedback_iter_counter_wallclock_trap).
+    # latency on top of the interval.
     $deadline = (Get-Date).AddSeconds([Math]::Max(0, $TimeoutSeconds))
     $classify = Get-Command Test-TcpConnectOutcome -ErrorAction SilentlyContinue
     $result = Wait-PortConsecutiveSuccess -Address $CacheIp -Port $Port -Deadline $deadline -Required $RequiredConsecutive -IntervalSeconds $IntervalSeconds -Classify $classify -OnFirstMiss {
@@ -1700,9 +1700,7 @@ function Get-CachingProxyServiceCaCertBase64 {
         is refused so one cache's CA is never baked against another's bump.
         Exhausted=$true means neither source yielded a usable CA; the caller
         (New-VM) treats "proxy URL present => CA mandatory" as a hard-fail rather
-        than booting a guest that would hit curl rc=60 on every HTTPS. See
-        feedback_sslbump_rc60_untrusted_chain_and_ca_gate_trap and
-        project_sslbump_ca_gating_durable_fix.
+        than booting a guest that would hit curl rc=60 on every HTTPS.
     .OUTPUTS
         [hashtable] @{ CaCertBase64 [string]; Source 'live'|'persisted'|'none'; Exhausted [bool] }
     #>

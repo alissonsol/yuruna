@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.14
+.VERSION 2026.10.18
 .GUID 42e861b5-08b7-414a-a164-c414c541a30d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -81,7 +81,7 @@ Describe 'Resolve-PortOrphan classifies all holders before stopping any' {
         $r.Status | Should -Be 'Conflict'
         # The reclaimable holder (1001) precedes the foreign one (1002); a single-pass
         # kill-as-you-go would have stopped 1001 before returning Conflict on 1002.
-        Assert-MockCalled -ModuleName Test.PortOwner Stop-Process -Times 0 -Exactly
+        Should -Invoke -ModuleName Test.PortOwner Stop-Process -Times 0 -Exactly
     }
     It 'stops every holder when all are reclaimable owned pwsh' {
         Mock -ModuleName Test.PortOwner Test-PortListenerFree { $false }
@@ -94,7 +94,7 @@ Describe 'Resolve-PortOrphan classifies all holders before stopping any' {
 
         $null = Resolve-PortOrphan -Port 65002 -Confirm:$false
 
-        Assert-MockCalled -ModuleName Test.PortOwner Stop-Process -Times 2 -Exactly
+        Should -Invoke -ModuleName Test.PortOwner Stop-Process -Times 2 -Exactly
     }
 }
 

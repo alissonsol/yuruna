@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.14
+.VERSION 2026.10.18
 .GUID 4277d76d-71f9-4057-a9d2-4d6341c5dd2d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -192,6 +192,39 @@ Describe 'Clear-GuestTtyLine' {
             Assert-True ($null -eq $err) "Clear-GuestTtyLine must not rethrow: $err"
         } finally {
             $TtyStub.ThrowOnKey = $false
+        }
+    }
+}
+
+Describe 'Host facade resolution' {
+    It 'keys the host driver even when a same-named dispatcher was imported after it' {
+        # Test.SequenceEngine exports a non-advanced Send-Key/Send-Text taking
+        # -HostType and -KeyName; whichever module was imported last owns the
+        # bare name. Importing these stand-ins replaces the file's global stubs,
+        # so those are put back afterwards for the cases that follow.
+        $savedKey  = (Get-Command -Name Send-Key -CommandType Function).ScriptBlock
+        $savedText = (Get-Command -Name Send-Text -CommandType Function).ScriptBlock
+        $driver = New-Module -Name Yuruna.Host -ScriptBlock {
+            $script:Calls = [System.Collections.Generic.List[string]]::new()
+            function Send-Key { param([string]$VMName, [string]$Key, [string]$Mechanism = 'gui') $script:Calls.Add("key:${VMName}:${Key}:$Mechanism"); return $true }
+            function Send-Text { param([string]$VMName, [string]$Text, [string]$Mechanism = 'gui') $script:Calls.Add("text:${VMName}:$($Text.Length):$Mechanism"); return $true }
+        } | Import-Module -Global -PassThru
+        $dispatcher = New-Module -Name Yuruna.TestDispatcherStandIn -ScriptBlock {
+            $script:Calls = [System.Collections.Generic.List[string]]::new()
+            function Send-Key { param([string]$HostType, [string]$VMName, [string]$KeyName) $script:Calls.Add("key:${HostType}:${VMName}:$KeyName"); return $false }
+            function Send-Text { param([string]$HostType, [string]$VMName, [string]$Text) $script:Calls.Add("text:${HostType}:${VMName}:$($Text.Length)"); return $false }
+        } | Import-Module -Global -PassThru
+        try {
+            Assert-Equal -Expected 'Yuruna.TestDispatcherStandIn' -Actual (Get-Command -Name Send-Key).Source -Because 'the later import owns the bare name'
+            Assert-True (Invoke-TtyHelper -Name 'Clear-GuestTtyLine') 'the clear reached the guest'
+            Assert-Equal -Expected 'key:vm1:CtrlU:gui' -Actual ((& $driver { $script:Calls }) -join ',')
+            Assert-Equal -Expected 0 -Actual @(& $dispatcher { $script:Calls }).Count -Because 'the dispatcher never sees a console keystroke'
+            $text = & (Get-Module Test.Diagnostic) { Resolve-DiagnosticHostCommand -Name Send-Text }
+            Assert-Equal -Expected 'Yuruna.Host' -Actual $text.Source
+        } finally {
+            Remove-Module -ModuleInfo $dispatcher, $driver -Force
+            ${function:global:Send-Key} = $savedKey
+            ${function:global:Send-Text} = $savedText
         }
     }
 }

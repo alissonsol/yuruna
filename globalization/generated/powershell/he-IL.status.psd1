@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.14
+.VERSION 2026.10.18
 .GUID 422d4ab8-65fc-c85d-47c1-57e5e7f4dddd
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -922,6 +922,7 @@
             'trust' = 'external'
         }
     )
+    'status.host_refresh_remote_viewer' = 'דף זה פתוח ממחשב אחר, ולכן ניתן לצפות בו ברענון מארח אך לא להפעיל אותו. הפעילו אותו במארח עצמו: בלוח המחוונים שלו, או באמצעות pwsh test⁦/lab/Invoke-HostRefresh.ps1⁩.'
     'status.host_refresh_retry' = 'ניסיון חוזר'
     'status.host_refresh_stale' = @(
         'רענון '
@@ -1373,6 +1374,7 @@
     'status.pill_new_vm_resource' = 'מכונה וירטואלית חדשה'
     'status.pill_start_guestos' = 'הפעלת מערכת ההפעלה'
     'status.pill_start_guestworkload' = 'עומס עבודה'
+    'status.preflight_failed' = 'בדיקה מקדימה נכשלה'
     'status.process_environment_value_the_status_service_inherited_at_startup' = 'ערך מסביבת התהליך שירש status service בעת ההפעלה. לקריאה בלבד כאן; משמש רק כמקור חלופי: בתחילת המחזור נבדק תחילה השדה ⁦vmStart.cachingProxyIp⁩ שלעיל, והוא מקבל עדיפות כשמתקבלת תשובה דרך :3128 שלו. ייצאו ערך זה במעטפת שמפעילה את ⁦Start-TestRunner.ps1⁩ עבור מארחים ששדה התצורה שלהם ריק.'
     'status.quarantine_pinned' = @(
         'הועבר לבידוד לאחר כשלים חוזרים מאותו סוג (יידלג עד לשינוי חדש במאגר; מקובע בגרסה '
@@ -1427,6 +1429,10 @@
             'trust' = 'external'
         }
     )
+    'status.runner_attempts_description' = 'כישלונות מתוך 20 ניסיונות ההרצה האחרונים נשמרים כאן לאחר ההתאוששות. כישלונות בבדיקה המקדימה מתרחשים לפני תחילת מחזור בדיקות חדש.'
+    'status.runner_attempts_empty' = 'אין כישלונות שמורים של ניסיונות הרצה.'
+    'status.runner_attempts_title' = 'כישלונות בניסיונות הרצה'
+    'status.runner_attempts_unavailable' = 'היסטוריית ניסיונות ההרצה אינה זמינה.'
     'status.runner_failure_record' = 'רשומת הכשל'
     'status.runner_failure_transcript' = 'תמליל בדיקת התצורה'
     'status.runner_framework_commit' = @(

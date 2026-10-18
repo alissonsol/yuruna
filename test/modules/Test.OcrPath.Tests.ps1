@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.14
+.VERSION 2026.10.18
 .GUID 42c11373-6ab6-4218-89d7-d152de3a1e3a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -156,8 +156,10 @@ Describe 'Resolve-OcrImagePath hands back a real path and Clear-OcrImagePath res
     It 'deletes the temporary file when the handle does own a copy' {
         $f = Join-Path ([System.IO.Path]::GetTempPath()) ("yuruna-ocrpath-owned-{0}.png" -f $PID)
         Set-Content -LiteralPath $f -Value 'x' -NoNewline
-        Clear-OcrImagePath -Handle @{ Path = $f; IsCopy = $true }
-        Assert-False (Test-Path -LiteralPath $f) 'a copy the helper made must not outlive the OCR call'
+        try {
+            Clear-OcrImagePath -Handle @{ Path = $f; IsCopy = $true }
+            Assert-False (Test-Path -LiteralPath $f) 'a copy the helper made must not outlive the OCR call'
+        } finally { Remove-Item -LiteralPath $f -Force -ErrorAction SilentlyContinue }
     }
     It 'is a no-op on a null handle and on a second release' {
         Clear-OcrImagePath -Handle $null

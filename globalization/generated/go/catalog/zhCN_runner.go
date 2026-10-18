@@ -60,6 +60,27 @@ const DatazhCNrunner = `{
       "trust": "external"
     }
   ],
+  "runner.config_value_replaced": [
+    "test.config.yml: ",
+    {
+      "arg": "path",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    ": ",
+    {
+      "arg": "previous",
+      "type": "detail",
+      "trust": "external"
+    },
+    " -> ",
+    {
+      "arg": "current",
+      "type": "detail",
+      "trust": "external"
+    },
+    "。模板叠加必须保留您设置的每个值，因此这次替换是叠加的缺陷，而不是架构变更；如果并非有意为之，请手动恢复先前的值并报告该缺陷。"
+  ],
   "runner.critical_record_replace": "替换私有关键记录",
   "runner.cycle_outcome_rejected_kept": [
     "[外层周期",
@@ -303,6 +324,26 @@ const DatazhCNrunner = `{
     "找不到客户机文件夹：",
     {
       "arg": "folder",
+      "type": "detail",
+      "trust": "external"
+    }
+  ],
+  "runner.host_action_exit_detail": [
+    "宿主机操作“",
+    {
+      "arg": "name",
+      "type": "detail",
+      "trust": "external"
+    },
+    "”已退出，退出代码为",
+    {
+      "arg": "exit",
+      "type": "detail",
+      "trust": "external"
+    },
+    "：",
+    {
+      "arg": "detail",
       "type": "detail",
       "trust": "external"
     }
@@ -1022,6 +1063,9 @@ const DatazhCNrunner = `{
     },
     "）；自动宿主机刷新不会计入此周期。"
   ],
+  "runner.host_refresh_hung_hypervisor_manual_hyperv": "虚拟机监控程序的控制通道已挂起，此宿主机上没有可用的层级能够修复该问题。请在提升权限的控制台中重启Hyper-V管理服务（Restart-Service vmms），或手动重启宿主机，然后使用以下命令恢复：pwsh test/lab/Invoke-HostRefresh.ps1 -Resume。未经修复直接恢复只会重新探测，并消耗有限尝试次数中的一次。",
+  "runner.host_refresh_hung_hypervisor_manual_kvm": "虚拟机监控程序的控制通道已挂起，此宿主机上没有可用的层级能够修复该问题。请重启libvirt守护进程（sudo systemctl restart libvirtd），或手动重启宿主机，然后使用以下命令恢复：pwsh test/lab/Invoke-HostRefresh.ps1 -Resume。未经修复直接恢复只会重新探测，并消耗有限尝试次数中的一次。",
+  "runner.host_refresh_hung_hypervisor_manual_utm": "虚拟机监控程序的控制通道已挂起，此宿主机上没有可用的层级能够修复该问题。请在已登录的桌面会话中退出并重新打开UTM，或手动重启宿主机，然后使用以下命令恢复：pwsh test/lab/Invoke-HostRefresh.ps1 -Resume。未经修复直接恢复只会重新探测，并消耗有限尝试次数中的一次。",
   "runner.host_refresh_identity_refused": [
     "Invoke-HostRefresh：拒绝以",
     {
@@ -1578,6 +1622,27 @@ const DatazhCNrunner = `{
     }
   ],
   "runner.host_refresh_verified_noop": "Invoke-HostRefresh：虚拟机监控程序已响应，运行器状态正常；未进行任何更改。",
+  "runner.hypervisor_control_unresponsive": [
+    "此宿主机上的虚拟机管理程序控制通道能响应状态查询，但不再执行生命周期请求（探测结果",
+    {
+      "arg": "state",
+      "type": "token",
+      "trust": "internal"
+    },
+    "/",
+    {
+      "arg": "reason",
+      "type": "token",
+      "trust": "internal"
+    },
+    "；生命周期命令：",
+    {
+      "arg": "lifecycle",
+      "type": "detail",
+      "trust": "external"
+    },
+    "）。周期在构建任何内容之前停止，因为每次虚拟机启动和停止都会等到超时。请在此宿主机上重新启动虚拟机管理程序应用（在macOS上从桌面会话退出UTM.app，或运行test/lab/Invoke-HostRefresh.ps1），然后恢复运行器。"
+  ],
   "runner.inner_attempt_exited": [
     "运行器尝试在报告周期结果之前退出，退出代码为 ",
     {
@@ -22423,6 +22488,41 @@ const DatazhCNrunner = `{
     " 必须是不含空白字符或控制字符的非空 URL，且不得以“-”开头。"
   ],
   "runner.pool_status_repositories_none": "  仓库：（无）",
+  "runner.preflight_network_diagnostics": [
+    "网络诊断：",
+    {
+      "arg": "diagnostics",
+      "type": "detail",
+      "trust": "external"
+    }
+  ],
+  "runner.preflight_tcp_failed": [
+    "与 ",
+    {
+      "arg": "hostName",
+      "type": "detail",
+      "trust": "external"
+    },
+    ":",
+    {
+      "arg": "port",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " 的 TCP 连接在尝试 ",
+    {
+      "arg": "attemptCount",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " 次后失败：",
+    {
+      "arg": "outcome",
+      "type": "detail",
+      "trust": "external"
+    },
+    "。请查看网络诊断以了解所有尝试。"
+  ],
   "runner.prior_runner_cleanup_action": "  操作：  停止它，并在启动前运行\n           Remove-TestVMFiles.ps1",
   "runner.process_start_record_write_action": "写入进程启动时间记录",
   "runner.project_previous_cleanup_failed": [
@@ -22599,6 +22699,29 @@ const DatazhCNrunner = `{
       "trust": "internal"
     },
     "] 宿主机刷新门控已放行运行器；周期恢复运行。"
+  ],
+  "runner.refresh_gate_status_ensure_failed": [
+    "Start-TestRunner：门控保持期间无法启动状态服务：",
+    {
+      "arg": "message",
+      "type": "detail",
+      "trust": "external"
+    }
+  ],
+  "runner.refresh_gate_status_ensured": [
+    "Start-TestRunner：宿主机刷新",
+    {
+      "arg": "requestId",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "没有存活的工作进程；状态服务已在端口",
+    {
+      "arg": "port",
+      "type": "integer",
+      "trust": "internal"
+    },
+    "上启动，以便其仪表板能够显示并恢复未解决的请求。在该请求解决之前，运行器仍将拒绝启动。"
   ],
   "runner.refresh_gate_unreadable": [
     "[外层周期",
@@ -22793,6 +22916,27 @@ const DatazhCNrunner = `{
       "trust": "internal"
     },
     "）。未做任何更改；运行器正在等待刷新。"
+  ],
+  "runner.refresh_status_ensure_orphaned": [
+    "[外层周期",
+    {
+      "arg": "cycle",
+      "type": "integer",
+      "trust": "internal"
+    },
+    "] 宿主机刷新",
+    {
+      "arg": "requestId",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "使运行器保持受阻状态（门控状态",
+    {
+      "arg": "state",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "），且其工作进程已停止运行；正在再次确保状态服务运行，以便其仪表板能够显示并恢复未解决的请求。"
   ],
   "runner.refresh_status_ensure_skipped": [
     "[外层周期",
@@ -23646,6 +23790,27 @@ const DatazhCNrunner = `{
       "trust": "external"
     },
     "）。周期继续运行，但事件流已不完整；计数和原因记录在cycle.events.delivery.json中。本周期内后续丢失的事件会累计计数，不再重复报告。"
+  ],
+  "runner.temp_housekeeping_removed": [
+    "临时文件清理（",
+    {
+      "arg": "sweep",
+      "type": "token",
+      "trust": "internal"
+    },
+    "）从 ",
+    {
+      "arg": "roots",
+      "type": "detail",
+      "trust": "external"
+    },
+    " 删除了 ",
+    {
+      "arg": "removed",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " 个遗留项。"
   ],
   "runner.transcript_title": "Yuruna测试运行器日志",
   "runner.vault_retired_entries": [

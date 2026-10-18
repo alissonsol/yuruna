@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.14
+.VERSION 2026.10.18
 .GUID 425681a0-b84a-453d-9df2-fb0f85f547f8
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -24,7 +24,7 @@ Import-Module -Name (Join-Path -Path $PSScriptRoot -ChildPath "Invoke-DynamicExp
 # New-YurunaValidationResult decorates a boxed [bool] with a Reason so the
 # missing/below-version tool list travels with the pass/fail decision instead
 # of reaching only Write-Information (silenced at Error/Warning). -Global -Force
-# per feedback_module_force_import_evicts_global.md.
+# so the import does not evict an instance another module loaded.
 Import-Module (Join-Path $PSScriptRoot 'Yuruna.Result.psm1') -Global -Force
 
 function Confirm-RequirementList {

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.14
+.VERSION 2026.10.18
 .GUID 42bd6583-4d45-42df-b3b7-3411df4c5af9
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -837,6 +837,25 @@ function Register-BuiltinRecoveryHandler {
                 (Format-YurunaOperatorMessage -Key 'remediation.operator_14e6c2ed2ffe7e89'),
                 (Format-YurunaOperatorMessage -Key 'remediation.operator_f0a29d5f6e38b4ec'),
                 (Format-YurunaOperatorMessage -Key 'remediation.operator_97b6f714dbde379c')
+            )
+        }
+    }
+
+    Register-RecoveryHandler -FailureClass 'hypervisor_unresponsive' -Handler {
+        param([hashtable]$c)
+        # The record's description names the verb that hung and the VM it was
+        # sent for; the cycle folder holds the control snapshot. Neither a retry
+        # nor a rebuild touches the fault, which lives in the hypervisor
+        # application's own process, so this never recommends a retry.
+        $detail = ''
+        if ($c.Failure -and $c.Failure.description) { $detail = " Reported: $($c.Failure.description)" }
+        return @{
+            Recommendation = 'operator_intervention_required'
+            Rationale      = (Format-YurunaOperatorMessage -Key 'remediation.hypervisor_unresponsive_rationale' -Arguments @{ detail = "$detail" })
+            Actions        = @(
+                (Format-YurunaOperatorMessage -Key 'remediation.hypervisor_unresponsive_action_restart'),
+                (Format-YurunaOperatorMessage -Key 'remediation.hypervisor_unresponsive_action_evidence'),
+                (Format-YurunaOperatorMessage -Key 'remediation.hypervisor_unresponsive_action_resume')
             )
         }
     }

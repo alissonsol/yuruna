@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.10.14
+# Version: 2026.10.18
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 
@@ -227,6 +227,11 @@ cleanup_auth_config() {
     local final_rc=$?
     if declare -F fae_stop_recorder >/dev/null; then fae_stop_recorder; fi
     [ -n "$AUTH_CONFIG" ] && rm -f "$AUTH_CONFIG" 2>/dev/null
+    # Payload, header and checkpoint temp files are removed on their own
+    # success paths; a TERM from the run budget or a set -e abort skips those.
+    # The profile is left for the host to read after a timeout, and the next
+    # invocation removes it.
+    rm -f -- "${fetch_tmp:-}" "${lib_tmp:-}" "${ckpt_payload:-}" "${ckpt_file:-}" "${headers:-}" 2>/dev/null || true
     if [ -n "${fae_log:-}" ] && [ "${fae_log_completed:-0}" != 1 ]; then
         {
             printf '# exit code: %s\n' "$final_rc"
@@ -411,6 +416,29 @@ export FAE_INVOCATION_SCRIPT
 # Replace the previous invocation before any source probe or download can fail.
 fae_log='/tmp/yuruna-last-fetch-and-execute.log'
 fae_log_completed=0
+# The previous invocation's recorder folder and profile are named only in the
+# log this run is about to replace, and nothing reads them once it is gone.
+# Without this a guest keeps one recorder folder (up to ~2 MB) per step it has
+# ever run. Only paths of the exact shape this script creates are removed.
+fae_prune_prior_invocation() {
+    local log="$1" line path
+    [ -f "$log" ] || return 0
+    while IFS= read -r line; do
+        case "$line" in
+            '# recorder: /tmp/yuruna-fae-recorder.'*) path="${line#'# recorder: '}" ;;
+            '# profile:   /tmp/yuruna-fae-profile.'*) path="${line#'# profile:   '}" ;;
+            *) continue ;;
+        esac
+        case "$path" in
+            /tmp/yuruna-fae-recorder.[A-Za-z0-9]*|/tmp/yuruna-fae-profile.[A-Za-z0-9]*) ;;
+            *) continue ;;
+        esac
+        case "$path" in */*/*/*|*..*|*' '*) continue ;; esac
+        rm -rf -- "$path" 2>/dev/null || true
+    done < "$log"
+    return 0
+}
+fae_prune_prior_invocation "$fae_log"
 {
     echo '# Yuruna fetch-and-execute log'
     printf '# script:    %s\n' "$FAE_INVOCATION_SCRIPT"
@@ -927,9 +955,11 @@ guest_evidence_provenance() {
     for path in tools/example-workload.sh tools/Example.Build.psm1 example/website/components/frontend/website/{Dockerfile,Example.Build.psm1} example/text-to-sql/components/frontend/text-to-sql-ui/{Dockerfile,Example.Build.psm1}; do
         guest_evidence_hash "project.$path" "$root/project/$path"
     done
-    for path in fetch-and-execute.sh yuruna-retry.sh yuruna-fetch-context.sh; do
+    for path in fetch-and-execute.sh yuruna-retry.sh; do
         guest_evidence_hash "installed.$path" "/usr/local/lib/yuruna/$path"
     done
+    # The seed installs the context launcher as yfe, not under its source name.
+    guest_evidence_hash installed.yuruna-fetch-context.sh /usr/local/bin/yfe
     if [[ ${FILE_PATH:-} =~ ^[A-Za-z0-9][A-Za-z0-9._/-]*$ ]] && [[ /${FILE_PATH:-}/ != *'/../'* ]]; then
         guest_evidence_hash localPayload "$root/$FILE_PATH"
     fi
@@ -974,7 +1004,7 @@ fae_recorder_read() {
 
 # shellcheck disable=SC2317 # Invoked by timeout through bash -c.
 fae_recorder_collect() {
-    local pid tid cpu pcpu state name path cgroup count=0
+    local pid tid cpu pcpu state name path cgroup count=0 ip_cmd operstate carrier flags class_id driver
     local -A sampled_process=()
     export LC_ALL=C
     local recorder_priv=()
@@ -986,6 +1016,32 @@ fae_recorder_collect() {
         /proc/pressure/{cpu,io,memory} /proc/{meminfo,vmstat,interrupts,softirqs,diskstats}; do
         fae_recorder_read "$path" 8192
     done
+    # A guest keeps sampling after it loses its address, route, or link, so
+    # the sample must show them. ip prints numeric addresses unless asked to
+    # resolve, so nothing here waits on DNS. Minimal service PATHs omit sbin,
+    # where iproute2 lives on older guests.
+    printf '\n--- network ---\n'
+    ip_cmd=$(command -v ip 2>/dev/null) || ip_cmd=''
+    for path in /usr/sbin/ip /sbin/ip; do [ -z "$ip_cmd" ] && [ -x "$path" ] && ip_cmd=$path; done
+    if [ -n "$ip_cmd" ]; then
+        printf '\n--- ip -4 address ---\n'; "$ip_cmd" -4 -o address show scope global 2>&1 | head -c 4096
+        printf '\n--- ip -4 route ---\n'; "$ip_cmd" -4 route show 2>&1 | head -c 4096
+        printf '\n--- ip -4 neigh ---\n'; "$ip_cmd" -4 neigh show 2>&1 | head -n 24
+    else printf 'state=unavailable command=ip\n'; fi
+    printf '\n--- interfaces ---\n'
+    count=0
+    for path in /sys/class/net/en* /sys/class/net/eth*; do
+        [ -d "$path" ] || continue
+        # An administratively down link answers EINVAL to its carrier attribute.
+        read -r operstate 2>/dev/null < "$path/operstate" || operstate=unavailable
+        read -r carrier 2>/dev/null < "$path/carrier" || carrier=unavailable
+        read -r flags 2>/dev/null < "$path/flags" || flags=unavailable
+        printf 'interface=%s operstate=%s carrier=%s flags=%s\n' "${path##*/}" "$operstate" "$carrier" "$flags"
+        count=$((count + 1)); [ "$count" -ge 16 ] && break
+    done
+    printf 'interfaceSamples=%s cap=16\n' "$count"
+    fae_recorder_read /proc/net/dev 8192
+    count=0
     for path in /sys/fs/cgroup/{memory.events,memory.events.local,memory.current,memory.max,memory.high,memory.swap.current,memory.swap.max,memory.stat,memory.pressure} /sys/fs/cgroup/memory/{memory.failcnt,memory.usage_in_bytes,memory.limit_in_bytes,memory.oom_control}; do
         [ -e "$path" ] && fae_recorder_read "$path" 4096
     done
@@ -1012,6 +1068,22 @@ fae_recorder_collect() {
         [ "$count" -ge 16 ] && break
     done < <(ps -eLo pid=,lwp=,psr=,pcpu=,stat=,comm= 2>/dev/null | sort -k4,4nr)
     printf '\nthreadStackSamples=%s cap=16; absent/denied stacks are reported above\n' "$count"
+    # Channel attributes name a device only by its instance GUID; class_id and
+    # the bound driver tell which device is the network or storage adapter.
+    printf '\n--- vmbus devices ---\n'
+    count=0
+    for path in /sys/bus/vmbus/devices/*; do
+        [ -d "$path" ] || continue
+        read -r class_id 2>/dev/null < "$path/class_id" || class_id=unavailable
+        driver=none
+        if [ -L "$path/driver" ]; then
+            driver=$(readlink -- "$path/driver" 2>/dev/null) || driver=unavailable
+            driver=${driver##*/}
+        fi
+        printf 'vmbusDevice=%s class_id=%s driver=%s\n' "${path##*/}" "$class_id" "$driver"
+        count=$((count + 1)); [ "$count" -ge 64 ] && break
+    done
+    printf '\nvmbusDeviceSamples=%s cap=64\n' "$count"
     count=0
     for path in /sys/bus/vmbus/devices/*/channels/*/{cpu,interrupts,events,latency}; do
         [ -e "$path" ] || continue
@@ -1022,6 +1094,12 @@ fae_recorder_collect() {
     if command -v journalctl >/dev/null 2>&1; then
         "${recorder_priv[@]}" journalctl -k -b --no-pager -n 30 -o short-monotonic 2>&1 | head -c 32768
     else printf 'kernelJournal=unavailable\n'; fi
+    # networkd owns address and route lifetime; its unit log records a lease
+    # or carrier loss that the kernel ring never mentions.
+    printf '\n--- systemd-networkd journal ---\n'
+    if command -v journalctl >/dev/null 2>&1; then
+        "${recorder_priv[@]}" journalctl -u systemd-networkd -b --no-pager -n 20 -o short-monotonic 2>&1 | head -c 8192
+    else printf 'state=unavailable command=journalctl\n'; fi
     printf '\nsampleCompleteUtc=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%S.%NZ)"
 }
 

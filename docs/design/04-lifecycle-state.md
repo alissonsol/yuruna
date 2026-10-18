@@ -62,6 +62,17 @@ stateDiagram-v2
 
 The final marker leaves this view for validation or failure policy. Before guest iteration, the cycle resolves configuration and sequences, prepares images, and applies admission, bootstrap, and host-health gates. The iteration removes a same-name remnant and, on hosts with four or fewer logical processors, force-stops other running guests of this cycle; preamble admission has already refused competing VMs. Guests remain serialized.
 
+Before resetting the cycle status or building VMs, `Test-RunnerHypervisorControlGate`
+asks a capable host driver to exercise a no-op lifecycle command. The
+[UTM driver](../../host/macos.utm/modules/Yuruna.Host.psm1) implements this probe.
+Only a corroborated lifecycle timeout refuses the cycle as
+`hypervisor_unresponsive`, attempting a control snapshot and using the bootstrap
+failure handler. A missing probe, inconclusive result, or thrown probe does not
+refuse the cycle. Once per cycle, `Invoke-RunnerTempHousekeeping` also calls the
+process and temporary-file helpers in
+[Yuruna.Common.psm1](../../automation/Yuruna.Common.psm1) to remove bounded,
+recognized orphaned entries; housekeeping errors do not fail the cycle.
+
 Start sequences that power the guest off use the `stopVm` action in [Test.SequenceHandler.psm1](../../test/modules/Test.SequenceHandler.psm1): the driver's `Stop-VM -ShutdownTimeoutSeconds -NoForce` requests the shutdown, and the stopped state is observed through the host. A guest that ignores the request leaves console frames, OCR text, the observed state, the livelock verdict, and the first guest-silence marker, and `Start-GuestOS` fails as `wait_timeout`. With `forceOnTimeout`, the VM is turned off with a recorded `guest-shutdown` degradation and the sequence continues. `startVm` shares the same stopped-wait evidence.
 
 [Test.GuestQuarantine.psm1](../../test/modules/Test.GuestQuarantine.psm1) can skip repeatedly failing guests until their configured skip budget or a framework/project revision change releases them. Preflight and image failures can skip a guest before VM creation. These decisions do not create extra persisted lifecycle states.
@@ -90,9 +101,27 @@ stateDiagram-v2
 
 Workload sequences are skipped when none apply. Eligible transient workload failures can resume on the same live VM from a permitted checkpoint or restore point, bounded by `testCycle.warmResume.maxAttempts` (default 2). Unsafe replay or unsuccessful retries leave the failure to normal handling.
 
+Within an individual `fetchAndExecute` action, a damaged compact GUI envelope
+can be typed once more. The retry shares the original step timeout; the next
+OCR wait receives only the remaining time, though typing and probes can overrun
+that budget. The
+[sequence handler](../../test/modules/Test.SequenceHandler.psm1) requires the
+guest launcher's encoding/digest rejection and an SSH-confirmed `NOT_PREPARED`
+payload state. This transport retry does not restart the workload or add a
+runner state; the [exchange diagram](03-data-flows.md) shows its evidence path.
+
 Passing guests release DHCP, force-stop, and remove the VM. Teardown forces deliberately because the disk is deleted next; the graceful `Stop-VM` path serves steps that keep the disk. If a VM still runs after retrying removal, cleanup fails and the runner refuses to start the next guest. Failed guests are removed when `stopOnFailure` is false. When true, the guest loop breaks, the cycle result is finalized, and the inner exits before its normal boundary sweep and delay.
 
 `Complete-CycleRun` seals the transcript and overall result; when rebuilt guests received different addresses, it fails an otherwise passing cycle as `dhcp_identity_unbounded`. Failure evidence includes the Hyper-V `serial-console.log` captured from COM1 during the cycle. The `failuresBeforeAlert` threshold, the armed latch, and successful rearm streaks gate notifications; the crash streak drives only backoff and the abort. Bounded artifact capture can fail without replacing the original error. Authentication vault keys are reused across cycles and retained after passing and failing results, through `Initialize-CycleAuthVault`.
+
+Before guest diagnostics attempt SSH, failure capture runs
+[Test.GuestNetworkCrossCheck.psm1](../../test/modules/Test.GuestNetworkCrossCheck.psm1)
+to record the host's reachability of the caching service and guest. It adds that
+verdict and available SSH-readiness evidence to `failure_diagnostic` events.
+The [Hyper-V driver](../../host/windows.hyper-v/modules/Yuruna.Host.psm1)
+additionally saves adapter, address, neighbor, TCP, and worker-event evidence
+through `Save-VMNetworkState`. These captures explain a failure without changing
+its original verdict.
 
 ## Durable diagnostic preservation
 
@@ -222,6 +251,12 @@ stateDiagram-v2
 ```
 
 Closed, recovery-pending, handoff, or unreadable gates prevent ordinary pulls, spawns, and sweeps. A valid handoff admits a preflight inner, which probes the host from its final process ancestry and writes a readiness acknowledgment without ordinary Git, VM, control-sweep, or status-document work. The refresh worker or resident outer validates that acknowledgment before release. Failed preflight holds again; it is not counted as an ordinary failed test.
+
+The outer can re-ensure the status service when a held gate is proven orphaned
+and has no live handoff, keeping the dashboard's recovery controls reachable.
+That exception does not release cycle dispatch. If refresh still finds a hung
+hypervisor and no applicable restart or reboot rung ran, its summary names the
+provider's manual remedy; another resume alone only repeats the probe.
 
 The first ordinary chain after refresh adopts preserved pause and lab-hold controls before VM mutation. It refreshes the step heartbeat and waits for their normal consumers; it does not delete pause flags to force progress. The normal lab-health gate handles lab-hold release or exhaustion.
 

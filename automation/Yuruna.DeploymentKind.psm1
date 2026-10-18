@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.14
+.VERSION 2026.10.18
 .GUID 42d61230-055b-4de0-972a-cf11ab30a187
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -35,8 +35,7 @@
     Catalog entries are PLAIN DATA descriptors, never scriptblocks. A
     scriptblock registered here but invoked from the Workload/Validation
     module scope would lose name-resolution of those modules' private
-    commands (the closure-invoked-in-a-foreign-module class:
-    feedback_closure_foreign_module_command_resolution.md). So the heavy
+    commands (the closure-invoked-in-a-foreign-module class). So the heavy
     apply bodies (the chart helm-upgrade pipeline; the chart-specific
     validation) STAY in their owning modules and merely dispatch off the
     descriptor fields exported here.
@@ -76,8 +75,7 @@
 # Eviction-safe catalog anchor. A defensive -Force re-import of this
 # module from any consumer must NOT wipe the registered kinds, and the
 # init must be idempotent so re-running module load does not clear a
-# live catalog (the $script:foo=@{} reset-on-reimport class:
-# feedback_module_script_state_reset_by_force_reimport.md). An ordered
+# live catalog (the $script:foo=@{} reset-on-reimport class). An ordered
 # dictionary preserves registration order, which IS the precedence and
 # the order the expected-text phrase is built in.
 [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidGlobalVars', '',
@@ -157,9 +155,8 @@ function Get-YurunaDeploymentKindList {
         Justification = 'Reads the catalog anchor created at module load.')]
     param()
     # Two-step build: a typed-array cast over an empty/loop result can
-    # collapse to $null (the typed-array-cast-if-empty class:
-    # feedback_pwsh_typed_array_cast_if_empty_null.md), so initialize then
-    # append.
+    # collapse to $null (the typed-array-cast-if-empty class), so initialize
+    # then append.
     $list = [System.Collections.Generic.List[hashtable]]::new()
     foreach ($key in $global:__YurunaDeploymentKindCatalog.Keys) {
         $list.Add($global:__YurunaDeploymentKindCatalog[$key])

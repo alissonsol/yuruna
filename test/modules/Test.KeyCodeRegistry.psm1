@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.14
+.VERSION 2026.10.18
 .GUID 42db3d20-ddd1-4aab-b78d-7c8fd9fd6f28
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -204,8 +204,7 @@ function Get-KvmCharKeyMap {
     .DESCRIPTION
         Uses an Ordinal-comparer hashtable because @{} literals are
         case-insensitive and would collide on 'a' / 'A' at parse time,
-        wrecking the whole module import. See feedback memory
-        [[feedback_powershell_hashtable_case_insensitive]].
+        wrecking the whole module import.
     #>
     [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseLiteralInitializerForHashtable', '',
         Justification = 'Need a case-sensitive (Ordinal) hashtable to map shifted vs unshifted letters; @{} literal is case-insensitive and would collide on a/A at parse time.')]

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.14
+.VERSION 2026.10.18
 .GUID 42d2490f-e2d9-4303-a287-fa13182fb811
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -58,15 +58,17 @@ $script:SeedPath      = Join-Path $repoRoot 'host/vmconfig/caching-proxy-service
 $script:DashboardText = [System.IO.File]::ReadAllText($script:DashboardPath).Replace("`r`n", "`n")
 $script:Dashboard     = $script:DashboardText | ConvertFrom-Json
 
-# The two tables and the timeline, by panel id: the three panels that put a
-# host id in front of an operator.
+# Table and timeline identities share the same display and navigation contract.
 $script:PanelPoolHosts      = 6
 $script:PanelTimeline       = 7
 $script:PanelExtensionHosts = 17
+$script:MemoryPanels        = @(23, 24)
+$script:HostTables          = @($script:PanelPoolHosts, $script:PanelExtensionHosts) + $script:MemoryPanels
 
 function Get-Panel {
     param([Parameter(Mandatory)][int]$Id)
-    $p = @($script:Dashboard.panels | Where-Object { $_.id -eq $Id }) | Select-Object -First 1
+    $panels = @($script:Dashboard.panels) + @($script:Dashboard.panels | ForEach-Object { $_.panels } | Where-Object { $_ })
+    $p = @($panels | Where-Object { $_.id -eq $Id }) | Select-Object -First 1
     if (-not $p) { throw "panel $Id is missing from the dashboard" }
     return $p
 }
@@ -112,8 +114,8 @@ function Get-SeededDashboard {
 
 Describe 'the Host ID a dashboard panel shows' {
 
-    It 'shows the first 8 characters in both tables' {
-        foreach ($id in @($script:PanelPoolHosts, $script:PanelExtensionHosts)) {
+    It 'shows the first 8 characters in every host table' {
+        foreach ($id in $script:HostTables) {
             $mappings = Get-OverrideProperty -Override (Get-Override -Panel (Get-Panel -Id $id) -Column 'Host ID') -Id 'mappings'
             $regex = @($mappings | Where-Object { $_.type -eq 'regex' }) | Select-Object -First 1
             Assert-True ($null -ne $regex) -Because "panel $id must map the Host ID cell to a short id"
@@ -136,7 +138,7 @@ Describe 'the Host ID a dashboard panel shows' {
     It 'reveals the full GUID-formatted id from the cell menu' {
         # Two entries or it is not a menu: a Grafana table cell with ONE data link
         # navigates on click, and the id would never be shown at all.
-        foreach ($id in @($script:PanelPoolHosts, $script:PanelExtensionHosts)) {
+        foreach ($id in $script:HostTables) {
             $links = @(Get-OverrideProperty -Override (Get-Override -Panel (Get-Panel -Id $id) -Column 'Host ID') -Id 'links')
             Assert-True ($links.Count -ge 2) -Because "panel $id's Host ID cell must open a menu, not follow one link"
             Assert-Equal -Expected '${__data.fields.hostIdDashed}' -Actual $links[0].title -Because "panel $id must name the full id first"
@@ -151,7 +153,7 @@ Describe 'the Host ID a dashboard panel shows' {
         # The trap: a data link interpolates a field's DISPLAYED value, so
         # ${__data.fields["Host ID"]} now carries 8 characters and /go/host
         # answers "missing host" for it. Links read the hidden full-id column.
-        foreach ($id in @($script:PanelPoolHosts, $script:PanelExtensionHosts)) {
+        foreach ($id in $script:HostTables) {
             $panel = Get-Panel -Id $id
             foreach ($ov in @($panel.fieldConfig.overrides)) {
                 foreach ($prop in @($ov.properties | Where-Object { $_.id -eq 'links' })) {
@@ -167,7 +169,7 @@ Describe 'the Host ID a dashboard panel shows' {
     It 'takes the id it links a host by from the label the collector exports' {
         # hostIdDashed is exported per host beside hostId; a panel that hides it
         # must still keep it in the frame, or every link above resolves empty.
-        foreach ($id in @($script:PanelPoolHosts, $script:PanelExtensionHosts)) {
+        foreach ($id in $script:HostTables) {
             $panel = Get-Panel -Id $id
             $hidden = Get-OverrideProperty -Override (Get-Override -Panel $panel -Column 'hostIdDashed') -Id 'custom.hidden'
             Assert-True ([bool]$hidden) -Because "panel $id must hide the full-id column it links from"
@@ -194,6 +196,55 @@ Describe 'the Host ID a dashboard panel shows' {
             -Because 'the host_info query must take a single series per host'
         Assert-True ($target.expr -match 'by\s*\(\s*hostId\s*\)') `
             -Because 'the single series must be picked per hostId, not pool-wide'
+    }
+}
+
+Describe 'memory readings alongside the complete host inventory' {
+    It 'keeps hosts without exporter samples and does not invent zero memory' {
+        foreach ($id in $script:MemoryPanels) {
+            $panel = Get-Panel -Id $id
+            Assert-Equal 'table' $panel.type
+            $inventory = @($panel.targets | Where-Object { $_.refId -eq 'A' })[0]
+            Assert-True ($inventory.instant -and $inventory.expr -match 'topk\(1, yuruna_pool_host_info')
+            Assert-True ($inventory.expr -match 'unless on\(hostId\) yuruna_pool_host_retired')
+            $join = @($panel.transformations | Where-Object { $_.id -eq 'joinByField' })[0]
+            Assert-Equal 'outerTabular' $join.options.mode 'missing measurements must not remove inventory rows'
+            Assert-Equal 'hostId' $join.options.byField
+            Assert-Equal 'n/a' $panel.fieldConfig.defaults.noValue
+            foreach ($target in @($panel.targets | Where-Object { $_.refId -ne 'A' })) {
+                Assert-True ($target.expr -notmatch 'or\s+vector\(0\)') 'unavailable memory is not zero memory'
+            }
+        }
+    }
+
+    It 'preserves memory history and labels the exporter separately from the readings' {
+        foreach ($id in $script:MemoryPanels) {
+            $panel = Get-Panel -Id $id
+            $history = @($panel.targets | Where-Object { $_.refId -eq 'B' })[0]
+            Assert-True ([bool]$history.range) 'the sparkline retains the selected time window'
+            $trend = @($panel.transformations | Where-Object { $_.id -eq 'timeSeriesTable' })[0]
+            Assert-Equal 'lastNotNull' $trend.options.B.stat
+            $organize = @($panel.transformations | Where-Object { $_.id -eq 'organize' })[0]
+            Assert-Equal 'Host ID' $organize.options.renameByName.hostId
+            Assert-Equal 'Type' $organize.options.renameByName.hostType
+            Assert-Equal 'Minimum' $organize.options.renameByName.'Value #C'
+            Assert-Equal 'Latest' $organize.options.renameByName.'Trend #B'
+            Assert-Equal 'Exporter' $organize.options.renameByName.'Value #D'
+            $links = @(Get-OverrideProperty (Get-Override $panel 'Host ID') 'links')
+            Assert-Equal '${aggregator}/go/host?host=${__data.fields.hostIdDashed}&pool=${pool}' $links[1].url
+        }
+    }
+}
+
+Describe 'failure class documentation links' {
+    It 'links every class to its own documented meaning' {
+        $panel = Get-Panel -Id 15
+        $links = @(Get-OverrideProperty (Get-Override $panel 'Failure class') 'links')
+        Assert-Equal 1 $links.Count
+        $url = $links[0].url.Replace('${__value.raw}', 'network_timeout')
+        Assert-Equal 'https://yuruna.link/42820e91#failure-class-network_timeout' $url
+        Assert-True ([IO.File]::ReadAllText((Join-Path $repoRoot 'docs/failure-schema.md')).Contains('<a id="failure-class-network_timeout"></a>'))
+        Assert-True ([bool]$links[0].targetBlank)
     }
 }
 

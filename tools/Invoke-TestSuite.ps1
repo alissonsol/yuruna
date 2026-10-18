@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.14
+.VERSION 2026.10.18
 .GUID 42859ca6-4a84-417f-b9e8-f2a3a4dd84a5
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -148,8 +148,8 @@ param(
 $ErrorActionPreference = 'Stop'
 
 if (-not (Get-Module -ListAvailable Pester |
-        Where-Object { $_.Version -ge [version]'5.0.0' -and $_.Version -lt [version]'6.0.0' })) {
-    Write-Error "Pester 5.x is not installed. Install-Module Pester -RequiredVersion 5.9.1 -Scope CurrentUser" -ErrorAction Continue
+        Where-Object { $_.Version -ge [version]'6.0.0' -and $_.Version -lt [version]'7.0.0' })) {
+    Write-Error "Pester 6.x is not installed. Install-Module Pester -RequiredVersion 6.2.0 -Scope CurrentUser -SkipPublisherCheck" -ErrorAction Continue
     exit 2
 }
 
@@ -473,6 +473,8 @@ try {
 }
 
 $failureSignal = [Threading.ManualResetEventSlim]::new($false)
+$runTemp = $null
+$runLock = $null
 try {
     $logDir = Join-Path $ResultsPath ('logs/' + [DateTime]::UtcNow.ToString('yyyyMMddTHHmmssfffZ') + '-' + [guid]::NewGuid().ToString('N'))
     $null = New-Item -ItemType Directory -Path $logDir
@@ -482,6 +484,18 @@ try {
     }
 
     # --- REGION: Run
+    # One master folder per run holds every suite's folder, and the master goes
+    # only when the run ends. A cygwin mount keeps the TMP of the first process
+    # that starts, so removing a suite folder early would leave /tmp dangling
+    # for every later bash process. The lock is held for the whole run: the
+    # stale-temp sweep treats a master whose lock cannot be taken as belonging
+    # to a live run, and a crashed run releases the lock with its process.
+    $runTempBase = if ($IsWindows) { [IO.Path]::GetTempPath() } else { '/tmp' }
+    $runTemp = Join-Path $runTempBase ('yrn-run-' + [guid]::NewGuid().ToString('N').Substring(0, 12))
+    $null = New-Item -ItemType Directory -Force -Path $runTemp
+    $runLock = [IO.File]::Open((Join-Path $runTemp 'run.lock'), [IO.FileMode]::CreateNew,
+        [IO.FileAccess]::ReadWrite, [IO.FileShare]::None)
+
     $sw = [Diagnostics.Stopwatch]::StartNew()
     if (-not $Quiet) { $InformationPreference = 'Continue' }
     $results = $ordered | ForEach-Object -ThrottleLimit $ThrottleLimit -Parallel {
@@ -490,6 +504,7 @@ try {
         $shim    = $using:Shim
         $outDir  = $using:ResultsPath
         $logs    = $using:logDir
+        $runTempRoot = $using:runTemp
         $caps    = $using:timeoutFor
         $signal  = $using:failureSignal
         $timeout = if ($caps.ContainsKey($rel)) { $caps[$rel] } else { $using:TimeoutSeconds }
@@ -512,12 +527,29 @@ try {
                 seconds = 0; message = $reason; stdoutLog = $stdoutLog; stderrLog = $stderrLog
             }
         }
+        # Each suite gets a temp folder of its own under the run's master
+        # folder. Every process the suite starts inherits it through TMPDIR
+        # (Unix) and TMP/TEMP (Windows), so a test that leaks, a child that is
+        # killed mid-write and Pester's own TestDrive all land in a folder the
+        # run removes. The folder is kept after the worker exits, including
+        # after a timeout or cancellation kill: a cygwin process started later
+        # in the run would otherwise inherit a dangling /tmp. The master is
+        # removed when the run ends. /tmp rather than a long $TMPDIR on Unix: the
+        # runtime's sockets live in this folder and a Unix socket path is capped
+        # near 104 bytes on macOS. DOTNET_EnableDiagnostics=0 stops every .NET
+        # child from creating the debugger FIFOs and diagnostic socket at all;
+        # nobody attaches a debugger to a suite worker.
+        $suiteTemp = Join-Path $runTempRoot ('yrn-suite-' + [guid]::NewGuid().ToString('N').Substring(0, 12))
+        $null = New-Item -ItemType Directory -Force -Path $suiteTemp
+
         $psi = [Diagnostics.ProcessStartInfo]::new()
         $psi.FileName               = (Get-Process -Id $PID).Path
         $psi.RedirectStandardOutput = $true
         $psi.RedirectStandardError  = $true
         $psi.UseShellExecute        = $false
         $psi.WorkingDirectory       = $root
+        foreach ($name in 'TMPDIR', 'TMP', 'TEMP', 'YURUNA_TEST_TEMP_ROOT') { $psi.Environment[$name] = $suiteTemp }
+        $psi.Environment['DOTNET_EnableDiagnostics'] = '0'
         # NonInteractive is process-local; every nested launcher must set it so
         # an unexpected host prompt fails instead of waiting on the operator.
         foreach ($a in @('-NoProfile', '-NonInteractive', '-File', $shim, '-Suite', (Join-Path $root $rel), '-Xml', $xml)) {
@@ -710,7 +742,7 @@ try {
         startedUtc    = (Get-Date).ToUniversalTime().ToString('o')
         host          = [Environment]::MachineName
         pwshVersion   = $PSVersionTable.PSVersion.ToString()
-        pesterVersion = (Get-Module -ListAvailable Pester | Where-Object { $_.Version -ge [version]'5.0.0' -and $_.Version -lt [version]'6.0.0' } | Sort-Object Version -Descending | Select-Object -First 1).Version.ToString()
+        pesterVersion = (Get-Module -ListAvailable Pester | Where-Object { $_.Version -ge [version]'6.0.0' -and $_.Version -lt [version]'7.0.0' } | Sort-Object Version -Descending | Select-Object -First 1).Version.ToString()
         throttle      = $ThrottleLimit
         totals        = $totals
         problems      = @($problems)
@@ -834,4 +866,37 @@ try {
 } finally {
     $failureSignal.Dispose()
     $resultLock.Dispose()
+    # Every suite has exited by now, killed ones included, so the master and the
+    # suite folders under it hold nothing a live process still uses. The lock
+    # goes first: a directory holding an open file cannot be removed on Windows.
+    if ($runLock) { $runLock.Dispose() }
+    if ($runTemp) {
+        # Windows refuses to delete a file a dying descendant still holds, so
+        # the removal gets a few short retries. A failure is reported and leaves
+        # the verdict alone; the next run's sweep removes a master left behind.
+        $runTempLeft = $null
+        foreach ($attempt in 1..5) {
+            try {
+                if (Test-Path -LiteralPath $runTemp) { Remove-Item -LiteralPath $runTemp -Recurse -Force -ErrorAction Stop }
+                $runTempLeft = $null
+                break
+            } catch {
+                $runTempLeft = $_.Exception.Message
+                Start-Sleep -Milliseconds 400
+            }
+        }
+        if ($runTempLeft) { Write-Warning "run temp folder '$runTemp' not fully removed: $runTempLeft" }
+    }
+    # The per-suite folders contain what this run's suites leave; this drains
+    # what lives outside them -- the runtime entries of processes that ran
+    # outside the containment or started with a scrubbed environment, and
+    # stale harness temp names from earlier runs. Housekeeping only: it never
+    # changes the run's verdict.
+    try {
+        Import-Module (Join-Path $RepoRoot 'automation/Yuruna.Common.psm1') -DisableNameChecking -ErrorAction Stop
+        $null = Remove-YurunaOrphanedRuntimeIpc -Confirm:$false
+        $null = Remove-YurunaStaleTempEntry -Confirm:$false
+    } catch {
+        Write-Verbose "temp housekeeping after the run: $($_.Exception.Message)"
+    }
 }

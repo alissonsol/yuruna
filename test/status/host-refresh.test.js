@@ -1,7 +1,7 @@
 /*
   LICENSEURI https://yuruna.link/license
   Copyright (c) 2019-2026 by Alisson Sol et al.
-  Version: 2026.10.14
+  Version: 2026.10.18
 
   Framework-free checks for the host-refresh, start-cycle and diagnostics
   flows in test/status/yuruna.common.js. Run: node host-refresh.test.js
@@ -250,6 +250,33 @@ check('stays hidden and posts nothing for an old server, a newer protocol or an 
       });
     });
   }, Promise.resolve());
+});
+
+check('reveals but never arms the controls for a remote viewer', function () {
+  // A non-loopback press cannot carry the refresh proof, so the server
+  // reports the caller's vantage and the page offers watching only.
+  var REMOTE = { protocol: 1, availability: 'available', ceiling: 'start-if-stopped', reason: '', remote: 'missing', state: 'idle', caller: 'remote' };
+  var env = createEnv({ ids: HR_IDS, route: function (url) { return url.indexOf('control/control-status') === 0 ? capabilityReply(REMOTE) : null; } });
+  env.Y.bootHostRefresh();
+  return env.settle().then(function () {
+    assert.strictEqual(env.byId['host-refresh'].hidden, false, 'the section still shows the state');
+    assert.strictEqual(env.byId['host-refresh-start'].disabled, true, 'Start stays disabled');
+    assert.match(env.byId['host-refresh-status'].textContent, /^status\.host_refresh_remote_viewer/, 'the vantage is explained');
+    env.byId['host-refresh-start'].click();
+    return env.settle();
+  }).then(function () {
+    assert.strictEqual(env.fetched('control/host-refresh').length, 0, 'no POST from a remote page');
+    var retryEnv = createEnv({ ids: HR_IDS, stored: { id: '11111111-1111-4111-8111-111111111111', ceiling: 'start-if-stopped', acceptedMs: 0, observe: false },
+      route: function (url) { return url.indexOf('control/control-status') === 0 ? capabilityReply(REMOTE) : null; } });
+    retryEnv.Y.bootHostRefresh();
+    return retryEnv.settle().then(function () {
+      retryEnv.byId['host-refresh-retry'].click();
+      return retryEnv.settle();
+    }).then(function () {
+      assert.strictEqual(retryEnv.fetched('control/host-refresh').length, 0, 'a remote retry explains instead of posting');
+      assert.match(retryEnv.byId['host-refresh-status'].textContent, /^status\.host_refresh_remote_viewer/, 'the retry names the vantage');
+    });
+  });
 });
 
 check('confirms the ceiling, stores the id before the POST and sends exactly the three keys', function () {

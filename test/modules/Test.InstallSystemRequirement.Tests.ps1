@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.14
+.VERSION 2026.10.18
 .GUID 42aa791a-a124-4a3c-98f2-d6d34623c3d2
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -30,9 +30,8 @@
         one part of the installer that runs under Windows PowerShell 5.1,
         before the relaunch into pwsh -- so a .NET API present on pwsh 7's
         runtime may be absent there. PowerShell answers a missing static
-        member with $null and NO error, at any ErrorActionPreference (see
-        memory feedback_missing-static-member-returns-null-silently.md for
-        the trap class), so a detector that reads one directly does not fail:
+        member with $null and NO error, at any ErrorActionPreference, so a
+        detector that reads one directly does not fail:
         it reports architecture '' and reads to the operator as broken
         hardware. Both absent shapes are exercised for real here by pointing
         the detector's type lookup at a type that resolves but lacks the

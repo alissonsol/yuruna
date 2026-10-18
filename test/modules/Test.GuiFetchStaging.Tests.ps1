@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.14
+.VERSION 2026.10.18
 .GUID 42dc2c8b-375c-4869-8113-cd1b1b7a0e53
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -50,6 +50,11 @@ BeforeAll {
     . ([scriptblock]::Create((Get-FunctionSource 'Get-GuiFetchEnvelopeInput')))
     . ([scriptblock]::Create((Get-FunctionSource 'Test-GuiFetchInputStalled')))
     . ([scriptblock]::Create((Get-FunctionSource 'Get-GuiFetchPayloadState')))
+    . ([scriptblock]::Create((Get-FunctionSource 'Get-GuiFetchEnvelopeTransfer')))
+    # The console tail of a launcher that refused a doubled character: the
+    # continuation prompts are still on screen, and OCR read the returning
+    # prompt's dollar sign as S.
+    $script:RefusedEnvelopeOcrTail = "a1 Te2+ROHCS`nN4XNEHPOIRVNi8Cjs82 `"5`n> __y+s 'Rowt4VHTiKaQFXmybG72 1RoSK4URAbZoRJSPHGGTF 4nmiOdg 7B ROZTkHY4CVS3SEF +40 j8GCOfB2+0 jhcbuOf vNKHNP TUxykh6BV+/RF 1DcCOVdpob+4RadErSsMd9ZHrHSEBOthK IhyT iySADaF qONEGaYRSgyvkoewoZhUFHOTZ4B9pW TK gKEyZBMReSoEpmaMsoMBedZvk-+NbVEZr-zhmbZU7RVXtaLHf TL`n> __uss 'FATYSMHF2F vumS LR IF 7k3bk TPOX194012Rh2MSeLoKerUd6CC iPHtcBVPcUESMBk VD LbyL Tbk T1vU@ShXXSN60qV2tXeJErOF LOYKBOCE.i IRPUxPSbHOJEd Ts THNxpy JNERBVVx+eL 201 TLHYx LobseCcRZAuvratHCU4Hy ipFog3MLHAIN/uZUSS 7uspsaSXXkt+VS2 iakkXo+hlaz9o65 l8zkbaczdJ102qTX`n> uss 'UA4G27NGSSCHSx+jSANEHZExRE/ luh2/F THHDYULIT7GK/MmAF OtL Yeaq iHKMBBURK YASXONACINE1 LOSsoacZSOACRNUCOF +xOxVF ik Jx@XHE jz jcdXSrE JbuF uj VuBg INtCVHH# 30 TibVFCNWVIL VPhUd+BQGGBankMOJSqircM4banuB6rBrur iPMFF IHaE7S2y09j40 jhfsc/2+usppeWsSwvrunGoPeaGyx`nJ5`n> __y+='7/du30B0a75ZuNaxgpBuVR10SH22/RPOUKAF Ksargk JBZ3r`u{00A5}g2P TOCOHuGN+h9X7LO531bzh/TaRaL +c/6Ipsf xv jSq0+inc 7127542 j VSBtekatxMr2d`u{00E9}901PrZhxFSSbS1 Thut /ABE+xVEOBAAA 5`n> Ufe --gui 480fSabdce1asees2996d3226263937ae9d7014eb94205f alebGac7oaseessds `"S__y`"`nbase`u{00E9}4: error: invalid inpu`ngzip: stdin: unexpected end of file`nNONZERO SCRIPT EXIT: YFE_GUI_ENCODING`nyUUser2`u{00E9}@yuhost26:`u{201C}S"
     Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.GitHubSource.psm1') -Force -DisableNameChecking
     Import-Module (Join-Path $PSScriptRoot 'Test.OcrMatch.psm1') -Force
     $script:payload = '/usr/local/lib/yuruna/fetch-and-execute.sh project/example/website/test/ubuntu.server.26/ubuntu.server.26.workload.k8s.website.sh'
@@ -92,6 +97,7 @@ exec bash "$driver"
     }
     $launcher = [IO.File]::ReadAllText((Join-Path $PSScriptRoot '../../automation/yuruna-fetch-context.sh'))
     $launcher = $launcher.Replace('local dir="$HOME/.local/state/yuruna/fetch-context"', 'local dir="$YURUNA_CONTEXT_TEST_DIRECTORY/state"')
+    $launcher = $launcher.Replace('local dir="$HOME/.local/state/yuruna/gui-rejection"', 'local dir="$YURUNA_CONTEXT_TEST_DIRECTORY/rejection"')
     # Let the guest shell create its own scratch files. A Windows host's
     # TestDrive path need not be readable by a WSL or MSYS bash executable.
     $script:launcherDriver = @'
@@ -443,6 +449,35 @@ Describe 'Compact GUI envelope in the real guest Bash launcher' -Skip:(-not $scr
         $script:localExitCode | Should -Be 125
     }
 
+    It 'records the length and digest it received when a typed character arrives twice' {
+        $command = 'echo EXECUTED; : ' + (-join (1..30 | ForEach-Object { [guid]::NewGuid().ToString('N') }))
+        $context = Get-FetchExecutionContext -Context $script:context -CommandLine $command -Compress
+        $lines = @(Get-GuiFetchEnvelopeInput -FetchContext $context -CommandLine $command)
+        $lines.Count | Should -BeGreaterThan 2
+        $sent = Get-GuiFetchEnvelopeTransfer -Line $lines
+        # A key whose release arrives late repeats inside one staged chunk.
+        $lines[1] = $lines[1].Substring(0, 12) + $lines[1][11] + $lines[1].Substring(12)
+        $received = Get-GuiFetchEnvelopeTransfer -Line $lines
+        $read = 'cat -- "$YURUNA_CONTEXT_TEST_DIRECTORY/rejection/' + $sent.envelopeDigest + '"'
+        $output = Invoke-TestCompactInput (@($lines) + $read)
+        $output | Should -Match 'NONZERO SCRIPT EXIT: YFE_GUI_(ENCODING|DIGEST)'
+        $output | Should -Not -Match 'EXECUTED'
+        $output | Should -Match '(?m)^code=YFE_GUI_(ENCODING|DIGEST)$'
+        $output | Should -Match ('(?m)^receivedChars={0}$' -f ($sent.encodedChars + 1))
+        $output | Should -Match ('(?m)^receivedSha256={0}$' -f $received.encodedSha256)
+    }
+
+    It 'leaves no record when the envelope runs' {
+        $command = 'echo EXECUTED'
+        $context = Get-FetchExecutionContext -Context $script:context -CommandLine $command -Compress
+        $lines = @(Get-GuiFetchEnvelopeInput -FetchContext $context -CommandLine $command)
+        $sent = Get-GuiFetchEnvelopeTransfer -Line $lines
+        $output = Invoke-TestCompactInput (@($lines) + ('ls -A -- "$YURUNA_CONTEXT_TEST_DIRECTORY/rejection" 2>/dev/null; echo RECORDS_LISTED'))
+        $output | Should -Match 'EXECUTED'
+        $output | Should -Not -Match $sent.envelopeDigest
+        $output | Should -Match 'RECORDS_LISTED'
+    }
+
     It 'cannot execute an envelope whose command differs from its bound metadata' {
         $context=Get-FetchExecutionContext -Context $script:context -CommandLine 'echo EXECUTED' -Compress
         $output=Invoke-TestCompactInput @(Get-GuiFetchEnvelopeInput -FetchContext $context -CommandLine 'echo ALTERED')
@@ -607,6 +642,13 @@ Describe 'GUI fetch input stall detection' {
         }
     }
 
+    It 'does not report input the launcher answered even when OCR misreads the returning prompt' {
+        # The sentinel is the launcher's own answer; the typed echo never carries it.
+        & $script:stallModule { param($t) Test-GuiFetchInputStalled -OcrTail $t } $script:RefusedEnvelopeOcrTail | Should -BeFalse
+        $tail = "> __y+='H4sI';`n> yfe --gui " + ('a' * 64) + " `"`$__y`")`nNONZERO SCRIPT EXIT: YFE_GUI_DIGEST`nyuuser26@yuhost26:~S"
+        & $script:stallModule { param($t) Test-GuiFetchInputStalled -OcrTail $t } $tail | Should -BeFalse
+    }
+
     It 'treats an empty or blank tail as not stalled' {
         & $script:stallModule { Test-GuiFetchInputStalled -OcrTail '' } | Should -BeFalse
         & $script:stallModule { Test-GuiFetchInputStalled -OcrTail "`n  `n" } | Should -BeFalse
@@ -648,8 +690,13 @@ $script:failSend=0
 $script:waitResult=$true
 $script:Fail=@{WaitForTextOcrTail='';StepInputLost=$null}
 $script:sshResult=@{success=$true;output='NOT_PREPARED'}
+$script:rejectionResult=@{success=$true;output=''}
 $script:sshCalls=[System.Collections.Generic.List[string]]::new()
-function Invoke-GuestSsh { param($VMName,$GuestKey,$Command,$TimeoutSeconds,$TransportRetryCount,$DetachToken) $null=$VMName;$null=$GuestKey;$null=$TransportRetryCount;$null=$DetachToken;$script:sshCalls.Add([string]$Command);$script:sshTimeout=$TimeoutSeconds; return $script:sshResult }
+$script:events=[System.Collections.Generic.List[object]]::new()
+$script:waitResults=[System.Collections.Generic.Queue[bool]]::new()
+$script:matchedPattern=$null
+function Invoke-GuestSsh { param($VMName,$GuestKey,$Command,$TimeoutSeconds,$TransportRetryCount,$DetachToken) $null=$VMName;$null=$GuestKey;$null=$TransportRetryCount;$null=$DetachToken;$script:sshCalls.Add([string]$Command);$script:sshTimeout=$TimeoutSeconds; if ([string]$Command -match 'gui-rejection') { return $script:rejectionResult }; return $script:sshResult }
+function Send-CycleEventSafely { param($EventRecord) $script:events.Add($EventRecord) }
 function Get-FetchExecutionContext {
     param($Context,$CommandLine,[switch]$Compress)
     $null=$Context;$null=$CommandLine
@@ -676,10 +723,11 @@ function Send-TextUTM {
     $script:utmCalls.Add(@{VMName=$VMName;Text=$Text;CharDelayMs=$CharDelayMs;ShellEscape=[bool]$ShellEscape})
     return $true
 }
-function Wait-ForText { param($FreshMatch,$EarlyFailurePattern,$FailurePattern,[switch]$EndOnGuestLivelock) $script:endOnLivelock=[bool]$EndOnGuestLivelock; $script:waited++; $script:fresh=$FreshMatch; $script:early=$EarlyFailurePattern; $script:failure=$FailurePattern; return $script:waitResult }
+function Wait-ForText { param($FreshMatch,$EarlyFailurePattern,$FailurePattern,[switch]$EndOnGuestLivelock) $script:endOnLivelock=[bool]$EndOnGuestLivelock; $script:waited++; $script:fresh=$FreshMatch; $script:early=$EarlyFailurePattern; $script:failure=$FailurePattern; $result = if ($script:waitResults.Count) { $script:waitResults.Dequeue() } else { $script:waitResult }; $script:Fail.WaitForTextMatchedFailurePattern = if ($result) { $null } else { $script:matchedPattern }; return $result }
 function Save-FetchExecutionEvidence { param($Context,$Succeeded,$ElapsedSeconds) $script:captured++; $script:succeeded=$Succeeded }
 '@
-        $helpers = (Get-FunctionSource 'Get-GuiFetchExecutionInput') + "`n" + (Get-FunctionSource 'Resolve-SequenceCharDelay') + "`n" + (Get-FunctionSource 'Test-GuiFetchInputStalled') + "`n" + (Get-FunctionSource 'Get-GuiFetchPayloadState')
+        $helpers = (Get-FunctionSource 'Get-GuiFetchExecutionInput') + "`n" + (Get-FunctionSource 'Resolve-SequenceCharDelay') + "`n" + (Get-FunctionSource 'Test-GuiFetchInputStalled') + "`n" + (Get-FunctionSource 'Get-GuiFetchPayloadState') +
+            "`n" + (Get-FunctionSource 'Get-GuiFetchEnvelopeTransfer') + "`n" + (Get-FunctionSource 'Get-GuiFetchRejection')
         $script:handlerModule = New-Module -ScriptBlock ([scriptblock]::Create(
             $fixture + "`n" + $helpers + "`nfunction Invoke-TestUtmProvider $provider`nfunction Invoke-TestHandler $handler"))
     }
@@ -691,6 +739,7 @@ function Save-FetchExecutionEvidence { param($Context,$Succeeded,$ElapsedSeconds
             $script:waited=0;$script:captured=0;$script:failSend=0;$script:vncCalls=0;$script:useUtmProvider=$false
             $script:waitResult=$true;$script:Fail.WaitForTextOcrTail='';$script:Fail.StepInputLost=$null
             $script:sshResult=@{success=$true;output='NOT_PREPARED'};$script:sshCalls.Clear()
+            $script:rejectionResult=@{success=$true;output=''};$script:events.Clear();$script:waitResults.Clear();$script:matchedPattern=$null;$script:Fail.StepLauncherRejection=$null
             $script:compactInput=@();$script:compactSupported=$false;$script:capabilityCalls=0
         }
         $script:handlerContext = @{HostType='host.macos.utm';VMName='vm';GuestKey='guest.ubuntu.server.26';StepInvocationId='9dd7e79e0e404f0b8aa334f1337540e9';SequenceInvocationId='2ba53dd6961e4beea8ec17e8416f8651';
@@ -848,6 +897,94 @@ function Save-FetchExecutionEvidence { param($Context,$Succeeded,$ElapsedSeconds
         & $script:handlerModule {
             $script:Fail.StepInputLost | Should -BeNullOrEmpty
             $script:sshCalls | Should -HaveCount 0
+        }
+    }
+
+    It 'types a compact envelope once more after the launcher refused it as damaged and nothing ran' {
+        & $script:handlerModule {
+            $script:compactSupported = $true
+            $script:compactInput = @("(unset __y;__y='QUJD';", "__y+='REVG';", ('yfe --gui ' + ('a' * 64) + ' "$__y")'))
+            $script:waitResults.Enqueue($false); $script:waitResults.Enqueue($true)
+            $script:matchedPattern = 'NONZERO SCRIPT EXIT:'
+            $script:rejectionResult = @{success=$true;output="code=YFE_GUI_ENCODING`nreceivedChars=9`nreceivedSha256=$('b' * 64)`n"}
+        }
+        & $script:handlerModule {param($c) Invoke-TestHandler $c} $script:handlerContext 3>$null | Should -BeTrue
+        & $script:handlerModule {
+            $script:waited | Should -Be 2
+            $script:sent | Should -HaveCount 7
+            $script:sent[3] | Should -BeExactly 'clear'
+            ($script:sent[4..6] -join '|') | Should -BeExactly ($script:sent[0..2] -join '|')
+            @($script:sshCalls | Where-Object { $_ -match 'gui-rejection/a{64}' }) | Should -HaveCount 1
+            $script:events | Should -HaveCount 1
+            $script:events[0].stack | Should -Be 'gui-envelope'
+            $script:events[0].reason | Should -Be 'YFE_GUI_ENCODING: received 9 of 8 characters'
+            $script:Fail.StepLauncherRejection.code | Should -Be 'YFE_GUI_ENCODING'
+            $script:Fail.StepLauncherRejection.expectedChars | Should -Be 8
+            $script:Fail.StepInputLost | Should -BeNullOrEmpty
+        }
+    }
+
+    It 'does not type the envelope again when the guest holds a context or runs a fetch' -ForEach @(@{State='PREPARED'}, @{State='RUNNING'}) {
+        & $script:handlerModule {param($state)
+            $script:compactSupported = $true
+            $script:compactInput = @("(unset __y;__y='QUJD';", "__y+='REVG';", ('yfe --gui ' + ('a' * 64) + ' "$__y")'))
+            $script:waitResults.Enqueue($false); $script:waitResults.Enqueue($true)
+            $script:matchedPattern = 'NONZERO SCRIPT EXIT:'
+            $script:rejectionResult = @{success=$true;output="code=YFE_GUI_DIGEST`nreceivedChars=8`nreceivedSha256=$('b' * 64)`n"}
+            $script:sshResult = @{success=$true;output=$state}
+        } $State
+        & $script:handlerModule {param($c) Invoke-TestHandler $c} $script:handlerContext 3>$null | Should -BeFalse
+        & $script:handlerModule {
+            $script:waited | Should -Be 1
+            $script:sent | Should -HaveCount 3
+            $script:events | Should -HaveCount 0
+        }
+    }
+
+    It 'does not type the envelope again for a refusal that is not transport damage' {
+        & $script:handlerModule {
+            $script:compactSupported = $true
+            $script:compactInput = @("(unset __y;__y='QUJD';", "__y+='REVG';", ('yfe --gui ' + ('a' * 64) + ' "$__y")'))
+            $script:waitResults.Enqueue($false); $script:waitResults.Enqueue($true)
+            $script:matchedPattern = 'NONZERO SCRIPT EXIT:'
+            $script:rejectionResult = @{success=$true;output="code=YFE_CONTEXT_DIRECTORY`nreceivedChars=8`nreceivedSha256=$('b' * 64)`n"}
+        }
+        & $script:handlerModule {param($c) Invoke-TestHandler $c} $script:handlerContext 3>$null | Should -BeFalse
+        & $script:handlerModule {
+            $script:waited | Should -Be 1
+            $script:Fail.StepLauncherRejection.code | Should -Be 'YFE_CONTEXT_DIRECTORY'
+        }
+    }
+
+    It 'types a refused envelope at most once more' {
+        & $script:handlerModule {
+            $script:compactSupported = $true
+            $script:compactInput = @("(unset __y;__y='QUJD';", "__y+='REVG';", ('yfe --gui ' + ('a' * 64) + ' "$__y")'))
+            $script:waitResults.Enqueue($false); $script:waitResults.Enqueue($false); $script:waitResults.Enqueue($true)
+            $script:matchedPattern = 'NONZERO SCRIPT EXIT:'
+            $script:rejectionResult = @{success=$true;output="code=YFE_GUI_ENCODING`nreceivedChars=9`nreceivedSha256=$('b' * 64)`n"}
+        }
+        & $script:handlerModule {param($c) Invoke-TestHandler $c} $script:handlerContext 3>$null | Should -BeFalse
+        & $script:handlerModule {
+            $script:waited | Should -Be 2
+            $script:sent | Should -HaveCount 7
+            $script:Fail.StepLauncherRejection.attempt | Should -Be 2
+        }
+    }
+
+    It 'neither types again nor reports unclosed input when a launcher without a record refused it' {
+        & $script:handlerModule {param($tail)
+            $script:compactSupported = $true
+            $script:compactInput = @("(unset __y;__y='QUJD';", "__y+='REVG';", ('yfe --gui ' + ('a' * 64) + ' "$__y")'))
+            $script:waitResult = $false
+            $script:matchedPattern = 'NONZERO SCRIPT EXIT:'
+            $script:Fail.WaitForTextOcrTail = $tail
+        } $script:RefusedEnvelopeOcrTail
+        & $script:handlerModule {param($c) Invoke-TestHandler $c} $script:handlerContext 3>$null | Should -BeFalse
+        & $script:handlerModule {
+            $script:waited | Should -Be 1
+            $script:Fail.StepInputLost | Should -BeNullOrEmpty
+            $script:Fail.StepLauncherRejection | Should -BeNullOrEmpty
         }
     }
 

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.14
+.VERSION 2026.10.18
 .GUID 4210d385-d4df-4f13-9344-d649676c6dc4
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -131,16 +131,99 @@ function Test-TcpReachable {
         Bounded TCP reachability probe that always disposes its socket.
     .DESCRIPTION
         Delegates the bounded probe and socket disposal to Test-TcpConnectOutcome.
-        Returns $true on connect and $false on timeout or refusal. The GitHub
-        and Resend probes differ only in host name, so both route through here.
+        Returns a boolean unless PassThru requests the complete attempt history.
+        Retries only classified transient connection failures; existing callers
+        retain one attempt unless they explicitly request bounded recovery.
     #>
-    [OutputType([bool])]
+    [OutputType([bool], [hashtable])]
     param(
         [Parameter(Mandatory)][string]$HostName,
         [int]$Port = 443,
-        [int]$TimeoutMs = 5000
+        [int]$TimeoutMs = 5000,
+        [ValidateRange(1, 3)][int]$MaxAttempts = 1,
+        [switch]$PassThru
     )
-    return [bool](Test-TcpConnectOutcome -IpAddress $HostName -Port $Port -TimeoutMs $TimeoutMs).Reachable
+    $attempts = [System.Collections.Generic.List[object]]::new()
+    for ($attempt = 1; $attempt -le $MaxAttempts; $attempt++) {
+        $startedAtUtc = [datetime]::UtcNow.ToString('o')
+        $watch = [Diagnostics.Stopwatch]::StartNew()
+        try {
+            $result = Test-TcpConnectOutcome -IpAddress $HostName -Port $Port -TimeoutMs $TimeoutMs
+        } catch {
+            $result = @{ Outcome = 'error'; Reachable = $false; ElapsedMs = $watch.ElapsedMilliseconds; Detail = $_.Exception.Message }
+        } finally { $watch.Stop() }
+        $attempts.Add([ordered]@{
+            attempt = $attempt
+            startedAtUtc = $startedAtUtc
+            hostName = $HostName
+            port = $Port
+            # DNS answers are candidates, not evidence of the selected peer.
+            socketAddressFamily = [string]$result.SocketAddressFamily
+            remoteAddress = [string]$result.RemoteAddress
+            remoteAddressFamily = [string]$result.RemoteAddressFamily
+            timeoutMs = $TimeoutMs
+            outcome = [string]$result.Outcome
+            reachable = [bool]$result.Reachable
+            elapsedMs = [int]$result.ElapsedMs
+            detail = [string]$result.Detail
+            socketErrorCode = [string]$result.SocketErrorCode
+        })
+        if ($result.Reachable -or $result.Outcome -notin @('timeout', 'refused', 'unreachable') -or $attempt -eq $MaxAttempts) { break }
+        Start-Sleep -Milliseconds 500
+    }
+    if ($PassThru) {
+        return @{ Reachable = [bool]$result.Reachable; Outcome = [string]$result.Outcome; Attempts = $attempts.ToArray() }
+    }
+    return [bool]$result.Reachable
+}
+
+function Get-ConfigProxyEndpoint {
+    <#
+    .SYNOPSIS
+        Describe a proxy endpoint without retaining credentials or URL suffixes.
+    #>
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param([AllowEmptyString()][string]$Value)
+    $safe = @{ configured = -not [string]::IsNullOrWhiteSpace($Value); validEndpoint = $false }
+    if (-not $safe.configured) { return $safe }
+    $uri = $null
+    $candidate = if ($Value -match '^[a-z][a-z0-9+.-]*://') { $Value } else { 'http://' + $Value }
+    if ([uri]::TryCreate($candidate, [UriKind]::Absolute, [ref]$uri) -and $uri.Host) {
+        $safe.validEndpoint = $true
+        $safe.scheme = $uri.Scheme
+        $safe.host = $uri.Host
+        $safe.port = $uri.Port
+    }
+    return $safe
+}
+
+function Get-ConfigProxyContext {
+    <#
+    .SYNOPSIS
+        Record proxy configuration separately from the direct TCP probe route.
+    #>
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param([Parameter(Mandatory)][string]$RepoRoot)
+    $context = @{ probeRoute = 'direct'; environment = @{}; gitProxy = @{ queryStatus = 'unavailable' } }
+    foreach ($name in @('https_proxy', 'HTTPS_PROXY', 'all_proxy', 'ALL_PROXY')) {
+        $value = [Environment]::GetEnvironmentVariable($name)
+        if ($value) { $context.environment[$name] = Get-ConfigProxyEndpoint -Value $value }
+    }
+    $context.noProxyConfigured = [bool]([Environment]::GetEnvironmentVariable('no_proxy') -or [Environment]::GetEnvironmentVariable('NO_PROXY'))
+    try {
+        $gitProxy = Invoke-BoundedNativeCommand -FilePath 'git' -ArgumentList @('-C', $RepoRoot, 'config', '--get-urlmatch', 'http.proxy', 'https://github.com/') -TimeoutSeconds 3
+        if ((Test-BoundedNativeResultComplete -Result $gitProxy) -and $gitProxy.ExitCode -in @(0, 1)) {
+            $context.gitProxy = Get-ConfigProxyEndpoint -Value ([string]$gitProxy.StdOut).Trim()
+            $context.gitProxy.queryStatus = if ($gitProxy.ExitCode -eq 0) { 'configured' } else { 'unset' }
+        }
+    } catch {
+        # Diagnostic lookup must not change the gate verdict. Git errors can
+        # contain the raw proxy value, so only the unavailable state is retained.
+        $context.gitProxy.queryStatus = 'unavailable'
+    }
+    return $context
 }
 
 # --- REGION: ConvertTo-YurunaBool
@@ -479,7 +562,7 @@ try {
 # exists" gate in Test-HostRequirement: Hyper-V feature state (DISM)
 # on Windows, libvirtd active + qemu installed on Linux, UTM helper
 # installed on macOS. Catches "Hyper-V is half-enabled, reboot pending"
-# (memory: dism_enable_pending_trap) before a cycle hits it.
+# before a cycle hits it.
 
 Write-Section (Format-YurunaOperatorMessage -Key 'runner.operator_9d62f276492b34f0')
 
@@ -845,21 +928,45 @@ if (Test-IsSet $projectUrlConfigured) {
 
 Write-Section (Format-YurunaOperatorMessage -Key 'runner.operator_3c765aa340080677')
 
+$githubDiagnostics = @{
+    hostName = 'github.com'
+    port = 443
+    route = Get-ConfigProxyContext -RepoRoot $RepoRoot
+    dns = @{ outcome = 'pending'; addresses = @(); detail = '' }
+    attempts = @()
+    reachable = $false
+}
+$dnsWatch = [Diagnostics.Stopwatch]::StartNew()
 try {
     $resolved = [System.Net.Dns]::GetHostAddresses("github.com")
+    $dnsWatch.Stop()
+    $githubDiagnostics.dns = @{
+        outcome = 'resolved'
+        elapsedMs = $dnsWatch.ElapsedMilliseconds
+        addresses = @($resolved | ForEach-Object { @{ address = $_.IPAddressToString; family = [string]$_.AddressFamily } })
+        detail = ''
+    }
     Write-Pass (Format-YurunaOperatorMessage -Key 'runner.operator_48b1d6d4d9dcda06' -Arguments @{ iPAddressToString = "$($resolved[0].IPAddressToString)" })
     try {
-        if (Test-TcpReachable -HostName "github.com" -Port 443 -TimeoutMs 5000) {
+        $githubProbe = Test-TcpReachable -HostName 'github.com' -Port 443 -TimeoutMs 5000 -MaxAttempts 3 -PassThru
+        $githubDiagnostics.attempts = $githubProbe.Attempts
+        $githubDiagnostics.reachable = $githubProbe.Reachable
+        if ($githubProbe.Reachable) {
             Write-Pass (Format-YurunaOperatorMessage -Key 'runner.operator_3640b6d07a2b9f5c')
         } else {
-            Write-Fail (Format-YurunaOperatorMessage -Key 'runner.operator_6829a064da0c5779')
+            Write-Fail (Format-YurunaOperatorMessage -Key 'runner.preflight_tcp_failed' -Arguments @{ hostName = 'github.com'; port = '443'; attemptCount = "$($githubProbe.Attempts.Count)"; outcome = "$($githubProbe.Outcome)" })
         }
     } catch {
+        $githubDiagnostics.probeError = $_.Exception.Message
         Write-Fail (Format-YurunaOperatorMessage -Key 'runner.operator_11876ad9b473f46f' -Arguments @{ message = "$($_.Exception.Message)" })
     }
 } catch {
+    $dnsWatch.Stop()
+    $githubDiagnostics.dns = @{ outcome = 'error'; elapsedMs = $dnsWatch.ElapsedMilliseconds; addresses = @(); detail = $_.Exception.Message }
     Write-Fail (Format-YurunaOperatorMessage -Key 'runner.operator_88fcb4dc7bd3cb87' -Arguments @{ message = "$($_.Exception.Message)" })
 }
+Write-OutputDiagnostic -Name 'githubConnectivity' -Data $githubDiagnostics
+Write-Info (Format-YurunaOperatorMessage -Key 'runner.preflight_network_diagnostics' -Arguments @{ diagnostics = (ConvertTo-Json -InputObject $githubDiagnostics -Depth 10 -Compress) })
 
 # --- REGION: Section 8: Top-level fields
 Write-Section (Format-YurunaOperatorMessage -Key 'runner.operator_33144fc4aa1c041f')

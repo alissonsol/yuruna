@@ -17,8 +17,8 @@ data "azurerm_public_ip" "frontendIp" {
 # Reference: https://registry.terraform.io/providers/hashicorp/external/latest/docs/data-sources/data_source
 data "external" "originalIp" {
   # Bash + az instead of pwsh; matches the localhost-registry-check.sh
-  # pattern that avoids the FileLoadException trap class
-  # (feedback_pwsh_provisioner_assemblyname_flake.md).
+  # pattern that avoids the FileLoadException a pwsh provisioner child can
+  # crash with at startup.
   program = [
     "bash",
     "./public-ip.sh",

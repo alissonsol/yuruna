@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.14
+.VERSION 2026.10.18
 .GUID 42536ec8-4d7e-4727-b52e-55f7f0ca8688
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -137,13 +137,28 @@ function Invoke-Fitter {
     & $script:Python.Source $script:FitDriverPath $script:FitterPath $DashboardPath $Hosts 2>&1 | Out-String
 }
 
+# Run the comparison embedded in the push script, not a duplicate of its rules.
+$syncText = [System.IO.File]::ReadAllText((Join-Path $repoRoot 'test/pool/Sync-PoolDashboardOnProxy.ps1'))
+$comparison = [regex]::Match($syncText, '(?ms)^python3 - "\$WORK/cand\.json" "\$DASH" <<''PY''\r?\n(?<body>.*?)^PY\r?$')
+if (-not $comparison.Success) { throw 'The dashboard push script has no candidate comparison body' }
+$script:ComparisonPath = Join-Path $script:WorkRoot 'compare-dashboard.py'
+[System.IO.File]::WriteAllText($script:ComparisonPath, $comparison.Groups['body'].Value)
+
+function Invoke-DashboardComparison {
+    param(
+        [Parameter(Mandatory)][string]$CandidatePath,
+        [Parameter(Mandatory)][string]$LivePath
+    )
+    & $script:Python.Source $script:ComparisonPath $CandidatePath $LivePath 2>&1 | Out-String
+}
+
 # Run the guest script over a directory of dashboards, with the identity it
 # would read from the seeded env file.
 function Invoke-Brander {
     param(
         [Parameter(Mandatory)][string]$DashboardDir,
         [string]$Name = 'Yurunadev',
-        [string]$Version = '2026.10.14',
+        [string]$Version = '2026.10.18',
         [switch]$NoEnvFile
     )
     $envFile = Join-Path $DashboardDir '..' | Join-Path -ChildPath 'brand.env'
@@ -189,6 +204,11 @@ function Get-Layout {
     $layout = [ordered]@{}
     foreach ($panel in $Dashboard.panels) {
         $layout["$($panel.id)"] = "$($panel.gridPos.x),$($panel.gridPos.y),$($panel.gridPos.w),$($panel.gridPos.h)"
+        if ($panel.panels) {
+            foreach ($entry in (Get-Layout -Dashboard $panel).GetEnumerator()) {
+                $layout[$entry.Key] = $entry.Value
+            }
+        }
     }
     return $layout
 }
@@ -282,7 +302,7 @@ Describe 'the brand banner is one line across the top of the dashboards this VM 
         # A line that broke would need a taller banner to be legible, which is
         # the whole cost the layout was chosen to avoid.
         $dir = Get-DashboardFixture -Dashboard $script:RealDashboards
-        Invoke-Brander -DashboardDir $dir -Name 'Yurunadev' -Version '2026.10.14' | Out-Null
+        Invoke-Brander -DashboardDir $dir -Name 'Yurunadev' -Version '2026.10.18' | Out-Null
 
         foreach ($name in $script:RealDashboards.Keys) {
             $doc = Get-Content -Raw (Join-Path $dir "$name.json") | ConvertFrom-Json
@@ -291,7 +311,7 @@ Describe 'the brand banner is one line across the top of the dashboards this VM 
             # nothing, so it is not part of the line being measured.
             $rendered = ($content -replace '(?s)^.*?-->\s*', '')
             Assert-True ($rendered -notmatch '[\r\n]') -Because "$name's banner must be a single line: got [$rendered]"
-            Assert-Equal -Expected ("**Yurunadev**" + $script:Separator + '`v2026.10.14`') -Actual $rendered `
+            Assert-Equal -Expected ("**Yurunadev**" + $script:Separator + '`v2026.10.18`') -Actual $rendered `
                 -Because "$name's banner must hold the name and version apart with non-breaking spaces"
         }
     }
@@ -394,7 +414,7 @@ Describe 'the brand banner is safe to re-run' {
         # The version is a variable, not a literal repeated in the assertion.
         # Written twice, the two copies drift the first time the version moves,
         # and the assertion then checks for a string the test never asked for.
-        $version = '2026.10.14'
+        $version = '2026.10.18'
 
         $dir = Get-DashboardFixture -Dashboard $script:RealDashboards
         Invoke-Brander -DashboardDir $dir -Name 'Yurunadev' -Version $version | Out-Null
@@ -544,6 +564,132 @@ Describe 'the panel autofit stacks below the banner' {
             ForEach-Object { $_.gridPos.y } | Sort-Object)
         Assert-Equal -Expected ($tiles[-1]) -Actual $stack[0] `
             -Because 'the per-host stack must start immediately below the summary tiles'
+    }
+
+    It 'keeps collapsed contents below their row and preserves their internal layout as host counts change' {
+        if (-not $script:Python) { Set-ItResult -Skipped -Because 'python3 is not installed on this host'; return }
+
+        $dir = Get-DashboardFixture -Dashboard @{ 'pool' = $script:RealDashboards['pool'] }
+        $pool = Join-Path $dir 'pool.json'
+        $source = $script:RealDashboards['pool'] | ConvertFrom-Json
+        Invoke-Brander -DashboardDir $dir | Out-Null
+
+        foreach ($hosts in @(3, 12, 1)) {
+            $fitOutput = Invoke-Fitter -DashboardPath $pool -Hosts $hosts
+            Assert-Equal 0 $LASTEXITCODE $fitOutput
+            $doc = Get-Content -Raw $pool | ConvertFrom-Json
+            foreach ($row in @($doc.panels | Where-Object { $_.type -eq 'row' -and $_.panels })) {
+                $first = ($row.panels.gridPos.y | Measure-Object -Minimum).Minimum
+                Assert-Equal -Expected ($row.gridPos.y + $row.gridPos.h) -Actual $first `
+                    -Because "row $($row.id)'s content must start below its header with $hosts hosts"
+
+                $original = @($source.panels | Where-Object { $_.id -eq $row.id })[0]
+                $originalTop = ($original.panels.gridPos.y | Measure-Object -Minimum).Minimum
+                $delta = $first - $originalTop
+                $before = Get-Layout -Dashboard $original
+                $after = Get-Layout -Dashboard $row
+                foreach ($id in $before.Keys) {
+                    $was = $before[$id] -split ','
+                    $expected = "$($was[0]),$([int]$was[1] + $delta),$($was[2]),$($was[3])"
+                    Assert-Equal -Expected $expected -Actual $after[$id] `
+                        -Because "row $($row.id)'s panel $id must move with its siblings without resizing"
+                }
+                $expanded = @{ panels = @($row) + @($row.panels) }
+                $clashes = @(Get-GridOverlap -Dashboard $expanded)
+                Assert-Equal -Expected 0 -Actual $clashes.Count `
+                    -Because "row $($row.id)'s expanded contents overlap: $($clashes -join '; ')"
+            }
+        }
+
+        $fitted = Get-Content -Raw $pool
+        foreach ($pass in 1..3) {
+            $fitOutput = Invoke-Fitter -DashboardPath $pool -Hosts 1
+            Assert-Equal 0 $LASTEXITCODE $fitOutput
+            Assert-Equal -Expected $fitted -Actual (Get-Content -Raw $pool) `
+                -Because "fit pass $pass must leave the normalized layout byte-identical"
+        }
+    }
+
+    It 'repairs detached collapsed contents even when the row header already has its fitted position' {
+        if (-not $script:Python) { Set-ItResult -Skipped -Because 'python3 is not installed on this host'; return }
+
+        $dir = Get-DashboardFixture -Dashboard @{ 'pool' = $script:RealDashboards['pool'] }
+        $pool = Join-Path $dir 'pool.json'
+        Invoke-Brander -DashboardDir $dir | Out-Null
+        $fitOutput = Invoke-Fitter -DashboardPath $pool
+        Assert-Equal 0 $LASTEXITCODE $fitOutput
+
+        $doc = Get-Content -Raw $pool | ConvertFrom-Json
+        $row = @($doc.panels | Where-Object { $_.id -eq 25 })[0]
+        $headerY = $row.gridPos.y
+        foreach ($panel in $row.panels) { $panel.gridPos.y -= 37 }
+        $doc | ConvertTo-Json -Depth 100 | Set-Content -LiteralPath $pool -Encoding utf8
+
+        $fitOutput = Invoke-Fitter -DashboardPath $pool
+        Assert-Equal 0 $LASTEXITCODE $fitOutput
+        $doc = Get-Content -Raw $pool | ConvertFrom-Json
+        $row = @($doc.panels | Where-Object { $_.id -eq 25 })[0]
+        Assert-Equal -Expected $headerY -Actual $row.gridPos.y -Because 'repairing child geometry must not move an already fitted header'
+        $first = ($row.panels.gridPos.y | Measure-Object -Minimum).Minimum
+        Assert-Equal -Expected ($row.gridPos.y + $row.gridPos.h) -Actual $first `
+            -Because 'stale child coordinates must be repaired independently of the header position'
+    }
+}
+
+Describe 'dashboard synchronization compares the layout the fitter serves' {
+
+    It 'recognizes a fitted dashboard as unchanged without rewriting either comparison input' {
+        if (-not $script:Python) { Set-ItResult -Skipped -Because 'python3 is not installed on this host'; return }
+
+        $dir = Get-DashboardFixture -Dashboard @{
+            'candidate' = $script:RealDashboards['pool']
+            'live' = $script:RealDashboards['pool']
+        }
+        $candidate = Join-Path $dir 'candidate.json'
+        $live = Join-Path $dir 'live.json'
+        Invoke-Brander -DashboardDir $dir | Out-Null
+        $originalCandidate = Get-Content -Raw $candidate
+
+        foreach ($hosts in @(1, 3, 12)) {
+            $fitOutput = Invoke-Fitter -DashboardPath $live -Hosts $hosts
+            Assert-Equal 0 $LASTEXITCODE $fitOutput
+            $originalLive = Get-Content -Raw $live
+            foreach ($pass in 1..2) {
+                $comparisonOutput = Invoke-DashboardComparison -CandidatePath $candidate -LivePath $live
+                Assert-Equal 0 $LASTEXITCODE "comparison pass $pass must recognize the same dashboard fitted for $hosts hosts: $comparisonOutput"
+                Assert-Equal -Expected $originalCandidate -Actual (Get-Content -Raw $candidate) `
+                    -Because 'comparison must not mutate the candidate that is available for installation'
+                Assert-Equal -Expected $originalLive -Actual (Get-Content -Raw $live) `
+                    -Because 'comparison must not rewrite the dashboard Grafana serves'
+            }
+        }
+    }
+
+    It 'still detects changed tile geometry after normalizing the fitted row position' {
+        if (-not $script:Python) { Set-ItResult -Skipped -Because 'python3 is not installed on this host'; return }
+
+        $dir = Get-DashboardFixture -Dashboard @{
+            'candidate' = $script:RealDashboards['pool']
+            'live' = $script:RealDashboards['pool']
+        }
+        $candidate = Join-Path $dir 'candidate.json'
+        $live = Join-Path $dir 'live.json'
+        Invoke-Brander -DashboardDir $dir | Out-Null
+        $fitOutput = Invoke-Fitter -DashboardPath $live
+        Assert-Equal 0 $LASTEXITCODE $fitOutput
+        $comparisonOutput = Invoke-DashboardComparison -CandidatePath $candidate -LivePath $live
+        Assert-Equal 0 $LASTEXITCODE "the original layout must compare equal: $comparisonOutput"
+
+        $originalCandidate = Get-Content -Raw $candidate
+        foreach ($property in @('x', 'y', 'w', 'h')) {
+            $doc = $originalCandidate | ConvertFrom-Json
+            $row = @($doc.panels | Where-Object { $_.id -eq 25 })[0]
+            $tile = @($row.panels | Where-Object { $_.id -eq 27 })[0]
+            $tile.gridPos.$property += 1
+            $doc | ConvertTo-Json -Depth 100 | Set-Content -LiteralPath $candidate -Encoding utf8
+            $comparisonOutput = Invoke-DashboardComparison -CandidatePath $candidate -LivePath $live
+            Assert-Equal 1 $LASTEXITCODE "changing a tile's $property must still require a dashboard push: $comparisonOutput"
+        }
     }
 }
 

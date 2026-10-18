@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.14
+.VERSION 2026.10.18
 .GUID 42d9bcb8-2e31-4e63-94f1-fc3ab0b50782
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -82,6 +82,7 @@ $script:MacUtmFakeBody = [ordered]@{
     'utmctl' = @'
 DENY='Error from event: The operation could not be completed. (OSStatus error -1743.)'
 AETIMEOUT='Error from event: The operation could not be completed. (OSStatus error -1712.)'
+CONNINVALID='Error from event: The operation could not be completed. (OSStatus error -609.)'
 OSERR='Error from event: The operation could not be completed. (OSStatus error -2700.)'
 cmd="$1"; vm="$2"
 case "$cmd" in
@@ -126,6 +127,8 @@ case "$cmd" in
       hang) exec sleep 300 ;;
       drop) exit 0 ;;
       deny) echo "$DENY" >&2; exit 0 ;;
+      timeout-text) echo "$AETIMEOUT" >&2; exit 0 ;;
+      conninvalid) echo "$CONNINVALID" >&2; exit 0 ;;
       qemu) echo "QEMU error: QEMU exited from an error: Failed to find an available port"; exit 0 ;;
       fail-unknown) echo deny-exit0 > "$S/status.mode"; exit 0 ;;
       fail-exit) echo "Error: start failed" >&2; exit 1 ;;
@@ -137,6 +140,8 @@ case "$cmd" in
       hang) exec sleep 300 ;;
       fail) exit 9 ;;
       deny) echo "$DENY" >&2; exit 0 ;;
+      timeout-text) echo "$AETIMEOUT" >&2; exit 0 ;;
+      refuse) echo "Error: The virtual machine is not running." >&2; exit 1 ;;
       ignore) exit 0 ;;
       *) if [ -f "$S/vm/$vm" ]; then echo stopped > "$S/vm/$vm"; fi; exit 0 ;;
     esac ;;
@@ -364,12 +369,24 @@ case "$m" in
 esac
 exit 0
 '@
+    'log' = @'
+m=$(mode log); [ -z "$m" ] && m=ok
+case "$m" in
+  hang) exec sleep 300 ;;
+  fail) echo "log: unable to open the unified log archive" >&2; exit 1 ;;
+esac
+if [ "$1" = show ]; then
+  echo "2026-10-15 06:39:03.101 Df UTM[600:1a2b] [com.utmapp.UTM:VM] start requested for amisad-edge-a"
+  echo "2026-10-15 06:39:05.412 E  QEMUHelper[601:2c3d] [com.utmapp.QEMUHelper] connection invalidated"
+fi
+exit 0
+'@
 }
 
 # Driver tool-table key -> stand-in file name.
 $script:MacUtmFakeToolFile = @{
     'arp' = 'arp'; 'dscl' = 'dscl'; 'id' = 'id'; 'ifconfig' = 'ifconfig'; 'kill' = 'kill'; 'killall' = 'killall'
-    'launchctl' = 'launchctl'; 'open' = 'open'; 'osascript' = 'osascript'; 'pgrep' = 'pgrep'
+    'launchctl' = 'launchctl'; 'log' = 'log'; 'open' = 'open'; 'osascript' = 'osascript'; 'pgrep' = 'pgrep'
     'plistbuddy' = 'PlistBuddy'; 'plutil' = 'plutil'; 'ps' = 'ps'; 'qemu-img' = 'qemu-img'; 'sudo' = 'sudo'
 }
 

@@ -104,10 +104,10 @@ for OpenTofu. The resource writer removes its obsolete `terraform.tfvars` file;
 quotes, backslashes, newlines, and Unicode survive serialization. Workload helpers
 restore the caller's working directory even when a tool or log write throws.
 
-The test coordinator and workers select the highest installed Pester 5.x version.
-Pester 6 alone is rejected before running suites; the baseline records the same
-supported major used by the worker. UTF-8 directory scans include nested text
-files and reject an empty requested text root.
+The test coordinator and workers select the highest installed Pester 6.x version.
+A host without a 6.x copy is rejected before running suites; the baseline
+records the Pester version of the full run that produced it. UTF-8 directory
+scans include nested text files and reject an empty requested text root.
 
 Host-process shutdown verifies the captured process identity and confirms exit
 before deleting the service marker. A permission failure, reused PID, uncertain
@@ -180,8 +180,7 @@ Three properties are load-bearing:
   `templateFolder` typo must abort the resource loudly rather than silently
   produce an empty work folder, which is the entry to the tofu silent-cascade
   trap. See
-  [why the phase fails fast on empty tofu outputs](memory.md#why-set-resource-fails-fast-on-empty-tofu-outputs)
-  and `feedback_tofu_null_resource_provisioner_silent_cascade.md`.
+  [why the phase fails fast on empty tofu outputs](memory.md#why-set-resource-fails-fast-on-empty-tofu-outputs).
 - **SIGKILL recovery ahead of every other staging step** -- the rollback is a
   PowerShell `catch`, so it only fires when `Move-Item` throws. A process kill
   between the two moves leaves only `<workFolder>.old`; without the guard the
@@ -299,6 +298,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.14
+Last review: 2026.10.18
 
 Back to [Yuruna](../README.md)

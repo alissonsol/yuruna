@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.14
+.VERSION 2026.10.18
 .GUID 4271255a-d0dd-4c45-8932-15f35ae51cf4
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -1021,7 +1021,9 @@ function Set-WindowsUserExecutionPolicy {
         } catch {
             # The redirect is a diagnostic, not the job. A host that refuses
             # the redirected handle still gets its policy set, just without
-            # the child's own words if it fails.
+            # the child's own words if it fails. The refused launch can still
+            # have created the redirect file, so it goes before the name does.
+            Remove-Item -LiteralPath $errorLog -Force -ErrorAction SilentlyContinue
             $errorLog = ''
             try {
                 $proc = Start-Process @launch

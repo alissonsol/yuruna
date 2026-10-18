@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.10.14
+# Version: 2026.10.18
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 # Yuruna macOS UTM bootstrap installer.
@@ -276,12 +276,34 @@ export YURUNA_SUDO_PRIMED=1
 SUDO_KEEPALIVE_PID=$!
 
 YURUNA_STATUS_BACKUP=""
+# Every temp path this installer creates is registered here and removed by the
+# EXIT trap, whatever ends the run: a die(), a set -e abort, the ERR trap, or a
+# signal. Removing a path on each function's own success path is not enough --
+# those paths are exactly the ones a failure skips. A subshell that may exit
+# early sets yuruna_cleanup_tmp_paths as its own EXIT trap, because the parent's
+# registry never sees what the subshell adds. The ${arr[@]+...} form keeps an
+# empty array safe under set -u on bash 3.2, which macOS still ships.
+YURUNA_TMP_PATHS=()
+yuruna_track_tmp() {
+  [[ -n "${1:-}" ]] && YURUNA_TMP_PATHS+=("$1")
+  return 0
+}
+yuruna_cleanup_tmp_paths() {
+  local p
+  for p in ${YURUNA_TMP_PATHS[@]+"${YURUNA_TMP_PATHS[@]}"}; do
+    [[ -n "$p" && ( -e "$p" || -L "$p" ) ]] || continue
+    # A build tree can hold root-owned files; sudo is primed for the whole run.
+    rm -rf -- "$p" 2>/dev/null || sudo -n rm -rf -- "$p" 2>/dev/null || true
+  done
+  YURUNA_TMP_PATHS=()
+}
 yuruna_install_cleanup() {
   local rc=$?
   kill "$SUDO_KEEPALIVE_PID" 2>/dev/null || true
   if [[ -n "${YURUNA_STATUS_BACKUP:-}" && -d "${YURUNA_STATUS_BACKUP:-}" ]]; then
     rm -rf "$YURUNA_STATUS_BACKUP" 2>/dev/null || true
   fi
+  yuruna_cleanup_tmp_paths
   if [[ $rc -ne 0 ]]; then
     printf '\n\033[1;31mXX \033[0m installer exited with code %d.\n' "$rc" >&2
     printf '   Full log: %s\n' "${YURUNA_INSTALL_LOG:-<none>}" >&2
@@ -312,6 +334,7 @@ if ! command -v brew >/dev/null 2>&1; then
   HOMEBREW_INSTALL_COMMIT='280cbc9adffcbdef15dd1c9d991ef2d1dd7cfc9c'
   HOMEBREW_INSTALL_SHA256='f3e91784ffeda32bc397de7acc1154724cc47522a459c9ac656cca176eeba457'
   hb_tmp="$(mktemp)"
+  yuruna_track_tmp "$hb_tmp"
   if ! curl -fsSL "https://raw.githubusercontent.com/Homebrew/install/${HOMEBREW_INSTALL_COMMIT}/install.sh" -o "$hb_tmp"; then
     rm -f "$hb_tmp"
     die "Could not download the pinned Homebrew installer (commit $HOMEBREW_INSTALL_COMMIT)."
@@ -428,6 +451,53 @@ quit_mac_app() {
 }
 
 # --- REGION: https://yuruna.link/429fb30b-000a
+# A PID file outlives its process and the kernel reuses PIDs, so the number
+# alone never identifies the owner: the process must still run one of the
+# Yuruna scripts, or must have started when the matching .start record
+# (ISO-8601 UTC, written by the runner and the inner loop) says it did. The
+# comm check further down cannot tell them apart, because an operator's own
+# pwsh passes it. ps -o lstart= has one-second precision, so the two start
+# times agree within the same two seconds the runner's own check allows.
+yuruna_epoch_from_utc() {
+  local stamp="${1%Z}"
+  stamp="${stamp%%.*}"
+  [[ "$stamp" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}$ ]] || return 1
+  if date --version >/dev/null 2>&1; then
+    date -u -d "$stamp" +%s 2>/dev/null
+  else
+    date -j -u -f '%Y-%m-%dT%H:%M:%S' "$stamp" +%s 2>/dev/null
+  fi
+}
+
+yuruna_process_start_epoch() {
+  local started
+  started="$(LC_ALL=C ps -o lstart= -p "$1" 2>/dev/null || true)"
+  [[ -n "$started" ]] || return 1
+  if date --version >/dev/null 2>&1; then
+    LC_ALL=C date -d "$started" +%s 2>/dev/null
+  else
+    LC_ALL=C date -j -f '%a %b %d %T %Y' "$started" +%s 2>/dev/null
+  fi
+}
+
+# pid_file_owner_ok <pid> <start-record> <script pattern>...
+pid_file_owner_ok() {
+  local pid="$1" start_file="$2" args pat recorded live delta
+  shift 2
+  args="$(ps -ww -p "$pid" -o args= 2>/dev/null || true)"
+  if [[ -n "$args" ]]; then
+    for pat in "$@"; do
+      case "$args" in *"$pat"*) return 0 ;; esac
+    done
+  fi
+  [[ -f "$start_file" ]] || return 1
+  recorded="$(yuruna_epoch_from_utc "$(tr -d ' \r\n' < "$start_file" 2>/dev/null || true)")" || return 1
+  live="$(yuruna_process_start_epoch "$pid")" || return 1
+  [[ -n "$recorded" && -n "$live" ]] || return 1
+  delta=$((live - recorded))
+  [[ ${delta#-} -le 2 ]]
+}
+
 # Stop the runner/inner/status-service and WAIT before the checkout rename.
 # VMs (the yuruna-caching-proxy-service cache, a UTM domain) are never touched here;
 # UTM quit is gated separately on PRESERVE_SERVICE_VM.
@@ -436,17 +506,7 @@ stop_yuruna_processes() {
   local -a target_pids=()
   local pid
 
-  # (1) PID files -- readable even when a process's command line is not.
-  local pidname pidfile raw
-  for pidname in runner.pid inner.pid server.pid; do
-    pidfile="$runtime_dir/$pidname"
-    if [[ -f "$pidfile" ]]; then
-      raw=$(tr -dc '0-9' < "$pidfile" 2>/dev/null || true)
-      if [[ -n "$raw" ]]; then target_pids+=("$raw"); fi
-    fi
-  done
-
-  # (2) Command-line pattern match.
+  # The scripts a Yuruna runner or service runs; (1) and (2) both read them.
   local -a patterns=(
     "Start-TestRunner.ps1"
     "Invoke-TestRunnerInnerLoop.ps1"
@@ -454,6 +514,21 @@ stop_yuruna_processes() {
     "Start-StatusService.ps1"
     ".status-service.ps1"
   )
+
+  # (1) PID files -- readable even when a process's command line is not. A
+  # PID read from one counts only while its process is still the owner.
+  local pidname pidfile raw
+  for pidname in runner.pid inner.pid server.pid; do
+    pidfile="$runtime_dir/$pidname"
+    if [[ -f "$pidfile" ]]; then
+      raw=$(tr -dc '0-9' < "$pidfile" 2>/dev/null || true)
+      if [[ -n "$raw" ]] && pid_file_owner_ok "$raw" "$runtime_dir/${pidname%.pid}.start" "${patterns[@]}"; then
+        target_pids+=("$raw")
+      fi
+    fi
+  done
+
+  # (2) Command-line pattern match.
   local pat p
   for pat in "${patterns[@]}"; do
     while IFS= read -r p; do
@@ -499,7 +574,7 @@ stop_yuruna_processes() {
     kill -0 "$pid" 2>/dev/null || continue   # dead or not ours -- nothing to stop
     # Match the executable name (comm), NOT argv -- the script text contaminates
     # argv with the .ps1 pattern names on the -c / bash <(...) launch. -ww so
-    # BSD/macOS ps does not truncate the path (feedback_bsd_ps_args_truncation).
+    # BSD/macOS ps does not truncate the path.
     # Empty comm on a LIVE pid means ps could not report it: keep the pid rather
     # than silently disabling the stop (degrade to the pre-validation behavior).
     pcomm="$(ps -ww -p "$pid" -o comm= 2>/dev/null || ps -p "$pid" -o comm= 2>/dev/null || true)"
@@ -1099,7 +1174,7 @@ else
   warn "Remove-TestVMFiles.ps1 not found at $REMOVE_TEST_VMS -- skipping test-VM cleanup."
 fi
 
-# --- REGION: Test modules (Pester 5, PSScriptAnalyzer)
+# --- REGION: Test modules (Pester 6, PSScriptAnalyzer)
 # The version policy lives in tools/Install-TestModule.ps1, shared by the
 # installer of every host platform, so it runs once the checkout exists. Each
 # MODULE-ISSUE line it prints reaches the closing summary; a missing test module
@@ -1110,7 +1185,7 @@ install_test_modules() {
     warn "tools/Install-TestModule.ps1 not found under $YURUNA_DIR -- skipping the test modules."
     return 0
   fi
-  log "Installing the PowerShell modules the tests need (Pester 5, PSScriptAnalyzer)"
+  log "Installing the PowerShell modules the tests need (Pester 6, PSScriptAnalyzer)"
   out="$(pwsh -NoLogo -NoProfile -File "$script" 2>&1)" || rc=$?
   while IFS= read -r line; do
     case "$line" in
@@ -1119,7 +1194,7 @@ install_test_modules() {
     esac
   done <<< "$out"
   if (( rc != 0 )); then
-    note_issue "tools/Install-TestModule.ps1 could not run (exit $rc), so Pester 5 and PSScriptAnalyzer may be missing -- see the output above."
+    note_issue "tools/Install-TestModule.ps1 could not run (exit $rc), so Pester 6 and PSScriptAnalyzer may be missing -- see the output above."
   fi
 }
 install_test_modules

@@ -676,7 +676,7 @@ Import only when the dispatcher isn't already resolvable, so the
 steady-state path (module already loaded by the outer loop) is a
 no-op. -Global on the cold path: a bare -Force import evicts the
 global Invoke-Sequence (and its nested modules) the outer loop
-still calls (feedback_module_force_import_evicts_global); refresh
+still calls; refresh
 it in place instead.
 
 Defer to Invoke-Sequence's host-aware dispatcher rather than mapping key
@@ -825,9 +825,8 @@ blocks until a human clicks Exit. Must happen pre-delete: once the
 dialog is up the window title no longer carries the VM name, so the
 title match below would miss it.
 
-Wall-clock deadline rather than an iter counter: memory file
-feedback_iter_counter_wallclock_trap.md flags `$elapsed += $Poll`
-as silently expanding the budget by 3-6x when each iteration does
+Wall-clock deadline rather than an iteration counter: `$elapsed += $Poll`
+silently expands the budget by 3-6x when each iteration does
 real work (Get-VM is CIM-backed and can hang briefly under VMMS
 contention). [DateTime]::UtcNow is monotonic-enough for a 120s
 budget and tracks actual wall time regardless of poll cost.
@@ -1654,7 +1653,11 @@ checks the result type before choosing the corresponding completion path.
 A caller can name its transcript through `YURUNA_TRANSCRIPT_PATH`. The resolver
 consumes that environment value before starting nested operations so an inner
 run cannot truncate an outer transcript. It verifies the named path is writable
-while a fallback is still available; an unusable path selects a temporary file.
+while a fallback is still available; an unusable path selects the default. The
+default is a named `transcript-<utc>-<id>.log` in the `yuruna-transcripts` temp
+folder, which keeps only the newest 20, so transcripts never accumulate as
+anonymous `tmp*.tmp` files (on Windows, `GetTempFileName` fails once 65,535 of
+those exist).
 Printed transcript instructions remain operator text and are not a wire format
 for callers to parse.
 
@@ -1831,11 +1834,20 @@ version. A floor establishes provisioning, without promising the latest release.
 daemon and can stall for about 30 seconds precisely when diagnostics need to
 report an unreachable daemon.
 
-The Windows QEMU installer can leave `qemu-img` off PATH. Its fallback paths
-must match `Resolve-QemuImgCommand` in `host/modules/Yuruna.Image.psm1`.
-Strip the constant copyright suffix from its first version line. Keep this
-fallback Windows-only: a missing package-manager link on macOS or Linux is
-a defect that installation repair must detect.
+The Windows QEMU installer can leave `qemu-img` off PATH, while other Windows
+packages that ship one put it on PATH -- the Cloudbase 2.3.0 port, from
+winget's `cloudbase.qemu-img` or Chocolatey's `qemu-img`, is the common one.
+On Windows the probe therefore ranks the installer's locations and every
+copy on PATH and reports the newest, the earlier one on a tie, exactly as
+`Resolve-QemuImgCommand` in `host/modules/Yuruna.Image.psm1` chooses the copy
+the harness runs; a PATH-first probe judged the floor on a copy the harness
+should never use. The installer locations must match the resolver's, and
+`test/modules/Test.QemuImgResolution.Tests.ps1` holds the probe, the
+standalone diagnostic's copy and the resolver to the same set and the same
+ranking. Strip the constant copyright suffix from its first version line.
+Keep the ranking Windows-only: on macOS and Linux the drivers run the name,
+and a missing or older package-manager link there is a defect that
+installation repair must detect.
 
 `oscdimg` prints `OSCDIMG X.YZ CD-ROM and DVD-ROM Premastering Utility`
 before its usage text when called without arguments. It has no version flag;
@@ -2529,6 +2541,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.14
+Last review: 2026.10.18
 
 Back to [Yuruna](../README.md)

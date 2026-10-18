@@ -540,7 +540,7 @@ driver-private pieces a shared body cannot see are **injected** as
 Injection is required because a name typed inside the shared module
 resolves in *that* module's session state, not the importing driver's
 -- a bare-name call to a driver-private command would silently fail to
-bind. See `feedback_closure_foreign_module_command_resolution.md`.
+bind.
 
 The caching-proxy-service probe's cross-module dependencies are the exception:
 `Get-CachingProxyServicePort`, `Test-IpAddress`, and `Format-IpUrlHost` from
@@ -566,8 +566,8 @@ chain-validation callback cannot drift between drivers.
 The one platform-specific piece -- discovering the cache VM's IP -- stays
 per-driver as `Resolve-CacheHostIp` and is **injected** as a
 scriptblock, so this module never reaches across a module boundary by
-name; a by-name reach would be fragile under `-Force` re-imports (see
-`feedback_module_force_import_evicts_global.md`).
+name; a by-name reach would be fragile under `-Force` re-imports (a
+`-Force` import without `-Global` evicts the instance another module loaded).
 
 Each driver imports the module with `-Global`, keeps its
 own `Resolve-CacheHostIp`, and re-exports the names its callers use.
@@ -671,6 +671,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.14
+Last review: 2026.10.18
 
 Back to [Yuruna](../README.md)

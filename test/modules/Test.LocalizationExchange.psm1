@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.14
+.VERSION 2026.10.18
 .GUID 42b6c05e-7d19-4a83-95f2-c81d3e6470ab
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -1083,7 +1083,77 @@ function Set-LocalizationYamlLocaleText {
     [IO.File]::WriteAllText($Path, $text, [Text.UTF8Encoding]::new($false))
 }
 
-Export-ModuleMember -Function Get-LocalizationExchangeSchema, Get-TextSha256, New-LocalizationRow,
+function Get-YurunaJsonSchemaError {
+<#
+.SYNOPSIS
+    The first JSON Schema violation in a document, named by its location, or
+    $null when the document satisfies the schema.
+.DESCRIPTION
+    Test-Json answers $true or $false and names a violation through an error
+    record. PowerShell 7.6.7 writes that record only for a violation at the
+    document's first level or directly below it (PowerShell issue 28218): a
+    deeper one, such as a property the schema forbids inside an array entry,
+    answers $false with no record at all, and a check that repeats only what
+    Test-Json said then rejects a file without naming the field.
+
+    The record is used when there is one. Otherwise the document is evaluated
+    again through the JsonSchema.Net library PowerShell ships for Test-Json,
+    in its flat output form, which lists every evaluated location. The text
+    keeps the shape Test-Json gives a violation it does report, so a caller's
+    message reads the same on every PowerShell: the library's error text,
+    then the instance location as a JSON pointer.
+.PARAMETER Json
+    The document text.
+.PARAMETER SchemaFile
+    Path to the schema file.
+.PARAMETER Schema
+    The schema text, for a caller that holds the schema rather than a file.
+.OUTPUTS
+    [string] $null for a valid document; otherwise one line naming the first
+    violation, or Test-Json's own error for a document or schema that could
+    not be read.
+#>
+    [CmdletBinding(DefaultParameterSetName = 'SchemaFile')]
+    [OutputType([string])]
+    param(
+        [Parameter(Mandatory)][string]$Json,
+        [Parameter(Mandatory, ParameterSetName = 'SchemaFile')][string]$SchemaFile,
+        [Parameter(Mandatory, ParameterSetName = 'Schema')][string]$Schema
+    )
+    $schemaArgument = if ($PSCmdlet.ParameterSetName -eq 'Schema') { @{ Schema = $Schema } } else { @{ SchemaFile = $SchemaFile } }
+    $reported = $null
+    try {
+        $valid = Test-Json -Json $Json @schemaArgument -ErrorAction SilentlyContinue -ErrorVariable reported
+    } catch {
+        # A schema file that cannot be opened ends Test-Json with a terminating
+        # error rather than a record; its text names the file.
+        return [string]$_.Exception.Message
+    }
+    if ($valid) { return $null }
+    if (@($reported).Count -gt 0) { return [string]$reported[0].Exception.Message }
+    try {
+        if (-not ('Json.Schema.JsonSchema' -as [type])) {
+            $null = [System.Reflection.Assembly]::LoadFrom((Join-Path $PSHOME 'JsonSchema.Net.dll'))
+        }
+        $schemaType  = 'Json.Schema.JsonSchema' -as [type]
+        $optionsType = 'Json.Schema.EvaluationOptions' -as [type]
+        $formatType  = 'Json.Schema.OutputFormat' -as [type]
+        $compiled = if ($PSCmdlet.ParameterSetName -eq 'Schema') { $schemaType::FromText($Schema) } else { $schemaType::FromFile($SchemaFile) }
+        $options = [Activator]::CreateInstance($optionsType)
+        $options.OutputFormat = [Enum]::Parse($formatType, 'List')
+        $results = $compiled.Evaluate([System.Text.Json.Nodes.JsonNode]::Parse($Json), $options)
+        foreach ($detail in @($results.Details)) {
+            if ($detail.IsValid -or -not $detail.HasErrors) { continue }
+            $message = @($detail.Errors.Values) -join '; '
+            return "The JSON is not valid with the schema: $message at '$($detail.InstanceLocation.ToString())'"
+        }
+    } catch {
+        Write-Verbose "Get-YurunaJsonSchemaError: evaluating against the schema failed: $($_.Exception.Message)"
+    }
+    return 'The JSON is not valid with the schema, and this PowerShell reported no location for the violation.'
+}
+
+Export-ModuleMember -Function Get-LocalizationExchangeSchema, Get-TextSha256, Get-YurunaJsonSchemaError, New-LocalizationRow,
     Get-TerminologyRow, Get-MessageRow, Get-DocumentRow, Get-ProjectScalarRow, Get-YamlPointerValue,
     Get-LocalizationProjectSource, Get-LocalizationRow, Get-LocalizationRequestDigest, Get-LocalizationDocumentHash,
     Get-LocalizationDocumentTextHash,

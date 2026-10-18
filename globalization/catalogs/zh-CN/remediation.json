@@ -822,6 +822,26 @@
       "sourceHash": "5490fa8bd4d840c7b8e88213061a576b507ab5ae4f88106504ac11a4756a1a58",
       "origin": "machine",
       "message": "状态服务端口{port}空闲，但此进程可能无权预留 http://*:{port}/.\n  这是HTTP.sys URL预留，创建预留需要提升权限。没有进程占用\n  该端口，这是权限问题，并非端口冲突。\n  拒绝启动：status service绑定相同的通配符前缀（以便客户机\n  通过宿主机的局域网IP访问，而不只是通过localhost），因此同样会失败。\n  请任选一种方式解决：\n    - 以管理员身份运行此命令行环境；或\n    - 预留该URL一次，然后在不提升权限的情况下重新运行："
+    },
+    "remediation.hypervisor_unresponsive_rationale": {
+      "sourceHash": "2f998c743ab3c1cec54505c1b17107f3f2f8991135fec6e6fb459449263bb58d",
+      "origin": "machine",
+      "message": "hypervisor_unresponsive：虚拟机管理程序的控制通道已停止执行生命周期请求，但仍能响应状态查询，因此每次虚拟机启动、停止和删除都会等到超时，周期所做的任何操作都无法恢复它。重试只会重复相同的超时；拥有该通道的应用程序必须在宿主机上重新启动，而这只能通过桌面会话或宿主机刷新完成。{detail}"
+    },
+    "remediation.hypervisor_unresponsive_action_restart": {
+      "sourceHash": "97ca8bc51d0af80b1cfe79b20f6194b18a1660cef55ca9f16df928298c75be1f",
+      "origin": "machine",
+      "message": "在宿主机上重新启动虚拟机管理程序控制应用：在macOS上从桌面会话退出UTM.app（或运行test/lab/Invoke-HostRefresh.ps1），然后确认对已停止的虚拟机执行`utmctl stop`能立即返回"
+    },
+    "remediation.hypervisor_unresponsive_action_evidence": {
+      "sourceHash": "6d57a4653306a025d082176dc079f1a4c935941c4c3c0879b4cb2803c4f8e680",
+      "origin": "machine",
+      "message": "阅读周期文件夹中的utm-control-snapshot.*.json和utm-log-show.*.txt：UTM的进程ID或启动时间在周期中途发生变化表明曾崩溃并重新启动，统一日志摘录则说明了此前发生的事情"
+    },
+    "remediation.hypervisor_unresponsive_action_resume": {
+      "sourceHash": "a0b153ba81d5e39ad1edf6b83e5055b55997ea899c746373607b95405d75aa9e",
+      "origin": "machine",
+      "message": "当生命周期命令再次响应后恢复运行器；下一个周期会在构建任何内容之前探测控制通道"
     }
   }
 }

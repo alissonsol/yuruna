@@ -60,6 +60,27 @@ const DataptBRrunner = `{
       "trust": "external"
     }
   ],
+  "runner.config_value_replaced": [
+    "test.config.yml: ",
+    {
+      "arg": "path",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    ": ",
+    {
+      "arg": "previous",
+      "type": "detail",
+      "trust": "external"
+    },
+    " -> ",
+    {
+      "arg": "current",
+      "type": "detail",
+      "trust": "external"
+    },
+    ". A sobreposição do modelo deve manter todos os valores que você definiu, portanto esta substituição é um defeito na sobreposição, não uma mudança de esquema; restaure o valor anterior manualmente se não foi intencional e relate o defeito."
+  ],
   "runner.critical_record_replace": "Substituir um registro crítico privado",
   "runner.cycle_outcome_rejected_kept": [
     "[ciclo externo ",
@@ -303,6 +324,26 @@ const DataptBRrunner = `{
     "Pasta de visitas não encontrada: ",
     {
       "arg": "folder",
+      "type": "detail",
+      "trust": "external"
+    }
+  ],
+  "runner.host_action_exit_detail": [
+    "a ação da máquina '",
+    {
+      "arg": "name",
+      "type": "detail",
+      "trust": "external"
+    },
+    "' terminou ",
+    {
+      "arg": "exit",
+      "type": "detail",
+      "trust": "external"
+    },
+    ": ",
+    {
+      "arg": "detail",
       "type": "detail",
       "trust": "external"
     }
@@ -1016,6 +1057,9 @@ const DataptBRrunner = `{
     },
     "); a atualização automática do hospedeiro não a contabilizará."
   ],
+  "runner.host_refresh_hung_hypervisor_manual_hyperv": "O canal de controle do hipervisor está travado e nenhum nível alcançável repara isso neste hospedeiro. Reinicie o serviço de gerenciamento do Hyper-V em um console elevado (Restart-Service vmms) ou reinicie o hospedeiro manualmente e então retome com: pwsh test/lab/Invoke-HostRefresh.ps1 -Resume. Uma retomada sem esse reparo apenas refaz a sonda e consome uma das tentativas limitadas.",
+  "runner.host_refresh_hung_hypervisor_manual_kvm": "O canal de controle do hipervisor está travado e nenhum nível alcançável repara isso neste hospedeiro. Reinicie os daemons do libvirt (sudo systemctl restart libvirtd) ou reinicie o hospedeiro manualmente e então retome com: pwsh test/lab/Invoke-HostRefresh.ps1 -Resume. Uma retomada sem esse reparo apenas refaz a sonda e consome uma das tentativas limitadas.",
+  "runner.host_refresh_hung_hypervisor_manual_utm": "O canal de controle do hipervisor está travado e nenhum nível alcançável repara isso neste hospedeiro. Feche e reabra o UTM na sessão de desktop conectada ou reinicie o hospedeiro manualmente e então retome com: pwsh test/lab/Invoke-HostRefresh.ps1 -Resume. Uma retomada sem esse reparo apenas refaz a sonda e consome uma das tentativas limitadas.",
   "runner.host_refresh_identity_refused": [
     "Invoke-HostRefresh: recusando executar como ",
     {
@@ -1571,6 +1615,27 @@ const DataptBRrunner = `{
     }
   ],
   "runner.host_refresh_verified_noop": "Invoke-HostRefresh: o hipervisor respondeu e o runner está íntegro; nada foi alterado.",
+  "runner.hypervisor_control_unresponsive": [
+    "O canal de controle do hipervisor nesta máquina responde a consultas de estado, mas não atende mais às solicitações de ciclo de vida (sondagem ",
+    {
+      "arg": "state",
+      "type": "token",
+      "trust": "internal"
+    },
+    "/",
+    {
+      "arg": "reason",
+      "type": "token",
+      "trust": "internal"
+    },
+    "; verbo de ciclo de vida: ",
+    {
+      "arg": "lifecycle",
+      "type": "detail",
+      "trust": "external"
+    },
+    "). O ciclo para antes de construir qualquer coisa, porque cada início e parada de VM esperaria até o fim do seu tempo limite. Reinicie o aplicativo do hipervisor nesta máquina (no macOS, encerre o UTM.app na sessão da área de trabalho ou execute test/lab/Invoke-HostRefresh.ps1) e então retome o executor."
+  ],
   "runner.inner_attempt_exited": [
     "A tentativa do executor terminou com código ",
     {
@@ -22344,6 +22409,41 @@ const DataptBRrunner = `{
     " deve ser uma URL não vazia, sem espaços em branco nem caracteres de controle, e não pode começar com '-'."
   ],
   "runner.pool_status_repositories_none": "  repositórios: (nenhum)",
+  "runner.preflight_network_diagnostics": [
+    "Diagnósticos de rede: ",
+    {
+      "arg": "diagnostics",
+      "type": "detail",
+      "trust": "external"
+    }
+  ],
+  "runner.preflight_tcp_failed": [
+    "A conexão TCP com ",
+    {
+      "arg": "hostName",
+      "type": "detail",
+      "trust": "external"
+    },
+    ":",
+    {
+      "arg": "port",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " falhou após ",
+    {
+      "arg": "attemptCount",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " tentativa(s): ",
+    {
+      "arg": "outcome",
+      "type": "detail",
+      "trust": "external"
+    },
+    ". Consulte os diagnósticos de rede para ver todas as tentativas."
+  ],
   "runner.prior_runner_cleanup_action": "Ação: parando-o e rodando\nRemove-TestVMFiles.ps1 antes de iniciar",
   "runner.process_start_record_write_action": "Gravar um registro de hora de início do processo",
   "runner.project_previous_cleanup_failed": [
@@ -22520,6 +22620,29 @@ const DataptBRrunner = `{
       "trust": "internal"
     },
     "] o portão de atualização do hospedeiro liberou o runner; os ciclos são retomados."
+  ],
+  "runner.refresh_gate_status_ensure_failed": [
+    "Start-TestRunner: não foi possível iniciar o status-service enquanto o portão retém: ",
+    {
+      "arg": "message",
+      "type": "detail",
+      "trust": "external"
+    }
+  ],
+  "runner.refresh_gate_status_ensured": [
+    "Start-TestRunner: a atualização do hospedeiro ",
+    {
+      "arg": "requestId",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    " não tem worker ativo; o status-service foi iniciado na porta ",
+    {
+      "arg": "port",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " para que seu painel possa mostrar e retomar a solicitação não resolvida. O início do runner continua recusado até que a solicitação seja resolvida."
   ],
   "runner.refresh_gate_unreadable": [
     "[ciclo externo ",
@@ -22714,6 +22837,27 @@ const DataptBRrunner = `{
       "trust": "internal"
     },
     "). Nada foi alterado; o runner aguarda a atualização."
+  ],
+  "runner.refresh_status_ensure_orphaned": [
+    "[ciclo externo ",
+    {
+      "arg": "cycle",
+      "type": "integer",
+      "trust": "internal"
+    },
+    "] a atualização do hospedeiro ",
+    {
+      "arg": "requestId",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    " retém o runner (portão ",
+    {
+      "arg": "state",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    ") e seu worker não está mais em execução; garantindo novamente o status-service para que seu painel possa mostrar e retomar a solicitação não resolvida."
   ],
   "runner.refresh_status_ensure_skipped": [
     "[ciclo externo ",
@@ -23566,6 +23710,27 @@ const DataptBRrunner = `{
       "trust": "external"
     },
     "). O ciclo continua, mas seu fluxo de eventos agora está incompleto; a contagem e o motivo estão em cycle.events.delivery.json. Outras perdas neste ciclo são contadas, sem repetir o aviso."
+  ],
+  "runner.temp_housekeeping_removed": [
+    "A limpeza de arquivos temporários (",
+    {
+      "arg": "sweep",
+      "type": "token",
+      "trust": "internal"
+    },
+    ") removeu ",
+    {
+      "arg": "removed",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " item(ns) remanescente(s) de ",
+    {
+      "arg": "roots",
+      "type": "detail",
+      "trust": "external"
+    },
+    "."
   ],
   "runner.transcript_title": "Registro do corredor de testes Yuruna",
   "runner.vault_retired_entries": [

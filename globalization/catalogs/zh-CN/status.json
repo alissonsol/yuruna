@@ -976,6 +976,11 @@
       "origin": "machine",
       "message": "宿主机拒绝了刷新请求：{detail}"
     },
+    "status.host_refresh_remote_viewer": {
+      "sourceHash": "c3e7bea03101a96f1efc6bd91514653375ab2912dc28f925be2a457e67ea5a91",
+      "origin": "machine",
+      "message": "此页面是从另一台计算机打开的，因此只能观察宿主机刷新，无法启动刷新。请在宿主机上启动：使用其本机仪表板，或运行pwsh test/lab/Invoke-HostRefresh.ps1。"
+    },
     "status.host_refresh_retry": {
       "sourceHash": "0652202c1a5f16f4b6edf8ce72290f62b7c19495dbaf4b9e33d051c0c15e9ff7",
       "origin": "machine",
@@ -2141,6 +2146,31 @@
       "sourceHash": "57475ec81df1c407d7925c96e3ed7d71f5ee2b0d7fb722de859f7836cc7e9bcc",
       "origin": "machine",
       "message": "热恢复"
+    },
+    "status.preflight_failed": {
+      "sourceHash": "25b9509846e9875002e2839c39fbc6ac2589b0d6033595e4e86e366994ecb5f0",
+      "message": "预检失败",
+      "origin": "machine"
+    },
+    "status.runner_attempts_title": {
+      "sourceHash": "f424289c7e871ddb789be2cc58a7c586089e2339ddd5144d2def45b926ccb8b6",
+      "message": "运行器尝试失败记录",
+      "origin": "machine"
+    },
+    "status.runner_attempts_description": {
+      "sourceHash": "ca4036f65cf8e0840e7fed11fec0db167fd0c6056ccfa940d227fd94a3aa5560",
+      "message": "最近 20 次运行器尝试中的失败记录会在恢复后保留在此处。预检失败发生在新测试周期开始之前。",
+      "origin": "machine"
+    },
+    "status.runner_attempts_empty": {
+      "sourceHash": "c9d1b0d4291b2e1d28e3c3562b21885552523dbb427ce4f6222f4512e95d4ffd",
+      "message": "没有保留的运行器尝试失败记录。",
+      "origin": "machine"
+    },
+    "status.runner_attempts_unavailable": {
+      "sourceHash": "61a96ef0db4d80c0ca0b694f9bf762a6598f04c8222b89230edd167fa839b0c2",
+      "message": "运行器尝试历史记录不可用。",
+      "origin": "machine"
     }
   }
 }

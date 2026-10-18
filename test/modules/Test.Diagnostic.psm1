@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.14
+.VERSION 2026.10.18
 .GUID 42a266d5-29ef-459f-9141-78b35e35cc6c
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -496,6 +496,25 @@ function Wait-DiagnosticsFile {
     return $null
 }
 
+function Resolve-DiagnosticHostCommand {
+<#
+.SYNOPSIS
+    The host driver's Send-Key or Send-Text, whatever was imported after it.
+.DESCRIPTION
+    Test.SequenceEngine exports a same-named dispatcher that takes -HostType
+    and -KeyName and is not an advanced function, so a bare-name lookup returns
+    whichever module was imported last, and -Mechanism would silently land in
+    its $args. The host driver's command is taken by module name first; the
+    bare name is only the fallback for a session that loaded no host driver.
+#>
+    [CmdletBinding()]
+    [OutputType([System.Management.Automation.CommandInfo])]
+    param([Parameter(Mandatory)][ValidateSet('Send-Key', 'Send-Text')][string]$Name)
+    $command = Get-Command -Name "Yuruna.Host\$Name" -ErrorAction SilentlyContinue
+    if ($command) { return $command }
+    return (Get-Command -Name $Name -ErrorAction SilentlyContinue)
+}
+
 function Clear-GuestTtyLine {
 <#
 .SYNOPSIS
@@ -534,7 +553,7 @@ function Clear-GuestTtyLine {
     [OutputType([bool])]
     param([Parameter(Mandatory)][string]$VMName, [object]$SendKey)
     try {
-        if (-not $SendKey) { $SendKey = Get-Command Send-Key -ErrorAction Stop }
+        if (-not $SendKey) { $SendKey = Resolve-DiagnosticHostCommand -Name Send-Key }
         $sent = [bool](& $SendKey -VMName $VMName -Key 'CtrlU' -Mechanism gui)
         Start-Sleep -Milliseconds 200
         return $sent
@@ -589,7 +608,7 @@ function Reset-GuestTtyPrompt {
     $interrupted = $false
     $redrawn     = $false
     try {
-        if (-not $SendKey) { $SendKey = Get-Command Send-Key -ErrorAction Stop }
+        if (-not $SendKey) { $SendKey = Resolve-DiagnosticHostCommand -Name Send-Key }
         $interrupted = [bool](& $SendKey -VMName $VMName -Key 'CtrlC' -Mechanism gui)
         Start-Sleep -Milliseconds 200
     } catch {
@@ -909,8 +928,8 @@ function Invoke-RemoteDiagnosticsConsole {
     )
     $failResult = @{ success = $false; output = ''; exitCode = -1; mechanism = 'console' }
 
-    $sendText = Get-Command Send-Text -ErrorAction SilentlyContinue
-    $sendKey  = Get-Command Send-Key  -ErrorAction SilentlyContinue
+    $sendText = Resolve-DiagnosticHostCommand -Name Send-Text
+    $sendKey  = Resolve-DiagnosticHostCommand -Name Send-Key
     if (-not $sendText -or -not $sendKey) {
         Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_b691b2ed436b4774')
         return $failResult
@@ -1166,9 +1185,12 @@ function ConvertFrom-GuestClockEvidence {
     #>
     [CmdletBinding()]
     [OutputType([hashtable[]])]
-    param([AllowEmptyString()][string]$Text)
+    param([AllowEmptyString()][string]$Text, [ValidateRange(1, 64)][int]$MaxSamples = 4)
     $samples = [Collections.Generic.List[hashtable]]::new()
-    $blocks = [regex]::Split($Text, '(?m)^--- YURUNA CLOCK SAMPLE ---\r?$')
+    # The clock collector marks each sample with a heading; the flight
+    # recorder writes the same fields under a sampleUtc= line instead, so
+    # both boundaries open a block.
+    $blocks = [regex]::Split($Text, '(?m)^(?:--- YURUNA CLOCK SAMPLE ---|sampleUtc=\S+)\r?$')
     foreach ($block in $blocks) {
         if ($block -notmatch '(?m)^guestEvidenceSchema=2\r?$') { continue }
         $sample = @{ valid=$false; cpus=@{}; rawFields=@{}; problems=@() }
@@ -1233,7 +1255,7 @@ function ConvertFrom-GuestClockEvidence {
         }
         $sample.valid = $sample.problems.Count -eq 0
         $samples.Add($sample)
-        if ($samples.Count -ge 4) { break }
+        if ($samples.Count -ge $MaxSamples) { break }
     }
     $PSCmdlet.WriteObject($samples.ToArray(), $false)
 }
@@ -1383,6 +1405,78 @@ $memory=Hyper-V\Get-VMMemory -VMName $name -ErrorAction Stop
     return $context
 }
 
+# --- REGION: Test-GuestSshPortProbe
+# A clock sample taken right after a restart cannot wait for sshd, so when its
+# SSH attempt fails the reader cannot tell a daemon still starting from a guest
+# that is off the network. One bounded TCP touch on the proven address, with
+# whatever banner sshd sends, separates the two without a wait.
+function Test-GuestSshPortProbe {
+    <#
+    .SYNOPSIS
+        Opens one bounded TCP connection to the guest's SSH port and keeps the banner it sent.
+    .OUTPUTS
+        [hashtable] address, port, connected, banner, elapsedMs, error
+    #>
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param([AllowEmptyString()][string]$Address, [ValidateRange(1, 65535)][int]$Port = 22, [ValidateRange(200, 10000)][int]$TimeoutMilliseconds = 2000)
+    $probe = @{ address=$Address; port=$Port; connected=$false; banner=''; elapsedMs=0; error='' }
+    if ([string]::IsNullOrWhiteSpace($Address)) { $probe.error = 'no address'; return $probe }
+    $clock = [Diagnostics.Stopwatch]::StartNew()
+    $client = [System.Net.Sockets.TcpClient]::new()
+    try {
+        $task = $client.ConnectAsync($Address, $Port)
+        $finished = $false
+        try { $finished = $task.Wait($TimeoutMilliseconds) } catch { $probe.error = $_.Exception.GetBaseException().Message }
+        if (-not $finished -and -not $probe.error) { $probe.error = "connect timed out after $TimeoutMilliseconds ms" }
+        elseif ($finished -and $task.IsFaulted) { $probe.error = $task.Exception.GetBaseException().Message }
+        elseif ($finished -and $client.Connected) {
+            $probe.connected = $true
+            try {
+                $stream = $client.GetStream()
+                $stream.ReadTimeout = 500
+                $buffer = [byte[]]::new(128)
+                $read = $stream.Read($buffer, 0, $buffer.Length)
+                if ($read -gt 0) { $probe.banner = [Text.Encoding]::ASCII.GetString($buffer, 0, $read).Trim() }
+            } catch { $probe.banner = '' }
+        }
+    } catch { $probe.error = $_.Exception.GetBaseException().Message }
+    finally { $client.Dispose(); $probe.elapsedMs = [int]$clock.ElapsedMilliseconds }
+    return $probe
+}
+
+# --- REGION: Get-GuestRecorderClockAnalysis
+function Get-GuestRecorderClockAnalysis {
+    <#
+    .SYNOPSIS
+        Runs the advisory clock analysis over a retained flight-recorder upload.
+    .DESCRIPTION
+        The recorder keeps its samples in a ring whose slots wrap, so file order
+        is not time order; samples are sorted by guest uptime before the
+        same-boot comparison runs. Advisory only, like every clock reading.
+    .OUTPUTS
+        [hashtable] sampleCount, validSampleCount, comparison, warnings, advisoryOnly, schema
+    #>
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param([Parameter(Mandatory)][string]$Path, [ValidateRange(65536, 4194304)][int]$MaxChars = 1600000)
+    $analysis = @{ schema='yuruna.guest-clock-analysis/v1'; advisoryOnly=$true; comparison='unavailable'; warnings=@(); sampleCount=0; validSampleCount=0 }
+    try {
+        if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { return $analysis }
+        $reader = [IO.StreamReader]::new($Path)
+        try { $buffer=[char[]]::new($MaxChars); $length=$reader.Read($buffer,0,$buffer.Length); $text=[string]::new($buffer,0,$length) }
+        finally { $reader.Dispose() }
+        # The parser emits its array as one object; assign first so the
+        # pipeline below enumerates the samples rather than the array.
+        $parsed = ConvertFrom-GuestClockEvidence -Text $text -MaxSamples 16
+        $samples = @($parsed | Where-Object { $_ } |
+            Sort-Object { if ($_.ContainsKey('uptimeSeconds')) { [double]$_.uptimeSeconds } else { [double]::MaxValue } })
+        $result = Get-GuestClockAccountingAnalysis -Samples $samples
+        foreach ($key in @($result.Keys)) { $analysis[$key] = $result[$key] }
+    } catch { $analysis.reason = $_.Exception.Message }
+    return $analysis
+}
+
 # --- REGION: Save-GuestCpuRestartEvidence
 function Save-GuestCpuRestartEvidence {
     <#
@@ -1409,6 +1503,9 @@ function Save-GuestCpuRestartEvidence {
             -TimeoutSeconds 5 -MaxCapturedChars 262144 -ProvenAddressOnly
         $clock.afterTicks=[Diagnostics.Stopwatch]::GetTimestamp(); $clock.afterUtc=[DateTime]::UtcNow.ToString('o')
         $capture.hostClock=$clock
+        $probeAddress=''
+        try { $probeAddress=[string](Test.Ssh\Get-ProvenGuestAddress -VMName $VMName) } catch { $probeAddress='' }
+        $capture.sshProbe=Test-GuestSshPortProbe -Address $probeAddress
         $safe=Protect-GuestEvidenceText -Text ([string]$result.output)
         $capture.samples=ConvertFrom-GuestClockEvidence -Text $safe
         $capture.stepInvocationId=$StepInvocationId; $capture.sequenceInvocationId=$SequenceInvocationId
@@ -1422,7 +1519,8 @@ function Save-GuestCpuRestartEvidence {
         $capture.analysis=Get-GuestClockAccountingAnalysis -Samples $capture.samples -Previous $previous -HostClock $clock
         [void][IO.Directory]::CreateDirectory($OutputFolder)
         $capture.outPath=Join-Path $OutputFolder "guest.cpu-clock.$Phase.txt"
-        [IO.File]::WriteAllText($capture.outPath, "# Host clock bracket: $($clock | ConvertTo-Json -Compress)`n"+$safe)
+        [IO.File]::WriteAllText($capture.outPath, "# Host clock bracket: $($clock | ConvertTo-Json -Compress)`n"+$safe+
+            "`n# SSH port probe: $($capture.sshProbe | ConvertTo-Json -Compress)`n")
         [IO.File]::WriteAllText((Join-Path $OutputFolder "guest.cpu-clock.$Phase.json"),($capture | ConvertTo-Json -Depth 12))
     } catch { $capture.reason='clock-evidence-capture-error'; Write-Verbose $_.Exception.Message }
     return $capture
@@ -1573,6 +1671,35 @@ function Get-GuestExecutionLogVerdict {
     return $verdict
 }
 
+# --- REGION: Get-GuestTransportVerdict
+# The SSH client reports a dead path with exit code 255 and one line of text.
+# Folding that into the same reading as a missing log file sends the reader
+# after the guest's files when the guest could not be reached at all, so the
+# client text is classified before any identity check runs.
+function Get-GuestTransportVerdict {
+    <#
+    .SYNOPSIS
+        Classifies an SSH evidence result as responsive, timed-out, unreachable, or unknown.
+    .OUTPUTS
+        [hashtable] state and detail; detail is the client line that decided the state.
+    #>
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param([AllowNull()]$Result)
+    $verdict = @{ state='unknown'; detail='' }
+    if ($null -eq $Result) { return $verdict }
+    $output = [string]$Result.output
+    if ($Result.success -or $output -match '(?m)^--- YURUNA EXECUTION LOG ---') { $verdict.state='responsive'; return $verdict }
+    if ([int]$Result.exitCode -notin @(-1, 255)) { return $verdict }
+    $timedOut = [regex]::Match($output, '(?im)^(?:Timed out after [0-9]+s.*|ssh: .+ timed out.*|.*Connection timed out.*|.*Operation timed out.*)$')
+    if ($timedOut.Success -or $Result.timedOut -or $Result.drainTimedOut) {
+        $verdict.state='timed-out'; $verdict.detail=$timedOut.Value.Trim(); return $verdict
+    }
+    $unreachable = [regex]::Match($output, '(?im)^.*(?:No route to host|Network is unreachable|Connection refused|Could not resolve hostname|Name or service not known|Temporary failure in name resolution).*$')
+    if ($unreachable.Success) { $verdict.state='unreachable'; $verdict.detail=$unreachable.Value.Trim() }
+    return $verdict
+}
+
 function Save-GuestExecutionProfile {
     <#
     .SYNOPSIS
@@ -1637,20 +1764,23 @@ exit "$profile_rc"
     $command = $command.Replace('__IDENTITY_HEADER__', $identityProbe)
     $capture = @{ success=$false; diagnosticOutcome='unavailable'; outPath=$null
         stepInvocationId=$StepInvocationId; reasonCode='profile-unavailable'; reason=$null
-        exitCode=-1; sshResponsive=$false; timedOut=$false; outputTruncated=$false }
+        exitCode=-1; sshResponsive=$false; timedOut=$false; outputTruncated=$false
+        transport='unknown'; transportDetail=''; transportFailed=$false }
     try {
         $result = Invoke-GuestEvidenceSsh -VMName $VMName -GuestKey $GuestKey `
             -Command $command.Replace('__STEP__',$StepInvocationId) -TimeoutSeconds $TimeoutSeconds -MaxCapturedChars 2097152
         $capture.exitCode = [int]$result.exitCode
         $capture.outputTruncated = [bool]$result.outputTruncated
-        $capture.timedOut = [bool]($result.timedOut -or $result.drainTimedOut -or
-            (-not $result.success -and $result.exitCode -eq -1 -and
-                ([string]$result.output -notmatch '(?m)^--- YURUNA EXECUTION LOG ---') -and
-                ([string]$result.output -match '(?im)^(?:Timed out after [0-9]+s|ssh: .+ timed out|.+: Connection timed out)')))
+        $transport = Get-GuestTransportVerdict -Result $result
+        $capture.transport = [string]$transport.state
+        $capture.transportDetail = [string]$transport.detail
+        $capture.transportFailed = [bool]($transport.state -in @('timed-out','unreachable'))
+        $capture.timedOut = [bool]($result.timedOut -or $result.drainTimedOut -or $transport.state -eq 'timed-out')
         $capture.sshResponsive = [bool]($result.success -or $result.exitCode -in @(65,66) -or
             ([string]$result.output -match '(?m)^--- YURUNA EXECUTION LOG ---'))
         $capture.reasonCode = if ($capture.outputTruncated) { 'profile-output-truncated' }
             elseif ($capture.timedOut) { 'profile-ssh-timeout' }
+            elseif ($transport.state -eq 'unreachable') { 'profile-ssh-unreachable' }
             elseif ($result.exitCode -eq 65) { 'profile-invocation-mismatch' }
             elseif ($result.exitCode -eq 66) { 'profile-file-absent' } else { 'profile-ssh-unavailable' }
         $capture.reason = Protect-GuestEvidenceText -Text ([string]$result.output) -Variables $Variables
@@ -1661,7 +1791,10 @@ exit "$profile_rc"
                 -ScriptPath $ScriptPath -StepInvocationId $StepInvocationId -SequenceInvocationId $SequenceInvocationId
             $capture.executionLog = $identity
             if ($identity.state -ne 'current') {
-                if (-not $capture.timedOut -and $result.exitCode -ne 65) {
+                # A transport that never reached the guest says nothing about
+                # the log's identity, so its reason code is kept over the
+                # identity verdict.
+                if (-not $capture.timedOut -and -not $capture.transportFailed -and $result.exitCode -ne 65) {
                     $capture.reasonCode="profile-$($identity.reasonCode)"
                 }
                 $capture.reason=$capture.reasonCode
@@ -1968,6 +2101,7 @@ function Save-GuestDiagnosticCore {
     }
     $manifest.hostSnapshot = $hostSample
     $manifest.guestSnapshot = $guestSample
+    $manifest.sshReadiness = $script:LastDiagnosticSshReadiness
     $manifest.stepInvocationId = $StepInvocationId
     $manifest.sequenceInvocationId = $SequenceInvocationId
     Update-GuestDiagnosticCheckpoint -Values $manifest
@@ -2048,6 +2182,7 @@ function Invoke-GuestDiagnosticCapture {
     # before invoking the SSH/console handler.
     $attempted = @()
     $captureTimedOut = $false
+    $script:LastDiagnosticSshReadiness = $null
 
     # Wall-clock budget for the whole capture. Each downstream call
     # below clamps its own timeout to `min(perCommandCap, remaining)`
@@ -2150,6 +2285,14 @@ function Invoke-GuestDiagnosticCapture {
         Write-Verbose ("Save-GuestDiagnostic: SSH did not become ready within {0}s for VM '{1}' (mid-reboot, late-binding KVP, or sshd not yet up); skipping SSH rungs, will try the console fallback." -f $waitBudget, $VMName)
         $sshReady = $false
         $attempted += 'ssh-not-ready'
+        # The readiness wait already classified why the guest did not answer
+        # (no address, no answer at the address, sshd refusing); keep that
+        # reading with the manifest so a transport that died is named rather
+        # than inferred from an empty capture.
+        if (Get-Command Test.Ssh\Get-LastSshReadiness -ErrorAction SilentlyContinue) {
+            try { $script:LastDiagnosticSshReadiness = Test.Ssh\Get-LastSshReadiness } catch { $script:LastDiagnosticSshReadiness = $null }
+        }
+        if ($script:LastDiagnosticSshReadiness) { Update-GuestDiagnosticCheckpoint -Values @{ sshReadiness=$script:LastDiagnosticSshReadiness } }
     }
 
     # Wait-SshReady proved we can reach $user@$target via key auth, so
@@ -2340,7 +2483,7 @@ function Invoke-GuestDiagnosticCapture {
     [void]$body.AppendLine($result.output)
 
     try {
-        # PS7 Set-Content default is BOM-less UTF-8 (per repo memory),
+        # PS7 Set-Content default is BOM-less UTF-8,
         # which is correct for a plain-text diagnostics dump. We
         # explicitly set the encoding so a future global change to the
         # default doesn't silently shift this file's encoding and
@@ -2386,6 +2529,8 @@ function Publish-GuestDiagnosticSilence {
     )
     $transportDropped = [bool]($LastResult -and $LastResult.transportLost)
     $source = if ($transportDropped) { 'saveSystemDiagnostic: SSH transport dropped mid-command' } else { 'saveSystemDiagnostic: no rung reached the guest' }
+    $readiness = $script:LastDiagnosticSshReadiness
+    if (-not $transportDropped -and $readiness -and $readiness.cause) { $source += " (ssh readiness: $($readiness.cause))" }
     try {
         if (Get-Command Get-SequenceFailureState -ErrorAction SilentlyContinue) {
             $state = Get-SequenceFailureState
@@ -2408,6 +2553,9 @@ Export-ModuleMember -Function `
     Save-HyperVCpuRestartHostContext, `
     Save-GuestExecutionProfile, `
     Get-GuestExecutionLogVerdict, `
+    Get-GuestTransportVerdict, `
+    Test-GuestSshPortProbe, `
+    Get-GuestRecorderClockAnalysis, `
     Protect-GuestEvidenceText, `
     Get-DiagnosticsFileName, `
     Resolve-StatusServiceEndpoint, `

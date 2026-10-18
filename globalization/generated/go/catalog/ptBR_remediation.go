@@ -7,6 +7,17 @@ package catalog
 // DataptBRremediation is the compiled catalog for this locale and domain. It is a
 // string so the package carries no init cost until a caller decodes it.
 const DataptBRremediation = `{
+  "remediation.hypervisor_unresponsive_action_evidence": "Leia utm-control-snapshot.*.json e utm-log-show.*.txt na pasta do ciclo: um PID ou horário de início do UTM que mudou no meio do ciclo indica uma falha seguida de reinicialização, e o trecho do log unificado mostra o que a precedeu",
+  "remediation.hypervisor_unresponsive_action_restart": "Reinicie o aplicativo de controle do hipervisor na máquina: no macOS, encerre o UTM.app na sessão da área de trabalho (ou execute test/lab/Invoke-HostRefresh.ps1) e confirme que ` + "`" + `utmctl stop` + "`" + ` em uma VM parada retorna imediatamente",
+  "remediation.hypervisor_unresponsive_action_resume": "Retome o executor quando um verbo de ciclo de vida voltar a responder; o próximo ciclo sonda o canal de controle antes de construir qualquer coisa",
+  "remediation.hypervisor_unresponsive_rationale": [
+    "hypervisor_unresponsive: o canal de controle do hipervisor parou de atender às solicitações de ciclo de vida, embora continue respondendo a consultas de estado; assim, cada início, parada e exclusão de VM espera até o fim do seu tempo limite, e nada que um ciclo faça consegue recuperá-lo. Repetir só reproduz os mesmos tempos limite; o aplicativo dono do canal precisa ser reiniciado na máquina, o que só uma sessão da área de trabalho ou uma atualização da máquina pode fazer.",
+    {
+      "arg": "detail",
+      "type": "detail",
+      "trust": "external"
+    }
+  ],
   "remediation.operator_00fd2209b1a993b2": "inspecionar manualmente last_failure.json",
   "remediation.operator_01b3c9512f168859": [
     "console_flooded no ",

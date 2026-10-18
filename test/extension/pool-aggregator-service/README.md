@@ -52,8 +52,8 @@ Every `-interval` (default 30s) it:
    `gitCommits`, with `commitUrl`/`projectCommitUrl` the per-repo
    `.../commit/<sha>` deep-links the table's Commit column resolves; `control` is
    the remote-control verdict of point 5e),
-   `yuruna_pool_host_status` (numeric 0-8:
-   unreachable/running/pass/fail/idle/paused/pausing-cycle/pausing-step/stopped),
+   `yuruna_pool_host_status` (numeric 0-9:
+   unreachable/running/pass/fail/idle/paused/pausing-cycle/pausing-step/stopped/preflight-failed),
    and `yuruna_pool_host_last_seen_seconds`.
    Served at `/metrics`. The whole pool telemetry is **hostname-free** (see below).
 5b. **Discovers extension hosts (registration-driven).** Each poll it reads every
@@ -329,6 +329,20 @@ expose unauthenticated; the hostname stays on each host's own
 (to-be-authenticated) status page. Deep-links point at each host's **own status
 server** -- artifacts never leave the generating host.
 
+The timeline shows **host state**, including failures before a cycle exists.
+`config_gate_failed` is **preflight failed** (yellow, status code 9); failed
+cycles and other runner faults remain red (code 3). Preflight failures never
+increment the completed-cycle failure count. Existing stored code-3 samples
+keep their original color; the distinction applies to newly collected samples.
+
+**Open results or diagnostics** resolves a failed attempt from the host's
+`runtime/runner-attempts/index.json`, including after recovery. The interval
+runs from the failed preflight's completion until the next completed successful
+preflight; a retry still running does not hide the prior failure. The index
+retains the latest 20 attempts. If an old yellow block's evidence has expired
+or cannot be read, its link opens the host's runner-attempt history instead of
+the preceding cycle. Explicit `/go/cycle` links retain their cycle-only meaning.
+
 **Read-only by design:** killing this daemon leaves every runner testing
 unaffected (graceful degradation).
 
@@ -361,7 +375,7 @@ unaffected (graceful degradation).
   `write_files` in `host/vmconfig/caching-proxy-service.base.user-data` so the dashboard
   deploys even when the collector build fails or its source has not yet reached
   public `yuruna`. Edit this file, then sync the inline copy.
-  The timeline's "open cycle results" and "open host status page" data
+  The timeline's "open results or diagnostics" and "open host status page" data
   links, and the Pool hosts table's **Control** cell, all target
   `${aggregator}`, a hidden constant variable holding this
   proxy's `/go/` base -- routing every host click through `/go/host` is what
@@ -474,7 +488,8 @@ the leaf is absent.
 | `/api/v1/pool-status` | GET | none | JSON snapshot of every discovered host's last poll |
 | `/api/v1/prometheus-targets` | GET | none | the pool's Windows hosts as a Prometheus HTTP service-discovery document -- `[{"targets":["<ip>:<port>"],"labels":{"pool","hostId","hostIdDashed","hostType"}}]` -- so the local Prometheus scrapes each host's machine-metrics exporter without holding a single host address of its own. Only hosts this service currently REACHES are listed, and only types that run the exporter: a host that is switched off leaves the scrape pool within one refresh instead of failing in it for as long as it stays off. The port is `-host-metrics-port`. Open, like `pool-status` -- it re-shapes addresses that endpoint already serves, and the labels match the ones `/metrics` exports so the two join on `hostId` |
 | `/api/v1/extension-hosts[?area=<slug>]` | GET | none | where the pool currently sees each extension area served. With `?area=` one entry (`area`, `host`, `target`, `hostId`, `source`, `lastSeenUnixMs`, plus the health fields) and **404** when no live host serves it; without it every area (`areas`) plus every known registration (`services`), including the ones the pool refuses. Only addresses the aggregator has itself reached are answered (point 5c-ii); usable first, then live announce over registration over rehydrated announce, then freshest, then lowest hostId; a TTL-expired announce is skipped at read time. The lookup a host uses to find the stash / pool-control service knowing only the caching-proxy-service address |
-| `/go/cycle?host=<hostId>&t=<epochMs>` | GET | none | dashboard timeline click -> 302 to that cycle's results. **Archive-first**: once the cycle is committed on the pool share the redirect goes to this service's own `/archive/...` copy, which answers from local disk and keeps working when the host is off or reimaged; otherwise it goes to the host, resolving its **current** IP from the live view (so the link survives a host IP change). The cycle covering `t` is resolved from the history backfill's cycle index, else the archive listing, else the host's `/log/` listing -- which follows the rotated `history.<date>/` buckets newest first -- else the Loki transition feed (current cycle in-memory short-circuits all four); degrades to the host's status root when the folder can't be resolved |
+| `/go/cycle?host=<hostId>&t=<epochMs>` | GET | none | explicit cycle link -> 302 to that cycle's results. **Archive-first**: once the cycle is committed on the pool share the redirect goes to this service's own `/archive/...` copy, which answers from local disk and keeps working when the host is off or reimaged; otherwise it goes to the host, resolving its **current** IP from the live view (so the link survives a host IP change). The cycle covering `t` is resolved from the history backfill's cycle index, else the archive listing, else the host's `/log/` listing -- which follows the rotated `history.<date>/` buckets newest first -- else the Loki transition feed (current cycle in-memory short-circuits all four); degrades to the host's status root when the folder can't be resolved |
+| `/go/host-event?host=<hostId>&t=<epochMs>&status=<code>` | GET | none | dashboard host-state click -> retained runner-attempt diagnostics for a preflight/runner fault, otherwise the existing cycle resolver. Yellow status 9 always falls back to the host's runner-attempt history when diagnostics are unavailable; it never opens a previous cycle. The observed numeric status comes from the clicked sample |
 | `/archive/<hostId>/test-cycles/<cycle>/...` | GET, HEAD | none | archived cycle results served straight off the pool share (`-pool-archive-root`, the proxy's existing `/mnt/ypool-nas/hosts` mount). Read-only, Range-capable, with directory listings for folder URLs. The path shape IS the authorization: 32-hex hostId, the literal `test-cycles`, and a bare cycle identity (no `.incomplete` / `.aborted` suffix -- on-share leaves are always the stripped identity) are validated before any filesystem call, and `os.Root` contains the rest in the kernel. The root is re-opened **per request**, because the proxy's CIFS mount is `nofail` and arrives asynchronously after boot. Absent flag => route not registered; mount away => 404 and `yuruna_pool_archive_available 0` |
 | `/go/host?host=<hostId>` | GET | none | dashboard timeline click -> 302 to that host's status-page **root**. Same `host` uuid -> **current** IP resolution as `/go/cycle` (survives a host IP change), but always lands on the status page rather than a cycle folder -- the IP-free state-timeline rows can't carry the IP, so the link resolves it here |
 | `/go/stash?host=<hostId>&area=<area>` | GET | none | 302 to that host's extension-service UI (default `area=stash-service`, the stash-service VM), resolved through the same source merge as the dashboard cell -- the service's own live announce first, the host's `extensionTargets` when nothing is announcing (see 5c-i). For IP-free, hostId-only consumers -- the dashboard table itself links directly via the `target` label. Unknown host/target -> 404 |

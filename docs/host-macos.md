@@ -560,6 +560,52 @@ inside the install handler would otherwise hang forever.
 
 <a id="42885ada-0011"></a>
 
+## `utmctl list` answers but every `start`, `stop` and `delete` times out
+
+Symptom: a cycle's `initialize-lab` (or any VM start) fails an hour in with
+`Error from event: The operation couldn't be completed. (OSStatus error
+-1712.)` repeated for every start attempt, sometimes after a single
+`-609`, while `utmctl status` and `utmctl list` keep answering throughout.
+The next cycle's teardown then prints `utmctl stop '<vm>' did not return
+within 120s` for VMs that are already stopped, and `delete` leaves them
+listed. The VMs are untouched; the failure is in UTM.app itself.
+
+Root cause: **UTM.app's lifecycle handlers stopped completing while its
+enumeration still answers.** `-1712` is the Apple Event timeout -- utmctl
+sent the request and UTM never replied -- and `-609` (connection invalid)
+is the transport reporting that the UTM process it was talking to went
+away mid-request, which is what a crash and relaunch looks like from
+utmctl. Only restarting UTM.app repairs it; no retry and no rebuild
+reaches the fault.
+
+What the framework does about it:
+
+- The driver's start retry stops after two consecutive control-channel
+  timeouts and returns `kind = apple-event`, `controlHung = $true` in the
+  Start-VM record, with a message that names the restart. A project that
+  reads the record (AmisAd's `Start-AmisAdEdge` does) skips its remaining
+  edges instead of spending three more timeouts on each.
+- `Test-VirtualizationResponsive -LifecycleProbe` sends one `utmctl stop`
+  to a VM its own listing shows stopped -- a no-op on a healthy UTM that
+  returns at once -- and reports a corroborated `Unresponsive/timeout` when
+  that verb hangs. The runner runs it at cycle start and fails the cycle in
+  seconds as `hypervisor_unresponsive` instead of an hour later as
+  `unknown`.
+- `Save-UtmControlSnapshot` writes `utm-control-snapshot.<trigger>.json`,
+  `utm-log-show.<trigger>.txt` and any recent crash reports into the cycle
+  folder: the UTM and QEMUHelper pids with their start times (a pid or
+  start time that differs from the cycle's start is a relaunch), the raw
+  listing, and the unified-log lines for `UTM`, `QEMUHelper` and `utmctl`
+  over the last half hour.
+
+What to do: quit UTM.app from the desktop session (or run
+`test/lab/Invoke-HostRefresh.ps1`), confirm `utmctl stop` on a stopped VM
+returns immediately, then resume the runner. Read the snapshot before
+restarting if the cause matters: the process census tells a crash from a
+wedge, and the log excerpt names what preceded it.
+
+<a id="42885ada-0013"></a>
+
 ## Why the UTM dialog watchdog is narrowly scoped
 
 The launch watchdog in `host/macos.utm/modules/Yuruna.Host.psm1` clicks a
@@ -586,6 +632,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.14
+Last review: 2026.10.18
 
 Back to [Yuruna](../README.md)

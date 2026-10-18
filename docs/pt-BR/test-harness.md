@@ -84,6 +84,17 @@ produzido pelo botão *Pause* -- enquanto um serviço que antes respondia está 
 quando ele retorna. Um serviço que este hospedeiro nunca alcançou nunca retém o ciclo; assim,
 um hospedeiro sem stash ainda falha imediatamente, em vez de ficar estacionado.
 
+Cada ciclo também começa com uma limpeza de arquivos temporários, que nunca faz o ciclo falhar. Ela
+remove as entradas que um processo .NET encerrado à força deixa na pasta temporária
+(`clr-debug-pipe-*`, `dotnet-diagnostic-*` e `CoreFxPipe_PSHost.*`) assim que o
+processo que as criou deixa de existir, e os nomes temporários do próprio harness depois de
+12 horas. Os nomes formam uma lista de permissões (`Get-YurunaStaleTempPattern` em
+`automation/Yuruna.Common.psm1`), como `yuruna-browser-profile-*` e as pastas de
+seed, além de arquivos `tmp*.tmp` antigos que contêm um cabeçalho de transcrição
+do PowerShell; nada fora dela é tocado. No Linux e no macOS, as duas varreduras
+removem apenas entradas pertencentes à conta que executa o harness, e o executor
+registra no log quantas entradas cada uma removeu.
+
 <a id="42d38664-0004"></a>
 
 <a id="modes"></a>
@@ -151,6 +162,7 @@ buscas no código e links da interface de status cheguem ao ponto de entrada exp
 | `Test.ScreenshotProvider` | Registro de provedores de captura de tela + `Repair-ScreenshotRing` |
 | `Test.OcrEngine` / `Test.Tesseract` | [Provedores OCR](../ocr.md) intercambiáveis e os auxiliares para localizar / instalar / chamar o Tesseract |
 | `Test.OcrMatch`        | Normalização e correspondência tolerantes ao OCR (grupos de confusão) + o combinador de múltiplos mecanismos |
+| `Test.OcrPath`         | `Resolve-OcrImagePath` -- copia uma captura para um caminho temporário curto quando o caminho real ultrapassa o limite de caminho de um mecanismo de OCR nativo; compartilhado pelos provedores Tesseract e WinRT |
 | `Test.Ssh`             | Chaves SSH por convidado, as opções obrigatórias de chave do hospedeiro e os auxiliares `ssh` / `scp` |
 
 **Plataforma do hospedeiro** -- o que esta máquina é e quais condições precisa atender para um ciclo executar:
@@ -164,7 +176,10 @@ buscas no código e links da interface de status cheguem ao ponto de entrada exp
 | `Test.HostGit`         | Atualização do framework no início do ciclo (`Invoke-GitPull`), hashes curtos de HEAD, substituição verificada do clone do projeto, diagnóstico de PIDs que bloqueiam arquivos no Windows após falhas de `Remove-Item` (Restart Manager / scanner de diretório atual da PEB), respostas de acesso ao repositório para interfaces do grupo (`Get-HostRepositoryAccess`) e instalações sob demanda da PSGallery (`powershell-yaml`, `PSScriptAnalyzer`), que o PowerShell 7 não inclui |
 | `Test.HostAutomationState` | Registra o valor anterior de cada ajuste do hospedeiro antes de `Enable-TestAutomation` gravá-lo, para que `Disable` possa restaurar, em vez de adivinhar |
 | `Test.HostFacts`       | Os dados de hardware da própria máquina no formato servido por `/control/host-facts`, incluindo as regras de contagem de armazenamento |
+| `Test.HostSampling`    | Evidências limitadas de desempenho do hospedeiro, retidas independentemente do executor interno: inventário de contadores, estado de energia, snapshots das VMs e o veredito de livelock de VM (`Start-YurunaHostSampling`, `Get-YurunaVmLivelockVerdict`) |
+| `Test.HostMetricsExporter` | Converge o exportador de métricas do hospedeiro Windows, o endpoint Prometheus por hospedeiro para memória comprometida, CPU, disco e estado das VMs Hyper-V: aquisição do pacote, serviço, regra de firewall e sondagem (`Set-YurunaHostMetricsExporter`). Melhor esforço; nunca lança exceção |
 | `Test.HostIdentity`    | Impressão digital do hardware + recuperação de uuid confirmada pelo operador, que impede que o histórico no grupo de um hospedeiro reinstalado se bifurque |
+| `Test.HostIdentitySeed` | `Resolve-SeededHostId` -- a semente derivada do hardware para um novo `host.uuid`, derivada apenas quando necessária, com alternativa aleatória quando o hardware não está disponível ou `YURUNA_HOST_ID_SEED` é `random` |
 | `Test.HostAddressBeacon` | Parte de envio da descoberta de endereços: anuncia novamente este hospedeiro quando seu endereço muda, em vez de esperar pela consulta do agregador |
 | `Test.VMUtility`       | Auxiliares de VM entre hospedeiros, compartilhados por todos os drivers Yuruna.Host |
 | `Test.ServiceVm`       | Relação de VMs de serviço e a sondagem de acessibilidade que as traz de volta após uma reinicialização do hospedeiro; a política Preserve/Repair que decide o significado de um estado desconhecido (`Test-YurunaServiceVmRunning`), e a restauração que contém o motivo de cada sondagem, ignora um serviço parado pelo operador e verifica o endpoint do consumidor dentro de um prazo compartilhado |
@@ -186,7 +201,9 @@ buscas no código e links da interface de status cheguem ao ponto de entrada exp
 | `Test.RunnerWatchdog`  | Watchdog de heartbeat de etapas em processo separado; encerra um processo interno travado |
 | `Test.RunnerHeartbeat` | Heartbeat do processo por temporizador de threadpool, que continua avançando enquanto o runspace está bloqueado |
 | `Test.RunnerState`     | Máquina de estados explícita do executor externo, com estado persistido + eventos de transição NDJSON |
+| `Test.RunnerAttemptHistory` | Diretórios de evidências por tentativa em `runner-attempts/`, artefatos de falha do laço externo e o índice limitado do histórico, reconstruído a partir das evidências retidas (`Update-RunnerAttemptHistory`) |
 | `Test.RunnerElevation` | Contrato de elevação no lançamento: resolvê-la uma vez enquanto um operador está presente, ou recusar o início |
+| `Test.PrivateStateRepair` | `Repair-YurunaStartupPrivateState` -- recupera as permissões do estado privado na inicialização do executor ou do status-service; eleva privilégios apenas sob solicitação interativa explícita e nunca solicita nada a um chamador não assistido |
 | `Test.SingleInstance`  | Proteção por pidfile compartilhada pelo trio de executores (`Get-RunnerInstanceState`, `Stop-StaleRunner`); o construtor da tabela de processos e o classificador de identidades que decidem quais processos executores um reparo pode parar, a barreira de atualização que suspende novas criações durante um reparo, o token de transferência e a confirmação de prontidão que trazem o executor de volta, e o registro persistido de lançamento do qual parte um executor retomado |
 | `Test.InnerSpawn`      | `New-InnerRunnerArgList` -- construtor de argv para `pwsh -Command` que preserva tipos na criação do processo externo->interno e em `Invoke-TestProject`; `Start-YurunaDetachedProcess`, que inicia um worker que sobrevive ao processo que o lançou e o confirma com um handshake |
 | `Test.Recovery`        | Varredura na inicialização que detecta e arquiva cada classe de estado obsoleto deixada por um ciclo que travou; seu modo de preservação durante atualização mantém os controles do operador e os registros do executor recuperado quando um reparo reinicia o executor |
@@ -216,7 +233,11 @@ buscas no código e links da interface de status cheguem ao ponto de entrada exp
 | `Test.YurunaDir`       | Resolve e cria `$env:YURUNA_LOG_DIR` / `$env:YURUNA_RUNTIME_DIR` |
 | `Test.Status`          | Ciclo de vida de `status.json`, incluindo o bloqueio de ciclos aninhados |
 | `Test.EventSchema`     | Valida cada registro NDJSON no ponto de emissão, para que um erro de digitação de campo seja detectado antes de chegar ao disco |
+| `Test.Message`         | O envelope de mensagem versionado que atravessa um limite de processo, persistência ou rede: um código com namespace, argumentos tipados seguros para JSON e um detalhe limitado e com dados sensíveis ocultados (`New-MessageEnvelope`, `Test-MessageEnvelope`), mais o único conversor para campos legados |
+| `Test.Locale`          | Decisões de localidade: o manifesto de localidades suportadas, tags canônicas, seleção por `Accept-Language` e o contexto imutável de um ciclo, comando ou solicitação (`New-LocaleContext`) |
+| `Test.Catalog`         | Renderiza uma chave de mensagem a partir dos catálogos compilados em uma localidade resolvida, com categorias de plural e formatação numérica da localidade (`Format-CatalogMessage`) |
 | `Test.Perf`            | Uma linha JSONL de desempenho por execução de etapa, um arquivo por ciclo |
+| `Test.PerfAggregate`   | Agrupa linhas de desempenho por invocação de sequência, contando uma única vez o trabalho envolvente, e associa um checkpoint à sua execução (`ConvertTo-PerfSequenceAggregate`, `Find-PerfCheckpoint`) |
 | `Test.Provenance`      | Lê o arquivo auxiliar de proveniência da imagem base gravado por `Get-Image.ps1` |
 | `Test.FrameworkSource` | De qual snapshot do framework uma VM de serviço foi construída e se o convidado recorreu ao espelho público |
 | `Test.PortOwner`       | `Get-PortListenerPid` (HTTP.sys do Windows + lsof do Unix) + `Resolve-PortOrphan` para a porta do status-service |
@@ -232,7 +253,12 @@ buscas no código e links da interface de status cheguem ao ponto de entrada exp
 | `Test.Remediation`     | Despachante de classe de falha -> recuperação (`Register-RecoveryHandler`) -- consulte [Esquema de falha](../failure-schema.md) |
 | `Test.GuestQuarantine` | Disjuntor por convidado: N falhas da mesma classe colocam esse convidado em quarentena, excluindo classes com escopo de hospedeiro |
 | `Test.Diagnostic`      | Captura do convidado após falha e sua cadeia de estratégias -- consulte [Captura de diagnóstico por ciclo](#per-cycle-diagnostic-capture) |
+| `Test.DiagnosticPreservation` | A retenção durável da VM com falha (`diagnostic-preserve.json`): registrada antes que a captura possa lançar exceção ou travar, ela suspende o executor antes da recuperação ou da limpeza da VM até que o operador libere as evidências |
+| `Test.GuestNetworkCrossCheck` | Sondagem, a partir do hospedeiro, do proxy de cache e do convidado após uma falha, que distingue um convidado que perdeu seu endereço de um proxy que parou de responder (`network-cross-check.json`); nunca lança exceção |
 | `Test.SnapshotManifest`| Arquivos auxiliares de snapshots, para que uma restauração possa recusar um snapshot que não reconhece |
+| `Test.RecoveryContract` | O formato único de resultado que todo ponto de entrada retorna -- resultados, classes de falha do executor, estados de recuperação, impressão digital da falha, ocultação de dados sensíveis, evidências e resultados das etapas -- e sua persistência de melhor esforço |
+| `Test.RecoveryLedger`  | O `recovery.ledger.ndjson` somente de acréscimo que limita o que o executor repara por conta própria, o registro de reparos e o protocolo que executa um deles: grava antes de agir, e um ledger ilegível conta como orçamento esgotado |
+| `Test.RecoveryActions` | Os três reparos registrados no ledger (`Register-BuiltinRecoveryAction`): mover para o lado um bloqueio obsoleto do git, repetir o clone do projeto e encerrar antecipadamente a pausa após falha |
 | `Test.CredentialProvider` | Auxiliares de inspeção / reparo apenas para testes sobre o [registro de login de componentes](../authentication.md#component-registry-login) |
 
 **Grupo e laboratório** -- tudo o que só faz sentido com mais de uma máquina:
@@ -267,8 +293,12 @@ buscas no código e links da interface de status cheguem ao ponto de entrada exp
 | `Test.StateFile`       | Gravador atômico de arquivos auxiliares -- consulte [Arquivos auxiliares de estado](#state-sidecars) |
 | `Test.CriticalRecord`  | Registros privados com checksum e número de geração, uma geração anterior mantida e gravações limitadas e descarregadas (durabilidade diante de falha do processo), para estado que autoriza uma alteração |
 | `Test.Hash`            | Array de bytes -> hexadecimal em minúsculas, para que todos os chamadores de hash compartilhem uma codificação |
+| `Test.CanonicalJson`   | `ConvertTo-CanonicalApprovalJson` -- um texto JSON determinístico (chaves em ordem ordinal, números na cultura invariável, sem espaços em branco insignificantes) para digests comparados byte a byte |
+| `Test.LocalizationExchange` | O modelo de linhas da troca de localização -- termos, mensagens, documentos e escalares do projeto como linhas com uma identidade e um digest de origem -- e o digest da solicitação que vincula uma resposta à sua solicitação |
 | `Test.Assert`          | O vocabulário de asserções das suítes e as estruturas de apoio dos testes -- consulte [Um único vocabulário de asserções](#one-assertion-vocabulary). Importado apenas por suítes, nunca pelo código da infraestrutura de testes |
 | `Test.MacUtmFakeHost`  | Suporte a testes: um hospedeiro macOS/UTM substituto (`utmctl`, `osascript`, `pgrep` e outros simulados) para as suítes do driver macOS `Test.MacVirtualizationResponsive`, `Test.MacUtmLifecycle` e `Test.MacUtmBoundedNative`. Importado apenas por suítes |
+| `Test.CatalogSource`   | Suporte a testes: `Get-CatalogSourceMessage` resolve as chaves literais de catálogo em um corpo de código-fonte inspecionado para seu texto compilado em inglês. Importado apenas por suítes |
+| `Test.ProductGlobalization` | Suporte a testes: `Invoke-ProductGlobalizationCheck` executa as verificações Node, Go ou Pester do próprio produto e falha quando um processo de teste ou uma linha obrigatória falha. Importado apenas por suítes |
 
 <a id="42d38664-0006"></a>
 
@@ -454,10 +484,13 @@ completa, incluindo os três posicionamentos que parecem a armadilha e estão co
 
 ## Executar as suítes
 
-O executor das suítes requer Pester 5.x (a versão 5.9.1 é a versão de instalação
-indicada na documentação). As suítes usam `BeforeAll`/`AfterAll` para preparar e
-limpar o ambiente de execução entre as fases de descoberta e execução. Pester 4
-não é compatível com o executor.
+O executor das suítes requer Pester 6.x (a versão 6.2.0 é a versão de instalação
+indicada na documentação), a mesma linha que o passo de testes do pre-commit exige;
+os instaladores de hospedeiro instalam o 6.x mais recente. Veja
+[Instalação do Pester](../install.md#pester-install).
+As suítes usam `BeforeAll`/`AfterAll` para preparar e
+limpar o ambiente de execução entre as fases de descoberta e execução. Pester 5 e 4
+não são compatíveis com o executor.
 
 As suítes **não** fazem parte de um ciclo de testes. Elas executam ao lado da infraestrutura de testes:
 
@@ -471,6 +504,19 @@ Um processo por suíte, para que as importações, o estado global ou uma falha 
 influenciar o resultado de outra. Cada processo filho define uma `PesterConfiguration` e depois chama
 a suíte pelo operador de chamada, em vez de `Invoke-Pester -Path`, que é o
 que mantém as suítes com fixtures no escopo do arquivo funcionando enquanto ainda emitem XML NUnit.
+
+**Cada suíte é executada em uma pasta temporária própria.** O executor cria uma pasta
+`yrn-suite-<id>` dentro da pasta principal `yrn-run-<id>` da execução (que fica
+em `/tmp` no Linux e no macOS, na pasta temporária do usuário no Windows) e aponta
+`TMPDIR`, `TMP` e `TEMP` para ela, de modo que a suíte, o `TestDrive` do Pester e
+todos os processos que a suíte inicia gravam ali. A pasta é mantida até o fim da
+execução, inclusive depois de um encerramento por tempo limite ou por cancelamento,
+e a pasta principal da execução é removida nesse momento; uma pasta que resiste à
+remoção é indicada em um aviso. O executor também define
+`DOTNET_EnableDiagnostics=0`, para que um processo de suíte encerrado à força não deixe pipes de
+depurador nem soquete de diagnóstico do .NET. `tools/_InvokeOneSuite.ps1` faz o mesmo
+por conta própria quando é executado diretamente. Depois da última suíte, o executor aplica a
+mesma limpeza de arquivos temporários que um ciclo de teste.
 
 **No Windows, execute as suítes em um PowerShell elevado que tenha o `usr\bin`
 do Git for Windows em `PATH`.** Elevação: algumas suítes criam links simbólicos ou regravam o
@@ -1295,7 +1341,8 @@ de 5 MiB também se aplicam aqui. Cada POST tem limite de 6 segundos, além do
 prazo de encerramento; falhas no envio aparecem na próxima amostra e no arquivo
 local `status`. O envio final marca o gravador como parado. As amostras locais
 permanecem no diretório privado `/tmp/yuruna-fae-recorder.*` indicado no log de
-execução até a limpeza do convidado. Sem um endpoint de status, a gravação local
+execução até que a próxima invocação nesse convidado remova o diretório e o perfil
+indicados no log anterior, ou até a limpeza do convidado. Sem um endpoint de status, a gravação local
 continua funcionando.
 
 Após uma invocação lenta ou com falha, `fetch-and-execute.<id>.evidence.json` e o
@@ -1312,7 +1359,7 @@ VM", portanto o convidado pode estar reiniciando quando `Save-GuestDiagnostic`
 interrompida em `Get-GuestAddress` (pasta por convidado vazia) ou gravaria um
 arquivo quase inútil cujo conteúdo seria apenas o erro de conexão SSH (uma
 condição de corrida "half-up sshd", com a porta 22 aberta, mas o sshd ainda
-estabelecendo o vínculo -- consulte `feedback_save_diag_post_reboot.md`).
+estabelecendo o vínculo).
 `Wait-SshReady` consulta um handshake real `echo yuruna-ssh-ready` e resolve
 novamente `Get-GuestAddress` a cada iteração, para que uma entrada KVP que se
 estabelece tarde no vSwitch External do Hyper-V seja reconhecida automaticamente.
@@ -1388,6 +1435,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.14
+Last review: 2026.10.18
 
 Voltar para [Yuruna](../../README.md)

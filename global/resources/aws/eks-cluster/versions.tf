@@ -2,7 +2,7 @@
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 terraform {
   # Match the portable OpenTofu host floor; standalone guests can use a newer patch.
-  required_version = ">= 1.13.0"
+  required_version = ">= 1.13.1"
 
   required_providers {
     aws = {

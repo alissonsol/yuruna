@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.14
+.VERSION 2026.10.18
 .GUID 42f0a42c-b27f-4bec-ab95-98fd930ad13d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -46,19 +46,6 @@ $script:SingleFlightLockQualifiedFileSystem = @{
     windows = @('NTFS')
 }
 
-function Get-YurunaSingleFlightPlatform {
-    <#
-    .SYNOPSIS
-        linux, macos or windows for the current process.
-    #>
-    [CmdletBinding()]
-    [OutputType([string])]
-    param()
-    if ($IsWindows) { return 'windows' }
-    if ($IsMacOS) { return 'macos' }
-    return 'linux'
-}
-
 function Get-YurunaSingleFlightComparison {
     <#
     .SYNOPSIS
@@ -67,7 +54,7 @@ function Get-YurunaSingleFlightComparison {
     [CmdletBinding()]
     [OutputType([System.StringComparison])]
     param()
-    if ((Get-YurunaSingleFlightPlatform) -eq 'linux') { return [StringComparison]::Ordinal }
+    if ((Get-YurunaPlatformName) -eq 'linux') { return [StringComparison]::Ordinal }
     return [StringComparison]::OrdinalIgnoreCase
 }
 
@@ -115,12 +102,8 @@ function Get-YurunaSingleFlightProcessStart {
     [OutputType([long])]
     param()
     if ($null -eq $script:SingleFlightProcessStartUnixMs) {
-        try {
-            $start = (Get-Process -Id $PID -ErrorAction Stop).StartTime
-            $script:SingleFlightProcessStartUnixMs = [DateTimeOffset]::new($start).ToUnixTimeMilliseconds()
-        } catch {
-            $script:SingleFlightProcessStartUnixMs = [long]0
-        }
+        $start = Get-YurunaProcessStartUtc -ProcessId $PID
+        $script:SingleFlightProcessStartUnixMs = if ($null -eq $start) { [long]0 } else { [DateTimeOffset]::new($start).ToUnixTimeMilliseconds() }
     }
     return [long]$script:SingleFlightProcessStartUnixMs
 }
@@ -669,7 +652,7 @@ function Get-YurunaSingleFlightLockQualification {
         [string]$Path,
         [ValidateSet('linux', 'macos', 'windows')][string]$Platform
     )
-    if (-not $Platform) { $Platform = Get-YurunaSingleFlightPlatform }
+    if (-not $Platform) { $Platform = Get-YurunaPlatformName }
     $declared = @($script:SingleFlightLockQualifiedFileSystem[$Platform])
     $record = [ordered]@{
         Platform = $Platform; FileSystem = $null; DriveType = $null

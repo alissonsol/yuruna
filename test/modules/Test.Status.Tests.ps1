@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.14
+.VERSION 2026.10.18
 .GUID 42d985d1-8774-4cde-a9d4-deb5b4740d25
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -36,7 +36,9 @@ function New-TempStatusDir {
     [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
         Justification = 'Test helper: creates a throwaway temp dir for the status.json fixture.')]
     param()
-    $d = Join-Path ([System.IO.Path]::GetTempPath()) ("yrn-status-test-" + [System.IO.Path]::GetRandomFileName())
+    # Under the test drive, which Pester removes whether or not the test
+    # passes; the removals at the end of each It run only after a pass.
+    $d = Join-Path $TestDrive ("yrn-status-test-" + [System.IO.Path]::GetRandomFileName())
     New-Item -ItemType Directory -Force -Path $d | Out-Null
     return $d
 }

@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.10.14
+# Version: 2026.10.18
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 #
@@ -29,7 +29,7 @@ _yuruna_net_admin_down() {
 # --- REGION: https://yuruna.link/4220a755-0011
 # Use the same interface selection as network_diag without printing on every poll.
 yuruna_has_ipv4() {
-    local sysfs=/sys/class/net ifc oper carrier
+    local sysfs="${YURUNA_NET_SYSFS:-/sys/class/net}" ifc oper carrier
     for ifc in "$sysfs"/*; do
         ifc=$(basename "$ifc")
         [ -d "$sysfs/$ifc" ] || continue
@@ -221,6 +221,148 @@ network_diag() {
     _yuruna_net_client_state "${probe_ifc:-$probe_admin}"
     echo "==== END NETWORK DIAGNOSTIC ===="
     echo ""
+}
+
+# The IPv4 literal for one peer. A name is resolved under a bound, so a dead
+# resolver cannot park the verdict below for the resolver's own retry ladder;
+# a literal passes through. Empty output means the name got no answer.
+_yuruna_net_addr_of() {
+    case "$1" in
+        '') return 1 ;;
+        *[!0-9.]*)
+            if command -v timeout >/dev/null 2>&1; then
+                timeout 2 getent ahostsv4 "$1" 2>/dev/null | awk 'NR == 1 { print $1 }'
+            else
+                getent ahostsv4 "$1" 2>/dev/null | awk 'NR == 1 { print $1 }'
+            fi
+            ;;
+        *) printf '%s\n' "$1" ;;
+    esac
+}
+
+# One line naming what this guest can see of its own path to HOST:PORT, and
+# status 0 only when a TCP connection succeeded. curl prints the same "could
+# not connect" text for a refused port, a missing address, a missing route and
+# an unanswered ARP, so the address, the route and the next hop's neighbor
+# state are read here first, and only then does a bounded connect separate
+# refused from unreachable from lost. Never more than one line, never longer
+# than the connect bound plus the resolver bound.
+yuruna_net_tcp_verdict() {
+    local host="$1" port="${2:-5000}" addr="" route="" nexthop="" state="" err="" rc=0
+    if [ -z "$host" ]; then
+        echo "no peer address to test"
+        return 1
+    fi
+    if ! yuruna_has_ipv4; then
+        echo "no IPv4 address on this guest (the lease is gone or never landed)"
+        return 1
+    fi
+    addr=$(_yuruna_net_addr_of "$host") || addr=""
+    if [ -z "$addr" ]; then
+        echo "the name $host does not resolve (DNS)"
+        return 1
+    fi
+    if ! route=$(ip -4 route get "$addr" 2>/dev/null); then
+        if [ -z "$(ip -4 route show default 2>/dev/null)" ]; then
+            echo "no default route (and $host is not on a connected subnet)"
+        else
+            echo "no route to $host"
+        fi
+        return 1
+    fi
+    nexthop=$(printf '%s\n' "$route" | awk '{ for (i = 1; i < NF; i++) if ($i == "via") { print $(i + 1); exit } }')
+    [ -n "$nexthop" ] || nexthop="$addr"
+    state=$(ip -4 neigh show to "$nexthop" 2>/dev/null | awk 'NR == 1 { print $NF }') || state=""
+    case "$state" in
+        FAILED|INCOMPLETE)
+            echo "no ARP reply from $nexthop (neighbor $state)"
+            return 1
+            ;;
+    esac
+    # The bound is what makes a lost packet a verdict instead of a hang: the
+    # kernel's own connect retry runs for minutes.
+    if command -v timeout >/dev/null 2>&1; then
+        err=$(timeout 3 bash -c 'exec 3<>"/dev/tcp/$1/$2"' _ "$addr" "$port" 2>&1) && rc=0 || rc=$?
+    else
+        err=$(bash -c 'exec 3<>"/dev/tcp/$1/$2"' _ "$addr" "$port" 2>&1) && rc=0 || rc=$?
+    fi
+    if [ "$rc" -eq 0 ]; then
+        echo "connected to $host:$port"
+        return 0
+    fi
+    case "$rc:$err" in
+        124:*|*"timed out"*)
+            echo "connection to $host:$port timed out (packets lost between this guest and $host)"
+            ;;
+        *"Connection refused"*)
+            echo "connection refused by $host:$port (host up, nothing listening)"
+            ;;
+        *"No route to host"*)
+            # EHOSTUNREACH on a LAN is the ARP that went unanswered; the
+            # connect just created the neighbor entry that records it.
+            state=$(ip -4 neigh show to "$nexthop" 2>/dev/null | awk 'NR == 1 { print $NF }') || state=""
+            case "$state" in
+                FAILED|INCOMPLETE) echo "no ARP reply from $nexthop (neighbor $state)" ;;
+                *) echo "no route to host $host (the kernel rejected the connect)" ;;
+            esac
+            ;;
+        *"Network is unreachable"*)
+            echo "no route to $host (network unreachable)"
+            ;;
+        *)
+            echo "connect to $host:$port failed: ${err##*: }"
+            ;;
+    esac
+    return 1
+}
+
+# A fixed-size view of this guest's own network state beside one peer, for
+# the moment a script gives up on that peer. It is printed where the console
+# frame the host reads back is about to end, so every field is capped: the
+# line count never grows with the interface count, and the verdict line is
+# last so the bounded tail the host keeps carries it.
+yuruna_net_self_report() {
+    local host="$1" port="${2:-5000}" sysfs="${YURUNA_NET_SYSFS:-/sys/class/net}"
+    local ifc first="" count=0 line="" first_line="" second_line="" addr=""
+    echo "==== THIS GUEST'S PATH TO ${host} ===="
+    # Two address lines at most; any further NIC is a count on the second line,
+    # so the block is the same height on a 2-NIC guest and a 30-NIC one.
+    for ifc in "$sysfs"/*; do
+        ifc=$(basename "$ifc")
+        _yuruna_net_is_physical "$ifc" || continue
+        count=$((count + 1))
+        [ -n "$first" ] || first="$ifc"
+        if [ "$count" -le 2 ]; then
+            line=$(ip -4 -br address show dev "$ifc" 2>/dev/null | tr -s ' ') || line=""
+            line="${line:-$ifc (no IPv4 address)}"
+            if [ "$count" -eq 1 ]; then first_line="$line"; else second_line="$line"; fi
+        fi
+    done
+    if [ "$count" -eq 0 ]; then
+        echo "   address: no physical NIC in sysfs"
+    else
+        echo "   address: $first_line"
+    fi
+    if [ "$count" -gt 2 ]; then
+        echo "   address: $second_line (+$((count - 2)) more physical NIC(s))"
+    elif [ "$count" -eq 2 ]; then
+        echo "   address: $second_line"
+    fi
+    line=$(ip -4 route show default 2>/dev/null | head -1) || line=""
+    echo "   default route: ${line:-none}"
+    addr=$(_yuruna_net_addr_of "$host") || addr=""
+    if [ -n "$addr" ]; then
+        line=$(ip -4 neigh show to "$addr" 2>/dev/null | head -1) || line=""
+        echo "   neighbor: ${line:-no neighbor entry for $host}"
+    else
+        echo "   neighbor: $host did not resolve to an address"
+    fi
+    if [ -n "$first" ]; then
+        echo "   link: $first operstate=$(cat "$sysfs/$first/operstate" 2>/dev/null || echo unknown) carrier=$(cat "$sysfs/$first/carrier" 2>/dev/null || echo none)"
+    fi
+    echo "   clock: $(date -u '+%Y-%m-%dT%H:%M:%SZ' 2>/dev/null || echo unknown) uptime=$(cut -d' ' -f1 /proc/uptime 2>/dev/null || echo unknown)s"
+    echo "   verdict: $(yuruna_net_tcp_verdict "$host" "$port" 2>/dev/null || true)"
+    echo "==== END OF THIS GUEST'S PATH ===="
 }
 
 # See https://yuruna.link/4220a755-0012

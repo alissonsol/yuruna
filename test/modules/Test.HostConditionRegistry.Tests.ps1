@@ -420,10 +420,10 @@ Describe 'optional capabilities are resolved by name when a host registers' {
             HostType = 'host.fixture.call'; AssertFn = 'Test-YurunaRegistryFixtureAssert'; MinimumFn = 'Test-YurunaRegistryFixtureMinimum'
             ClockSyncFn = 'Get-YurunaRegistryFixtureClock'
         }
-        Assert-MockCalled -CommandName Register-HostConditionProvider -ModuleName Test.HostCondition -Times 1 -Exactly -Scope It
+        Should -Invoke -CommandName Register-HostConditionProvider -ModuleName Test.HostCondition -Times 1 -Exactly -Scope It
         # An empty slot is passed as an explicit $null, so what the record holds
         # never depends on the defaults of the function that stores it.
-        Assert-MockCalled -CommandName Register-HostConditionProvider -ModuleName Test.HostCondition -Times 1 -Exactly -Scope It -ParameterFilter {
+        Should -Invoke -CommandName Register-HostConditionProvider -ModuleName Test.HostCondition -Times 1 -Exactly -Scope It -ParameterFilter {
             $bound = $PesterBoundParameters
             $unbound = @('HostType', 'Assert', 'AssertMinimum', 'RequiresElevation', 'Display', 'DisplayTeardown', 'ClockSync',
                 'NetworkHealth', 'MetricsExporter' | Where-Object { -not $bound.ContainsKey($_) })
@@ -439,7 +439,7 @@ Describe 'optional capabilities are resolved by name when a host registers' {
         $argument.MinimumFn = 'Get-YurunaRegistryFixtureAbsentMinimum'
         $run = Invoke-FixtureRegistration $argument
         Assert-Equal -Expected 1 -Actual $run.Warning.Count -Because 'the missing function is reported'
-        Assert-MockCalled -CommandName Register-HostConditionProvider -ModuleName Test.HostCondition -Times 0 -Exactly -Scope It
+        Should -Invoke -CommandName Register-HostConditionProvider -ModuleName Test.HostCondition -Times 0 -Exactly -Scope It
     }
 }
 

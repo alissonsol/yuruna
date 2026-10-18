@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.14
+.VERSION 2026.10.18
 .GUID 42334199-853f-4548-a2c0-8f411e948509
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -42,6 +42,9 @@ BeforeAll {
     Import-Module (Join-Path $here 'Test.Assert.psm1') -Force -Global -DisableNameChecking
     Import-Module (Join-Path $script:RepoRoot 'automation/Yuruna.Common.psm1') -Force -DisableNameChecking
     Import-Module (Join-Path $here 'Test.CriticalRecord.psm1') -Force -DisableNameChecking
+    # Captured before any Mock: a filtered mock alone fails the calls its
+    # filter does not match, and this suite relies on the real command there.
+    $script:RealWaitIoTask = & (Get-Module Test.CriticalRecord) { Get-Command Wait-YurunaCriticalIoTask }
     $script:ModulePath = Join-Path $here 'Test.CriticalRecord.psm1'
     $script:Pwsh = (Get-Process -Id $PID).Path
     if (-not $script:Pwsh) { $script:Pwsh = 'pwsh' }
@@ -434,6 +437,28 @@ Describe 'Write-YurunaCriticalRecord -- refusals write nothing' {
         [IO.Directory]::Exists((Join-Path $dir 'missing')) | Should -Be $false
     }
 
+    It 'commits and preserves a record whose temporary files reach 260 characters' {
+        # The runtime's file APIs accept such a path on every platform, and
+        # the rename that replaces the record must too. A temporary name
+        # appends a dot, the process id, a dash, a 32-character token and
+        # .tmp (at least 39 characters; the previous generation's copy five
+        # more), so a record path of 221 characters puts every temporary file
+        # at or past 260 while, under any ordinary temp directory, each name
+        # stays within the 255-byte POSIX limit.
+        $dir = New-RecordDir
+        $path = Join-Path $dir ('r' * [Math]::Max(8, 220 - $dir.Length))
+        $path.Length | Should -BeGreaterOrEqual 221
+        $first = Write-TestRecord -Path $path -Payload @{ n = 1 } -Expected 0
+        $first.Reason    | Should -Be 'ok'
+        $first.Committed | Should -Be $true
+        $second = Write-TestRecord -Path $path -Payload @{ n = 2 } -Expected 1
+        $second.Reason   | Should -Be 'ok'
+        $read = Read-YurunaCriticalRecord -Path $path -Kind $script:Kind
+        $read.Status     | Should -Be 'ok'
+        $read.Generation | Should -Be 2
+        [IO.File]::Exists("$path.prev") | Should -Be $true
+    }
+
     It 'reports access-denied for an unwritable directory and leaves the record unchanged' -Skip:$script:SkipPermissionCase {
         $dir = New-RecordDir
         $path = Join-Path $dir 'a.record'
@@ -510,6 +535,7 @@ Describe 'Durability -- flushes are reported, power loss is never claimed withou
 
     It 'commits without confirmed flushes under ProcessCrash when a flush times out' {
         $dir = New-RecordDir
+        Mock -ModuleName Test.CriticalRecord Wait-YurunaCriticalIoTask -MockWith { & $script:RealWaitIoTask @PesterBoundParameters }
         Mock -ModuleName Test.CriticalRecord Wait-YurunaCriticalIoTask -ParameterFilter { $Operation -eq 'flush-temp' } -MockWith {
             $null = $Task.Wait(5000)
             [pscustomobject]@{ Completed = $false; TimedOut = $true; Result = $null; Exception = $null }
@@ -524,6 +550,7 @@ Describe 'Durability -- flushes are reported, power loss is never claimed withou
         $dir = New-RecordDir
         $path = Join-Path $dir 'a.record'
         $null = Write-TestRecord -Path $path -Payload @{ n = 1 } -Expected 0
+        Mock -ModuleName Test.CriticalRecord Wait-YurunaCriticalIoTask -MockWith { & $script:RealWaitIoTask @PesterBoundParameters }
         Mock -ModuleName Test.CriticalRecord Wait-YurunaCriticalIoTask -ParameterFilter { $Operation -eq 'replace-current' } -MockWith {
             $null = $Task.Wait(5000)
             [pscustomobject]@{ Completed = $false; TimedOut = $true; Result = $null; Exception = $null }
@@ -548,7 +575,8 @@ Describe 'Durability -- flushes are reported, power loss is never claimed withou
                 $ok.Committed  | Should -Be $true
                 $ok.Durability | Should -Be 'power-loss'
             }
-            Mock -ModuleName Test.CriticalRecord Wait-YurunaCriticalIoTask -ParameterFilter { $Operation -eq 'flush-temp' } -MockWith {
+            Mock -ModuleName Test.CriticalRecord Wait-YurunaCriticalIoTask -MockWith { & $script:RealWaitIoTask @PesterBoundParameters }
+        Mock -ModuleName Test.CriticalRecord Wait-YurunaCriticalIoTask -ParameterFilter { $Operation -eq 'flush-temp' } -MockWith {
                 $null = $Task.Wait(5000)
                 [pscustomobject]@{ Completed = $false; TimedOut = $true; Result = $null; Exception = $null }
             }

@@ -894,8 +894,7 @@ Resolve the running pwsh via the shared, macOS-hardened resolver: a
 bare (Get-Process -Id $PID).Path is null on macOS (no /proc) and a
 null child-pwsh path makes the spawn below throw. The Sequence entry
 point loads this gate WITHOUT Test.InnerSpawn, so import it on demand;
--Global avoids the nested-import global-eviction class
-(feedback_module_force_import_evicts_global.md). The call is module-
+-Global avoids the nested-import global-eviction class. The call is module-
 qualified because the Windows host module exports a same-named
 Get-PwshExePath with different semantics.
 
@@ -922,12 +921,12 @@ proof the VM was created by THIS host. Persisted under
 $env:YURUNA_RUNTIME_DIR/host-config-ca/ (gitignored).
 See docs/test-config.md.
 
-Crypto is operator-approved security posture (do not change without sign-off,
-see feedback_no_unauthorized_security_changes): EC P-256, SHA-256, CA 10y,
-leaves 2y. The server leaf's SAN is a STABLE dns name (ConfigServerSan); guests
-reach the host's current IP via `curl --connect-to <san>:<port>:<hostIp>:<port>`
-so a host DHCP change never invalidates the leaf (it only invalidates the baked
-host IP, the same staleness the status-service fetch already has).
+Crypto is operator-approved security posture (do not change without
+sign-off): EC P-256, SHA-256, CA 10y, leaves 2y. The server leaf's SAN is a
+STABLE dns name (ConfigServerSan); guests reach the host's current IP via
+`curl --connect-to <san>:<port>:<hostIp>:<port>` so a host DHCP change never
+invalidates the leaf (it only invalidates the baked host IP, the same
+staleness the status-service fetch already has).
 
 <a id="4213a0b3-0039"></a>
 
@@ -1086,7 +1085,6 @@ On Windows the spawn shape below is load-bearing: adding -Redirect* or
 inherits and pins the caller's stdout pipe, and the bounce hangs silently and
 unboundedly. Full trap description and why file redirection does not fix it:
 docs/workarounds.md#a-detached-grandchild-pins-the-callers-pipe-on-windows
-(also captured in feedback_windows-detached-grandchild-pins-pipe.md).
 
 <a id="4213a0b3-0044"></a>
 
@@ -1211,7 +1209,7 @@ import here costs verification and nothing else.
 -Global is required, not stylistic. A bare -Force re-import evicts an
 already-global module into THIS module's private scope, and the next
 Get-EnabledOcrProvider call from any other caller then fails with "not
-recognized" (feedback_module_force_import_evicts_global.md).
+recognized".
 
 <a id="4213a0b3-004b"></a>
 
@@ -1316,7 +1314,6 @@ is no in-band source to ask, and a passive cache read finds the guest only
 while it happens to be talking to us. Without this, address resolution
 hands back the VM name and Wait-SshReady spends its whole budget on
 "Could not resolve hostname", which names nothing about the real fault.
-(memory note: hyperv_external_vswitch_arp_discovery)
 
 A contract verb rather than a probe-by-name: every driver answers, and
 each decides what warming means for it. A driver whose Get-VMIp already
@@ -2160,7 +2157,13 @@ The collectors this host must publish, and why each one is on the list:
   logical_disk -- free space, which fails a guest's disk creation the same
                   silent way a commit ceiling fails its memory.
   hyperv       -- per-VM state, so a host's VM census at an incident is a
-                  recorded series rather than a memory of what was running.
+                  recorded series rather than a memory of what was running;
+                  its virtual_network_adapter and virtual_switch families are
+                  the only series in which a guest's own adapter or switch
+                  port going quiet leaves a trace.
+  net          -- per-adapter bytes, packets and errors on the host's own
+                  NICs, so a host uplink fault leaves a trace rather than a
+                  gap.
 Kept deliberately short: every collector is scraped on every interval, and
 the exporter's defaults differ between releases, so the set is stated rather
 than inherited.
@@ -2205,11 +2208,10 @@ The streams are deliberately NOT redirected, and neither -Wait nor the
 parameterless WaitForExit() is used. Redirecting any stream turns on
 handle inheritance for the whole subtree, which is how a descendant that
 outlives this call pins the pipe an enclosing process is reading and hangs
-it with no output and no timeout (see feedback_windows-detached-grandchild-
-pins-pipe). Passing no streams makes this a ShellExecute spawn, which
-hands down no inheritable handles at all; the timed WaitForExit overload
-waits on this process alone; and the package manager's own log file is
-where the diagnostic goes instead.
+it with no output and no timeout. Passing no streams makes this a
+ShellExecute spawn, which hands down no inheritable handles at all; the
+timed WaitForExit overload waits on this process alone; and the package
+manager's own log file is where the diagnostic goes instead.
 
 Killing on the deadline stops this process waiting -- it does not stop an
 installer already handed to the operating system's own installer service.
@@ -2761,22 +2763,22 @@ propagation is the only way to reach child pwsh processes.
 The two values below are deliberately NOT in module scope. `Import-Module
 -Force` builds a fresh module instance with fresh session state, so a guard
 kept in $script: stops guarding the moment a nested in-process script
-re-imports this module (feedback_module_force_import_evicts_global) -- and
-both of these describe the process, not a module instance. The $global: scope
-belongs to the runspace and a forced re-import leaves it intact, so it is the
-widest variable scope reachable from here; module load must therefore never
-overwrite a value an earlier instance left behind.
-Test-Path over the variable drive rather than Get-Variable: the probe runs on
-every import, and a Get-Variable miss records a "Cannot find a variable" entry
-in $Error even under -ErrorAction SilentlyContinue, which is noise in exactly
-the postmortem this module exists to make readable.
+re-imports this module -- and both of these describe the process, not a
+module instance. The $global: scope belongs to the runspace and a forced
+re-import leaves it intact, so it is the widest variable scope reachable
+from here; module load must therefore never overwrite a value an earlier
+instance left behind. Test-Path over the variable drive rather than
+Get-Variable: the probe runs on every import, and a Get-Variable miss
+records a "Cannot find a variable" entry in $Error even under -ErrorAction
+SilentlyContinue, which is noise in exactly the postmortem this module
+exists to make readable.
 
 <a id="4213a0b3-00a7"></a>
 
 ## test/modules/Test.LogLevel.psm1: Path this process is transcribing to, or $null when it is not, paired with
 
 Path this process is transcribing to, or $null when it is not, paired with
-the pid that opened it -- the same key the file name is built from, so a
+the pid that opened it -- the same key the filename is built from, so a
 value that does not describe THIS process can never suppress its
 transcript. Without the guard a second Start-Transcript succeeds (PS 7
 allows concurrent transcripts): both writers open the one path in Append
@@ -3113,8 +3115,7 @@ PASS/FAIL tally + Write-Summary banner + Exit-WithSummary helper.
 Eviction-safe counters: $global:YurunaOutputState anchors the live
 state so Test-Config's helpers and any module that imports this one
 (e.g. Test.ConfigValidator) share the same PASS/FAIL/WARN tally
-regardless of -Force re-imports. See repo-memory
-feedback_module_force_import_evicts_global.md.
+regardless of -Force re-imports.
 
 <a id="4213a0b3-00bc"></a>
 
@@ -3249,10 +3250,10 @@ config document, or $null when the feature is effectively off (no resolvable
 path, Read-TestConfig unloaded, or the read threw). Read-TestConfig is ALWAYS
 called with the RESOLVED $Path -- never by-name with $Path omitted -- because its
 Mandatory $Path would stall forever on the interactive parameter prompt under the
-headless runner (see feedback_byname_detection_mandatory_param_prompt_hang). The
-Read-TestConfig-unloaded fallback keeps a caller that never imported Test.Config
-(a storage reader can be dot-sourced standalone) from throwing. CallerName only
-tags the verbose diagnostic so each reader's log line stays self-identifying.
+headless runner. The Read-TestConfig-unloaded fallback keeps a caller that
+never imported Test.Config (a storage reader can be dot-sourced standalone)
+from throwing. CallerName only tags the verbose diagnostic so each reader's
+log line stays self-identifying.
 
 <a id="4213a0b3-00c5"></a>
 
@@ -4286,7 +4287,6 @@ discovery has no in-band source to ask and falls back to reading a
 host-side cache that holds the guest only while it happens to be
 talking to us. Warming that cache first is what makes the lookup below
 answer on the first attempt instead of the fifth.
-(memory: feedback_hyperv_external_vswitch_arp_discovery.md)
 A contract verb, so every driver answers: each decides for itself
 whether a sweep is the right move and bounds its own cost.
 
@@ -4834,8 +4834,7 @@ cross-host helper. -Global is load-bearing: the poll loop below calls
 Test-CombinedOcrMatch (Test.OcrMatch module), which resolves
 Get-EnabledOcrProvider / Invoke-OcrProvider through the global session
 state. A nested -Force WITHOUT -Global evicts Test.OcrEngine from
-global (the module-eviction regression class,
-feedback_module_force_import_evicts_global.md), so the very next
+global (the module-eviction regression class), so the very next
 Test-CombinedOcrMatch call crashes with "Get-EnabledOcrProvider is not
 recognized".
 
@@ -5069,7 +5068,7 @@ cascade when declared.
 
 ## test/modules/Test.SequenceEngine.psm1: Invoke-Sequence
 
-Auto-derive ${hostLabel}: the host name a guest's own console prints,
+Auto-derive ${hostLabel}: the hostname a guest's own console prints,
 which is not ${hostname}. ${hostname} defaults to the VM name, and a VM
 name carries dots -- test-guest.ubuntu.server.26-01 -- while agetty and a
 shell prompt both print only the first label, "test-guest". The full name
@@ -5742,8 +5741,7 @@ three is load-bearing: a nested -Force WITHOUT -Global evicts the
 module from the parent (global) session. Test-CombinedOcrMatch
 (Test.OcrMatch module, called below) resolves Get-EnabledOcrProvider
 / Invoke-OcrProvider through global, so evicting Test.OcrEngine here
-crashes the OCR scan (the module-eviction regression class,
-feedback_module_force_import_evicts_global.md).
+crashes the OCR scan (the module-eviction regression class).
 
 <a id="4213a0b3-0161"></a>
 
@@ -5821,10 +5819,10 @@ Pull in Resolve-SequencePath and Read-SequenceFile from the engine module
 so prereqs resolve the same way Invoke-Sequence does.
 
 -Global is required: -Force without -Global yanks the engine module out of
-the global session (see the module-force-evict trap in repo memory). The
-runner imports Invoke-Sequence at startup; if any later -Force import here
-evicts it, every caller that built a function reference to e.g.
-Invoke-SequenceByName / Read-SequenceFile loses visibility.
+the global session. The runner imports Invoke-Sequence at startup; if any
+later -Force import here evicts it, every caller that built a function
+reference to e.g. Invoke-SequenceByName / Read-SequenceFile loses
+visibility.
 
 <a id="4213a0b3-0166"></a>
 
@@ -5922,8 +5920,7 @@ and from files. A static scan of this file pins the rule.
 
 Timestamps are authoritative as ...UnixMs numbers. Nothing here parses an
 ISO string back for a decision: ConvertFrom-Json turns those into local
-DateTime values, and a comparison of those drifts with the host's time zone
-(feedback_datetime-compare-is-timezone-sensitive.md).
+DateTime values, and a comparison of those drifts with the host's time zone.
 
 <a id="4213a0b3-016b"></a>
 
@@ -6343,8 +6340,7 @@ $PSNativeCommandUseErrorActionPreference is pinned $false in this scope so
 a non-zero tesseract exit reaches the explicit branch below instead of
 throwing a bare NativeCommandExitException that bypasses the diagnostic
 message (the preference defaults $false, but a caller or profile can enable
-it under EAP=Stop; see feedback_winget_self_upgrade_kills_running_pwsh for
-the guard class).
+it under EAP=Stop).
 
 <a id="4213a0b3-0183"></a>
 
@@ -6697,12 +6693,18 @@ PATH alone under-reports qemu-img on Windows, the same way it does for
 tesseract: the QEMU installer does not register itself on PATH, so a host
 whose qcow2-to-VHDX conversion runs fine prints "(not installed)" -- and
 this report is read while triaging image preparation, exactly where that
-disagreement sends the reader after a binary that is not missing. The
-directories the probe checks mirror `Resolve-QemuImgCommand` in
-`host/modules/Yuruna.Image.psm1` literal for literal; they have to stay the
-same set, or the report resumes disagreeing with the resolver it is
-describing. There are no non-Windows candidates, because the resolver has
-none either.
+disagreement sends the reader after a binary that is not missing. PATH
+order alone also picks the wrong copy there: another package's qemu-img on
+PATH (typically the Cloudbase 2.3.0 port) would be reported, and run,
+ahead of the current one in Program Files. The probe ranks the same
+candidates `Resolve-QemuImgCommand` in `host/modules/Yuruna.Image.psm1`
+ranks -- the installer's directories literal for literal, then every copy
+on PATH, newest version wins -- and prints the chosen path beside its
+version, plus the copy the bare name resolves to when that is a different
+one. They have to stay the same set and the same rule, or the report
+resumes disagreeing with the resolver it is describing. There are no
+non-Windows candidates beyond what the name resolves to, because the
+resolver has none either.
 
 <a id="4213a0b3-0198"></a>
 

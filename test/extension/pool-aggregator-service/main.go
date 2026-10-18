@@ -969,7 +969,7 @@ func isTerminal(status string) bool { return status == "pass" || status == "fail
 // numeric twin for the state-timeline panel. Derived from the same source so they
 // never disagree. Mapping: unreachable=0, running=1, pass=2, fail=3, idle=4
 // (reachable but no/other cycle status), paused=5, pausing-cycle=6, pausing-step=7,
-// stopped=8.
+// stopped=8, preflight-failed=9.
 //
 // The whole ladder mirrors the host status page's banner (yuruna.common.js
 // applyBanner + pauseBannerText) state for state, so a host reads the same on both
@@ -997,6 +997,9 @@ func (hv *hostView) statusLabel() string {
 		return "idle"
 	}
 	if hv.Status.RunnerFault != nil && hv.Status.RunnerFault.FailureClass != "" {
+		if hv.Status.RunnerFault.FailureClass == "config_gate_failed" {
+			return "preflight-failed"
+		}
 		return "fail"
 	}
 	if hv.Status.StepPaused {
@@ -1043,6 +1046,8 @@ func (hv *hostView) statusCode() int {
 		return 7
 	case "stopped":
 		return 8
+	case "preflight-failed":
+		return 9
 	default: // unreachable
 		return 0
 	}
@@ -1668,7 +1673,7 @@ func fetchCurrentAction(client *http.Client, base string) (bool, error) {
 // served by the status service at /yuruna-repo/VERSION -- the SAME source the
 // host's own status pages read for their header (their getHostInfo() fetches
 // yuruna-repo/VERSION via JS, so the version is not embedded in the HTML). A tiny
-// plain-text file (one CalVer line, e.g. "2026.10.14"), so it is lighter than any
+// plain-text file (one CalVer line, e.g. "2026.10.18"), so it is lighter than any
 // status HTML page and fetchable server-side without a JS engine. Returns
 // ("", err) on any failure; the caller keeps the prior version on a transient
 // miss (the version is stable across polls). The value is capped + first-line
@@ -4966,6 +4971,94 @@ func (s *poolState) handleGoCycle(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, s.cycleResultsTarget(hostID, base, folder), http.StatusFound)
 }
 
+// A runner attempt can fail before creating a cycle. Resolve those host-state
+// intervals separately so opening a yellow block cannot show the previous pass.
+// Completed attempts remain available after recovery, until host retention removes
+// them. The dashboard sends the observed state to distinguish expired preflight
+// evidence from a cycle result without changing the existing cycle-link contract.
+func (s *poolState) handleGoHostEvent(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+	status := q.Get("status")
+	if status != "" && status != "3" && status != "9" {
+		s.handleGoCycle(w, r)
+		return
+	}
+	hostID := normalizeHostID(strings.TrimSpace(q.Get("host")))
+	if hostID == "" {
+		localizedHTTPError(w, r, "aggregator.missing_host", http.StatusBadRequest)
+		return
+	}
+	base, _ := s.resolveHostBase(hostID, strings.TrimSpace(q.Get("pool")))
+	if base == "" {
+		localizedHTTPError(w, r, "aggregator.host_not_known_to_the_pool", http.StatusNotFound)
+		return
+	}
+	var target string
+	if ms, err := strconv.ParseInt(strings.TrimSpace(q.Get("t")), 10, 64); err == nil && ms > 0 {
+		target = s.runnerAttemptTarget(base, time.UnixMilli(ms), status == "9")
+	}
+	if target == "" && status == "9" {
+		target = strings.TrimRight(base, "/") + "/#runner-attempts"
+	}
+	if target == "" {
+		s.handleGoCycle(w, r)
+		return
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	http.Redirect(w, r, target, http.StatusFound)
+}
+
+// The index includes successful attempts so a failure's interval ends when the
+// next preflight completes, rather than following the host into a recovered cycle.
+// Diagnostic text is deliberately not parsed or exported by the pool service.
+func (s *poolState) runnerAttemptTarget(base string, click time.Time, preflightOnly bool) string {
+	if s.httpClient == nil {
+		return ""
+	}
+	type attempt struct {
+		Generation   string `json:"attemptGeneration"`
+		StartedAt    string `json:"startedAtUtc"`
+		FinishedAt   string `json:"finishedAtUtc"`
+		Passed       bool   `json:"passed"`
+		Skipped      bool   `json:"skipped"`
+		FailureClass string `json:"failureClass"`
+		RecordPath   string `json:"recordPath"`
+	}
+	var index struct {
+		SchemaVersion int       `json:"schemaVersion"`
+		Attempts      []attempt `json:"attempts"`
+	}
+	body := s.fetchListing(strings.TrimRight(base, "/") + "/runtime/runner-attempts/index.json")
+	if json.Unmarshal([]byte(body), &index) != nil || index.SchemaVersion != 1 || len(index.Attempts) > 20 {
+		return ""
+	}
+	var latest *attempt
+	var latestTime time.Time
+	for i := range index.Attempts {
+		row := &index.Attempts[i]
+		finished, err := time.Parse(time.RFC3339Nano, row.FinishedAt)
+		started, startErr := time.Parse(time.RFC3339Nano, row.StartedAt)
+		if err != nil || startErr != nil || finished.Before(started) || finished.After(click) {
+			continue
+		}
+		if latest == nil || finished.After(latestTime) {
+			latest, latestTime = row, finished
+		}
+	}
+	if latest == nil || latest.Passed || latest.Skipped || latest.FailureClass == "" ||
+		(preflightOnly && latest.FailureClass != "config_gate_failed") || latest.Generation == "" {
+		return ""
+	}
+	// The directory identity is the same SHA256 prefix the runner uses; its
+	// original generation may include a process ID or other non-path characters.
+	digest := sha256.Sum256([]byte(latest.Generation))
+	directory := fmt.Sprintf("runner-attempts/%x/", digest[:12])
+	if latest.RecordPath != directory+"config-gate.json" && latest.RecordPath != directory+"runner-fault.json" {
+		return ""
+	}
+	return strings.TrimRight(base, "/") + "/runtime/" + latest.RecordPath
+}
+
 // cycleResultsTarget is where a timeline click on this host at this cycle lands.
 // Factored out because the JSON route hands the same URL to a caller that cannot
 // see the timeline at all; sharing the body is what stops the link a tool
@@ -5009,6 +5102,10 @@ func cycleShareTarget(base, folder string) string {
 // Landing on a share page that does not know which cycle it is sharing would only
 // move the failure to a button.
 func (s *poolState) handleGoCycleShare(w http.ResponseWriter, r *http.Request) {
+	if r.URL.Query().Get("status") == "9" {
+		s.handleGoHostEvent(w, r)
+		return
+	}
 	base, folder, ok := s.resolveClickedCycle(w, r)
 	if !ok {
 		return
@@ -5329,8 +5426,8 @@ func (s *poolState) handleMetricsWithArchiveProbe(w http.ResponseWriter, readabl
 	// forms one continuous series per host -- the input the state-timeline panel
 	// needs. No hostname label (pool view is hostname-free). 0=unreachable
 	// 1=running 2=pass 3=fail 4=idle 5=paused 6=pausing-cycle 7=pausing-step
-	// 8=stopped.
-	b.WriteString("# HELP yuruna_pool_host_status Per-host cycle status code (0=unreachable 1=running 2=pass 3=fail 4=idle 5=paused 6=pausing-cycle 7=pausing-step 8=stopped).\n# TYPE yuruna_pool_host_status gauge\n")
+	// 8=stopped 9=preflight-failed.
+	b.WriteString("# HELP yuruna_pool_host_status Per-host state code (0=unreachable 1=running 2=pass 3=fail 4=idle 5=paused 6=pausing-cycle 7=pausing-step 8=stopped 9=preflight-failed).\n# TYPE yuruna_pool_host_status gauge\n")
 	for _, h := range ids {
 		hv := s.hosts[h]
 		if hv == nil {
@@ -6581,6 +6678,7 @@ func main() {
 	// resolving the host's CURRENT IP live (so the link survives an IP change). Open
 	// (no auth): it only redirects to a host's already-open status service.
 	mux.HandleFunc("/go/cycle", state.handleGoCycle)
+	mux.HandleFunc("/go/host-event", state.handleGoHostEvent)
 	// /go/cycle-share: the same click, resolved the same way, but landing on the
 	// host's share page for that cycle -- one archive of the whole results folder,
 	// handed to the operator's mail client. Open, like the two redirects around it.

@@ -1114,7 +1114,7 @@ Windows guest runs the same way are parsed byte-for-byte before any
 BOM-tolerant shell exists, so a UTF-8 BOM or non-ASCII byte aborts them at
 line 1. Fold the shared Test-AsciiNoBom guard into this pre-cycle gate so an
 accidental re-encode blocks the cycle here instead of breaking first-install
-on the guest. See feedback_bootstrap_installer_no_bom.md.
+on the guest.
 
 <a id="42010605-0045"></a>
 
@@ -2985,8 +2985,15 @@ Their shared stages use the same host contract, phase names, and admission rules
 Both call `Start-AmisAdEdge`: start both edges before waiting, discard reports
 from previous boots, require a fresh valid IP address for each edge, and stop
 before scenarios if either edge fails. Failure reasons stay attached to the edge.
-The public-key handoff uses those verified addresses rather than re-reading an
-unconfirmed report. `-WhatIf` leaves report files and VMs untouched.
+Every SSH call the public-key handoff makes to an edge (readiness probe, key
+install, login proof) uses those verified addresses, passed to `Invoke-GuestSsh`
+as `-ResolvedAddress`, rather than re-reading an unconfirmed report or relying
+on host discovery, which can return nothing while the edge is reachable. The
+handoff waits a bounded time for each edge's SSH, because an address report does
+not prove sshd is accepting logins. When it fails, `edge-address-evidence.json`
+in the stage log directory records each edge's reported address and report time,
+what discovery returns at that moment, and, on Hyper-V, the `Save-VMNetworkState`
+capture. `-WhatIf` leaves report files and VMs untouched.
 
 <a id="42010605-00a8"></a>
 

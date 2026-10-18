@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.14
+.VERSION 2026.10.18
 .GUID 42df85f3-7223-8240-a334-1350406572f3
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -5249,6 +5249,7 @@
         }
         '‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
     )
+    'automation.runtime_ipc_remove_action' = '[!‮Řéɱóṽé ţħé ļéƒţóṽéř .ÑÉŢ řúñţíɱé éñţřý óƒ á ƥřóçéšš ţħáţ íš ğóñé‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~]'
     'automation.setup_service_vm_reason_intended_stopped' = '[!‮íţ ŵáš šţóƥƥéď óñ ƥúřƥóšé; řéƀúíļďíñğ ƀéçáúšé šéţúƥ ŵáš ášķéď ţó ƀříñğ íţ úƥ‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
     'automation.setup_service_vm_reason_lock_unavailable' = '[!‮íţš óƥéřáţíóñ ļóçķ çóúļď ñóţ ƀé ţáķéñ‬ ~~~~~~~~~~~~~~~]'
     'automation.setup_service_vm_reason_operation_busy' = '[!‮áñóţħéř šţářţ óř šţóƥ óƒ ţħíš šéřṽíçé íš šţíļļ řúññíñğ‬ ~~~~~~~~~~~~~~~~~~~~~~]'
@@ -5261,6 +5262,7 @@
         }
         ')‬ ~~~~~~~~~~~~~~~~~~~]'
     )
+    'automation.stale_temp_remove_action' = '[!‮Řéɱóṽé ţħé šţáļé Ýúřúñá ţéɱƥ éñţřý‬ ~~~~~~~~~~~~~~]'
     'automation.system_diagnostic_registry_images_refused' = @(
         '[!‮ŘÉĞÍŠŢŘÝ: ţħé çáçħé řéƒúšéď '
         @{

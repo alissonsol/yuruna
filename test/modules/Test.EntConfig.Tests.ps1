@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.14
+.VERSION 2026.10.18
 .GUID 42e237df-6378-43f5-b1f4-c3f181119e39
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -41,7 +41,7 @@ $scriptPath = (Resolve-Path (Join-Path -Path $here -ChildPath '..' -AdditionalCh
 # fixture reaches the assertions as $null.
 $errs = $null
 $cfgAst = [System.Management.Automation.Language.Parser]::ParseFile($scriptPath, [ref]$null, [ref]$errs)
-$wanted = 'Test-TcpReachable', 'ConvertTo-YurunaBool'
+$wanted = 'Test-TcpReachable', 'ConvertTo-YurunaBool', 'Get-ConfigProxyEndpoint', 'Get-ConfigProxyContext'
 $fnDefs = $cfgAst.FindAll({ param($n)
     $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $wanted -contains $n.Name
 }, $true)
@@ -55,7 +55,7 @@ if (-not $commonAst.Find({ param($n) $n -is [System.Management.Automation.Langua
 foreach ($fn in $fnDefs) { . ([ScriptBlock]::Create($fn.Extent.Text)) }
 # Fail loudly at load if a helper could not be lifted (renamed/removed), instead of
 # every It later reporting a bare 'command not recognized' with no cause.
-foreach ($name in $wanted) {
+foreach ($name in @('Test-TcpReachable', 'ConvertTo-YurunaBool')) {
     if (-not (Get-Command $name -ErrorAction SilentlyContinue)) {
         throw "Test.EntConfig.Tests.ps1: could not lift '$name' from Test-Config.ps1 (renamed or removed?)."
     }
@@ -124,6 +124,143 @@ Describe 'Test-TcpReachable is a bounded probe that always disposes' {
         $l.Start(); $port = ([System.Net.IPEndPoint]$l.LocalEndpoint).Port; $l.Stop()
         { Test-TcpReachable -HostName '127.0.0.1' -Port $port -TimeoutMs 3000 } | Should -Not -Throw
         Test-TcpReachable -HostName '127.0.0.1' -Port $port -TimeoutMs 3000 | Should -BeFalse
+    }
+}
+
+Describe 'Preflight TCP evidence and bounded recovery' {
+    BeforeEach {
+        Mock Start-Sleep {}
+    }
+
+    It 'retains a transient timeout when the next connection succeeds' {
+        $script:probeCall = 0
+        Mock Test-TcpConnectOutcome {
+            $script:probeCall++
+            if ($script:probeCall -eq 1) {
+                return @{ Outcome = 'timeout'; Reachable = $false; ElapsedMs = 5000; Detail = '' }
+            }
+            return @{ Outcome = 'reachable'; Reachable = $true; ElapsedMs = 17; Detail = ''; SocketAddressFamily = 'InterNetworkV6'; RemoteAddress = '192.0.2.1'; RemoteAddressFamily = 'InterNetwork' }
+        }
+
+        $report = Test-TcpReachable -HostName 'github.com' -Port 443 -TimeoutMs 5000 -MaxAttempts 3 -PassThru
+        $report.Reachable | Should -BeTrue
+        $report.Attempts.Count | Should -Be 2
+        $report.Attempts[0].Outcome | Should -Be 'timeout'
+        $report.Attempts[0].ElapsedMs | Should -Be 5000
+        $report.Attempts[1].Outcome | Should -Be 'reachable'
+        $report.Attempts[1].ElapsedMs | Should -Be 17
+        $report.Attempts[0].HostName | Should -Be 'github.com'
+        $report.Attempts[0].Port | Should -Be 443
+        $report.Attempts[0].SocketAddressFamily | Should -BeNullOrEmpty
+        $report.Attempts[0].RemoteAddress | Should -BeNullOrEmpty
+        $report.Attempts[1].SocketAddressFamily | Should -Be 'InterNetworkV6'
+        $report.Attempts[1].RemoteAddress | Should -Be '192.0.2.1'
+        $report.Attempts[1].RemoteAddressFamily | Should -Be 'InterNetwork'
+        [datetime]::Parse($report.Attempts[0].StartedAtUtc).ToUniversalTime() | Should -BeLessOrEqual ([datetime]::UtcNow)
+        Should -Invoke Test-TcpConnectOutcome -Times 2 -Exactly
+        Should -Invoke Start-Sleep -Times 1 -Exactly -ParameterFilter { $Milliseconds -eq 500 }
+    }
+
+    It 'keeps a persistent <Outcome> failure blocking after three attempts' -TestCases @(
+        @{ Outcome = 'timeout' }, @{ Outcome = 'refused' }, @{ Outcome = 'unreachable' }
+    ) {
+        param($Outcome)
+        $script:probeOutcome = $Outcome
+        Mock Test-TcpConnectOutcome {
+            return @{ Outcome = $script:probeOutcome; Reachable = $false; ElapsedMs = 7; Detail = 'Socket error evidence' }
+        }
+
+        $report = Test-TcpReachable -HostName 'github.com' -MaxAttempts 3 -PassThru
+        $report.Reachable | Should -BeFalse
+        $report.Outcome | Should -Be $Outcome
+        $report.Attempts.Count | Should -Be 3
+        foreach ($attempt in $report.Attempts) {
+            $attempt.Outcome | Should -Be $Outcome
+            $attempt.Detail | Should -Be 'Socket error evidence'
+        }
+        Should -Invoke Test-TcpConnectOutcome -Times 3 -Exactly
+        Should -Invoke Start-Sleep -Times 2 -Exactly
+    }
+
+    It 'does not retry an unclassified socket error' {
+        Mock Test-TcpConnectOutcome {
+            return @{ Outcome = 'error'; Reachable = $false; ElapsedMs = 2; Detail = 'Invalid argument' }
+        }
+        $report = Test-TcpReachable -HostName 'github.com' -MaxAttempts 3 -PassThru
+        $report.Reachable | Should -BeFalse
+        $report.Outcome | Should -Be 'error'
+        $report.Attempts.Count | Should -Be 1
+        $report.Attempts[0].Detail | Should -Be 'Invalid argument'
+        Should -Invoke Test-TcpConnectOutcome -Times 1 -Exactly
+        Should -Invoke Start-Sleep -Times 0 -Exactly
+    }
+
+    It 'keeps earlier evidence when a later socket allocation throws' {
+        $script:probeCall = 0
+        Mock Test-TcpConnectOutcome {
+            $script:probeCall++
+            if ($script:probeCall -eq 1) {
+                return @{ Outcome = 'timeout'; Reachable = $false; ElapsedMs = 5000; Detail = '' }
+            }
+            throw 'Socket allocation failed'
+        }
+        $report = Test-TcpReachable -HostName 'github.com' -MaxAttempts 3 -PassThru
+        $report.Reachable | Should -BeFalse
+        $report.Outcome | Should -Be 'error'
+        $report.Attempts.Count | Should -Be 2
+        $report.Attempts[0].Outcome | Should -Be 'timeout'
+        $report.Attempts[1].Detail | Should -Be 'Socket allocation failed'
+        Should -Invoke Test-TcpConnectOutcome -Times 2 -Exactly
+        Should -Invoke Start-Sleep -Times 1 -Exactly
+    }
+
+    It 'leaves existing boolean callers on a single attempt' {
+        Mock Test-TcpConnectOutcome {
+            return @{ Outcome = 'timeout'; Reachable = $false; ElapsedMs = 5000; Detail = '' }
+        }
+        Test-TcpReachable -HostName 'github.com' | Should -BeFalse
+        Should -Invoke Test-TcpConnectOutcome -Times 1 -Exactly
+        Should -Invoke Start-Sleep -Times 0 -Exactly
+    }
+
+    It 'redacts proxy user information, paths, queries, and fragments' {
+        $safe = Get-ConfigProxyEndpoint -Value 'http://alice:secret@proxy.example:3128/private?token=hidden#credential'
+        $safe.Configured | Should -BeTrue
+        $safe.Scheme | Should -Be 'http'
+        $safe.Host | Should -Be 'proxy.example'
+        $safe.Port | Should -Be 3128
+        ($safe | ConvertTo-Json -Compress) | Should -Not -Match 'alice|secret|private|token|hidden|credential'
+    }
+
+    It 'does not expose malformed proxy configuration in diagnostics' {
+        $safe = Get-ConfigProxyEndpoint -Value 'http://alice:secret@[]:broken?token=hidden'
+        $safe.Configured | Should -BeTrue
+        $safe.ValidEndpoint | Should -BeFalse
+        ($safe | ConvertTo-Json -Compress) | Should -Not -Match 'alice|secret|token|hidden|broken'
+    }
+
+    It 'keeps the direct probe separate from sanitized Git proxy configuration' {
+        Mock Invoke-BoundedNativeCommand {
+            return @{ Started = $true; ExitCode = 0; StdOut = 'http://alice:secret@proxy.example:3128/private?token=hidden' }
+        }
+        $context = Get-ConfigProxyContext -RepoRoot $TestDrive
+        $context.probeRoute | Should -Be 'direct'
+        $context.gitProxy.queryStatus | Should -Be 'configured'
+        $context.gitProxy.host | Should -Be 'proxy.example'
+        ($context.gitProxy | ConvertTo-Json -Compress) | Should -Not -Match 'alice|secret|private|token|hidden'
+        Should -Invoke Invoke-BoundedNativeCommand -Times 1 -Exactly -ParameterFilter {
+            $TimeoutSeconds -eq 3 -and $ArgumentList[0] -eq '-C' -and $ArgumentList[1] -eq $TestDrive -and
+            $ArgumentList[3] -eq '--get-urlmatch' -and $ArgumentList[4] -eq 'http.proxy' -and $ArgumentList[5] -eq 'https://github.com/'
+        }
+    }
+
+    It 'does not treat an incomplete Git proxy query as configured' {
+        Mock Invoke-BoundedNativeCommand {
+            return @{ Started = $true; ExitCode = 0; TimedOut = $true; StdOut = 'http://secret@proxy.example:3128' }
+        }
+        $context = Get-ConfigProxyContext -RepoRoot $TestDrive
+        $context.gitProxy.queryStatus | Should -Be 'unavailable'
+        ($context.gitProxy | ConvertTo-Json -Compress) | Should -Not -Match 'secret|proxy.example'
     }
 }
 

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.14
+.VERSION 2026.10.18
 .GUID 4220d762-3e46-4f5b-808c-166adb4d8b1b
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -149,8 +149,8 @@ New-Item -ItemType Directory -Force -Path $DataDir | Out-Null
 # Copy the pre-built qcow2 cloud image into the bundle as the boot disk; no
 # conversion here. qcow2 (not raw) is deliberate: UTM's QEMU backend boots it
 # directly and it sidesteps the macOS F_PUNCHHOLE-alignment EINVAL a raw
-# disk hits under UTM's discard=unmap,detect-zeroes=unmap -- see
-# feedback_macos-qemu-punchhole-alignment.md.
+# disk hits under UTM's discard=unmap,detect-zeroes=unmap: qcow2 punches
+# holes only at its 64 KiB cluster boundaries, which are 4 KiB-aligned.
 $DiskImage = "$DataDir/disk.qcow2"
 Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_6288433a06ff55be')
 # `/bin/cp -c` triggers APFS clone (O(1), sparse-preserving). Falls back

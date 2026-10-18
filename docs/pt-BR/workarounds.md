@@ -259,8 +259,6 @@ ao redor normalmente engole o erro de resolução:
   descoberto, então os provisionadores de convidado e o caminho rápido do
   serviço de status refazem a descoberta completa a cada ciclo.
 
-Captura durável: `feedback_module_force_import_evicts_global`.
-
 <a id="42aaf735-0007"></a>
 
 ## `utmctl start` sai com 0 sem iniciar a VM
@@ -403,6 +401,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Última revisão: 2026.10.14
+Última revisão: 2026.10.18
 
 Voltar para [Yuruna](../../README.md)

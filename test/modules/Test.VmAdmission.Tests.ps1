@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.14
+.VERSION 2026.10.18
 .GUID 421ee60b-7cf9-4ac6-8c6b-77960d28d454
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -208,7 +208,7 @@ Describe 'Invoke-HostVmAdmission' {
         $doc = Get-Content -LiteralPath $script:Record -Raw | ConvertFrom-Json
         $doc.state | Should -Be 'occupied'
         @($doc.occupants) | Should -Be @('stubborn')
-        Assert-MockCalled -CommandName Write-Warning -ModuleName Test.HostContract -Scope It
+        Should -Invoke -CommandName Write-Warning -ModuleName Test.HostContract -Scope It
     }
     It 'refuses a host that cannot say what is running, instead of proceeding' {
         $global:__vmHost.ListFailures = 99

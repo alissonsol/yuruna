@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.14
+.VERSION 2026.10.18
 .GUID 426cd98f-b5bd-4102-91d1-1cc3b6887155
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -257,6 +257,11 @@ function Connect-VNC {
         $tcp = [System.Net.Sockets.TcpClient]::new()
         $tcp.ReceiveTimeout = 5000
         $tcp.SendTimeout    = 5000
+        # Nagle would hold a key's release until the server acknowledged its
+        # press, and a server that sends nothing back acknowledges late. A
+        # release that arrives past the guest's autorepeat delay types the key
+        # twice.
+        $tcp.NoDelay        = $true
         $tcp.Connect("127.0.0.1", $Port)
         $stream = $tcp.GetStream()
 
@@ -372,6 +377,28 @@ function Send-VncKeyEvent {
     $Client.GetStream().Write($msg, 0, 8)
 }
 
+function Send-VncKeyTap {
+    <#
+    .SYNOPSIS
+        Write one key's press and release as a single 16-byte stream write.
+    .DESCRIPTION
+        Two KeyEvent messages, down then up, in one write: nothing on this
+        side can separate them, so the release reaches the server with its
+        press, inside the guest's autorepeat delay.
+    #>
+    param([System.Net.Sockets.TcpClient]$Client, [int]$KeySym)
+    $msg = [byte[]]::new(16)
+    foreach ($offset in 0, 8) {
+        $msg[$offset] = 4
+        $msg[$offset + 4] = [byte](($KeySym -shr 24) -band 0xFF)
+        $msg[$offset + 5] = [byte](($KeySym -shr 16) -band 0xFF)
+        $msg[$offset + 6] = [byte](($KeySym -shr 8)  -band 0xFF)
+        $msg[$offset + 7] = [byte]($KeySym -band 0xFF)
+    }
+    $msg[1] = 1
+    $Client.GetStream().Write($msg, 0, 16)
+}
+
 function Send-KeyVNC {
     <#
     .SYNOPSIS
@@ -408,8 +435,7 @@ function Send-KeyVNC {
             $heldModSym = $modSym
             Start-Sleep -Milliseconds 20
             $heldSym = $baseSym
-            Send-VncKeyEvent -Client $tcp -KeySym $baseSym -Down $true
-            Send-VncKeyEvent -Client $tcp -KeySym $baseSym -Down $false
+            Send-VncKeyTap -Client $tcp -KeySym $baseSym
             $heldSym = $null
             Start-Sleep -Milliseconds 10
             Send-VncKeyEvent -Client $tcp -KeySym $modSym -Down $false
@@ -418,8 +444,7 @@ function Send-KeyVNC {
             return $true
         }
         $heldSym = $keySym
-        Send-VncKeyEvent -Client $tcp -KeySym $keySym -Down $true
-        Send-VncKeyEvent -Client $tcp -KeySym $keySym -Down $false
+        Send-VncKeyTap -Client $tcp -KeySym $keySym
         $heldSym = $null
         Write-Debug "      VNC key='$KeyName' sym=0x$($keySym.ToString('X4'))"
         return $true
@@ -489,8 +514,7 @@ function Send-TextVNC {
                 Start-Sleep -Milliseconds $shiftDownMs
             }
             $heldSym = $keySym
-            Send-VncKeyEvent -Client $tcp -KeySym $keySym -Down $true
-            Send-VncKeyEvent -Client $tcp -KeySym $keySym -Down $false
+            Send-VncKeyTap -Client $tcp -KeySym $keySym
             $heldSym = $null
             if ($shifted) {
                 Start-Sleep -Milliseconds $shiftUpMs

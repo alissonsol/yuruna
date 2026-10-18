@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.14
+.VERSION 2026.10.18
 .GUID 42dd4c19-b2ea-45c5-930f-d248ded193bb
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -183,6 +183,91 @@ Describe 'Resolve-GitRepositoryWebUrl -- local clone-path origin walk' {
         $plain = Join-Path $script:tmpRoot 'plain-dir'
         $null = New-Item -ItemType Directory -Path $plain -Force
         Assert-Null (Resolve-GitRepositoryWebUrl -Url $plain)
+    }
+}
+
+Describe 'Get-ProjectGitCommitReference -- the checked-out project as cycle provenance' {
+    BeforeAll {
+        $script:ProjectRefRoot = Join-Path $script:tmpRoot 'framework-with-project'
+        $project = Join-Path $script:ProjectRefRoot 'project'
+        $script:NoProjectGitRoot = Join-Path $script:tmpRoot 'framework-with-in-tree-project'
+        $script:EmptyProjectRoot = Join-Path $script:tmpRoot 'framework-with-unborn-project'
+        $script:GitFileProjectRoot = Join-Path $script:tmpRoot 'framework-with-git-file'
+        foreach ($root in @($script:ProjectRefRoot, $script:NoProjectGitRoot, $script:EmptyProjectRoot, $script:GitFileProjectRoot)) {
+            $null = New-Item -ItemType Directory -Path (Join-Path $root 'project') -Force
+        }
+        # The enclosing framework has its own HEAD, so an unguarded git -C
+        # into an in-tree project would falsely report that framework commit.
+        foreach ($checkout in @($script:ProjectRefRoot, $project, $script:NoProjectGitRoot)) {
+            & git -C $checkout init --quiet
+            & git -C $checkout -c user.name=fixture -c user.email=fixture@example.invalid -c commit.gpgsign=false `
+                commit --allow-empty --quiet --no-verify -m ("fixture " + (Split-Path -Leaf $checkout))
+        }
+        $script:ProjectRefCommit = (& git -C $project rev-parse --short HEAD).Trim()
+        $script:FrameworkRefCommit = (& git -C $script:ProjectRefRoot rev-parse --short HEAD).Trim()
+        & git -C (Join-Path $script:EmptyProjectRoot 'project') init --quiet
+        $gitFileProject = Join-Path $script:GitFileProjectRoot 'project'
+        & git -C $gitFileProject init --quiet --separate-git-dir (Join-Path $script:GitFileProjectRoot 'metadata')
+        & git -C $gitFileProject -c user.name=fixture -c user.email=fixture@example.invalid -c commit.gpgsign=false `
+            commit --allow-empty --quiet --no-verify -m fixture
+        $script:GitFileProjectCommit = (& git -C $gitFileProject rev-parse --short HEAD).Trim()
+    }
+
+    It 'returns the checked-out project SHA and a credential-free web link' {
+        $ref = Get-ProjectGitCommitReference -RepoRoot $script:ProjectRefRoot `
+            -ProjectUrl 'https://fixture:PRIVATE_FIXTURE_TOKEN@github.com/example/project.git'
+        Assert-StringEqual $script:ProjectRefCommit $ref.sha
+        Assert-False ($ref.sha -eq $script:FrameworkRefCommit) 'the project must not report the framework revision'
+        Assert-StringEqual 'https://github.com/example/project' $ref.repoUrl
+        Assert-StringEqual 'sha,repoUrl' ($ref.Keys -join ',')
+    }
+
+    It 'resolves a file clone source through its web origin without changing the checked-out SHA' {
+        $sourceUrl = [uri]::new($midRepo, [UriKind]::Absolute).AbsoluteUri
+        $ref = Get-ProjectGitCommitReference -RepoRoot $script:ProjectRefRoot -ProjectUrl $sourceUrl
+        Assert-StringEqual $script:ProjectRefCommit $ref.sha
+        Assert-StringEqual 'https://github.com/example/project-under-test' $ref.repoUrl
+    }
+
+    It 'retains a non-web project source as unlinked provenance and removes credentials' {
+        $ref = Get-ProjectGitCommitReference -RepoRoot $script:ProjectRefRoot `
+            -ProjectUrl 'custom+git://fixture:PRIVATE_FIXTURE_TOKEN@example.invalid/project.git'
+        Assert-StringEqual $script:ProjectRefCommit $ref.sha
+        Assert-StringEqual 'custom+git://example.invalid/project.git' $ref.repoUrl
+    }
+
+    It 'keeps an unresolved relative source so its valid project SHA remains visible' {
+        $ref = Get-ProjectGitCommitReference -RepoRoot $script:ProjectRefRoot -ProjectUrl '../project-source'
+        Assert-StringEqual $script:ProjectRefCommit $ref.sha
+        Assert-StringEqual '../project-source' $ref.repoUrl
+    }
+
+    It 'does not report a project when no separate project URL is configured' {
+        Assert-Null (Get-ProjectGitCommitReference -RepoRoot $script:ProjectRefRoot -ProjectUrl '')
+    }
+
+    It 'does not mistake the enclosing framework HEAD for an in-tree project HEAD' {
+        Assert-Null (Get-ProjectGitCommitReference -RepoRoot $script:NoProjectGitRoot -ProjectUrl 'https://github.com/example/project')
+    }
+
+    It 'does not fall back to the framework when the project has an invalid .git directory' {
+        $invalidGit = Join-Path $script:NoProjectGitRoot 'project/.git'
+        $null = New-Item -ItemType Directory -Path $invalidGit
+        try {
+            Assert-Null (Get-ProjectGitCommitReference -RepoRoot $script:NoProjectGitRoot -ProjectUrl 'https://github.com/example/project')
+        } finally {
+            Remove-Item -LiteralPath $invalidGit -Recurse -Force
+        }
+    }
+
+    It 'omits an unknown project revision' {
+        Assert-Null (Get-ProjectGitCommitReference -RepoRoot $script:EmptyProjectRoot -ProjectUrl 'https://github.com/example/project')
+    }
+
+    It 'accepts a project whose .git is a file' {
+        $ref = Get-ProjectGitCommitReference -RepoRoot $script:GitFileProjectRoot -ProjectUrl 'git@github.com:example/project.git'
+        Assert-StringEqual $script:GitFileProjectCommit $ref.sha
+        Assert-StringEqual 'https://github.com/example/project' $ref.repoUrl
     }
 }
 

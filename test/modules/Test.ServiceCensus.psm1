@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.14
+.VERSION 2026.10.18
 .GUID 422e4da5-c4d3-416f-8529-84b6ec995443
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -82,12 +82,9 @@ function Get-ServiceCensusProcessStart {
     [CmdletBinding()]
     [OutputType([long])]
     param()
-    try {
-        $start = (Get-Process -Id $PID -ErrorAction Stop).StartTime
-        return [DateTimeOffset]::new($start).ToUnixTimeMilliseconds()
-    } catch {
-        return [long]0
-    }
+    $start = Get-YurunaProcessStartUtc -ProcessId $PID
+    if ($null -eq $start) { return [long]0 }
+    return [DateTimeOffset]::new($start).ToUnixTimeMilliseconds()
 }
 
 function Test-ServiceCensusPlainDirectory {

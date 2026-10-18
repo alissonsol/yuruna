@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.14
+.VERSION 2026.10.18
 .GUID 42e6d9c8-1705-43a2-89f3-6013cc25bb54
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -13,6 +13,9 @@ BeforeAll {
     Import-Module (Join-Path $PSScriptRoot 'Test.StateFile.psm1') -Force -Global -DisableNameChecking
     Import-Module (Join-Path $PSScriptRoot 'Test.Log.psm1') -Force -Global -DisableNameChecking
     Import-Module (Join-Path $PSScriptRoot 'Test.SequenceEngine.psm1') -Force -Global -DisableNameChecking
+    # Captured before any Mock: a filtered mock alone fails the calls its
+    # filter does not match, and this suite relies on the real command there.
+    $script:RealActionHandler = & (Get-Module Test.SequenceEngine) { Get-Command Invoke-SequenceActionHandler }
     Import-Module (Join-Path $PSScriptRoot 'Test.PerfAggregate.psm1') -Force -Global -DisableNameChecking
     $script:PriorRuntime = $env:YURUNA_RUNTIME_DIR
     $script:PriorLog = $env:YURUNA_LOG_DIR
@@ -41,6 +44,11 @@ Describe 'real sequence execution preserves source positions and current-step ca
                 $state.WaitForTextOutputStaticSeconds=200
                 $context.ExecutionProfile=@{ diagnosticOutcome='unavailable'; reasonCode='profile-ssh-timeout'; timedOut=$true; sshResponsive=$false; recorder=@{heartbeatAgeSeconds=180} }
             }
+            if ($context.Step.seedUnreachable) {
+                # The client's own connect failure: no harness kill, no log, a dead path.
+                $context.ExecutionProfile=@{ diagnosticOutcome='unavailable'; reasonCode='profile-ssh-unreachable'; timedOut=$false; transportFailed=$true; transport='unreachable'; sshResponsive=$false
+                    recorder=@{ heartbeatAgeSeconds=256; clockAnalysis=@{ comparison='same-boot'; warnings=@(@{ code='cpu-idle-exceeds-boot-uptime'; cpu='cpu0' }) } } }
+            }
             if ($context.Step.seedOldCause) { $state.StepGuestRunLost=$true; $state.WaitForTextOcrTail='old OCR text' }
             if ($context.Step.children) {
                 $childResult = & $context.InvokeStepBlock -Steps $context.Step.children -ParentOrdinal $context.StepNum -ParentAction safetyFixture -ParentAttempt 1
@@ -52,6 +60,19 @@ Describe 'real sequence execution preserves source positions and current-step ca
         }.GetNewClosure()
         $script:SequenceFile = Join-Path $TestDrive 'fixture.yml'
         Set-Content $script:SequenceFile 'fixture: mocked parser'
+    }
+    It 'reads a client-side connect failure as an unresponsive transport and lists the recorder clock anomaly' {
+        Mock Get-VMScreenshot -ModuleName Test.SequenceEngine { $false }
+        $script:FixtureSequence = @{ steps=@(@{action='safetyFixture';seedUnreachable=$true;fail=$true}) }
+        Invoke-Sequence -HostType host.ubuntu.kvm -GuestKey guest.fixture -VMName never-a-real-vm -SequencePath $script:SequenceFile | Should -BeFalse
+        $record = Get-Content (Join-Path $env:YURUNA_LOG_DIR 'last_failure.json') -Raw | ConvertFrom-Json
+        $record.reason | Should -Be step -Because "the failure path must not crash: $($record.context.crash | ConvertTo-Json -Compress -Depth 4)"
+        $advisory = $record.context.causeDetail.progressAdvisory
+        $advisory.SshResponsiveness | Should -Be unresponsive
+        $advisory.Verdict | Should -Be 'progress-suspect'
+        $advisory.Signals | Should -Contain 'guest-clock-anomaly'
+        $advisory.ClockWarnings | Should -Contain 'cpu-idle-exceeds-boot-uptime'
+        $advisory.AutomaticRecoveryAllowed | Should -BeFalse
     }
     It 'reports resumed steps using their original file positions' {
         $script:FixtureSequence = @{ steps=@(1..5 | ForEach-Object { @{ action='safetyFixture' } }) }
@@ -118,6 +139,7 @@ Describe 'real sequence execution preserves source positions and current-step ca
         Mock Get-VMScreenshot -ModuleName Test.SequenceEngine { $false }
         $script:FixtureEvents = [Collections.Generic.List[object]]::new()
         Mock Send-CycleEventSafely -ModuleName Test.SequenceEngine { $script:FixtureEvents.Add($EventRecord) }
+        Mock Invoke-SequenceActionHandler -ModuleName Test.SequenceEngine { & $script:RealActionHandler @PesterBoundParameters }
         Mock Invoke-SequenceActionHandler -ModuleName Test.SequenceEngine {
             (Get-SequenceFailureState).WaitForTextOutputStaticSeconds = 200
             $Context.ExecutionProfile = @{ diagnosticOutcome='unavailable'; reasonCode='profile-ssh-timeout'; timedOut=$true; sshResponsive=$false; recorder=@{heartbeatAgeSeconds=180} }

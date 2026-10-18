@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.14
+.VERSION 2026.10.18
 .GUID 4232820e-f96a-47ea-863b-f94b73f9c76f
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -1675,6 +1675,10 @@ function Test-GuiFetchInputStalled {
         prompt is not necessarily on the last visible row. The staged state holds
         when a continuation prompt is visible and no shell prompt has appeared
         after it, because a completed guard always returns to one.
+        A failure sentinel after the last continuation prompt is the guard's or
+        the launcher's own answer, so the input closed even when OCR misreads
+        the prompt that follows it. The typed echo cannot carry the sentinel:
+        the guard spells it in octal escapes for that reason.
         This is only a screen reading. A caller that needs to act on it must
         confirm the state with the guest, which is what Get-GuiFetchPayloadState
         does.
@@ -1684,13 +1688,79 @@ function Test-GuiFetchInputStalled {
     param([AllowEmptyString()][string]$OcrTail)
     if ($OcrTail -notmatch '_{1,2}y\b') { return $false }
     $lastContinuation = -1
-    $lastShellPrompt = -1
+    $lastClosed = -1
     $rows = @($OcrTail -split "`r?`n")
     for ($row = 0; $row -lt $rows.Count; $row++) {
         if ($rows[$row] -match '^\s*>') { $lastContinuation = $row }
-        elseif ($rows[$row] -match '\$\s*$') { $lastShellPrompt = $row }
+        elseif ($rows[$row] -match '\$\s*$|NONZERO\s+SCRIPT\s+EXIT') { $lastClosed = $row }
     }
-    return ($lastContinuation -ge 0 -and $lastShellPrompt -lt $lastContinuation)
+    return ($lastContinuation -ge 0 -and $lastClosed -lt $lastContinuation)
+}
+
+function Get-GuiFetchEnvelopeTransfer {
+    <#
+    .SYNOPSIS
+        What a compact GUI envelope's typed lines carry, for comparison with
+        what the guest launcher received.
+    .DESCRIPTION
+        Reads back the base64 text between the staging assignments' quotes and
+        the digest on the guard line. Returns $null for input that is not a
+        compact envelope.
+    #>
+    [CmdletBinding()]
+    [OutputType([System.Collections.Specialized.OrderedDictionary])]
+    param([Parameter(Mandatory)][AllowEmptyCollection()][string[]]$Line)
+    if ($Line.Count -lt 2 -or $Line[-1] -cnotmatch '^yfe --gui ([0-9a-f]{64}) ') { return $null }
+    $digest = $Matches[1]
+    $encoded = [Text.StringBuilder]::new()
+    foreach ($staged in $Line[0..($Line.Count - 2)]) {
+        if ($staged -cnotmatch "^(?:\(unset __y;__y=|__y\+=)'([A-Za-z0-9+/=]*)';$") { return $null }
+        [void]$encoded.Append($Matches[1])
+    }
+    $text = $encoded.ToString()
+    return [ordered]@{
+        envelopeDigest = $digest
+        encodedChars   = $text.Length
+        encodedSha256  = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData([Text.Encoding]::ASCII.GetBytes($text))).ToLowerInvariant()
+        lineLengths    = [int[]]@($Line | ForEach-Object { $_.Length })
+        attempts       = 0
+        rejections     = [System.Collections.Generic.List[object]]::new()
+    }
+}
+
+function Get-GuiFetchRejection {
+    <#
+    .SYNOPSIS
+        Ask the guest whether its launcher refused this compact GUI envelope.
+    .DESCRIPTION
+        yfe --gui leaves a record under the envelope digest whenever it refuses
+        the input, and every refusal happens before the payload runs. The record
+        is read and removed in one call, so a later attempt with the same
+        envelope never finds it. The payload state is then read on its own, as
+        Get-GuiFetchPayloadState reads it, because only a guest with no prepared
+        context and no fetch process proves that nothing ran.
+        Returns $null when the guest did not answer, left no record for this
+        digest, or a launcher predates the record.
+    #>
+    [CmdletBinding()]
+    [OutputType([System.Collections.Specialized.OrderedDictionary])]
+    param([string]$VMName, [string]$GuestKey, [string]$EnvelopeDigest, [string]$ContextId)
+    if ($EnvelopeDigest -cnotmatch '^[0-9a-f]{64}$') { return $null }
+    $probe = 'r="$HOME/.local/state/yuruna/gui-rejection/' + $EnvelopeDigest + '"; ' +
+        'if [ -f "$r" ] && [ ! -L "$r" ]; then cat -- "$r"; rm -f -- "$r"; fi'
+    $result = Invoke-GuestSsh -VMName $VMName -GuestKey $GuestKey -Command $probe -TimeoutSeconds 30
+    if (-not $result.success) { return $null }
+    $fields = @{}
+    foreach ($row in ([string]$result.output -split "`r?`n")) {
+        if ($row -cmatch '^(code|receivedChars|receivedSha256)=([A-Za-z0-9_]+)$') { $fields[$Matches[1]] = $Matches[2] }
+    }
+    if ($fields.code -cnotmatch '^YFE_[A-Z_]{1,40}$' -or $fields.receivedChars -notmatch '^[0-9]{1,7}$') { return $null }
+    return [ordered]@{
+        code           = [string]$fields.code
+        receivedChars  = [int]$fields.receivedChars
+        receivedSha256 = if ($fields.receivedSha256 -cmatch '^[0-9a-f]{64}$') { [string]$fields.receivedSha256 } else { '' }
+        payloadState   = [string](Get-GuiFetchPayloadState -VMName $VMName -GuestKey $GuestKey -ContextId $ContextId)
+    }
 }
 
 function Get-GuiFetchPayloadState {
@@ -1954,9 +2024,18 @@ function Save-FetchExecutionEvidence {
                                 $recorder.heartbeatAgeSeconds=[math]::Max(0,([datetimeoffset]::UtcNow-$stamp).TotalSeconds)
                             }
                         }
+                        # The retained samples carry the guest's clocks and per-CPU
+                        # accounting; a jump there is the one reading that says the
+                        # guest's own time base moved, which nothing host-side sees.
+                        if (Get-Command Get-GuestRecorderClockAnalysis -ErrorAction SilentlyContinue) {
+                            $recorder.clockAnalysis=Get-GuestRecorderClockAnalysis -Path $artifact
+                        }
                     } else { $recorder.reasonCode='recorder-invocation-mismatch' }
                 }
                 $Context.ExecutionProfile.recorder=$recorder
+                # What was typed and what the guest launcher said it received:
+                # the only transfer evidence when the payload never ran.
+                if ($Context.GuiTransfer) { $Context.ExecutionProfile.guiTransfer=$Context.GuiTransfer }
                 $manifestPath = Join-Path $folder "fetch-and-execute.$sourceId.evidence.json"
                 [IO.File]::WriteAllText($manifestPath,($Context.ExecutionProfile | ConvertTo-Json -Depth 5))
             } catch { Write-Verbose "Execution evidence manifest unavailable: $($_.Exception.Message)" }
@@ -1975,6 +2054,8 @@ Register-SequenceAction -Name 'fetchAndExecute' -ReplaySafety 'state-changing' -
         $text = & $c.ExpandVariable $c.Step.text $c.Vars
         $executionClock = [System.Diagnostics.Stopwatch]::StartNew()
         $executionSucceeded = $false
+        $c.GuiTransfer = $null
+        $script:Fail.StepLauncherRejection = $null
         try {
         $timeout = $c.Step.timeoutSeconds ? [int]$c.Step.timeoutSeconds : $c.DefaultTimeoutSeconds
         $fetchContext = Get-FetchExecutionContext -Context $c -CommandLine $text -Compress
@@ -1987,6 +2068,7 @@ Register-SequenceAction -Name 'fetchAndExecute' -ReplaySafety 'state-changing' -
         if ($compactInput.Count -gt 0 -and $compactInput.Count -le $typedCommands.Count -and $compactChars -lt $legacyChars -and
             (Test-GuiFetchEnvelopeSupported -Context $c)) {
             $typedCommands = $compactInput
+            $c.GuiTransfer = Get-GuiFetchEnvelopeTransfer -Line $typedCommands
         }
         if ($typedCommands.Count -gt 1) {
             Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_0ed289c55b84fcb5' -Arguments @{ length = "$($text.Length)"; count = "$($typedCommands.Count)" })
@@ -1994,8 +2076,16 @@ Register-SequenceAction -Name 'fetchAndExecute' -ReplaySafety 'state-changing' -
         $delaySeconds = ($null -ne $c.Step.delaySeconds) ? [double]$c.Step.delaySeconds : 2
         $charDelay = (Resolve-SequenceCharDelay -Context $c)
         if (-not $c.Step.sensitive) { Write-Debug "      fetchAndExecute: command '$($fetchContext.Launch)'" }
+        # A compact envelope that the launcher refused as damaged in transit is
+        # typed once more: the refusal comes before the payload runs, and the
+        # guest's own record of it, with no prepared context and no fetch
+        # process, proves nothing ran. Any other failure is never retyped.
+        $attemptLimit = if ($c.GuiTransfer) { 2 } else { 1 }
+        $attemptLines = $typedCommands
+        for ($attempt = 1; $attempt -le $attemptLimit; $attempt++) {
+        if ($c.GuiTransfer) { $c.GuiTransfer.attempts = $attempt }
         $inputIndex = 0
-        foreach ($typedCommand in $typedCommands) {
+        foreach ($typedCommand in $attemptLines) {
             if ($typedCommand.Length -gt $script:FetchExecuteTypedCharWarn) {
                 throw (Format-YurunaOperatorMessage -Key 'runner.fetch_context_rejected' -Arguments @{ reason = 'YFE_PHYSICAL_SEND_LIMIT'; detail = "$($typedCommand.Length)/$($script:FetchExecuteTypedCharWarn)" })
             }
@@ -2009,7 +2099,7 @@ Register-SequenceAction -Name 'fetchAndExecute' -ReplaySafety 'state-changing' -
             # reach the shell literally, so only a single send is shell-escaped.
             # See https://yuruna.link/428e4df6-0014
             $settleBetweenLines = $c.HostType -eq 'host.macos.utm'
-            $drainSeconds = if ($null -eq $c.Step.delaySeconds -and $inputIndex -lt $typedCommands.Count - 1 -and -not $settleBetweenLines) { 0 } else { $delaySeconds }
+            $drainSeconds = if ($null -eq $c.Step.delaySeconds -and $inputIndex -lt $attemptLines.Count - 1 -and -not $settleBetweenLines) { 0 } else { $delaySeconds }
             if (-not (Invoke-TypeDrainEnter -Context $c -Text $typedCommand -DelaySeconds $drainSeconds -CharDelayMs $charDelay -Activity 'fetchAndExecute' -ShellEscape:($typedCommands.Count -eq 1))) { return $false }
             $inputIndex++
         }
@@ -2055,7 +2145,42 @@ Register-SequenceAction -Name 'fetchAndExecute' -ReplaySafety 'state-changing' -
             -NoSegmentMatch:($c.Step.noSegmentMatch -eq $true) `
             -EarlyFailurePattern $script:ShellRejectedCommandPattern `
             -EarlyFailureSeconds $script:ShellRejectionWindowSeconds -EndOnGuestLivelock)
-        if (-not $executionSucceeded -and (Test-GuiFetchInputStalled -OcrTail ([string]$script:Fail.WaitForTextOcrTail))) {
+        if ($executionSucceeded) { break }
+        $rejection = $null
+        if ($c.GuiTransfer -and $script:Fail.WaitForTextMatchedFailurePattern) {
+            $rejection = Get-GuiFetchRejection -VMName $c.VMName -GuestKey $c.GuestKey `
+                -EnvelopeDigest $c.GuiTransfer.envelopeDigest -ContextId ([string]$fetchContext.Id)
+        }
+        if ($rejection) {
+            # The launcher answered, so the staged input closed: the stall
+            # reading below does not apply.
+            $rejection.attempt = $attempt
+            $rejection.expectedChars = $c.GuiTransfer.encodedChars
+            $rejection.expectedSha256 = $c.GuiTransfer.encodedSha256
+            $c.GuiTransfer.rejections.Add($rejection)
+            $script:Fail.StepLauncherRejection = $rejection
+            $retypable = $rejection.code -in @('YFE_GUI_ENCODING', 'YFE_GUI_DIGEST') -and $rejection.payloadState -eq 'NOT_PREPARED'
+            Write-Warning "      fetchAndExecute: the guest launcher refused the typed envelope before running it ($($rejection.code): received $($rejection.receivedChars) of $($rejection.expectedChars) characters; payload state $($rejection.payloadState))."
+            if (-not $retypable -or $attempt -ge $attemptLimit) { break }
+            if (Get-Command Send-CycleEventSafely -ErrorAction SilentlyContinue) {
+                Send-CycleEventSafely -EventRecord @{
+                    timestamp   = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", [Globalization.CultureInfo]::InvariantCulture)
+                    event       = 'retry_attempt'
+                    stack       = 'gui-envelope'
+                    attempt     = [int]$attempt
+                    maxAttempts = [int]$attemptLimit
+                    description = [string]$c.Description
+                    vmName      = [string]$c.VMName
+                    reason      = "$($rejection.code): received $($rejection.receivedChars) of $($rejection.expectedChars) characters"
+                    ok          = $false
+                }
+            }
+            # The refusal stays on screen, and failure patterns read the whole
+            # frame, so the next attempt clears the console before it types.
+            $attemptLines = @('clear') + $typedCommands
+            continue
+        }
+        if (Test-GuiFetchInputStalled -OcrTail ([string]$script:Fail.WaitForTextOcrTail)) {
             # A screen that shows an open subshell does not prove the guard never
             # arrived: a payload that ran and went quiet can look the same. Only
             # a guest with no prepared context and no fetch process has never run
@@ -2065,6 +2190,8 @@ Register-SequenceAction -Name 'fetchAndExecute' -ReplaySafety 'state-changing' -
                 $script:Fail.StepInputLost = $true
                 Write-Warning "      fetchAndExecute: staged input never closed in the guest shell after $($typedCommands.Count) line(s); the guest holds no prepared payload."
             }
+        }
+        break
         }
         return $executionSucceeded
         } finally {
@@ -2172,6 +2299,15 @@ Register-SequenceAction -Name 'sshWaitReady' -ReplaySafety 'observe' -HostIORequ
                 # failure only, so a successful wait can't leak them).
                 $script:Fail.WaitForTextOcrTail = if ($result.AnyText.Length -le 1200) { $result.AnyText } else { $result.AnyText.Substring($result.AnyText.Length - 1200) }
                 $script:Fail.WaitForTextPatternsSought = [string[]]@($installerFailPatterns)
+            }
+            # The host recording's view of the processors over this wait, so a
+            # matched installer failure carries the same evidence as a timeout.
+            if (Get-Command Get-GuestLivelockVerdict -ErrorAction SilentlyContinue) {
+                $patternVerdict = Get-GuestLivelockVerdict -VMName $c.VMName -Since $deadlineUtc.AddSeconds(-1 * $timeout)
+                if ($patternVerdict) {
+                    $script:Fail.WaitForTextGuestLivelock = $patternVerdict
+                    $script:Fail.WaitForTextGuestLivelocked = ($patternVerdict.Verdict -eq 'livelocked')
+                }
             }
             return $false
         }

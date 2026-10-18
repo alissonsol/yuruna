@@ -4,6 +4,18 @@ Yuruna uses [Calendar Versioning](https://calver.org/): `YYYY.MM.DD`.
 Tags are cut from the `main` branch; entries below summarize each
 tagged release.
 
+## 2026.10.18
+
+- **Failure evidence that survives a dead guest network.** Hosts record a
+  reachability cross-check, VM network state and the ARM64 serial console;
+  guests keep network and clock evidence.
+- **Also in this release.** A guest that loses its network no longer reads as
+  a cache outage: the cache wait prints the guest's view and repairs a lost
+  address once. Pool dashboard drill-downs explain their data and gain a
+  caching-proxy drill-down with zot, squid and Docker Hub panels. Status pages
+  show the project commit alongside the framework commit. Setup never replaces
+  an operator-set project URL and reports any replacement as `previous -> new`.
+
 ## 2026.10.14
 
 - **Ontology release.** First public release of the Yuruna ontology.
@@ -592,6 +604,6 @@ LICENSEURI <https://yuruna.link/license>
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.14
+Last review: 2026.10.18
 
 Back to [Yuruna](README.md)

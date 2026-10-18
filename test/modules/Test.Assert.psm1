@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.14
+.VERSION 2026.10.18
 .GUID 423d6743-1531-4ed7-b6b3-7d5bf06035c0
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -261,9 +261,19 @@ function Remove-YurunaTestTempDir {
     [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
         Justification = 'Removes only a directory this module created under the temp path.')]
     [CmdletBinding()]
-    param([Parameter(Position = 0)][AllowNull()][string]$Path)
+    param(
+        [Parameter(Position = 0)][AllowNull()][string]$Path,
+        # A browser profile can stay locked for a moment after its last
+        # process is stopped, on Windows especially; a single silent attempt
+        # then leaves the whole profile behind for good.
+        [ValidateRange(1, 50)][int]$Attempts = 1
+    )
     if (-not $Path) { return }
-    Remove-Item -LiteralPath $Path -Recurse -Force -ErrorAction SilentlyContinue
+    for ($attempt = 1; $attempt -le $Attempts; $attempt++) {
+        Remove-Item -LiteralPath $Path -Recurse -Force -ErrorAction SilentlyContinue
+        if (-not (Test-Path -LiteralPath $Path)) { return }
+        if ($attempt -lt $Attempts) { Start-Sleep -Milliseconds 300 }
+    }
 }
 
 function Get-YurunaTestFileAst {
@@ -388,7 +398,10 @@ function Invoke-YurunaTestShell {
         if (-not (Test-BoundedNativeResultComplete $result)) {
             throw "Shell fixture '$Interpreter' did not complete: StartError='$($result.StartError)'; Started=$($result.Started); TimedOut=$($result.TimedOut); DrainTimedOut=$($result.DrainTimedOut); OutputTruncated=$($result.OutputTruncated); KillFailed=$($result.KillFailed); DeadlineExhausted=$($result.DeadlineExhausted)"
         }
-        return @{ Output = ($result.StdOut + $result.StdErr).TrimEnd(); ExitCode = $result.ExitCode }
+                # Git Bash prints this warning when a /tmp mount outlives the suite folder it was bound to;
+        # it is bash's own diagnostic, never fixture output, so it is kept out of the compared text.
+        $stderr = @($result.StdErr -split "`r?`n" | Where-Object { $_ -notmatch '^bash(\.exe)?: warning: could not find /tmp, please create!$' }) -join "`n"
+        return @{ Output = ($result.StdOut + $stderr).TrimEnd(); ExitCode = $result.ExitCode }
     } finally { Remove-YurunaTestTempDir $directory }
 }
 
@@ -500,7 +513,24 @@ function Stop-YurunaTestBrowserProfile {
     [CmdletBinding()]
     [OutputType([int])]
     param([Parameter(Mandatory)][string]$Browser, [Parameter(Mandatory)][string]$ProfileDir)
-    if (-not $IsWindows) { return 0 }
+    if (-not $IsWindows) {
+        # Linux and macOS: the same identity, read from the process table. A
+        # browser that relaunched itself, or a helper the tree kill missed,
+        # keeps writing into the profile the caller is about to remove.
+        $ownedArg = '(?:^|\s)--user-data-dir=' + [regex]::Escape($ProfileDir) + '(?:\s|$)'
+        $stopped = 0
+        $deadline = [DateTime]::UtcNow.AddSeconds(5)
+        do {
+            $running = @(& ps -eo 'pid=,args=' 2>$null | ForEach-Object {
+                    if ("$_" -match '^\s*(\d+)\s+(.*)$' -and [int]$Matches[1] -ne $PID -and $Matches[2] -match $ownedArg) { [int]$Matches[1] }
+                })
+            foreach ($processId in $running) {
+                try { Stop-Process -Id $processId -Force -ErrorAction Stop; $stopped++ } catch { $null = $_ }
+            }
+            if ($running.Count) { Start-Sleep -Milliseconds 200 }
+        } while ($running.Count -and [DateTime]::UtcNow -lt $deadline)
+        return $stopped
+    }
     $image = [IO.Path]::GetFileName($Browser).Replace("'", "''")
     $owned = '--user-data-dir="?' + [regex]::Escape($ProfileDir) + '(?:"|\s|$)'
     $stopped = 0
@@ -622,7 +652,10 @@ function Get-YurunaTestBrowserDom {
         $browserProfile = New-YurunaTestTempDir -Prefix 'yuruna-browser-profile'
         try {
             return (Get-YurunaTestBrowserDomCdp -Browser $Browser -Url ([Uri]::new([IO.Path]::GetFullPath($Path)).AbsoluteUri) -ProfileDir $browserProfile)
-        } finally { Remove-YurunaTestTempDir $browserProfile }
+        } finally {
+            $null = Stop-YurunaTestBrowserProfile -Browser $Browser -ProfileDir $browserProfile
+            Remove-YurunaTestTempDir $browserProfile -Attempts 10
+        }
     }
     return (& $Browser --headless --disable-gpu --no-sandbox --virtual-time-budget=5000 --dump-dom "file://$Path" 2>$null | Out-String)
 }
@@ -651,7 +684,10 @@ function Invoke-YurunaTestBrowserResult {
         $result = Invoke-BoundedNativeCommand -FilePath $Browser -ArgumentList @('--headless', '--disable-gpu', '--no-sandbox', "--user-data-dir=$browserProfile", '--virtual-time-budget=5000', '--dump-dom', $url) -TimeoutSeconds 30
         if (-not (Test-BoundedNativeResultComplete $result) -or $result.ExitCode -ne 0) { throw "Browser render failed: $($result.StdErr)" }
         return [regex]::Match($result.StdOut, '(?s)<pre id="' + [regex]::Escape($ElementId) + '">(.*?)</pre>')
-    } finally { Remove-YurunaTestTempDir $browserProfile }
+    } finally {
+        $null = Stop-YurunaTestBrowserProfile -Browser $Browser -ProfileDir $browserProfile
+        Remove-YurunaTestTempDir $browserProfile -Attempts 10
+    }
 }
 
 function Get-YurunaTestGeneratedServerText {

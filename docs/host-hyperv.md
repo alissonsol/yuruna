@@ -96,8 +96,47 @@ the framebuffer, where `GetVirtualSystemThumbnailImage` is the way to read
 it. Put `console=tty0` first when the message you need comes from
 userspace. Streaming a boot over the synthetic COM port also slows that
 boot down, so treat any timing measured through serial as suspect and
-confirm it on a VM with no COM port attached. More in
-`feedback_hyperv_arm64_diagnostics.md`.
+confirm it on a VM with no COM port attached.
+
+The Ubuntu Server overlay
+([ubuntu.server.hyperv.overlay.yml](../host/vmconfig/ubuntu.server.hyperv.overlay.yml))
+picks the serial device inside the installer, where the kernel already
+runs the target's architecture: `ttyAMA0` when `uname -m` reports
+`aarch64`, `ttyS0` elsewhere, for both journald's `TTYPath=` and the
+kernel's `console=` argument, with `console=tty0` still last. The reader's
+side of the same question is in `serial-console.info.txt`, beside
+`serial-console.log` in the failure folder: `attempts:` and `connects:`
+count how often the host-side reader tried to open the COM1 pipe and how
+often it succeeded, and `lastError:` keeps its last failure. A reader that
+never connected points at the pipe -- the VM worker creates the server end
+only while the VM is on, under the name `Set-VMComPort` was given -- while a
+reader that connected and still saved 0 bytes points at the guest's
+`console=` setting.
+
+Two more host-side readings land beside `dhcp.capture.txt` (the pktmon
+capture of the guest's DHCP exchange, which also keeps the guest's own ARP
+and ICMP frames, so a guest that stopped asking for a lease but kept
+answering ARP stays visible) when a step fails:
+
+`vm-network.state.txt` (and `.json`) is the host's view of the guest's link
+at failure time: whether the synthetic adapter is still connected to its
+switch, the addresses the integration services (KVP) last reported, the
+host neighbor-cache entries for the guest's MAC, a TCP 22 probe against
+each reported IPv4 address, and the last 20 minutes of the
+`Microsoft-Windows-Hyper-V-*` event logs. It answers whether the guest lost
+its address or the host lost the guest.
+
+`network-cross-check.json` (and `.txt`) records which of the two ends a
+failed cycle gets blamed on were still reachable from the host: the caching proxy
+(`http://<cache>:5000/v2/` and `http://<cache>/cache-health`) and the guest
+(TCP 22, ICMP, and the neighbor cache for its last proven address). Its
+`verdict` -- `proxy-reachable-guest-unreachable`,
+`proxy-unreachable-guest-reachable`, `both-reachable`, `both-unreachable`,
+or an `-unknown` side when there was no address to probe -- also travels on
+the `failure_diagnostic` cycle event as `networkCrossCheck`, so a failure
+record can name the end that went silent instead of the one the console
+happened to mention. The cross-check runs on every host type; the
+`vm-network.state` files are Hyper-V only.
 
 For ARM64 coverage of this guest use `host.macos.utm` or `host.ubuntu.kvm`,
 which present the virtio devices the image drives. On Hyper-V it is an
@@ -564,7 +603,13 @@ alone cannot explain that refusal. The exporter and local sampler preserve the
 commit charge and limit alongside CPU, storage, and VM evidence.
 
 Windows hosts publish `http://<host>:9182/metrics` with the collectors `cpu`,
-`hyperv`, `logical_disk`, `memory`, and `os`. The commit pair is
+`hyperv`, `logical_disk`, `memory`, `net`, and `os`. The `net` collector and
+the `virtual_network_adapter` and `virtual_switch` Hyper-V sub-collectors
+publish `windows_net_*`, `windows_hyperv_virtual_network_adapter_*` and
+`windows_hyperv_virtual_switch_*`, which the proxy's Prometheus keeps: they
+are the only series in which a host uplink or virtual switch fault leaves a
+trace, so a guest that blames the caching proxy can be checked against what
+its own adapter and switch were doing at that minute. The commit pair is
 `windows_memory_commit_limit` and `windows_memory_committed_bytes`. Installation
 and convergence request these collectors without making an unavailable exporter
 a cycle failure. The service is automatic and its TCP 9182 firewall rule is
@@ -718,6 +763,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.14
+Last review: 2026.10.18
 
 Back to [Yuruna](../README.md)

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.14
+.VERSION 2026.10.18
 .GUID 4246a89e-2ebb-49a1-87a4-31d719f44bf1
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -215,6 +215,30 @@ if ($RefreshResume) {
         $gateBlocks = Format-YurunaOperatorMessage -Key 'runner.refresh_gate_blocks_start' -Arguments @{ requestId = "$($startGate.RequestId)"; state = "$($startGate.State)" }
         Write-Warning $gateBlocks
         Write-OuterLog $gateBlocks
+        # An orphaned gate -- owner provably dead or recycled, no live
+        # handoff token -- has no worker mid-repair, and nothing else may
+        # bring the status service back while the hold stands: the outer's
+        # ensure defers to the gate, and a refresh worker only restores the
+        # listener when one runs. Without the service a remote operator has
+        # no dashboard, no view of the unresolved request, and no Retry to
+        # relaunch it. The runner stays refused; only the observational
+        # status service is ensured so the resume controls are reachable
+        # off-host.
+        if ($startGate.Orphaned -and -not $NoStatusService) {
+            try {
+                $ensureDecision = Start-YurunaStatusServiceIfEnabled -Config (Read-TestConfig -Path $ConfigPath) `
+                    -StartScript (Join-Path $RepoRoot 'test/service/Start-StatusService.ps1')
+                if ($ensureDecision.ShouldStart) {
+                    $ensured = Format-YurunaOperatorMessage -Key 'runner.refresh_gate_status_ensured' -Arguments @{ requestId = "$($startGate.RequestId)"; port = "$($ensureDecision.Port)" }
+                    Write-Information $ensured -InformationAction Continue
+                    Write-OuterLog $ensured
+                }
+            } catch {
+                $ensureFailed = Format-YurunaOperatorMessage -Key 'runner.refresh_gate_status_ensure_failed' -Arguments @{ message = "$($_.Exception.Message)" }
+                Write-Warning $ensureFailed
+                Write-OuterLog $ensureFailed
+            }
+        }
         exit (Get-EntryPointExitCode -Outcome Failure)
     }
 }

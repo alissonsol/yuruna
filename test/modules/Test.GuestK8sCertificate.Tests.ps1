@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.14
+.VERSION 2026.10.18
 .GUID 42df5581-572e-4f0e-9e2c-5cfd797e9fbf
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -248,7 +248,7 @@ try {
     $region = Get-RegionText -Path $script:guestScripts.windows11 -Through $script:windowsRegionEnd
     [IO.File]::WriteAllText($driver, ($prefix + "`n" + $region + $suffix), [Text.UTF8Encoding]::new($false))
     $process = Invoke-ChildProcess -FileName (Get-Command pwsh -ErrorAction Stop).Source -Arguments @('-NoProfile', '-File', $driver) `
-        -Environment @{ USERPROFILE=$guestProfile; YURUNA_CERT_MODE=$Mode; YURUNA_CERT_CALLS=$calls; YURUNA_CERT_MISSING_TOOL=(Join-Path $fixture 'missing-executable') } -TimeoutSeconds 15
+        -Environment @{ USERPROFILE=$guestProfile; YURUNA_CERT_MODE=$Mode; YURUNA_CERT_CALLS=$calls; YURUNA_CERT_MISSING_TOOL=(Join-Path $fixture 'missing-executable'); NO_COLOR='1' } -TimeoutSeconds 15
     return [pscustomobject]@{
         Process=$process
         Calls=(Get-Content -LiteralPath $calls -Raw | ConvertFrom-Json)

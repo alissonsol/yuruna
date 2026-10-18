@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.14
+.VERSION 2026.10.18
 .GUID 4215c5b2-75d8-47ea-9edd-261bf78adcaa
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -129,17 +129,26 @@ function Resolve-YurunaTranscriptPath {
 
         A named path that cannot be used is not worth failing a run over: the
         transcript is a diagnostic, so an unusable name falls back to the
-        ordinary temporary file and the run proceeds.
+        default and the run proceeds.
+
+        The default is a named file in a yuruna-transcripts folder under the
+        temp folder, which keeps only the newest $TranscriptRetention files.
+        A failed run prints its transcript, and a successful one leaves it for
+        whoever follows the debug pointer, so the recent ones are worth
+        keeping; an unbounded series of anonymous tmp*.tmp files is not, and
+        on Windows GetTempFileName fails outright once 65,535 of them exist.
+    .PARAMETER TranscriptRetention
+        How many default transcripts to keep, the new one included.
     .OUTPUTS
         [string] An absolute path to write the transcript to.
     #>
     [CmdletBinding()]
     [OutputType([string])]
-    param()
+    param([ValidateRange(1, 1000)][int]$TranscriptRetention = 20)
 
     $named = "$env:YURUNA_TRANSCRIPT_PATH".Trim()
     $env:YURUNA_TRANSCRIPT_PATH = ''
-    if (-not $named) { return [IO.Path]::GetTempFileName() }
+    if (-not $named) { return (New-YurunaDefaultTranscriptPath -Retention $TranscriptRetention) }
     try {
         $full = [IO.Path]::GetFullPath($named)
         $parent = Split-Path -Parent $full
@@ -151,9 +160,44 @@ function Resolve-YurunaTranscriptPath {
         [IO.File]::WriteAllText($full, '')
         return $full
     } catch {
-        Write-Verbose ("The named transcript path could not be used, so a temporary file is: {0}" -f $_.Exception.Message)
-        return [IO.Path]::GetTempFileName()
+        Write-Verbose ("The named transcript path could not be used, so the default is: {0}" -f $_.Exception.Message)
+        return (New-YurunaDefaultTranscriptPath -Retention $TranscriptRetention)
     }
 }
 
-Export-ModuleMember -Function Set-YurunaLogLevel, Resolve-YurunaRootSet, Resolve-YurunaTranscriptPath
+function New-YurunaDefaultTranscriptPath {
+    <#
+    .SYNOPSIS
+        A new transcript path in the bounded yuruna-transcripts temp folder,
+        after pruning that folder to its newest Retention-1 files.
+    .DESCRIPTION
+        Never throws: a folder that cannot be created or pruned falls back to
+        a named file directly in the temp folder, which is still one file per
+        run rather than an anonymous one.
+    .OUTPUTS
+        [string] An absolute path that does not exist yet.
+    #>
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+        Justification = 'Prunes only its own bounded transcript folder on the way to naming a log; a -WhatIf run would still need the path.')]
+    [CmdletBinding()]
+    [OutputType([string])]
+    param(
+        [ValidateRange(1, 1000)][int]$Retention = 20,
+        [string]$Root = (Join-Path ([IO.Path]::GetTempPath()) 'yuruna-transcripts')
+    )
+    $leaf = 'transcript-{0}-{1}.log' -f [DateTime]::UtcNow.ToString('yyyyMMddTHHmmssfffZ'), [Guid]::NewGuid().ToString('N').Substring(0, 8)
+    try {
+        $null = New-Item -ItemType Directory -Path $Root -Force -ErrorAction Stop
+        # New-Item -Force returns quietly when a FILE already holds the name.
+        if (-not (Test-Path -LiteralPath $Root -PathType Container)) { throw "'$Root' exists and is not a folder." }
+        $old = @(Get-ChildItem -LiteralPath $Root -File -Filter 'transcript-*.log' -ErrorAction Stop |
+                Sort-Object LastWriteTimeUtc -Descending | Select-Object -Skip ($Retention - 1))
+        foreach ($file in $old) { Remove-Item -LiteralPath $file.FullName -Force -ErrorAction SilentlyContinue }
+        return (Join-Path $Root $leaf)
+    } catch {
+        Write-Verbose ("The transcript folder '{0}' is unusable, so the transcript goes beside it: {1}" -f $Root, $_.Exception.Message)
+        return (Join-Path ([IO.Path]::GetTempPath()) "yuruna-$leaf")
+    }
+}
+
+Export-ModuleMember -Function Set-YurunaLogLevel, Resolve-YurunaRootSet, Resolve-YurunaTranscriptPath, New-YurunaDefaultTranscriptPath

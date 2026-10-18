@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.14
+.VERSION 2026.10.18
 .GUID 42dc6e9c-5264-4b7f-9cb1-cbc552391717
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -56,6 +56,15 @@ repositories:
 # The shape-guard template needs its own name: the Sync-/Update- Describes bind a $tmpl of
 # their own (a template FILE path) inside their It blocks.
 $script:ShapeTemplate = [ordered]@{ a = 1; node = [ordered]@{ x = 1 } }
+
+# A template that carries the framework's default project URL, and the kind of
+# value an operator puts there to test their own project. An overlay that
+# replaces the second with the first while printing only the new value sends
+# every later cycle to the wrong project with every check green; these fixtures
+# hold the overlay to keeping the operator's value.
+$script:DefaultProjectUrl  = 'https://github.com/alissonsol/yuruna-project'
+$script:OperatorProjectUrl = 'file:///Users/operator/git/amisad.dev'
+$script:OverlayTemplate    = $script:MinimalTemplate + "`n  projectUrl: $($script:DefaultProjectUrl)`n"
 
 function New-TempDir {
     [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
@@ -375,6 +384,65 @@ Describe 'Get-DroppedConfigField' {
     It 'returns nothing when every leaf was carried' {
         $c = [ordered]@{ a = 1; b = [ordered]@{ x = 2 } }
         Assert-Equal -Expected 0 -Actual (@(Get-DroppedConfigField -Current $c -Merged $c)).Count -Because 'identical -> none dropped'
+    }
+}
+
+Describe 'Get-ConfigLeafChange' {
+    It 'lists a changed leaf with both values and ignores canonical reordering and dropped leaves' {
+        $current = [ordered]@{ a = 1; list = @('b', 'a'); maps = @([ordered]@{ y = 1; x = 2 }); gone = 'x'
+                               node = [ordered]@{ url = 'file:///p' } }
+        $merged  = [ordered]@{ a = 1; list = @('a', 'b'); maps = @([ordered]@{ x = 2; y = 1 })
+                               node = [ordered]@{ url = 'https://h' } }
+        $changes = @(Get-ConfigLeafChange -Current $current -Merged $merged)
+        Assert-Equal -Expected 1 -Actual $changes.Count -Because 'only the leaf whose value changed is listed'
+        Assert-Equal -Expected 'node.url'   -Actual $changes[0].Path     -Because 'dotted leaf path'
+        Assert-Equal -Expected 'file:///p'  -Actual $changes[0].Previous -Because 'previous value'
+        Assert-Equal -Expected 'https://h'  -Actual $changes[0].Current  -Because 'current value'
+    }
+    It 'returns nothing when every leaf was carried' {
+        $c = [ordered]@{ a = 1; b = [ordered]@{ x = 2; list = @(1, 2) } }
+        Assert-Equal -Expected 0 -Actual (@(Get-ConfigLeafChange -Current $c -Merged $c)).Count -Because 'identical -> no change'
+    }
+}
+
+Describe 'operator values survive the template overlay' {
+    It 'keeps a file:/// project URL on disk across repeated overlays and reports no replacement' {
+        $d = New-TempDir
+        try {
+            $tmpl = Join-Path $d 'template.yml'; Set-Content $tmpl $script:OverlayTemplate
+            $cfg  = Join-Path $d 'test.config.yml'
+            Set-Content $cfg ($script:OverlayTemplate -replace [regex]::Escape($script:DefaultProjectUrl), $script:OperatorProjectUrl)
+            foreach ($pass in 1..2) {
+                $warnings = $null
+                $r = Update-TestConfigFromTemplate -ConfigPath $cfg -TemplatePath $tmpl -InformationAction SilentlyContinue `
+                    -WarningAction SilentlyContinue -WarningVariable warnings
+                Assert-Equal -Expected $script:OperatorProjectUrl -Actual $r.repositories.projectUrl -Because "pass ${pass}: merged value is the operator's"
+                $onDisk = Get-Content -Raw $cfg | ConvertFrom-Yaml -Ordered
+                Assert-Equal -Expected $script:OperatorProjectUrl -Actual $onDisk.repositories.projectUrl -Because "pass ${pass}: on-disk value is the operator's"
+                Assert-Equal -Expected 0 -Actual @($warnings | Where-Object { "$_" -match 'projectUrl' }).Count -Because "pass ${pass}: nothing was replaced, so nothing is reported"
+            }
+        } finally { Remove-Item -LiteralPath $d -Recurse -Force -ErrorAction SilentlyContinue }
+    }
+    It 'reports a replaced value as previous -> current so the previous value is on record' {
+        $d = New-TempDir
+        try {
+            $tmpl = Join-Path $d 'template.yml'; Set-Content $tmpl $script:OverlayTemplate
+            $cfg  = Join-Path $d 'test.config.yml'
+            Set-Content $cfg ($script:OverlayTemplate -replace [regex]::Escape($script:DefaultProjectUrl), $script:OperatorProjectUrl)
+            # A merge that hands back the template is the defect class: the
+            # operator's value is lost and only the new value remains on disk.
+            Mock ConvertTo-MergedHashtable -ModuleName Test.ConfigSync { param($Template) $Template }
+            $warnings = $null
+            $r = Update-TestConfigFromTemplate -ConfigPath $cfg -TemplatePath $tmpl -InformationAction SilentlyContinue `
+                -WarningAction SilentlyContinue -WarningVariable warnings
+            Assert-Equal -Expected $script:DefaultProjectUrl -Actual $r.repositories.projectUrl -Because 'the mocked merge replaced the value'
+            $reported = @($warnings | Where-Object { "$_" -match 'repositories\.projectUrl' })
+            Assert-Equal -Expected 1 -Actual $reported.Count -Because 'one line per replaced leaf'
+            Assert-Match ("repositories\.projectUrl: {0} -> {1}" -f [regex]::Escape($script:OperatorProjectUrl), [regex]::Escape($script:DefaultProjectUrl)) `
+                "$($reported[0])" 'names the previous value, not only the new one'
+            $onDisk = Get-Content -Raw $cfg | ConvertFrom-Yaml -Ordered
+            Assert-Equal -Expected $script:DefaultProjectUrl -Actual $onDisk.repositories.projectUrl -Because 'the file no longer holds the previous value; the report is its record'
+        } finally { Remove-Item -LiteralPath $d -Recurse -Force -ErrorAction SilentlyContinue }
     }
 }
 

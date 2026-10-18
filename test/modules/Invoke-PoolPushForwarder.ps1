@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.14
+.VERSION 2026.10.18
 .GUID 421654e8-21f9-45e4-9613-5c67d4e4290f
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -28,6 +28,7 @@
 param([string]$HostId = '', [string]$CycleFolder = '')
 
 Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
+Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Common.psm1') -DisableNameChecking
 $ErrorActionPreference = 'Continue'
 $here = Split-Path -Parent $PSCommandPath
 
@@ -99,43 +100,13 @@ if ([string]::IsNullOrWhiteSpace($CycleFolder)) {
     return
 }
 
-# --- REGION: Single-instance lock (atomic CreateNew; reclaim a stale lock once)
+# --- REGION: Single-instance lock
 # See https://yuruna.link/42d38664-001e
-# Ticks, not a formatted timestamp: a JSON ISO-8601 field round-trips as a
-# [datetime] whose string form is locale-formatted, so every live lock would
-# read as stale.
-function Get-PushProcStartUtc { param([int]$ProcId) try { return ((Get-Process -Id $ProcId -ErrorAction Stop).StartTime.ToUniversalTime().Ticks) } catch { return $null } }
-function Test-PushLockHeldLive {
-    param([string]$Path)
-    try { $j = (Get-Content -Raw -LiteralPath $Path -ErrorAction Stop) | ConvertFrom-Json -ErrorAction Stop } catch { return $false }
-    if (-not $j.pid) { return $false }
-    $liveStart = Get-PushProcStartUtc -ProcId ([int]$j.pid)
-    if (-not $liveStart) { return $false }
-    # No recorded start time -> the PID's identity can't be verified, so a reused PID could
-    # masquerade as the holder; treat as stale (reclaimable) rather than held.
-    if (-not $j.startTicks) { return $false }
-    # Process.StartTime on Unix has sub-millisecond cross-process rounding.
-    if ([Math]::Abs([long]$liveStart - [long]$j.startTicks) -gt [TimeSpan]::TicksPerSecond) { return $false }
-    return $true
-}
-function Add-PushLockFile {
-    param([string]$Path, [string]$Body)
-    try {
-        $fs = [System.IO.File]::Open($Path, [System.IO.FileMode]::CreateNew, [System.IO.FileAccess]::Write, [System.IO.FileShare]::Read)
-        try { $b = [System.Text.Encoding]::UTF8.GetBytes($Body); $fs.Write($b, 0, $b.Length) } finally { $fs.Dispose() }
-        return $true
-    } catch { return $false }
-}
-
+# Yuruna.Common's PID-file lock: one creator, a holder known by its PID and
+# start time, and a stale lock reclaimed once without taking a live one.
 $lockPath = Join-Path $runtimeDir 'poolpush.forwarder.lock'
-$lockBody = (@{ pid = $PID; startTicks = (Get-PushProcStartUtc -ProcId $PID) } | ConvertTo-Json -Compress)
-$haveLock = Add-PushLockFile -Path $lockPath -Body $lockBody
-if (-not $haveLock) {
-    if (Test-PushLockHeldLive -Path $lockPath) { Write-Verbose "pool push: another live forwarder holds the lock; exiting."; return }
-    Remove-Item -LiteralPath $lockPath -Force -ErrorAction SilentlyContinue
-    $haveLock = Add-PushLockFile -Path $lockPath -Body $lockBody
-    if (-not $haveLock) { Write-Verbose "pool push: lost the stale-lock reclaim race; exiting."; return }
-}
+$haveLock = Enter-YurunaPidFileLock -Path $lockPath
+if (-not $haveLock) { Write-Verbose "pool push: another live forwarder holds the lock; exiting."; return }
 
 # --- REGION: Host identity
 if ([string]::IsNullOrWhiteSpace($HostId) -and (Get-Command Get-YurunaHostId -ErrorAction SilentlyContinue)) {
@@ -153,9 +124,5 @@ try {
 } catch {
     Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_9597c2fd2b52e11e' -Arguments @{ message = "$($_.Exception.Message)" })
 } finally {
-    if ($haveLock -and (Test-Path -LiteralPath $lockPath)) {
-        $owner = 0
-        try { $owner = [int](((Get-Content -Raw -LiteralPath $lockPath -ErrorAction Stop) | ConvertFrom-Json -ErrorAction Stop).pid) } catch { $owner = 0 }
-        if ($owner -eq $PID) { Remove-Item -LiteralPath $lockPath -Force -ErrorAction SilentlyContinue }
-    }
+    if ($haveLock) { $null = Exit-YurunaPidFileLock -Path $lockPath }
 }

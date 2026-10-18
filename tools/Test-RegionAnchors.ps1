@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.14
+.VERSION 2026.10.18
 .GUID 427a25a9-d3c8-4ce6-b877-b396666875b0
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -36,7 +36,9 @@
     against the target document rather than the link entry. Headings are
     slugified the way GitHub does it: lowercase, drop every character that is
     not `[a-z0-9_ -]` (which removes backticks, periods and parentheses), then
-    replace spaces with hyphens.
+    replace spaces with hyphens. Explicit HTML anchors retain their exact case.
+    A Grafana ${__value.raw} fragment is checked against documented destinations
+    sharing its static prefix and suffix; runtime values require consumer tests.
 
     Markdown targets in every inventoried workspace checkout can be checked. A
     slug pointing at an external site is reported as unresolvable rather than
@@ -230,10 +232,51 @@ function Get-DocAnchorSet {
     $full = Join-Path $documentRoot $DocRelativePath
     if (Test-Path -LiteralPath $full -PathType Leaf) {
         $text = Get-Content -LiteralPath $full -Raw
-        # Fenced blocks can contain '#' lines that are not headings.
-        $text = [regex]::Replace($text, '(?s)```.*?```', '')
-        foreach ($m in [regex]::Matches($text, '(?m)^#{1,6}\s+(.*)$')) {
-            $null = $set.Add((Get-HeadingSlug -Heading $m.Groups[1].Value))
+        $fenceCharacter = ''
+        $fenceLength = 0
+        $inComment = $false
+        foreach ($line in ($text -split '\r\n|\n|\r')) {
+            # Both fence styles can quote headings and explicit anchor examples.
+            if ($fenceCharacter) {
+                $closing = '^ {0,3}' + [regex]::Escape($fenceCharacter) + '{' + $fenceLength + ',}[ \t]*$'
+                if ($line -match $closing) { $fenceCharacter = '' }
+                continue
+            }
+            $fence = [regex]::Match($line, '^ {0,3}(`{3,}|~{3,})(.*)$')
+            if (-not $inComment -and $fence.Success -and -not ($fence.Groups[1].Value[0] -eq '`' -and
+                    $fence.Groups[2].Value.Contains('`'))) {
+                $fenceCharacter = [string]$fence.Groups[1].Value[0]
+                $fenceLength = $fence.Groups[1].Length
+                continue
+            }
+            # A comment opener inside code is literal text. Scan in document
+            # order so it cannot hide real destinations later in the document.
+            $prose = [Text.StringBuilder]::new()
+            $rendered = [Text.StringBuilder]::new()
+            $position = 0
+            while ($position -lt $line.Length) {
+                if ($inComment) {
+                    $end = $line.IndexOf('-->', $position, [StringComparison]::Ordinal)
+                    if ($end -lt 0) { break }
+                    $inComment = $false
+                    $position = $end + 3
+                    continue
+                }
+                $token = [regex]::Match($line.Substring($position), '(?<!`)(`+)(?!`)(.*?)\1(?!`)|<!--')
+                $length = if ($token.Success) { $token.Index } else { $line.Length - $position }
+                [void]$prose.Append($line.Substring($position, $length))
+                [void]$rendered.Append($line.Substring($position, $length))
+                $position += $length
+                if (-not $token.Success) { break }
+                if ($token.Value -eq '<!--') { $inComment = $true }
+                else { [void]$prose.Append($token.Value) }
+                $position += $token.Length
+            }
+            $heading = [regex]::Match($prose.ToString(), '^#{1,6}\s+(.*)$')
+            if ($heading.Success) { $null = $set.Add((Get-HeadingSlug -Heading $heading.Groups[1].Value)) }
+            foreach ($anchor in [regex]::Matches($rendered.ToString(), '(?i)<a\b[^>]*?\sid\s*=\s*(["''])([^"'']+)\1[^>]*>')) {
+                $null = $set.Add($anchor.Groups[2].Value)
+            }
         }
     }
     $anchorCache[$cacheKey] = $set
@@ -273,7 +316,7 @@ foreach ($repository in $repositories) {
             })
     }
 }
-$pointer = [regex]'yuruna\.link/([A-Za-z0-9._/-]+?)#([A-Za-z0-9._-]+)'
+$pointer = [regex]'yuruna\.link/([A-Za-z0-9._/-]+?)#([A-Za-z0-9._${}-]+)'
 
 # The identity form: yuruna.link/<file>-<anchor>, where the id names a heading
 # directly instead of describing it. A slug pointer can only ever address the
@@ -348,6 +391,7 @@ $dangling   = New-Object System.Collections.Generic.List[hashtable]
 $unknown    = New-Object System.Collections.Generic.List[hashtable]
 $unknownId  = New-Object System.Collections.Generic.List[hashtable]
 $checked    = 0
+$templates  = 0
 
 foreach ($candidateFile in $candidateFiles) {
     $rel = $candidateFile.Relative
@@ -379,13 +423,29 @@ foreach ($candidateFile in $candidateFiles) {
         foreach ($m in $pointer.Matches($line)) {
             $checked++
             $slug   = $m.Groups[1].Value
-            $anchor = $m.Groups[2].Value.ToLowerInvariant()
+            $anchor = $m.Groups[2].Value
             if (-not $slugToDoc.ContainsKey($slug)) {
                 $unknown.Add(@{ file = $display; line = $lineNo; slug = $slug; anchor = $anchor })
                 continue
             }
             $target = $slugToDoc[$slug]
-            if (-not (Get-DocAnchorSet -Repo $target.Repo -DocRelativePath $target.Path).Contains($anchor)) {
+            $destinations = Get-DocAnchorSet -Repo $target.Repo -DocRelativePath $target.Path
+            $present = $destinations.Contains($anchor)
+            if ($anchor -match '[$}{]') {
+                # Do not truncate a template into a static fragment or accept an
+                # arbitrary interpolation. Its consumer owns the value domain.
+                $template = [regex]::Match($anchor, '^([A-Za-z0-9._-]+)\$\{__value\.raw\}([A-Za-z0-9._-]*)$')
+                $present = $false
+                if ($template.Success) {
+                    $pattern = '^' + [regex]::Escape($template.Groups[1].Value) +
+                        '[A-Za-z0-9._-]+' + [regex]::Escape($template.Groups[2].Value) + '$'
+                    foreach ($destination in $destinations) {
+                        if ([regex]::IsMatch($destination, $pattern)) { $present = $true; break }
+                    }
+                    if ($present) { $templates++ }
+                }
+            }
+            if (-not $present) {
                 $dangling.Add(@{
                         file = $display; line = $lineNo; slug = $slug; anchor = $anchor
                         doc = "$($target.Repo)/$($target.Path)"
@@ -487,7 +547,10 @@ foreach ($u in ($unknownId | Sort-Object { $_.file }, { $_.line })) {
 }
 
 if ($dangling.Count -eq 0 -and $overlayBad.Count -eq 0 -and $unknownId.Count -eq 0) {
-    Write-Output "Test-RegionAnchors: all in-repo pointers resolve; every overlay anchor pairs."
+    if ($templates -gt 0) {
+        Write-Output "Test-RegionAnchors: $templates template pointer(s) match documented destinations; runtime values require consumer validation."
+    }
+    Write-Output 'Test-RegionAnchors: all static in-repo pointers resolve; every overlay anchor pairs.'
     exit $ExitOk
 }
 

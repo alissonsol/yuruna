@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.14
+.VERSION 2026.10.18
 .GUID 422de2af-9e3f-4bca-8c35-df0040af74c0
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -667,6 +667,13 @@ if ($isNested) {
     if ($frameworkCommit) {
         $gitCommitsList += [ordered]@{ sha = $frameworkCommit; repoUrl = $frameworkUrl }
     }
+    $projectCommitReference = $null
+    if ($Config.repositories -is [System.Collections.IDictionary] -and
+        (Get-Command Get-ProjectGitCommitReference -ErrorAction SilentlyContinue)) {
+        $projectCommitReference = Get-ProjectGitCommitReference -RepoRoot $RepoRoot -ProjectUrl $Config.repositories.projectUrl
+    }
+    $projectCommit = if ($projectCommitReference) { [string]$projectCommitReference.sha } else { $null }
+    if ($projectCommitReference) { $gitCommitsList += $projectCommitReference }
     $SeqCycleStartUtc = Initialize-StatusDocument `
         -StatusFilePath $StatusFile `
         -HostType       $HostType `
@@ -694,7 +701,7 @@ if ($isNested) {
     if (Get-Command -Name Start-PerfCycle -ErrorAction SilentlyContinue) {
         try {
             Start-PerfCycle -CycleStartUtc $SeqCycleStartUtc -HostPlatform $HostType -Hostname (hostname) `
-                -HarnessCommit $frameworkCommit -Confirm:$false
+                -HarnessCommit $frameworkCommit -ProjectCommit $projectCommit -Confirm:$false
         } catch {
             Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_99ba6b1738ddcff9' -Arguments @{ message = "$($_.Exception.Message)" })
         }

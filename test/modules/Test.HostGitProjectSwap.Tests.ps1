@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.14
+.VERSION 2026.10.18
 .GUID 4207281c-d594-4c5f-b5f3-215bb075539f
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -37,6 +37,10 @@ BeforeAll {
 $ErrorActionPreference = 'Stop'
 $here = Split-Path -Parent $PSCommandPath
 Import-Module (Join-Path $here 'Test.HostGit.psm1') -Force -DisableNameChecking
+# Captured before any Mock: a filtered mock alone fails the calls its
+# filter does not match, and this suite relies on the real command there.
+$script:RealMoveProjectCloneDirectory = & (Get-Module Test.HostGit) { Get-Command Move-ProjectCloneDirectory }
+$script:RealRemoveProjectCloneDirectory = & (Get-Module Test.HostGit) { Get-Command Remove-ProjectCloneDirectory }
 
 function New-GitRemoteFixture {
     [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
@@ -114,6 +118,8 @@ Describe 'Update-ProjectClone never costs the last good checkout' {
         $script:Remote = New-GitRemoteFixture -Root $script:Root
         $script:Repo = New-RepoRootFixture -Root $script:Root -WithCheckout
         Mock -ModuleName Test.HostGit Get-FileLockingProcess { @() }
+        Mock -ModuleName Test.HostGit Move-ProjectCloneDirectory { & $script:RealMoveProjectCloneDirectory @PesterBoundParameters }
+        Mock -ModuleName Test.HostGit Remove-ProjectCloneDirectory { & $script:RealRemoveProjectCloneDirectory @PesterBoundParameters }
     }
     AfterEach { Remove-Item -LiteralPath $script:Root -Recurse -Force -ErrorAction SilentlyContinue }
 
@@ -225,6 +231,8 @@ Describe 'Update-ProjectClone with a file watcher on the checkout' -Skip:(-not $
         $script:Watcher = [System.IO.FileSystemWatcher]::new($script:Deep)
         $script:Watcher.EnableRaisingEvents = $true
         Mock -ModuleName Test.HostGit Get-FileLockingProcess { @() }
+        Mock -ModuleName Test.HostGit Move-ProjectCloneDirectory { & $script:RealMoveProjectCloneDirectory @PesterBoundParameters }
+        Mock -ModuleName Test.HostGit Remove-ProjectCloneDirectory { & $script:RealRemoveProjectCloneDirectory @PesterBoundParameters }
         $global:__swapWatchers = [System.Collections.Generic.List[System.IO.FileSystemWatcher]]::new()
     }
     AfterEach {

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.14
+.VERSION 2026.10.18
 .GUID 42904a4e-7e96-4d32-883d-8326239ad090
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -97,7 +97,7 @@ function Invoke-OuterNetworkGit {
         [Parameter()][int]$TimeoutSeconds = 30
     )
     # Classifier captured as CommandInfo once, so the foreign-module call works
-    # regardless of import scope (see feedback_closure_foreign_module_command_resolution).
+    # regardless of import scope.
     $classifier = Get-Command Test-GitRemoteAuthFailure -ErrorAction SilentlyContinue
     $attempts   = @()
     if (Get-Command Get-YurunaGitAuthAttemptList -ErrorAction SilentlyContinue) {
@@ -169,7 +169,7 @@ function Invoke-OuterGitPull {
     # Stream via Write-Information, NOT Write-Output: this function's contract is a
     # single [bool], and git's stderr on a failure would otherwise ride the pipeline
     # and turn the caller's `-not (Invoke-OuterGitPull ...)` into `-not <array>`
-    # ($false), masking the failure. See feedback_powershell_writeoutput_pipeline_pollution.
+    # ($false), masking the failure.
     $script:LastOuterPullFailure = ''
     $pull = Invoke-OuterNetworkGit -ArgumentList @('-C', $RepoRoot, 'pull', '--ff-only', '--quiet') -TimeoutSeconds 60
     if ($pull.StdOut) { Write-Information ($pull.StdOut.TrimEnd()) -InformationAction Continue }
@@ -1581,6 +1581,7 @@ function Update-RunnerFaultStatus {
         [Parameter()][string]$AttemptGeneration = '',
         [Parameter()][datetime]$SpawnedAtUtc = [datetime]::MinValue,
         [Parameter()][string]$FrameworkCommitSha = '',
+        [Parameter()][int]$ExitCode = 1,
         [Parameter()][AllowNull()][hashtable]$AttemptEvidence = $null
     )
     $statusFile = Join-Path $RuntimeDir 'status.json'
@@ -1651,6 +1652,21 @@ function Update-RunnerFaultStatus {
             recordPath = if ($AttemptEvidence -and $AttemptEvidence['recordPath']) { [string]$AttemptEvidence['recordPath'] } else { '' }
             transcriptPath = if ($AttemptEvidence -and $AttemptEvidence['transcriptPath']) { [string]$AttemptEvidence['transcriptPath'] } else { '' }
         } }
+        if (-not $attemptCompleted -and $AttemptGeneration) {
+            try {
+                if (-not (Get-Command Write-RunnerAttemptFaultArtifact -ErrorAction SilentlyContinue)) {
+                    Import-Module (Join-Path $PSScriptRoot 'Test.RunnerAttemptHistory.psm1') -DisableNameChecking -ErrorAction Stop
+                }
+                $started = if ($SpawnedAtUtc -ne [datetime]::MinValue) { $SpawnedAtUtc } else { [DateTime]::UtcNow }
+                $retained = Write-RunnerAttemptFaultArtifact -RuntimeDir $RuntimeDir -AttemptGeneration $AttemptGeneration `
+                    -FailureClass $cause.failureClass -Description $cause.errorMessage -StartedAtUtc $started `
+                    -FrameworkCommitSha $doc['runnerFault']['frameworkCommitSha'] -ExitCode $ExitCode -Evidence $AttemptEvidence -Confirm:$false
+                if ($retained) {
+                    $doc['runnerFault']['recordPath'] = $retained.recordPath
+                    $doc['runnerFault']['transcriptPath'] = $retained.transcriptPath
+                }
+            } catch { Write-Verbose "Runner attempt history could not be saved: $($_.Exception.Message)" }
+        }
         if ($currentCycle) {
             $doc['overallStatus'] = 'fail'
             if (-not $doc['lastFailure']) { $doc['lastFailure'] = $cause }
@@ -2910,6 +2926,10 @@ function Invoke-OuterCycleDispatch {
             Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_961568a3cc6a695a' -Arguments @{ cycle = "$Cycle"; message = "$($_.Exception.Message)" })
             return [pscustomobject]@{ Outcome = 'spawn-failed'; ExitCode = 0; CycleGeneration = $cycleGeneration; Refresh = $dispatch.Mode; Cycle = $null; Gate = $null; Handoff = $validated }
         }
+        # On Windows, Start-Process -PassThru returns a Process looked up by id
+        # that holds no handle, and once the child has exited its ExitCode can
+        # only be read through a handle opened while it still ran.
+        if ($proc.PSObject.Properties['Handle']) { try { $null = $proc.Handle } catch { $null = $_ } }
         if (Get-Command Write-YurunaRunnerCycleRecord -ErrorAction SilentlyContinue) {
             $recordArgs = @{ RuntimeDir = $env:YURUNA_RUNTIME_DIR; Process = $proc; Cycle = $Cycle; Confirm = $false }
             if ($cycleGeneration) { $recordArgs.CycleGeneration = [string]$cycleGeneration }
@@ -3304,7 +3324,7 @@ function Invoke-RunnerOuterLoop {
             $null = Update-RunnerFaultStatus -RuntimeDir $env:YURUNA_RUNTIME_DIR -RunnerState 'fault' `
                 -Reason $faultReason -StalledPhase $stalledPhase -FailureClass $faultClass `
                 -AttemptGeneration ([string]$State['CycleGeneration']) -SpawnedAtUtc $cycleSpawnedAtUtc `
-                -FrameworkCommitSha $faultCommitSha -AttemptEvidence $attemptFault.Evidence -Confirm:$false
+                -FrameworkCommitSha $faultCommitSha -ExitCode $exitCode -AttemptEvidence $attemptFault.Evidence -Confirm:$false
         }
 
         # Automatic host refresh, after the streak and crash accounting and
@@ -3336,6 +3356,20 @@ function Invoke-RunnerOuterLoop {
         # See https://yuruna.link/42e220c4-0008
         $refreshAllowsEnsure = (-not (Get-Command Test-YurunaRefreshSpawnAllowed -ErrorAction SilentlyContinue)) -or
             (Test-YurunaRefreshSpawnAllowed -RuntimeDir $env:YURUNA_RUNTIME_DIR)
+        # A held gate normally holds this ensure too: a live worker may be
+        # mid-repair, deliberately stopping or restarting the listener. An
+        # orphaned gate -- owner provably dead or recycled, no live handoff
+        # token -- has no such worker, and a down status service would cut
+        # off the dashboard carrying the unresolved request's resume
+        # controls, leaving a remote operator no way to see or relaunch it.
+        # The hold on cycle dispatch stands either way.
+        if (-not $refreshAllowsEnsure -and (Get-Command Get-YurunaRefreshGateState -ErrorAction SilentlyContinue)) {
+            $ensureGate = Get-YurunaRefreshGateState -RuntimeDir $env:YURUNA_RUNTIME_DIR
+            if ($ensureGate.Orphaned) {
+                $refreshAllowsEnsure = $true
+                Write-OuterLog (Format-YurunaOperatorMessage -Key 'runner.refresh_status_ensure_orphaned' -Arguments @{ cycle = "$cycle"; requestId = "$($ensureGate.RequestId)"; state = "$($ensureGate.State)" })
+            }
+        }
         if (-not $refreshAllowsEnsure) {
             Write-OuterLog (Format-YurunaOperatorMessage -Key 'runner.refresh_status_ensure_skipped' -Arguments @{ cycle = "$cycle" })
         }
@@ -3410,7 +3444,7 @@ function Invoke-RunnerOuterLoop {
             $null = Update-RunnerFaultStatus -RuntimeDir $env:YURUNA_RUNTIME_DIR -RunnerState 'paused' `
                 -Reason "failure-pause begin ($faultReason)" -StalledPhase $stalledPhase -FailureClass $faultClass `
                 -AttemptGeneration ([string]$State['CycleGeneration']) -SpawnedAtUtc $cycleSpawnedAtUtc `
-                -FrameworkCommitSha $faultCommitSha -AttemptEvidence $attemptFault.Evidence -Confirm:$false
+                -FrameworkCommitSha $faultCommitSha -ExitCode $exitCode -AttemptEvidence $attemptFault.Evidence -Confirm:$false
         }
         try {
             while ((Get-Date) -lt $deadline -and -not $State.ShutdownState['Requested']) {
@@ -3428,8 +3462,7 @@ function Invoke-RunnerOuterLoop {
                     $remainingMinutes = [math]::Round($remainingSeconds / 60, 1)
                     # Hardened the same way Wait-WithProgress draws its bar:
                     # Write-Progress throws on tmux/sshd PTYs without a
-                    # resolvable TERM (the SetCursorPosition trap in
-                    # feedback_pwsh_linux_write_progress_setcursor.md). Swallow
+                    # resolvable TERM (the SetCursorPosition trap). Swallow
                     # the render failure so the pause keeps sleeping + polling
                     # silently instead of aborting the whole outer loop.
                     try {

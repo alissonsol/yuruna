@@ -34999,13 +34999,6 @@
     },
     {
       "path": "test/modules/Test.RunnerOuterLoop.psm1",
-      "line": 1208,
-      "sink": "Send-CycleFailureNotification -SubjectSuffix",
-      "key": "runner.operator_4c698a30b7a49186",
-      "arguments": []
-    },
-    {
-      "path": "test/modules/Test.RunnerOuterLoop.psm1",
       "line": 1209,
       "sink": "Send-CycleFailureNotification -StepName",
       "key": "runner.operator_8c401a9e37de2b10",
@@ -42874,10 +42867,15 @@
     },
     {
       "path": "test/Test-Config.ps1",
-      "line": 993,
+      "line": 957,
       "sink": "Write-Fail",
-      "key": "runner.operator_6829a064da0c5779",
-      "arguments": []
+      "key": "runner.preflight_tcp_failed",
+      "arguments": [
+        "hostName",
+        "port",
+        "attemptCount",
+        "outcome"
+      ]
     },
     {
       "path": "test/Test-Config.ps1",
@@ -42895,6 +42893,15 @@
       "key": "runner.operator_88fcb4dc7bd3cb87",
       "arguments": [
         "message"
+      ]
+    },
+    {
+      "path": "test/Test-Config.ps1",
+      "line": 969,
+      "sink": "Write-Info",
+      "key": "runner.preflight_network_diagnostics",
+      "arguments": [
+        "diagnostics"
       ]
     },
     {

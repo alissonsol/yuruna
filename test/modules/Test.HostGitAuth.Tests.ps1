@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.14
+.VERSION 2026.10.18
 .GUID 421d3153-a504-4156-917e-10ff36bab08d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -243,7 +243,7 @@ Describe 'Invoke-GitNetworkCommand -- chains the credential sources, plain git l
         }
         $r = Invoke-GitNetworkCommand -GitArgs @('fetch')
         Assert-True ($r.ExitCode -eq 128) 'the outage result is surfaced as-is'
-        Assert-MockCalled -ModuleName Test.HostGit Invoke-GitNetworkCommandOnce -Exactly -Times 1 -Scope It
+        Should -Invoke -ModuleName Test.HostGit Invoke-GitNetworkCommandOnce -Exactly -Times 1 -Scope It
     }
 }
 

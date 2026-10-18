@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.14
+.VERSION 2026.10.18
 .GUID 42f816f3-f8fb-4c0a-84b9-8070c8990937
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -189,6 +189,19 @@ Describe 'Invoke-OuterCycleDispatch scores a cycle only from a valid outcome rec
         $r.Outcome | Should -Be 'completed'
         $r.ExitCode | Should -Be 1
     }
+    It 'reads the exit code of an early crash from a process object that opens its handle only when asked' {
+        # Windows Start-Process -PassThru hands back a Process without a handle;
+        # its ExitCode is unreadable after exit unless Handle was read first.
+        Mock -ModuleName Test.RunnerOuterLoop Start-Process {
+            $process = [pscustomobject]@{ Id = $PID; HasExited = $true; HandleOpened = $false }
+            $process | Add-Member -MemberType ScriptProperty -Name Handle -Value { $this.HandleOpened = $true; [IntPtr]::new(1) }
+            $process | Add-Member -MemberType ScriptProperty -Name ExitCode -Value { if ($this.HandleOpened) { 3 } else { $null } }
+            $process
+        }
+        $r = Invoke-OuterCycleDispatch -State $script:State -Cycle 4
+        $r.Outcome | Should -Be 'cycle-aborted'
+        $r.ExitCode | Should -Be 3
+    }
     It 'does not score a clean exit with no record as a pass' {
         $r = Invoke-OuterCycleDispatch -State $script:State -Cycle 4
         $r.Outcome | Should -Be 'outcome-unrecorded'
@@ -196,7 +209,7 @@ Describe 'Invoke-OuterCycleDispatch scores a cycle only from a valid outcome rec
         $r.ExitCode | Should -Be (Get-UnrecordedOutcomeExitCode)
         $r.OutcomeReason | Should -Be 'missing'
         $r.CycleGeneration | Should -Be $script:Generation
-        Assert-MockCalled -CommandName Write-Warning -ModuleName Test.RunnerOuterLoop -Scope It
+        Should -Invoke -CommandName Write-Warning -ModuleName Test.RunnerOuterLoop -Scope It
     }
     It 'does not score a clean exit with a malformed record as a pass, and keeps the record' {
         $env:OUTREC_FIXTURE_TEXT = '{"outcome":"completed","exitCo'

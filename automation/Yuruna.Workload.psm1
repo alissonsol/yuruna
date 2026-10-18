@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.14
+.VERSION 2026.10.18
 .GUID 420897b3-ba3c-4550-ba93-63e8deebf8a9
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -36,14 +36,14 @@ Import-Module (Join-Path $PSScriptRoot 'Yuruna.VariableExpansion.psm1') -Global 
 # by the transient-fetch retry below, and Write-YurunaToolLogSection, which
 # writes each "== <cmd> (exit=N) ==" section of the chart log in one append.
 # -Global -Force so the import does not evict an instance another module
-# loaded; see feedback_module_force_import_evicts_global.md.
+# loaded.
 Import-Module (Join-Path $PSScriptRoot 'Yuruna.Retry.psm1') -Global -Force
 # Shared deployment-kind catalog (chart|kubectl|helm|shell detection,
 # error text, tool-expression mapping, retry gating) consumed by the
 # per-deployment loop below and, separately, by Confirm-WorkloadList.
 # Imported here as well as in Yuruna.Validation because Set-Workload.ps1
 # imports Workload only; -Global -Force so the import does not evict an
-# instance another module loaded (feedback_module_force_import_evicts_global.md).
+# instance another module loaded.
 Import-Module (Join-Path $PSScriptRoot 'Yuruna.DeploymentKind.psm1') -Global -Force
 
 function Invoke-WorkloadChartDeployment {
@@ -183,7 +183,7 @@ function Invoke-WorkloadToolDeployment {
         Get-Command here (same module session state) so the GetNewClosure
         scriptblock can invoke it via `& $dynExpr` after Yuruna.Retry runs
         the block in its own scope, which cannot see this module's private
-        import by name (feedback_closure_foreign_module_command_resolution.md).
+        import by name.
         Reads $sw live so a failure manifest carries elapsed-at-failure ms.
     .OUTPUTS
         $null when the tool applied cleanly (caller continues the loop),

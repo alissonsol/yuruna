@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.14
+.VERSION 2026.10.18
 .GUID 42a09e37-5c84-4b16-9d72-38ef61c0a4d5
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -157,11 +157,14 @@ function New-Entry {
     return $d
 }
 
+}
+
+# At file level, not inside BeforeAll: Pester registers AfterAll only while it
+# discovers the file, so one declared from a running BeforeAll never runs.
 AfterAll {
     if ($script:Sandbox -and (Test-Path -LiteralPath $script:Sandbox)) {
         Remove-Item -LiteralPath $script:Sandbox -Recurse -Force -ErrorAction SilentlyContinue
     }
-}
 }
 
 Describe 'a project label survives every pairing of framework and project' {

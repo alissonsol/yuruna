@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.14
+.VERSION 2026.10.18
 .GUID 426a341c-7627-4ced-878b-96844d5d7165
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -147,7 +147,6 @@ function Publish-ResourceListHelper {
             # the .workfolder.complete marker, the -ErrorAction Stop rule
             # and the tofu silent-cascade trap it guards against:
             # docs/architecture.md#atomic-resource-work-folder-staging
-            # (feedback_tofu_null_resource_provisioner_silent_cascade.md)
             $workFolderRoot = Join-Path -Path $project_root -ChildPath ".yuruna/$config_subfolder/resources/$resourceName"
             $workFolderNew  = "$workFolderRoot.new"
             $workFolderOld  = "$workFolderRoot.old"

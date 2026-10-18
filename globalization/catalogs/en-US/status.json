@@ -1821,6 +1821,11 @@
         }
       }
     },
+    "status.host_refresh_remote_viewer": {
+      "message": "This page is open from another machine, so it can watch a host refresh but not start one. Start it on the host: its own dashboard, or pwsh test/lab/Invoke-HostRefresh.ps1.",
+      "description": "Config page note when the control-status capability reports the viewer's connection as non-loopback (test/status/yuruna.common.js); a remote press cannot carry the refresh proof, so the Start button stays disabled; preserve command names, parameter names, codes and paths.",
+      "lifecycle": "active"
+    },
     "status.host_refresh_retry": {
       "message": "Retry",
       "description": "Button that resends the same host-refresh request after a failed launch or while recovery is pending (test/status/yuruna.common.js).",
@@ -3206,6 +3211,31 @@
     "status.yuruna_status": {
       "message": "Yuruna Status",
       "description": "Visible text in test/status/index.html; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "status.preflight_failed": {
+      "message": "PREFLIGHT FAILED",
+      "description": "Host state and badge for configuration validation failure before a new test cycle starts.",
+      "lifecycle": "active"
+    },
+    "status.runner_attempts_title": {
+      "message": "Runner attempt failures",
+      "description": "Host page heading for retained runner attempt failures.",
+      "lifecycle": "active"
+    },
+    "status.runner_attempts_description": {
+      "message": "Failures from the latest 20 runner attempts remain here after recovery. Preflight failures occur before a new test cycle starts.",
+      "description": "Host page explanation of retained attempt failures and preflight lifecycle.",
+      "lifecycle": "active"
+    },
+    "status.runner_attempts_empty": {
+      "message": "No retained runner attempt failures.",
+      "description": "Host page empty state for retained runner attempt failures.",
+      "lifecycle": "active"
+    },
+    "status.runner_attempts_unavailable": {
+      "message": "Runner attempt history is unavailable.",
+      "description": "Host page state when the attempt history endpoint cannot be read.",
       "lifecycle": "active"
     }
   }

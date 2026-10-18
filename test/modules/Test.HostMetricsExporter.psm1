@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.14
+.VERSION 2026.10.18
 .GUID 42c7f1a9-3e60-4b2d-9a55-1f0c8b6d24ae
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -55,20 +55,26 @@
 # scrape side has to name the same number, and a per-host port that the
 # monitoring host cannot discover is a target that silently never scrapes.
 Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
+# Get-YurunaRulePortFilter: the firewall-rule port read the status rule uses too.
+Import-Module (Join-Path $PSScriptRoot 'Test.StatusFirewall.psm1') -DisableNameChecking
 $script:HostMetricsPort = 9182
 
 # The Windows service name the exporter's own installer registers.
 $script:HostMetricsServiceName = 'windows_exporter'
 
 # See https://yuruna.link/4213a0b3-0086
-$script:HostMetricsCollector = @('cpu', 'hyperv', 'logical_disk', 'memory', 'os')
+$script:HostMetricsCollector = @('cpu', 'hyperv', 'logical_disk', 'memory', 'net', 'os')
 
-# The only Hyper-V families Get-YurunaHostMetricsRetentionRegex keeps
-# (windows_hyperv_hypervisor_*) and the capability checks read; the other 12
-# sub-collectors in the hyperv collector are gathered and sent every scrape
-# only to be dropped at the receiver. Adding a family to the dashboard means
-# adding it to both the retention regex and this list.
-$script:HostMetricsHyperVSubCollector = @('hypervisor_logical_processor', 'hypervisor_root_virtual_processor', 'hypervisor_virtual_processor')
+# The Hyper-V families Get-YurunaHostMetricsRetentionRegex keeps: the
+# hypervisor processor counters the capability checks read, plus the per-VM
+# network adapter and virtual switch counters. Those two are the only trace a
+# host uplink or virtual switch fault leaves -- a guest that lost its network
+# records nothing anywhere else, and from inside the guest the fault reads as
+# a dead caching proxy. The other 10 sub-collectors in the hyperv collector
+# would be gathered and sent every scrape only to be dropped at the receiver.
+# Adding a family to the dashboard means adding it to both the retention
+# regex and this list.
+$script:HostMetricsHyperVSubCollector = @('hypervisor_logical_processor', 'hypervisor_root_virtual_processor', 'hypervisor_virtual_processor', 'virtual_network_adapter', 'virtual_switch')
 
 # The package the exporter is acquired as. Named here rather than only in the
 # command an operator is shown, because the same identifier now drives an
@@ -424,11 +430,18 @@ function Test-YurunaHostMetricsPayload {
 function Get-YurunaHostMetricsRetentionRegex {
     <# .SYNOPSIS
         The curated pool-host metric filter shared by the seed and live-monitor sync.
+    .DESCRIPTION
+        Families are kept by prefix where every metric in the family earns its
+        place, by exact name where only a few do. The host's own adapters
+        (windows_net_*) and the per-VM adapter and virtual switch counters
+        (windows_hyperv_virtual_network_adapter_*, windows_hyperv_virtual_switch_*)
+        are kept whole: they are the only series that can show a guest's path
+        to the lab going dark while the caching proxy it blames stays up.
     #>
     [CmdletBinding()]
     [OutputType([string])]
     param()
-    return 'up|scrape_.*|windows_memory_.*|windows_cpu_time_total|windows_logical_disk_.*|windows_os_(info|hostname)|windows_exporter_(build_info|collector_success|collector_duration_seconds|scrape_collector_success|scrape_duration_seconds)|windows_hyperv_hypervisor_(logical_processor_(time_total|total_run_time_total|context_switches_total)|root_virtual(_processor)?_(time_total|cpu_wait_time_per_dispatch_total)|virtual_processor_((mode_)?time_total|(total_)?run_time_total|cpu_wait_time_per_dispatch_total))'
+    return 'up|scrape_.*|windows_memory_.*|windows_cpu_time_total|windows_logical_disk_.*|windows_net_.*|windows_os_(info|hostname)|windows_exporter_(build_info|collector_success|collector_duration_seconds|scrape_collector_success|scrape_duration_seconds)|windows_hyperv_hypervisor_(logical_processor_(time_total|total_run_time_total|context_switches_total)|root_virtual(_processor)?_(time_total|cpu_wait_time_per_dispatch_total)|virtual_processor_((mode_)?time_total|(total_)?run_time_total|cpu_wait_time_per_dispatch_total))|windows_hyperv_virtual_network_adapter_.*|windows_hyperv_virtual_switch_.*'
 }
 
 function Get-YurunaHostMetricsCapability {
@@ -564,7 +577,7 @@ function Set-YurunaHostMetricsFirewallRule {
         if ($scope.Count -eq 0) { $scope = @('LocalSubnet') }
         $desc = "Allow the monitoring host to scrape http://<host>:$Port/metrics. Scoped to $($scope -join ', ') because host metrics enumerate this host's processes, disks and guests. Created by Yuruna (test/modules/Test.HostMetricsExporter.psm1)."
         $existing = Get-NetFirewallRule -DisplayName $ruleName -ErrorAction SilentlyContinue
-        $filter = if ($existing) { Get-YurunaMetricsRulePortFilter -Rule $existing } else { $null }
+        $filter = if ($existing) { Get-YurunaRulePortFilter -Rule $existing } else { $null }
         $address = if ($existing) { Get-YurunaMetricsRuleAddressFilter -Rule $existing } else { $null }
         $liveScope = @(if ($address) { @($address.RemoteAddress) } else { @() })
         $scopeCorrect = ($liveScope.Count -eq $scope.Count) -and
@@ -604,17 +617,10 @@ function Set-YurunaHostMetricsFirewallRule {
     return $result
 }
 
-function Get-YurunaMetricsRulePortFilter {
-    # Wrapper over the pipeline read '$rule | Get-NetFirewallPortFilter' so tests
-    # have a direct-call seam to mock: a module-scoped Mock does not reliably
-    # intercept a piped cmdlet call.
-    [CmdletBinding()]
-    param([Parameter(Mandatory)]$Rule)
-    return ($Rule | Get-NetFirewallPortFilter -ErrorAction SilentlyContinue)
-}
-
 function Get-YurunaMetricsRuleAddressFilter {
-    # The scope half of the same read, for the same reason.
+    # The scope half of the read Get-YurunaRulePortFilter makes, and a direct-call
+    # seam for the same reason: a module-scoped Mock does not reliably intercept
+    # a piped cmdlet call.
     [CmdletBinding()]
     param([Parameter(Mandatory)]$Rule)
     return ($Rule | Get-NetFirewallAddressFilter -ErrorAction SilentlyContinue)

@@ -5683,6 +5683,16 @@
       "origin": "machine",
       "message": "UTM在{attempts}次尝试中均未执行'{vmName}'的启动请求；最后报告的错误为'{lastError}'。utmctl已连接到UTM.app，期间状态查询始终得到响应，但启动操作从未执行，因此虚拟机从未启动，其磁盘也未被改动。请重试（utmctl start '{vmName}'）；重建无法解决此问题。"
     },
+    "host.utm_start_control_hung": {
+      "sourceHash": "c9d057ba43796fb3b9a31f0907dd458da26998e8c7b115bc09ec40206fe11821",
+      "origin": "machine",
+      "message": "UTM的控制通道已停止执行生命周期请求：对'{vmName}'的{attempts}次连续启动请求均未得到响应，最后一次报告的错误为'{lastError}'。utmctl仍能连接到UTM.app进行状态查询，因此应用程序仍在运行，但不再执行start、stop或delete，重试只会再增加一次超时。请在此宿主机上重新启动UTM.app（从桌面会话退出它，或运行test/lab/Invoke-HostRefresh.ps1），然后重新启动该虚拟机。该虚拟机从未启动，其磁盘也未被改动。"
+    },
+    "host.utm_control_snapshot_action": {
+      "sourceHash": "0edb078c35115edfdd56fc887938f57308ba7770305b9e5b63b3120e5b766edf",
+      "origin": "machine",
+      "message": "记录UTM控制通道快照（{trigger}）"
+    },
     "host.operator_00a55c89ffcb04b0": {
       "sourceHash": "52644e1c9180ebb8c82d03fe87e4058b17afc025a90a78b05f85136189b419ce",
       "origin": "machine",

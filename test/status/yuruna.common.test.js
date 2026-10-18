@@ -1,7 +1,7 @@
 /*
   LICENSEURI https://yuruna.link/license
   Copyright (c) 2019-2026 by Alisson Sol et al.
-  Version: 2026.10.14
+  Version: 2026.10.18
 
   Framework-free checks for test/status/yuruna.common.js. Run: node yuruna.common.test.js
   (exit 0 = pass). No package.json / test runner in the repo, so this uses the Node
@@ -94,10 +94,14 @@ var faultData = {
   }
 };
 Y.applyBanner(faultData, null, { running: true });
-assert.strictEqual(bannerEl.className, 'fail', 'a failed attempt must be visible above the prior passing cycle');
+assert.strictEqual(bannerEl.className, 'preflight-failed', 'a preflight failure needs a yellow state above the prior passing cycle');
 assert.strictEqual(faultData.overallStatus, 'pass', 'displaying an attempt failure must preserve the completed cycle verdict');
 Y.applyBanner({ runnerFault: faultData.runnerFault }, null, { running: true });
-assert.strictEqual(bannerEl.className, 'fail', 'a first-attempt failure needs no completed cycle to be visible');
+assert.strictEqual(bannerEl.className, 'preflight-failed', 'a first-attempt failure needs no completed cycle to be visible');
+Y.applyBanner({ runnerFault: { failureClass: 'inner_exited' } }, null, { running: true });
+assert.strictEqual(bannerEl.className, 'fail', 'runner crashes must remain red');
+Y.applyBanner({ overallStatus: 'fail', guests: [{}] }, null, { running: true });
+assert.strictEqual(bannerEl.className, 'fail', 'failed guest cycles must remain red');
 Y.applyBanner(faultData, null, { running: false });
 assert.strictEqual(bannerEl.className, 'stopped', 'verified stopped runner keeps precedence');
 documentShim.getElementById = getElementById;
@@ -116,6 +120,31 @@ assert.match(faultEl.innerHTML, /href="runtime\/runner\.watchdog-kill\.json"/, '
 Y.renderRunnerFault(faultEl, { overallStatus: 'pass' });
 assert.strictEqual(faultEl.hidden, true, 'a successful new attempt clears the notice');
 assert.strictEqual(faultEl.innerHTML, '');
+
+var attemptsEl = makeEl();
+var retainedFailure = {
+  attemptGeneration: 'runner:7', passed: false, failureClass: 'config_gate_failed',
+  startedAtUtc: '2026-10-18T01:38:32Z', finishedAtUtc: '2026-10-18T01:38:48Z',
+  description: '<script>network failure</script>', frameworkCommitSha: 'abc123',
+  recordPath: 'runner-attempts/e4451d5a1c194cc455cbc6b2/config-gate.json',
+  transcriptPath: 'runner-attempts/e4451d5a1c194cc455cbc6b2/config-gate.log'
+};
+Y.renderRunnerAttempts(attemptsEl, { schemaVersion: 1, attempts: [
+  { attemptGeneration: 'runner:8', passed: true, failureClass: '' }, retainedFailure
+] });
+assert.match(attemptsEl.innerHTML, /preflight-failed/, 'recovery must retain a yellow historical preflight failure');
+assert.match(attemptsEl.innerHTML, /&lt;script&gt;network failure&lt;\/script&gt;/);
+assert.match(attemptsEl.innerHTML, /runtime\/runner-attempts\/e4451d5a1c194cc455cbc6b2\/config-gate\.log/);
+assert.strictEqual((attemptsEl.innerHTML.match(/<li\b/g) || []).length, 1, 'successful attempts are not failures');
+retainedFailure.recordPath = 'runner-attempts/../secrets.json';
+retainedFailure.transcriptPath = 'https://example.com/steal';
+Y.renderRunnerAttempts(attemptsEl, { schemaVersion: 1, attempts: [retainedFailure] });
+assert.doesNotMatch(attemptsEl.innerHTML, /href=/, 'historical diagnostic links must stay in the retained attempt');
+Y.renderRunnerAttempts(attemptsEl, { schemaVersion: 1, attempts: [] });
+assert.doesNotMatch(attemptsEl.innerHTML, /<li\b/, 'empty history must clear old failures');
+var emptyAttemptText = attemptsEl.innerHTML;
+Y.renderRunnerAttempts(attemptsEl, null);
+assert.notStrictEqual(attemptsEl.innerHTML, emptyAttemptText, 'unavailable history must not claim there were no failures');
 
 // (2) The shared BANNER_TEXT is exported with the five expected keys.
 assert.deepStrictEqual(

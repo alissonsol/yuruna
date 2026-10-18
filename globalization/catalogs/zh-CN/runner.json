@@ -17,6 +17,11 @@
       "sourceHash": "dfe83cd8b5988a985ad32d3947c60f072b424ac48d11494c12c7912154e72816",
       "message": "运行器尝试因配置验证失败而退出，退出代码为 {exitCode}。未启动新的测试周期。请更正配置后重试。"
     },
+    "runner.config_value_replaced": {
+      "sourceHash": "a551b4f33b38d1775b7f5c91f0a0e4b558431ed6cfcc68bcb7aea19927aa8c21",
+      "origin": "machine",
+      "message": "test.config.yml: {path}: {previous} -> {current}。模板叠加必须保留您设置的每个值，因此这次替换是叠加的缺陷，而不是架构变更；如果并非有意为之，请手动恢复先前的值并报告该缺陷。"
+    },
     "runner.config_naming_backup": {
       "sourceHash": "09b1dd67cd409cdf44458eb072bee871b6590426666cf45beaf0244417b75b5e",
       "message": "将配置备份到 {backupPath}"
@@ -399,6 +404,21 @@
       "sourceHash": "bc36feced9b8767e30f1ce1dc9501536787c5aabdd7e3a278a23356a939cfb48",
       "origin": "machine",
       "message": "无法记录此周期的宿主机刷新证据（{reason}）；自动宿主机刷新不会计入此周期。"
+    },
+    "runner.host_refresh_hung_hypervisor_manual_hyperv": {
+      "sourceHash": "d0f883d700be2047f7ef7bd3d0b63d4b9bdf75e6db03fff878a8e68797b09322",
+      "origin": "machine",
+      "message": "虚拟机监控程序的控制通道已挂起，此宿主机上没有可用的层级能够修复该问题。请在提升权限的控制台中重启Hyper-V管理服务（Restart-Service vmms），或手动重启宿主机，然后使用以下命令恢复：pwsh test/lab/Invoke-HostRefresh.ps1 -Resume。未经修复直接恢复只会重新探测，并消耗有限尝试次数中的一次。"
+    },
+    "runner.host_refresh_hung_hypervisor_manual_kvm": {
+      "sourceHash": "ec779be2fc6140bc1745e56047085014ee51fda9634cc2fff36644c4b0a3abcf",
+      "origin": "machine",
+      "message": "虚拟机监控程序的控制通道已挂起，此宿主机上没有可用的层级能够修复该问题。请重启libvirt守护进程（sudo systemctl restart libvirtd），或手动重启宿主机，然后使用以下命令恢复：pwsh test/lab/Invoke-HostRefresh.ps1 -Resume。未经修复直接恢复只会重新探测，并消耗有限尝试次数中的一次。"
+    },
+    "runner.host_refresh_hung_hypervisor_manual_utm": {
+      "sourceHash": "b62363d5ef3d6b25b7f4fb44a216c8fd6c41528161c124fe89ace2172b51e69a",
+      "origin": "machine",
+      "message": "虚拟机监控程序的控制通道已挂起，此宿主机上没有可用的层级能够修复该问题。请在已登录的桌面会话中退出并重新打开UTM，或手动重启宿主机，然后使用以下命令恢复：pwsh test/lab/Invoke-HostRefresh.ps1 -Resume。未经修复直接恢复只会重新探测，并消耗有限尝试次数中的一次。"
     },
     "runner.host_refresh_identity_refused": {
       "sourceHash": "303d0b942cd0597006c24c2486e537855d4dfe86e615175773cb7603ab4e3f5d",
@@ -7224,6 +7244,16 @@
       "origin": "machine",
       "message": "宿主机操作“{name}”已退出，退出代码为{exit}"
     },
+    "runner.host_action_exit_detail": {
+      "sourceHash": "fadc85358a52a26851580ffee0c30777bfd00295096579ae5f2d28886205c58c",
+      "origin": "machine",
+      "message": "宿主机操作“{name}”已退出，退出代码为{exit}：{detail}"
+    },
+    "runner.hypervisor_control_unresponsive": {
+      "sourceHash": "b5f2ec70194e82421f3e78f0a136a0ab08380fffb0c05e592743c785a0e72083",
+      "origin": "machine",
+      "message": "此宿主机上的虚拟机管理程序控制通道能响应状态查询，但不再执行生命周期请求（探测结果{state}/{reason}；生命周期命令：{lifecycle}）。周期在构建任何内容之前停止，因为每次虚拟机启动和停止都会等到超时。请在此宿主机上重新启动虚拟机管理程序应用（在macOS上从桌面会话退出UTM.app，或运行test/lab/Invoke-HostRefresh.ps1），然后恢复运行器。"
+    },
     "runner.operator_8da15c4079305665": {
       "sourceHash": "14e9a0a5d3e5397c33edbedd8998d73d81945848abc7e1c86306057a24118e65",
       "origin": "machine",
@@ -13043,6 +13073,16 @@
       "origin": "machine",
       "message": "[外层周期{cycle}] 宿主机刷新门控已放行运行器；周期恢复运行。"
     },
+    "runner.refresh_gate_status_ensure_failed": {
+      "sourceHash": "c76a02fb744af2f0e7cbe0561314fa97357f9f40c31c515689b7d4f4a3ea97f3",
+      "origin": "machine",
+      "message": "Start-TestRunner：门控保持期间无法启动状态服务：{message}"
+    },
+    "runner.refresh_gate_status_ensured": {
+      "sourceHash": "ad018593fe728b9fbe51e904f36639753a91b2cf11b46159e72f0455d3eacc59",
+      "origin": "machine",
+      "message": "Start-TestRunner：宿主机刷新{requestId}没有存活的工作进程；状态服务已在端口{port}上启动，以便其仪表板能够显示并恢复未解决的请求。在该请求解决之前，运行器仍将拒绝启动。"
+    },
     "runner.refresh_gate_unreadable": {
       "sourceHash": "66a416c9396bfbcf7a1780fa9415735f23af29722e9489863b6188151a89b797",
       "origin": "machine",
@@ -13132,6 +13172,11 @@
       "sourceHash": "18397e0114c985bd7ae7be63221704b0d73e1ccfeecf446bf90c183f17669570",
       "origin": "machine",
       "message": "周期在{site}之前结束：宿主机刷新{requestId}阻止了此宿主机运行（门控状态{state}）。未做任何更改；运行器正在等待刷新。"
+    },
+    "runner.refresh_status_ensure_orphaned": {
+      "sourceHash": "74450959460dac475ed385451c4b0c4e988a49325f816ce0ad60abdf246ab116",
+      "origin": "machine",
+      "message": "[外层周期{cycle}] 宿主机刷新{requestId}使运行器保持受阻状态（门控状态{state}），且其工作进程已停止运行；正在再次确保状态服务运行，以便其仪表板能够显示并恢复未解决的请求。"
     },
     "runner.refresh_status_ensure_skipped": {
       "sourceHash": "f6cf77a5a4e0f12d6e25ba8a955f38017750097e14e1a0f8631bb7d08b9f7da3",
@@ -14612,6 +14657,21 @@
       "message": "通过宿主机驱动请求关闭客户机，并等待虚拟机报告已停止",
       "origin": "machine",
       "sourceHash": "6b613cda17e48d3b6d5d324a2cd9ef816a8b7c71a914b34e65d94a4139497414"
+    },
+    "runner.temp_housekeeping_removed": {
+      "sourceHash": "dff696c2c9e5dbae75ba8fc331f0db460530cea23e41d0e41475c6a630859bac",
+      "origin": "machine",
+      "message": "临时文件清理（{sweep}）从 {roots} 删除了 {removed} 个遗留项。"
+    },
+    "runner.preflight_tcp_failed": {
+      "sourceHash": "312a9aa9414442c95e7316cc8b7e16098594a35642f323b78bb48503a9ea1f39",
+      "message": "与 {hostName}:{port} 的 TCP 连接在尝试 {attemptCount} 次后失败：{outcome}。请查看网络诊断以了解所有尝试。",
+      "origin": "machine"
+    },
+    "runner.preflight_network_diagnostics": {
+      "sourceHash": "de8bb1cd8c3782c6541cc40b17ea18cce988b08c975f74f0da56be69685895ad",
+      "message": "网络诊断：{diagnostics}",
+      "origin": "machine"
     }
   }
 }

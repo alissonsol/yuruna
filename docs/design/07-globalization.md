@@ -78,7 +78,8 @@ flowchart LR
     new-locale-context["Locale resolver"]
     locale-context["Locale context"]
     test-config-yml -->|1: lock| new-locale-context
-    user-language -->|2: supported| new-locale-context
+    %% Optional resolver input; HTTP adapters do not supply it.
+    user-language -.->|2: supported| new-locale-context
     accept-language -->|3: quality| new-locale-context
     current-ui-culture -->|4: supported| new-locale-context
     locale-manifest-json -->|5: default| new-locale-context
@@ -116,6 +117,10 @@ Sources: [operator adapter](../../automation/Yuruna.Globalization.psm1),
 [pool resolver wiring](../../test/extension/pool-control-service/server/internal/httpsrv/i18nwire.go),
 [browser initialization](../../globalization/kernel/yuruna.i18n.js), and
 [seed template rendering](../../automation/Yuruna.CloudInitTemplate.psm1).
+The [service seed](../../host/vmconfig/caching-proxy-service.base.user-data)
+writes the language environment file; the
+[service unit](../../test/extension/caching-proxy-service/caching-proxy-service.service)
+passes it as startup options.
 Status opens diagnostic locales with `YURUNA_ALLOW_PSEUDO_LOCALE`; Go services
 use `--allow-pseudo-locale`. Ordinary negotiation excludes them.
 
@@ -179,11 +184,40 @@ Sources: [status HTML](../../test/status/index.html),
 
 ## Go pages and response caching
 
+```mermaid
+sequenceDiagram
+    participant index-html as Browser page
+    participant httpsrv-go as Go service
+    participant page-go as Page store
+    participant http-go as Locale resolver
+    httpsrv-go->>page-go: Prepare localized pages
+    index-html->>httpsrv-go: GET with Accept-Language
+    httpsrv-go->>page-go: Serve selected page
+    page-go->>http-go: Resolve request locale
+    http-go-->>page-go: Locale context
+    page-go->>page-go: Select bytes and ETag
+    alt Validator matches
+        page-go-->>index-html: 304 and locale headers
+    else Changed representation
+        page-go-->>index-html: HTML and locale headers
+    end
+```
+
+These four participants show the stash and download-agent page path. The Go
+service groups startup preparation and its HTTP handlers; the SDK page store
+owns the prepared bytes, conditional response, and locale headers. Sources:
+[stash startup](../../test/extension/stash-service/server/internal/httpsrv/httpsrv.go),
+[stash handlers](../../test/extension/stash-service/server/internal/httpsrv/handlers.go),
+[SDK page store](../../test/extension/extension-sdk/i18n/page.go), and
+[HTTP resolver](../../test/extension/extension-sdk/i18n/http.go).
+
 Go page stores prepare a finite set of localized HTML representations and their
 ETags once, before the first page is served. A request selects a prepared
 representation; arbitrary request headers do not create an unbounded page cache
-or cause catalog parsing. Pool-control also prepares its immutable pages and
-builds its supported locale set at startup.
+or cause catalog parsing. A page variant includes the resolved tag, requested
+tag, and decision source, so alias and default decisions retain their own HTML
+metadata. Pool-control also prepares its immutable pages and builds its
+supported locale set at startup.
 
 | Surface | Browser catalog delivery |
 | --- | --- |
@@ -211,6 +245,11 @@ headers but no ETag. See
 [HTTP headers](../../test/extension/extension-sdk/i18n/http.go),
 [page serving](../../test/extension/extension-sdk/i18n/page.go), and the status
 request handler.
+
+Status validates a catalog URL against its current file hash and serves the
+same captured bytes used to calculate that hash. A concurrent catalog update
+therefore cannot replace the response with different bytes under an immutable
+URL; an obsolete hash does not select the replacement catalog.
 
 ## Companion project boundaries
 

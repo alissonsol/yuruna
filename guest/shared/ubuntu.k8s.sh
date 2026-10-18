@@ -1,9 +1,13 @@
 #!/bin/bash
-# Version: 2026.10.14
+# Version: 2026.10.18
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 # --- REGION: Initialize environment
 set -euo pipefail
+# The temp files below are removed on their success paths; a set -e abort
+# between a mktemp and its rm skips that, and this guest is snapshotted
+# afterwards, so whatever is left in /tmp is baked into every restore.
+trap 'rm -f -- "${_dk:-}" "${_kk:-}" "${_wr_errlog:-}" "${_wr_body:-}" "${FLANNEL_MANIFEST:-}"' EXIT
 
 export DEBIAN_FRONTEND=noninteractive
 export NONINTERACTIVE=1
@@ -361,22 +365,86 @@ server = "http://${CACHE_HOST}:5000"
   capabilities = ["pull", "resolve"]
 HOSTSEOF
     # See https://yuruna.link/42e220c4-0005
+    # The network library carries the address, route and neighbor probes that
+    # tell a guest which lost its own address from a cache that is down; curl
+    # prints the same "could not connect" for both. A guest imaged without the
+    # library keeps curl's text as its verdict.
+    if [ -r /usr/local/lib/yuruna/yuruna-network.sh ]; then
+        # shellcheck disable=SC1091
+        . /usr/local/lib/yuruna/yuruna-network.sh
+    fi
     cache_wait="${YURUNA_CACHE_WAIT_SECONDS:-180}"
     cache_started=$SECONDS
     cache_err=""
+    cache_rc=0
+    cache_class=""
+    cache_verdict=""
+    cache_repaired=0
     # Vary progress output so console OCR can distinguish progress from a wedge.
     until cache_err=$(curl -fsS --max-time 15 -o /dev/null "http://${CACHE_HOST}:5000/v2/" 2>&1); do
+        cache_rc=$?
         cache_elapsed=$(( SECONDS - cache_started ))
+        case "$cache_rc" in
+            7)  cache_class="curl exit 7: could not connect" ;;
+            28) cache_class="curl exit 28: timed out" ;;
+            6)  cache_class="curl exit 6: name did not resolve" ;;
+            *)  cache_class="curl exit ${cache_rc}" ;;
+        esac
+        cache_verdict=""
+        if command -v yuruna_net_tcp_verdict >/dev/null 2>&1; then
+            cache_verdict=$(yuruna_net_tcp_verdict "$CACHE_HOST" 5000 2>/dev/null || true)
+        fi
+        [ -n "$cache_verdict" ] || cache_verdict="$cache_err"
         if [ "$cache_elapsed" -ge "$cache_wait" ]; then
-            echo "ERROR: the caching proxy's registry did not answer at ${CACHE_HOST}:5000" >&2
-            echo "       within ${cache_wait}s: ${cache_err}" >&2
-            echo "       containerd is configured to pull only from it -- reaching the" >&2
-            echo "       upstreams directly from a guest is rate limited and fails anyway." >&2
-            echo "       Check that the caching proxy VM is up and zot is serving:" >&2
-            echo "           curl -fsS http://${CACHE_HOST}:5000/v2/" >&2
+            echo "" >&2
+            case "$cache_verdict" in
+                "no IPv4 address"*|"no default route"*|"no route to"*|"no ARP reply"*|"the name "*)
+                    # The cache was never reached, so nothing here says whether it is
+                    # up; the guest's own view is the evidence, and it is printed last
+                    # so the bounded console tail the host keeps carries it.
+                    echo "ERROR: this guest lost its IPv4 path to the LAN (${cache_verdict});" >&2
+                    echo "       the caching proxy at ${CACHE_HOST}:5000 was never reached, so it cannot be judged from here." >&2
+                    echo "       containerd is configured to pull only from it -- reaching the" >&2
+                    echo "       upstreams directly from a guest is rate limited and fails anyway." >&2
+                    if command -v yuruna_net_self_report >/dev/null 2>&1; then
+                        yuruna_net_self_report "$CACHE_HOST" 5000 >&2 || true
+                    elif command -v network_diag >/dev/null 2>&1; then
+                        network_diag >&2 || true
+                    fi
+                    ;;
+                "connection to "*"timed out"*)
+                    echo "ERROR: no answer from ${CACHE_HOST}:5000 within ${cache_wait}s (packets are lost between this guest and the proxy)." >&2
+                    echo "       This guest holds an address and a route to it, so the loss is on the path:" >&2
+                    echo "       the virtual switch, the cache VM's own link, or a filter between the two." >&2
+                    echo "       containerd is configured to pull only from it -- reaching the" >&2
+                    echo "       upstreams directly from a guest is rate limited and fails anyway." >&2
+                    echo "       Last verdict (${cache_class}): ${cache_verdict}" >&2
+                    ;;
+                *)
+                    # A refusal is the one shape that still points at the cache: zot is
+                    # down, or the cache VM is being replaced and has not started it yet.
+                    echo "ERROR: the caching proxy's registry did not answer at ${CACHE_HOST}:5000" >&2
+                    echo "       within ${cache_wait}s (${cache_class}): ${cache_verdict}" >&2
+                    echo "       containerd is configured to pull only from it -- reaching the" >&2
+                    echo "       upstreams directly from a guest is rate limited and fails anyway." >&2
+                    echo "       Check that the caching proxy VM is up and zot is serving:" >&2
+                    echo "           curl -fsS http://${CACHE_HOST}:5000/v2/" >&2
+                    ;;
+            esac
             exit 1
         fi
-        echo "  ${CACHE_HOST}:5000 not answering after ${cache_elapsed}s; it may be restarting (waiting up to ${cache_wait}s)"
+        echo "  ${CACHE_HOST}:5000 not answering after ${cache_elapsed}s (${cache_class}) -- ${cache_verdict}"
+        case "$cache_verdict" in
+            "no IPv4 address"*)
+                # One repair per wait: a second re-kick would only restart the DHCP
+                # transaction the first one started, and the budget keeps running.
+                if [ "$cache_repaired" -eq 0 ] && command -v yuruna_net_repair_ipv4 >/dev/null 2>&1; then
+                    cache_repaired=1
+                    echo "  attempting an address repair once (waiting up to ${cache_wait}s in all)"
+                    yuruna_net_repair_ipv4 || true
+                fi
+                ;;
+        esac
         sleep 15
     done
     # --- REGION: https://yuruna.link/42f6b05f-0020
@@ -552,6 +620,9 @@ else
         if [ "$yuruna_warm_errored" -gt 0 ] && [ "$yuruna_warm_errored" -eq "$yuruna_warm_silent" ] && [ "$yuruna_warm_unattempted" -eq 0 ]; then
             echo "ERROR: the cache was not reached -- ${yuruna_warm_missing} of ${yuruna_warm_total} control-plane requests got no HTTP status back, so what the cache holds is unmeasured." >&2
             echo "       Look at this guest's path to it first: name resolution for ${CACHE_HOST}, a route to port 5000, and the curl exit codes in the column above." >&2
+            if command -v yuruna_net_tcp_verdict >/dev/null 2>&1; then
+                echo "       This guest's view of that path now: $(yuruna_net_tcp_verdict "$CACHE_HOST" 5000 2>/dev/null || true)" >&2
+            fi
         elif [ "$yuruna_warm_refused" -eq "$yuruna_warm_missing" ]; then
             echo "ERROR: the cache refused ${yuruna_warm_refused} of ${yuruna_warm_total} control-plane images -- each answered with an HTTP error (column above)." >&2
         else

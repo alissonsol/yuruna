@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.14
+.VERSION 2026.10.18
 .GUID 421bcd14-05b3-497a-86ea-db4eb3a90148
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -70,6 +70,15 @@ BeforeAll {
         return [pscustomobject]@{ state = $State; reason = $Reason; corroborated = $Corroborated; observedTick = ([Environment]::TickCount64 - $AgeMs) }
     }
     $script:Skip = 'the stand-in tools are POSIX shell scripts'
+    function Add-FakeCrashReport {
+        param([string]$Name, [int]$AgeMinutes = 5, [int]$Bytes = 64)
+        $dir = Join-Path $script:Fake.Home 'Library/Logs/DiagnosticReports'
+        $null = New-Item -ItemType Directory -Force -Path $dir
+        $path = Join-Path $dir $Name
+        [System.IO.File]::WriteAllText($path, ('x' * $Bytes))
+        [System.IO.File]::SetLastWriteTimeUtc($path, [DateTime]::UtcNow.AddMinutes(-$AgeMinutes))
+        return $path
+    }
 }
 
 AfterAll {
@@ -365,6 +374,149 @@ Describe 'UTM application primitives (host.macos.utm)' {
     }
 }
 
+Describe 'Save-UtmControlSnapshot (host.macos.utm)' {
+    BeforeEach {
+        if ($script:CanShim) {
+            Reset-MacUtmFakeHost -FakeHost $script:Fake
+            Enter-MacUtmFakeHost -FakeHost $script:Fake
+            $script:SnapshotDir = Join-Path $script:Fake.Root ("snapshot-" + [guid]::NewGuid().ToString('N'))
+            $null = New-Item -ItemType Directory -Force -Path $script:SnapshotDir
+            # Crash reports live in the fake home, which the reset keeps.
+            Remove-Item -LiteralPath (Join-Path $script:Fake.Home 'Library/Logs/DiagnosticReports') -Recurse -Force -ErrorAction SilentlyContinue
+            $script:SavedEnvironment = @{
+                Context = $env:YURUNA_CYCLE_CONTEXT; LogDir = $env:YURUNA_LOG_DIR
+                Folder = Get-Variable -Name '__YurunaCycleFolder' -Scope Global -ValueOnly -ErrorAction SilentlyContinue
+            }
+            $env:YURUNA_CYCLE_CONTEXT = ''
+            $env:YURUNA_LOG_DIR = ''
+            Set-Variable -Name '__YurunaCycleFolder' -Scope Global -Value $null -Force
+        }
+    }
+    AfterEach {
+        if ($script:CanShim) {
+            $env:YURUNA_CYCLE_CONTEXT = $script:SavedEnvironment.Context
+            $env:YURUNA_LOG_DIR = $script:SavedEnvironment.LogDir
+            Set-Variable -Name '__YurunaCycleFolder' -Scope Global -Value $script:SavedEnvironment.Folder -Force
+            Exit-MacUtmFakeHost -FakeHost $script:Fake
+        }
+    }
+    It 'records the census, the listing, recent crash reports and the log excerpt' {
+        if (-not $script:CanShim) { Set-ItResult -Skipped -Because $script:Skip; return }
+        Add-MacUtmFakeProcess -FakeHost $script:Fake -ProcessId 600 -Name 'UTM' -StartText 'Wed Oct 15 06:39:04 2026'
+        Add-MacUtmFakeProcess -FakeHost $script:Fake -ProcessId 601 -Name 'QEMUHelper'
+        Add-MacUtmFakeVM -FakeHost $script:Fake -Name 'amisad-edge-a' -Status 'stopped'
+        $null = Add-FakeCrashReport -Name 'UTM-2026-10-15-063905.ips' -AgeMinutes 3
+        $null = Add-FakeCrashReport -Name 'QEMUHelper-2026-10-15-063906.ips' -AgeMinutes 4
+        $null = Add-FakeCrashReport -Name 'UTM-2026-09-01-000000.ips' -AgeMinutes 600
+        $null = Add-FakeCrashReport -Name 'Safari-2026-10-15-063907.ips' -AgeMinutes 1
+        $r = Invoke-InDriver { param($d) Save-UtmControlSnapshot -OutputDirectory $d -Trigger 'test-capture' -Confirm:$false } @($script:SnapshotDir)
+        Assert-True $r.Written $r.Reason
+        Assert-True (Test-Path -LiteralPath $r.Path) 'the snapshot file exists'
+        $record = Get-Content -Raw -LiteralPath $r.Path | ConvertFrom-Json -AsHashtable
+        Assert-StringEqual 'yuruna.utm-control-snapshot/v1' $record.schema
+        Assert-StringEqual 'test-capture' $record.trigger
+        Assert-StringEqual 'running' $record.application.state
+        Assert-True (@($record.application.utmPid) -contains 600) 'the UTM pid is in the census'
+        Assert-True (@($record.application.helperPid) -contains 601) 'the helper pid is in the census'
+        $utm = @($record.processes | Where-Object { $_.pid -eq 600 })
+        Assert-Equal 1 $utm.Count
+        Assert-StringEqual 'Wed Oct 15 06:39:04 2026' $utm[0].startText 'the start time is what tells a relaunch'
+        Assert-Match 'amisad-edge-a' $record.listing.text 'the raw listing is kept'
+        $names = @($record.crashReports | ForEach-Object { $_.name })
+        Assert-True ($names -contains 'UTM-2026-10-15-063905.ips') 'a recent UTM report is named'
+        Assert-True ($names -contains 'QEMUHelper-2026-10-15-063906.ips') 'a recent helper report is named'
+        Assert-True (-not ($names -contains 'UTM-2026-09-01-000000.ips')) 'an old report is outside the window'
+        Assert-True (-not ($names -contains 'Safari-2026-10-15-063907.ips')) 'an unrelated report is not ours'
+        Assert-True (Test-Path -LiteralPath (Join-Path $script:SnapshotDir 'utm-crash-reports.test-capture/UTM-2026-10-15-063905.ips')) 'the recent report was copied'
+        Assert-Equal 2 $record.unifiedLog.lines
+        Assert-True (Test-Path -LiteralPath $record.unifiedLog.path) 'the log excerpt was written'
+        Assert-Equal 1 @(Get-Call 'log' | Where-Object { $_ -like 'log show --last 30m*' }).Count -Because 'one bounded log show over the window'
+        Assert-Equal 0 @($record.problems).Count -Because "nothing failed: $($record.problems -join '; ')"
+        Assert-Null $record.screenshot 'no VM named, no screenshot'
+    }
+
+    It 'names the crash report it did not copy, keeping the newest few and nothing large' {
+        if (-not $script:CanShim) { Set-ItResult -Skipped -Because $script:Skip; return }
+        Add-MacUtmFakeProcess -FakeHost $script:Fake -ProcessId 600 -Name 'UTM'
+        foreach ($i in 1..4) { $null = Add-FakeCrashReport -Name "UTM-2026-10-15-06390$i.ips" -AgeMinutes (10 - $i) }
+        $null = Add-FakeCrashReport -Name 'UTM-2026-10-15-063900.ips' -AgeMinutes 1 -Bytes (3MB)
+        $r = Invoke-InDriver { param($d) Save-UtmControlSnapshot -OutputDirectory $d -Trigger 'many' -Confirm:$false } @($script:SnapshotDir)
+        $record = Get-Content -Raw -LiteralPath $r.Path | ConvertFrom-Json -AsHashtable
+        Assert-Equal 5 @($record.crashReports).Count
+        Assert-Equal 3 @($record.crashReports | Where-Object { $_.copied }).Count -Because 'the newest three small ones are copied'
+        $large = @($record.crashReports | Where-Object { $_.name -eq 'UTM-2026-10-15-063900.ips' })[0]
+        Assert-False $large.copied 'the large one is named only'
+    }
+
+    It 'resolves the cycle folder from the published cycle context, then the log root, and writes nothing without either' {
+        if (-not $script:CanShim) { Set-ItResult -Skipped -Because $script:Skip; return }
+        Add-MacUtmFakeProcess -FakeHost $script:Fake -ProcessId 600 -Name 'UTM'
+        $none = Invoke-InDriver { Save-UtmControlSnapshot -Trigger 'nowhere' -Confirm:$false }
+        Assert-False $none.Written
+        Assert-StringEqual 'no-output-directory' $none.Reason
+        $cycle = Join-Path $script:SnapshotDir 'cycle'
+        $null = New-Item -ItemType Directory -Force -Path $cycle
+        $env:YURUNA_CYCLE_CONTEXT = (@{ rootCycleFolder = $cycle } | ConvertTo-Json -Compress)
+        $fromContext = Invoke-InDriver { Save-UtmControlSnapshot -Trigger 'context' -Confirm:$false }
+        Assert-True $fromContext.Written
+        Assert-StringEqual (Join-Path $cycle 'utm-control-snapshot.context.json') $fromContext.Path
+        $env:YURUNA_CYCLE_CONTEXT = ''
+        $env:YURUNA_LOG_DIR = $script:SnapshotDir
+        $fromRoot = Invoke-InDriver { Save-UtmControlSnapshot -Trigger 'root' -Confirm:$false }
+        Assert-StringEqual $script:SnapshotDir $fromRoot.Directory
+        $env:YURUNA_CYCLE_CONTEXT = (@{ rootCycleFolder = (Join-Path $script:SnapshotDir 'gone') } | ConvertTo-Json -Compress)
+        $stale = Invoke-InDriver { Save-UtmControlSnapshot -Trigger 'stale' -Confirm:$false }
+        Assert-StringEqual $script:SnapshotDir $stale.Directory 'a cycle folder no longer on disk is skipped'
+    }
+
+    It 'records a log tool that <Case> instead of throwing, within its bound' -TestCases @(
+        @{ Case = 'fails'; Mode = 'fail'; TimedOut = $false }
+        @{ Case = 'hangs'; Mode = 'hang'; TimedOut = $true }
+    ) {
+        param($Case, $Mode, $TimedOut)
+        if (-not $script:CanShim) { Set-ItResult -Skipped -Because $script:Skip; return }
+        Add-MacUtmFakeProcess -FakeHost $script:Fake -ProcessId 600 -Name 'UTM'
+        Set-State 'log.mode' $Mode
+        $sw = [Diagnostics.Stopwatch]::StartNew()
+        $r = Invoke-InDriver { param($d) Save-UtmControlSnapshot -OutputDirectory $d -Trigger 'log' -LogTimeoutSeconds 1 -Confirm:$false } @($script:SnapshotDir)
+        Assert-True ($sw.Elapsed.TotalSeconds -lt 8) "bounded ($($sw.Elapsed.TotalSeconds) s)"
+        Assert-True $r.Written "the snapshot is still written when the log tool $Case"
+        $record = Get-Content -Raw -LiteralPath $r.Path | ConvertFrom-Json -AsHashtable
+        Assert-Equal $TimedOut $record.unifiedLog.timedOut -Because $Case
+        Assert-StringEqual '' $record.unifiedLog.path "no excerpt file when the tool $Case"
+    }
+
+    It 'previews under -WhatIf and writes nothing' {
+        if (-not $script:CanShim) { Set-ItResult -Skipped -Because $script:Skip; return }
+        $r = Invoke-InDriver { param($d) Save-UtmControlSnapshot -OutputDirectory $d -Trigger 'preview' -WhatIf } @($script:SnapshotDir)
+        Assert-False $r.Written
+        Assert-StringEqual 'preview' $r.Reason
+        Assert-Equal 0 @(Get-ChildItem -LiteralPath $script:SnapshotDir -File).Count
+        Assert-Equal 0 (Get-Call 'utmctl').Count -Because 'nothing was asked'
+    }
+
+    It 'captures the named VM through the contract screenshot verb and records a verb that fails' {
+        if (-not $script:CanShim) { Set-ItResult -Skipped -Because $script:Skip; return }
+        Add-MacUtmFakeProcess -FakeHost $script:Fake -ProcessId 600 -Name 'UTM'
+        $original = Invoke-InDriver { ${function:Get-VMScreenshot} }
+        try {
+            Invoke-InDriver { Set-Item -Path 'function:script:Get-VMScreenshot' -Value { param([string]$VMName, [string]$Source = 'frame', [string]$OutFile) $null = @($VMName, $Source); [System.IO.File]::WriteAllBytes($OutFile, [byte[]]@(137, 80, 78, 71)); return $true } }
+            $r = Invoke-InDriver { param($d) Save-UtmControlSnapshot -OutputDirectory $d -Trigger 'shot' -VMName 'amisad-edge-a' -Confirm:$false } @($script:SnapshotDir)
+            $record = Get-Content -Raw -LiteralPath $r.Path | ConvertFrom-Json -AsHashtable
+            Assert-StringEqual 'captured' $record.screenshot.outcome
+            Assert-True (Test-Path -LiteralPath $record.screenshot.path) 'the screenshot file exists'
+            Invoke-InDriver { Set-Item -Path 'function:script:Get-VMScreenshot' -Value { param([string]$VMName, [string]$Source = 'frame', [string]$OutFile) $null = @($VMName, $Source, $OutFile); throw 'no display' } }
+            $failed = Invoke-InDriver { param($d) Save-UtmControlSnapshot -OutputDirectory $d -Trigger 'noshot' -VMName 'amisad-edge-a' -Confirm:$false } @($script:SnapshotDir)
+            $failedRecord = Get-Content -Raw -LiteralPath $failed.Path | ConvertFrom-Json -AsHashtable
+            Assert-StringEqual 'failed' $failedRecord.screenshot.outcome
+            Assert-True ([bool](@($failedRecord.problems) -match 'screenshot')) 'the failure is in the record'
+            Assert-True $failed.Written 'the snapshot is still written'
+        } finally {
+            Invoke-InDriver { param($f) Set-Item -Path 'function:script:Get-VMScreenshot' -Value $f } @($original)
+        }
+    }
+}
+
 Describe 'Rename-VM on the UTM primitives (host.macos.utm)' {
     BeforeEach {
         if ($script:CanShim) {
@@ -613,6 +765,45 @@ Describe 'Deadline-bound start, resume and power-off (host.macos.utm)' {
         Assert-Equal $Success $r.success -Because $Case
         Assert-Equal $Starts (Get-Call 'utmctl' | Where-Object { $_ -like 'utmctl start*' }).Count -Because $Case
         if (-not $Success) { Assert-True ([bool]$r.errorMessage) "$Case carries a reason" }
+    }
+
+    It 'Invoke-UtmVMStartWithRetry carries controlHung and the Apple Event row in every record' {
+        if (-not $script:CanShim) { Set-ItResult -Skipped -Because $script:Skip; return }
+        Add-MacUtmFakeVM -FakeHost $script:Fake -Name 'svc' -Status 'stopped'
+        $r = Invoke-InDriver { Invoke-UtmVMStartWithRetry -VMName 'svc' -MaxAttempts 1 -SettleSeconds 1 -BackoffSeconds 0 -Confirm:$false -InformationAction SilentlyContinue }
+        Assert-True $r.success
+        Assert-True ($r.Contains('controlHung') -and -not $r.controlHung) 'a start that took is not a hung channel'
+        Assert-StringEqual 'none' $r.appleEventReason
+    }
+
+    It 'Invoke-UtmVMStartWithRetry ends after two consecutive control-channel timeouts (<Case>)' -TestCases @(
+        @{ Case = 'Apple Event timeouts';           Queue = "timeout-text`ntimeout-text";              Reason = 'timeout' }
+        @{ Case = 'a lost connection then a timeout'; Queue = "conninvalid`ntimeout-text";              Reason = 'timeout' }
+        @{ Case = 'two lost connections';           Queue = "conninvalid`nconninvalid";                Reason = 'connection-invalid' }
+    ) {
+        param($Case, $Queue, $Reason)
+        if (-not $script:CanShim) { Set-ItResult -Skipped -Because $script:Skip; return }
+        Add-MacUtmFakeVM -FakeHost $script:Fake -Name 'svc' -Status 'stopped'
+        Set-State 'start.queue' $Queue
+        $r = Invoke-InDriver { Invoke-UtmVMStartWithRetry -VMName 'svc' -MaxAttempts 5 -SettleSeconds 1 -BackoffSeconds 0 -Confirm:$false -InformationAction SilentlyContinue }
+        Assert-False $r.success $Case
+        Assert-StringEqual 'apple-event' $r.kind $Case
+        Assert-True $r.controlHung "$Case is a hung channel"
+        Assert-StringEqual $Reason $r.appleEventReason $Case
+        Assert-Equal 2 $r.attempts -Because "$Case stops at the second"
+        Assert-Equal 2 @(Get-Call 'utmctl' | Where-Object { $_ -like 'utmctl start*' }).Count -Because "$Case issues no third start"
+        Assert-Match 'Invoke-HostRefresh' $r.errorMessage 'the message names the repair'
+    }
+
+    It 'Invoke-UtmVMStartWithRetry resets the streak on an answer, even a refusal' {
+        if (-not $script:CanShim) { Set-ItResult -Skipped -Because $script:Skip; return }
+        Add-MacUtmFakeVM -FakeHost $script:Fake -Name 'svc' -Status 'stopped'
+        Set-State 'start.queue' "timeout-text`ndeny`ntimeout-text"
+        $r = Invoke-InDriver { Invoke-UtmVMStartWithRetry -VMName 'svc' -MaxAttempts 3 -SettleSeconds 1 -BackoffSeconds 0 -Confirm:$false -InformationAction SilentlyContinue }
+        Assert-False $r.success
+        Assert-StringEqual 'apple-event' $r.kind
+        Assert-False $r.controlHung 'a denial in between is an answer from UTM'
+        Assert-Equal 3 @(Get-Call 'utmctl' | Where-Object { $_ -like 'utmctl start*' }).Count -Because 'every attempt ran'
     }
 
     It 'Invoke-UtmVMStartWithRetry returns inside its shared deadline' {

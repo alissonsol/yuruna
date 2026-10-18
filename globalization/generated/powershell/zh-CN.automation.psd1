@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.14
+.VERSION 2026.10.18
 .GUID 4215a4b8-4fbf-82d7-effd-933fdbd2dd43
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -4932,6 +4932,7 @@
             'trust' = 'external'
         }
     )
+    'automation.runtime_ipc_remove_action' = '删除已不存在的进程遗留的 .NET 运行时条目'
     'automation.setup_service_vm_reason_intended_stopped' = '此前被有意停止；因已要求安装程序启动它，正在重建'
     'automation.setup_service_vm_reason_lock_unavailable' = '无法获取其操作锁'
     'automation.setup_service_vm_reason_operation_busy' = '此服务的另一个启动或停止操作仍在运行'
@@ -4944,6 +4945,7 @@
         }
         '）'
     )
+    'automation.stale_temp_remove_action' = '删除过期的 Yuruna 临时条目'
     'automation.system_diagnostic_registry_images_refused' = @(
         'REGISTRY：客户机拉取的'
         @{

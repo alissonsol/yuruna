@@ -1,5 +1,5 @@
 <?xml version='1.0' encoding='utf-8'?>
-<SoftwareIdentity xmlns="http://standards.iso.org/iso/19770/-2/2015/schema.xsd" xmlns:sbom="urn:yuruna:sbom:1" name="yuruna-guests" tagId="urn:uuid:f3bcb30e-f0ef-57ea-ba8f-a2e4cf8b24eb" version="2026.10.14" versionScheme="alphanumeric" tagVersion="0" corpus="true">
+<SoftwareIdentity xmlns="http://standards.iso.org/iso/19770/-2/2015/schema.xsd" xmlns:sbom="urn:yuruna:sbom:1" name="yuruna-guests" tagId="urn:uuid:a179d3f2-f496-52f3-95b2-4b31afaebe95" version="2026.10.18" versionScheme="alphanumeric" tagVersion="0" corpus="true">
   <Entity name="Alisson Sol et al." regid="yuruna.com" role="tagCreator" />
   <Meta sbom:generator="tools/Sync-Sbom.py" sbom:scope="guests" sbom:inventory-kind="declared-source" />
   <Link rel="requires" href="swid/guests-a6e384e9893fef1dfd09.swidtag" />
@@ -83,7 +83,7 @@
   <Link rel="requires" href="swid/guests-fadabfd2fc203781e0b0.swidtag" />
   <Link rel="requires" href="swid/guests-a375beee0325c307bb80.swidtag" />
   <Link rel="requires" href="swid/guests-e9a84a6797df4eb90502.swidtag" />
-  <Link rel="requires" href="swid/guests-90c53ac717f5a85e98bf.swidtag" />
+  <Link rel="requires" href="swid/guests-04a33b324413077d4f24.swidtag" />
   <Link rel="requires" href="swid/guests-3c760dd2c18e9ecf6ee9.swidtag" />
   <Link rel="requires" href="swid/guests-7e33f5933e9931cb24e4.swidtag" />
   <Link rel="requires" href="swid/guests-0dbcfc924660c1f098fe.swidtag" />

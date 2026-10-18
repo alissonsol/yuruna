@@ -877,6 +877,7 @@ const DataenUSstatus = `{
       "trust": "external"
     }
   ],
+  "status.host_refresh_remote_viewer": "This page is open from another machine, so it can watch a host refresh but not start one. Start it on the host: its own dashboard, or pwsh test/lab/Invoke-HostRefresh.ps1.",
   "status.host_refresh_retry": "Retry",
   "status.host_refresh_stale": [
     "Refresh ",
@@ -1276,6 +1277,7 @@ const DataenUSstatus = `{
   "status.pill_new_vm_resource": "New VM",
   "status.pill_start_guestos": "Start OS",
   "status.pill_start_guestworkload": "Workload",
+  "status.preflight_failed": "PREFLIGHT FAILED",
   "status.process_environment_value_the_status_service_inherited_at_startup": "Process-environment value the status service inherited at startup. Read-only here; fallback source only: at cycle start the vmStart.cachingProxyIp field above is probed first and wins when its :3128 answers. Export this in the shell that launches Start-TestRunner.ps1 for hosts whose config field is empty.",
   "status.quarantine_pinned": [
     "Quarantined after repeated same-class failures (skipped until a new commit; pinned at ",
@@ -1330,6 +1332,10 @@ const DataenUSstatus = `{
       "trust": "external"
     }
   ],
+  "status.runner_attempts_description": "Failures from the latest 20 runner attempts remain here after recovery. Preflight failures occur before a new test cycle starts.",
+  "status.runner_attempts_empty": "No retained runner attempt failures.",
+  "status.runner_attempts_title": "Runner attempt failures",
+  "status.runner_attempts_unavailable": "Runner attempt history is unavailable.",
   "status.runner_failure_record": "Failure record",
   "status.runner_failure_transcript": "Configuration gate transcript",
   "status.runner_framework_commit": [

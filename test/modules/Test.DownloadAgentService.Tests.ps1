@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.14
+.VERSION 2026.10.18
 .GUID 421157f0-4a70-494a-a09e-b13c89c002b4
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -53,6 +53,7 @@ Import-Module (Join-Path $here 'Test.DownloadAgentService.psm1') -Force -Disable
 $AgentRepoRoot     = Split-Path -Parent (Split-Path -Parent $here)
 $AgentClientModule = Join-Path $AgentRepoRoot 'host' -AdditionalChildPath 'modules', 'Yuruna.DownloadAgent.psm1'
 
+Import-Module (Join-Path $AgentRepoRoot 'automation' -AdditionalChildPath 'Yuruna.Common.psm1') -DisableNameChecking
 Import-Module $AgentClientModule -Force -DisableNameChecking
 # The real 4-line sentinel writer and reader. The metadata quadruple the client
 # hands back is only useful if it round-trips through THESE, so the interop is
@@ -760,13 +761,6 @@ Describe 'Yuruna.DownloadAgent metadata read' {
 
 Describe 'Yuruna.DownloadAgent image request' {
 
-    AfterAll {
-        $dir = Join-Path ([System.IO.Path]::GetTempPath()) "yrn-dlagent-client-$PID"
-        if ((Split-Path -Leaf $dir) -like 'yrn-dlagent-client-*') {
-            Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction SilentlyContinue
-        }
-    }
-
     It 'skips when the agent says the local copy IS the current artifact' {
         $bytes = Get-FakeArtifactByte -Length 4096
         $sha = Get-FakeArtifactHash -Bytes $bytes
@@ -1138,7 +1132,12 @@ Describe 'Yuruna.DownloadAgent import precedence' {
         Set-Content -LiteralPath $probe -Value $body
         try {
             $pwsh = (Get-Process -Id $PID).Path
-            $out = @(& $pwsh -NoProfile -NonInteractive -File $probe 2>&1 | ForEach-Object { "$_".Trim() } | Where-Object { $_ })
+            # Bounded: a driver import that never returns must fail this It, not
+            # hold the whole suite until the coordinator's kill.
+            $run = Invoke-BoundedNativeCommand -FilePath $pwsh -ArgumentList @('-NoProfile', '-NonInteractive', '-File', $probe) -TimeoutSeconds 120
+            Assert-True (Test-BoundedNativeResultComplete -Result $run) `
+                "the driver import probe must finish inside its 120-second cap with its output whole; started=$($run.Started), timedOut=$($run.TimedOut), truncated=$($run.OutputTruncated), startError=$($run.StartError)"
+            $out = @("$($run.StdOut)`n$($run.StdErr)" -split "`r?`n" | ForEach-Object { "$_".Trim() } | Where-Object { $_ })
             $verdict = @($out | Where-Object { $_ -match '^[\w.]+\|(True|False)$' -or $_ -eq 'MISSING' }) | Select-Object -Last 1
             Assert-True ($verdict -ne 'MISSING') 'Save-CachedHttpUri must still be on the command table after both imports'
             Assert-StringEqual 'Yuruna.Host|False' $verdict `
@@ -1278,11 +1277,29 @@ Describe 'Fido is fetched at the moment of need, never enlistment content' {
             Set-ItResult -Skipped -Because 'git is not installed on this host, and tracked-ness is what this asserts'
             return
         }
-        $tracked = @(& git -C $AgentRepoRoot ls-files --cached)
-        if ($LASTEXITCODE -ne 0) { throw "git ls-files failed (exit $LASTEXITCODE) in $AgentRepoRoot" }
+        # Bounded, and the capture is large enough for a whole tracked-file list:
+        # a truncated list would let the guard pass on the files it never saw.
+        # -z lists paths as written, so git does not quote a name it considers unusual.
+        $listing = Invoke-BoundedNativeCommand -FilePath 'git' -ArgumentList @('-C', $AgentRepoRoot, 'ls-files', '--cached', '-z') `
+            -TimeoutSeconds 120 -MaxCapturedChars 8388608
+        if (-not (Test-BoundedNativeResultComplete -Result $listing)) {
+            throw "git ls-files did not finish whole within 120 seconds in $AgentRepoRoot (timedOut=$($listing.TimedOut), truncated=$($listing.OutputTruncated), startError=$($listing.StartError), stderr=$($listing.StdErr))"
+        }
+        if ($listing.ExitCode -ne 0) { throw "git ls-files failed (exit $($listing.ExitCode)) in $AgentRepoRoot`: $($listing.StdErr)" }
+        $tracked = @($listing.StdOut -split "`0" | Where-Object { $_ })
         Assert-True ($tracked.Count -gt 0) 'git ls-files returned nothing -- the guard would pass vacuously'
         $fido = @($tracked | Where-Object { $_ -match '(^|/)Fido\.ps1$' })
         Assert-True ($fido.Count -eq 0) `
             -Because "Fido is fetched per run, so a tracked copy is stale external code the enlistment would carry; found: $($fido -join ', ')"
+    }
+}
+
+# At file level: later Describes call Get-DownloadAgentScratchDir again, so a
+# teardown inside the first one removed the folder only for the next to make it
+# again and leave it.
+AfterAll {
+    $dir = Join-Path ([System.IO.Path]::GetTempPath()) "yrn-dlagent-client-$PID"
+    if ((Split-Path -Leaf $dir) -like 'yrn-dlagent-client-*') {
+        Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction SilentlyContinue
     }
 }

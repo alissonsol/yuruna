@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.14
+.VERSION 2026.10.18
 .GUID 42fba995-7607-4a66-acfd-0149a2a9f06a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -2725,13 +2725,24 @@ try {
                 `$controlIdentity = Get-ControlIdentityCached
                 `$csToken = `$controlIdentity.Token
                 `$csTag = `$controlIdentity.Tag
+                # The caller's vantage rides along so the page can tell whether
+                # its Start button can work at all from here: a non-loopback
+                # press needs the refresh proof header, which the dashboard
+                # never carries, so a remote page offers watching instead of a
+                # press that can only be refused. Copied before the field is
+                # added; the summary parts are cached and shared.
+                `$refreshStatusSummary = [ordered]@{}
+                foreach (`$refreshPair in (Get-HostRefreshSummaryCached).GetEnumerator()) { `$refreshStatusSummary[`$refreshPair.Key] = `$refreshPair.Value }
+                `$refreshCallerLoopback = `$false
+                try { `$refreshCallerLoopback = [System.Net.IPAddress]::IsLoopback(`$req.RemoteEndPoint.Address) } catch { `$refreshCallerLoopback = `$false }
+                `$refreshStatusSummary['caller'] = if (`$refreshCallerLoopback) { 'loopback' } else { 'remote' }
                 # See https://yuruna.link/42e5cdfd-0045
                 `$payload = @{
                     ok              = `$true
                     tokenConfigured = (-not [string]::IsNullOrWhiteSpace(`$csToken))
                     tokenTag        = `$csTag
                     utcNow          = [DateTime]::UtcNow.ToString('yyyy-MM-ddTHH:mm:ssZ', [Globalization.CultureInfo]::InvariantCulture)
-                    refresh         = (Get-HostRefreshSummaryCached)
+                    refresh         = `$refreshStatusSummary
                 } | ConvertTo-Json -Compress
                 `$body = [System.Text.Encoding]::UTF8.GetBytes(`$payload)
                 `$res.ContentLength64 = `$body.Length

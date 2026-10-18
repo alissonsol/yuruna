@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.14
+.VERSION 2026.10.18
 .GUID 42b0e5d4-7c31-4e9a-8f06-3ad2716be5c1
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -19,7 +19,7 @@
 <#
 .SYNOPSIS
     Pester coverage for Test.HostMetricsExporter.psm1: the per-host Prometheus
-    endpoint that records memory commit, CPU, disk and Hyper-V VM state.
+    endpoint that records memory commit, CPU, disk, network and Hyper-V VM state.
 .DESCRIPTION
     Throw-based Assert-* helpers. The decisions worth covering are the ones a
     host cannot be asked to reproduce: what the service command line has to
@@ -44,8 +44,17 @@ Describe 'the exporter contract the scrape side has to match' {
     }
     It 'asks for the collectors that answer a refused allocation' {
         $collectors = @(Get-YurunaHostMetricsCollector)
-        foreach ($name in 'memory', 'os', 'cpu', 'logical_disk', 'hyperv') {
+        foreach ($name in 'memory', 'os', 'cpu', 'logical_disk', 'hyperv', 'net') {
             Assert-True ($collectors -contains $name) "the collector set must include $name"
+        }
+    }
+    It 'asks for the per-VM network adapter and virtual switch families beside the processor ones' {
+        # A guest that lost its network writes nothing anywhere; these two
+        # sub-collectors are the only place a host uplink or virtual switch
+        # fault leaves a series, so the set is asserted rather than inherited.
+        $sub = @(Get-YurunaHostMetricsHyperVSubCollector)
+        foreach ($name in 'hypervisor_logical_processor', 'hypervisor_root_virtual_processor', 'hypervisor_virtual_processor', 'virtual_network_adapter', 'virtual_switch') {
+            Assert-True ($sub -contains $name) "the Hyper-V sub-collector set must include $name"
         }
     }
     It 'builds a port-specific firewall rule name' {
@@ -161,7 +170,7 @@ Describe 'Hyper-V sub-collectors' {
         # It block cannot see a plain variable declared directly in a
         # Describe body, which belongs to Pester's discovery pass, not its
         # run pass.
-        $script:hv = @('hypervisor_logical_processor', 'hypervisor_root_virtual_processor', 'hypervisor_virtual_processor')
+        $script:hv = @('hypervisor_logical_processor', 'hypervisor_root_virtual_processor', 'hypervisor_virtual_processor', 'virtual_network_adapter', 'virtual_switch')
     }
 
     It 'leaves every existing case unchanged when -HyperVCollector is not passed' {
@@ -177,17 +186,17 @@ Describe 'Hyper-V sub-collectors' {
         $plan = Resolve-YurunaHostMetricsCommandLine -CurrentCommandLine $script:Exe `
             -Collector @('cpu', 'hyperv') -Port 9182 -HyperVCollector $script:hv
         Assert-False $plan.Matches 'a line without the flag cannot already agree'
-        Assert-Match 'collector.hyperv.enabled=hypervisor_logical_processor,hypervisor_root_virtual_processor,hypervisor_virtual_processor' $plan.Desired
+        Assert-Match 'collector.hyperv.enabled=hypervisor_logical_processor,hypervisor_root_virtual_processor,hypervisor_virtual_processor,virtual_network_adapter,virtual_switch' $plan.Desired
     }
     It 'agrees with a matching flag in the = spelling' {
         $plan = Resolve-YurunaHostMetricsCommandLine `
-            -CurrentCommandLine "$script:Exe --collectors.enabled=cpu,hyperv --collector.hyperv.enabled=hypervisor_virtual_processor,hypervisor_root_virtual_processor,hypervisor_logical_processor --web.listen-address=:9182" `
+            -CurrentCommandLine "$script:Exe --collectors.enabled=cpu,hyperv --collector.hyperv.enabled=virtual_switch,hypervisor_virtual_processor,virtual_network_adapter,hypervisor_root_virtual_processor,hypervisor_logical_processor --web.listen-address=:9182" `
             -Collector @('cpu', 'hyperv') -Port 9182 -HyperVCollector $script:hv
         Assert-True $plan.Matches 'the same set in another order is the same instrumentation'
     }
     It 'agrees with a matching flag in the space-separated spelling' {
         $plan = Resolve-YurunaHostMetricsCommandLine `
-            -CurrentCommandLine "$script:Exe --collectors.enabled=cpu,hyperv --collector.hyperv.enabled hypervisor_logical_processor,hypervisor_root_virtual_processor,hypervisor_virtual_processor --web.listen-address=:9182" `
+            -CurrentCommandLine "$script:Exe --collectors.enabled=cpu,hyperv --collector.hyperv.enabled hypervisor_logical_processor,hypervisor_root_virtual_processor,hypervisor_virtual_processor,virtual_network_adapter,virtual_switch --web.listen-address=:9182" `
             -Collector @('cpu', 'hyperv') -Port 9182 -HyperVCollector $script:hv
         Assert-True $plan.Matches 'the two flag spellings say the same thing'
     }
@@ -196,7 +205,7 @@ Describe 'Hyper-V sub-collectors' {
             -CurrentCommandLine "$script:Exe --collectors.enabled=cpu,hyperv --collector.hyperv.enabled=hypervisor_virtual_processor --web.listen-address=:9182" `
             -Collector @('cpu', 'hyperv') -Port 9182 -HyperVCollector $script:hv
         Assert-False $plan.Matches 'a narrower list already present is still a disagreement'
-        Assert-Match 'collector.hyperv.enabled=hypervisor_logical_processor,hypervisor_root_virtual_processor,hypervisor_virtual_processor' $plan.Desired
+        Assert-Match 'collector.hyperv.enabled=hypervisor_logical_processor,hypervisor_root_virtual_processor,hypervisor_virtual_processor,virtual_network_adapter,virtual_switch' $plan.Desired
     }
     It 'does not add the flag when hyperv is not among the collected families' {
         $plan = Resolve-YurunaHostMetricsCommandLine -CurrentCommandLine $script:Exe `
@@ -224,7 +233,7 @@ if ($IsWindows) {
         BeforeEach {
             Mock Get-Service -ModuleName Test.HostMetricsExporter { [pscustomobject]@{ Status = 'Running'; StartType = 'Automatic' } }
             Mock Get-YurunaHostMetricsServiceCommandLine -ModuleName Test.HostMetricsExporter {
-                '"C:\w\windows_exporter.exe" --collectors.enabled=os,memory,logical_disk,hyperv,cpu --web.listen-address=:9182'
+                '"C:\w\windows_exporter.exe" --collectors.enabled=os,memory,logical_disk,hyperv,net,cpu --web.listen-address=:9182'
             }
             $script:Written = $null
             Mock Set-YurunaHostMetricsServiceCommandLine -ModuleName Test.HostMetricsExporter { $script:Written = $CommandLine; 0 }
@@ -251,6 +260,38 @@ if ($IsWindows) {
             Mock Get-YurunaHostMetricsExporterVersion -ModuleName Test.HostMetricsExporter { $null }
             $null = Set-YurunaHostMetricsExporter -ConfigIp '192.0.2.42' 3>$null 6>$null
             Assert-Null $script:Written 'an unreadable version is never evidence the flag is safe'
+        }
+    }
+}
+
+Describe 'Get-YurunaHostMetricsRetentionRegex' {
+    BeforeAll {
+        # Anchored the way the receiver applies it: Prometheus matches a keep
+        # regex against the whole metric name, so a prefix that merely occurs
+        # inside a name is not a match there and must not be one here.
+        $script:keep = "^($(Get-YurunaHostMetricsRetentionRegex))$"
+    }
+    It 'keeps the host adapter counters, so a host uplink fault leaves a metric trace' {
+        foreach ($name in 'windows_net_bytes_received_total', 'windows_net_packets_received_errors_total', 'windows_net_current_bandwidth_bytes') {
+            Assert-True ($name -match $script:keep) "$name must survive the receiver's filter"
+        }
+    }
+    It 'keeps the per-VM adapter and virtual switch counters the hyperv sub-collectors add' {
+        foreach ($name in 'windows_hyperv_virtual_network_adapter_bytes_received_total', 'windows_hyperv_virtual_network_adapter_dropped_packets_outgoing_total', 'windows_hyperv_virtual_switch_bytes_sent_total', 'windows_hyperv_virtual_switch_dropped_packets_incoming_total') {
+            Assert-True ($name -match $script:keep) "$name must survive the receiver's filter"
+        }
+    }
+    It 'still keeps the processor families the capability checks read' {
+        foreach ($name in 'windows_hyperv_hypervisor_virtual_processor_time_total', 'windows_hyperv_hypervisor_logical_processor_context_switches_total') {
+            Assert-True ($name -match $script:keep) "$name must survive the receiver's filter"
+        }
+    }
+    It 'does not widen to families that merely share a prefix' {
+        # netframework is a collector of its own, and the hyperv collector has
+        # a dozen more sub-collectors whose names start the same way; a host
+        # that enabled any of them must not start shipping their series.
+        foreach ($name in 'windows_netframework_clrexceptions_exceptions_thrown_total', 'windows_hyperv_virtual_machine_health_ok', 'windows_hyperv_virtual_storage_device_bytes_read_total', 'windows_hyperv_dynamic_memory_vm_pressure_current_ratio', 'windows_process_cpu_time_total') {
+            Assert-False ($name -match $script:keep) "$name must not pass the receiver's filter"
         }
     }
 }
@@ -301,13 +342,13 @@ if ($IsWindows) {
             Assert-False $r.Installed 'no service -> nothing installed'
             Assert-False $r.Ensured 'and nothing ensured'
             Assert-Match 'winget install' $r.Message 'the warning carries the command that fixes it'
-            Assert-MockCalled -CommandName Set-YurunaHostMetricsServiceCommandLine -ModuleName Test.HostMetricsExporter -Times 0 -Exactly -Scope It
-            Assert-MockCalled -CommandName Set-YurunaHostMetricsFirewallRule -ModuleName Test.HostMetricsExporter -Times 0 -Exactly -Scope It
+            Should -Invoke -CommandName Set-YurunaHostMetricsServiceCommandLine -ModuleName Test.HostMetricsExporter -Times 0 -Exactly -Scope It
+            Should -Invoke -CommandName Set-YurunaHostMetricsFirewallRule -ModuleName Test.HostMetricsExporter -Times 0 -Exactly -Scope It
         }
         It 'leaves a correctly configured, running exporter untouched' {
             Mock Get-Service -ModuleName Test.HostMetricsExporter { [pscustomobject]@{ Status = 'Running'; StartType = 'Automatic' } }
             Mock Get-YurunaHostMetricsServiceCommandLine -ModuleName Test.HostMetricsExporter {
-                '"C:\w\windows_exporter.exe" --collectors.enabled=os,memory,logical_disk,hyperv,cpu --web.listen-address=:9182'
+                '"C:\w\windows_exporter.exe" --collectors.enabled=os,memory,logical_disk,hyperv,net,cpu --web.listen-address=:9182'
             }
             Mock Set-YurunaHostMetricsServiceCommandLine -ModuleName Test.HostMetricsExporter { 0 }
             Mock Restart-Service -ModuleName Test.HostMetricsExporter {}
@@ -320,8 +361,8 @@ if ($IsWindows) {
             $r = Set-YurunaHostMetricsExporter -ConfigIp '192.0.2.42' 6>$null
             Assert-True  $r.Ensured 'the exposition carries every family'
             Assert-False $r.Changed 'a converged host is not restarted for nothing'
-            Assert-MockCalled -CommandName Set-YurunaHostMetricsServiceCommandLine -ModuleName Test.HostMetricsExporter -Times 0 -Exactly -Scope It
-            Assert-MockCalled -CommandName Restart-Service -ModuleName Test.HostMetricsExporter -Times 0 -Exactly -Scope It
+            Should -Invoke -CommandName Set-YurunaHostMetricsServiceCommandLine -ModuleName Test.HostMetricsExporter -Times 0 -Exactly -Scope It
+            Should -Invoke -CommandName Restart-Service -ModuleName Test.HostMetricsExporter -Times 0 -Exactly -Scope It
         }
         It 'restores the command line it replaced when the rewritten one does not answer' {
             $script:Written = [System.Collections.Generic.List[string]]::new()
@@ -362,30 +403,30 @@ if ($IsWindows) {
             Mock New-NetFirewallRule -ModuleName Test.HostMetricsExporter { }
             $r = Set-YurunaHostMetricsFirewallRule -Port 9182 -RemoteAddress @('192.0.2.42') 6>$null
             Assert-True $r.Changed 'a rule was created'
-            Assert-MockCalled -CommandName New-NetFirewallRule -ModuleName Test.HostMetricsExporter -Times 1 -Exactly -Scope It `
+            Should -Invoke -CommandName New-NetFirewallRule -ModuleName Test.HostMetricsExporter -Times 1 -Exactly -Scope It `
                 -ParameterFilter { $RemoteAddress -contains '192.0.2.42' -and $LocalPort -eq 9182 }
         }
         It 'leaves a correct, scoped, enabled rule alone' {
             Mock Get-NetFirewallRule -ModuleName Test.HostMetricsExporter { [pscustomobject]@{ Enabled = 'True'; Direction = 'Inbound'; Action = 'Allow' } }
-            Mock Get-YurunaMetricsRulePortFilter -ModuleName Test.HostMetricsExporter { [pscustomobject]@{ Protocol = 'TCP'; LocalPort = '9182' } }
+            Mock Get-YurunaRulePortFilter -ModuleName Test.HostMetricsExporter { [pscustomobject]@{ Protocol = 'TCP'; LocalPort = '9182' } }
             Mock Get-YurunaMetricsRuleAddressFilter -ModuleName Test.HostMetricsExporter { [pscustomobject]@{ RemoteAddress = @('192.0.2.42') } }
             Mock New-NetFirewallRule -ModuleName Test.HostMetricsExporter { }
             Mock Remove-NetFirewallRule -ModuleName Test.HostMetricsExporter { }
             $r = Set-YurunaHostMetricsFirewallRule -Port 9182 -RemoteAddress @('192.0.2.42') 6>$null
             Assert-True  $r.Ensured 'already reachable from the scraper'
             Assert-False $r.Changed 'nothing to change'
-            Assert-MockCalled -CommandName New-NetFirewallRule -ModuleName Test.HostMetricsExporter -Times 0 -Exactly -Scope It
+            Should -Invoke -CommandName New-NetFirewallRule -ModuleName Test.HostMetricsExporter -Times 0 -Exactly -Scope It
         }
         It 'rebuilds a rule that has drifted to a wider scope' {
             Mock Get-NetFirewallRule -ModuleName Test.HostMetricsExporter { [pscustomobject]@{ Enabled = 'True'; Direction = 'Inbound'; Action = 'Allow' } }
-            Mock Get-YurunaMetricsRulePortFilter -ModuleName Test.HostMetricsExporter { [pscustomobject]@{ Protocol = 'TCP'; LocalPort = '9182' } }
+            Mock Get-YurunaRulePortFilter -ModuleName Test.HostMetricsExporter { [pscustomobject]@{ Protocol = 'TCP'; LocalPort = '9182' } }
             Mock Get-YurunaMetricsRuleAddressFilter -ModuleName Test.HostMetricsExporter { [pscustomobject]@{ RemoteAddress = @('Any') } }
             Mock New-NetFirewallRule -ModuleName Test.HostMetricsExporter { }
             Mock Remove-NetFirewallRule -ModuleName Test.HostMetricsExporter { }
             $r = Set-YurunaHostMetricsFirewallRule -Port 9182 -RemoteAddress @('192.0.2.42') 6>$null
             Assert-True $r.Changed 'a rule open to the world is rebuilt, not accepted'
-            Assert-MockCalled -CommandName Remove-NetFirewallRule -ModuleName Test.HostMetricsExporter -Times 1 -Exactly -Scope It
-            Assert-MockCalled -CommandName New-NetFirewallRule -ModuleName Test.HostMetricsExporter -Times 1 -Exactly -Scope It
+            Should -Invoke -CommandName Remove-NetFirewallRule -ModuleName Test.HostMetricsExporter -Times 1 -Exactly -Scope It
+            Should -Invoke -CommandName New-NetFirewallRule -ModuleName Test.HostMetricsExporter -Times 1 -Exactly -Scope It
         }
     }
 }
@@ -482,8 +523,8 @@ if ($IsWindows) {
             $r = Install-YurunaHostMetricsExporter
             Assert-Equal -Expected 'already-present' -Actual $r.Outcome
             Assert-False $r.Changed 'an installed exporter is not reinstalled'
-            Assert-MockCalled -CommandName Get-YurunaWingetPath -ModuleName Test.HostMetricsExporter -Times 0 -Exactly -Scope It
-            Assert-MockCalled -CommandName Invoke-YurunaWingetInstall -ModuleName Test.HostMetricsExporter -Times 0 -Exactly -Scope It
+            Should -Invoke -CommandName Get-YurunaWingetPath -ModuleName Test.HostMetricsExporter -Times 0 -Exactly -Scope It
+            Should -Invoke -CommandName Invoke-YurunaWingetInstall -ModuleName Test.HostMetricsExporter -Times 0 -Exactly -Scope It
         }
         It 'cannot reach the package manager on a converged host at all' {
             # Not "was not called" but "could not have been": every seam past the
@@ -500,7 +541,7 @@ if ($IsWindows) {
         It 'records no attempt when there was nothing to attempt' {
             Mock Get-Service -ModuleName Test.HostMetricsExporter { [pscustomobject]@{ Status = 'Running'; StartType = 'Automatic' } }
             $null = Install-YurunaHostMetricsExporter
-            Assert-MockCalled -CommandName Set-YurunaHostMetricsInstallAttempt -ModuleName Test.HostMetricsExporter -Times 0 -Exactly -Scope It
+            Should -Invoke -CommandName Set-YurunaHostMetricsInstallAttempt -ModuleName Test.HostMetricsExporter -Times 0 -Exactly -Scope It
         }
         It 'reports a session that cannot register a service, and spends no attempt on it' {
             Mock Get-Service -ModuleName Test.HostMetricsExporter { $null }
@@ -508,8 +549,8 @@ if ($IsWindows) {
             $r = Install-YurunaHostMetricsExporter
             Assert-Equal -Expected 'unavailable' -Actual $r.Outcome
             Assert-Match 'Administrator' $r.Reason 'the reason names what is missing'
-            Assert-MockCalled -CommandName Invoke-YurunaWingetInstall -ModuleName Test.HostMetricsExporter -Times 0 -Exactly -Scope It
-            Assert-MockCalled -CommandName Set-YurunaHostMetricsInstallAttempt -ModuleName Test.HostMetricsExporter -Times 0 -Exactly -Scope It
+            Should -Invoke -CommandName Invoke-YurunaWingetInstall -ModuleName Test.HostMetricsExporter -Times 0 -Exactly -Scope It
+            Should -Invoke -CommandName Set-YurunaHostMetricsInstallAttempt -ModuleName Test.HostMetricsExporter -Times 0 -Exactly -Scope It
         }
         It 'reports a host with no package manager, and spends no attempt on it either' {
             Mock Get-Service -ModuleName Test.HostMetricsExporter { $null }
@@ -519,7 +560,7 @@ if ($IsWindows) {
             Assert-Match 'winget' $r.Reason 'the reason names what is missing'
             # A free check that fails must not buy a quiet interval: the next
             # cycle re-asks, and the answer is still free.
-            Assert-MockCalled -CommandName Set-YurunaHostMetricsInstallAttempt -ModuleName Test.HostMetricsExporter -Times 0 -Exactly -Scope It
+            Should -Invoke -CommandName Set-YurunaHostMetricsInstallAttempt -ModuleName Test.HostMetricsExporter -Times 0 -Exactly -Scope It
         }
         It 'skips the attempt the interval has not released yet' {
             Mock Get-Service -ModuleName Test.HostMetricsExporter { $null }
@@ -537,7 +578,7 @@ if ($IsWindows) {
             }
             Mock Get-YurunaHostMetricsInstallAttempt -ModuleName Test.HostMetricsExporter { [datetime]::UtcNow.AddDays(-3) }
             $null = Install-YurunaHostMetricsExporter 6>$null
-            Assert-MockCalled -CommandName Invoke-YurunaWingetInstall -ModuleName Test.HostMetricsExporter -Times 1 -Exactly -Scope It
+            Should -Invoke -CommandName Invoke-YurunaWingetInstall -ModuleName Test.HostMetricsExporter -Times 1 -Exactly -Scope It
         }
         It 'reports the install that worked, and clears the record it was holding' {
             $script:ServiceQueries = 0
@@ -551,7 +592,7 @@ if ($IsWindows) {
             Assert-Equal -Expected 'installed' -Actual $r.Outcome
             Assert-True $r.Installed 'the host has the service now'
             Assert-True $r.Changed 'and this call is why'
-            Assert-MockCalled -CommandName Remove-Item -ModuleName Test.HostMetricsExporter -Times 1 -Exactly -Scope It
+            Should -Invoke -CommandName Remove-Item -ModuleName Test.HostMetricsExporter -Times 1 -Exactly -Scope It
         }
         It 'decides by the service, not by the exit code' {
             Mock Get-Service -ModuleName Test.HostMetricsExporter { $null }
@@ -562,7 +603,7 @@ if ($IsWindows) {
             Assert-Equal -Expected 'failed' -Actual $r.Outcome 'exit 0 is what the installer claims; the service is what the host has'
             Assert-Match 'no windows_exporter service was registered' $r.Reason
             Assert-Match 'winget.log' $r.Reason 'and it says where to read what happened'
-            Assert-MockCalled -CommandName Set-YurunaHostMetricsInstallAttempt -ModuleName Test.HostMetricsExporter -Times 1 -Exactly -Scope It
+            Should -Invoke -CommandName Set-YurunaHostMetricsInstallAttempt -ModuleName Test.HostMetricsExporter -Times 1 -Exactly -Scope It
         }
         It 'reports a non-zero exit by its number' {
             Mock Get-Service -ModuleName Test.HostMetricsExporter { $null }
@@ -584,7 +625,7 @@ if ($IsWindows) {
             Assert-False $r.Installed 'a stopped install left nothing behind'
             Assert-Match '45 seconds' $r.Reason 'the bound is reported, not merely applied'
             Assert-Match 'next pass finds it' $r.Reason 'an install that lands late is found rather than lost'
-            Assert-MockCalled -CommandName Set-YurunaHostMetricsInstallAttempt -ModuleName Test.HostMetricsExporter -Times 1 -Exactly -Scope It
+            Should -Invoke -CommandName Set-YurunaHostMetricsInstallAttempt -ModuleName Test.HostMetricsExporter -Times 1 -Exactly -Scope It
         }
         It 'hands the package manager a bound even when the caller names none' {
             $script:SeenTimeout = 0
@@ -650,7 +691,7 @@ if ($IsWindows) {
                 Assert-Equal -Expected 'failed' -Actual $first.Outcome
                 Assert-Equal -Expected 'skipped-throttled' -Actual $second.Outcome 'the next process must not repeat the attempt'
                 Assert-True (Test-Path -LiteralPath $stamp) 'the attempt is recorded where the next process can read it'
-                Assert-MockCalled -CommandName Invoke-YurunaWingetInstall -ModuleName Test.HostMetricsExporter -Times 1 -Exactly -Scope It
+                Should -Invoke -CommandName Invoke-YurunaWingetInstall -ModuleName Test.HostMetricsExporter -Times 1 -Exactly -Scope It
 
                 # A torn or hand-edited record must fail toward trying again:
                 # one extra attempt is the benign direction for a mechanism
@@ -658,7 +699,7 @@ if ($IsWindows) {
                 Set-Content -LiteralPath $stamp -Value 'not json at all' -Encoding utf8
                 $third = Install-YurunaHostMetricsExporter 6>$null
                 Assert-Equal -Expected 'failed' -Actual $third.Outcome 'an unreadable record reads as no record'
-                Assert-MockCalled -CommandName Invoke-YurunaWingetInstall -ModuleName Test.HostMetricsExporter -Times 2 -Exactly -Scope It
+                Should -Invoke -CommandName Invoke-YurunaWingetInstall -ModuleName Test.HostMetricsExporter -Times 2 -Exactly -Scope It
             } finally {
                 Remove-YurunaTestTempDir $dir
             }
@@ -688,7 +729,7 @@ if ($IsWindows) {
             Assert-False $r.Installed 'no service -> nothing installed'
             Assert-Match 'winget is not available to this account' $r.Message 'the warning carries why, not only what'
             Assert-Match 'winget install --id Prometheus.WindowsExporter' $r.Message 'and still the command that fixes it by hand'
-            Assert-MockCalled -CommandName Install-YurunaHostMetricsExporter -ModuleName Test.HostMetricsExporter -Times 1 -Exactly -Scope It
+            Should -Invoke -CommandName Install-YurunaHostMetricsExporter -ModuleName Test.HostMetricsExporter -Times 1 -Exactly -Scope It
         }
         It 'configures an exporter it has just installed, on the same pass' {
             $script:ServiceQueries = 0
@@ -750,7 +791,7 @@ if ($IsWindows) {
             }
             Mock Set-YurunaHostMetricsExporter -ModuleName Test.HostCondition.Windows { [pscustomobject]@{ Ensured = $true } }
             $null = Initialize-WindowsHostMetricsExporter
-            Assert-MockCalled -CommandName Set-YurunaHostMetricsExporter -ModuleName Test.HostCondition.Windows -Times 0 -Exactly -Scope It
+            Should -Invoke -CommandName Set-YurunaHostMetricsExporter -ModuleName Test.HostCondition.Windows -Times 0 -Exactly -Scope It
         }
         It 'does configure the one it just installed' {
             Mock Install-YurunaHostMetricsExporter -ModuleName Test.HostCondition.Windows {
@@ -759,7 +800,7 @@ if ($IsWindows) {
             Mock Set-YurunaHostMetricsExporter -ModuleName Test.HostCondition.Windows { [pscustomobject]@{ Ensured = $true } }
             $r = Initialize-WindowsHostMetricsExporter -ConfigPath 'C:\does\not\exist\test.config.yml'
             Assert-Equal -Expected 'Installed' -Actual $r.Status
-            Assert-MockCalled -CommandName Set-YurunaHostMetricsExporter -ModuleName Test.HostCondition.Windows -Times 1 -Exactly -Scope It
+            Should -Invoke -CommandName Set-YurunaHostMetricsExporter -ModuleName Test.HostCondition.Windows -Times 1 -Exactly -Scope It
         }
         It 'reports, never raises, whatever the installer does' {
             Mock Install-YurunaHostMetricsExporter -ModuleName Test.HostCondition.Windows { throw 'the installer exploded' }

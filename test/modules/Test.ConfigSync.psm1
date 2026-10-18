@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.14
+.VERSION 2026.10.18
 .GUID 4250f9af-bcc6-41b0-85fb-2c2f4e968e7d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -111,7 +111,7 @@ function ConvertTo-SortedConfig {
         # a one-guest guestSequence into a YAML scalar (and the UI editor keys its
         # array widget off Array.isArray). A typed List survives the return + the
         # parent's slot assignment at any element count, and an empty List still
-        # serializes as `[]`. See [[pwsh-typed-array-cast-if-empty-null]].
+        # serializes as `[]`.
         $sorted = [System.Collections.Generic.List[object]]::new()
         foreach ($i in $(if ($allScalar) { $items | Sort-Object } else { $items })) { [void]$sorted.Add($i) }
         return , $sorted
@@ -232,6 +232,53 @@ function Get-DroppedConfigField {
 
 <#
 .SYNOPSIS
+    Return the leaf paths present in both $Current and $Merged whose value differs.
+.DESCRIPTION
+    The template overlay keeps every value the operator set (template shape
+    wins, current values win), so a leaf that reads differently after the merge
+    is a defect in the overlay rather than a schema change -- and one the
+    operator cannot otherwise see: the run then uses the new value, every check
+    passes against it, and the resolved configuration printed at run start
+    looks intentional. The caller reports each entry with its previous value
+    before anything is written. Values are compared in canonical form (sorted
+    keys and scalar-array elements), so the ordering the overlay normalizes is
+    not a change. Pure.
+#>
+function Get-ConfigLeafChange {
+    [CmdletBinding()]
+    [OutputType([object[]])]
+    param($Current, $Merged)
+    $curLeaves    = Get-ConfigLeafValue -Config $Current
+    $mergedLeaves = Get-ConfigLeafValue -Config $Merged
+    $changes = [System.Collections.Generic.List[object]]::new()
+    foreach ($path in $curLeaves.Keys) {
+        if (-not $mergedLeaves.Contains($path)) { continue }   # dropped leaves are reported separately
+        $previous = ConvertTo-ConfigLeafText (ConvertTo-SortedConfig $curLeaves[$path])
+        $current  = ConvertTo-ConfigLeafText (ConvertTo-SortedConfig $mergedLeaves[$path])
+        if ($previous -ceq $current) { continue }
+        $changes.Add([pscustomobject]@{ Path = $path; Previous = $previous; Current = $current })
+    }
+    return [object[]]@($changes)
+}
+
+# One line of text per leaf value, for comparison and for the operator report:
+# scalars as they print, arrays bracketed with their elements comma-separated,
+# map elements as compact JSON so a list of maps still compares by content.
+function ConvertTo-ConfigLeafText {
+    [CmdletBinding()]
+    [OutputType([string])]
+    param($Value)
+    if ($Value -is [System.Collections.IEnumerable] -and $Value -isnot [string]) {
+        $items = @(foreach ($item in $Value) {
+            if ($item -is [System.Collections.IDictionary]) { $item | ConvertTo-Json -Compress -Depth 20 } else { "$item" }
+        })
+        return '[' + ($items -join ', ') + ']'
+    }
+    return "$Value"
+}
+
+<#
+.SYNOPSIS
     Reconcile the on-disk test.config.yml against its template and return the merged config.
 .DESCRIPTION
     Bootstraps the config from the template when missing, drops deprecated
@@ -338,6 +385,15 @@ function Update-TestConfigFromTemplate {
     $curLeaves = Get-ConfigLeafValue -Config (Copy-HashtableWithoutSecretNode $current)
     foreach ($path in @(Get-DroppedConfigField -Current (Copy-HashtableWithoutSecretNode $current) -Merged $merged)) {
         $obsolete[$path] = Format-YamlScalarValue $curLeaves[$path]
+    }
+    # The merge keeps every operator value by construction, so a leaf that reads
+    # differently here is a defect in the overlay, not a schema change. It is
+    # reported with its previous value before anything is written: once the file
+    # is rewritten the run uses the new value and every later check passes
+    # against it, so this line is where the previous value survives.
+    foreach ($change in @(Get-ConfigLeafChange -Current (Copy-HashtableWithoutSecretNode $current) -Merged $merged)) {
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.config_value_replaced' -Arguments @{
+            path = "$($change.Path)"; previous = "$($change.Previous)"; current = "$($change.Current)" })
     }
     $rendered = ConvertTo-DocumentedConfigYaml -TemplateText ([string](Get-Content -Raw -LiteralPath $TemplatePath)) `
         -Config $merged -ObsoleteEntry $obsolete
@@ -785,7 +841,7 @@ function Hide-SecretsInConfig {
 Export-ModuleMember -Function `
     ConvertTo-MergedHashtable, ConvertTo-SortedConfig, `
     Copy-HashtableWithoutSecretNode, `
-    Test-ConfigMatchesTemplateShape, Get-ConfigLeafValue, Get-DroppedConfigField, `
+    Test-ConfigMatchesTemplateShape, Get-ConfigLeafValue, Get-DroppedConfigField, Get-ConfigLeafChange, `
     Format-YamlScalarValue, Get-ConfigValueAtPath, Get-ObsoleteConfigEntry, Format-ObsoleteConfigEntry, Write-DocumentedTestConfig, `
     ConvertTo-DocumentedConfigYaml, `
     Update-TestConfigFromTemplate, Sync-TestConfigToTemplate, Hide-SecretsInConfig

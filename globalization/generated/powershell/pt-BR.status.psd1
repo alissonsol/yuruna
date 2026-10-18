@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.14
+.VERSION 2026.10.18
 .GUID 4253ddeb-5580-1ecb-1ae9-590969e1bd2e
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -919,6 +919,7 @@
             'trust' = 'external'
         }
     )
+    'status.host_refresh_remote_viewer' = 'Esta página está aberta em outra máquina, então ela pode acompanhar uma atualização do hospedeiro, mas não iniciá-la. Inicie-a no próprio hospedeiro: pelo painel dele, ou com pwsh test/lab/Invoke-HostRefresh.ps1.'
     'status.host_refresh_retry' = 'Tentar novamente'
     'status.host_refresh_stale' = @(
         'Atualização '
@@ -1372,6 +1373,7 @@
     'status.pill_new_vm_resource' = 'Nova VM'
     'status.pill_start_guestos' = 'Iniciar o SO'
     'status.pill_start_guestworkload' = 'Carga de trabalho'
+    'status.preflight_failed' = 'FALHA NA VERIFICAÇÃO PRÉVIA'
     'status.process_environment_value_the_status_service_inherited_at_startup' = 'O valor do ambiente do processo do serviço de estado herdado na inicialização. Somente para leitura aqui; fonte de retorno somente: no início do ciclo o campo vmStart.cachingProxyIp acima é pesquisado primeiro e ganha quando suas respostas de 3128. Exportar isso no shell que lança o Start-TestRunner.ps1 para hosts cujo campo de configuração está vazio.'
     'status.quarantine_pinned' = @(
         'Quarentenado após falhas repetidas da mesma classe (esqueceu até um novo commit; fixado em '
@@ -1426,6 +1428,10 @@
             'trust' = 'external'
         }
     )
+    'status.runner_attempts_description' = 'As falhas das últimas 20 tentativas do executor permanecem aqui após a recuperação. As falhas na verificação prévia ocorrem antes do início de um novo ciclo de testes.'
+    'status.runner_attempts_empty' = 'Nenhuma falha de tentativa do executor retida.'
+    'status.runner_attempts_title' = 'Falhas nas tentativas do executor'
+    'status.runner_attempts_unavailable' = 'O histórico de tentativas do executor está indisponível.'
     'status.runner_failure_record' = 'Registro da falha'
     'status.runner_failure_transcript' = 'Transcrição da verificação de configuração'
     'status.runner_framework_commit' = @(

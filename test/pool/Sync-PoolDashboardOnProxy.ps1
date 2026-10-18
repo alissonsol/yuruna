@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.14
+.VERSION 2026.10.18
 .GUID 422ccca9-b2ae-4944-9d17-c8d6f481d268
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -233,6 +233,13 @@ import json, sys
 
 FITTED = {6, 7, 17}   # the per-host panels yuruna-fit-pool-dashboard.py sizes
 
+def shift_panels(panels, delta):
+    for panel in panels:
+        grid = panel.get("gridPos")
+        if isinstance(grid, dict):
+            grid["y"] = int(grid.get("y", 0)) + delta
+        shift_panels(panel.get("panels") or [], delta)
+
 try:
     with open(sys.argv[1], encoding="utf-8") as fh:
         cand = json.load(fh)
@@ -246,6 +253,16 @@ for panel in cand.get("panels", []):
     pid = panel.get("id")
     if pid in live_panels and (pid in FITTED or panel.get("type") == "row"):
         panel["gridPos"] = live_panels[pid].get("gridPos", panel.get("gridPos"))
+        # The fitter anchors collapsed contents below the row header. Translate
+        # the candidate as a group so fitted positions compare equal while tile
+        # widths, heights and relative placement still reveal layout changes.
+        if panel.get("type") == "row":
+            children = [p for p in panel.get("panels", [])
+                        if isinstance(p.get("gridPos"), dict)]
+            if children:
+                first = min(int(p["gridPos"].get("y", 0)) for p in children)
+                grid = panel["gridPos"]
+                shift_panels(children, grid.get("y", 0) + grid.get("h", 1) - first)
 sys.exit(0 if cand == live else 1)
 PY
 if [ $? -eq 0 ]; then

@@ -45,6 +45,11 @@ pwsh -NoProfile -File ../../tools/Invoke-TestSuite.ps1
 pwsh -NoProfile -File ../../tools/Invoke-TestSuite.ps1 -Filter 'Test.Pool*'
 ```
 
+The runner loads the Pester 6.x line, which the pre-commit test pass requires
+on the host as well; [Pester install](../../docs/install.md#pester-install)
+covers it. A bare `Invoke-Pester -Path` loads the newest installed copy and
+splits discovery from the run (see below), so run suites through the runner.
+
 Two rules apply to every suite here, both enforced by
 [`Test.SuiteHelperAdoption.Tests.ps1`](Test.SuiteHelperAdoption.Tests.ps1):
 
@@ -166,6 +171,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.14
+Last review: 2026.10.18
 
 Back to [Yuruna](../../README.md)

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.14
+.VERSION 2026.10.18
 .GUID 424757c6-0173-447c-a3d1-c814f73109f8
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -357,7 +357,7 @@ Describe 'Cycle dispatch' {
             $r = Invoke-OuterCycleDispatch -State $state -Cycle 3
             $r.Outcome | Should -Be 'completed'
             $r.ExitCode | Should -Be 0
-            Assert-MockCalled -CommandName Start-Process -ModuleName Test.RunnerOuterLoop -Exactly -Times 1 -Scope It -ParameterFilter {
+            Should -Invoke -CommandName Start-Process -ModuleName Test.RunnerOuterLoop -Exactly -Times 1 -Scope It -ParameterFilter {
                 $i = [array]::IndexOf([object[]]$ArgumentList, '-File')
                 $i -ge 0 -and ([string]$ArgumentList[$i + 1]) -like '"* *"'
             }

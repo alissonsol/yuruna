@@ -3586,6 +3586,16 @@
       "sourceHash": "507f812c9edd94b8771a86180ef34d3e0cfd9ad95191b57724a260a081728ee9",
       "origin": "machine",
       "message": "REGISTRY: המטמון סירב ל־{refused} מתוך {total} תמונות בקבוצה {set} שאורח מושך. סירוב הוא תשובה ולא העתקה שמתבצעת: כל אורח שמבקש את התמונות האלה יקבל אותה שוב עד שהסיבה תתוקן. יומן הסנכרון של zot מציין את הסיבה בחלונית \"Sync / upstream lines\" בלוח המחוונים של תקינות המטמון."
+    },
+    "automation.runtime_ipc_remove_action": {
+      "sourceHash": "b9d07ee417d0de3137636d7e87e607f8c92421dbdd515a5d5a3c71691153b643",
+      "origin": "machine",
+      "message": "הסירו את רשומת זמן הריצה של .NET שנותרה מתהליך שכבר אינו קיים"
+    },
+    "automation.stale_temp_remove_action": {
+      "sourceHash": "5021d832dd7c0b0e3371c426f543c23e9e64938b5ffacba06105c9ea5a68b7dd",
+      "origin": "machine",
+      "message": "הסירו את הרשומה הזמנית המיושנת של Yuruna"
     }
   }
 }

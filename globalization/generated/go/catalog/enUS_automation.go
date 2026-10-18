@@ -5052,6 +5052,7 @@ const DataenUSautomation = `{
       "trust": "external"
     }
   ],
+  "automation.runtime_ipc_remove_action": "Remove the leftover .NET runtime entry of a process that is gone",
   "automation.setup_service_vm_reason_intended_stopped": "it was stopped on purpose; rebuilding because setup was asked to bring it up",
   "automation.setup_service_vm_reason_lock_unavailable": "its operation lock could not be taken",
   "automation.setup_service_vm_reason_operation_busy": "another start or stop of this service is still running",
@@ -5064,6 +5065,7 @@ const DataenUSautomation = `{
     },
     ")"
   ],
+  "automation.stale_temp_remove_action": "Remove the stale Yuruna temp entry",
   "automation.system_diagnostic_registry_images_refused": [
     "REGISTRY: the cache refused ",
     {

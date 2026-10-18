@@ -527,6 +527,15 @@ Nothing expires a gate by age: one left behind by a worker that died stays held
 until `test/lab/Invoke-HostRefresh.ps1 -Resume` resolves it, and the runner's
 hold line says so.
 
+An orphaned gate -- its owner proven dead or recycled, with no live handoff
+token -- still holds the runner, but not the observational status service:
+both a refused `Start-TestRunner.ps1` start and the outer's failure-pause
+re-ensure bring that service back for an orphaned gate, where a gate with a
+live owner defers (its worker may be restarting the listener itself). Without
+this, a dead worker's hold would also take down the dashboard that carries the
+unresolved request's state and resume controls, leaving a remote operator
+nothing but connection errors.
+
 Six sites read it, each before anything it guards can change:
 
 | Site | Process | Guards |
@@ -845,9 +854,6 @@ inner when its age exceeds the bound in force -- once the sequence is
 running, `testCycle.stepTimeoutSeconds` (2700-second fallback; 3600 in the
 shipped template).
 
-The split was added after the trap recorded in repo memory
-`feedback_threadpool_heartbeat_watchdog_blind.md`.
-
 <a id="42f909ad-0014"></a>
 
 ### Watchdog job
@@ -1099,6 +1105,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.14
+Last review: 2026.10.18
 
 Back to [Yuruna](../README.md)

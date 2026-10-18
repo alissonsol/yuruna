@@ -5863,6 +5863,16 @@
       "origin": "machine",
       "message": "UTM לא ביצע את בקשת ההפעלה עבור '{vmName}' לאורך {attempts} ניסיונות; בניסיון האחרון דווח '{lastError}'. utmctl הגיע אל ⁦UTM.app⁩ -- שאילתות מצב נענו לאורך כל הזמן -- אך ההפעלה עצמה לא בוצעה מעולם, ולכן המכונה הווירטואלית לא הופעלה והדיסק שלה לא שונה. נסו שוב (utmctl start '{vmName}'); בנייה מחדש לא תפתור דבר במקרה זה."
     },
+    "host.utm_start_control_hung": {
+      "sourceHash": "c9d057ba43796fb3b9a31f0907dd458da26998e8c7b115bc09ec40206fe11821",
+      "origin": "machine",
+      "message": "ערוץ הבקרה של UTM הפסיק לבצע בקשות מחזור חיים: {attempts} בקשות הפעלה רצופות עבור '{vmName}' נותרו ללא מענה, והאחרונה דיווחה '{lastError}'. utmctl עדיין הגיע אל ⁦UTM.app⁩ לשאילתות מצב, כך שהיישום פועל אך אינו מבצע עוד start, stop או delete, וניסיון חוזר רק מוסיף עוד פסק זמן. הפעילו מחדש את ⁦UTM.app⁩ במארח זה (צאו ממנו מתוך הפעלת שולחן העבודה, או הריצו ⁦test/lab/Invoke-HostRefresh.ps1⁩), ואז הפעילו את המכונה הווירטואלית שוב. המכונה הווירטואלית לא הופעלה מעולם והדיסק שלה לא שונה."
+    },
+    "host.utm_control_snapshot_action": {
+      "sourceHash": "0edb078c35115edfdd56fc887938f57308ba7770305b9e5b63b3120e5b766edf",
+      "origin": "machine",
+      "message": "רשמו את תמונת המצב של ערוץ הבקרה של UTM ({trigger})"
+    },
     "host.operator_2c39a46858dd9e79": {
       "sourceHash": "0755443a2e05288538f36c42d3733a24986a0fc23cdf839cce60d8ef4582f7fe",
       "origin": "machine",

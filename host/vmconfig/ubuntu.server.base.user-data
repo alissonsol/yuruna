@@ -153,12 +153,23 @@ APT_PROXY_BLOCK_PLACEHOLDER
       fi
     # --- REGION: Reinforce DHCP client identity
     # See https://yuruna.link/4220a755-000b
-    # Idempotent: a re-run finds the key already present and leaves the file alone.
+    # Idempotent: a re-run finds each key already present and leaves the file alone.
+    # critical: the kernel expires a DHCP address by its own clock, not by the
+    # lease, so a clock jump can delete it while networkd still holds a valid
+    # lease and asks for nothing. Kept for the lease's full term, the address
+    # is only the lease's to drop; renewal and the release on shutdown are
+    # networkd's and unchanged. The second pass anchors on the identity line
+    # the first pass guarantees, so it lands in the same entry at its indentation.
     - |
       for f in /target/etc/netplan/*.yaml; do
         [ -f "$f" ] || continue
         grep -q 'dhcp-identifier' "$f" && continue
         sed -i -E 's/^([[:space:]]*)dhcp4:[[:space:]]*(true|yes)[[:space:]]*$/\1dhcp4: \2\n\1dhcp-identifier: mac/' "$f"
+      done
+      for f in /target/etc/netplan/*.yaml; do
+        [ -f "$f" ] || continue
+        grep -q 'critical:' "$f" && continue
+        sed -i -E 's/^([[:space:]]*)dhcp-identifier:[[:space:]]*mac[[:space:]]*$/\1dhcp-identifier: mac\n\1critical: true/' "$f"
       done
     # --- REGION: https://yuruna.link/429f3d06-0016
     - mkdir -p /target/etc/systemd/system/systemd-networkd-wait-online.service.d

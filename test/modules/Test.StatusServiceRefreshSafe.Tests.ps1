@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.14
+.VERSION 2026.10.18
 .GUID 424389c7-e56a-4c48-9b73-1d24e21c6aa1
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -366,8 +366,8 @@ while (`$listener.IsListening) {
                 Assert-StringEqual $before[$name] $after[$name] 'an existing-ready start leaves error evidence untouched'
             }
         } finally {
-            if ($standIn -and -not $standIn.HasExited) { try { $standIn.Kill() } catch { $null = $_ } }
-            Remove-YurunaTestTempDir $scratch.Root
+            if ($standIn -and -not $standIn.HasExited) { try { $standIn.Kill(); [void]$standIn.WaitForExit(5000) } catch { $null = $_ } }
+            Remove-YurunaTestTempDir $scratch.Root -Attempts 5
         }
     }
 

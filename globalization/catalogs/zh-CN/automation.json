@@ -3574,6 +3574,16 @@
       "sourceHash": "507f812c9edd94b8771a86180ef34d3e0cfd9ad95191b57724a260a081728ee9",
       "origin": "machine",
       "message": "REGISTRY：客户机拉取的{set}集合共有{total}个镜像，缓存拒绝了其中{refused}个。拒绝是缓存给出的答复，而不是正在进行的复制：在原因修复之前，每个请求这些镜像的客户机都会再次得到同样的答复。zot的同步日志会说明原因，见缓存健康仪表板中的“Sync / upstream lines”面板。"
+    },
+    "automation.runtime_ipc_remove_action": {
+      "sourceHash": "b9d07ee417d0de3137636d7e87e607f8c92421dbdd515a5d5a3c71691153b643",
+      "origin": "machine",
+      "message": "删除已不存在的进程遗留的 .NET 运行时条目"
+    },
+    "automation.stale_temp_remove_action": {
+      "sourceHash": "5021d832dd7c0b0e3371c426f543c23e9e64938b5ffacba06105c9ea5a68b7dd",
+      "origin": "machine",
+      "message": "删除过期的 Yuruna 临时条目"
     }
   }
 }

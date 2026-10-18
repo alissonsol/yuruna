@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.14
+.VERSION 2026.10.18
 .GUID 42cf1e3a-80ad-4ced-a52c-2fdc80833d43
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -87,5 +87,49 @@ Describe 'Get-OutputState returns a copy-safe WarningsBySection' {
         elseif (@($snap.Failures).Count) { $snap.Failures[0] = [pscustomobject]@{ Message = 'injected' } }
         $live = Get-OutputState
         Assert-Equal -Expected 1 -Actual @($live.Failures).Count -Because 'the Failures array snapshot is isolated from caller mutation'
+    }
+}
+
+Describe 'Preflight sidecar diagnostic evidence' {
+    BeforeEach {
+        Reset-OutputState -Confirm:$false
+        $script:savedSidecarPath = $env:YURUNA_FAILURE_SIDECAR
+        $env:YURUNA_FAILURE_SIDECAR = Join-Path $TestDrive 'preflight.json'
+    }
+    AfterEach {
+        $env:YURUNA_FAILURE_SIDECAR = $script:savedSidecarPath
+        Reset-OutputState -Confirm:$false
+    }
+
+    It 'retains recovered connection attempts even when the preflight passes' {
+        $data = @{
+            reachable = $true
+            attempts = @(
+                @{ outcome = 'timeout'; elapsedMs = 5000; detail = '' }
+                @{ outcome = 'reachable'; elapsedMs = 17; detail = '' }
+            )
+            dns = @{ addresses = @(@{ address = '192.0.2.1'; family = 'InterNetwork' }) }
+        }
+        Write-OutputDiagnostic -Name 'githubConnectivity' -Data $data
+        $data.attempts[0].outcome = 'modified by caller'
+        $snapshot = Get-OutputState
+        $snapshot.Diagnostics.githubConnectivity.attempts[0].outcome = 'modified snapshot'
+        Write-FailureSidecar
+
+        $record = Get-Content -LiteralPath $env:YURUNA_FAILURE_SIDECAR -Raw | ConvertFrom-Json
+        $record.failCount | Should -Be 0
+        $record.diagnostics.githubConnectivity.reachable | Should -BeTrue
+        $record.diagnostics.githubConnectivity.attempts.Count | Should -Be 2
+        $record.diagnostics.githubConnectivity.attempts[0].outcome | Should -Be 'timeout'
+        $record.diagnostics.githubConnectivity.attempts[1].elapsedMs | Should -Be 17
+        $record.diagnostics.githubConnectivity.dns.addresses[0].address | Should -Be '192.0.2.1'
+    }
+
+    It 'clears prior diagnostics when the output state is initialized again' {
+        Write-OutputDiagnostic -Name 'githubConnectivity' -Data @{ reachable = $false }
+        Initialize-OutputState -Confirm:$false
+        Write-FailureSidecar
+        $record = Get-Content -LiteralPath $env:YURUNA_FAILURE_SIDECAR -Raw | ConvertFrom-Json -AsHashtable
+        $record.diagnostics.Count | Should -Be 0
     }
 }

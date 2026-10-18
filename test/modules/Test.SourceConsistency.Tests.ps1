@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.14
+.VERSION 2026.10.18
 .GUID 42e220c4-9472-4e35-bf37-59a7e003196b
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -672,8 +672,10 @@ Describe 'Shared source regions' {
                 'caching-proxy-service', 'ubuntu.server.24', 'ubuntu.server.26',
                 'amazon.linux.2023', 'windows.11') {
                 $path = Join-Path $script:RepoRoot "host/$hostKind/guest.$guest/New-VM.ps1"
+                # Indented markers count: a builder's seed-folder try/finally
+                # encloses the later phases.
                 $regions = @([regex]::Matches((Get-ConsistencyWorkflowSource -Path $path),
-                        '(?m)^# --- REGION: ([^\r\n]+)') | ForEach-Object { $_.Groups[1].Value })
+                        '(?m)^[ \t]*# --- REGION: ([^\r\n]+)') | ForEach-Object { $_.Groups[1].Value })
                 $observed = @($regions | Where-Object { $_ -in $phases })
                 ($observed -join '|') | Should -BeExactly ($phases -join '|') -Because "$hostKind/$guest shares the replacement order"
                 $source = Get-ConsistencyWorkflowSource -Path $path
@@ -712,8 +714,10 @@ Describe 'Shared source regions' {
             $expected = $null
             foreach ($service in 'stash-service', 'pool-control-service', 'download-agent-service') {
                 $path = Join-Path $script:RepoRoot "host/$hostKind/guest.$service/New-VM.ps1"
+                # Indented markers count: a builder's seed-folder try/finally
+                # encloses the later phases.
                 $regions = @([regex]::Matches((Get-ConsistencyWorkflowSource -Path $path),
-                        '(?m)^# --- REGION: ([^\r\n]+)') | ForEach-Object { $_.Groups[1].Value })
+                        '(?m)^[ \t]*# --- REGION: ([^\r\n]+)') | ForEach-Object { $_.Groups[1].Value })
                 $observed = @($regions | Where-Object { $_ -in $names })
                 if ($null -eq $expected) { $expected = $observed -join '|' }
                 ($observed -join '|') | Should -BeExactly $expected -Because "$hostKind/$service shares the provider's service phases"

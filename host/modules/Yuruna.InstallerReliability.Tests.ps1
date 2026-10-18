@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.14
+.VERSION 2026.10.18
 .GUID 427e2e91-a49b-4c4a-99a0-cf1f450ad4c1
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -119,6 +119,7 @@ Describe 'Shell installer failure boundaries' -Skip:(-not (Get-Command bash -Err
     It 'reports a failed nested function from its exit trap' {
         $source = Get-Content (Join-Path $script:RepoRoot 'install/ubuntu.kvm.sh') -Raw
         $body = [regex]::Match($source, '(?ms)^yuruna_install_cleanup\(\) \{.*?^\}').Value
+        $body = [regex]::Match($source, '(?ms)^yuruna_cleanup_tmp_paths\(\) \{.*?^\}').Value + "`n" + $body
         $fixture = Join-Path $TestDrive 'cleanup.sh'
         $content = @'
 set -euo pipefail
@@ -183,5 +184,161 @@ pwsh() { return 1; }
         $output = & bash $fixture 2>&1 | Out-String
         $LASTEXITCODE | Should -Be 0
         $output | Should -Match 'powershell-yaml install reported an error'
+    }
+}
+Describe 'Windows installer stops only the processes its PID files still name' {
+    BeforeAll {
+        . ([scriptblock]::Create((Get-SourceFunction 'install/windows.hyper-v.ps1' 'Test-YurunaPidFileOwner')))
+        . ([scriptblock]::Create((Get-SourceFunction 'install/windows.hyper-v.ps1' 'Stop-YurunaProcess')))
+        $script:Pattern = @('Start-TestRunner.ps1', 'Invoke-TestRunnerInnerLoop.ps1')
+    }
+    BeforeEach {
+        $script:SavedRuntimeDir = $env:YURUNA_RUNTIME_DIR
+        $env:YURUNA_RUNTIME_DIR = Join-Path $TestDrive ([guid]::NewGuid().ToString('N'))
+        $null = New-Item -ItemType Directory -Path $env:YURUNA_RUNTIME_DIR
+        $script:Started = [datetime]::UtcNow.AddHours(-1)
+        $script:CimQueries = 0
+        $script:Listed = @()
+        $script:Killed = [Collections.Generic.List[int]]::new()
+        function Get-CimInstance { $script:CimQueries++; $script:Listed }
+        function Get-NetTCPConnection { }
+        function Get-Process { param([int]$Id) if ($script:Killed -contains $Id) { return $null }; [pscustomobject]@{ Id = $Id; ProcessName = 'pwsh'; StartTime = $script:Started } }
+        function taskkill.exe { $script:Killed.Add([int]$args[1]) }
+        function Write-Step { }
+        function Write-Warn { }
+    }
+    AfterEach {
+        if ($null -eq $script:SavedRuntimeDir) { Remove-Item Env:YURUNA_RUNTIME_DIR -ErrorAction SilentlyContinue } else { $env:YURUNA_RUNTIME_DIR = $script:SavedRuntimeDir }
+    }
+
+    It 'accepts a process that runs a Yuruna script, or one that started when its start record says' {
+        Test-YurunaPidFileOwner -ProcessId 4242 -CommandLine '"pwsh.exe" -File C:\yuruna\test\Start-TestRunner.ps1' -Pattern $script:Pattern | Should -BeTrue
+        $start = Join-Path $env:YURUNA_RUNTIME_DIR 'runner.start'
+        Set-Content -LiteralPath $start -Value $script:Started.ToString('o') -NoNewline
+        Test-YurunaPidFileOwner -ProcessId 4242 -CommandLine '' -Pattern $script:Pattern -StartFile $start | Should -BeTrue
+    }
+    It 'rejects a recycled PID held by another PowerShell process' {
+        $start = Join-Path $env:YURUNA_RUNTIME_DIR 'runner.start'
+        Set-Content -LiteralPath $start -Value $script:Started.AddMinutes(-5).ToString('o') -NoNewline
+        Test-YurunaPidFileOwner -ProcessId 4242 -CommandLine '"pwsh.exe" -NoLogo' -Pattern $script:Pattern -StartFile $start | Should -BeFalse
+        Test-YurunaPidFileOwner -ProcessId 4242 -CommandLine '"pwsh.exe" -NoLogo' -Pattern $script:Pattern | Should -BeFalse
+    }
+    It 'leaves alone the operator shell that reused a stale runner.pid, listing processes once' {
+        Set-Content -LiteralPath (Join-Path $env:YURUNA_RUNTIME_DIR 'runner.pid') -Value '4242' -NoNewline
+        $script:Listed = @([pscustomobject]@{ ProcessId = 4242; CommandLine = '"pwsh.exe" -NoLogo' })
+        Stop-YurunaProcess -Confirm:$false
+        $script:Killed.Count | Should -Be 0
+        $script:CimQueries | Should -Be 1
+    }
+    It 'still stops the runner a PID file names when its command line cannot be read' {
+        Set-Content -LiteralPath (Join-Path $env:YURUNA_RUNTIME_DIR 'runner.pid') -Value '4242' -NoNewline
+        Set-Content -LiteralPath (Join-Path $env:YURUNA_RUNTIME_DIR 'runner.start') -Value $script:Started.ToString('o') -NoNewline
+        Stop-YurunaProcess -Confirm:$false
+        ($script:Killed -join ',') | Should -Be '4242'
+    }
+    It 'stops a runner found by its command line' {
+        $script:Listed = @(
+            [pscustomobject]@{ ProcessId = 5151; CommandLine = '"pwsh.exe" -File C:\yuruna\test\Start-TestRunner.ps1' }
+            [pscustomobject]@{ ProcessId = 6161; CommandLine = '"pwsh.exe" -NoLogo' })
+        Stop-YurunaProcess -Confirm:$false
+        ($script:Killed -join ',') | Should -Be '5151'
+        $script:CimQueries | Should -Be 1
+    }
+}
+Describe 'Shell installers stop only the processes their PID files still name' -Skip:($IsWindows -or -not (Get-Command bash -ErrorAction SilentlyContinue)) {
+    BeforeAll {
+        # A copy of bash named pwsh: ps reports its comm as pwsh, as it does for
+        # a real runner, and -c keeps it alive without taking on sleep's name.
+        $script:FakePwsh = Join-Path $TestDrive 'bin/pwsh'
+        $null = New-Item -ItemType Directory -Force -Path (Split-Path -Parent $script:FakePwsh)
+        Copy-Item -LiteralPath (Get-Command bash -CommandType Application | Select-Object -First 1).Source -Destination $script:FakePwsh
+        & chmod +x $script:FakePwsh
+        function Invoke-ShellStop {
+            param([string]$Installer, [string]$RuntimeDir)
+            $source = Get-Content (Join-Path $script:RepoRoot $Installer) -Raw
+            $bodies = foreach ($name in 'yuruna_epoch_from_utc', 'yuruna_process_start_epoch', 'pid_file_owner_ok', 'stop_yuruna_processes') {
+                [regex]::Match($source, "(?ms)^$name\(\) \{.*?^\}").Value
+            }
+            # pgrep and the port probes are stubbed so only the PID-file channel
+            # can pick a target; nothing else on the host is ever signaled.
+            $stubs = "set -euo pipefail`nlog() { echo `"LOG: `$*`"; }`nwarn() { echo `"WARN: `$*`" >&2; }`npgrep() { :; }`nlsof() { :; }`nss() { :; }`n"
+            $fixture = Join-Path $TestDrive ('stop-' + [guid]::NewGuid().ToString('N') + '.sh')
+            [IO.File]::WriteAllText($fixture, $stubs + ($bodies -join "`n") + "`nstop_yuruna_processes`n")
+            $saved = @{ Runtime = $env:YURUNA_RUNTIME_DIR; Dir = $env:YURUNA_DIR }
+            try {
+                $env:YURUNA_RUNTIME_DIR = $RuntimeDir
+                $env:YURUNA_DIR = $TestDrive
+                $output = & bash $fixture 2>&1 | Out-String
+                return @{ Code = $LASTEXITCODE; Output = $output }
+            } finally {
+                $env:YURUNA_RUNTIME_DIR = $saved.Runtime
+                $env:YURUNA_DIR = $saved.Dir
+            }
+        }
+        function Start-FakeRunner {
+            param([string[]]$Extra = @())
+            # ArgumentList keeps 'sleep 20; :' one argument; Start-Process would join and re-split it.
+            $info = [Diagnostics.ProcessStartInfo]::new($script:FakePwsh)
+            $info.UseShellExecute = $false
+            foreach ($arg in @('-c', 'sleep 20; :') + $Extra) { $info.ArgumentList.Add($arg) }
+            $process = [Diagnostics.Process]::Start($info)
+            $null = $process.StartTime
+            return $process
+        }
+        function New-RuntimeDir {
+            $dir = Join-Path $TestDrive ('runtime-' + [guid]::NewGuid().ToString('N'))
+            $null = New-Item -ItemType Directory -Path $dir
+            return $dir
+        }
+    }
+
+    It 'leaves alone a PowerShell process that reused a stale runner.pid (<Installer>)' -ForEach @(
+        @{ Installer = 'install/ubuntu.kvm.sh' }, @{ Installer = 'install/macos.utm.sh' }
+    ) {
+        $runtime = New-RuntimeDir
+        $victim = Start-FakeRunner
+        try {
+            Set-Content -LiteralPath (Join-Path $runtime 'runner.pid') -Value $victim.Id -NoNewline
+            $r = Invoke-ShellStop -Installer $Installer -RuntimeDir $runtime
+            $r.Code | Should -Be 0 -Because $r.Output
+            $victim.HasExited | Should -BeFalse -Because 'no start record and no Yuruna script name the reused PID'
+            # A start record from the earlier owner does not match the process now holding the PID.
+            Set-Content -LiteralPath (Join-Path $runtime 'runner.start') -NoNewline -Value $victim.StartTime.ToUniversalTime().AddMinutes(-5).ToString('o')
+            $r = Invoke-ShellStop -Installer $Installer -RuntimeDir $runtime
+            $victim.HasExited | Should -BeFalse -Because $r.Output
+        } finally {
+            if (-not $victim.HasExited) { $victim.Kill() }
+        }
+    }
+
+    It 'stops the process a PID file names when it started when the start record says (<Installer>)' -ForEach @(
+        @{ Installer = 'install/ubuntu.kvm.sh' }, @{ Installer = 'install/macos.utm.sh' }
+    ) {
+        $runtime = New-RuntimeDir
+        $victim = Start-FakeRunner
+        try {
+            Set-Content -LiteralPath (Join-Path $runtime 'inner.pid') -Value $victim.Id -NoNewline
+            Set-Content -LiteralPath (Join-Path $runtime 'inner.start') -NoNewline -Value $victim.StartTime.ToUniversalTime().ToString('o')
+            $r = Invoke-ShellStop -Installer $Installer -RuntimeDir $runtime
+            $r.Code | Should -Be 0 -Because $r.Output
+            $victim.WaitForExit(5000) | Should -BeTrue -Because $r.Output
+        } finally {
+            if (-not $victim.HasExited) { $victim.Kill() }
+        }
+    }
+
+    It 'stops the process a PID file names when it runs a Yuruna script (<Installer>)' -ForEach @(
+        @{ Installer = 'install/ubuntu.kvm.sh' }, @{ Installer = 'install/macos.utm.sh' }
+    ) {
+        $runtime = New-RuntimeDir
+        $victim = Start-FakeRunner -Extra @('Start-TestRunner.ps1')
+        try {
+            Set-Content -LiteralPath (Join-Path $runtime 'runner.pid') -Value $victim.Id -NoNewline
+            $r = Invoke-ShellStop -Installer $Installer -RuntimeDir $runtime
+            $r.Code | Should -Be 0 -Because $r.Output
+            $victim.WaitForExit(5000) | Should -BeTrue -Because $r.Output
+        } finally {
+            if (-not $victim.HasExited) { $victim.Kill() }
+        }
     }
 }

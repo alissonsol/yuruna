@@ -1622,6 +1622,11 @@
           "slug": "degradation-event-non-failure-observability"
         },
         {
+          "id": "42820e91-0025",
+          "heading": "`network_cross_check` event (the host's own reachability reading)",
+          "slug": "network_cross_check-event-the-hosts-own-reachability-reading"
+        },
+        {
           "id": "42820e91-001e",
           "heading": "`cycle.events.delivery.json` (is the event stream complete?)",
           "slug": "cycleeventsdeliveryjson-is-the-event-stream-complete"
@@ -4783,6 +4788,11 @@
         },
         {
           "id": "42885ada-0011",
+          "heading": "`utmctl list` answers but every `start`, `stop` and `delete` times out",
+          "slug": "utmctl-list-answers-but-every-start-stop-and-delete-times-out"
+        },
+        {
+          "id": "42885ada-0013",
           "heading": "Why the UTM dialog watchdog is narrowly scoped",
           "slug": "why-the-utm-dialog-watchdog-is-narrowly-scoped"
         }
@@ -5063,6 +5073,11 @@
           "id": "429fb30b-0016",
           "heading": "powershell-yaml install",
           "slug": "powershell-yaml-install"
+        },
+        {
+          "id": "429fb30b-003b",
+          "heading": "Pester install",
+          "slug": "pester-install"
         },
         {
           "id": "429fb30b-0017",
@@ -6784,6 +6799,11 @@
           "slug": "purging-a-stale-host"
         },
         {
+          "id": "4207d71a-0025",
+          "heading": "A step failure names the caching proxy",
+          "slug": "a-step-failure-names-the-caching-proxy"
+        },
+        {
           "id": "4207d71a-000b",
           "heading": "Command summary",
           "slug": "command-summary"
@@ -6960,6 +6980,11 @@
           "id": "422226cb-0009",
           "heading": "Drill-down: incidents & cycle events",
           "slug": "drill-down-incidents--cycle-events"
+        },
+        {
+          "id": "422226cb-000d",
+          "heading": "Drill-down: caching proxy",
+          "slug": "drill-down-caching-proxy"
         },
         {
           "id": "422226cb-000b",

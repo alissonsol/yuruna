@@ -20,14 +20,17 @@ var (
 	sortT3 = time.Date(2026, 6, 3, 10, 0, 0, 0, time.UTC)
 )
 
-// sortFixture is three stashes whose every sortable column orders them
-// differently, so a comparator that reads the wrong field cannot accidentally
-// produce the expected sequence. "Alpha.txt" is capitalized on purpose: the
-// name order is only correct if the comparison ignores case.
+// sortFixture is three stashes. Three rows have only six possible orders, so
+// some columns must share one: created descending, name ascending and host
+// ascending all order these rows the same way, and so do user and size. Each
+// case still pins its own column to the expected sequence, and a comparator that
+// reads a different field passes only where the two orders coincide. "Beta.txt"
+// is capitalized on purpose: the name order is only correct if the comparison
+// ignores case.
 func sortFixture() []StashView {
 	return []StashView{
-		{ID: "aa01", OriginalFilename: "beta.txt", HostID: "h2", Username: "carol", SizeBytes: 300, CreatedAt: sortT2, Status: "complete", ContentClass: "text"},
-		{ID: "bb02", OriginalFilename: "Alpha.txt", HostID: "h1", Username: "alice", SizeBytes: 100, CreatedAt: sortT3, Status: "partial", ContentClass: "image"},
+		{ID: "aa01", OriginalFilename: "Beta.txt", HostID: "h2", Username: "carol", SizeBytes: 300, CreatedAt: sortT2, Status: "complete", ContentClass: "text"},
+		{ID: "bb02", OriginalFilename: "alpha.txt", HostID: "h1", Username: "alice", SizeBytes: 100, CreatedAt: sortT3, Status: "partial", ContentClass: "image"},
 		{ID: "cc03", OriginalFilename: "gamma.txt", HostID: "h3", Username: "bob", SizeBytes: 200, CreatedAt: sortT1, Status: "complete", ContentClass: "archive"},
 	}
 }
@@ -138,12 +141,16 @@ func TestListSortQueryOrdersTheResponse(t *testing.T) {
 	dir := filepath.Join(stashRoot, peer, config.FilesDirName, pad4(y), pad2(int(mo)), pad2(d))
 	// Bodies of deliberately different lengths: size is the column here, and it
 	// must not agree with id order, or the assertion would pass on either.
-	for _, s := range []struct{ id, body string }{
+	// Each seed is stamped one second after the previous one. Wall-clock stamps
+	// can tie when two writes land in one clock tick, and a tie falls to id
+	// order, so the created-column expectation below would depend on timing.
+	created := time.Date(y, mo, d, 12, 0, 0, 0, time.UTC)
+	for i, s := range []struct{ id, body string }{
 		{"aa11", "xxxxxxxxxx"}, // 10
 		{"bb22", "x"},          // 1
 		{"cc33", "xxxxx"},      // 5
 	} {
-		if err := writeRemoteStash(dir, s.id, s.id+".txt", s.body); err != nil {
+		if err := writeRemoteStash(dir, s.id, s.id+".txt", s.body, created.Add(time.Duration(i)*time.Second)); err != nil {
 			t.Fatalf("seed %s: %v", s.id, err)
 		}
 	}
@@ -163,9 +170,9 @@ func TestListSortQueryOrdersTheResponse(t *testing.T) {
 		{"&sort=size&dir=asc", sortSize, "asc", []string{"bb22", "cc33", "aa11"}},
 		{"&sort=size", sortSize, "desc", []string{"aa11", "cc33", "bb22"}},
 		{"&sort=id&dir=asc", sortID, "asc", []string{"aa11", "bb22", "cc33"}},
-		// No sort at all: the default view. Each seed is stamped as it is
-		// written, so newest-first is the reverse of the order they were
-		// created in -- which is the ordering this list has always had.
+		// No sort at all: the default view. The seeds are stamped one second
+		// apart in the order they were written, so newest-first is the reverse
+		// of that order -- the default ordering the list serves.
 		{"", sortCreated, "desc", []string{"cc33", "bb22", "aa11"}},
 	}
 	for _, c := range cases {

@@ -15,6 +15,16 @@
         }
       }
     },
+    "runner.config_value_replaced": {
+      "message": "test.config.yml: {path}: {previous} -> {current}. The template overlay must keep every value you set, so this replacement is a defect in the overlay, not a schema change; restore the previous value by hand if it was not intended and report the defect.",
+      "description": "Whole Write-Warning message in test/modules/Test.ConfigSync.psm1 (Update-TestConfigFromTemplate), one per leaf whose value differs after the merge, printed before the file is rewritten so the previous value is on record; preserve the path and the arrow between the two values.",
+      "lifecycle": "active",
+      "placeholders": {
+        "path": { "type": "identifier", "trust": "internal", "example": "repositories.projectUrl" },
+        "previous": { "type": "detail", "trust": "external", "example": "file:///Users/operator/git/project" },
+        "current": { "type": "detail", "trust": "external", "example": "https://github.com/alissonsol/yuruna-project" }
+      }
+    },
     "runner.config_naming_backup": {
       "message": "Back up configuration to {backupPath}",
       "description": "Configuration migration persistence and backup diagnostics. Preserve paths and external details.",
@@ -1105,6 +1115,21 @@
           "example": "write-failed"
         }
       }
+    },
+    "runner.host_refresh_hung_hypervisor_manual_hyperv": {
+      "message": "The hypervisor control channel is hung and no reachable rung repairs that on this host. Restart the Hyper-V management service from an elevated console (Restart-Service vmms) or reboot the host by hand, then resume with: pwsh test/lab/Invoke-HostRefresh.ps1 -Resume. A resume without that repair only re-probes and spends one of the bounded attempts.",
+      "description": "Summary line from Write-HostRefreshSummary in test/modules/Test.HostRefresh.psm1 on host.windows.hyper-v when a still-unresponsive verdict follows a hung hypervisor probe and no rung that repairs a hung hypervisor ran; preserve command names, parameter names, codes and paths.",
+      "lifecycle": "active"
+    },
+    "runner.host_refresh_hung_hypervisor_manual_kvm": {
+      "message": "The hypervisor control channel is hung and no reachable rung repairs that on this host. Restart the libvirt daemons (sudo systemctl restart libvirtd) or reboot the host by hand, then resume with: pwsh test/lab/Invoke-HostRefresh.ps1 -Resume. A resume without that repair only re-probes and spends one of the bounded attempts.",
+      "description": "Summary line from Write-HostRefreshSummary in test/modules/Test.HostRefresh.psm1 on host.ubuntu.kvm when a still-unresponsive verdict follows a hung hypervisor probe and no rung that repairs a hung hypervisor ran; preserve command names, parameter names, codes and paths.",
+      "lifecycle": "active"
+    },
+    "runner.host_refresh_hung_hypervisor_manual_utm": {
+      "message": "The hypervisor control channel is hung and no reachable rung repairs that on this host. Quit and reopen UTM from the logged-in desktop session or reboot the host by hand, then resume with: pwsh test/lab/Invoke-HostRefresh.ps1 -Resume. A resume without that repair only re-probes and spends one of the bounded attempts.",
+      "description": "Summary line from Write-HostRefreshSummary in test/modules/Test.HostRefresh.psm1 on host.macos.utm when a still-unresponsive verdict follows a hung hypervisor probe and no rung that repairs a hung hypervisor ran; preserve command names, parameter names, codes and paths.",
+      "lifecycle": "active"
     },
     "runner.host_refresh_identity_refused": {
       "message": "Invoke-HostRefresh: refusing to run as {identity} ({reason}); run it as the account that owns {runtimeDir}.",
@@ -18087,6 +18112,72 @@
         }
       }
     },
+    "runner.host_action_exit_detail": {
+      "message": "host action '{name}' exited {exit}: {detail}",
+      "description": "Failure reason in test/modules/Test.Orchestrator.psm1 when a host action exits non-zero and its output tail carries an error line; preserve command names, paths, codes, and argument boundaries.",
+      "lifecycle": "active",
+      "placeholders": {
+        "name": {
+          "type": "detail",
+          "trust": "external",
+          "example": "initialize-lab"
+        },
+        "exit": {
+          "type": "detail",
+          "trust": "external",
+          "example": "1"
+        },
+        "detail": {
+          "type": "detail",
+          "trust": "external",
+          "example": "Region edges are not live: amisad-edge-b (UTM would not act on the start request)"
+        }
+      }
+    },
+    "runner.hypervisor_control_unresponsive": {
+      "message": "The hypervisor control channel on this host answers state queries but no longer acts on lifecycle requests (probe {state}/{reason}; lifecycle verb: {lifecycle}). The cycle stops before building anything, because every VM start and stop would wait out its timeout. Restart the hypervisor application on this host (on macOS quit UTM.app from the desktop session, or run test/lab/Invoke-HostRefresh.ps1), then resume the runner.",
+      "description": "Warning and failure text in test/modules/Test.RunnerInnerLoop.psm1 (Test-RunnerHypervisorControlGate) when the pre-cycle lifecycle probe times out; preserve command names, paths and tokens.",
+      "lifecycle": "active",
+      "placeholders": {
+        "state": {
+          "type": "token",
+          "trust": "internal",
+          "example": "Unresponsive"
+        },
+        "reason": {
+          "type": "token",
+          "trust": "internal",
+          "example": "timeout"
+        },
+        "lifecycle": {
+          "type": "detail",
+          "trust": "external",
+          "example": "stop amisad-build: timeout"
+        }
+      }
+    },
+    "runner.temp_housekeeping_removed": {
+      "message": "Temp housekeeping ({sweep}) removed {removed} leftover item(s) from {roots}.",
+      "description": "Information line from Invoke-RunnerTempHousekeeping in test/modules/Test.RunnerInnerLoop.psm1 at cycle start; preserve the sweep token and the paths.",
+      "lifecycle": "active",
+      "placeholders": {
+        "sweep": {
+          "type": "token",
+          "trust": "internal",
+          "example": "RuntimeIpc"
+        },
+        "removed": {
+          "type": "integer",
+          "trust": "internal",
+          "example": "11788"
+        },
+        "roots": {
+          "type": "detail",
+          "trust": "external",
+          "example": "/tmp"
+        }
+      }
+    },
     "runner.operator_8da15c4079305665": {
       "message": "Interactive sudoers install could not run: {message} -- use the manual steps below.",
       "description": "Whole Write-Info message in test/Test-Config.ps1; preserve command names, paths, codes, and argument boundaries.",
@@ -31229,6 +31320,35 @@
         }
       }
     },
+    "runner.refresh_gate_status_ensure_failed": {
+      "message": "Start-TestRunner: the status service could not be started while the gate holds: {message}",
+      "description": "Write-Warning and outer.log line in test/Start-TestRunner.ps1 when the status-service ensure for an orphaned host-refresh gate throws; the refused start exits unchanged.",
+      "lifecycle": "active",
+      "placeholders": {
+        "message": {
+          "type": "detail",
+          "trust": "external",
+          "example": "Cannot bind argument"
+        }
+      }
+    },
+    "runner.refresh_gate_status_ensured": {
+      "message": "Start-TestRunner: host refresh {requestId} has no live worker; the status service was started on port {port} so its dashboard can show and resume the unresolved request. The runner start stays refused until the request is resolved.",
+      "description": "Console and outer.log line in test/Start-TestRunner.ps1 when a start refused by an orphaned host-refresh gate still ensures the observational status service; the port is the configured status-service port.",
+      "lifecycle": "active",
+      "placeholders": {
+        "requestId": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "6f1c2d3e-4a5b-4c6d-8e7f-0a1b2c3d4e5f"
+        },
+        "port": {
+          "type": "integer",
+          "trust": "internal",
+          "example": "8080"
+        }
+      }
+    },
     "runner.refresh_gate_unreadable": {
       "message": "[outer cycle {cycle}] the host-refresh gate record could not be read ({reason}); the runner stays held until test/lab/Invoke-HostRefresh.ps1 -Resume resolves it.",
       "description": "Write-Warning and outer.log line in test/modules/Test.RunnerOuterLoop.psm1 when the gate record is unreadable, of a newer schema, or its helpers are missing, so dispatch fails closed; keep the script path and switch.",
@@ -31468,6 +31588,28 @@
           "type": "identifier",
           "trust": "internal",
           "example": "closed"
+        }
+      }
+    },
+    "runner.refresh_status_ensure_orphaned": {
+      "message": "[outer cycle {cycle}] host refresh {requestId} holds the runner (gate {state}) and its worker is no longer running; re-ensuring the status service so its dashboard can show and resume the unresolved request.",
+      "description": "outer.log line in test/modules/Test.RunnerOuterLoop.psm1 when the failure path's status-service re-ensure proceeds despite a held host-refresh gate because the gate is orphaned (its owner is proven gone and no handoff token is live); cycle dispatch stays held.",
+      "lifecycle": "active",
+      "placeholders": {
+        "cycle": {
+          "type": "integer",
+          "trust": "internal",
+          "example": "12"
+        },
+        "requestId": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "6f1c2d3e-4a5b-4c6d-8e7f-0a1b2c3d4e5f"
+        },
+        "state": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "recovery-pending"
         }
       }
     },
@@ -32671,6 +32813,45 @@
       "message": "Request a guest shutdown through the host driver and wait for the VM to report stopped",
       "description": "Verb description registered for stopVm in test/modules/Test.SequenceHandler.psm1, shown beside the step in status surfaces.",
       "lifecycle": "active"
+    },
+    "runner.preflight_tcp_failed": {
+      "message": "TCP connectivity to {hostName}:{port} failed after {attemptCount} attempt(s): {outcome}. See the network diagnostics for all attempts.",
+      "description": "Configuration preflight network probe failure; preserve the structured outcome and target.",
+      "lifecycle": "active",
+      "placeholders": {
+        "hostName": {
+          "type": "detail",
+          "trust": "external",
+          "example": "github.com"
+        },
+        "port": {
+          "type": "integer",
+          "trust": "internal",
+          "example": 443
+        },
+        "attemptCount": {
+          "type": "integer",
+          "trust": "internal",
+          "example": 3
+        },
+        "outcome": {
+          "type": "detail",
+          "trust": "external",
+          "example": "timeout"
+        }
+      }
+    },
+    "runner.preflight_network_diagnostics": {
+      "message": "Network diagnostics: {diagnostics}",
+      "description": "Structured configuration preflight connectivity diagnostics; preserve the JSON payload unchanged.",
+      "lifecycle": "active",
+      "placeholders": {
+        "diagnostics": {
+          "type": "detail",
+          "trust": "external",
+          "example": "{\"attempts\":[]}"
+        }
+      }
     }
   }
 }

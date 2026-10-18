@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.14
+.VERSION 2026.10.18
 .GUID 421b40b9-fcaf-4a1a-bb31-9464b1ad442a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -362,11 +362,11 @@ function Wait-WithProgress {
         Replaces the "Start-Sleep + periodic Write-Output 'still waiting'"
         idiom. The progress bar updates every $PollSeconds and is
         dismissed (-Completed) on every exit path (success, timeout,
-        thrown error). Write-Progress is wrapped in try/catch per
-        feedback_pwsh_linux_write_progress_setcursor.md so the loop
-        keeps polling silently on hosts that can't render a bar
-        (tmux/sshd PTYs without TERM); the post-loop result still
-        tells the caller whether the wait succeeded.
+        thrown error). Write-Progress is wrapped in try/catch so the
+        loop keeps polling silently on hosts that can't render a bar
+        (SetCursorPosition throws on tmux/sshd PTYs without TERM); the
+        post-loop result still tells the caller whether the wait
+        succeeded.
 
         If $Test is supplied, it is invoked once per poll tick. Any
         truthy return ends the wait and is returned to the caller.
@@ -542,9 +542,9 @@ function Register-EntryPointCancelHandler {
         the returned hashtable['Requested'] at safe points (end of
         step, finally block) and surrender voluntarily.
         Register-ObjectEvent is used (not a raw .NET delegate) because
-        the handler must run on the pipeline thread; see
-        feedback_scriptblock_timer_callback.md for the threadpool-trap that
-        otherwise applies. Non-interactive sessions (no Console attached)
+        the handler must run on the pipeline thread: a scriptblock
+        invoked as a delegate on a threadpool thread has no runspace to
+        run in. Non-interactive sessions (no Console attached)
         catch the registration failure and return a state whose
         Requested flag never flips; the caller still gets a usable
         hashtable so its `if ($state['Requested'])` guard does not

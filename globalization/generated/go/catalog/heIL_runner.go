@@ -60,6 +60,27 @@ const DataheILrunner = `{
       "trust": "external"
     }
   ],
+  "runner.config_value_replaced": [
+    "test.config.yml: ",
+    {
+      "arg": "path",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    ": ",
+    {
+      "arg": "previous",
+      "type": "detail",
+      "trust": "external"
+    },
+    " -> ",
+    {
+      "arg": "current",
+      "type": "detail",
+      "trust": "external"
+    },
+    ". שכבת התבנית חייבת לשמור על כל ערך שהגדרתם, ולכן החלפה זו היא פגם בשכבת התבנית ולא שינוי סכמה; שחזרו את הערך הקודם ידנית אם לא היה מכוון ודווחו על הפגם."
+  ],
   "runner.critical_record_replace": "החליפו רשומה קריטית פרטית",
   "runner.cycle_outcome_rejected_kept": [
     "[מחזור חיצוני ",
@@ -303,6 +324,26 @@ const DataheILrunner = `{
     "תיקיית האורח לא נמצאה: ",
     {
       "arg": "folder",
+      "type": "detail",
+      "trust": "external"
+    }
+  ],
+  "runner.host_action_exit_detail": [
+    "פעולת המארח '",
+    {
+      "arg": "name",
+      "type": "detail",
+      "trust": "external"
+    },
+    "' הסתיימה בקוד ",
+    {
+      "arg": "exit",
+      "type": "detail",
+      "trust": "external"
+    },
+    ": ",
+    {
+      "arg": "detail",
       "type": "detail",
       "trust": "external"
     }
@@ -1017,6 +1058,9 @@ const DataheILrunner = `{
     },
     "); רענון המארח האוטומטי לא יספור אותו."
   ],
+  "runner.host_refresh_hung_hypervisor_manual_hyperv": "ערוץ הבקרה של מנהל המכונות הווירטואליות תקוע, ואף דרגה זמינה אינה מתקנת זאת במארח זה. הפעילו מחדש את שירות הניהול של Hyper-V ממסוף מוגבה (Restart-Service vmms) או אתחלו את המארח ידנית, ואז המשיכו באמצעות: pwsh test⁦/lab/Invoke-HostRefresh.ps1⁩ ⁦-Resume⁩. המשך ללא התיקון הזה רק חוזר על הבדיקה ומנצל אחד מהניסיונות המוגבלים.",
+  "runner.host_refresh_hung_hypervisor_manual_kvm": "ערוץ הבקרה של מנהל המכונות הווירטואליות תקוע, ואף דרגה זמינה אינה מתקנת זאת במארח זה. הפעילו מחדש את תהליכי libvirt (sudo systemctl restart libvirtd) או אתחלו את המארח ידנית, ואז המשיכו באמצעות: pwsh test⁦/lab/Invoke-HostRefresh.ps1⁩ ⁦-Resume⁩. המשך ללא התיקון הזה רק חוזר על הבדיקה ומנצל אחד מהניסיונות המוגבלים.",
+  "runner.host_refresh_hung_hypervisor_manual_utm": "ערוץ הבקרה של מנהל המכונות הווירטואליות תקוע, ואף דרגה זמינה אינה מתקנת זאת במארח זה. סגרו ופתחו מחדש את UTM מהפעלת שולחן העבודה המחוברת או אתחלו את המארח ידנית, ואז המשיכו באמצעות: pwsh test⁦/lab/Invoke-HostRefresh.ps1⁩ ⁦-Resume⁩. המשך ללא התיקון הזה רק חוזר על הבדיקה ומנצל אחד מהניסיונות המוגבלים.",
   "runner.host_refresh_identity_refused": [
     "⁦Invoke-HostRefresh⁩: ההרצה בזהות ",
     {
@@ -1572,6 +1616,27 @@ const DataheILrunner = `{
     }
   ],
   "runner.host_refresh_verified_noop": "⁦Invoke-HostRefresh⁩: מנהל המכונות הווירטואליות הגיב והמריץ תקין; דבר לא השתנה.",
+  "runner.hypervisor_control_unresponsive": [
+    "ערוץ הבקרה של ההיפרווייזר במארח זה עונה לשאילתות מצב אך אינו מבצע עוד בקשות מחזור חיים (בדיקה ",
+    {
+      "arg": "state",
+      "type": "token",
+      "trust": "internal"
+    },
+    "/",
+    {
+      "arg": "reason",
+      "type": "token",
+      "trust": "internal"
+    },
+    "; פועל מחזור חיים: ",
+    {
+      "arg": "lifecycle",
+      "type": "detail",
+      "trust": "external"
+    },
+    "). המחזור נעצר לפני שהוא בונה דבר, משום שכל הפעלה ועצירה של מכונה וירטואלית הייתה ממתינה עד תום פסק הזמן שלה. הפעילו מחדש את יישום ההיפרווייזר במארח זה (ב-macOS צאו מ-⁦UTM.app⁩ מתוך הפעלת שולחן העבודה, או הריצו ⁦test/lab/Invoke-HostRefresh.ps1⁩), ואז חדשו את פעולת המריץ."
+  ],
   "runner.inner_attempt_exited": [
     "ניסיון ההרצה הסתיים עם הקוד ",
     {
@@ -22401,6 +22466,41 @@ const DataheILrunner = `{
     " חייב להיות כתובת URL לא ריקה, ללא רווחים או תווי בקרה, ואסור שתתחיל ב-'-'."
   ],
   "runner.pool_status_repositories_none": "  מאגרי קוד: (אין)",
+  "runner.preflight_network_diagnostics": [
+    "אבחון רשת: ",
+    {
+      "arg": "diagnostics",
+      "type": "detail",
+      "trust": "external"
+    }
+  ],
+  "runner.preflight_tcp_failed": [
+    "חיבור TCP אל ",
+    {
+      "arg": "hostName",
+      "type": "detail",
+      "trust": "external"
+    },
+    ":",
+    {
+      "arg": "port",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " נכשל לאחר ",
+    {
+      "arg": "attemptCount",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " ניסיונות: ",
+    {
+      "arg": "outcome",
+      "type": "detail",
+      "trust": "external"
+    },
+    ". יש לעיין באבחון הרשת עבור כל הניסיונות."
+  ],
   "runner.prior_runner_cleanup_action": "  פעולה:  עצירתו והרצת\n           ⁦Remove-TestVMFiles.ps1⁩ לפני ההפעלה",
   "runner.process_start_record_write_action": "כתבו רשומה של זמן תחילת התהליך",
   "runner.project_previous_cleanup_failed": [
@@ -22577,6 +22677,29 @@ const DataheILrunner = `{
       "trust": "internal"
     },
     "] שער רענון המארח שחרר את המריץ; המחזורים מתחדשים."
+  ],
+  "runner.refresh_gate_status_ensure_failed": [
+    "Start-TestRunner: לא ניתן היה להפעיל את status-service בזמן שהשער חוסם: ",
+    {
+      "arg": "message",
+      "type": "detail",
+      "trust": "external"
+    }
+  ],
+  "runner.refresh_gate_status_ensured": [
+    "Start-TestRunner: לרענון המארח ",
+    {
+      "arg": "requestId",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    " אין תהליך עבודה פעיל; status-service הופעל ביציאה ",
+    {
+      "arg": "port",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " כדי שלוח המחוונים שלו יוכל להציג ולחדש את הבקשה שטרם נפתרה. הפעלת המריץ נשארת מסורבת עד שהבקשה תיפתר."
   ],
   "runner.refresh_gate_unreadable": [
     "[מחזור חיצוני ",
@@ -22771,6 +22894,27 @@ const DataheILrunner = `{
       "trust": "internal"
     },
     "). דבר לא השתנה; המריץ ממתין לרענון."
+  ],
+  "runner.refresh_status_ensure_orphaned": [
+    "[מחזור חיצוני ",
+    {
+      "arg": "cycle",
+      "type": "integer",
+      "trust": "internal"
+    },
+    "] רענון המארח ",
+    {
+      "arg": "requestId",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    " חוסם את המריץ (שער ",
+    {
+      "arg": "state",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    ") ותהליך העבודה שלו אינו פועל עוד; מבטיחים מחדש את status-service כדי שלוח המחוונים שלו יוכל להציג ולחדש את הבקשה שטרם נפתרה."
   ],
   "runner.refresh_status_ensure_skipped": [
     "[מחזור חיצוני ",
@@ -23623,6 +23767,27 @@ const DataheILrunner = `{
       "trust": "external"
     },
     "). המחזור ממשיך, אך זרם האירועים שלו כעת אינו שלם; המספר והסיבה רשומים בקובץ ⁦cycle.events.delivery.json⁩. אובדנים נוספים במחזור זה נספרים ללא דיווח חוזר."
+  ],
+  "runner.temp_housekeeping_removed": [
+    "ניקוי הקבצים הזמניים (",
+    {
+      "arg": "sweep",
+      "type": "token",
+      "trust": "internal"
+    },
+    ") הסיר ",
+    {
+      "arg": "removed",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " פריטים שנותרו מ-",
+    {
+      "arg": "roots",
+      "type": "detail",
+      "trust": "external"
+    },
+    "."
   ],
   "runner.transcript_title": "יומן מריץ הבדיקות של Yuruna",
   "runner.vault_retired_entries": [

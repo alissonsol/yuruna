@@ -7,6 +7,17 @@ package catalog
 // DatazhCNremediation is the compiled catalog for this locale and domain. It is a
 // string so the package carries no init cost until a caller decodes it.
 const DatazhCNremediation = `{
+  "remediation.hypervisor_unresponsive_action_evidence": "阅读周期文件夹中的utm-control-snapshot.*.json和utm-log-show.*.txt：UTM的进程ID或启动时间在周期中途发生变化表明曾崩溃并重新启动，统一日志摘录则说明了此前发生的事情",
+  "remediation.hypervisor_unresponsive_action_restart": "在宿主机上重新启动虚拟机管理程序控制应用：在macOS上从桌面会话退出UTM.app（或运行test/lab/Invoke-HostRefresh.ps1），然后确认对已停止的虚拟机执行` + "`" + `utmctl stop` + "`" + `能立即返回",
+  "remediation.hypervisor_unresponsive_action_resume": "当生命周期命令再次响应后恢复运行器；下一个周期会在构建任何内容之前探测控制通道",
+  "remediation.hypervisor_unresponsive_rationale": [
+    "hypervisor_unresponsive：虚拟机管理程序的控制通道已停止执行生命周期请求，但仍能响应状态查询，因此每次虚拟机启动、停止和删除都会等到超时，周期所做的任何操作都无法恢复它。重试只会重复相同的超时；拥有该通道的应用程序必须在宿主机上重新启动，而这只能通过桌面会话或宿主机刷新完成。",
+    {
+      "arg": "detail",
+      "type": "detail",
+      "trust": "external"
+    }
+  ],
   "remediation.operator_00fd2209b1a993b2": "手动检查last_failure.json",
   "remediation.operator_01b3c9512f168859": [
     {

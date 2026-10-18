@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.14
+.VERSION 2026.10.18
 .GUID 42d4e5f6-7a8b-49c0-8d1e-2f3a4b5c6d7e
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -158,12 +158,9 @@ function Get-HostRefreshProcessStartTime {
     [CmdletBinding()]
     [OutputType([long])]
     param([Parameter(Mandatory)][int]$ProcessId)
-    try {
-        $process = [System.Diagnostics.Process]::GetProcessById($ProcessId)
-        return [long][DateTimeOffset]::new($process.StartTime).ToUnixTimeMilliseconds()
-    } catch {
-        return $null
-    }
+    $start = Get-YurunaProcessStartUtc -ProcessId $ProcessId
+    if ($null -eq $start) { return $null }
+    return [long][DateTimeOffset]::new($start).ToUnixTimeMilliseconds()
 }
 
 function Get-HostRefreshProcessLiveness {

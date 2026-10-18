@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.14
+.VERSION 2026.10.18
 .GUID 4292b140-f5e0-474e-8de4-bb7e802db56d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -621,8 +621,7 @@ name_unresolved, network_unreachable, handshake_failed.
     # 2. Never reached sshd. No discovered IP => the host-side discovery layer
     #    (KVP integration services / DHCP lease / utmctl ip-address) never
     #    answered -- the recoverable lateness class, distinct from an sshd or
-    #    auth fault (feedback_get_guestaddress_no_polling,
-    #    feedback_hyperv_external_vswitch_arp_discovery).
+    #    auth fault.
     if (-not $IpDiscovered)                                                  { return 'ip_not_discovered' }
     # 3. A real IP, but the network path to it never came up.
     if ($e -match 'Could not resolve|Name or service not known|nodename nor servname') { return 'name_unresolved' }
@@ -780,6 +779,23 @@ System.Collections.Hashtable -- `text` (what to classify) and `source`
     return @{ text = [string]$FinalError; source = 'final_probe' }
 }
 
+# --- REGION: Get-LastSshReadiness
+# Wait-SshReady answers a boolean; its caller usually needs the reason as
+# well (no address found, an address that never answered, sshd refusing), so
+# the last verdict is kept here for a diagnostic to record beside its capture.
+$script:LastSshReadiness = $null
+function Get-LastSshReadiness {
+    <#
+    .SYNOPSIS
+        The cause, target, and attempt count recorded by the most recent Wait-SshReady, or $null before any ran.
+    #>
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param()
+    if ($null -eq $script:LastSshReadiness) { return $null }
+    return $script:LastSshReadiness.Clone()
+}
+
 function Wait-SshReady {
 <#
 .SYNOPSIS
@@ -898,6 +914,9 @@ System.Boolean. $true if SSH became ready, $false on timeout.
                 # to resolve the same guest again, and this is the one moment in
                 # that pair where the answer is known rather than reported.
                 Set-ProvenGuestAddress -VMName $VMName -Address $target
+                $script:LastSshReadiness = @{ vmName=$VMName; cause='ready'; target=[string]$target; attempts=$attempts
+                    ipDiscovered=$ipEverDiscovered; ipAnswered=$true; lastError=''; evidenceSource='handshake'
+                    vmState=[string]$vmState; timeoutSeconds=$TimeoutSeconds; atUtc=[DateTime]::UtcNow.ToString('o') }
                 return $true
             }
             $lastError = $resultText.Trim()
@@ -929,6 +948,9 @@ System.Boolean. $true if SSH became ready, $false on timeout.
         $evidence = Select-SshReadinessEvidence -FinalError $lastError -AnsweredError $lastAnsweredError
         $cause = Get-SshReadinessFailureCause -IpDiscovered $ipEverDiscovered -LastError $evidence.text -IpAnswered $ipEverAnswered
     }
+    $script:LastSshReadiness = @{ vmName=$VMName; cause=[string]$cause; target=[string]$lastTarget; attempts=$attempts
+        ipDiscovered=$ipEverDiscovered; ipAnswered=$ipEverAnswered; lastError=[string]$lastError; evidenceSource=[string]$evidence.source
+        vmState=[string]$vmState; timeoutSeconds=$TimeoutSeconds; atUtc=[DateTime]::UtcNow.ToString('o') }
     Write-Verbose "SSH did not become ready within ${TimeoutSeconds}s (${attempts} attempts): $user@$lastTarget"
     Write-Verbose "  cause         : $cause (ipDiscovered=$ipEverDiscovered, ipAnswered=$ipEverAnswered)"
     Write-Verbose "  last ssh error: $lastError"
@@ -2338,5 +2360,5 @@ final observation, in words) and Reachability.
     }
 }
 
-Export-ModuleMember -Function New-ServiceVmRecoveredEndpoint, Initialize-YurunaSshKey, Get-YurunaSshPublicKey, Get-YurunaSshPrivateKeyPath, Get-YurunaSshHostKeyOption, Wait-SshReady, Get-SshReadinessFailureCause, Test-SshEndpointAnswered, Select-SshReadinessEvidence, Test-SshTransportLoss, Test-DetachedRunInterrupted, Get-GuestRunToken, Get-GuestRunWrapperCommand, Invoke-GuestSsh,
+Export-ModuleMember -Function New-ServiceVmRecoveredEndpoint, Initialize-YurunaSshKey, Get-YurunaSshPublicKey, Get-YurunaSshPrivateKeyPath, Get-YurunaSshHostKeyOption, Wait-SshReady, Get-LastSshReadiness, Get-SshReadinessFailureCause, Test-SshEndpointAnswered, Select-SshReadinessEvidence, Test-SshTransportLoss, Test-DetachedRunInterrupted, Get-GuestRunToken, Get-GuestRunWrapperCommand, Invoke-GuestSsh,
     Set-ProvenGuestAddress, Get-ProvenGuestAddress, Clear-ProvenGuestAddress, Get-GuestSshUser, Set-GuestSshUserOverride, Clear-GuestSshUserOverride, Get-GuestAddress, Wait-GuestIp, Get-ServiceVmObservedState, Get-ServiceVmReadinessVerdict, Format-GuestSshDiagnosticHint, Resolve-GuestDiagnosticAddress, Confirm-ServiceVmAtRecoveredAddress, Wait-YurunaServiceVmDaemon

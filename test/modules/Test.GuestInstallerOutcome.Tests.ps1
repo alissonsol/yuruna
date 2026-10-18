@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.14
+.VERSION 2026.10.18
 .GUID 427c26ad-413b-4523-82d5-2c48297ba74d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -239,8 +239,12 @@ Write-Output 'would-install-next-package'
         $entry = Join-Path $fixture 'fixture.ps1'
         $callsPath = Join-Path $fixture 'calls.json'
         Set-Content -LiteralPath $entry -Value ($prefix + "`n" + $helper + "`ntry {`n" + $phase + "`n" + $suffix) -Encoding utf8NoBOM
+        # NO_COLOR: a child that believes it writes to a terminal colors its
+        # error view, and the escape sequences sit before the gutter that the
+        # strip below removes, then break the NUnit writer when they reach a
+        # failure message.
         $result = Invoke-BoundedNativeCommand -FilePath $script:Pwsh -ArgumentList @('-NoProfile', '-File', $entry) -TimeoutSeconds 15 `
-            -Environment @{ YURUNA_WINGET_MODE=$Mode; YURUNA_WINGET_CODE=[string]$Code; YURUNA_WINGET_RESULT=$callsPath; YURUNA_WINGET_PWSH=$script:Pwsh }
+            -Environment @{ YURUNA_WINGET_MODE=$Mode; YURUNA_WINGET_CODE=[string]$Code; YURUNA_WINGET_RESULT=$callsPath; YURUNA_WINGET_PWSH=$script:Pwsh; NO_COLOR='1' }
         [pscustomobject]@{
             Process=$result
             Calls=(Get-Content -LiteralPath $callsPath -Raw | ConvertFrom-Json)

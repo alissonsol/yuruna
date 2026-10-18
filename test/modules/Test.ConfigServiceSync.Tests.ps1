@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.14
+.VERSION 2026.10.18
 .GUID 424a2e17-dfe4-4ca3-ae90-6837265945f9
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -70,7 +70,7 @@ Describe 'Get-ConfigSyncLocalPathDefault' {
         Assert-Equal -Expected 'y:' -Actual (Get-ConfigSyncLocalPathDefault -HostType 'host.windows.hyper-v' -Tier pool  -ServerName 'ypool-nas')
         Assert-Equal -Expected 'z:' -Actual (Get-ConfigSyncLocalPathDefault -HostType 'host.windows.hyper-v' -Tier stash -ServerName 'ystash-nas')
     }
-    It 'uses /mnt/<server> on Ubuntu and ~/Shares/<server> on macOS' {
+    It 'uses /mnt/`<server`> on Ubuntu and ~/Shares/`<server`> on macOS' {
         Assert-Equal -Expected '/mnt/ypool-nas'      -Actual (Get-ConfigSyncLocalPathDefault -HostType 'host.ubuntu.kvm' -Tier pool -ServerName 'ypool-nas')
         Assert-Equal -Expected '~/Shares/ystash-nas' -Actual (Get-ConfigSyncLocalPathDefault -HostType 'host.macos.utm' -Tier stash -ServerName 'ystash-nas')
     }
@@ -474,6 +474,10 @@ exit 0
             if ($gcPid) { Stop-Process -Id $gcPid -Force -ErrorAction SilentlyContinue }
         }
         Remove-Item -LiteralPath $bnDir -Recurse -Force -ErrorAction SilentlyContinue
+        # The helper names its transcript after this process and leaves it for
+        # its caller to judge; this suite is that caller here.
+        $bounceLog = Join-Path ([System.IO.Path]::GetTempPath()) "yuruna-status-bounce-$PID.log"
+        foreach ($file in @($bounceLog, "$bounceLog.out", "$bounceLog.err")) { Remove-Item -LiteralPath $file -Force -ErrorAction SilentlyContinue }
     }
 
     It 'returns when the bounce child exits, not when the detached server does' {

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.14
+.VERSION 2026.10.18
 .GUID 4241baeb-2bf8-4508-8226-252c7f0dd6ac
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -74,7 +74,7 @@ if ($IsWindows) {
             Assert-True  $r.Ensured 'present + correct + enabled -> Ensured'
             Assert-False $r.Changed 'no mutation needed'
             Assert-False $r.Blocked 'not blocked'
-            Assert-MockCalled -CommandName New-NetFirewallRule -ModuleName Test.StatusFirewall -Times 0 -Exactly -Scope It
+            Should -Invoke -CommandName New-NetFirewallRule -ModuleName Test.StatusFirewall -Times 0 -Exactly -Scope It
         }
         It 'is Blocked (no mutation) when the rule is missing and the process is not elevated' {
             Mock Get-NetFirewallRule -ModuleName Test.StatusFirewall { $null }
@@ -83,7 +83,7 @@ if ($IsWindows) {
             $r = Set-YurunaStatusFirewallRule -Port 8080 -NonInteractive 3>$null
             Assert-True  $r.Blocked 'missing rule + unprivileged -> caller should warn'
             Assert-False $r.Ensured 'not reachable'
-            Assert-MockCalled -CommandName New-NetFirewallRule -ModuleName Test.StatusFirewall -Times 0 -Exactly -Scope It
+            Should -Invoke -CommandName New-NetFirewallRule -ModuleName Test.StatusFirewall -Times 0 -Exactly -Scope It
         }
         It 'creates the rule when missing and elevated' {
             Mock Get-NetFirewallRule -ModuleName Test.StatusFirewall { $null }
@@ -92,7 +92,7 @@ if ($IsWindows) {
             $r = Set-YurunaStatusFirewallRule -Port 8080 6>$null
             Assert-True $r.Changed 'a rule was created'
             Assert-True $r.Ensured 'now reachable'
-            Assert-MockCalled -CommandName New-NetFirewallRule -ModuleName Test.StatusFirewall -Times 1 -Exactly -Scope It
+            Should -Invoke -CommandName New-NetFirewallRule -ModuleName Test.StatusFirewall -Times 1 -Exactly -Scope It
         }
         It 'rebuilds a rule whose port no longer matches (elevated)' {
             Mock Get-NetFirewallRule -ModuleName Test.StatusFirewall { [pscustomobject]@{ DisplayName = 'x'; Enabled = 'True'; Direction = 'Inbound'; Action = 'Allow'; Profile = 'Any' } }
@@ -102,8 +102,8 @@ if ($IsWindows) {
             Mock Test-YurunaHostElevated -ModuleName Test.StatusFirewall { $true }
             $r = Set-YurunaStatusFirewallRule -Port 8080 6>$null
             Assert-True $r.Changed 'rule rebuilt to the current port'
-            Assert-MockCalled -CommandName Remove-NetFirewallRule -ModuleName Test.StatusFirewall -Times 1 -Exactly -Scope It
-            Assert-MockCalled -CommandName New-NetFirewallRule -ModuleName Test.StatusFirewall -Times 1 -Exactly -Scope It
+            Should -Invoke -CommandName Remove-NetFirewallRule -ModuleName Test.StatusFirewall -Times 1 -Exactly -Scope It
+            Should -Invoke -CommandName New-NetFirewallRule -ModuleName Test.StatusFirewall -Times 1 -Exactly -Scope It
         }
         It 'enables a correct-but-disabled rule without a full rebuild (elevated)' {
             Mock Get-NetFirewallRule -ModuleName Test.StatusFirewall { [pscustomobject]@{ DisplayName = 'x'; Enabled = 'False'; Direction = 'Inbound'; Action = 'Allow'; Profile = 'Any' } }
@@ -113,8 +113,8 @@ if ($IsWindows) {
             Mock Test-YurunaHostElevated -ModuleName Test.StatusFirewall { $true }
             $r = Set-YurunaStatusFirewallRule -Port 8080 6>$null
             Assert-True $r.Changed 'rule enabled'
-            Assert-MockCalled -CommandName Enable-NetFirewallRule -ModuleName Test.StatusFirewall -Times 1 -Exactly -Scope It
-            Assert-MockCalled -CommandName New-NetFirewallRule -ModuleName Test.StatusFirewall -Times 0 -Exactly -Scope It
+            Should -Invoke -CommandName Enable-NetFirewallRule -ModuleName Test.StatusFirewall -Times 1 -Exactly -Scope It
+            Should -Invoke -CommandName New-NetFirewallRule -ModuleName Test.StatusFirewall -Times 0 -Exactly -Scope It
         }
     }
 }

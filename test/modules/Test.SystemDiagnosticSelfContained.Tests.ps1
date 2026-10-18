@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.14
+.VERSION 2026.10.18
 .GUID 429aa9e5-4b47-42a5-adc9-b48244e14f6a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -38,6 +38,9 @@ BeforeAll {
     $script:EmbedTool = Join-Path $script:RepoRoot 'tools/Update-SystemDiagnosticText.ps1'
     $script:CatalogRoot = Join-Path $script:RepoRoot 'globalization/generated/powershell'
     $script:Pwsh = (Get-Process -Id $PID).Path
+    # Captured before any Mock: a filtered mock alone fails the calls its
+    # filter does not match, and this suite relies on the real command there.
+    $script:RealGetCommand = Get-Command Get-Command -CommandType Cmdlet
     Import-Module (Join-Path $PSScriptRoot 'Test.Catalog.psm1') -Force -DisableNameChecking
     Import-Module (Join-Path $script:RepoRoot 'automation/Yuruna.Globalization.psm1') -Force -DisableNameChecking
 
@@ -543,6 +546,7 @@ Describe 'Invoke-DiagnosticBoundedCommand bounds a command without any module' {
     }
 
     It 'lists utmctl through it when no caller loaded a runner' {
+        Mock Get-Command { & $script:RealGetCommand @PesterBoundParameters }
         Mock Get-Command { return $null } -ParameterFilter { $Name -in @('Invoke-BoundedNativeCommand', 'Invoke-UtmctlProbe') }
         Get-Command -Name Invoke-BoundedNativeCommand -ErrorAction SilentlyContinue | Should -BeNullOrEmpty
         Get-Command -Name Invoke-UtmctlProbe -ErrorAction SilentlyContinue | Should -BeNullOrEmpty
@@ -566,6 +570,13 @@ Describe 'Invoke-DiagnosticBoundedCommand bounds a command without any module' {
 }
 
 Describe 'Invoke-Tool native diagnostics preserve evidence and classification' {
+    BeforeAll {
+        $script:SavedConsoleEncoding = [Console]::OutputEncoding
+        [Console]::OutputEncoding = [Text.UTF8Encoding]::new($false)
+    }
+    AfterAll {
+        [Console]::OutputEncoding = $script:SavedConsoleEncoding
+    }
     BeforeEach {
         Reset-DiagnosticRenderer -Root (Join-Path $TestDrive 'no-catalog')
         $script:Problems = [Collections.Generic.List[string]]::new()
@@ -585,7 +596,7 @@ Describe 'Invoke-Tool native diagnostics preserve evidence and classification' {
         Should -Invoke Invoke-WithDeadline -Times 0
     }
     It 'retains Unicode stdout and stderr and the existing nonzero problem class' {
-        $lines = @(Invoke-Tool -Tool $script:Pwsh -ToolArgs @('-NoProfile', '-Command', '[Console]::WriteLine("Caf`u{e9} `u{6771}`u{4eac}"); [Console]::Error.WriteLine("denied `u{fc}"); exit 7') -TimeoutSeconds 30 -ProblemTag 'FIXTURE.native')
+        $lines = @(Invoke-Tool -Tool $script:Pwsh -ToolArgs @('-NoProfile', '-Command', '[Console]::OutputEncoding=[Text.UTF8Encoding]::new($false); [Console]::WriteLine("Caf`u{e9} `u{6771}`u{4eac}"); [Console]::Error.WriteLine("denied `u{fc}"); exit 7') -TimeoutSeconds 30 -ProblemTag 'FIXTURE.native')
         $lines | Should -Be @("Caf`u{e9} `u{6771}`u{4eac}", "denied `u{fc}")
         $script:ProblemRecords.Count | Should -Be 1
         $script:ProblemRecords[0].class | Should -BeExactly 'FIXTURE.native'
@@ -593,7 +604,7 @@ Describe 'Invoke-Tool native diagnostics preserve evidence and classification' {
     }
     It 'passes paths and argument boundaries literally without shell evaluation' {
         $fixture = Join-Path $TestDrive "literal `u{fc} [1]; tool.ps1"
-        'param([string]$Value); [Console]::Write($Value)' | Set-Content -LiteralPath $fixture -Encoding utf8
+        'param([string]$Value); [Console]::OutputEncoding=[Text.UTF8Encoding]::new($false); [Console]::Write($Value)' | Set-Content -LiteralPath $fixture -Encoding utf8
         $literal = 'space "quotes" $HOME; $(ignored) [x] ' + "`u{fc}"
         $lines = @(Invoke-Tool -Tool $script:Pwsh -ToolArgs @('-NoProfile', '-File', $fixture, $literal) -TimeoutSeconds 30)
         $lines | Should -Be @($literal)
@@ -627,6 +638,7 @@ Describe 'Invoke-Tool native diagnostics preserve evidence and classification' {
         @{ Extension = '.cmd' }, @{ Extension = '.bat' }
     ) {
         $script:BatchPath = 'C:\fixture\tool' + $Extension
+        Mock Get-Command { & $script:RealGetCommand @PesterBoundParameters }
         Mock Get-Command { return [pscustomobject]@{ CommandType = 'Application'; Source = $script:BatchPath } } -ParameterFilter { $Name -eq 'fixture-batch' }
         Mock Test-ExecutableFile { return $true }
         Mock Invoke-WithDeadline { return @{ TimedOut = $false; Output = @('batch-output', 0) } }

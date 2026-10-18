@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.14
+.VERSION 2026.10.18
 .GUID 42b4e120-ffe3-4090-9478-c0444af48a73
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -30,7 +30,7 @@
     as `$plan.chainEntries` then enumerates and unwraps a single warm-path entry
     to a bare object, which fails the chain runner's [IList] parameter binding.
     Status must therefore go through Write-Information. This is the pipeline-
-    pollution trap class (feedback_powershell_writeoutput_pipeline_pollution).
+    pollution trap class.
 
     No host I/O -- AST inspection and pure-function calls only -- so it runs under
     Pester 5+ with throw-based assertions.

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.14
+.VERSION 2026.10.18
 .GUID 425b1941-f370-4155-9842-47cbe6837b47
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -20,8 +20,7 @@
 .DESCRIPTION
     This file MUST stay 7-bit ASCII, no BOM -- PowerShell 5.1's
     `irm | iex` parses byte-for-byte and any non-ASCII char or UTF-8
-    BOM aborts at line 1 before the param block is reached. See repo
-    memory feedback_bootstrap_installer_no_bom.md for the trap class.
+    BOM aborts at line 1 before the param block is reached.
 #>
 
 # --- REGION: https://yuruna.link/429fb30b
@@ -401,7 +400,7 @@ if (-not $PSCommandPath) {
     Write-Step 'Materializing installer to a temp file (single fetch; relaunches use -File)'
     $src = Invoke-RestMethod $installerUrl
     # BOM-less UTF-8: Set-Content -Encoding UTF8 emits a BOM on PS5.1 that breaks
-    # the relaunched -File at the param block (feedback_bootstrap_installer_no_bom).
+    # the relaunched -File at the param block.
     [System.IO.File]::WriteAllText($matTmp, $src, (New-Object System.Text.UTF8Encoding $false))
     $currentShellExe = $null
     try { $currentShellExe = (Get-Process -Id $PID).Path } catch { $currentShellExe = $null }
@@ -585,6 +584,34 @@ function Get-StatusServicePort {
 }
 
 # --- REGION: https://yuruna.link/429fb30b-000a
+# A PID file outlives its process and Windows reuses PIDs, so the number alone
+# never identifies the owner: the process must still run one of the Yuruna
+# scripts, or must have started when the matching .start record (ISO-8601 UTC,
+# written by the runner and the inner loop) says it did. A process name check
+# is not enough, because the shell that launched this installer is a pwsh too.
+function Test-YurunaPidFileOwner {
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param(
+        [Parameter(Mandatory)][int]$ProcessId,
+        [AllowEmptyString()][string]$CommandLine,
+        [Parameter(Mandatory)][string[]]$Pattern,
+        [string]$StartFile
+    )
+    if ($CommandLine) {
+        foreach ($pat in $Pattern) { if ($CommandLine -like "*$pat*") { return $true } }
+    }
+    if (-not $StartFile -or -not (Test-Path -LiteralPath $StartFile)) { return $false }
+    try {
+        $recorded = [datetime]::Parse((Get-Content -LiteralPath $StartFile -Raw -ErrorAction Stop).Trim(),
+            [Globalization.CultureInfo]::InvariantCulture, [Globalization.DateTimeStyles]::RoundtripKind).ToUniversalTime()
+        $live = (Get-Process -Id $ProcessId -ErrorAction Stop).StartTime.ToUniversalTime()
+        return ([Math]::Abs(($live - $recorded).TotalSeconds) -le 2)
+    } catch {
+        return $false
+    }
+}
+
 # taskkill /T /F is deliberate: a soft Ctrl+C only requests "exit after the
 # current cycle", which can pin the checkout for a full VM cycle. VMs untouched.
 function Stop-YurunaProcess {
@@ -592,6 +619,15 @@ function Stop-YurunaProcess {
     param([string]$YurunaDir)
 
     $candidatePids = New-Object System.Collections.Generic.List[int]
+
+    # One process listing serves the command-line match in (2) and the
+    # identity check of every PID read in (1); each Win32_Process query
+    # enumerates the whole process table.
+    $patterns = @('Start-TestRunner.ps1','Invoke-TestRunnerInnerLoop.ps1','Debug-TestSequence.ps1','Start-StatusService.ps1','.status-service.ps1')
+    $commandLines = @{}
+    foreach ($p in @(Get-CimInstance Win32_Process -Filter "Name='pwsh.exe' OR Name='powershell.exe'" -ErrorAction SilentlyContinue)) {
+        if ($p.CommandLine) { $commandLines[[int]$p.ProcessId] = [string]$p.CommandLine }
+    }
 
     # (1) PID files under the runtime dir (env override wins, else the
     #     <testRoot>/status/runtime default the runner uses).
@@ -605,17 +641,22 @@ function Stop-YurunaProcess {
             try {
                 $raw = (Get-Content -LiteralPath $pidFile -Raw -ErrorAction Stop).Trim()
                 $n = 0
-                if ([int]::TryParse($raw, [ref]$n)) { $candidatePids.Add($n) }
+                if (-not [int]::TryParse($raw, [ref]$n)) { continue }
+                $startFile = Join-Path $runtimeDir ($pidName -replace '\.pid$', '.start')
+                if (Test-YurunaPidFileOwner -ProcessId $n -CommandLine ([string]$commandLines[$n]) -Pattern $patterns -StartFile $startFile) {
+                    $candidatePids.Add($n)
+                } else {
+                    Write-Verbose "  skipping pid $n from ${pidName}: it runs no Yuruna script and its start time does not match (stale/recycled PID file?)"
+                }
             } catch { Write-Verbose "Could not read ${pidFile}: $($_.Exception.Message)" }
         }
     }
 
     # (2) Command-line pattern match.
-    $patterns = @('Start-TestRunner.ps1','Invoke-TestRunnerInnerLoop.ps1','Debug-TestSequence.ps1','Start-StatusService.ps1','.status-service.ps1')
-    foreach ($pat in $patterns) {
-        $procs = Get-CimInstance Win32_Process -ErrorAction SilentlyContinue |
-            Where-Object { $_.CommandLine -and $_.CommandLine -like "*$pat*" }
-        foreach ($p in $procs) { $candidatePids.Add([int]$p.ProcessId) }
+    foreach ($entry in $commandLines.GetEnumerator()) {
+        foreach ($pat in $patterns) {
+            if ($entry.Value -like "*$pat*") { $candidatePids.Add([int]$entry.Key); break }
+        }
     }
 
     # (3) Status-port listener(s): the configured port plus the 8080 default.
@@ -1362,7 +1403,7 @@ if ($script:RestartNeeded) {
     Write-Warn "test\Remove-TestVMFiles.ps1 not found under $YurunaDir -- skipping test-VM cleanup."
 }
 
-# --- REGION: Test modules (Pester 5, PSScriptAnalyzer)
+# --- REGION: Test modules (Pester 6, PSScriptAnalyzer)
 # The version policy lives in tools\Install-TestModule.ps1, shared by the
 # installer of every host platform, so it runs once the checkout exists. Each
 # MODULE-ISSUE line it prints reaches the closing summary; a missing test module
@@ -1377,10 +1418,10 @@ function Install-YurunaTestModule {
     }
     $pwshCmd = Get-Command pwsh -ErrorAction SilentlyContinue
     if (-not $pwshCmd) {
-        Add-InstallIssue "pwsh is not on PATH yet, so Pester 5 and PSScriptAnalyzer were not installed. Open a new terminal and run: pwsh -File `"$moduleScript`""
+        Add-InstallIssue "pwsh is not on PATH yet, so Pester 6 and PSScriptAnalyzer were not installed. Open a new terminal and run: pwsh -File `"$moduleScript`""
         return
     }
-    Write-Step 'Installing the PowerShell modules the tests need (Pester 5, PSScriptAnalyzer)'
+    Write-Step 'Installing the PowerShell modules the tests need (Pester 6, PSScriptAnalyzer)'
     # Inherited through powershell.exe, the module path carries Windows
     # PowerShell's per-user directory, so a Pester installed only for Windows
     # PowerShell would count as present and never be installed where pwsh
@@ -1408,7 +1449,7 @@ function Install-YurunaTestModule {
         }
     }
     if ($code -ne 0) {
-        Add-InstallIssue "tools\Install-TestModule.ps1 could not run (exit $code), so Pester 5 and PSScriptAnalyzer may be missing -- see the output above."
+        Add-InstallIssue "tools\Install-TestModule.ps1 could not run (exit $code), so Pester 6 and PSScriptAnalyzer may be missing -- see the output above."
     }
 }
 Install-YurunaTestModule -Root $YurunaDir
@@ -1632,6 +1673,69 @@ $script:InstallSucceeded = $true
             Write-Output 'This window will close automatically in 60 seconds.'
             Start-Sleep -Seconds 60
         }
+    }
+}
+
+# --- REGION: qemu-img precedence
+function Get-QemuImgPrecedenceNote {
+    <#
+    .SYNOPSIS
+        What to tell the operator about which qemu-img the harness runs.
+    .DESCRIPTION
+        Pure. Takes the record Resolve-QemuImgCommand -Detailed produced (in a
+        child pwsh, as JSON, so versions arrive as strings) and returns the
+        line to print and, when the bare name `qemu-img` resolves to an OLDER
+        copy than the one the harness picks, a warning naming both. The QEMU
+        package this installer manages never joins PATH, so any other qemu-img
+        that does is what a prompt runs; the usual one is the Cloudbase 2.3.0
+        port from winget's cloudbase.qemu-img or Chocolatey's qemu-img. The
+        harness is not affected by it, so this is a warning, not an issue.
+    .OUTPUTS
+        [hashtable] Step (string or $null) and Warning (string or $null).
+    #>
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param([AllowNull()]$Resolution)
+    $note = @{ Step = $null; Warning = $null }
+    if ($null -eq $Resolution -or [string]::IsNullOrWhiteSpace([string]$Resolution.Path)) { return $note }
+    $chosenVersion = [string]$Resolution.Version
+    $note.Step = "  qemu-img the harness uses: $(if ($chosenVersion) { $chosenVersion } else { 'version unknown' }) at $($Resolution.Path)"
+    $namePath = [string]$Resolution.NamePath
+    if ([string]::IsNullOrWhiteSpace($namePath) -or $namePath -ieq [string]$Resolution.Path) { return $note }
+    $nameVersion = [string]$Resolution.NameVersion
+    $older = $true
+    $parsedName = $null; $parsedChosen = $null
+    if ([version]::TryParse($nameVersion, [ref]$parsedName) -and [version]::TryParse($chosenVersion, [ref]$parsedChosen)) {
+        $older = $parsedName -lt $parsedChosen
+    }
+    if (-not $older) { return $note }
+    $nameText = if ($nameVersion) { "qemu-img $nameVersion" } else { 'a qemu-img that reports no version' }
+    $note.Warning = "  'qemu-img' at a prompt runs $nameText at $namePath, which is first on PATH ahead of the $chosenVersion copy the harness uses. " +
+        "Anything that runs qemu-img by name gets the older one. It is usually the Cloudbase port: remove it with " +
+        "'winget uninstall --id cloudbase.qemu-img' or 'choco uninstall qemu-img', or take its folder off PATH."
+    return $note
+}
+
+if (Test-Path -LiteralPath (Join-Path $YurunaDir 'host/modules/Yuruna.Image.psm1')) {
+    # The resolver lives in the checkout; a child pwsh keeps its module out of
+    # this session, and the path travels in the environment so no quoting of
+    # it can break the command line.
+    $env:YURUNA_IMAGE_MODULE = Join-Path $YurunaDir 'host/modules/Yuruna.Image.psm1'
+    try {
+        $resolutionJson = & pwsh -NoProfile -NonInteractive -Command @'
+Import-Module $env:YURUNA_IMAGE_MODULE -DisableNameChecking -ErrorAction Stop
+$r = Resolve-QemuImgCommand -Detailed
+[pscustomobject]@{ Path = $r.Path; Version = "$($r.Version)"; NamePath = $r.NamePath; NameVersion = "$($r.NameVersion)" } | ConvertTo-Json -Compress
+'@ 2>$null
+        $resolution = $null
+        if ($resolutionJson) { $resolution = (@($resolutionJson) -join '') | ConvertFrom-Json -ErrorAction Stop }
+        $precedence = Get-QemuImgPrecedenceNote -Resolution $resolution
+        if ($precedence.Step) { Write-Step $precedence.Step }
+        if ($precedence.Warning) { Write-Warn $precedence.Warning }
+    } catch {
+        Write-Warn "  could not tell which qemu-img the harness uses ($($_.Exception.Message))."
+    } finally {
+        Remove-Item -LiteralPath 'Env:YURUNA_IMAGE_MODULE' -ErrorAction SilentlyContinue
     }
 }
 

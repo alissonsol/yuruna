@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.14
+.VERSION 2026.10.18
 .GUID 4245aa15-0036-4384-9791-32951e4e7589
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -929,7 +929,8 @@ Describe 'is_service_vm_running preserves on anything it cannot read' -Skip:$IsW
 }
 
 # Runs POSIX stand-in executables and shell installers that Windows cannot launch.
-Describe 'published refresh forms run the real installer file under <InterpreterName>' -ForEach $script:Interpreters -Skip:$IsWindows {
+# The list is empty on a host without bash; the block is skipped there anyway.
+Describe 'published refresh forms run the real installer file under <InterpreterName>' -ForEach $script:Interpreters -AllowNullOrEmptyForEach -Skip:$IsWindows {
     It '<CaseName>' -ForEach $script:RefreshCases {
         if ($Unavailable) {
             Set-ItResult -Skipped -Because $Unavailable

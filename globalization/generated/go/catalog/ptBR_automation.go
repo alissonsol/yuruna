@@ -5188,6 +5188,7 @@ const DataptBRautomation = `{
       "trust": "external"
     }
   ],
+  "automation.runtime_ipc_remove_action": "Remover a entrada remanescente do runtime .NET de um processo que já não existe",
   "automation.setup_service_vm_reason_intended_stopped": "foi parado de propósito; recriando porque o setup recebeu o pedido de iniciá-lo",
   "automation.setup_service_vm_reason_lock_unavailable": "não foi possível obter o bloqueio de operação",
   "automation.setup_service_vm_reason_operation_busy": "outra inicialização ou parada deste serviço ainda está em execução",
@@ -5200,6 +5201,7 @@ const DataptBRautomation = `{
     },
     ")"
   ],
+  "automation.stale_temp_remove_action": "Remover a entrada temporária obsoleta do Yuruna",
   "automation.system_diagnostic_registry_images_refused": [
     "REGISTRY: o cache recusou ",
     {

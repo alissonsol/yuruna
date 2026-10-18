@@ -73,7 +73,7 @@ Campos de nível superior, em ordem:
 | `description` | string | O `description:` da etapa. |
 | `vmName` / `guestKey` | string | Identidade do convidado que falhou. |
 | `timestamp` | string | UTC `yyyy-MM-dd HH:mm:ss`. |
-| `failureClass` | enum | Classe que permite encaminhamento por máquina. O conjunto canônico está em [`Test.FailureTaxonomy`](../../test/modules/Test.FailureTaxonomy.psm1) (fonte única para o `ValidateSet` dos verbos e o validador do esquema de eventos). As classes de convidado/sequência vêm do registro do verbo que falhou; `unknown` quando o verbo não é resolvido; `pattern_matched_failure` quando `Wait-ForText` interrompeu a espera ao encontrar um padrão de bloqueio definitivo; as classes de infraestrutura do hospedeiro `provisioning_failure` / `bootstrap_sync` / `plan_invalid` / `network_timeout` vêm das etapas de infraestrutura do executor (consulte [Registros de etapas de infraestrutura](#infra-stage-records)). |
+| `failureClass` | enum | Classe que permite encaminhamento por máquina. O conjunto canônico está em [`Test.FailureTaxonomy`](../../test/modules/Test.FailureTaxonomy.psm1) (fonte única para o `ValidateSet` dos verbos e o validador do esquema de eventos). As classes de convidado/sequência vêm do registro do verbo que falhou; `unknown` quando o verbo não é resolvido; `pattern_matched_failure` quando `Wait-ForText` interrompeu a espera ao encontrar um padrão de bloqueio definitivo; as classes de infraestrutura do hospedeiro `provisioning_failure` / `bootstrap_sync` / `plan_invalid` / `network_timeout` / `hypervisor_unresponsive` vêm das etapas de infraestrutura do executor (consulte [Registros de etapas de infraestrutura](#infra-stage-records)). |
 | `severity` | enum | `hard` / `soft` do verbo; `unknown` quando não resolvido. |
 | `suggestedRecoveries` | string[] | `SuggestedRecoveries` do verbo (sempre um array JSON, nunca `null`). |
 | `actionVerb` | string | Nome do verbo que falhou (`script_error` para uma falha do mecanismo sem atribuição; o nome da etapa para um registro de infraestrutura). |
@@ -122,7 +122,7 @@ Eles aparecem em registros **tanto** de etapa quanto de falha do mecanismo (uma 
 | `cycleFolder` | Identidade estável do ciclo (apenas falhas de etapa) -- o mesmo valor registrado pelo fluxo NDJSON, para que este arquivo possa ser associado ao fluxo de eventos e resolvido para a pasta no disco. |
 | `failureScreenshotPath` / `failureOcrPath` | Nomes relativos ao diretório do ciclo das evidências de tela desta falha (apenas falhas de etapa). **Ausentes** a menos que o artefato exista e tenha sido gravado por último depois que a etapa que falhou começou: ambos são arquivos persistentes por VM que apenas os verbos de leitura de tela regravam, portanto uma falha em um verbo que não lê texto apontaria, de outra forma, para a tela de uma etapa anterior. Um leitor segue esses ponteiros; nada os audita, portanto um nome presente é uma afirmação que o registro precisa conseguir sustentar. |
 | `staleEvidence` | Cada artefato removido dos dois ponteiros acima, identificado com quantos segundos antes da etapa que falhou ele foi gravado por último; `[]` quando não houve nenhum. O arquivo continua na pasta do ciclo com esse nome, portanto evidências de uma etapa anterior continuam localizáveis enquanto os ponteiros permanecem confiáveis -- e um ponteiro ausente nunca é interpretado como "não existe nenhuma evidência de tela", que é um fato diferente com uma próxima ação diferente. |
-| `causeDetail` | Apenas registros de etapa: `{ ocrTail, patternsSought }` -- o texto OCR mais recente na tela (cauda limitada, <=1200 caracteres) e os padrões procurados pela espera no ponto de falha. Permite que um consumidor veja a causa em tempo de execução por trás de uma `failureClass` estática do verbo. Espelhado sem aninhamento no evento como `causeOcrTail` / `causePatternsSought`. `patternsSought` é registrado em toda espera que expira, inclusive quando o console nunca mostrou texto legível. Também contém `freshWindowNearMiss`, `closestOnScreen`, `consoleFlood`, `consoleStaticSeconds`, `blankScreenSeconds`, `guestLivelock`, `installerStage`, `installerStageUnchangedSeconds`, `pauseBeforeStepSeconds`, `pauseReleasedAtUtc`, `vmState`, `vmStateWaitedSeconds`, `vmStateRequestedAtUtc`, `firstGuestSilenceUtc` e `firstGuestSilenceSource` (abaixo). |
+| `causeDetail` | Apenas registros de etapa: `{ ocrTail, patternsSought }` -- o texto OCR mais recente na tela (cauda limitada, <=1200 caracteres) e os padrões procurados pela espera no ponto de falha. Permite que um consumidor veja a causa em tempo de execução por trás de uma `failureClass` estática do verbo. Espelhado sem aninhamento no evento como `causeOcrTail` / `causePatternsSought`. `patternsSought` é registrado em toda espera que expira, inclusive quando o console nunca mostrou texto legível. Também contém `freshWindowNearMiss`, `closestOnScreen`, `consoleFlood`, `consoleStaticSeconds`, `blankScreenSeconds`, `guestLivelock`, `installerStage`, `installerStageUnchangedSeconds`, `pauseBeforeStepSeconds`, `pauseReleasedAtUtc`, `vmState`, `vmStateWaitedSeconds`, `vmStateRequestedAtUtc`, `firstGuestSilenceUtc`, `firstGuestSilenceSource` e `launcherRejection` (abaixo). |
 | `crash` | Apenas registros de falha do mecanismo: `{ error, origin, stack }`. |
 | `dependencyFailures` | Evidências opcionais de infraestrutura para serviços do laboratório indisponíveis. As entradas da barreira de saúde do laboratório incluem a área, os endereços tentados e os últimos endereços conhecidos, o último êxito, detalhes e o resultado da descoberta no grupo. As entradas da verificação prévia do stash incluem a área, o endereço, o endpoint, a origem, o resultado, detalhes e a tentativa de repetição. As respostas HTTP de descoberta são preservadas para diferenciar um registro ausente de um serviço inacessível. Espelhado no evento como `dependencyFailures`. |
 | `hostMemory` | Apenas registros de infraestrutura, e somente quando o driver do hospedeiro conseguiu medir a máquina: `{ availableMb, committedBytes, commitLimitBytes, commitAvailableBytes, source }`. A memória de inicialização de uma VM é cobrada do limite de confirmação do sistema -- memória física mais o tamanho atual do arquivo de paginação --, não da memória física livre; por isso, uma recusa de provisionamento é explicada pelos valores de confirmação enquanto a memória física livre pode estar em seu máximo nesse mesmo instante. **Ausente** quando nada foi medido, nunca preenchido com zeros: um bloco zerado indica uma máquina que foi medida e estava vazia, que é um fato diferente com uma próxima ação diferente. Espelhado sem aninhamento no evento como `hostAvailableMb` / `hostCommittedBytes` / `hostCommitLimitBytes` / `hostCommitAvailableBytes`. |
@@ -142,11 +142,12 @@ Eles aparecem em registros **tanto** de etapa quanto de falha do mecanismo (uma 
 | `blankScreenSeconds` | Segundos em que o console estava em branco -- nenhum mecanismo de OCR encontrou texto -- quando a espera terminou; `0` quando o último quadro tinha texto. Um console em branco deixa `ocrTail` vazio e `consoleStaticSeconds` sem medição, pois ambos leem texto; por isso, este é o campo que diz que a tela ficou preta, e não que nada foi comparado. Espelhado no evento como `causeBlankScreenSeconds`. |
 | `guestLivelock` | A visão do hipervisor sobre o convidado quando a espera terminou, a partir da gravação do amostrador do host: `{ verdict, livelockedSeconds, minimumSeconds, virtualProcessors, guestRunPercent, hypervisorRunPercent, interceptsPerSecond, dominantIntercept, interceptBreakdown, sampleCount, newestSampleUtc, reason }`. `verdict` é `livelocked` quando todo processador virtual ficou pelo menos 80% ocupado, com o hipervisor detendo pelo menos 88% desse tempo, por `minimumSeconds` (300); `not-livelocked` caso contrário; e `unavailable` quando a gravação não tinha leituras recentes da VM. `interceptBreakdown` faz a média das taxas de interceptação por causa ao longo do período, da maior para a menor, e `dominantIntercept` nomeia a primeira. `null` quando o host não mantém gravação (todo host que não é Windows, ou com amostragem desativada): não medido, o que não é a mesma leitura que medido e encontrado em execução. Espelhado no evento como `causeGuestLivelocked` / `causeGuestLivelockedSeconds`. |
 | `installerStage` / `installerStageUnchangedSeconds` | O último marcador `start:` ou `finish:` de uma etapa substantiva de Install ou Mirror do Subiquity visível durante esta espera, e os segundos desde a mudança desse marcador. O tráfego de atualizações de rede é excluído. Registra o último marcador observado, não uma prova de que seu comando ainda está em execução. `''` / `0` quando nenhuma etapa foi vista. Espelhado no evento como `causeInstallerStage` / `causeInstallerStageUnchangedSeconds`. |
-| `progressAdvisory` | Observações independentes: `outputStaticSeconds`, `heartbeatAgeSeconds`, capacidade de resposta SSH e um veredito consultivo. Pelo menos dois sinais sustentados produzem `progress-suspect`; medições ausentes continuam como null/unavailable. A saída também é observada em esperas restritas à cauda, sem habilitar seus sinais de recuperação desativados. `automaticRecoveryAllowed` é sempre false. |
+| `progressAdvisory` | Observações independentes: `outputStaticSeconds`, `heartbeatAgeSeconds`, capacidade de resposta SSH, `clockWarnings` e um veredito consultivo. `sshResponsiveness` é `unresponsive` quando o harness encerrou o cliente de evidências ou quando o próprio cliente relatou um caminho morto (saída 255 com tempo de conexão esgotado, sem rota, rede inalcançável, recusa ou um nome que não foi resolvido); é `unavailable` apenas quando nenhum transporte foi medido. `clockWarnings` lista os códigos levantados pela análise de relógio das amostras do gravador da etapa (por exemplo `cpu-idle-exceeds-boot-uptime`), e uma lista não vazia acrescenta o sinal `guest-clock-anomaly`, que é evidência sobre a base de tempo do convidado e nunca um sinal de travamento por si só. Pelo menos dois sinais de travamento sustentados produzem `progress-suspect`; medições ausentes continuam como null/unavailable. A saída também é observada em esperas restritas à cauda, sem habilitar seus sinais de recuperação desativados. `automaticRecoveryAllowed` é sempre false. |
 | `pauseBeforeStepSeconds` | Segundos de uma suspensão solicitada pelo operador, quando uma delas foi liberada antes da etapa que falhou. A barreira de pausa suspende o executor, não o convidado, portanto um prompt que o convidado imprimiu uma vez durante a suspensão já saiu da tela que a etapa retomada precisa ler -- o que parece idêntico a um prompt que nunca foi impresso. `0` quando não houve suspensão. |
 | `pauseReleasedAtUtc` | Quando essa suspensão terminou, para que possa ser comparada ao início da própria etapa. `''` quando não houve suspensão. |
 | `vmState` / `vmStateWaitedSeconds` / `vmStateRequestedAtUtc` | Definidos por `stopVm` e `startVm` quando o convidado nunca chegou ao estado parado: o estado que o hospedeiro informou quando a espera desistiu, quanto tempo ela esperou e quando o desligamento foi solicitado. A classe passa a ser `wait_timeout`, e o evento carrega `causeVmState` e `causeVmStateWaitedSeconds`. `''` e `0` nos demais casos. |
 | `firstGuestSilenceUtc` / `firstGuestSilenceSource` | O primeiro momento na sequência atual em que o convidado parou de responder, e o mecanismo que percebeu isso: um transporte SSH interrompido no meio de um comando, uma entrada digitada que o console nunca reconheceu, um diagnóstico que nenhum degrau conseguiu alcançar ou uma solicitação de desligamento que o convidado ignorou. Definido uma vez por sequência pelo primeiro observador e nunca limpo por uma etapa posterior, para que o registro nomeie o primeiro sintoma e não a etapa que finalmente desistiu. `''` quando nada observou um silêncio. |
+| `launcherRejection` | Definido por `fetchAndExecute` quando o inicializador do convidado (`yfe --gui`) recusou o envelope compacto digitado, lido do registro que o inicializador deixa sob o digest do envelope: `{ code, attempt, receivedChars, expectedChars, receivedSha256, expectedSha256, payloadState }`. Toda recusa acontece antes de a carga útil executar, então a classe continua sendo o padrão de falha correspondido, enquanto este campo nomeia o que o teclado entregou: um caractere recebido a mais do que o digitado é uma tecla que se repetiu. Uma recusa `YFE_GUI_ENCODING` ou `YFE_GUI_DIGEST` com `payloadState` `NOT_PREPARED` é digitada mais uma vez dentro da etapa, e um evento `retry_attempt` com `stack` `gui-envelope` a registra; `attempt` nomeia a tentativa que esta recusa encerrou. `null` quando o inicializador não recusou nada ou é anterior ao registro. Espelhado no evento como `causeLauncherRejection` (o código, `''` quando não há). |
 
 A gravação é atômica (arquivo temporário + renomeação por `Write-YurunaStateFile`), para que um
 remediador ou o serviço de status nunca observe um registro truncado.
@@ -157,15 +158,38 @@ processadores não é atendido. O evento os inclui em `guestProcessorWindow`.
 As médias de cada contador usam suas próprias contagens de amostras válidas;
 leituras ausentes ou inválidas não se tornam zeros. Os resíduos exigem medições
 pareadas de todos os contadores nomeados com suporte e continuam sendo
-estimativas, pois as categorias podem se sobrepor.
+estimativas, pois as categorias podem se sobrepor. Cada processador também
+traz `hypervisorShare` (seu tempo de hipervisor sobre seu tempo ocupado),
+`stormed` (ocupado pelo menos 80% com o hipervisor detendo pelo menos 88%
+disso, ou pelo menos um milhão de interceptações por segundo, ao longo da
+janela) e `dominantIntercept`; a janela lista `stormedProcessors` e
+`stormTransitions`, os instantes de amostra em que o conjunto de processadores
+em tempestade mudou. O veredito é registrado em uma espera que expirou e em uma
+espera encerrada por um padrão de falha, de modo que um script que desistiu no
+console carrega o estado dos processadores naquele momento.
 
 A idade do heartbeat descreve a atividade do gravador e da amostragem do
 convidado; um heartbeat recente não comprova que a aplicação progrediu.
 
 Os eventos de fim de etapa de fetch incluem `executionEvidence` com resultado
-da captura, motivo, caminho do artefato e status preservado do gravador. A limpeza
+da captura, motivo, caminho do artefato e status preservado do gravador. A captura
+nomeia o transporte que encontrou: `transport` é `responsive`, `timed-out`,
+`unreachable` ou `unknown`, `transportDetail` guarda a linha do cliente que
+decidiu o estado, e `transportFailed` é true para os dois estados mortos; um
+transporte morto mantém seu código de motivo (`profile-ssh-timeout` ou
+`profile-ssh-unreachable`) acima do veredito de identidade do log, porque um
+caminho que nunca alcançou o convidado nada diz sobre qual log o convidado
+guarda. `recorder.clockAnalysis` executa a análise consultiva de relógio sobre
+as amostras preservadas do gravador, ordenadas no tempo. A limpeza
 após uma falha emite um evento `failure_diagnostic` com os resultados independentes
-dos snapshots do host e do convidado, incluindo exceções na captura. Quando as
+dos snapshots do host e do convidado, incluindo exceções na captura, além de
+`sshReadiness` (a causa, o alvo, as tentativas e a última linha do cliente que a
+espera de prontidão registrou quando nenhum degrau alcançou o convidado) e
+`networkCrossCheck` (o veredito da verificação de alcance feita pelo próprio
+host, abaixo). O snapshot de relógio após o reinício acrescenta `sshProbe`: um
+toque TCP limitado no endereço comprovado, com o banner que o sshd enviou, para
+que um daemon ainda iniciando e um convidado fora da rede sejam lidos de forma
+diferente sem espera. Quando as
 tentativas se esgotam, o manifesto e o evento de diagnóstico usam os IDs da etapa
 interna de origem para se vincular ao gravador de fetch; o evento de falha mantém
 os IDs do wrapper externo e publica ambos os pares. Uma falha distinta do
@@ -273,9 +297,18 @@ do git não relacionada à rede -- `operator_intervention_required`), `plan_inva
 (PoolStorageSpaceCheck / PoolStorageMove -- `operator_intervention_required`;
 gravado pelo laço EXTERNO, em vez do mecanismo de sequências, pois um compartilhamento que
 não pode armazenar os resultados é identificado antes da criação do ciclo ou depois que ele
-termina). O executor nunca sobrescreve um registro mais rico
+termina) e `hypervisor_unresponsive` (HypervisorControl, a sondagem pré-ciclo do
+canal de controle do hipervisor, ou uma ação do hospedeiro cujo início de VM
+relatou o canal travado -- `operator_intervention_required`). O executor nunca sobrescreve um registro mais rico
 gravado pelo mecanismo, e a gravação é totalmente protegida para que a telemetria não possa
 fazer o ciclo falhar.
+
+Uma ação do hospedeiro (uma sequência `host:` de um projeto, como `initialize-lab`)
+que termina com código diferente de zero é registrada sob o próprio nome, com a
+classe que a própria ação gravou em `last_failure.json` durante a execução, ou
+`unknown` quando não gravou nenhuma; a descrição é a última linha de erro que a
+ação imprimiu ou, na ausência dela, a última linha de saída, para que a causa que
+o script nomeou sobreviva fora da transcrição.
 
 Uma etapa cujo driver do hospedeiro consegue medir a máquina também contém
 [`context.hostMemory`](#context) -- a memória física disponível e a posição de
@@ -330,6 +363,28 @@ Campos:
 (alternativa adotada), `reason` e `severity` (`soft` por natureza). A emissão é
 de melhor esforço (`Send-CycleEventSafely`) e nunca faz o ciclo falhar. Um consumidor do
 fluxo que conta apenas falhas deve ignorar esse tipo de evento.
+
+<a id="42820e91-0025"></a>
+
+## Evento `network_cross_check` (a leitura de alcance feita pelo próprio host)
+
+Emitido por `Invoke-GuestNetworkCrossCheck` (`Test.GuestNetworkCrossCheck.psm1`)
+durante a limpeza após a falha, antes do diagnóstico do convidado, e gravado ao
+lado dos artefatos da falha como `network-cross-check.json` e `.txt`. A partir
+do host, ele sonda o registro do proxy de cache (`/v2/`) e sua página de saúde,
+e o último endereço comprovado do convidado (TCP 22, ICMP, a tabela de
+vizinhos), e então nomeia a combinação: `proxy-reachable-guest-unreachable`,
+`proxy-unreachable-guest-reachable`, `both-reachable`, `both-unreachable`,
+uma leitura unilateral quando apenas um dos dois pôde ser sondado
+(`guest-unreachable-proxy-unknown`, `guest-reachable-proxy-unknown`,
+`proxy-reachable-guest-unknown`, `proxy-unreachable-guest-unknown`) ou
+`unavailable` quando nem um host de cache nem um endereço de convidado era
+conhecido. Campos: `event` = `network_cross_check`, `timestamp`, `vmName`,
+`guestKey`, `verdict`, `cacheHost`, `cacheV2Status`, `cacheV2Ms`,
+`cacheHealthOk`, `guestAddress`, `guestTcp22Ok`, `guestPingOk`,
+`neighborState`. Ele existe porque o console de um convidado pode culpar um
+serviço que o convidado não conseguiu alcançar por motivos próprios; o host
+alcançar esse serviço no mesmo minuto é o que separa os dois casos.
 
 <a id="42820e91-001e"></a>
 
@@ -556,6 +611,10 @@ possa ser consultada em `cycle.events.ndjson`, em vez de ficar apenas escondida 
   Cada `retry_attempt` da sequência também contém `guestLivelocked` e
   `guestLivelockedSeconds`, o veredito de livelock do host quando a tentativa falhou,
   para que as reinicializações justificadas por esse veredito possam ser contadas.
+  Seu campo `installerRunning` registra se a cauda OCR da espera que falhou ainda
+  mostrava as linhas de evento `subiquity/` do instalador em execução; com essa
+  evidência, uma reinicialização durante a espera de login no Hyper-V ARM64 inicia
+  pelo DVD do instalador em vez do disco de destino.
 - **A biblioteca bash do convidado** (`automation/yuruna-retry.sh`) não consegue alcançar o fluxo do
   hospedeiro, portanto imprime um marcador `YURUNA_RETRY {stack,label,attempt,maxAttempts,rc,
   permanent}` em stderr; nos verbos SSH (`sshExec` /
@@ -653,6 +712,41 @@ padrão, restritos a uma lista curta de opções permitidas e limitados por impr
 livro de registros que sobrevive à reinicialização do executor, para que uma falha classificada incorretamente não possa
 acionar um reparo em um laço.
 
+Os links de classe de falha do painel abrem a entrada correspondente abaixo. Uma
+classe descreve a operação que falhou ou a condição observada, não necessariamente
+sua causa raiz; leia o motivo registrado, `causeDetail` e os artefatos do ciclo
+antes de escolher uma recuperação. A lista canônica vem de
+[`Test.FailureTaxonomy`](../../test/modules/Test.FailureTaxonomy.psm1).
+
+| Classe de falha | Significado | Primeira verificação |
+|---|---|---|
+| <a id="failure-class-ocr_timeout"></a>`ocr_timeout` | O texto esperado do console não apareceu antes de expirar a espera por OCR. | Compare a captura de tela e o trecho final do OCR com o estado esperado da sequência. |
+| <a id="failure-class-console_flooded"></a>`console_flooded` | A saída repetida do console impediu a leitura do texto esperado durante a espera. | Examine `causeDetail.consoleFlood`, a linha repetida e se o console estava estático ou mudando. |
+| <a id="failure-class-network_timeout"></a>`network_timeout` | Uma operação de rede não ficou pronta nem terminou dentro do prazo. | Verifique o destino registrado, DNS, roteamento e disponibilidade do serviço antes de tentar novamente com espera progressiva. |
+| <a id="failure-class-credential_expired"></a>`credential_expired` | O convidado rejeitou a credencial configurada. | Verifique se o valor no cofre corresponde à credencial atual do convidado. |
+| <a id="failure-class-host_io_blocked"></a>`host_io_blocked` | O hospedeiro não conseguiu entregar entrada de teclado, texto ou ponteiro ao convidado. | Verifique a conexão de entrada VNC ou do hipervisor e reconecte-a se estiver obsoleta. |
+| <a id="failure-class-pattern_matched_failure"></a>`pattern_matched_failure` | Um padrão de falha registrado ou marcador de término com falha apareceu no console. | Leia `matchedFailurePattern` e a saída ao redor dele para identificar o problema informado. |
+| <a id="failure-class-retry_exhausted"></a>`retry_exhausted` | Um invólucro de repetição consumiu seu limite de tentativas sem sucesso. | Siga `innerFailureClass` e os artefatos da última tentativa até a falha subjacente. |
+| <a id="failure-class-snapshot_restore_failed"></a>`snapshot_restore_failed` | A restauração do snapshot solicitado da VM falhou. | Verifique a existência do snapshot, o armazenamento e os diagnósticos de restauração do hipervisor. |
+| <a id="failure-class-script_error"></a>`script_error` | Um comando ou script informou um erro de execução. | Leia o código de saída, a saída de erro e a transcrição antes de executá-lo novamente. |
+| <a id="failure-class-wait_timeout"></a>`wait_timeout` | Uma espera ou um marcador de conclusão de script excedeu o prazo. | Verifique se o script do convidado ainda está em execução, bloqueado por uma dependência ou aguardando entrada. |
+| <a id="failure-class-extension_error"></a>`extension_error` | Uma chamada de extensão falhou. | Examine o erro e a configuração da extensão. |
+| <a id="failure-class-instrumentation_failure"></a>`instrumentation_failure` | A captura de uma tela ou de um artefato de diagnóstico falhou. | Verifique a ferramenta de captura e o caminho de saída; diferencie evidência ausente de falha do convidado. |
+| <a id="failure-class-provisioning_failure"></a>`provisioning_failure` | A criação, a inicialização ou a transição de uma VM para o estado de execução exigido falhou. | Verifique os diagnósticos do hipervisor, os recursos disponíveis e a definição da VM. |
+| <a id="failure-class-bootstrap_sync"></a>`bootstrap_sync` | A sincronização do framework ou do projeto falhou por um motivo não relacionado à rede. | Examine os diagnósticos do Git em busca de autenticação, divergência ou alterações locais. |
+| <a id="failure-class-plan_invalid"></a>`plan_invalid` | O plano de ciclo configurado é ambíguo ou não pode ser executado neste hospedeiro. | Verifique sequências duplicadas, backends necessários e configurações de convidado ausentes. |
+| <a id="failure-class-elevation_required"></a>`elevation_required` | Um comando privilegiado necessário exige autenticação do operador. | Resolva a exigência de elevação no console do hospedeiro. |
+| <a id="failure-class-project_access_denied"></a>`project_access_denied` | A credencial do hospedeiro não pode ler o projeto atribuído pelo pool. | Peça ao administrador do pool que verifique a atribuição e o acesso ao repositório. |
+| <a id="failure-class-host_network_degraded"></a>`host_network_degraded` | O caminho de rede que o hospedeiro fornece aos convidados está interrompido, afetando os convidados conectados a ele. | Examine o switch virtual ou a ponte, a associação ao uplink e o estado do enlace. |
+| <a id="failure-class-ip_not_discovered"></a>`ip_not_discovered` | Nenhuma sondagem de descoberta no hospedeiro encontrou um endereço para o convidado. | Verifique o DHCP e os dados de descoberta de endereço do hipervisor antes de repetir a descoberta. |
+| <a id="failure-class-payload_unavailable"></a>`payload_unavailable` | O invólucro de busca do convidado foi executado, mas nenhuma fonte forneceu seu script. | Verifique o endereço atual do hospedeiro, o endpoint que fornece o payload e o acesso à fonte alternativa. |
+| <a id="failure-class-pool_storage_full"></a>`pool_storage_full` | O compartilhamento do pool não tem espaço para os resultados do ciclo. | Compare o espaço livre e o necessário informados; libere ou amplie o armazenamento antes de retomar. |
+| <a id="failure-class-dhcp_identity_unbounded"></a>`dhcp_identity_unbounded` | Um convidado reconstruído recebeu outro endereço apesar de manter sua identidade prevista. | Compare os endereços antigo e novo registrados com as concessões DHCP e os identificadores do cliente. |
+| <a id="failure-class-lab_dependency_down"></a>`lab_dependency_down` | Um serviço necessário do laboratório permaneceu indisponível durante a espera prolongada de recuperação do executor. | Verifique o serviço indicado e seu último endereço conhecido no hospedeiro que o executa. |
+| <a id="failure-class-input_lost"></a>`input_lost` | A entrada digitada no shell não iniciou o payload; verificações no convidado confirmaram que ele nunca foi executado. | Examine o console e os diagnósticos de entrega de entrada antes de repetir a etapa. |
+| <a id="failure-class-hypervisor_unresponsive"></a>`hypervisor_unresponsive` | O hipervisor responde a consultas de estado, mas suas solicitações de controle do ciclo de vida expiram. | Examine o snapshot de controle e os registros de processo ou de falha do aplicativo do hipervisor. |
+| <a id="failure-class-unknown"></a>`unknown` | A falha não tem uma classificação utilizável. | Leia `classificationSource` e os artefatos; verifique se falta o registro do verbo antes de atribuir uma causa. |
+
 <a id="42820e91-0015"></a>
 
 <a id="why-each-infra-failure-class-exists"></a>
@@ -749,6 +843,24 @@ falhou" --, portanto a razão de cada uma está registrada aqui.
   grupo, normalmente é uma VM de outra pessoa; por isso, o texto de
   recuperação identifica o serviço e seu último endereço conhecido, em vez de encaminhar o
   leitor para a rede deste hospedeiro.
+- **`hypervisor_unresponsive`** -- o canal de controle do hipervisor parou de
+  atender às solicitações de ciclo de vida, embora continue respondendo a consultas
+  de estado: no macOS, `utmctl list` e `status` retornam na hora, enquanto todo
+  `start`, `stop` e `delete` espera até o fim do tempo limite do Apple Event. Tem
+  uma classe própria porque a falha está no processo do próprio aplicativo do
+  hipervisor, onde nem uma repetição nem uma reconstrução a alcançam -- cada
+  repetição só acrescenta outro tempo limite, e as VMs ficam intactas --, portanto
+  é encaminhada para `operator_intervention_required` e fica fora de todas as
+  listas permitidas de repetição. Distinta de `provisioning_failure`, em que o
+  hipervisor agiu e a VM não subiu, e de `unknown`, que é como a mesma indisponibilidade
+  é registrada quando nada sonda o caminho de ciclo de vida. Reconhecida pela
+  barreira de controle pré-ciclo, que envia um `stop` inócuo a uma VM já parada e
+  faz o ciclo falhar em segundos quando esse verbo trava, ou pela repetição de
+  início de um driver que relata dois tempos limite consecutivos do canal de
+  controle. O driver grava um instantâneo de controle na pasta do ciclo (censo de
+  processos com horários de início, a listagem bruta, relatórios de falha recentes,
+  um trecho do log unificado) para que o leitor distinga uma falha com
+  reinicialização de um travamento.
 - **`console_flooded`** -- uma espera gastou todo o seu orçamento contra um console que
   se sobrescrevia com uma única linha repetida, portanto não era possível
   ler o padrão na tela, independentemente de ele ter sido impresso. Tem uma classe própria porque
@@ -870,7 +982,7 @@ validador que controla o fluxo de eventos do ciclo.
    ao carregar o módulo avisa se os dois divergirem). O validador do
    esquema de eventos deriva automaticamente sua enumeração do módulo de taxonomia.
    Classes de infraestrutura integradas já acrescentadas dessa forma: `provisioning_failure`,
-   `bootstrap_sync`, `plan_invalid`.
+   `bootstrap_sync`, `plan_invalid`, `hypervisor_unresponsive`.
 2. Registre um manipulador no bloco integrado de
    [`Test.Remediation`](../../test/modules/Test.Remediation.psm1),
    ou a partir de um módulo externo por meio de
@@ -1103,6 +1215,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.14
+Last review: 2026.10.18
 
 Voltar para [Yuruna](../../README.md)

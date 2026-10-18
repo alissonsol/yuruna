@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.14
+.VERSION 2026.10.18
 .GUID 426aeda1-aa39-4af4-ab2d-2e9d00f2ca45
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -26,6 +26,7 @@
 # branch with no owner or deadline.
 Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
 Import-Module (Join-Path $PSScriptRoot 'Test.StateFile.psm1') -DisableNameChecking
+Import-Module (Join-Path $PSScriptRoot 'Test.RunnerAttemptHistory.psm1') -DisableNameChecking
 $script:LegacyFailureBlockRemovalRelease = '2026.11'
 $script:LegacyFailureBlockRemovalDate = '2026-11-30'
 
@@ -121,18 +122,22 @@ function Invoke-ConfigGate {
     $env:YURUNA_FAILURE_SIDECAR = $sidecarPath
 
     # --- REGION: https://yuruna.link/42d69dfa-0018
-    try {
-        @() | & $pwshExe @gateArgument 2>&1 |
-            ForEach-Object { [void]$capturedLines.Add("$_") }
-        $gateExit = $LASTEXITCODE
-    } finally {
-        $env:YURUNA_FAILURE_SIDECAR = $priorSidecar
-    }
-
+    # The outer finally removes the sidecar on every path, a throw from the
+    # gate pipeline included; the inner one restores the variable first.
     $sidecar = $null
-    if (Test-Path -LiteralPath $sidecarPath -PathType Leaf) {
-        try { $sidecar = ConvertFrom-Json -InputObject ([IO.File]::ReadAllText($sidecarPath)) }
-        catch { $sidecar = $null }
+    try {
+        try {
+            @() | & $pwshExe @gateArgument 2>&1 |
+                ForEach-Object { [void]$capturedLines.Add("$_") }
+            $gateExit = $LASTEXITCODE
+        } finally {
+            $env:YURUNA_FAILURE_SIDECAR = $priorSidecar
+        }
+        if (Test-Path -LiteralPath $sidecarPath -PathType Leaf) {
+            try { $sidecar = ConvertFrom-Json -InputObject ([IO.File]::ReadAllText($sidecarPath)) }
+            catch { $sidecar = $null }
+        }
+    } finally {
         Remove-Item -LiteralPath $sidecarPath -Force -ErrorAction SilentlyContinue
     }
     if ($gateExit -ne 0) {
@@ -246,10 +251,7 @@ function Write-ConfigGateArtifact {
     )
     if (-not $PSCmdlet.ShouldProcess($RuntimeDir, 'Persist configuration gate evidence')) { return @{} }
     if (-not $AttemptGeneration) { $AttemptGeneration = [Guid]::NewGuid().ToString('n') }
-    $digest = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData([Text.Encoding]::UTF8.GetBytes($AttemptGeneration))).ToLowerInvariant()
-    $relativeDir = 'runner-attempts/' + $digest.Substring(0, 24)
-    $attemptDir = Join-Path $RuntimeDir $relativeDir
-    $null = [IO.Directory]::CreateDirectory($attemptDir)
+    $relativeDir = Initialize-RunnerAttemptDirectory -RuntimeDir $RuntimeDir -AttemptGeneration $AttemptGeneration -Confirm:$false
     $transcriptPath = $relativeDir + '/config-gate.log'
     $recordPath = $relativeDir + '/config-gate.json'
     $record = [ordered]@{
@@ -263,10 +265,17 @@ function Write-ConfigGateArtifact {
         skipped = [bool]$Gate.skipped
         exitCode = [int]$Gate.exitCode
         failureClass = if ($Gate.passed) { '' } else { 'config_gate_failed' }
+        description = if ($Gate.passed) { '' } else { @($Gate.failureLines) -join "`n" }
         failureLines = @($Gate.failureLines)
         structuredResult = $Gate.structuredResult
         recordPath = $recordPath
         transcriptPath = $transcriptPath
+    }
+    foreach ($artifact in @($transcriptPath, $recordPath)) {
+        $item = Get-Item -LiteralPath (Join-Path $RuntimeDir $artifact) -Force -ErrorAction SilentlyContinue
+        if ($item -and ($item.PSIsContainer -or ($item.Attributes -band [IO.FileAttributes]::ReparsePoint))) {
+            throw "Configuration gate artifact is not a regular file: $artifact"
+        }
     }
     [IO.File]::WriteAllLines((Join-Path $RuntimeDir $transcriptPath), [string[]]@($Gate.lines), [Text.UTF8Encoding]::new($false))
     [IO.File]::WriteAllText((Join-Path $RuntimeDir $recordPath), ($record | ConvertTo-Json -Depth 32), [Text.UTF8Encoding]::new($false))
@@ -291,10 +300,7 @@ function Write-ConfigGateArtifact {
             } catch { Write-Verbose "Configuration gate: could not clear prior runner fault: $($_.Exception.Message)" }
         }
     }
-    $retired = @(Get-ChildItem -LiteralPath (Join-Path $RuntimeDir 'runner-attempts') -Directory |
-        Where-Object { $_.Name -match '^[0-9a-f]{24}$' -and $_.FullName -ne $attemptDir } |
-        Sort-Object LastWriteTimeUtc -Descending | Select-Object -Skip ($MaxAttempts - 1))
-    foreach ($folder in $retired) { Remove-Item -LiteralPath $folder.FullName -Recurse -Force -ErrorAction SilentlyContinue }
+    Update-RunnerAttemptHistory -RuntimeDir $RuntimeDir -MaxAttempts $MaxAttempts -Confirm:$false
     return @{ recordPath = $recordPath; transcriptPath = $transcriptPath; attemptGeneration = $AttemptGeneration }
 }
 

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.14
+.VERSION 2026.10.18
 .GUID 428d5583-549b-428b-9150-dfe8fe3266a4
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -156,6 +156,11 @@ function Initialize-SequenceFailureStateStore {
     # when the wait gave up. The closing guard never ran, so the payload never
     # executed; that is what separates this from a script that ran and stalled.
     $Store['StepInputLost'] = $null
+    # Set by a GUI fetch whose guest launcher refused the typed envelope, from the
+    # launcher's own record: the YFE code, the length and SHA-256 it received and
+    # those that were typed, and whether a context was prepared. Every refusal
+    # comes before the payload runs. The last refusal of the step, or $null.
+    $Store['StepLauncherRejection'] = $null
     # Set by stopVm and startVm when the guest did not reach the stopped state
     # inside the step's deadline. A VM that ignores a shutdown request is not a
     # provisioning fault, and retrying the same wait cannot help it: the record
@@ -206,15 +211,21 @@ function Get-GuestProgressAdvisory {
     param(
         [Nullable[int]]$OutputStaticSeconds,
         [Nullable[int]]$HeartbeatAgeSeconds,
-        [ValidateSet('responsive','unresponsive','unavailable')][string]$SshResponsiveness = 'unavailable'
+        [ValidateSet('responsive','unresponsive','unavailable')][string]$SshResponsiveness = 'unavailable',
+        # Warning codes from the guest clock analysis of the step's recorder
+        # samples. A clock that jumped is independent evidence about the
+        # guest, never a stall signal on its own: it is listed, not scored.
+        [AllowEmptyCollection()][string[]]$ClockWarningCodes = @()
     )
     $static = $null -ne $OutputStaticSeconds -and $OutputStaticSeconds -ge 120
     $stale = $null -ne $HeartbeatAgeSeconds -and $HeartbeatAgeSeconds -ge 120
     $unresponsive = $SshResponsiveness -eq 'unresponsive'
+    [string[]]$clockAnomaly = @($ClockWarningCodes | Where-Object { $_ -and $_ -ne 'clock-evidence-incomplete' } | Select-Object -Unique)
     $signals = @()
     if ($static) { $signals += 'static-output' }
     if ($stale) { $signals += 'stale-recorder-heartbeat' }
     if ($unresponsive) { $signals += 'ssh-unresponsive' }
+    if ($clockAnomaly.Count) { $signals += 'guest-clock-anomaly' }
     $verdict = if (($static -and ($stale -or $unresponsive)) -or ($stale -and $unresponsive)) { 'progress-suspect' }
         elseif ($signals.Count) { 'insufficient-evidence' }
         elseif ($null -eq $OutputStaticSeconds -and $null -eq $HeartbeatAgeSeconds -and $SshResponsiveness -eq 'unavailable') { 'unavailable' }
@@ -222,6 +233,7 @@ function Get-GuestProgressAdvisory {
     [pscustomobject]@{
         verdict=$verdict; signals=$signals; outputStaticSeconds=$OutputStaticSeconds
         heartbeatAgeSeconds=$HeartbeatAgeSeconds; sshResponsiveness=$SshResponsiveness
+        clockWarnings=$clockAnomaly
         automaticRecoveryAllowed=$false
     }
 }
@@ -299,6 +311,15 @@ function New-SequenceFailureRecord {
     $vmStateRequestedAtUtc = if ($vmNotStopped) { [string]$vmNotStopped.requestedAtUtc } else { '' }
     $firstGuestSilenceUtc = if ($fail.FirstGuestSilenceUtc) { [string]$fail.FirstGuestSilenceUtc } else { '' }
     $firstGuestSilenceSource = if ($fail.FirstGuestSilenceSource) { [string]$fail.FirstGuestSilenceSource } else { '' }
+    $launcherRejection = if ($fail.StepLauncherRejection -is [System.Collections.IDictionary]) { [ordered]@{
+        code           = [string]$fail.StepLauncherRejection.code
+        attempt        = [int]$fail.StepLauncherRejection.attempt
+        receivedChars  = [int]$fail.StepLauncherRejection.receivedChars
+        expectedChars  = [int]$fail.StepLauncherRejection.expectedChars
+        receivedSha256 = [string]$fail.StepLauncherRejection.receivedSha256
+        expectedSha256 = [string]$fail.StepLauncherRejection.expectedSha256
+        payloadState   = [string]$fail.StepLauncherRejection.payloadState
+    } } else { $null }
     # Runtime cause signal (empty-array guard mirrors innerSuggestedRecoveries so
     # patternsSought never collapses to $null via the if-pipeline flatten).
     $ocrTail = if ($fail.WaitForTextOcrTail) { [string]$fail.WaitForTextOcrTail } else { '' }
@@ -604,6 +625,9 @@ function New-SequenceFailureRecord {
                     # answering, and which mechanism saw it. Empty when none did.
                     firstGuestSilenceUtc   = $firstGuestSilenceUtc
                     firstGuestSilenceSource = $firstGuestSilenceSource
+                    # The guest launcher's refusal of a typed GUI envelope, which
+                    # always precedes the payload. $null when it refused nothing.
+                    launcherRejection      = $launcherRejection
                 }
             }
         }
@@ -657,6 +681,7 @@ function New-SequenceFailureRecord {
         causeVmStateWaitedSeconds = $vmStateWaitedSeconds
         firstGuestSilenceUtc    = $firstGuestSilenceUtc
         firstGuestSilenceSource = $firstGuestSilenceSource
+        causeLauncherRejection  = if ($launcherRejection) { $launcherRejection.code } else { '' }
         progressAdvisory         = $progressAdvisory
         guestProcessorWindow    = if ($guestLivelock) { $guestLivelock.processorWindow } else { $null }
         reproCommand            = $reproCommand

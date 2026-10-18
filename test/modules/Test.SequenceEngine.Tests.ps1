@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.14
+.VERSION 2026.10.18
 .GUID 42b8bc4c-f5b0-463b-9fd9-76f8a65ee16f
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -894,6 +894,21 @@ Describe 'Wait-ForText records the hypervisor verdict and a blank console' {
         Invoke-ScriptedWait -Frames @('booting') -Livelock $running -TimeoutSeconds 3 -EndOnGuestLivelock | Should -BeFalse
         $clock.Elapsed.TotalSeconds | Should -BeGreaterOrEqual 2.5
         (Get-ProbeFailSlot 'WaitForTextGuestLivelocked') | Should -BeFalse
+    }
+    It 'records the hypervisor verdict when a failure pattern ends the wait' {
+        $running = [pscustomobject]@{ Verdict = 'not-livelocked'; LivelockedSeconds = 0; Detail = 'running'; ProcessorWindow = @{ StormedProcessors = @('1') } }
+        & (Get-Module Test.SequenceEngine) { param($d, $f, $l) Reset-LivelockProbeState -ScreenDir $d -Frames $f -Livelock $l } `
+            $script:probeDir @('NONZERO SCRIPT EXIT: guest/shared/ubuntu.k8s.sh (exit 1)') $running
+        Clear-CarriedConsoleBaseline
+        $before = [DateTime]::UtcNow
+        Wait-ForText -VMName 'vm-01' -Pattern @('FETCHED AND EXECUTED:') -FailurePattern @('NONZERO SCRIPT EXIT:') -TimeoutSeconds 20 -PollSeconds 1 `
+            -WarningAction SilentlyContinue -InformationAction SilentlyContinue | Should -BeFalse
+        (Get-ProbeFailSlot 'WaitForTextMatchedFailurePattern') | Should -Be 'NONZERO SCRIPT EXIT:'
+        (Get-ProbeFailSlot 'WaitForTextGuestLivelocked') | Should -BeFalse
+        @((Get-ProbeFailSlot 'WaitForTextGuestLivelock').ProcessorWindow.StormedProcessors) | Should -Be @('1') `
+            -Because 'a script that gave up on the console still carries the processor window of its wait'
+        & (Get-Module Test.SequenceEngine) { $script:TextProbe.VerdictReads } | Should -Be 1
+        & (Get-Module Test.SequenceEngine) { $script:TextProbe.Since } | Should -BeGreaterOrEqual $before -Because 'the pattern path judges the readings of this wait'
     }
     It 'records how long the console read blank and what it was seeking' {
         Invoke-ScriptedWait -Frames @('') -Livelock $null -TimeoutSeconds 3 | Should -BeFalse

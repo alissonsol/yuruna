@@ -7,10 +7,10 @@
   },
   "totals": {
     "domains": 16,
-    "files": 545,
-    "candidates": 7805,
-    "fragments": 1763,
-    "catalogCalls": 5419,
+    "files": 547,
+    "candidates": 7955,
+    "fragments": 1796,
+    "catalogCalls": 5433,
     "pages": 15,
     "markdown": 125,
     "yamlFields": 178
@@ -60,7 +60,7 @@
       "repository": "yuruna",
       "present": true,
       "files": 6,
-      "candidates": 579,
+      "candidates": 590,
       "fragments": 185,
       "catalogCalls": 89,
       "pages": 5,
@@ -69,11 +69,11 @@
       "topFiles": [
         {
           "file": "test/status/pt-BR.status.js",
-          "candidates": 280
+          "candidates": 286
         },
         {
           "file": "test/status/yuruna.common.js",
-          "candidates": 270
+          "candidates": 275
         },
         {
           "file": "test/status/he-IL.status.js",
@@ -128,7 +128,7 @@
       "repository": "yuruna",
       "present": true,
       "files": 47,
-      "candidates": 929,
+      "candidates": 935,
       "fragments": 327,
       "catalogCalls": 198,
       "pages": 5,
@@ -137,7 +137,7 @@
       "topFiles": [
         {
           "file": "test/extension/pool-control-service/server/internal/httpsrv/web/assets/pt-BR.pool.js",
-          "candidates": 528
+          "candidates": 534
         },
         {
           "file": "test/extension/pool-control-service/server/internal/httpsrv/web/assets/common.js",
@@ -162,7 +162,7 @@
       "repository": "yuruna",
       "present": true,
       "files": 50,
-      "candidates": 656,
+      "candidates": 662,
       "fragments": 142,
       "catalogCalls": 66,
       "pages": 3,
@@ -171,7 +171,7 @@
       "topFiles": [
         {
           "file": "test/extension/stash-service/server/internal/httpsrv/web/assets/pt-BR.stash.js",
-          "candidates": 343
+          "candidates": 349
         },
         {
           "file": "test/extension/stash-service/server/internal/httpsrv/web/assets/common.js",
@@ -196,7 +196,7 @@
       "repository": "yuruna",
       "present": true,
       "files": 43,
-      "candidates": 556,
+      "candidates": 562,
       "fragments": 158,
       "catalogCalls": 79,
       "pages": 2,
@@ -205,7 +205,7 @@
       "topFiles": [
         {
           "file": "test/extension/download-agent-service/server/internal/httpsrv/web/assets/pt-BR.download.js",
-          "candidates": 345
+          "candidates": 351
         },
         {
           "file": "test/extension/download-agent-service/server/internal/httpsrv/web/assets/common.js",
@@ -298,7 +298,7 @@
       "repository": "yuruna",
       "present": true,
       "files": 30,
-      "candidates": 316,
+      "candidates": 321,
       "fragments": 82,
       "catalogCalls": 12,
       "pages": 0,
@@ -307,7 +307,7 @@
       "topFiles": [
         {
           "file": "test/extension/extension-sdk/webui/assets/yuruna.core.js",
-          "candidates": 251
+          "candidates": 256
         },
         {
           "file": "test/extension/extension-sdk/i18n/message.go",
@@ -349,33 +349,33 @@
       "domain": "runner",
       "repository": "yuruna",
       "present": true,
-      "files": 130,
-      "candidates": 1962,
-      "fragments": 294,
-      "catalogCalls": 2359,
+      "files": 132,
+      "candidates": 2013,
+      "fragments": 306,
+      "catalogCalls": 2369,
       "pages": 0,
       "markdown": 1,
       "yamlFields": 0,
       "topFiles": [
         {
+          "file": "test/modules/Test.SequenceHandler.psm1",
+          "candidates": 108
+        },
+        {
           "file": "test/modules/Test.Ssh.psm1",
           "candidates": 108
         },
         {
-          "file": "test/modules/Test.SequenceHandler.psm1",
-          "candidates": 107
+          "file": "test/modules/Test.Diagnostic.psm1",
+          "candidates": 90
         },
         {
-          "file": "test/modules/Test.Diagnostic.psm1",
-          "candidates": 87
+          "file": "test/modules/Test.RunnerInnerLoop.psm1",
+          "candidates": 89
         },
         {
           "file": "test/modules/Test.HostCondition.Mac.psm1",
           "candidates": 86
-        },
-        {
-          "file": "test/modules/Test.CachingProxyService.psm1",
-          "candidates": 83
         }
       ]
     },
@@ -384,16 +384,16 @@
       "repository": "yuruna",
       "present": true,
       "files": 83,
-      "candidates": 764,
-      "fragments": 105,
-      "catalogCalls": 1725,
+      "candidates": 805,
+      "fragments": 121,
+      "catalogCalls": 1727,
       "pages": 0,
       "markdown": 28,
       "yamlFields": 0,
       "topFiles": [
         {
           "file": "host/windows.hyper-v/modules/Yuruna.Host.psm1",
-          "candidates": 133
+          "candidates": 166
         },
         {
           "file": "host/ubuntu.kvm/modules/Yuruna.Host.psm1",
@@ -401,7 +401,7 @@
         },
         {
           "file": "host/macos.utm/modules/Yuruna.Host.psm1",
-          "candidates": 105
+          "candidates": 112
         },
         {
           "file": "host/modules/Yuruna.DownloadAgent.psm1",
@@ -418,20 +418,20 @@
       "repository": "yuruna",
       "present": true,
       "files": 39,
-      "candidates": 340,
+      "candidates": 353,
       "fragments": 16,
-      "catalogCalls": 667,
+      "catalogCalls": 669,
       "pages": 0,
       "markdown": 0,
       "yamlFields": 0,
       "topFiles": [
         {
           "file": "automation/Get-SystemDiagnostic.ps1",
-          "candidates": 88
+          "candidates": 89
         },
         {
           "file": "automation/Yuruna.Common.psm1",
-          "candidates": 55
+          "candidates": 64
         },
         {
           "file": "automation/Yuruna.Validation.psm1",
@@ -452,8 +452,8 @@
       "repository": "yuruna",
       "present": true,
       "files": 5,
-      "candidates": 526,
-      "fragments": 125,
+      "candidates": 537,
+      "fragments": 130,
       "catalogCalls": 84,
       "pages": 0,
       "markdown": 8,
@@ -461,11 +461,11 @@
       "topFiles": [
         {
           "file": "install/windows.hyper-v.ps1",
-          "candidates": 253
+          "candidates": 261
         },
         {
           "file": "install/setup.ps1",
-          "candidates": 186
+          "candidates": 189
         },
         {
           "file": "guest/windows.11/windows.11.update.ps1",

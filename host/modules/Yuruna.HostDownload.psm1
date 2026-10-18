@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.14
+.VERSION 2026.10.18
 .GUID 42d93b11-69e5-4250-b84e-294562b68efd
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -246,7 +246,10 @@ function Get-CacheProxyForHostDownload {
         return $null
     }
     $caUrl = "http://${cacheHost}/yuruna-squid-ca.crt"
-    $caPem = Join-Path ([System.IO.Path]::GetTempPath()) 'yuruna-squid-ca.pem'
+    # One file per call, removed by the caller once the download is done: a
+    # shared fixed name would be deleted under a concurrent download, and kept
+    # for good otherwise.
+    $caPem = Join-Path ([System.IO.Path]::GetTempPath()) ('yuruna-squid-ca-' + [Guid]::NewGuid().ToString('N') + '.pem')
     try {
         # Retry the CA fetch on a transient blip: a single failed fetch here otherwise drops the
         # guest to a bumped-but-untrusted chain (empty-CA class) with no HTTPS fallback.
@@ -255,6 +258,7 @@ function Get-CacheProxyForHostDownload {
         }
     } catch {
         Write-Verbose "Get-CacheProxyForHostDownload: CA fetch from $caUrl failed after retries: $($_.Exception.Message); HTTPS goes direct."
+        Remove-Item -LiteralPath $caPem -Force -ErrorAction SilentlyContinue
         return $null
     }
     return @{ Proxy = "http://${cacheHost}:${httpsPort}"; CaPemPath = $caPem }
@@ -291,7 +295,11 @@ function Save-CachedHttpUri {
         return
     }
     Write-Information (Format-YurunaOperatorMessage -Key 'host.operator_103c960e4cbdd8a2' -Arguments @{ proxy = "$($cfg.Proxy)"; caPemPath = "$($cfg.CaPemPath)" }) -InformationAction Continue
-    Invoke-HttpsViaSquidBump -Uri $Uri -OutFile $OutFile -ProxyUrl $cfg.Proxy -CaPemPath $cfg.CaPemPath
+    try {
+        Invoke-HttpsViaSquidBump -Uri $Uri -OutFile $OutFile -ProxyUrl $cfg.Proxy -CaPemPath $cfg.CaPemPath
+    } finally {
+        Remove-Item -LiteralPath $cfg.CaPemPath -Force -ErrorAction SilentlyContinue
+    }
 }
 
 function Get-SquidBumpCertValidator {
@@ -305,9 +313,8 @@ function Get-SquidBumpCertValidator {
         invokes ServerCertificateCustomValidationCallback on a TLS worker
         thread that has no PowerShell runspace: a scriptblock there throws
         "There is no Runspace available to run scripts in this thread" and
-        fails every handshake. See feedback_scriptblock_timer_callback.md. The
-        type compiles once per process (guarded) and is idempotent across
-        -Force module re-imports.
+        fails every handshake. The type compiles once per process (guarded)
+        and is idempotent across -Force module re-imports.
     #>
     [CmdletBinding()]
     param([Parameter(Mandatory)][System.Security.Cryptography.X509Certificates.X509Certificate2]$ExtraCa)

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.14
+.VERSION 2026.10.18
 .GUID 424f40c7-7c46-41e1-bd5e-d9b72a02a026
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -123,7 +123,7 @@ function Test-StashServiceHost {
         first attempt warms ARP and wakes the radio; a follow-up answers in
         milliseconds. A wired host passes on attempt 1 so the retries cost
         nothing there, and a stash that is genuinely down misses every
-        attempt. See feedback_wifi-connect-timeout-tail.md.
+        attempt.
 
         -NoProxy is deliberate: the stash sits on the lab LAN and the host
         may have a caching-proxy service in its environment that would neither reach

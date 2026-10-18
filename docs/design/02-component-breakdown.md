@@ -145,8 +145,16 @@ sequence process. Each cycle starts with the Test-Config gate; its verdict and
 transcript are kept per attempt, so the outer runner separates gate refusals
 from watchdog kills and unexpected exits. The runner and status service repair
 private startup state before they start. These are processes on the host, rather
-than additional network services. The watchdog follows the cycle heartbeat; OCR
-and guest diagnostics supply sequence evidence. `startVm` and `stopVm` observe
+than additional network services. The watchdog follows the step heartbeat; OCR
+and guest diagnostics supply sequence evidence. Sequence execution also includes
+[Test.Transport](../../test/modules/Test.Transport.psm1) for console input and
+[Test.SequenceFailureState](../../test/modules/Test.SequenceFailureState.psm1)
+for shared failure evidence. `fetchAndExecute` records envelope transfer details;
+it retypes a damaged compact envelope once only when the guest confirms that the
+payload was not prepared. The guest-side verifier is
+[yuruna-fetch-context.sh](../../automation/yuruna-fetch-context.sh), in the shared
+helpers family. [Data flows](03-data-flows.md) follows this exchange.
+`startVm` and `stopVm` observe
 VM state through the host driver and save console evidence when a guest stops
 answering. The host status listener also runs when testing is idle. The
 caching-proxy launcher starts the host status and configuration services through
@@ -301,8 +309,12 @@ Sources:
 [tools/](../../tools/).
 
 Seven boxes group related libraries and assets. Common and variables include
-host, network, bounded-process, and canonical-path helpers, YAML loading, and
-variable expansion. Guest shell helpers group the scripts that guest seeds and
+host, network, bounded-process, process-identity, PID-file lock, and canonical-path
+helpers, YAML loading, and variable expansion. The PID-file lock implementation
+in Yuruna.Common is shared by the
+[pool-storage drain](../../test/modules/Test.PoolStorage.psm1) and
+[pool push forwarder](../../test/modules/Invoke-PoolPushForwarder.ps1).
+Guest shell helpers group the scripts that guest seeds and
 guest scripts install or source: fetch-and-execute.sh, yuruna-fetch-context.sh,
 yuruna-retry.sh, yuruna-run.sh, yuruna-network.sh, yuruna-versions.sh,
 yuruna-service-bringup.sh, the yuruna-host-locate pair, Test-YurunaHost.ps1, and

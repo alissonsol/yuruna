@@ -29,8 +29,7 @@ se sobrepõem às exportações de mesmo nome produzidas pelos módulos de apoio
 Esses módulos de dependência são importados com -Global: Yuruna.Host é reimportado
 com -Force no meio do ciclo, e uma importação simples com -Force aqui entra no
 escopo aninhado de Yuruna.Host e REMOVE a cópia global que outros módulos chamam
-por nomes qualificados (por exemplo, Test.Ssh\Invoke-GuestSsh) --
-feedback_module_force_import_evicts_global.
+por nomes qualificados (por exemplo, Test.Ssh\Invoke-GuestSsh).
 
 `Resolve-HostTag` também protege referências a funções mantidas após uma
 reimportação forçada remover o estado do módulo original. Um `$script:HostTag`
@@ -185,9 +184,7 @@ Aplica-se a:
 
 Importe uma vez e reutilize, como Send-Key abaixo. Reimportar com -Force em
 cada chamada remove o Invoke-Sequence global (e seus módulos aninhados +
-estado $script:) que o laço externo ainda chama
-(feedback_module_force_import_evicts_global,
-feedback_module_script_state_reset_by_force_reimport). Pagar esse custo em
+estado $script:) que o laço externo ainda chama. Pagar esse custo em
 cada tecla vai além da sobrecarga: isso altera repetidamente o estado do
 módulo do qual se lê o argumento -HostType deste próprio driver; assim,
 o ato de digitar pode desabilitar as teclas seguintes.
@@ -1235,7 +1232,7 @@ uma maneira de suprimi-la (é uma verificação de segurança deliberada), porta
 watchdog osascript que Start-UtmVM usa no caminho de Start-TestRunner.
 Garanta que o módulo de hospedeiro do macOS (que exporta o watchdog) esteja carregado --
 Get-Image / New-VM das Etapas 2/3 executam importações com -Force que podem remover a
-cópia carregada pela Etapa 1 (feedback_module_force_import_evicts_global); somente
+cópia carregada pela Etapa 1; somente
 reimporte quando a função realmente estiver ausente para não provocar
 uma sequência desnecessária de importações aninhadas.
 

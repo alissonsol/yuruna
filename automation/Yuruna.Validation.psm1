@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.14
+.VERSION 2026.10.18
 .GUID 42424ce3-9435-4785-bfcc-3963c111d3a3
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -27,13 +27,13 @@ Import-Module -Name $modulePath
 Import-Module (Join-Path $PSScriptRoot 'Yuruna.VariableExpansion.psm1') -Global -Force
 # Shared deployment-kind catalog: Confirm-WorkloadList resolves the
 # effective kind and the kinds phrase from it so detection and the error
-# text can't diverge from Publish-WorkloadList. -Global -Force per
-# feedback_module_force_import_evicts_global.md.
+# text can't diverge from Publish-WorkloadList. -Global -Force so the import
+# does not evict an instance another module loaded.
 Import-Module (Join-Path $PSScriptRoot 'Yuruna.DeploymentKind.psm1') -Global -Force
 # New-YurunaValidationResult decorates a boxed [bool] with a Reason so the
 # actionable failure pointer travels with the pass/fail decision instead of
 # reaching only Write-Information (silenced at Error/Warning). -Global -Force
-# per feedback_module_force_import_evicts_global.md.
+# so the import does not evict an instance another module loaded.
 Import-Module (Join-Path $PSScriptRoot 'Yuruna.Result.psm1') -Global -Force
 
 function Confirm-FolderList {

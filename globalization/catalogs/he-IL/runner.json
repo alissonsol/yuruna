@@ -7,6 +7,11 @@
       "sourceHash": "dfe83cd8b5988a985ad32d3947c60f072b424ac48d11494c12c7912154e72816",
       "message": "ניסיון ההרצה הסתיים עם הקוד {exitCode} משום שאימות התצורה נכשל. לא התחיל מחזור בדיקה חדש. יש לתקן את התצורה לפני ניסיון נוסף."
     },
+    "runner.config_value_replaced": {
+      "sourceHash": "a551b4f33b38d1775b7f5c91f0a0e4b558431ed6cfcc68bcb7aea19927aa8c21",
+      "origin": "machine",
+      "message": "test.config.yml: {path}: {previous} -> {current}. שכבת התבנית חייבת לשמור על כל ערך שהגדרתם, ולכן החלפה זו היא פגם בשכבת התבנית ולא שינוי סכמה; שחזרו את הערך הקודם ידנית אם לא היה מכוון ודווחו על הפגם."
+    },
     "runner.config_naming_backup": {
       "sourceHash": "09b1dd67cd409cdf44458eb072bee871b6590426666cf45beaf0244417b75b5e",
       "message": "גיבוי התצורה אל {backupPath}"
@@ -1358,6 +1363,21 @@
       "sourceHash": "bc36feced9b8767e30f1ce1dc9501536787c5aabdd7e3a278a23356a939cfb48",
       "origin": "machine",
       "message": "לא ניתן היה לתעד ממצאי רענון מארח עבור מחזור זה ({reason}); רענון המארח האוטומטי לא יספור אותו."
+    },
+    "runner.host_refresh_hung_hypervisor_manual_hyperv": {
+      "sourceHash": "d0f883d700be2047f7ef7bd3d0b63d4b9bdf75e6db03fff878a8e68797b09322",
+      "origin": "machine",
+      "message": "ערוץ הבקרה של מנהל המכונות הווירטואליות תקוע, ואף דרגה זמינה אינה מתקנת זאת במארח זה. הפעילו מחדש את שירות הניהול של Hyper-V ממסוף מוגבה (Restart-Service vmms) או אתחלו את המארח ידנית, ואז המשיכו באמצעות: pwsh test⁦/lab/Invoke-HostRefresh.ps1⁩ ⁦-Resume⁩. המשך ללא התיקון הזה רק חוזר על הבדיקה ומנצל אחד מהניסיונות המוגבלים."
+    },
+    "runner.host_refresh_hung_hypervisor_manual_kvm": {
+      "sourceHash": "ec779be2fc6140bc1745e56047085014ee51fda9634cc2fff36644c4b0a3abcf",
+      "origin": "machine",
+      "message": "ערוץ הבקרה של מנהל המכונות הווירטואליות תקוע, ואף דרגה זמינה אינה מתקנת זאת במארח זה. הפעילו מחדש את תהליכי libvirt (sudo systemctl restart libvirtd) או אתחלו את המארח ידנית, ואז המשיכו באמצעות: pwsh test⁦/lab/Invoke-HostRefresh.ps1⁩ ⁦-Resume⁩. המשך ללא התיקון הזה רק חוזר על הבדיקה ומנצל אחד מהניסיונות המוגבלים."
+    },
+    "runner.host_refresh_hung_hypervisor_manual_utm": {
+      "sourceHash": "b62363d5ef3d6b25b7f4fb44a216c8fd6c41528161c124fe89ace2172b51e69a",
+      "origin": "machine",
+      "message": "ערוץ הבקרה של מנהל המכונות הווירטואליות תקוע, ואף דרגה זמינה אינה מתקנת זאת במארח זה. סגרו ופתחו מחדש את UTM מהפעלת שולחן העבודה המחוברת או אתחלו את המארח ידנית, ואז המשיכו באמצעות: pwsh test⁦/lab/Invoke-HostRefresh.ps1⁩ ⁦-Resume⁩. המשך ללא התיקון הזה רק חוזר על הבדיקה ומנצל אחד מהניסיונות המוגבלים."
     },
     "runner.host_refresh_identity_refused": {
       "sourceHash": "303d0b942cd0597006c24c2486e537855d4dfe86e615175773cb7603ab4e3f5d",
@@ -6553,6 +6573,16 @@
       "sourceHash": "dc3a2a7e2754b6f3dcfdd855a77cdb8fc9cda1d62aff713d484006bdd301859c",
       "origin": "machine",
       "message": "פעולת המארח '{name}' הסתיימה בקוד {exit}"
+    },
+    "runner.host_action_exit_detail": {
+      "sourceHash": "fadc85358a52a26851580ffee0c30777bfd00295096579ae5f2d28886205c58c",
+      "origin": "machine",
+      "message": "פעולת המארח '{name}' הסתיימה בקוד {exit}: {detail}"
+    },
+    "runner.hypervisor_control_unresponsive": {
+      "sourceHash": "b5f2ec70194e82421f3e78f0a136a0ab08380fffb0c05e592743c785a0e72083",
+      "origin": "machine",
+      "message": "ערוץ הבקרה של ההיפרווייזר במארח זה עונה לשאילתות מצב אך אינו מבצע עוד בקשות מחזור חיים (בדיקה {state}/{reason}; פועל מחזור חיים: {lifecycle}). המחזור נעצר לפני שהוא בונה דבר, משום שכל הפעלה ועצירה של מכונה וירטואלית הייתה ממתינה עד תום פסק הזמן שלה. הפעילו מחדש את יישום ההיפרווייזר במארח זה (ב-macOS צאו מ-⁦UTM.app⁩ מתוך הפעלת שולחן העבודה, או הריצו ⁦test/lab/Invoke-HostRefresh.ps1⁩), ואז חדשו את פעולת המריץ."
     },
     "runner.operator_8da15c4079305665": {
       "sourceHash": "14e9a0a5d3e5397c33edbedd8998d73d81945848abc7e1c86306057a24118e65",
@@ -12258,6 +12288,16 @@
       "origin": "machine",
       "message": "[מחזור חיצוני {cycle}] שער רענון המארח שחרר את המריץ; המחזורים מתחדשים."
     },
+    "runner.refresh_gate_status_ensure_failed": {
+      "sourceHash": "c76a02fb744af2f0e7cbe0561314fa97357f9f40c31c515689b7d4f4a3ea97f3",
+      "origin": "machine",
+      "message": "Start-TestRunner: לא ניתן היה להפעיל את status-service בזמן שהשער חוסם: {message}"
+    },
+    "runner.refresh_gate_status_ensured": {
+      "sourceHash": "ad018593fe728b9fbe51e904f36639753a91b2cf11b46159e72f0455d3eacc59",
+      "origin": "machine",
+      "message": "Start-TestRunner: לרענון המארח {requestId} אין תהליך עבודה פעיל; status-service הופעל ביציאה {port} כדי שלוח המחוונים שלו יוכל להציג ולחדש את הבקשה שטרם נפתרה. הפעלת המריץ נשארת מסורבת עד שהבקשה תיפתר."
+    },
     "runner.refresh_gate_unreadable": {
       "sourceHash": "66a416c9396bfbcf7a1780fa9415735f23af29722e9489863b6188151a89b797",
       "origin": "machine",
@@ -12347,6 +12387,11 @@
       "sourceHash": "18397e0114c985bd7ae7be63221704b0d73e1ccfeecf446bf90c183f17669570",
       "origin": "machine",
       "message": "המחזור הסתיים לפני {site}: רענון המארח {requestId} חוסם מארח זה (שער {state}). דבר לא השתנה; המריץ ממתין לרענון."
+    },
+    "runner.refresh_status_ensure_orphaned": {
+      "sourceHash": "74450959460dac475ed385451c4b0c4e988a49325f816ce0ad60abdf246ab116",
+      "origin": "machine",
+      "message": "[מחזור חיצוני {cycle}] רענון המארח {requestId} חוסם את המריץ (שער {state}) ותהליך העבודה שלו אינו פועל עוד; מבטיחים מחדש את status-service כדי שלוח המחוונים שלו יוכל להציג ולחדש את הבקשה שטרם נפתרה."
     },
     "runner.refresh_status_ensure_skipped": {
       "sourceHash": "f6cf77a5a4e0f12d6e25ba8a955f38017750097e14e1a0f8631bb7d08b9f7da3",
@@ -14612,6 +14657,21 @@
       "message": "לבקש כיבוי של האורח דרך מנהל ההתקן של המארח ולהמתין עד שה-VM ידווח שנעצר",
       "origin": "machine",
       "sourceHash": "6b613cda17e48d3b6d5d324a2cd9ef816a8b7c71a914b34e65d94a4139497414"
+    },
+    "runner.temp_housekeeping_removed": {
+      "sourceHash": "dff696c2c9e5dbae75ba8fc331f0db460530cea23e41d0e41475c6a630859bac",
+      "origin": "machine",
+      "message": "ניקוי הקבצים הזמניים ({sweep}) הסיר {removed} פריטים שנותרו מ-{roots}."
+    },
+    "runner.preflight_tcp_failed": {
+      "sourceHash": "312a9aa9414442c95e7316cc8b7e16098594a35642f323b78bb48503a9ea1f39",
+      "message": "חיבור TCP אל {hostName}:{port} נכשל לאחר {attemptCount} ניסיונות: {outcome}. יש לעיין באבחון הרשת עבור כל הניסיונות.",
+      "origin": "machine"
+    },
+    "runner.preflight_network_diagnostics": {
+      "sourceHash": "de8bb1cd8c3782c6541cc40b17ea18cce988b08c975f74f0da56be69685895ad",
+      "message": "אבחון רשת: {diagnostics}",
+      "origin": "machine"
     }
   }
 }

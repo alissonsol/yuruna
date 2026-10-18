@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.14
+.VERSION 2026.10.18
 .GUID 42ba21e6-945f-48b7-aacb-cdc136e03c30
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -110,7 +110,7 @@ function Get-TestGuid {
 
 function Get-PsInfoText {
     param([string]$Guid = (Get-TestGuid), [switch]$NoGuid, [switch]$NoCopyright, [switch]$NoPointer)
-    $lines = @('<#PSScriptInfo', '.VERSION 2026.10.14')
+    $lines = @('<#PSScriptInfo', '.VERSION 2026.10.18')
     if (-not $NoGuid) { $lines += ".GUID $Guid" }
     $lines += '.AUTHOR Alisson Sol et al.'
     if (-not $NoCopyright) { $lines += '.COPYRIGHT (c) 2019-2026 by Alisson Sol et al.' }
@@ -657,6 +657,19 @@ Describe 'the whole-tree report' {
         Write-FixtureFile -Repository $r -Path 'a.sh' -Text ("#!/bin/sh`n" + (Get-HeaderText -Style 'hash'))
         $after = Invoke-MetadataGate -Argument @('-All', '-FailOnDebt', '-Root', $r, '-ExemptionsPath', $script:NoExemption)
         Assert-Equal -Expected 0 -Actual $after.Code -Because $after.Output
+    }
+
+    It 'checks an extensionless script whose whole content is its shebang line, staged and tracked' {
+        # One line and no trailing newline is the one head that holds a single
+        # line; its first line must still be the line, not its first character.
+        $r = New-FixtureRepository -Name 'shebang-only'
+        Write-FixtureFile -Repository $r -Path 'run-me' -Text '#!/bin/sh'
+        Add-FixtureStage -Repository $r
+        $staged = Invoke-MetadataGate -Argument @('-Staged', '-Root', $r, '-ExemptionsPath', $script:NoExemption)
+        Assert-True (Test-Flagged -Output $staged.Output -Path 'run-me' -Rule 'copyright') $staged.Output
+        Save-FixtureCommit -Repository $r
+        $tracked = Invoke-MetadataGate -Argument @('-All', '-Detail', '-Root', $r, '-ExemptionsPath', $script:NoExemption)
+        Assert-True (Test-Flagged -Output $tracked.Output -Path 'run-me' -Rule 'copyright' -Label 'GAP') $tracked.Output
     }
 
     It 'compares GUIDs across the repositories it is given' {

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.14
+.VERSION 2026.10.18
 .GUID 424d0135-9a4f-40da-a735-010d52f5a269
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -270,7 +270,7 @@ Describe 'The POSIX launcher body' {
 
 Describe 'Get-YurunaDetachProcessIdentity bounds its ps by the caller''s deadline (macOS shape, stand-in)' {
     It 'passes the deadline to ps, and skips ps once the deadline is spent' {
-        Mock -ModuleName Test.InnerSpawn Get-YurunaDetachPlatform { 'MacOS' }
+        Mock -ModuleName Test.InnerSpawn Get-YurunaIdentityPlatform { 'MacOS' }
         $script:PsCalls = [System.Collections.Generic.List[object]]::new()
         Mock -ModuleName Test.InnerSpawn Invoke-BoundedNativeCommand {
             $script:PsCalls.Add([pscustomobject]@{ TimeoutSeconds = $TimeoutSeconds; HasDeadline = ($null -ne $Deadline) })

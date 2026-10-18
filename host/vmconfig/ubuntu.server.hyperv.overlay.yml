@@ -17,11 +17,15 @@
           name: "en*"
         dhcp4: true
         dhcp-identifier: mac
+        # netplan renders this as networkd KeepConfiguration=, which installs the DHCP address with an infinite kernel lifetime so a guest clock anomaly cannot expire it while the lease is valid.
+        critical: true
       yuruna-eth:
         match:
           name: "eth*"
         dhcp4: true
         dhcp-identifier: mac
+        # netplan renders this as networkd KeepConfiguration=, which installs the DHCP address with an infinite kernel lifetime so a guest clock anomaly cannot expire it while the lease is valid.
+        critical: true
 # === YURUNA_OVERLAY_EARLY_COMMANDS ===
   # --- REGION: early-commands
   early-commands:
@@ -37,27 +41,35 @@
     # forwards every level there, so the serial log carries the guest's own
     # account of a silence that leaves SSH and the console unanswered, while
     # the framebuffer console the OCR reads stays quiet. A guest without a
-    # serial port logs one journald warning and nothing else.
+    # serial port logs one journald warning and nothing else. The device name
+    # follows the guest architecture: Hyper-V's COM port is a 16550 UART,
+    # ttyS0, on x64, and an SBSA PL011 UART, ttyAMA0, on ARM64, where no ttyS0
+    # exists and a console pointed at it leaves the host reader at 0 bytes.
+    # The installer kernel already runs the target's architecture, so uname
+    # decides here, and the heredoc stays unquoted so $tty expands.
     - |
-      cat > /target/etc/systemd/journald.conf.d/70-yuruna-serial.conf << 'EOF'
+      tty=ttyS0; [ "$(uname -m)" = aarch64 ] && tty=ttyAMA0
+      cat > /target/etc/systemd/journald.conf.d/70-yuruna-serial.conf << EOF
       # --- REGION: [Journal]
       [Journal]
       ForwardToConsole=yes
-      TTYPath=/dev/ttyS0
+      TTYPath=/dev/$tty
       MaxLevelConsole=debug
       EOF
       chmod 0644 /target/etc/systemd/journald.conf.d/70-yuruna-serial.conf
 # === YURUNA_OVERLAY_GRUB_PRE_CONSOLE_QUIET ===
     # --- REGION: https://yuruna.link/42e220c4-0007
     # The kernel's early boot and panic output reach COM1 only through a
-    # console= argument. tty0 stays last, so it remains the primary console
-    # and the framebuffer the OCR reads is unchanged; the quiet loglevel that
-    # follows applies to both, and journald's forwarding above carries the
-    # rest to the serial port.
+    # console= argument naming the UART this platform has (ttyS0 on x64, the
+    # PL011 ttyAMA0 on ARM64; see the journald drop-in above). tty0 stays
+    # last, so it remains the primary console and the framebuffer the OCR
+    # reads is unchanged; the quiet loglevel that follows applies to both,
+    # and journald's forwarding above carries the rest to the serial port.
+    # printf with a single-quoted format keeps ${GRUB_CMDLINE_LINUX_DEFAULT}
+    # literal for GRUB while the %s takes the device chosen here.
     - |
-      cat > /target/etc/default/grub.d/98-yuruna-serial.cfg << 'GRUBCFG'
-      GRUB_CMDLINE_LINUX_DEFAULT="${GRUB_CMDLINE_LINUX_DEFAULT} console=ttyS0,115200n8 console=tty0"
-      GRUBCFG
+      tty=ttyS0; [ "$(uname -m)" = aarch64 ] && tty=ttyAMA0
+      printf 'GRUB_CMDLINE_LINUX_DEFAULT="${GRUB_CMDLINE_LINUX_DEFAULT} console=%s,115200n8 console=tty0"\n' "$tty" > /target/etc/default/grub.d/98-yuruna-serial.cfg
     # --- REGION: https://yuruna.link/429f3d06-001e
     - |
       mkdir -p /target/etc/dpkg/dpkg.cfg.d

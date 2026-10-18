@@ -374,17 +374,18 @@ func TestHandoverDashboardGroupsRetiredCycleCounts(t *testing.T) {
 	}
 	provisioned = provisioned[start:]
 	start = strings.Index(provisioned, "    content: |\n")
-	end := strings.Index(provisioned, "\n  # See https://yuruna.link/429f3d06-0056")
-	if start < 0 || end < 0 {
+	if start < 0 {
 		t.Fatal("provisioned pool dashboard boundaries changed")
 	}
-	provisioned = provisioned[start+len("    content: |\n") : end]
-	lines := strings.Split(provisioned, "\n")
-	for i, line := range lines {
+	provisioned = provisioned[start+len("    content: |\n"):]
+	var lines []string
+	// YAML indentation bounds the literal; adjacent documentation can change
+	// without changing which dashboard is provisioned.
+	for _, line := range strings.Split(provisioned, "\n") {
 		if !strings.HasPrefix(line, "      ") {
-			t.Fatalf("dashboard line %d has unexpected indentation", i+1)
+			break
 		}
-		lines[i] = strings.TrimPrefix(line, "      ")
+		lines = append(lines, strings.TrimPrefix(line, "      "))
 	}
 	var canonicalJSON, provisionedJSON any
 	if err := json.Unmarshal(raw, &canonicalJSON); err != nil {

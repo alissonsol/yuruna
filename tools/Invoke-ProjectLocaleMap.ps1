@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.14
+.VERSION 2026.10.18
 .GUID 42d9c4d7-98cf-45ca-b32b-026a805da91a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -85,6 +85,24 @@ if (-not (Get-Command ConvertFrom-Yaml -ErrorAction SilentlyContinue)) {
     catch {
         Write-Output 'Invoke-ProjectLocaleMap: powershell-yaml is unavailable; project YAML cannot be validated.'
         exit 2
+    }
+}
+# The schema reporter is shared with the catalog compiler through the exchange
+# module and names a violation on every PowerShell. A tree that carries this
+# tool without the module keeps Test-Json's own answer, which on PowerShell
+# 7.6.7 omits the location of a violation nested below the first level.
+$exchangeModule = Join-Path $RepoRoot 'test/modules/Test.LocalizationExchange.psm1'
+if (Test-Path -LiteralPath $exchangeModule) {
+    Import-Module $exchangeModule -DisableNameChecking
+} else {
+    function Get-YurunaJsonSchemaError {
+        param([Parameter(Mandatory)][string]$Json, [Parameter(Mandatory)][string]$SchemaFile)
+        $reported = $null
+        try {
+            if (Test-Json -Json $Json -SchemaFile $SchemaFile -ErrorAction SilentlyContinue -ErrorVariable reported) { return $null }
+        } catch { return [string]$_.Exception.Message }
+        if (@($reported).Count -gt 0) { return [string]$reported[0].Exception.Message }
+        return 'The JSON is not valid with the schema, and this PowerShell reported no location for the violation.'
     }
 }
 
@@ -279,9 +297,8 @@ function Add-NormalizedMap {
     }
     try {
         $json = $record | ConvertTo-Json -Depth 10 -Compress
-        if (-not (Test-Json -Json $json -SchemaFile $mapSchema -ErrorAction Stop)) {
-            Add-MapFinding "$label does not satisfy project-locale-map.schema.json"
-        }
+        $schemaError = Get-YurunaJsonSchemaError -Json $json -SchemaFile $mapSchema
+        if ($schemaError) { Add-MapFinding "$label does not satisfy project-locale-map.schema.json: $schemaError" }
     } catch {
         Add-MapFinding "$label does not satisfy project-locale-map.schema.json: $($_.Exception.Message)"
     }
@@ -371,9 +388,8 @@ if (-not (Test-Path -LiteralPath $SidecarPath -PathType Leaf)) {
 } else {
     try {
         $sidecarText = [IO.File]::ReadAllText($SidecarPath)
-        if (-not (Test-Json -Json $sidecarText -SchemaFile $sidecarSchema -ErrorAction Stop)) {
-            Add-MapFinding 'the source-hash sidecar does not satisfy its schema'
-        }
+        $schemaError = Get-YurunaJsonSchemaError -Json $sidecarText -SchemaFile $sidecarSchema
+        if ($schemaError) { throw $schemaError }
         $sidecar = ConvertFrom-Json -InputObject $sidecarText -AsHashtable
     } catch {
         Add-MapFinding "source-hash sidecar is invalid: $($_.Exception.Message)"
@@ -417,13 +433,8 @@ if ($AcceptTranslation) {
         if (-not $replaced) { $newEntries.Add($replacement) }
         $sidecar.entries = @($newEntries | Sort-Object { $_.path }, { $_.fieldPath }, { $_.locale })
         $json = ($sidecar | ConvertTo-Json -Depth 10).Replace("`r`n", "`n").TrimEnd() + "`n"
-        try {
-            if (-not (Test-Json -Json $json -SchemaFile $sidecarSchema -ErrorAction Stop)) {
-                Add-MapFinding 'the candidate source-hash sidecar does not satisfy its schema'
-            }
-        } catch {
-            Add-MapFinding "the candidate source-hash sidecar does not satisfy its schema: $($_.Exception.Message)"
-        }
+        $schemaError = Get-YurunaJsonSchemaError -Json $json -SchemaFile $sidecarSchema
+        if ($schemaError) { Add-MapFinding "the candidate source-hash sidecar does not satisfy its schema: $schemaError" }
         if ($script:Finding.Count -eq 0) {
             # Hold the candidate in memory until the complete-sidecar pass
             # below proves uniqueness, no orphans, no missing rows and no stale
@@ -465,8 +476,8 @@ if ($acceptedSidecarJson -and $script:Finding.Count -eq 0 -and
     $parent = Split-Path -Parent $SidecarPath
     if (-not (Test-Path -LiteralPath $parent)) { New-Item -ItemType Directory -Path $parent -Force | Out-Null }
     # The sidecar row writer is shared with the localization exchange, so every
-    # writer of a project row produces the same bytes. Imported only here: the
-    # read-only check runs in trees that carry this tool without the module.
+    # writer of a project row produces the same bytes. Imported globally here
+    # for the writer; the read-only check tolerates a tree without the module.
     Import-Module (Join-Path $RepoRoot 'test/modules/Test.LocalizationExchange.psm1') -Force -Global -DisableNameChecking
     Set-ProjectSidecarRow -SidecarPath $SidecarPath -Path $acceptedRow.path -FieldPath $acceptedRow.fieldPath `
         -Locale $acceptedRow.locale -SourceHash $acceptedRow.sourceHash -Machine:$Machine
@@ -490,8 +501,9 @@ if ($PseudoFixturePath -and $script:Finding.Count -eq 0) {
         }
         try {
             $normalizedJson = $normalized | ConvertTo-Json -Depth 10 -Compress
-            if (-not (Test-Json -Json $normalizedJson -SchemaFile $mapSchema -ErrorAction Stop)) {
-                Add-MapFinding "$($mapRecord.path)#$($mapRecord.fieldPath) produced an invalid pseudo locale map"
+            $schemaError = Get-YurunaJsonSchemaError -Json $normalizedJson -SchemaFile $mapSchema
+            if ($schemaError) {
+                Add-MapFinding "$($mapRecord.path)#$($mapRecord.fieldPath) produced an invalid pseudo locale map: $schemaError"
                 continue
             }
         } catch {

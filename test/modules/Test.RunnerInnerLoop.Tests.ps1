@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.14
+.VERSION 2026.10.18
 .GUID 422a68fe-a953-4858-a4d5-e3de9fbbbaf8
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -400,15 +400,17 @@ Describe 'Sync-RunnerCycleConfig' {
     It 'keeps previously resolved values and returns failed when a later read fails' {
         $yaml = "vmStart:`n  startTimeoutSeconds: 175`n"
         $p = New-TempConfigFile -Content $yaml
-        $s = New-RunnerConfigState -CmdLineLogLevel $null -CycleDelaySecondsFallback 30
-        $null = Sync-RunnerCycleConfig -State $s -ConfigPath $p
-        Assert-Equal -Expected 175 -Actual $s.VmStartTimeoutSeconds -Because 'resolved good value first'
-        $prevConfig = $s.Config
-        Remove-Item $p -Force -ErrorAction SilentlyContinue   # force a read failure on the next sync
-        $status = Sync-RunnerCycleConfig -State $s -ConfigPath $p
-        Assert-Equal -Expected 'failed' -Actual $status -Because 'read failure -> failed'
-        Assert-Equal -Expected 175 -Actual $s.VmStartTimeoutSeconds -Because 'knob kept at last-known-good'
-        Assert-True ([object]::ReferenceEquals($prevConfig, $s.Config)) 'Config kept (not wiped) on failure'
+        try {
+            $s = New-RunnerConfigState -CmdLineLogLevel $null -CycleDelaySecondsFallback 30
+            $null = Sync-RunnerCycleConfig -State $s -ConfigPath $p
+            Assert-Equal -Expected 175 -Actual $s.VmStartTimeoutSeconds -Because 'resolved good value first'
+            $prevConfig = $s.Config
+            Remove-Item $p -Force -ErrorAction SilentlyContinue   # force a read failure on the next sync
+            $status = Sync-RunnerCycleConfig -State $s -ConfigPath $p
+            Assert-Equal -Expected 'failed' -Actual $status -Because 'read failure -> failed'
+            Assert-Equal -Expected 175 -Actual $s.VmStartTimeoutSeconds -Because 'knob kept at last-known-good'
+            Assert-True ([object]::ReferenceEquals($prevConfig, $s.Config)) 'Config kept (not wiped) on failure'
+        } finally { Remove-Item $p -Force -ErrorAction SilentlyContinue }
     }
     It 'returns failed on malformed YAML without throwing' {
         $p = New-TempConfigFile -Content "vmStart: [unterminated"
@@ -533,12 +535,14 @@ Describe 'gitCommits array-shape (double-wrap regression guard)' {
         # repositories.projectUrl may be a local clone path or an ssh remote --
         # valid clone sources a browser cannot open. The status page and pool
         # dashboard only link http(s) repoUrl values, so the call site must hand
-        # New-CycleGitCommitList the Resolve-GitRepositoryWebUrl output (which
-        # falls back to the raw value when nothing resolves) or the project
+        # New-CycleGitCommitList the shared project reference's resolved URL
+        # (which retains non-web provenance when nothing resolves) or the project
         # commit renders unlinked on every status surface.
         $src = Get-Content -LiteralPath (Join-Path $here 'Test.RunnerInnerLoop.psm1') -Raw
-        Assert-True ($src -match 'Resolve-GitRepositoryWebUrl\s+-Url\s+\$projUrl') `
-            'the runner must resolve repositories.projectUrl to a web URL for the commit link'
+        Assert-True ($src -match 'Get-ProjectGitCommitReference\s+-RepoRoot\s+\$RepoRoot\s+-ProjectUrl\s+\$projUrl') `
+            'the runner must resolve project provenance through the shared helper'
+        Assert-True ($src -match '\$projLinkUrl\s*=\s*if\s*\(\$projectCommitReference\)\s*\{\s*\$projectCommitReference\.repoUrl\s*\}') `
+            'the commit link must use the shared reference URL'
         Assert-True ($src -match '-ProjectUrl\s+\$projLinkUrl') `
             'New-CycleGitCommitList must receive the resolved $projLinkUrl'
         Assert-True (-not ($src -match '-ProjectGitCommit\s+\$ProjectGitCommit\s+-ProjectUrl\s+\$projUrl\b')) `
@@ -1010,10 +1014,10 @@ Describe 'Invoke-RunnerBootstrapFailureGate (shared bootstrap-failure gating)' {
         $src = Get-Content -LiteralPath (Join-Path $here 'Test.RunnerInnerLoop.psm1') -Raw
         $callCount = ([regex]::Matches($src, 'Invoke-RunnerBootstrapFailureGate\s+-GatingState')).Count
         # One per pre-cycle stage that can end the cycle before its first guest:
-        # HostCondition, GitPull, ProjectAccess, ProjectClone. A deliberate
+        # HostCondition, HypervisorControl, GitPull, ProjectAccess, ProjectClone. A deliberate
         # golden -- bump it when a stage is added or removed, so a site that
         # quietly re-inlines its own gating shows up here.
-        Assert-True ($callCount -eq 4) "expected 4 Invoke-RunnerBootstrapFailureGate call sites, found $callCount"
+        Assert-True ($callCount -eq 5) "expected 5 Invoke-RunnerBootstrapFailureGate call sites, found $callCount"
         Assert-True (-not ($src -match "-SubjectSuffix\s+'GitPull'")) 'inline GitPull notification block must be gone (helper uses -SubjectSuffix $Stage)'
         Assert-True (-not ($src -match "-SubjectSuffix\s+'ProjectClone'")) 'inline ProjectClone notification block must be gone'
     }
@@ -1026,12 +1030,14 @@ Describe 'Inner-cycle control-flow shape (guest dispatch + single-pass invariant
     # early exit or a step-failure arm. The helper signals the caller through
     # $IterState.Control instead of a break/continue that would (wrongly) return from
     # the whole cycle; these assertions pin that discipline.
-    It 'runs the cycle body once via do{...}while($false): 16 unlabeled breaks, 0 continues' {
-        # Three of the sixteen are the host-refresh gate sites (cycle start,
+    It 'runs the cycle body once via do{...}while($false): 17 unlabeled breaks, 0 continues' {
+        # Three of the seventeen are the host-refresh gate sites (cycle start,
         # before the pull, before the cycle-start VM sweep): each ends the
-        # cycle before any change while a host refresh holds the runner.
+        # cycle before any change while a host refresh holds the runner. One
+        # more is the hypervisor control gate, which ends the cycle before any
+        # guest when the hypervisor no longer acts on lifecycle verbs.
         $f = Get-InnerCycleControlFlow -Psm1Path (Join-Path $here 'Test.RunnerInnerLoop.psm1')
-        Assert-True ($f.DoWhileBreaks -eq 16) "do/while must have 16 break arms, found $($f.DoWhileBreaks)"
+        Assert-True ($f.DoWhileBreaks -eq 17) "do/while must have 17 break arms, found $($f.DoWhileBreaks)"
         Assert-True ($f.DoWhileContinues -eq 0) "do/while must have 0 continue arms (a continue would re-run the single-pass body), found $($f.DoWhileContinues)"
         Assert-True ($f.LabeledFlow -eq 0) "inner cycle must have 0 labeled break/continue, found $($f.LabeledFlow)"
     }

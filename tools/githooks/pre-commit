@@ -6,14 +6,14 @@
 # a non-ASCII byte into the irm|iex / curl|bash bootstrap installers or the
 # first-run guest scripts. Those are parsed byte-for-byte on a fresh host
 # before any BOM-tolerant shell exists, so a stray BOM aborts first-install at
-# line 1 (feedback_bootstrap_installer_no_bom). Mirrors the per-cycle gate in
-# Test-Config.ps1.
+# line 1. Mirrors the per-cycle gate in Test-Config.ps1.
 #
 # Activated per-clone via core.hooksPath = tools/githooks (set in
 # .gitconfig.yuruna, which the install scripts include). Advisory by design: a
 # contributor without pwsh is skipped with a warning, and
-# `git commit --no-verify` bypasses it. The release script's hard gate is the
-# authoritative backstop for the published artifact.
+# `git commit --no-verify` bypasses it. A host with pwsh but without Pester 6.x
+# is refused for a commit that stages a test file. The release script's hard
+# gate is the authoritative backstop for the published artifact.
 #
 # A source-metadata pass follows the BOM passes: it blocks a staged file that
 # introduces a gap in the license pointer, copyright line or (PowerShell)
@@ -132,7 +132,7 @@ fi
 # zot release qualification. A zot release can accept the caching proxy's
 # configuration and still refuse every image the lab pulls, so a staged change
 # to the pinned release, its configuration or its probe images is proven by a
-# live sync before it is committed (feedback_zot-upgrade-needs-a-live-sync-test).
+# live sync before it is committed.
 # The offline --check settles every other seed edit in well under a second;
 # only a change to those inputs downloads the pinned release (once) and syncs.
 # A test that cannot run blocks the commit as firmly as one that fails: the
@@ -225,6 +225,27 @@ if [ -f "$metadata_gate" ] &&
     echo "  Add the header it shows, or declare a generated or vendored path in tools/source-metadata.exemptions.json" >&2
     echo "  (CONTRIBUTING.md, Source metadata). Or bypass with 'git commit --no-verify' (discouraged)." >&2
     exit 1
+fi
+
+# A commit that stages a test file is made only from a host that can run the
+# Pester 6 suites. The installer's -Check answer reads the installed modules and
+# installs nothing, so the check costs one pwsh start. Public and private suites
+# both count.
+pester_check="$repo_root/tools/Install-TestModule.ps1"
+# --no-renames lists a suite moved out of these folders under its old path too.
+staged_test_files=$(git diff --cached --name-only --no-renames --diff-filter=ACMRD |
+    grep -E '^((test|host)/modules/.*|dev-only/test/.*)\.Tests\.ps1$')
+if [ -n "$staged_test_files" ]; then
+    if [ ! -f "$pester_check" ]; then
+        echo "pre-commit: WARNING: tools/Install-TestModule.ps1 is missing, so the Pester 6.x requirement was not checked." >&2
+    elif ! NO_COLOR=1 pwsh -NoProfile -ExecutionPolicy Bypass -File "$pester_check" -Check; then
+        echo "" >&2
+        echo "pre-commit: Pester 6.x is not installed, and a commit that stages a test file requires it on this host." >&2
+        echo "  Install it with 'pwsh -NoProfile -File tools/Install-TestModule.ps1', or" >&2
+        echo "  'Install-Module Pester -RequiredVersion 6.2.0 -Scope CurrentUser -SkipPublisherCheck'." >&2
+        echo "  Or bypass with 'git commit --no-verify' (discouraged)." >&2
+        exit 1
+    fi
 fi
 
 # Third pass (WARN only): retired names. Each spelling below was replaced by a

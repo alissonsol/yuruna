@@ -571,8 +571,7 @@ JSON string-escaping shared by every error-response builder below. The
 `$_.Exception.Message` / operator-supplied text is spliced into a hand-built
 {"ok":false,"error":"..."} literal, so quotes must be backslash-escaped and
 CR/LF collapsed to a space to keep the payload a single valid JSON line.
-The backslash pass doubles each literal backslash before quotes are escaped,
-and CR/LF is collapsed to a space, preserving valid JSON for paths and messages.
+The backslash pass doubles each literal backslash before quotes are escaped.
 The language a request is answered in, and the direction that language reads.
 
 Decided here so the document leaves already correct rather than being
@@ -1004,7 +1003,7 @@ CURRENT cache first (never a stale cached CA) and only falls back
 to the persisted last-good CA; 404 when neither resolves so the
 guest degrades to a diagnosed rc=60 rather than a silent pass.
 Serves the PUBLIC CA only -- never the state file, whose password
-stays deny-listed. See project_sslbump_ca_gating_durable_fix.
+stays deny-listed.
 
 Second-defense path for Test.Diagnostic. The host has just
 injected a one-liner into the guest console that:
@@ -1111,7 +1110,7 @@ bytes. Pack under the same rule instead: a shape the
 server refuses to serve on its own is not one it may
 hand over inside an archive.
 
-NTFS reads a named stream through the file name (`name::$DATA` is
+NTFS reads a named stream through the filename (`name::$DATA` is
 the file's own bytes), and GetFullPath leaves that suffix in
 place, so the spelling reaches a refused file under a name no
 pattern below recognizes. (An 8.3 alias needs no rule of its
@@ -1188,8 +1187,7 @@ language was asked for first to everyone after.
 
 /yuruna-repo/* 404s are operationally distinct from
 generic dashboard 404s: they signal the working-tree
-rename race (memory note
-feedback_status_server_working_tree_rename_race.md) where a guest's mid-cycle
+rename race, where a guest's mid-cycle
 fetch-and-execute resolves to a path the host has just
 renamed/deleted. Log the requested path + resolved file
 so the operator can correlate a wget exit 8 in the

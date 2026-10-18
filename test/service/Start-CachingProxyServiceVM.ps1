@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.14
+.VERSION 2026.10.18
 .GUID 42647c3a-19a7-4931-b638-07791d5f0b1b
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -651,7 +651,7 @@ if ($IsMacOS) {
     }
     # UTM registers asynchronously after import -- poll for up to 30 s against a
     # wall-clock deadline (an iteration counter drifts past 30 s by the per-call
-    # utmctl status latency; feedback_iter_counter_wallclock_trap). Each call
+    # utmctl status latency). Each call
     # gets at most the whole seconds left of those 30 s, and none starts with
     # less than one left, so the window ends on time.
     $registered = $false
@@ -777,7 +777,7 @@ if ($IsMacOS) {
             }
             # Re-import Test.CachingProxyService -Global -Force: Initialize-YurunaHost
             # evicts this script's view via the host module's nested non-
-            # global import (feedback_module_force_import_evicts_global).
+            # global import.
             Import-Module (Join-Path $PSScriptRoot '../modules/Test.CachingProxyService.psm1') -Global -Force -Verbose:$false
             [void](Save-CachingProxyServiceState -IpAddress $cacheIp -Confirm:$false)
         }

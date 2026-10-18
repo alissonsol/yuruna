@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.10.14
+# Version: 2026.10.18
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 # Dependency pins for guest provisioning; service-VM seeds carry their own pins.
@@ -12,7 +12,7 @@ export YURUNA_K8S_MINOR=1.37
 # reusing an installed binary.
 export YURUNA_OPENTOFU_VERSION=1.13.1
 # An exact Helm release keeps guest provisioning on a repeatable version.
-export YURUNA_HELM_VERSION=4.3.0
+export YURUNA_HELM_VERSION=4.3.1
 # A fixed nvm installer keeps installation behavior independent of
 # updates within the chosen Node major.
 export YURUNA_NVM_VERSION=0.40.8

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.14
+.VERSION 2026.10.18
 .GUID 42ef1927-b8ef-4eaa-b7e6-2dd5a5a5af5f
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -60,8 +60,7 @@ function Test-PoolControlServiceHost {
         into a spurious miss on a service that is up. The first attempt warms ARP
         and wakes the radio; a follow-up answers in milliseconds. A wired host
         passes on attempt 1 so the retries cost nothing there, and a board that
-        is genuinely down misses every attempt. See
-        feedback_wifi-connect-timeout-tail.md.
+        is genuinely down misses every attempt.
 
         -NoProxy is deliberate: the board sits on the lab LAN and the host may
         have a caching-proxy service in its environment that would neither reach

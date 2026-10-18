@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.14
+.VERSION 2026.10.18
 .GUID 425947a5-2f05-4cc4-9b4d-22107bbf34be
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -37,6 +37,7 @@ BeforeDiscovery {
             @{ Name = $_.name; Wire = $_.wire; KeyName = $_.key; HostId = $_.hostId; RequestId = $_.requestId
                 Tier = $_.tier; MaxRung = $_.maxRung; NowUnix = [long]$_.nowUnix; Want = $_.want }
         })
+    if ($script:VectorCases.Count -eq 0) { throw "discovery produced no host-refresh vector cases: $vectorPath lists none" }
 }
 
 BeforeAll {

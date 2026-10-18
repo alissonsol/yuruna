@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.14
+.VERSION 2026.10.18
 .GUID 42fadadf-22f5-4510-87bc-365af8d1047c
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -47,9 +47,15 @@ function Get-YurunaStatusFirewallRuleName {
 }
 
 function Get-YurunaRulePortFilter {
-    # Thin wrapper over the pipeline read '$rule | Get-NetFirewallPortFilter' so
-    # tests have a direct-call seam to mock (a module-scoped Mock does not reliably
-    # intercept a piped cmdlet call). Windows-only; the caller guards on $IsWindows.
+    <#
+    .SYNOPSIS
+        The port filter of a Windows Defender firewall rule.
+    .DESCRIPTION
+        Thin wrapper over the pipeline read '$rule | Get-NetFirewallPortFilter'
+        so tests have a direct-call seam to mock (a module-scoped Mock does not
+        reliably intercept a piped cmdlet call). Windows-only; the caller guards
+        on $IsWindows. The host-metrics exporter rule reads it here too.
+    #>
     [CmdletBinding()]
     param([Parameter(Mandatory)]$Rule)
     return ($Rule | Get-NetFirewallPortFilter -ErrorAction SilentlyContinue)
@@ -259,4 +265,4 @@ function Set-YurunaStatusFirewallRule {
     return $result
 }
 
-Export-ModuleMember -Function Set-YurunaStatusFirewallRule, Get-YurunaStatusFirewallRuleName
+Export-ModuleMember -Function Set-YurunaStatusFirewallRule, Get-YurunaStatusFirewallRuleName, Get-YurunaRulePortFilter

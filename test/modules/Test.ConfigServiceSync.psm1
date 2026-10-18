@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.14
+.VERSION 2026.10.18
 .GUID 42523d00-1e52-4f07-92e7-2f54c6fa62da
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -1937,6 +1937,8 @@ function Request-LabTokenExchange {
     invisible to the live server. Each step is announced on the Information
     stream, and the bounce streams the child's transcript through as it runs.
     Returns @{ ok; vaultKey; keyChanged; verified; bounced; bounceLog }.
+    bounceLog names the bounce transcript only when a bounce failed or timed
+    out; a successful bounce's transcript is removed.
 
     Requires the authentication extension loaded (Set-Password et al.).
 #>
@@ -2022,6 +2024,13 @@ function Set-InternalAuthKey {
             $result.bounceLog = $bounce.logPath
             if ($bounce.ok) {
                 Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_5b98a93cb6af39a9' -Arguments @{ steps = "$steps" }) -InformationAction Continue
+                # Every line was echoed while the bounce ran, so a successful
+                # one leaves nothing to read; the transcript is kept only when a
+                # warning below points the operator at it.
+                foreach ($bounceFile in @($bounce.logPath, "$($bounce.logPath).out", "$($bounce.logPath).err")) {
+                    Remove-Item -LiteralPath $bounceFile -Force -ErrorAction SilentlyContinue
+                }
+                $result.bounceLog = $null
             } elseif ($bounce.timedOut) {
                 Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_7d74f75db443e9e2' -Arguments @{ bounceTimeoutSeconds = "${BounceTimeoutSeconds}"; logPath = "$($bounce.logPath)" })
             } else {

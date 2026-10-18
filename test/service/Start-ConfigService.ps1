@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.14
+.VERSION 2026.10.18
 .GUID 426b5e54-fbb6-4398-849c-4e49eda31278
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -38,7 +38,7 @@
 
     Design: docs/test-config.md. Posture
     (mTLS, TLS, EC P-256) is operator-approved; the NAS password keeps its
-    existing vault storage (see feedback_no_unauthorized_security_changes).
+    existing vault storage.
 
     Launcher mode (default) mints the CA + server leaf, opens the host firewall
     (best-effort, Windows), then re-execs this script detached with -Serve and
@@ -64,7 +64,7 @@ param(
 
 $ErrorActionPreference = 'Stop'
 # Benign native non-zero exits (chmod on a tmpfs, a firewall-rule probe) must not
-# abort under EAP=Stop (feedback_winget_self_upgrade_kills_running_pwsh class).
+# abort under EAP=Stop, which PS 7.4+ does while this preference is $true.
 $PSNativeCommandUseErrorActionPreference = $false
 # In the detached -Serve process, force PLAIN-TEXT rendering so the redirected
 # stderr (config-server.err) is readable text, not ANSI/VT color escapes that make

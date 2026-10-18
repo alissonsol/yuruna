@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.14
+.VERSION 2026.10.18
 .GUID 42ac2b74-32fe-4772-8fad-0e7833bd2f68
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -219,7 +219,7 @@ Describe 'yuruna-log-tee -- severity tags and unconditional warning mirroring' {
         @(& { Write-Warning 'caller warning' } 3>&1).Count | Should -Be 0
     }
 
-    It 'tags each transcript record with a log-<severity> CSS class' {
+    It 'tags each transcript record with a log-`<severity`> CSS class' {
         $fx = New-TranscriptFixture
         try {
             $global:InformationPreference = 'Continue'

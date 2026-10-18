@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.14
+.VERSION 2026.10.18
 .GUID 42c69a51-1c69-4dba-ad62-2dda7b368e9c
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -31,6 +31,7 @@ if (-not $global:YurunaOutputState) {
         CurrentSection    = ''
         Failures          = New-Object System.Collections.Generic.List[pscustomobject]
         WarningsBySection = [ordered]@{}
+        DiagnosticsJson   = '{}'
     }
 }
 # A long-lived shell can hold a $global:YurunaOutputState created by a
@@ -38,6 +39,9 @@ if (-not $global:YurunaOutputState) {
 # so downstream readers don't NRE on first access.
 if (-not $global:YurunaOutputState.Contains('WarningsBySection')) {
     $global:YurunaOutputState['WarningsBySection'] = [ordered]@{}
+}
+if (-not $global:YurunaOutputState.Contains('DiagnosticsJson')) {
+    $global:YurunaOutputState['DiagnosticsJson'] = '{}'
 }
 $script:State = $global:YurunaOutputState
 
@@ -57,6 +61,7 @@ function Reset-OutputState {
     $script:State.CurrentSection = ''
     $script:State.Failures = New-Object System.Collections.Generic.List[pscustomobject]
     $script:State.WarningsBySection = [ordered]@{}
+    $script:State.DiagnosticsJson = '{}'
 }
 
 function Initialize-OutputState {
@@ -100,7 +105,26 @@ function Get-OutputState {
         CurrentSection    = $script:State.CurrentSection
         Failures          = @($script:State.Failures)
         WarningsBySection = $warningsCopy
+        Diagnostics       = ConvertFrom-Json -InputObject $script:State.DiagnosticsJson -AsHashtable
     }
+}
+
+function Write-OutputDiagnostic {
+    <#
+    .SYNOPSIS
+        Retain structured evidence even when a retry recovers and no failure remains.
+    .DESCRIPTION
+        A JSON snapshot isolates the nested diagnostic data from caller mutations.
+        Diagnostics are optional additions to the sidecar, not gate verdicts.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][string]$Name,
+        [Parameter(Mandatory)][System.Collections.IDictionary]$Data
+    )
+    $diagnostics = ConvertFrom-Json -InputObject $script:State.DiagnosticsJson -AsHashtable
+    $diagnostics[$Name] = $Data
+    $script:State.DiagnosticsJson = ConvertTo-Json -InputObject $diagnostics -Depth 20 -Compress
 }
 
 function Write-Pass {
@@ -211,6 +235,7 @@ function Write-FailureSidecar {
         schema    = 'yuruna.preflight-failures/v1'
         failCount = [int]$script:State.FailCount
         warnCount = [int]$script:State.WarnCount
+        diagnostics = ConvertFrom-Json -InputObject $script:State.DiagnosticsJson -AsHashtable
         failures  = @(foreach ($f in $script:State.Failures) {
                 [ordered]@{
                     section  = [string]$f.Section
@@ -226,7 +251,7 @@ function Write-FailureSidecar {
     try {
         $dir = Split-Path -Parent $path
         if ($dir -and -not (Test-Path -LiteralPath $dir)) { New-Item -ItemType Directory -Path $dir -Force | Out-Null }
-        [IO.File]::WriteAllText($path, (ConvertTo-Json -InputObject $payload -Depth 6),
+        [IO.File]::WriteAllText($path, (ConvertTo-Json -InputObject $payload -Depth 24),
             [Text.UTF8Encoding]::new($false))
     } catch {
         # The sidecar is a convenience for the parent, not the verdict. A run
@@ -330,4 +355,4 @@ function Exit-WithSummary {
     exit $Code
 }
 
-Export-ModuleMember -Function Write-FailureSidecar, Reset-OutputState, Initialize-OutputState, Get-OutputState, Write-Pass, Write-Fail, Write-Warn, Write-Info, Write-Section, Write-Summary, Exit-WithSummary
+Export-ModuleMember -Function Write-OutputDiagnostic, Write-FailureSidecar, Reset-OutputState, Initialize-OutputState, Get-OutputState, Write-Pass, Write-Fail, Write-Warn, Write-Info, Write-Section, Write-Summary, Exit-WithSummary

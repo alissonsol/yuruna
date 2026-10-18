@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.14
+.VERSION 2026.10.18
 .GUID 42e9bd8a-5257-4459-82a4-765455c96fe3
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -23,8 +23,7 @@
     The bootstrap installer `install/windows.hyper-v.ps1` runs through
     PS 5.1's `irm | iex` pipeline, which parses byte-for-byte: a UTF-8
     BOM or any non-ASCII byte aborts at line 1 before the param block
-    is reached. See repo memory file
-    feedback_bootstrap_installer_no_bom.md for the trap class.
+    is reached.
 
     The constraint holds today by convention only. This script is the
     automated guard so a future bulk encoding pass (line-ending
@@ -256,5 +255,5 @@ Write-Warning ''
 Write-Warning 'Fix: rewrite each failing file as BOM-less, ASCII-only UTF-8. The'
 Write-Warning '  PS7 idiom is:'
 Write-Warning '    [System.IO.File]::WriteAllText($path, $text, [System.Text.UTF8Encoding]::new($false))'
-Write-Warning '  See repo memory file feedback_bootstrap_installer_no_bom.md.'
+Write-Warning '  PS 5.1 irm | iex parses byte for byte: a BOM or non-ASCII byte aborts at line 1.'
 exit $ExitFailure

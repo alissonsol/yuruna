@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.14
+.VERSION 2026.10.18
 .GUID 425e6973-60a5-43b1-90b8-194b4331c1f8
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -4251,8 +4251,7 @@ function Send-Text {
         # Import once and reuse. When the outer loop already loaded Invoke-Sequence -Global we must
         # NOT re-import per call: a -Force re-import evicts/reinitializes the global module (and its
         # nested modules + $script: state) the outer loop still calls, and doing it on every
-        # keystroke is pure overhead (feedback_module_force_import_evicts_global,
-        # feedback_module_script_state_reset_by_force_reimport).
+        # keystroke is pure overhead.
         if (-not (Get-Module -Name Test.SequenceEngine)) { Import-Module $sequenceEngine -DisableNameChecking -Global }
         return [bool](Test.SequenceEngine\Send-Text -HostType (Resolve-HostTag) -VMName $VMName -Text $Text -CharDelayMs $CharDelayMs)
     }
@@ -4283,8 +4282,7 @@ function Send-Key {
     $sequenceEngine = Join-Path $script:TestModulesDir 'Test.SequenceEngine.psm1'
     if (Test-Path $sequenceEngine) {
         # Import once and reuse, never -Force per call -- same trap as Send-Text
-        # above (feedback_module_force_import_evicts_global,
-        # feedback_module_script_state_reset_by_force_reimport).
+        # above.
         if (-not (Get-Module -Name Test.SequenceEngine)) { Import-Module $sequenceEngine -DisableNameChecking -Global }
         return [bool](Test.SequenceEngine\Send-Key -HostType (Resolve-HostTag) -VMName $VMName -KeyName $Key)
     }
@@ -4308,8 +4306,7 @@ function Send-Click {
     $sequenceEngine = Join-Path $script:TestModulesDir 'Test.SequenceEngine.psm1'
     if (Test-Path $sequenceEngine) {
         # Import once and reuse, never -Force per call -- same trap as Send-Text
-        # above (feedback_module_force_import_evicts_global,
-        # feedback_module_script_state_reset_by_force_reimport).
+        # above.
         if (-not (Get-Module -Name Test.SequenceEngine)) { Import-Module $sequenceEngine -DisableNameChecking -Global }
         return [bool](Test.SequenceEngine\Send-Click -HostType (Resolve-HostTag) -VMName $VMName -X $X -Y $Y)
     }
@@ -4457,21 +4454,41 @@ function Start-VMSerialCapture {
         }
         [void](Stop-VMSerialCapture)
         $logPath = Join-Path $env:TEMP "yuruna-serial-$VMName.log"
-        Remove-Item -LiteralPath $logPath -Force -ErrorAction SilentlyContinue
+        $statePath = Join-Path $env:TEMP "yuruna-serial-$VMName.state.json"
+        Remove-Item -LiteralPath $logPath, $statePath -Force -ErrorAction SilentlyContinue
         $pipeName = Get-VMSerialPipeName -VMName $VMName
         # A separate process, so a reader blocked in Connect or Read can never
         # stall the cycle, and so stopping it is one Stop-Job away. The pipe
         # server is created by the VM worker when the VM is on and goes away
         # with each restart, so the reader reconnects for as long as it runs.
+        # The job keeps its connection history in a sidecar beside the log,
+        # rewritten at each change of state, because an empty log alone cannot
+        # say whether the reader never reached the pipe or reached it and heard
+        # nothing. The job calls no module function: it outlives module
+        # reloads and must keep working with nothing but .NET and the shell.
         $job = Start-Job -Name "yuruna-serial-$VMName" -ScriptBlock {
             $PipeName = $using:pipeName
             $LogPath = $using:logPath
+            $StatePath = $using:statePath
             $buffer = [byte[]]::new(4096)
+            $state = [ordered]@{
+                pipe = $PipeName; connectAttempts = 0; connectedCount = 0; lastConnectUtc = $null
+                lastDisconnectUtc = $null; lastError = $null; bytesRead = 0L; updatedUtc = $null
+            }
+            $save = {
+                $state.updatedUtc = [DateTime]::UtcNow.ToString('o')
+                try { [IO.File]::WriteAllText($StatePath, ($state | ConvertTo-Json -Compress)) } catch { $null = $_ }
+            }
+            & $save
             while ($true) {
                 $client = $null
                 try {
+                    $state.connectAttempts++
                     $client = [System.IO.Pipes.NamedPipeClientStream]::new('.', $PipeName, [System.IO.Pipes.PipeDirection]::In)
                     $client.Connect(2000)
+                    $state.connectedCount++
+                    $state.lastConnectUtc = [DateTime]::UtcNow.ToString('o')
+                    & $save
                     $file = [System.IO.FileStream]::new($LogPath, [System.IO.FileMode]::Append, [System.IO.FileAccess]::Write, [System.IO.FileShare]::ReadWrite)
                     try {
                         while ($client.IsConnected) {
@@ -4479,16 +4496,26 @@ function Start-VMSerialCapture {
                             if ($read -le 0) { break }
                             $file.Write($buffer, 0, $read)
                             $file.Flush()
+                            $firstBytes = ($state.bytesRead -eq 0)
+                            $state.bytesRead += $read
+                            if ($firstBytes) { & $save }
                         }
                     } finally { $file.Dispose() }
+                    $state.lastDisconnectUtc = [DateTime]::UtcNow.ToString('o')
+                    & $save
                 } catch {
+                    # .NET failures arrive wrapped in a MethodInvocationException; the
+                    # inner one (TimeoutException, IOException) is the reading.
+                    $failure = if ($_.Exception.InnerException) { $_.Exception.InnerException } else { $_.Exception }
+                    $state.lastError = "$($failure.GetType().Name): $($failure.Message)"
+                    & $save
                     Start-Sleep -Seconds 1
                 } finally {
                     if ($client) { $client.Dispose() }
                 }
             }
         }
-        $script:YurunaSerialCapture = @{ VMName = $VMName; Job = $job; LogPath = $logPath; PipeName = $pipeName }
+        $script:YurunaSerialCapture = @{ VMName = $VMName; Job = $job; LogPath = $logPath; StatePath = $statePath; PipeName = $pipeName }
         Write-Verbose "Serial console capture armed for '$VMName' -> $logPath"
         return $true
     } catch {
@@ -4517,6 +4544,7 @@ function Stop-VMSerialCapture {
             Remove-Job -Job $capture.Job -Force -ErrorAction SilentlyContinue
         }
         if ($capture.LogPath) { Remove-Item -LiteralPath $capture.LogPath -Force -ErrorAction SilentlyContinue }
+        if ($capture.StatePath) { Remove-Item -LiteralPath $capture.StatePath -Force -ErrorAction SilentlyContinue }
         return $true
     } catch {
         Write-Verbose "Stop-VMSerialCapture failed: $($_.Exception.Message)"
@@ -4543,10 +4571,15 @@ function Save-VMSerialCapture {
         [Parameter(Mandatory)][string]$VMName,
         [Parameter(Mandatory)][string]$OutputDirectory
     )
+    # Set once this call owns the capture, so the finally below removes its
+    # temp files on every path out -- a throw while copying included -- and
+    # never touches a capture that belongs to another VM.
+    $claimed = $null
     try {
         $capture = $script:YurunaSerialCapture
         if (-not $capture -or $capture.VMName -ne $VMName) { return $false }
         $script:YurunaSerialCapture = $null
+        $claimed = $capture
         if ($capture.Job) {
             Stop-Job -Job $capture.Job -ErrorAction SilentlyContinue
             Remove-Job -Job $capture.Job -Force -ErrorAction SilentlyContinue
@@ -4559,27 +4592,64 @@ function Save-VMSerialCapture {
         if ($bytes -gt 0) {
             Copy-Item -LiteralPath $capture.LogPath -Destination (Join-Path $OutputDirectory 'serial-console.log') -Force
         }
+        # The reader's own account: the sidecar the job rewrites at each change
+        # of state. Without it, 0 bytes reads the same whether the reader never
+        # reached the pipe or reached it and heard nothing.
+        $reader = $null
+        if ($capture.StatePath -and (Test-Path -LiteralPath $capture.StatePath)) {
+            try { $reader = Get-Content -LiteralPath $capture.StatePath -Raw | ConvertFrom-Json } catch { $reader = $null }
+            Copy-Item -LiteralPath $capture.StatePath -Destination (Join-Path $OutputDirectory 'serial-console.reader.json') -Force -ErrorAction SilentlyContinue
+        }
+        $connects = if ($reader) { [int]$reader.connectedCount } else { 0 }
+        $attempts = if ($reader) { [int]$reader.connectAttempts } else { 0 }
+        $lastError = if ($reader -and $reader.lastError) { [string]$reader.lastError } else { '(none)' }
+        $readerLine = if (-not $reader) { 'reader:   no state recorded: the reader job never ran far enough to write one' }
+            elseif ($connects -eq 0) { 'reader:   never connected to the pipe' }
+            else { "reader:   connected $connects time(s), last at $($reader.lastConnectUtc)" }
         Set-Content -LiteralPath (Join-Path $OutputDirectory 'serial-console.info.txt') -Encoding utf8NoBOM -Value @(
             "vmName:   $VMName"
             "pipe:     \\.\pipe\$($capture.PipeName)"
             "bytes:    $bytes"
             "savedUtc: $([DateTime]::UtcNow.ToString('yyyy-MM-ddTHH:mm:ssZ', [System.Globalization.CultureInfo]::InvariantCulture))"
+            "connects: $connects"
+            "attempts: $attempts"
+            "lastError: $lastError"
+            $readerLine
             'reading:  serial-console.log holds everything the guest wrote to COM1 while the'
             '          reader was connected: kernel messages at every level and the journal'
             '          lines journald forwards there. 0 bytes with a configured pipe means the'
             '          guest never opened its serial port (no console= argument, or the port'
             '          is absent on this platform), not that the guest was silent.'
+            'verdict:  a reader that never connected points at the pipe: the VM worker creates'
+            '          the server end only while the VM is on, under the name Set-VMComPort was'
+            '          given, and nothing the guest does changes that. A reader that connected'
+            '          and still saved 0 bytes points at the guest''s console= setting: the'
+            '          kernel cmdline names a UART this platform does not have (ttyS0 on ARM64,'
+            '          where the port is ttyAMA0) or carries no console= argument at all.'
         )
-        Remove-Item -LiteralPath $capture.LogPath -Force -ErrorAction SilentlyContinue
         return ($bytes -gt 0)
     } catch {
         Write-Verbose "Save-VMSerialCapture failed: $($_.Exception.Message)"
         return $false
+    } finally {
+        if ($claimed) {
+            Remove-Item -LiteralPath $claimed.LogPath -Force -ErrorAction SilentlyContinue
+            if ($claimed.StatePath) { Remove-Item -LiteralPath $claimed.StatePath -Force -ErrorAction SilentlyContinue }
+        }
     }
 }
 <#
 .SYNOPSIS
-    Arm a bounded, DHCP-only pktmon capture for one guest VM.
+    Arm a bounded pktmon capture for one guest VM: every DHCP exchange the
+    host sees, plus the guest's own ARP and ICMP frames.
+.DESCRIPTION
+    DHCP alone says whether a lease was asked for and granted. Whether the
+    guest still speaks at all after it lost an address is a different
+    question, and ARP and ICMP are what a guest with no IPv4 address, or a
+    stale one, still emits. Both are scoped to the guest's MAC so the capture
+    does not grow with the LAN's chatter; pktmon ANDs the conditions inside
+    one filter and ORs across filters. The MAC filters are skipped when the
+    MAC is unknown rather than widened to every frame.
 .OUTPUTS
     [bool] $true when the capture is running.
 #>
@@ -4600,6 +4670,14 @@ function Start-VMDhcpCapture {
         Remove-Item -LiteralPath $etl -Force -ErrorAction SilentlyContinue
         & pktmon filter add YurunaDhcpSrv -p 67 2>$null | Out-Null
         & pktmon filter add YurunaDhcpCli -p 68 2>$null | Out-Null
+        $guestMac = $null
+        try { $guestMac = Get-VMMac -VMName $VMName } catch { $guestMac = $null }
+        if ($guestMac) {
+            # pktmon takes the Windows dash notation; the harness stores colons.
+            $pktmonMac = (($guestMac -replace '[^0-9A-Fa-f]', '') -replace '(..)(?!$)', '$1-').ToUpperInvariant()
+            & pktmon filter add YurunaGuestArp -m $pktmonMac -d ARP 2>$null | Out-Null
+            & pktmon filter add YurunaGuestIcmp -m $pktmonMac -t ICMP 2>$null | Out-Null
+        }
         $startOutput = & pktmon start --capture --pkt-size 0 --log-mode circular --file-size 50 -f $etl 2>&1
         if ($LASTEXITCODE -ne 0) {
             Write-Verbose "pktmon start failed: $startOutput"
@@ -4646,7 +4724,7 @@ function Stop-VMDhcpCapture {
 <#
 .SYNOPSIS
     Count, from pktmon's text rendering, the DHCP packets one guest MAC sent
-    and received during a capture.
+    and received during a capture, and the ARP and ICMP frames it sent.
 .DESCRIPTION
     pktmon logs a packet once per component it crosses, each line with its
     own group id, so a packet is counted once per source, destination and
@@ -4657,13 +4735,21 @@ function Stop-VMDhcpCapture {
     capture itself was live: zero from the guest means something only beside
     a nonzero count there.
 
+    ARP and ICMP frames from the guest are counted apart from DHCP, and kept
+    out of every DHCP count: a guest whose kernel dropped its address still
+    answers ARP for it or probes its gateway, so a nonzero count there beside
+    zero DHCP says the guest was alive on the wire and never asked again.
+    lastGuestFrameAt is the capture's own local-time stamp of the newest
+    frame from the guest's MAC, whatever its protocol: when the guest was
+    last heard on the wire.
+
     Drops are not counted: pktmon records a drop wherever a broadcast meets
     a component it does not apply to, so nearly every packet carries one,
     and where a guest's packet died is a per-component reading the .txt
     already gives.
 .OUTPUTS
     [ordered] guestMac, sentByGuest, unicastToGuest, fromOtherClients,
-    otherClients.
+    otherClients, guestArp, guestIcmp, lastGuestFrameAt.
 #>
 function Get-DhcpCaptureSummary {
     [CmdletBinding()]
@@ -4678,7 +4764,10 @@ function Get-DhcpCaptureSummary {
     $lastSeen = @{}
     $previousKey = ''
     $stamp = $null
-    $sent = 0; $replies = 0; $others = 0
+    $stampText = $null
+    $lastGuestStamp = $null
+    $lastGuestFrameAt = $null
+    $sent = 0; $replies = 0; $others = 0; $arp = 0; $icmp = 0
     $clients = [Collections.Generic.HashSet[string]]::new()
     foreach ($line in [IO.File]::ReadLines($Path)) {
         $h = $header.Match($line)
@@ -4687,25 +4776,38 @@ function Get-DhcpCaptureSummary {
             $parsed = [datetime]::MinValue
             $stamp = if ([datetime]::TryParseExact($h.Groups['ts'].Value + $fraction, [string[]]@('yyyy-MM-dd HH:mm:ss', 'yyyy-MM-dd HH:mm:ss.fffffff'),
                     [System.Globalization.CultureInfo]::InvariantCulture, [System.Globalization.DateTimeStyles]::None, [ref]$parsed)) { $parsed } else { $null }
+            $stampText = $h.Groups['ts'].Value + $h.Groups['frac'].Value
             continue
         }
         $f = $frame.Match($line)
         if (-not $f.Success) { continue }
         $src = $f.Groups['src'].Value.Replace('-', '').ToUpperInvariant()
         $dst = $f.Groups['dst'].Value.Replace('-', '').ToUpperInvariant()
+        # Every line from the guest moves the last-heard stamp, dedup or not:
+        # the question it answers is when the guest was last on the wire.
+        if ($src -eq $guest -and $stampText -and ($null -eq $stamp -or $null -eq $lastGuestStamp -or $stamp -ge $lastGuestStamp)) {
+            $lastGuestStamp = $stamp
+            $lastGuestFrameAt = $stampText
+        }
         $key = "$src>$dst/$($f.Groups['len'].Value)"
         $isNew = if ($stamp -and $lastSeen.ContainsKey($key)) { ($stamp - $lastSeen[$key]).TotalSeconds -gt 0.5 }
             elseif ($stamp) { $true } else { $key -ne $previousKey }
         if ($stamp) { $lastSeen[$key] = $stamp }
         $previousKey = $key
         if (-not $isNew) { continue }
-        if ($src -eq $guest) { $sent++ }
+        $isArp = $line -match 'ethertype ARP'
+        $isIcmp = (-not $isArp) -and ($line -match '\bICMP\b')
+        if ($src -eq $guest) {
+            if ($isArp) { $arp++ } elseif ($isIcmp) { $icmp++ } else { $sent++ }
+        }
+        elseif ($isArp -or $isIcmp) { continue }
         elseif ($dst -eq $guest) { $replies++ }
         else { $others++; [void]$clients.Add($src) }
     }
     [ordered]@{
         guestMac = $GuestMac; sentByGuest = $sent; unicastToGuest = $replies
         fromOtherClients = $others; otherClients = $clients.Count
+        guestArp = $arp; guestIcmp = $icmp; lastGuestFrameAt = $lastGuestFrameAt
     }
 }
 
@@ -4733,6 +4835,7 @@ function Save-VMDhcpCapture {
         [Parameter(Mandatory)][string]$VMName,
         [Parameter(Mandatory)][string]$OutputDirectory
     )
+    $claimed = $null
     try {
         $capture = $script:YurunaDhcpCapture
         if (-not $capture -or $capture.VMName -ne $VMName) {
@@ -4744,6 +4847,7 @@ function Save-VMDhcpCapture {
         & pktmon stop 2>$null | Out-Null
         & pktmon filter remove 2>$null | Out-Null
         $script:YurunaDhcpCapture = $null
+        $claimed = $capture
         if (-not (Test-Path -LiteralPath $capture.EtlPath)) { return $false }
         if (-not (Test-Path -LiteralPath $OutputDirectory)) {
             New-Item -ItemType Directory -Force -Path $OutputDirectory | Out-Null
@@ -4761,6 +4865,8 @@ function Save-VMDhcpCapture {
                     "summary:  the guest sent $($summary.sentByGuest) DHCP packet(s); $($summary.unicastToGuest) unicast reply(ies) were"
                     "          seen addressed to its MAC at the captured components; $($summary.fromOtherClients) packet(s)"
                     "          from $($summary.otherClients) other client(s) show whether the capture itself was live."
+                    "          Apart from DHCP the guest sent $($summary.guestArp) ARP and $($summary.guestIcmp) ICMP frame(s); its newest"
+                    "          frame of any kind was logged at $(if ($summary.lastGuestFrameAt) { "$($summary.lastGuestFrameAt) (capture local time)" } else { 'no time: none seen' })."
                     "caution:  a reply count of 0 is not proof that no lease was granted. The capture"
                     "          runs in the management OS; an OFFER or ACK the virtual switch delivers"
                     "          straight to the VM port can be absent here while the guest holds an"
@@ -4781,12 +4887,179 @@ function Save-VMDhcpCapture {
             '          died on this host, present at the NIC with no OFFER back means'
             '          the wire or the DHCP server, and no DISCOVER at all means the'
             '          guest client never transmitted. dhcp.capture.pcapng carries the'
-            '          payloads (client-id, xid) for the same packets.'
+            '          payloads (client-id, xid) for the same packets. ARP or ICMP from'
+            '          the guest after its last DHCP packet (guestArp, guestIcmp and'
+            '          lastGuestFrameAt in dhcp.capture.summary.json) means the guest was'
+            '          still on the wire without asking for a lease: a client that'
+            '          believes it holds an address, or one whose kernel expired it.'
         ))
-        Remove-Item -LiteralPath $capture.EtlPath -Force -ErrorAction SilentlyContinue
         return $true
     } catch {
         Write-Verbose "Save-VMDhcpCapture failed: $($_.Exception.Message)"
+        return $false
+    } finally {
+        # The ETL runs to tens of MB; a throw while summarizing it must not
+        # strand it in %TEMP%. Only a capture this call stopped is removed.
+        if ($claimed) { Remove-Item -LiteralPath $claimed.EtlPath -Force -ErrorAction SilentlyContinue }
+    }
+}
+
+# --- REGION: VM network state
+# See https://yuruna.link/42e220c4-0007
+# A guest that drops off the network while its console keeps drawing leaves
+# the host holding the readings nobody has to ask the guest for: whether the
+# synthetic adapter is still connected to its switch, which addresses the
+# integration services last reported, whether the host's neighbor cache still
+# resolves the guest's MAC, whether TCP 22 still answers, and what the Hyper-V
+# worker logged meanwhile. The DHCP capture sees only the lease exchange and
+# the serial log only what the guest chose to say; this is the reading that
+# separates a guest that lost its address from a host that lost the guest.
+function Save-VMNetworkState {
+    <#
+    .SYNOPSIS
+        Record the host's view of one VM's network state beside the failure
+        diagnostics, as vm-network.state.txt and vm-network.state.json.
+    .DESCRIPTION
+        Every section is read under its own try/catch with silent errors, so a
+        cmdlet missing on this build, a VM already removed or an event log that
+        needs elevation costs one section and never the file. The event tail
+        is bounded twice (the last 20 minutes, at most 40 events per Hyper-V
+        log) because the worker logs are large and the failure is recent.
+    .OUTPUTS
+        [bool] $true when vm-network.state.txt landed in OutputDirectory.
+    #>
+    [CmdletBinding()]
+    [OutputType([bool])]
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+        Justification = 'Diagnostic collection: reads host state into the failure folder and changes nothing else; must never prompt inside a runner cycle.')]
+    param(
+        [Parameter(Mandatory)][string]$VMName,
+        [Parameter(Mandatory)][string]$OutputDirectory
+    )
+    try {
+        if (-not (Test-Path -LiteralPath $OutputDirectory)) {
+            New-Item -ItemType Directory -Force -Path $OutputDirectory | Out-Null
+        }
+        $state = [ordered]@{
+            schema = 'yuruna.vm-network-state/v1'
+            vmName = $VMName
+            savedUtc = [DateTime]::UtcNow.ToString('yyyy-MM-ddTHH:mm:ssZ', [System.Globalization.CultureInfo]::InvariantCulture)
+            vm = $null
+            adapters = @()
+            integrationServices = @()
+            neighbors = @()
+            tcp22 = @()
+            events = @()
+            errors = @()
+        }
+        $lines = [Collections.Generic.List[string]]::new()
+        $lines.Add("vmName:   $VMName")
+        $lines.Add("savedUtc: $($state.savedUtc)")
+
+        try {
+            $vm = Hyper-V\Get-VM -Name $VMName -ErrorAction SilentlyContinue
+            if ($vm) {
+                $state.vm = [ordered]@{ state = [string]$vm.State; uptime = [string]$vm.Uptime; status = [string]$vm.Status; heartbeat = [string]$vm.Heartbeat }
+                $lines.Add("vm:       state=$($vm.State) uptime=$($vm.Uptime) status=$($vm.Status) heartbeat=$($vm.Heartbeat)")
+            } else {
+                $lines.Add('vm:       (not found)')
+            }
+        } catch { $state.errors += "Get-VM: $($_.Exception.Message)" }
+
+        $macs = @()
+        $ipv4 = @()
+        try {
+            foreach ($adapter in @(Hyper-V\Get-VMNetworkAdapter -VMName $VMName -ErrorAction SilentlyContinue)) {
+                $addresses = @($adapter.IPAddresses | ForEach-Object { [string]$_ })
+                $state.adapters += [ordered]@{
+                    name = [string]$adapter.Name; switchName = [string]$adapter.SwitchName; connected = [bool]$adapter.Connected
+                    status = [string](@($adapter.Status) -join ','); macAddress = [string]$adapter.MacAddress; ipAddresses = $addresses
+                }
+                $lines.Add("adapter:  name=$($adapter.Name) switch=$($adapter.SwitchName) connected=$($adapter.Connected) status=$(@($adapter.Status) -join ',') mac=$($adapter.MacAddress) ip=$(if ($addresses.Count) { $addresses -join ',' } else { '(none)' })")
+                if ($adapter.MacAddress) { $macs += [string]$adapter.MacAddress }
+                foreach ($address in $addresses) {
+                    $parsedAddress = $null
+                    if ([System.Net.IPAddress]::TryParse($address, [ref]$parsedAddress) -and $parsedAddress.AddressFamily -eq [System.Net.Sockets.AddressFamily]::InterNetwork) { $ipv4 += $address }
+                }
+            }
+            if (-not $state.adapters.Count) { $lines.Add('adapter:  (none)') }
+        } catch { $state.errors += "Get-VMNetworkAdapter: $($_.Exception.Message)" }
+
+        try {
+            foreach ($service in @(Hyper-V\Get-VMIntegrationService -VMName $VMName -ErrorAction SilentlyContinue)) {
+                $state.integrationServices += [ordered]@{ name = [string]$service.Name; enabled = [bool]$service.Enabled; primaryStatusDescription = [string]$service.PrimaryStatusDescription }
+                $lines.Add("service:  $($service.Name) enabled=$($service.Enabled) status=$($service.PrimaryStatusDescription)")
+            }
+        } catch { $state.errors += "Get-VMIntegrationService: $($_.Exception.Message)" }
+
+        # KVP reports the MAC as bare hex; Get-NetNeighbor reports it dashed
+        # and upper case, the same conversion Get-VMIp makes.
+        try {
+            $dashed = @(foreach ($mac in $macs) {
+                $bare = $mac -replace '[^0-9A-Fa-f]', ''
+                if ($bare.Length -eq 12 -and $bare -ne '000000000000') { (($bare -replace '(..)(?!$)', '$1-')).ToUpperInvariant() }
+            })
+            if ($dashed.Count) {
+                foreach ($neighbor in @(Get-NetNeighbor -ErrorAction SilentlyContinue | Where-Object { $dashed -contains [string]$_.LinkLayerAddress })) {
+                    $state.neighbors += [ordered]@{ ipAddress = [string]$neighbor.IPAddress; linkLayerAddress = [string]$neighbor.LinkLayerAddress; state = [string]$neighbor.State; interfaceAlias = [string]$neighbor.InterfaceAlias }
+                    $lines.Add("neighbor: $($neighbor.IPAddress) mac=$($neighbor.LinkLayerAddress) state=$($neighbor.State) via=$($neighbor.InterfaceAlias)")
+                }
+            }
+            if (-not $state.neighbors.Count) { $lines.Add("neighbor: (no entry for $(if ($dashed.Count) { $dashed -join ',' } else { 'an unknown MAC' }))") }
+        } catch { $state.errors += "Get-NetNeighbor: $($_.Exception.Message)" }
+
+        # Two seconds per address: the probe runs inside the failure path and
+        # a guest that lost its address never answers, so the budget is the cost.
+        foreach ($address in $ipv4) {
+            $probe = [ordered]@{ address = $address; port = 22; open = $false; ms = $null; error = $null }
+            $tcp = $null
+            $clock = [Diagnostics.Stopwatch]::StartNew()
+            try {
+                $tcp = [System.Net.Sockets.TcpClient]::new()
+                $async = $tcp.BeginConnect($address, 22, $null, $null)
+                $probe.open = [bool]($async.AsyncWaitHandle.WaitOne(2000) -and $tcp.Connected)
+                if (-not $probe.open) { $probe.error = 'timeout' }
+            } catch { $probe.error = $_.Exception.Message } finally { if ($tcp) { $tcp.Close() } }
+            $probe.ms = [int]$clock.ElapsedMilliseconds
+            $state.tcp22 += $probe
+            $lines.Add("tcp22:    $address open=$($probe.open) ms=$($probe.ms)$(if ($probe.error) { " error=$($probe.error)" })")
+        }
+        if (-not $ipv4.Count) { $lines.Add('tcp22:    (no IPv4 reported by the integration services; nothing to probe)') }
+
+        try {
+            $since = [DateTime]::Now.AddMinutes(-20)
+            $logs = @(Get-WinEvent -ListLog 'Microsoft-Windows-Hyper-V-*' -ErrorAction SilentlyContinue | Where-Object { $_.RecordCount -gt 0 })
+            foreach ($log in $logs) {
+                $records = @(Get-WinEvent -FilterHashtable @{ LogName = $log.LogName; StartTime = $since } -MaxEvents 40 -ErrorAction SilentlyContinue)
+                foreach ($record in $records) {
+                    $message = [string]$record.Message
+                    if ($message.Length -gt 300) { $message = $message.Substring(0, 300) }
+                    $message = ($message -replace '\s+', ' ').Trim()
+                    $state.events += [ordered]@{
+                        timeCreated = $record.TimeCreated.ToString('o'); logName = [string]$record.LogName; id = [int]$record.Id
+                        level = [string]$record.LevelDisplayName; message = $message
+                    }
+                    $lines.Add("event:    $($record.TimeCreated.ToString('yyyy-MM-dd HH:mm:ss', [System.Globalization.CultureInfo]::InvariantCulture)) $($record.LogName) id=$($record.Id) $($record.LevelDisplayName): $message")
+                }
+            }
+            if (-not $state.events.Count) { $lines.Add("event:    (no Hyper-V events since $($since.ToString('yyyy-MM-dd HH:mm:ss', [System.Globalization.CultureInfo]::InvariantCulture)) local time)") }
+        } catch { $state.errors += "Get-WinEvent: $($_.Exception.Message)" }
+
+        foreach ($problem in $state.errors) { $lines.Add("error:    $problem") }
+        $lines.Add('reading:  adapter connected=False, or an empty ip= while the VM runs, means the')
+        $lines.Add('          host side of the link is gone or KVP stopped reporting; an ip= with no')
+        $lines.Add('          neighbor entry and tcp22 open=False means the host cannot reach an')
+        $lines.Add('          address the guest still claims; a Reachable neighbor with tcp22 closed')
+        $lines.Add('          means the guest answers ARP but sshd does not. The events are the')
+        $lines.Add("          Hyper-V worker's own account of the same window.")
+        $textPath = Join-Path $OutputDirectory 'vm-network.state.txt'
+        Set-Content -LiteralPath $textPath -Encoding utf8NoBOM -Value $lines.ToArray()
+        try {
+            $state | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath (Join-Path $OutputDirectory 'vm-network.state.json') -Encoding utf8NoBOM
+        } catch { Write-Verbose "Save-VMNetworkState: JSON form skipped: $($_.Exception.Message)" }
+        return [bool](Test-Path -LiteralPath $textPath)
+    } catch {
+        Write-Verbose "Save-VMNetworkState failed: $($_.Exception.Message)"
         return $false
     }
 }
@@ -6436,7 +6709,7 @@ Export-ModuleMember -Function Remove-HyperVGuestDefinition, Resolve-HyperVGuestS
     Remove-SinglePortMap, Clear-AllCachingProxyServicePortMapping, `
     Get-HyperVScreenshot, Get-HyperVWindowScreenshot, Get-VMConsoleSecondOpinion, `
     Start-VMDhcpCapture, Save-VMDhcpCapture, Stop-VMDhcpCapture, `
-    Start-VMSerialCapture, Save-VMSerialCapture, Stop-VMSerialCapture, `
+    Start-VMSerialCapture, Save-VMSerialCapture, Stop-VMSerialCapture, Save-VMNetworkState, `
     Remove-OrphanedVMFileAccess, Disable-HyperVHeartbeatForLinuxGuest, Limit-HyperVLinuxGuestCoreCount, Set-HyperVArm64LinuxGuestProcessorCount
 
 # --- REGION: Contract coverage

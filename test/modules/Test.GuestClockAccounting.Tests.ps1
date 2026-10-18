@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.14
+.VERSION 2026.10.18
 .GUID 420a1aa7-8b02-47f6-a89d-1a0d0b35585e
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -21,6 +21,9 @@ BeforeAll {
     Import-Module (Join-Path $PSScriptRoot 'Test.HostSampling.psm1') -Global -Force
     Import-Module (Join-Path $PSScriptRoot 'Test.EventSchema.psm1') -Global -Force
     $script:clockModule = Get-Module Test.Diagnostic
+    # Captured before any Mock: a filtered mock alone fails the calls its
+    # filter does not match, and this suite relies on the real command there.
+    $script:RealTestPath = Get-Command Test-Path -CommandType Cmdlet
     # --- REGION: Get-ClockFixtureText
     function Get-ClockFixtureText {
         param([string]$Boot='11111111-1111-1111-1111-111111111111', [double]$Uptime=100,
@@ -115,6 +118,26 @@ Describe 'Raw guest clock evidence parsing' {
         }
     }
 
+    It 'reads flight-recorder samples by their sampleUtc boundary and sorts the ring into time order' {
+        $late = (Get-ClockFixtureText -Uptime 347 -Idle0 4040050 -Idle1 16662) -replace '^--- YURUNA CLOCK SAMPLE ---', 'sampleUtc=2026-10-14T22:30:08Z'
+        $early = (Get-ClockFixtureText -Uptime 314 -Idle0 17515 -Idle1 15227) -replace '^--- YURUNA CLOCK SAMPLE ---', 'sampleUtc=2026-10-14T22:29:36Z'
+        # Ring slots wrap, so the newer sample can sit first in the upload.
+        $upload = "recorderSchema=1`nheartbeatUtc=2026-10-14T22:32:32Z`n" + $late + "`n" + $early + "`n--- independent kernel evidence ---`n[  508.780691] rcu: INFO`n"
+        # The parser emits one array object; assign rather than wrap, as the
+        # production readers do, so the count is the samples and not the array.
+        $samples = Read-ClockFixture -Text $upload
+        @($samples).Count | Should -Be 2
+        $samples[0].uptimeSeconds | Should -Be 347
+        $samples[1].valid | Should -BeTrue
+        $path = Join-Path $TestDrive 'execution.system.diagnostic.recorder.txt'
+        [IO.File]::WriteAllText($path, $upload)
+        $analysis = & $script:clockModule { param($p) Get-GuestRecorderClockAnalysis -Path $p } $path
+        $analysis.sampleCount | Should -Be 2
+        $analysis.comparison | Should -Be 'same-boot'
+        @($analysis.warnings | ForEach-Object { $_.code }) | Should -Contain 'cpu-idle-exceeds-boot-uptime'
+        $analysis.advisoryOnly | Should -BeTrue
+        (& $script:clockModule { param($p) Get-GuestRecorderClockAnalysis -Path $p } (Join-Path $TestDrive 'absent.txt')).sampleCount | Should -Be 0
+    }
     It 'does not parse cpu-looking lines outside the raw stat section' {
         $samples=Read-ClockFixture ((Get-ClockFixtureText)+"`n--- thread command ---`ncpu9 1 2 3 9999999999")
         $samples[0].cpus.Count | Should -Be 2
@@ -211,6 +234,7 @@ exec bash -c "${@: -1}"
 '@)
         & chmod +x $ssh
         Mock 'Test.Ssh\Get-ProvenGuestAddress' -ModuleName Test.Diagnostic { return '127.0.0.1' }
+        Mock Test-Path -ModuleName Test.Diagnostic { & $script:RealTestPath @PesterBoundParameters }
         Mock Test-Path -ModuleName Test.Diagnostic -ParameterFilter { $LiteralPath -like '*yuruna_ed25519' } { return $true }
         Mock Save-HyperVCpuRestartHostContext -ModuleName Test.Diagnostic { return @{status='complete';settings=@{processorCount=2}} }
         $oldPath=$env:PATH
@@ -247,6 +271,7 @@ exec bash -c "${@: -1}"
 
     It 'does not discover an address when no prior SSH address exists' {
         Mock 'Test.Ssh\Get-ProvenGuestAddress' -ModuleName Test.Diagnostic { return '' }
+        Mock Test-Path -ModuleName Test.Diagnostic { & $script:RealTestPath @PesterBoundParameters }
         Mock Test-Path -ModuleName Test.Diagnostic -ParameterFilter { $LiteralPath -like '*yuruna_ed25519' } { return $true }
         Mock Invoke-YurunaHostBoundedCommand -ModuleName Test.Diagnostic { throw 'Discovery must not run' }
         $result=& $script:clockModule { Invoke-GuestEvidenceSsh -VMName fixture-vm -GuestKey guest.ubuntu.server.26 -Command true -TimeoutSeconds 3 -ProvenAddressOnly }

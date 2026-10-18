@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.14
+.VERSION 2026.10.18
 .GUID 42a44cb3-b163-4c40-bb54-44dd8119924a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -70,6 +70,16 @@ Describe 'Test-YurunaPoolDocValid (schema validation)' {
         if (Get-Command Test-Json -ErrorAction SilentlyContinue) {
             Assert-False $r.Ok 'missing schemaVersion must fail'
         }
+    }
+    It 'names where a violation nested below the first level breaks the schema' {
+        if (-not (Get-Command Test-Json -ErrorAction SilentlyContinue)) { return }
+        $bad = [ordered]@{ schemaVersion = 4; pools = @([ordered]@{
+            poolId = 'lab'; poolGuid = '42a1b2c3-d4e5-4f60-8a1b-2c3d4e5f6071'
+            repositories = [ordered]@{ name = 'p'; frameworkUrl = 'https://x/f'; projectUrl = 'https://x/p' }
+        }) }
+        $r = Test-YurunaPoolDocValid -Doc $bad -SchemaName 'pools.schema.yml'
+        Assert-False $r.Ok 'an extra property inside a repositories pair must fail'
+        Assert-Match '/pools/0/repositories' ($r.Errors -join '; ') 'the reason names the nested location'
     }
     It 'validates a v4 pool doc with a repositories pair' {
         $good = [ordered]@{ schemaVersion = 4; pools = @([ordered]@{

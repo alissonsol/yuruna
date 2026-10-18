@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.14
+.VERSION 2026.10.18
 .GUID 421beeef-5850-4f6c-9d34-483ec197d700
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -37,7 +37,9 @@ BeforeAll {
     Import-Module (Join-Path $here 'Test.HostRefresh.psm1') -Force -Global -DisableNameChecking
     $script:Created = [System.Collections.Generic.List[string]]::new()
     # One temp directory per run (TMPDIR decides where), removed in AfterAll.
-    $script:ScratchBase = New-YurunaTestTempDir -Prefix 'yuruna-host-refresh-progress'
+    # Short names keep the journal's temp file under the 260-character Windows
+    # path limit inside the coordinator's nested temp folders.
+    $script:ScratchBase = New-YurunaTestTempDir -Prefix 'hr-progress'
     $script:Created.Add($script:ScratchBase)
     $script:RequestId = '4242aaaa-0000-4000-8000-000000000001'
     $script:Generation = 'a' * 32
@@ -46,7 +48,7 @@ BeforeAll {
         [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
             Justification = 'Test fixture: creates a scratch directory under the private test area.')]
         param()
-        $dir = Join-Path $script:ScratchBase ('progress-' + [Guid]::NewGuid().ToString('N'))
+        $dir = Join-Path $script:ScratchBase ('progress-' + [Guid]::NewGuid().ToString('N').Substring(0, 12))
         $null = New-Item -ItemType Directory -Path $dir -Force
         $script:Created.Add($dir)
         $dir

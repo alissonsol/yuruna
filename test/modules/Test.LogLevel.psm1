@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.14
+.VERSION 2026.10.18
 .GUID 42d2ed87-fda6-40a4-8e87-7605f8be0616
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -82,7 +82,7 @@ function Set-LogLevelPreference {
     # Restore is symmetric with the four stream preferences above, but puts back
     # the CAPTURED value rather than forcing 'Continue': a caller that set
     # SilentlyContinue for a reason (Write-Progress trips SetCursorPosition on
-    # tmux/vscode/sshd -- feedback_pwsh_linux_write_progress_setcursor) keeps its
+    # tmux/vscode/sshd PTYs) keeps its
     # choice instead of having the progress bar force-enabled under it.
     if ($eff -ge $script:LogLevelRank.Verbose) {
         if ($null -eq $global:YurunaSavedProgressPreference) { $global:YurunaSavedProgressPreference = $global:ProgressPreference }

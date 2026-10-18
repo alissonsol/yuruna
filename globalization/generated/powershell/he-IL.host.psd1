@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.14
+.VERSION 2026.10.18
 .GUID 4241a322-99ef-c7cf-96e0-a7d07ed683f0
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -8878,6 +8878,15 @@
         }
         '). שחזרו את הגישה ל-⁦UTM⁩ או העבירו ⁦-CachingProxyServiceUrl ""⁩ כדי להוריד ישירות.'
     )
+    'host.utm_control_snapshot_action' = @(
+        'רשמו את תמונת המצב של ערוץ הבקרה של UTM ('
+        @{
+            'arg' = 'trigger'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+        ')'
+    )
     'host.utm_detached_launch_action' = @(
         'הפעילו את '
         @{
@@ -8980,6 +8989,27 @@
             'trust' = 'internal'
         }
         '; לא נשלחה בקשת הפעלה.'
+    )
+    'host.utm_start_control_hung' = @(
+        'ערוץ הבקרה של UTM הפסיק לבצע בקשות מחזור חיים: '
+        @{
+            'arg' = 'attempts'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        ' בקשות הפעלה רצופות עבור '''
+        @{
+            'arg' = 'vmName'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ''' נותרו ללא מענה, והאחרונה דיווחה '''
+        @{
+            'arg' = 'lastError'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '''. utmctl עדיין הגיע אל ⁦UTM.app⁩ לשאילתות מצב, כך שהיישום פועל אך אינו מבצע עוד start, stop או delete, וניסיון חוזר רק מוסיף עוד פסק זמן. הפעילו מחדש את ⁦UTM.app⁩ במארח זה (צאו ממנו מתוך הפעלת שולחן העבודה, או הריצו ⁦test/lab/Invoke-HostRefresh.ps1⁩), ואז הפעילו את המכונה הווירטואלית שוב. המכונה הווירטואלית לא הופעלה מעולם והדיסק שלה לא שונה.'
     )
     'host.utm_start_dropped' = @(
         ''''

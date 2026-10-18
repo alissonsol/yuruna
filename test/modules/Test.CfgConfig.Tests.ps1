@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.14
+.VERSION 2026.10.18
 .GUID 42306286-6637-4762-aa48-42757ab30e79
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -173,6 +173,26 @@ Describe 'Test-AgainstSchema parses through the hardened Read-TestConfig' {
     }
     It 'invokes Read-TestConfig from the validator module (no separate parse path)' {
         (Get-CommandInvokeCount -Ast (Get-FileAst $script:validatorMod) -Name 'Read-TestConfig') | Should -BeGreaterOrEqual 1
+    }
+}
+
+Describe 'Test-AgainstSchema names a nested schema violation' {
+    BeforeAll { Import-Module $script:validatorMod -Force }
+    It 'reports where a property three levels down breaks the schema' {
+        $root = Join-Path ([System.IO.Path]::GetTempPath()) ("cfgc-nested-" + [System.Guid]::NewGuid().ToString('N'))
+        New-Item -ItemType Directory -Path $root -Force | Out-Null
+        try {
+            $yaml = Join-Path $root 'nested.yml'
+            Set-Content -LiteralPath $yaml -Encoding utf8 -Value "outer:`n  middle:`n    inner:`n      keep: x`n      extra: y"
+            $schema = Join-Path $root 'schema.yml'
+            Set-Content -LiteralPath $schema -Encoding utf8 -Value ("type: object`nproperties:`n  outer:`n    type: object`n    properties:`n      middle:`n        type: object`n" +
+                "        properties:`n          inner:`n            type: object`n            additionalProperties: false`n            properties:`n              keep:`n                type: string")
+            Mock -ModuleName Test.ConfigValidator Write-Fail { }
+            Mock -ModuleName Test.ConfigValidator Write-Pass { }
+            Test-AgainstSchema -Label 'x' -YamlPath $yaml -SchemaPath $schema
+            Should -Invoke -ModuleName Test.ConfigValidator Write-Pass -Times 0 -Exactly
+            Should -Invoke -ModuleName Test.ConfigValidator Write-Fail -Times 1 -Exactly -ParameterFilter { $Message -match '/outer/middle/inner' }
+        } finally { Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue }
     }
 }
 

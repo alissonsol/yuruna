@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.14
+.VERSION 2026.10.18
 .GUID 42904e1e-c247-4036-a38b-fb377e975d26
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -169,6 +169,7 @@ $allFrameworkSequenceFile = @(Get-ChildItem -Path (Join-Path $discoveryRepoRoot 
 if ($guestCase.Count -lt 3) { throw "Expected several hostname-templating New-VM.ps1 scripts under $(Join-Path $discoveryRepoRoot 'host'), found $($guestCase.Count). The discovery glob is pointed at the wrong folder." }
 if ($metaCase.Count  -lt 1) { throw "Expected at least one *.meta-data template with HOSTNAME_PLACEHOLDER under $(Join-Path $discoveryRepoRoot 'host/vmconfig'), found none." }
 if ($seqCase.Count   -lt 1) { throw "Expected at least one sequence .yml under $(Join-Path $discoveryRepoRoot 'test/sequences'), found none." }
+if ($wrapperCase.Count -lt 1) { throw "Expected at least one per-release New-VM.ps1 wrapper of New-UbuntuServerVM.ps1 under $(Join-Path $discoveryRepoRoot 'host'), found none." }
 
 Describe 'guest-hostname -- variables.hostname reaches cloud-init local-hostname' {
     It 'finds the templating guest scripts at all (fixture sanity)' {

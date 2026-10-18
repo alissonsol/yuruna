@@ -12628,6 +12628,40 @@
         }
       }
     },
+    "host.utm_start_control_hung": {
+      "message": "UTM's control channel stopped acting on lifecycle requests: {attempts} consecutive start request(s) for '{vmName}' went unanswered, the last reporting '{lastError}'. utmctl still reached UTM.app for state queries, so the application is running but no longer carries out start, stop or delete, and retrying only adds another timeout. Restart UTM.app on this host (quit it from the desktop session, or run test/lab/Invoke-HostRefresh.ps1), then start the VM again. The VM was never launched and its disk is untouched.",
+      "description": "errorMessage text returned by Invoke-UtmVMStartWithRetry in host/macos.utm/modules/Yuruna.Host.psm1 when two consecutive starts waited out the Apple Event timeout or lost the connection to UTM.app; preserve command names and paths.",
+      "lifecycle": "active",
+      "placeholders": {
+        "vmName": {
+          "type": "detail",
+          "trust": "external",
+          "example": "amisad-edge-b"
+        },
+        "attempts": {
+          "type": "integer",
+          "trust": "internal",
+          "example": "2"
+        },
+        "lastError": {
+          "type": "detail",
+          "trust": "external",
+          "example": "Error from event: OSStatus error -1712"
+        }
+      }
+    },
+    "host.utm_control_snapshot_action": {
+      "message": "Record the UTM control-channel snapshot ({trigger})",
+      "description": "ShouldProcess action text for Save-UtmControlSnapshot in host/macos.utm/modules/Yuruna.Host.psm1; preserve the trigger token.",
+      "lifecycle": "active",
+      "placeholders": {
+        "trigger": {
+          "type": "token",
+          "trust": "internal",
+          "example": "start-control-hung"
+        }
+      }
+    },
     "host.utm_start_not_running": {
       "message": "'{vmName}' did not reach 'running' across {attempts} attempt(s): {lastError}",
       "description": "errorMessage text returned by Invoke-UtmVMStartWithRetry in host/macos.utm/modules/Yuruna.Host.psm1 when utmctl reported an error; preserve command names.",

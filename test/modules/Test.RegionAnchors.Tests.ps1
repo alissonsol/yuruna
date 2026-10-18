@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.14
+.VERSION 2026.10.18
 .GUID 42a1c8e3-5b47-4f60-9d2a-7e83b415cc09
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -630,6 +630,54 @@ Describe 'local Markdown targets across workspace repositories' {
         Assert-False ($output.Contains('UNRESOLVABLE')) 'a local workspace target must be checked'
         Assert-Match '1 pointer\(s\) checked' $output
         if ($Scenario -ne 'valid') { Assert-Match 'README\.md has no heading' $output }
+    }
+}
+
+Describe 'explicit Markdown anchors and Grafana fragment templates' {
+    It 'checks <Scenario> without accepting missing static destinations' -TestCases @(
+        @{ Scenario = 'table anchor'; Body = '| <a id="failure-class-network_timeout"></a>Network |'; Fragment = 'failure-class-network_timeout'; Expected = 0 },
+        @{ Scenario = 'single quoted anchor'; Body = "<a id='Failure-Network'></a>"; Fragment = 'Failure-Network'; Expected = 0 },
+        @{ Scenario = 'wrong case'; Body = '<a id="Failure-Network"></a>'; Fragment = 'failure-network'; Expected = 1 },
+        @{ Scenario = 'missing anchor'; Body = '# Different'; Fragment = 'failure-class-network_timeout'; Expected = 1 },
+        @{ Scenario = 'backtick example'; Body = "``````markdown`n<a id=`"failure-class-network_timeout`"></a>`n``````"; Fragment = 'failure-class-network_timeout'; Expected = 1 },
+        @{ Scenario = 'tilde example'; Body = "~~~markdown`n<a id=`"failure-class-network_timeout`"></a>`n~~~"; Fragment = 'failure-class-network_timeout'; Expected = 1 },
+        @{ Scenario = 'inline example'; Body = '`<a id="failure-class-network_timeout"></a>`'; Fragment = 'failure-class-network_timeout'; Expected = 1 },
+        @{ Scenario = 'HTML comment'; Body = '<!-- <a id="failure-class-network_timeout"></a> -->'; Fragment = 'failure-class-network_timeout'; Expected = 1 },
+        @{ Scenario = 'comment opener inside a fenced example'; Body = (@('```markdown', '<!--', '```', '<a id="failure-class-network_timeout"></a>') -join "`n"); Fragment = 'failure-class-network_timeout'; Expected = 0 },
+        @{ Scenario = 'comment opener inside inline code'; Body = ('`<!--`' + "`n" + '<a id="failure-class-network_timeout"></a>'); Fragment = 'failure-class-network_timeout'; Expected = 0 },
+        @{ Scenario = 'comment opener before a real heading'; Body = ('`<!--`' + "`n# Actual heading"); Fragment = 'actual-heading'; Expected = 0 },
+        @{ Scenario = 'multiline HTML comment'; Body = (@('<!--', '<a id="failure-class-network_timeout"></a>', '-->', '# Actual heading') -join "`n"); Fragment = 'failure-class-network_timeout'; Expected = 1 },
+        @{ Scenario = 'fence opener inside a real comment'; Body = (@('<!--', '```markdown', '-->', '<a id="failure-class-network_timeout"></a>') -join "`n"); Fragment = 'failure-class-network_timeout'; Expected = 0 },
+        @{ Scenario = 'typed template'; Body = '<a id="failure-class-network_timeout"></a>'; Fragment = 'failure-class-${__value.raw}'; Expected = 0 },
+        @{ Scenario = 'missing template prefix'; Body = '<a id="other-network_timeout"></a>'; Fragment = 'failure-class-${__value.raw}'; Expected = 1 },
+        @{ Scenario = 'missing template suffix'; Body = '<a id="failure-class-network_timeout"></a>'; Fragment = 'failure-class-${__value.raw}-missing'; Expected = 1 },
+        @{ Scenario = 'unknown template token'; Body = '<a id="failure-class-network_timeout"></a>'; Fragment = 'failure-class-${__value.typo}'; Expected = 1 },
+        @{ Scenario = 'unterminated template token'; Body = '<a id="failure-class-"></a>'; Fragment = 'failure-class-${__value.raw'; Expected = 1 },
+        @{ Scenario = 'template without static scope'; Body = '<a id="failure-class-network_timeout"></a>'; Fragment = '${__value.raw}'; Expected = 1 },
+        @{ Scenario = 'template without a value'; Body = '<a id="failure-class-"></a>'; Fragment = 'failure-class-${__value.raw}'; Expected = 1 },
+        @{ Scenario = 'broken static neighbor'; Body = '<a id="failure-class-network_timeout"></a>'; Fragment = 'failure-class-${__value.raw}'; Expected = 1 }
+    ) {
+        param($Scenario, $Body, $Fragment, $Expected)
+        $project = Join-Path $script:Sandbox ([guid]::NewGuid().ToString('n'))
+        $null = New-Item -ItemType Directory -Path $project
+        $null = & git -C $project init --quiet 2>&1
+        Assert-Equal 0 $LASTEXITCODE 'the disposable project initializes'
+        [IO.File]::WriteAllText((Join-Path $project 'README.md'), $Body)
+        $prefix = 'https://yuruna.link/' + 'fixture-doc#'
+        $link = $prefix + $Fragment
+        if ($Scenario -eq 'broken static neighbor') { $link += ' ' + $prefix + 'failure-class-absent' }
+        [IO.File]::WriteAllText((Join-Path $project 'consumer.json'), (@{ url = $link } | ConvertTo-Json -Compress))
+        $map = New-LinkMap -Name ([guid]::NewGuid().ToString('n') + '.json') -Entry @(
+            , @('fixture-doc', 'Fixture', 'https://github.com/alissonsol/yuruna-project/blob/main/README.md'))
+        $run = Invoke-Gate -Argument @('-ProjectRoot', $project, '-Path', $project, '-LinkMap', $map)
+        Assert-Equal $Expected $run.ExitCode $run.Output
+        if ($Scenario -eq 'typed template') {
+            Assert-Match '1 template pointer\(s\).*runtime values require consumer validation' $run.Output
+        }
+        if ($Scenario -eq 'broken static neighbor') {
+            Assert-Match '2 pointer\(s\) checked' $run.Output
+            Assert-Match 'failure-class-absent' $run.Output
+        }
     }
 }
 

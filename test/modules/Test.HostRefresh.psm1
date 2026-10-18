@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.14
+.VERSION 2026.10.18
 .GUID 42b6904c-f865-423b-822a-edb5cb5994fe
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -239,6 +239,16 @@ $script:HostRefreshActionKey = @{
     'dispose-obligations' = 'runner.host_refresh_action_dispose_obligations'
     'elevate' = 'runner.host_refresh_action_elevate'
     'install-client' = 'runner.host_refresh_action_install_client'
+}
+# The by-hand remedy for a hypervisor whose control channel is hung (the
+# probe reads Unresponsive for a reason other than app-stopped), per host
+# type. Named in the summary when no rung that repairs that class ran, so
+# the operator learns the manual fix instead of spending the bounded resume
+# attempts on re-probes that cannot repair anything.
+$script:HostRefreshHungHypervisorManualKey = @{
+    'host.macos.utm'       = 'runner.host_refresh_hung_hypervisor_manual_utm'
+    'host.ubuntu.kvm'      = 'runner.host_refresh_hung_hypervisor_manual_kvm'
+    'host.windows.hyper-v' = 'runner.host_refresh_hung_hypervisor_manual_hyperv'
 }
 $script:HostRefreshControlName = @(
     'control.step-pause', 'control.cycle-pause', 'control.pause', 'control.lab-hold', 'lab-hold.json',
@@ -1210,6 +1220,21 @@ function Write-HostRefreshSummary {
         & $log 'runner.host_refresh_summary_verdict' @{ verdict = "$($Result.verdict)"; requestId = "$($Result.requestId)"; attempt = "$($Result.attempt)"; state = "$($Result.state)" }
         foreach ($obligation in @($Result.obligations | Where-Object { $_.status -eq 'armed' })) {
             & $log 'runner.host_refresh_summary_obligation' @{ obligation = "$($obligation.id)" }
+        }
+        # A hung control channel (Unresponsive for any reason other than
+        # app-stopped) is repaired only by the restart-if-hung, restart-broker
+        # or reboot rungs. When the attempt ends still-unresponsive and none
+        # of those ran -- unavailable on this host, above the ceiling, or the
+        # attempt was restoration-only -- a resume alone re-probes, spends one
+        # of the bounded attempts and parks again, so the summary names the
+        # by-hand remedy.
+        $hungProbe = $probe -and ([string]$probe.state -eq 'Unresponsive') -and ([string]$probe.reason -ne 'app-stopped')
+        if (([string]$Result.verdict -eq 'still-unresponsive') -and $hungProbe) {
+            $hungRepairRan = @($Result.rungs | Where-Object {
+                ([string]$_.name -in @('restart-if-hung', 'restart-broker', 'reboot')) -and ([string]$_.outcome -ne 'skipped')
+            }).Count -gt 0
+            $manualKey = $script:HostRefreshHungHypervisorManualKey[$hostType]
+            if (-not $hungRepairRan -and $manualKey) { & $log $manualKey }
         }
     }
     if ($Result.operatorAction) {

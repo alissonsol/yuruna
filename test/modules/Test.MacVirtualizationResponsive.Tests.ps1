@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.14
+.VERSION 2026.10.18
 .GUID 426638a9-3c83-4796-8371-fa8298592238
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -56,6 +56,7 @@ BeforeAll {
         return (& $script:Driver $Body @Argument)
     }
     function Get-Call { param([string]$Tool) return @(Get-MacUtmFakeCall -FakeHost $script:Fake -Tool $Tool) }
+    function Get-StopCall { return @(Get-Call 'utmctl' | Where-Object { $_ -like 'utmctl stop*' }) }
 }
 
 AfterAll {
@@ -346,6 +347,17 @@ Describe 'Test-VirtualizationResponsive (host.macos.utm)' {
         Assert-Equal 1 (Get-Call 'utmctl').Count
     }
 
+    It 'exercises no lifecycle verb unless asked' {
+        if (-not $script:CanShim) { Set-ItResult -Skipped -Because 'the stand-in tools are POSIX shell scripts'; return }
+        Add-MacUtmFakeProcess -FakeHost $script:Fake -ProcessId 600 -Name 'UTM'
+        Add-MacUtmFakeVM -FakeHost $script:Fake -Name 'test-guest-01' -Status 'stopped'
+        $r = Test-VirtualizationResponsive
+        Assert-StringEqual 'Responsive' $r.state
+        Assert-False $r.evidence.lifecycle.attempted 'no verb was sent'
+        Assert-StringEqual 'not-attempted' $r.evidence.lifecycle.outcome
+        Assert-Equal 0 @(Get-Call 'utmctl' | Where-Object { $_ -like 'utmctl stop*' }).Count -Because 'a plain probe only lists'
+    }
+
     It 'launches nothing with under one second left' {
         if (-not $script:CanShim) { Set-ItResult -Skipped -Because 'the stand-in tools are POSIX shell scripts'; return }
         $r = Test-VirtualizationResponsive -Deadline (New-YurunaDeadline -TotalMilliseconds 500)
@@ -353,6 +365,126 @@ Describe 'Test-VirtualizationResponsive (host.macos.utm)' {
         Assert-StringEqual 'deadline-exhausted' $r.reason
         Assert-True $r.deadlineExhausted
         Assert-Equal 0 (Get-MacUtmFakeCall -FakeHost $script:Fake).Count -Because 'no tool of any kind was run'
+    }
+}
+
+Describe 'Test-VirtualizationResponsive -LifecycleProbe (host.macos.utm)' {
+    BeforeEach {
+        if ($script:CanShim) {
+            Reset-MacUtmFakeHost -FakeHost $script:Fake
+            Enter-MacUtmFakeHost -FakeHost $script:Fake
+            Add-MacUtmFakeProcess -FakeHost $script:Fake -ProcessId 600 -Name 'UTM'
+        }
+    }
+    AfterEach {
+        if ($script:CanShim) { Exit-MacUtmFakeHost -FakeHost $script:Fake }
+    }
+    It 'sends one stop to a VM its own listing shows stopped and stays Responsive when it answers' {
+        if (-not $script:CanShim) { Set-ItResult -Skipped -Because 'the stand-in tools are POSIX shell scripts'; return }
+        Add-MacUtmFakeVM -FakeHost $script:Fake -Name 'test-guest-01' -Status 'stopped'
+        Add-MacUtmFakeVM -FakeHost $script:Fake -Name 'yuruna-stash-service' -Status 'started'
+        $r = Test-VirtualizationResponsive -LifecycleProbe -LifecycleProbePrefix @('test-')
+        Assert-StringEqual 'Responsive' $r.state
+        Assert-StringEqual 'responsive' $r.reason
+        Assert-True $r.evidence.lifecycle.attempted 'the verb was sent'
+        Assert-StringEqual 'stop' $r.evidence.lifecycle.verb
+        Assert-StringEqual 'test-guest-01' $r.evidence.lifecycle.vmName
+        Assert-StringEqual 'responsive' $r.evidence.lifecycle.outcome
+        $stops = @(Get-StopCall)
+        Assert-Equal 1 $stops.Count -Because 'exactly one no-op stop'
+        Assert-StringEqual 'utmctl stop test-guest-01' $stops[0]
+    }
+
+    It 'prefers a stopped VM under the prefix and never sends the verb to a running one' {
+        if (-not $script:CanShim) { Set-ItResult -Skipped -Because 'the stand-in tools are POSIX shell scripts'; return }
+        Add-MacUtmFakeVM -FakeHost $script:Fake -Name 'test-guest-01' -Status 'stopped'
+        Add-MacUtmFakeVM -FakeHost $script:Fake -Name 'amisad-build' -Status 'stopped'
+        Add-MacUtmFakeVM -FakeHost $script:Fake -Name 'amisad-core' -Status 'started'
+        $r = Test-VirtualizationResponsive -LifecycleProbe -LifecycleProbePrefix @('AMISAD-')
+        Assert-StringEqual 'amisad-build' $r.evidence.lifecycle.vmName 'the prefix match wins, case-insensitively'
+        $stops = @(Get-StopCall)
+        Assert-Equal 1 $stops.Count
+        Assert-True (-not ($stops -like '*amisad-core*')) 'a started VM is never stopped'
+        Assert-StringEqual 'started' (Get-Content -LiteralPath (Join-Path $script:Fake.State 'vm/amisad-core') -Raw).Trim()
+    }
+
+    It 'skips the verb, says so, and lets the listing stand when nothing is stopped' {
+        if (-not $script:CanShim) { Set-ItResult -Skipped -Because 'the stand-in tools are POSIX shell scripts'; return }
+        Add-MacUtmFakeVM -FakeHost $script:Fake -Name 'yuruna-stash-service' -Status 'started'
+        $r = Test-VirtualizationResponsive -LifecycleProbe
+        Assert-StringEqual 'Responsive' $r.state
+        Assert-False $r.evidence.lifecycle.attempted
+        Assert-StringEqual 'skipped-no-stopped-vm' $r.evidence.lifecycle.outcome
+        Assert-Equal 0 @(Get-StopCall).Count
+    }
+
+    It 'treats a refusal from the verb as an answer' {
+        if (-not $script:CanShim) { Set-ItResult -Skipped -Because 'the stand-in tools are POSIX shell scripts'; return }
+        Add-MacUtmFakeVM -FakeHost $script:Fake -Name 'test-guest-01' -Status 'stopped'
+        Set-MacUtmFakeState -FakeHost $script:Fake -Key 'stop.mode' -Value 'refuse'
+        $r = Test-VirtualizationResponsive -LifecycleProbe
+        Assert-StringEqual 'Responsive' $r.state
+        Assert-StringEqual 'responsive' $r.evidence.lifecycle.outcome
+        Assert-Equal 1 $r.evidence.lifecycle.exitCode -Because 'the refusal exit code is on record'
+        Assert-Match 'not running' $r.diagnostic 'the refusal text is kept as diagnostic'
+    }
+
+    It 'reports an uncorroborated lifecycle timeout (<Mode>) as Undetermined within its bound' -TestCases @(
+        @{ Mode = 'hang' }
+        @{ Mode = 'timeout-text' }
+    ) {
+        param($Mode)
+        if (-not $script:CanShim) { Set-ItResult -Skipped -Because 'the stand-in tools are POSIX shell scripts'; return }
+        Add-MacUtmFakeVM -FakeHost $script:Fake -Name 'test-guest-01' -Status 'stopped'
+        Set-MacUtmFakeState -FakeHost $script:Fake -Key 'stop.mode' -Value $Mode
+        $sw = [Diagnostics.Stopwatch]::StartNew()
+        $r = Test-VirtualizationResponsive -LifecycleProbe -TimeoutSeconds 1
+        Assert-True ($sw.Elapsed.TotalSeconds -lt 6) "bounded ($($sw.Elapsed.TotalSeconds) s)"
+        Assert-StringEqual 'Undetermined' $r.state
+        Assert-StringEqual 'timeout' $r.reason
+        Assert-True $r.timedOut
+        Assert-False $r.corroborated
+        Assert-StringEqual 'timeout' $r.evidence.lifecycle.outcome
+        Assert-True $r.evidence.lifecycle.timedOut
+        Assert-Equal 1 @(Get-StopCall).Count
+    }
+
+    It 'corroborates a second lifecycle timeout without a recorded Automation subject' {
+        if (-not $script:CanShim) { Set-ItResult -Skipped -Because 'the stand-in tools are POSIX shell scripts'; return }
+        Add-MacUtmFakeVM -FakeHost $script:Fake -Name 'test-guest-01' -Status 'stopped'
+        Set-MacUtmFakeState -FakeHost $script:Fake -Key 'stop.mode' -Value 'timeout-text'
+        $sw = [Diagnostics.Stopwatch]::StartNew()
+        $r = Test-VirtualizationResponsive -LifecycleProbe -TimeoutSeconds 1 -Corroborate -DialogWindowSeconds 120 -LifecycleRetryWindowSeconds 0
+        Assert-True ($sw.Elapsed.TotalSeconds -lt 10) "the lifecycle retry window, not the dialog window, paced it ($($sw.Elapsed.TotalSeconds) s)"
+        Assert-StringEqual 'Unresponsive' $r.state
+        Assert-StringEqual 'timeout' $r.reason
+        Assert-True $r.corroborated
+        Assert-StringEqual 'unknown' $r.evidence.automationGrant 'the listing itself was the proof of the grant'
+        Assert-StringEqual 'timeout' $r.evidence.lifecycle.outcome
+        Assert-Equal 2 @(Get-StopCall).Count -Because 'one verb per probe'
+        Assert-Equal 2 @(Get-Call 'utmctl' | Where-Object { $_ -eq 'utmctl list' }).Count -Because 'the second probe re-listed first'
+    }
+
+    It 'lets a verb that answers on the second probe overrule the first' {
+        if (-not $script:CanShim) { Set-ItResult -Skipped -Because 'the stand-in tools are POSIX shell scripts'; return }
+        Add-MacUtmFakeVM -FakeHost $script:Fake -Name 'test-guest-01' -Status 'stopped'
+        Set-MacUtmFakeState -FakeHost $script:Fake -Key 'stop.queue' -Value 'timeout-text'
+        $r = Test-VirtualizationResponsive -LifecycleProbe -TimeoutSeconds 1 -Corroborate -LifecycleRetryWindowSeconds 0
+        Assert-StringEqual 'Responsive' $r.state
+        Assert-False $r.corroborated
+        Assert-StringEqual 'responsive' $r.evidence.lifecycle.outcome
+        Assert-Equal 2 @(Get-StopCall).Count
+    }
+
+    It 'still needs the recorded subject when the listing itself is what hung' {
+        if (-not $script:CanShim) { Set-ItResult -Skipped -Because 'the stand-in tools are POSIX shell scripts'; return }
+        Add-MacUtmFakeVM -FakeHost $script:Fake -Name 'test-guest-01' -Status 'stopped'
+        Set-MacUtmFakeState -FakeHost $script:Fake -Key 'list.mode' -Value 'hang'
+        $r = Test-VirtualizationResponsive -LifecycleProbe -TimeoutSeconds 1 -Corroborate -DialogWindowSeconds 0
+        Assert-StringEqual 'Undetermined' $r.state
+        Assert-StringEqual 'timeout' $r.reason
+        Assert-StringEqual 'not-attempted' $r.evidence.lifecycle.outcome 'no listing, no verb'
+        Assert-Equal 0 @(Get-StopCall).Count
     }
 }
 
@@ -367,6 +499,8 @@ Describe 'The Apple Event wording table' {
             '-1712\b'                            = 'Error from event: The operation could not be completed. (OSStatus error -1712.)'
             'AppleEvent timed out'               = 'Error: AppleEvent timed out.'
             'does not work from SSH'             = 'Error: utmctl does not work from SSH sessions or before logging in.'
+            '-609\b'                             = "Error from event: The operation couldn$([char]0x2019)t be completed. (OSStatus error -609.)"
+            'connection is invalid'              = 'Error: the connection is invalid'
             'OSStatus error'                     = 'The operation failed (OSStatus error -600.)'
             'couldn.t be completed'              = "The operation couldn$([char]0x2019)t be completed."
             'Error from event'                   = 'Error from event: something else'

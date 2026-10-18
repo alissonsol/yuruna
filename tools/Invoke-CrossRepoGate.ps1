@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.14
+.VERSION 2026.10.18
 .GUID 42c1f5b8-9a37-4e02-b6d4-5081e7c3a9f6
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -290,27 +290,27 @@ function Get-GateRemediation {
             Action = 'Run pwsh -NoProfile -File tools/Invoke-A11yCheck.ps1 ; the detail names the page ' +
                 'and the violated rule. Fix the markup rather than suppressing the rule.' }
         @{ Gate = 'doc-reachability'; Match = ''; Code = 'focused-suite'
-            Action = 'Run test/modules/Test.DocReachability.Tests.ps1 directly under Pester 5; the ' +
+            Action = 'Run test/modules/Test.DocReachability.Tests.ps1 directly under Pester 6; the ' +
                 'detail names the failing test and its first error line. Detail ''required test file ' +
-                'is missing'' means the tree does not carry that file. Detail ''Pester 5.0 or newer ' +
-                'is not installed'' is a prerequisite gap: install Pester 5 and re-run. A skipped or ' +
+                'is missing'' means the tree does not carry that file. Detail ''Pester 6.x ' +
+                'is not installed'' is a prerequisite gap: install Pester 6 and re-run. A skipped or ' +
                 'not-run count makes this cannot-run, not pass.' }
         @{ Gate = 'code-registry-contract'; Match = ''; Code = 'focused-suite'
-            Action = 'Run test/modules/Test.CodeRegistry.Tests.ps1 directly under Pester 5; the detail ' +
+            Action = 'Run test/modules/Test.CodeRegistry.Tests.ps1 directly under Pester 6; the detail ' +
                 'names the failing test. The code registry feeds the affected-slice artifact, so ' +
                 'fix this before regenerating that map. Same prerequisite notes as the other ' +
                 'focused slices.' }
         @{ Gate = 'status-slice-matrix'; Match = ''; Code = 'focused-suite'
             Action = 'Run test/modules/Test.StatusServiceLocale.Tests.ps1 and ' +
-                'test/modules/Test.StatusPauseSlice.Tests.ps1 directly under Pester 5; the detail ' +
+                'test/modules/Test.StatusPauseSlice.Tests.ps1 directly under Pester 6; the detail ' +
                 'names the failing test and container. This row is also the matrix gate for ' +
                 'SEED-OPEN(status), so its failure closes that seed and W2-OPEN as well.' }
         @{ Gate = 'pool-slice-matrix'; Match = ''; Code = 'focused-suite'
-            Action = 'Run test/modules/Test.PoolGlobalizationSlice.Tests.ps1 directly under Pester 5; ' +
+            Action = 'Run test/modules/Test.PoolGlobalizationSlice.Tests.ps1 directly under Pester 6; ' +
                 'the detail names the failing test. This row is the matrix gate for ' +
                 'SEED-OPEN(pool), so its failure closes that seed and W2-OPEN as well.' }
         @{ Gate = 'reference-slice-matrix'; Match = ''; Code = 'focused-suite'
-            Action = 'Run test/modules/Test.ReferenceSliceMatrix.Tests.ps1 directly under Pester 5; the ' +
+            Action = 'Run test/modules/Test.ReferenceSliceMatrix.Tests.ps1 directly under Pester 6; the ' +
                 'detail names the failing test. It is a member of the shared prerequisite list, so ' +
                 'its failure closes both seeds and W2-OPEN.' }
         @{ Gate = 'zot-qualification'; Match = ''; Code = 'focused-suite'
@@ -497,12 +497,14 @@ function Invoke-FocusedPesterGate {
         Add-Row -Gate $Gate -State 'cannot-run' -Detail ('required test file is missing: ' + ($missing -join ', '))
         return
     }
-    if (-not (Get-Module -ListAvailable -Name Pester | Where-Object Version -GE ([version]'5.0'))) {
-        Add-Row -Gate $Gate -State 'cannot-run' -Detail 'Pester 5.0 or newer is not installed'
+    # Import-Module takes the highest copy in range. The bounds keep these
+    # slices on the 6.x line the runner selects, whatever else is installed.
+    if (-not (Get-Module -ListAvailable -Name Pester | Where-Object { $_.Version -ge [version]'6.0' -and $_.Version -lt [version]'7.0' })) {
+        Add-Row -Gate $Gate -State 'cannot-run' -Detail 'Pester 6.x is not installed'
         return
     }
     try {
-        Import-Module Pester -MinimumVersion 5.0 -ErrorAction Stop
+        Import-Module Pester -MinimumVersion 6.0 -MaximumVersion 6.999.999 -ErrorAction Stop
         $result = Invoke-Pester -Path $paths -Output None -PassThru
         $failed = [int]$result.FailedCount + [int]$result.FailedBlocksCount + [int]$result.FailedContainersCount
         $incomplete = [int]$result.SkippedCount + [int]$result.NotRunCount

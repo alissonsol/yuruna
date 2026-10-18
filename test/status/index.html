@@ -63,6 +63,8 @@
        so this reports a topology, it does not report a failure. */
     .host-network-notice { border-inline-start-color: var(--warn-fg); }
     .runner-failure { border-inline-start-color: var(--fail-fg); overflow-wrap: break-word; }
+    .runner-failure.preflight-failed { border-inline-start-color: var(--warn-fg); }
+    .runner-attempt-list { list-style: none; margin: 0; padding: 0; }
 
     .meta-grid {
       display: flex; flex-wrap: wrap;
@@ -302,6 +304,14 @@
         <tbody id="history-body"></tbody>
       </table>
     </div>
+  </section>
+
+  <section id="runner-attempts" aria-labelledby="runner-attempts-title">
+    <div class="section-title">
+      <h2 id="runner-attempts-title" data-i18n="status.runner_attempts_title">Runner attempt failures</h2>
+    </div>
+    <p data-i18n="status.runner_attempts_description">Failures from the latest 20 runner attempts remain here after recovery. Preflight failures occur before a new test cycle starts.</p>
+    <div id="runner-attempt-history" aria-live="polite"></div>
   </section>
 
   <div id="no-data" class="no-data">

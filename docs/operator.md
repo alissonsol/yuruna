@@ -460,11 +460,13 @@ repair a partial install. Run
 used in testing
 ([`automation/Yuruna.Requirement.yml`](../automation/Yuruna.Requirement.yml)).
 
-- Install [PowerShell Core](https://github.com/powershell/powershell) 7.6.4+ -- the floor in [`Yuruna.Requirement.yml`](../automation/Yuruna.Requirement.yml); anything older fails `Test-Requirement.ps1`.
+- Install [PowerShell Core](https://github.com/powershell/powershell) 7.6.6+ -- the floor in [`Yuruna.Requirement.yml`](../automation/Yuruna.Requirement.yml); anything older fails `Test-Requirement.ps1`.
   On Windows, from an Administrator PowerShell:
   - Install it for all users: `winget install --id Microsoft.PowerShell --scope machine`. A per-user copy sits under `%LOCALAPPDATA%`, where no other account can execute it, so the test user from [B.4](#b4-create-the-yuruna-test-user) cannot run `pwsh` at all.
   - `Set-ExecutionPolicy -ExecutionPolicy RemoteSigned` (see [execution policies](https://go.microsoft.com/fwlink/?LinkID=135170))
   - `Install-Module -Name powershell-yaml`
+- Install Pester 6.x and PSScriptAnalyzer: `pwsh -NoProfile -File tools/Install-TestModule.ps1`
+  (the installer runs this; see [Pester install](install.md#pester-install)).
 - Install [Git](https://git-scm.com/downloads)
   - `git config --global user.name "Your Name"`
   - `git config --global user.email "Your@email.address"`
@@ -887,6 +889,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.14
+Last review: 2026.10.18
 
 Back to [Yuruna](../README.md)

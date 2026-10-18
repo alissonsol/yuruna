@@ -123,7 +123,7 @@ registry lookup described by `registryName` below.
 | --- | --- |
 | `resources[].name` | Expanded name keys the resource output and `.yuruna/<config>/resources/<name>/`. Validation rejects duplicate raw names and expanded-name collisions. |
 | `resources[].template` | Resolves project `resources/<template>/` before framework `global/resources/<template>/`. An empty template names an existing resource; the publisher skips it, so it gets no work folder, output mapping, or cleanup. |
-| `globalVariables`, `resources[].variables`, chart `variables` | Validation rejects null or empty values. The `resources` list must be present; a missing `components` or `workloads` list skips that phase. |
+| `globalVariables`, `resources[].variables`, chart `variables` | Validation rejects null or empty values. Each phase requires its YAML file. Within that file, the `resources` list must be present; a missing `components` or `workloads` list skips that phase. |
 | `registryName` | Names the registry resource. The component publisher reads `<registryName>.registryLocation` from resource outputs to choose a registry-login provider and skips login when none matches. |
 | `components[].project` | Required component identity, unique after expansion. |
 | `components[].buildPath` | Resolves under project `components/`; defaults to the expanded `project` value when omitted. The folder must contain `Dockerfile`, `dockerfile`, or `<project>-dockerfile`. |
@@ -215,16 +215,12 @@ erDiagram
     }
     sequence-yml {
         string description
-        map descriptionLocalized
         string sequenceGuid
         int sequenceRevision
         string keystrokeMechanism
         map resource
         list component
         list workload
-        map variables
-        map requiresSnapshot
-        map snapshotPolicy
     }
     users-yml {
         bool strict
@@ -244,7 +240,9 @@ erDiagram
 
 The six entities separate the companion repository's runner selection and
 project sequences from the framework's runtime credentials. Dotted relations
-are name lookups. The `users-yml` fields after `users` belong to a logical-user
+are name lookups. Each entity shows at most seven key fields; sequence variables,
+localized labels, and snapshot settings are described below. The `users-yml`
+fields after `users` belong to a logical-user
 entry; the `vault-yml` fields after `users` belong to a secret-key entry.
 
 The companion [test/test.runner.yml](https://github.com/alissonsol/yuruna-project/blob/main/test/test.runner.yml)
@@ -260,6 +258,11 @@ under the schema. The normalizer supplies `gui` for an omitted mechanism;
 explicit mechanisms are `gui` or `ssh`. The `resource` mapping names ordered
 prerequisites by guest, followed by `component` and then `workload` actions.
 Orchestration and host sequences have separate shapes.
+
+The optional `descriptionLocalized` map adds labels by locale while retaining
+`description` as the fallback. The `variables` mapping supplies scalar step
+substitutions; built-ins such as `vmName`, `hostType`, and `guestKey` come from
+the runner. [Globalization](07-globalization.md) covers label selection.
 
 `sequenceGuid` supplies a persistent identity across renames;
 `sequenceRevision` distinguishes changes to the action sequence.
@@ -305,7 +308,7 @@ and [CLI or environment credentials](../../automation/Yuruna.CredentialProvider.
 rather than implicitly reading the test vault. Kubernetes Secrets are created by
 configured workload commands. The [config service](../../test/service/Start-ConfigService.ps1)
 separately reads harness-vault credentials for pool and stash storage; their
-runtime exchange is shown in [Data flows](03-data-flows.md).
+runtime exchange is shown in the [cache credential channel](06-deployment.md#cache-credential-channel).
 
 ---
 

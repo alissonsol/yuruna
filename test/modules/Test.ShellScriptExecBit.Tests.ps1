@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.14
+.VERSION 2026.10.18
 .GUID 42c53656-cbe7-4882-9a43-998f29ec9609
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -98,8 +98,8 @@ function Test-LeadingShebang {
 $script:skipRepo = -not (Test-GitWorkTree -Root $repoRoot)
 
 # project/ is a disposable per-cycle clone of the sibling yuruna-project repo
-# (feedback_project_dir_is_disposable_clone.md); it is git-ignored here, so
-# the main sweep never sees it and it gets its own guarded pass.
+# and is git-ignored here, so the main sweep never sees it and it gets its
+# own guarded pass.
 $projectClone = Join-Path $repoRoot 'project'
 $script:skipProjectClone = (-not (Test-Path -LiteralPath (Join-Path $projectClone '.git'))) -or
     (-not (Test-GitWorkTree -Root $projectClone))

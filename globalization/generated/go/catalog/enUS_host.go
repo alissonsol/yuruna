@@ -8860,6 +8860,15 @@ const DataenUShost = `{
     },
     "). Restore UTM access or pass -CachingProxyServiceUrl \"\" to fetch directly."
   ],
+  "host.utm_control_snapshot_action": [
+    "Record the UTM control-channel snapshot (",
+    {
+      "arg": "trigger",
+      "type": "token",
+      "trust": "internal"
+    },
+    ")"
+  ],
   "host.utm_detached_launch_action": [
     "Launch ",
     {
@@ -8962,6 +8971,27 @@ const DataenUShost = `{
       "trust": "internal"
     },
     "; no start was issued."
+  ],
+  "host.utm_start_control_hung": [
+    "UTM's control channel stopped acting on lifecycle requests: ",
+    {
+      "arg": "attempts",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " consecutive start request(s) for '",
+    {
+      "arg": "vmName",
+      "type": "detail",
+      "trust": "external"
+    },
+    "' went unanswered, the last reporting '",
+    {
+      "arg": "lastError",
+      "type": "detail",
+      "trust": "external"
+    },
+    "'. utmctl still reached UTM.app for state queries, so the application is running but no longer carries out start, stop or delete, and retrying only adds another timeout. Restart UTM.app on this host (quit it from the desktop session, or run test/lab/Invoke-HostRefresh.ps1), then start the VM again. The VM was never launched and its disk is untouched."
   ],
   "host.utm_start_dropped": [
     "'",

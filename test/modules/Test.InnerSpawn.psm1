@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.14
+.VERSION 2026.10.18
 .GUID 42a27240-9228-4384-9324-f2bcf259469f
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -93,7 +93,7 @@ function Get-PwshExePath {
              started this process (macOS _NSGetExecutablePath, Linux
              /proc/self/exe, Windows post-alias-resolution path, so it
              never hands back the zero-byte WindowsApps app-execution-alias
-             stub -- see feedback_windows_appalias_firewall_trap.md). Absent
+             stub, whose path a per-program firewall rule never matches). Absent
              on PS 7.0/7.1 (.NET below 6); the try/catch keeps it null there
              (even under Set-StrictMode) instead of throwing, so resolution
              falls through.
@@ -134,7 +134,7 @@ $script:DetachStartToleranceMs = 2000
 # into it. `set -m` puts the background job in its own process group.
 $script:DetachShellBody = 'set -m; cd -- "$1" || exit 97; detach_stdin=$2; shift 2; nohup "$@" <"$detach_stdin" >"$YURUNA_DETACH_STDOUT" 2>"$YURUNA_DETACH_STDERR" & echo $!'
 
-function Get-YurunaDetachPlatform {
+function Get-YurunaIdentityPlatform {
     <#
     .SYNOPSIS
         Linux, MacOS or Windows for the running process.
@@ -147,7 +147,7 @@ function Get-YurunaDetachPlatform {
     return 'Linux'
 }
 
-function Get-YurunaDetachUnixMs {
+function ConvertTo-YurunaUnixMs {
     <#
     .SYNOPSIS
         A DateTime as Unix milliseconds (UTC).
@@ -176,10 +176,10 @@ function Get-YurunaDetachProcessIdentity {
     param([int]$ProcessId = $PID, [psobject]$Deadline)
     $out = [ordered]@{ Pid = $ProcessId; StartTimeUnixMs = $null; ParentPid = $null; ProcessGroupId = $null; OwnerId = $null }
     $seconds = if ($Deadline) { Get-YurunaDeadlineBoundedSeconds -Deadline $Deadline -Ceiling 5 } else { 5 }
-    try { $out.StartTimeUnixMs = Get-YurunaDetachUnixMs -Value ([System.Diagnostics.Process]::GetProcessById($ProcessId).StartTime) } catch {
+    try { $out.StartTimeUnixMs = ConvertTo-YurunaUnixMs -Value ([System.Diagnostics.Process]::GetProcessById($ProcessId).StartTime) } catch {
         Write-Verbose "Start time of pid $ProcessId unreadable: $($_.Exception.Message)"
     }
-    switch (Get-YurunaDetachPlatform) {
+    switch (Get-YurunaIdentityPlatform) {
         'Linux' {
             try {
                 $stat = [System.IO.File]::ReadAllText("/proc/$ProcessId/stat")
@@ -295,7 +295,7 @@ function Test-YurunaPathInside {
     [CmdletBinding()]
     [OutputType([bool])]
     param([Parameter(Mandatory)][string]$Path, [Parameter(Mandatory)][string]$Directory)
-    $comparison = if ((Get-YurunaDetachPlatform) -eq 'Linux') { [StringComparison]::Ordinal } else { [StringComparison]::OrdinalIgnoreCase }
+    $comparison = if ((Get-YurunaIdentityPlatform) -eq 'Linux') { [StringComparison]::Ordinal } else { [StringComparison]::OrdinalIgnoreCase }
     $full = [System.IO.Path]::GetFullPath($Path)
     $dir = [System.IO.Path]::GetFullPath($Directory).TrimEnd([System.IO.Path]::DirectorySeparatorChar, [System.IO.Path]::AltDirectorySeparatorChar)
     return $full.StartsWith($dir + [System.IO.Path]::DirectorySeparatorChar, $comparison)
@@ -310,7 +310,7 @@ function Test-YurunaDetachArgument {
     [CmdletBinding()]
     [OutputType([string])]
     param([Parameter(Mandatory)][hashtable]$Path, [Parameter(Mandatory)][string]$PrivateDirectory, [string[]]$ArgumentList)
-    $platform = Get-YurunaDetachPlatform
+    $platform = Get-YurunaIdentityPlatform
     if (-not [System.IO.Path]::IsPathFullyQualified($PrivateDirectory) -or -not [System.IO.Directory]::Exists($PrivateDirectory)) { return 'PrivateDirectory' }
     foreach ($name in @('FilePath', 'WorkingDirectory', 'StdOutPath', 'StdErrPath', 'StdInPath', 'HandshakePath')) {
         $value = $Path[$name]
@@ -439,7 +439,7 @@ function Start-YurunaDetachedProcess {
         [ValidateRange(0, 600000)][int]$WaitForHandshakeMilliseconds = 0,
         [psobject]$Deadline
     )
-    $platform = Get-YurunaDetachPlatform
+    $platform = Get-YurunaIdentityPlatform
     $out = [ordered]@{
         Launched = $false; Reason = $null; LauncherPid = $null; LauncherStartTimeUnixMs = $null
         FinalPid = $null; FinalStartTimeUnixMs = $null; Handshake = $null; Platform = $platform; Detail = $null
@@ -493,7 +493,7 @@ function Start-YurunaDetachedProcess {
             return [pscustomobject]$out
         }
         $out.FinalPid = $finalPid
-        try { $out.FinalStartTimeUnixMs = Get-YurunaDetachUnixMs -Value ([System.Diagnostics.Process]::GetProcessById($finalPid).StartTime) } catch {
+        try { $out.FinalStartTimeUnixMs = ConvertTo-YurunaUnixMs -Value ([System.Diagnostics.Process]::GetProcessById($finalPid).StartTime) } catch {
             Write-Verbose "Start-YurunaDetachedProcess: start time of pid $finalPid unreadable: $($_.Exception.Message)"
         }
     } else {
@@ -526,7 +526,7 @@ function Start-YurunaDetachedProcess {
             return [pscustomobject]$out
         }
         $out.LauncherPid = [int]$hop.Id
-        try { $out.LauncherStartTimeUnixMs = Get-YurunaDetachUnixMs -Value $hop.StartTime } catch { $out.LauncherStartTimeUnixMs = $null }
+        try { $out.LauncherStartTimeUnixMs = ConvertTo-YurunaUnixMs -Value $hop.StartTime } catch { $out.LauncherStartTimeUnixMs = $null }
         if ($WaitForHandshakeMilliseconds -gt 0) {
             $ackWait = New-YurunaDeadline -Parent $launchDeadline -TotalMilliseconds $WaitForHandshakeMilliseconds
             $ack = Wait-YurunaDetachHandshakeFile -Path "$specPath.ack.json" -Deadline $ackWait
@@ -630,7 +630,7 @@ function Invoke-YurunaDetachedHop {
         if ($IsWindows) { $start.WindowStyle = 'Hidden' }
         $final = Start-Process @start
         $ack.finalPid = [int]$final.Id
-        try { $ack.finalStartTimeUnixMs = Get-YurunaDetachUnixMs -Value $final.StartTime } catch { $ack.finalStartTimeUnixMs = $null }
+        try { $ack.finalStartTimeUnixMs = ConvertTo-YurunaUnixMs -Value $final.StartTime } catch { $ack.finalStartTimeUnixMs = $null }
         $ack.launched = $true
         return (& $finish 0)
     } catch {
@@ -739,7 +739,7 @@ function Read-YurunaDetachedHandshake {
         try {
             $process = [System.Diagnostics.Process]::GetProcessById([int]$doc.pid)
             $alive = -not $process.HasExited
-            $liveStart = Get-YurunaDetachUnixMs -Value $process.StartTime
+            $liveStart = ConvertTo-YurunaUnixMs -Value $process.StartTime
         } catch { $alive = $false }
     }
     if (-not $alive) { return (& $fail 'process-absent' $doc) }
@@ -776,7 +776,7 @@ function Wait-YurunaDetachedHopExit {
         if (-not $process -or $process.HasExited) { return [pscustomobject]@{ Exited = $true; Reason = 'exited' } }
         if ($HopStartTimeUnixMs -gt 0) {
             $start = $null
-            try { $start = Get-YurunaDetachUnixMs -Value $process.StartTime } catch { $start = $null }
+            try { $start = ConvertTo-YurunaUnixMs -Value $process.StartTime } catch { $start = $null }
             if ($null -ne $start -and [Math]::Abs($start - $HopStartTimeUnixMs) -gt $script:DetachStartToleranceMs) {
                 return [pscustomobject]@{ Exited = $true; Reason = 'recycled' }
             }
@@ -785,6 +785,6 @@ function Wait-YurunaDetachedHopExit {
     return [pscustomobject]@{ Exited = $false; Reason = 'timeout' }
 }
 
-Export-ModuleMember -Function New-InnerRunnerArgList, Get-PwshExePath, Start-YurunaDetachedProcess, Invoke-YurunaDetachedHop, `
+Export-ModuleMember -Function New-InnerRunnerArgList, Get-PwshExePath, ConvertTo-YurunaUnixMs, Get-YurunaIdentityPlatform, Start-YurunaDetachedProcess, Invoke-YurunaDetachedHop, `
     ConvertTo-YurunaWindowsCommandLine, Test-YurunaWindowsPathArgument, Write-YurunaDetachedHandshake, `
     Read-YurunaDetachedHandshake, Wait-YurunaDetachedHopExit

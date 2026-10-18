@@ -274,8 +274,9 @@ list; New-VM merges them via
 
 ### Never release unless needed
 
-- `cache_swap_high 99` / `cache_swap_low 98` -- eviction only above 99%;
-  stop at 98%. Default 90/95 would release ~5 GB early.
+- `cache_swap_high 99` / `cache_swap_low 98` -- eviction starts only above
+  98% full and grows more aggressive toward 99%. The defaults (low 90, high 95)
+  would start evicting with ~38 GB of the 384 GB cache still free.
 - `cache_replacement_policy heap LFUDA` +
   `memory_replacement_policy heap GDSF` -- eviction retains large,
   frequently-used blobs (linux-firmware, kernels); drops rare small ones.
@@ -517,9 +518,22 @@ takes to boot and start zot, which is minutes rather than seconds, so the
 ladder is sized to outlast that (five attempts over roughly two and a half
 minutes) and only the last attempt turns the refusal into a failed run.
 `guest/<GUEST>/<GUEST>.k8s.sh` waits out the same window on the `/v2/`
-liveness endpoint before declaring the registry unreachable
-(`YURUNA_CACHE_WAIT_SECONDS`, default 180 s); that endpoint spends nothing
-from the lab's shared pull budget, so waiting on it is free.
+liveness endpoint (`YURUNA_CACHE_WAIT_SECONDS`, default 180 s); that
+endpoint spends nothing from the lab's shared pull budget, so waiting on it
+is free.
+
+What that wait reports is what the guest itself can see, because curl prints
+one `could not connect` for a refused port, a missing address and a missing
+route alike. Each poll names curl's exit code and a verdict read from the
+guest's own state -- no IPv4 address, no default route, no route to the cache,
+no ARP reply from the next hop, connection refused, or a connect that timed
+out -- and a guest that finds itself without an address asks its DHCP client
+for one again, once per wait, then keeps polling inside the same budget. When
+the budget runs out, only a refusal still points at the cache: zot down, or the
+VM being replaced. A lost address, route or ARP reply is reported as this
+guest's own path to the LAN, with a bounded view of its interfaces, default
+route, neighbor entry and clock printed last so the console tail the host
+keeps carries it; a timeout is reported as packets lost between the two.
 
 The warm-up probe ahead of each pull reports *why* it got no answer rather
 than assuming the slow case. No HTTP status has several causes that send a
@@ -1410,8 +1424,9 @@ what each host's network stack allows.
 
 #### macOS: pwsh forwarder + PROXY v1
 
-Apple VZ Shared NAT isolates guest<->guest traffic on `192.168.64.0/24`,
-so LAN clients can't reach the cache VM directly. The Mac host runs
+Apple VZ Shared NAT keeps `192.168.64.0/24` behind the Mac (guests on the
+same Mac reach each other directly on that bridge), so LAN clients can't
+reach the cache VM directly. The Mac host runs
 [`Start-CachingProxyServiceForwarder.ps1`](../host/macos.utm/Start-CachingProxyServiceForwarder.ps1)
 on `0.0.0.0:3128` / `:3129`, accepts each LAN client's TCP connection,
 opens an upstream connection to the cache VM's `:3138` / `:3139` (Squid
@@ -1642,8 +1657,9 @@ Public cert published at `http://<cache-vm-ip>/yuruna-squid-ca.crt`.
 ### Guest trust flow
 
 All three hosts pre-fetch the cache CA and embed it in the seed. UTM Shared
-NAT differs only in routing: a guest uses the host's forwarder because that
-network blocks direct guest<->guest traffic; bridged guests use the cache address.
+NAT differs only in routing: a guest is given the vmnet gateway URL
+(`192.168.64.1`) and reaches the cache through the host's forwarder; bridged
+guests use the cache address.
 
 **Host pre-fetch + base64 in seed:** each Ubuntu Server builder derives the
 cache host from the resolved proxy URL and calls the shared CA helper. It
@@ -2621,7 +2637,7 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.14
+Last review: 2026.10.18
 
 Back to [Yuruna](../README.md)
 

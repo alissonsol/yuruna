@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.14
+.VERSION 2026.10.18
 .GUID 42b38afa-a30f-4806-9948-a381706b1765
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -365,6 +365,13 @@ function Test-PublishedChecksumSignature {
     } catch {
         return 'unverified'
     } finally {
+        # gpg can start keyboxd or gpg-agent for a fresh home; removing the home
+        # does not stop them, and their sockets may live outside it.
+        $gpgconf = Get-Command gpgconf -ErrorAction SilentlyContinue
+        if ($gpgconf) {
+            & $gpgconf.Source --homedir $work --kill all 2>$null | Out-Null
+            & $gpgconf.Source --homedir $work --remove-socketdir 2>$null | Out-Null
+        }
         Remove-Item -LiteralPath $work -Recurse -Force -ErrorAction SilentlyContinue
     }
 }
@@ -621,24 +628,163 @@ function Save-ImageWithChecksum {
     }
 }
 
+function Get-QemuImgVersion {
+    <#
+    .SYNOPSIS
+        The version one qemu-img binary reports, or $null when it reports none.
+    .DESCRIPTION
+        Reads the first non-blank line of `--version`: "qemu-img version 11.1.0
+        (v11.1.0-...)" from current builds, "qemu-img version 2.3.0, Copyright
+        ..." from the old Windows port. A binary that cannot run, or prints no
+        version, answers $null rather than throwing.
+    .OUTPUTS
+        [version] or $null.
+    #>
+    [CmdletBinding()]
+    [OutputType([version])]
+    param([Parameter(Mandatory)][string]$Path)
+    $line = $null
+    try {
+        $line = @(& $Path --version 2>$null | ForEach-Object { "$_" } | Where-Object { $_.Trim() }) | Select-Object -First 1
+    } catch {
+        Write-Verbose "Get-QemuImgVersion: '$Path' did not run: $($_.Exception.Message)"
+        return $null
+    }
+    if ("$line" -match 'version\s+(\d+(?:\.\d+){1,3})') { return [version]$Matches[1] }
+    return $null
+}
+
+function Get-QemuImgCandidate {
+    <#
+    .SYNOPSIS
+        Every qemu-img this host could run, in preference order.
+    .DESCRIPTION
+        Windows layout: the QEMU installer's own locations first, because that
+        installer registers nothing on PATH, then every qemu-img PATH holds, in
+        PATH order. Other packages that ship a qemu-img and DO put it on PATH
+        are common there -- the Cloudbase port of qemu-img 2.3.0 is published
+        as winget's cloudbase.qemu-img and Chocolatey's qemu-img -- so the PATH
+        copy is a candidate to compare, never the answer by position alone.
+
+        Elsewhere only what PATH resolves the name to: on macOS and Linux the
+        drivers run qemu-img by name, and a package-manager link that is
+        missing or points at an older copy is the installer's to repair, not
+        something to work around here.
+    .PARAMETER WindowsLayout
+        Use the Windows layout. Default: whether this host is Windows.
+    .PARAMETER InstallPath
+        The QEMU installer's locations. Default: under Program Files and
+        Program Files (x86).
+    .OUTPUTS
+        [string[]] paths, possibly empty.
+    #>
+    [CmdletBinding()]
+    [OutputType([string[]])]
+    param(
+        [bool]$WindowsLayout = [bool]$IsWindows,
+        [string[]]$InstallPath = @("$env:ProgramFiles\qemu\qemu-img.exe", "${env:ProgramFiles(x86)}\qemu\qemu-img.exe")
+    )
+    $found = [System.Collections.Generic.List[string]]::new()
+    if (-not $WindowsLayout) {
+        $first = Get-Command -Name qemu-img -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
+        if ($first -and $first.Source) { $found.Add([string]$first.Source) }
+        return [string[]]$found.ToArray()
+    }
+    $seen = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+    foreach ($path in $InstallPath) {
+        if ([string]::IsNullOrWhiteSpace($path) -or -not (Test-Path -LiteralPath $path -PathType Leaf)) { continue }
+        if ($seen.Add($path)) { $found.Add($path) }
+    }
+    foreach ($command in @(Get-Command -Name qemu-img -CommandType Application -All -ErrorAction SilentlyContinue)) {
+        if ($command.Source -and $seen.Add([string]$command.Source)) { $found.Add([string]$command.Source) }
+    }
+    return [string[]]$found.ToArray()
+}
+
+function Select-QemuImgCandidate {
+    <#
+    .SYNOPSIS
+        The newest of the given qemu-img copies; on a tie, the earlier one.
+    .DESCRIPTION
+        Pure. A copy that reports a version beats one that does not; when none
+        does, the first is kept, so a binary that runs but prints an unexpected
+        banner is still used rather than reported missing.
+    .PARAMETER Candidate
+        Records with Path and Version ([version] or $null), in preference order.
+    .OUTPUTS
+        The chosen record, or $null when there is none.
+    #>
+    [CmdletBinding()]
+    [OutputType([pscustomobject])]
+    param([AllowNull()][AllowEmptyCollection()][object[]]$Candidate)
+    $best = $null
+    foreach ($entry in @($Candidate | Where-Object { $null -ne $_ })) {
+        if ($null -eq $best) { $best = $entry; continue }
+        if ($null -ne $entry.Version -and ($null -eq $best.Version -or [version]$entry.Version -gt [version]$best.Version)) { $best = $entry }
+    }
+    return $best
+}
+
 function Resolve-QemuImgCommand {
     <#
     .SYNOPSIS
-        Path to qemu-img, or $null when it isn't installed.
+        Path to the qemu-img the harness should run, or $null when none is
+        installed.
     .DESCRIPTION
-        PATH first, then the two Windows installer locations: the QEMU
-        installer does not add itself to PATH, so a Windows host with QEMU
-        properly installed still fails a bare Get-Command probe.
+        On Windows the newest of every copy the host carries (see
+        Get-QemuImgCandidate). PATH order alone is the wrong rule there: the
+        QEMU installer the Windows installer manages never joins PATH, so any
+        other qemu-img that does -- typically the Cloudbase 2.3.0 port --
+        would win every cloud-image conversion by being on PATH at all.
+        Elsewhere what PATH resolves the name to, unchanged.
+
+        Reading each copy's version costs one short process per candidate,
+        once per conversion or resize.
+    .PARAMETER Detailed
+        Return a record instead of the path: Path and Version of the chosen
+        copy, every Candidate with its Version, and NamePath/NameVersion for
+        the copy a bare `qemu-img` resolves to, so a caller can say when the
+        name answers with an older copy than the harness uses.
+    .PARAMETER WindowsLayout
+        Passed to Get-QemuImgCandidate.
+    .PARAMETER InstallPath
+        Passed to Get-QemuImgCandidate.
+    .OUTPUTS
+        [string] (or $null), or with -Detailed a [pscustomobject].
     #>
     [CmdletBinding()]
-    [OutputType([string])]
-    param()
-    $cmd = Get-Command qemu-img -ErrorAction SilentlyContinue
-    if ($cmd) { return $cmd.Source }
-    foreach ($c in @("$env:ProgramFiles\qemu\qemu-img.exe", "${env:ProgramFiles(x86)}\qemu\qemu-img.exe")) {
-        if (Test-Path $c) { return $c }
+    [OutputType([string], [pscustomobject])]
+    param(
+        [switch]$Detailed,
+        [bool]$WindowsLayout = [bool]$IsWindows,
+        [string[]]$InstallPath
+    )
+    $candidateArguments = @{ WindowsLayout = $WindowsLayout }
+    if ($PSBoundParameters.ContainsKey('InstallPath')) { $candidateArguments.InstallPath = $InstallPath }
+    $paths = @(Get-QemuImgCandidate @candidateArguments)
+    # Outside the Windows layout there is one candidate and nothing to rank,
+    # so its version is read only when the caller asked for the record.
+    if (-not $WindowsLayout -and -not $Detailed) {
+        if ($paths.Count -gt 0) { return [string]$paths[0] }
+        return $null
     }
-    return $null
+    $records = @(foreach ($path in $paths) { [pscustomobject]@{ Path = $path; Version = (Get-QemuImgVersion -Path $path) } })
+    $chosen = if ($WindowsLayout) { Select-QemuImgCandidate -Candidate $records } else { $records | Select-Object -First 1 }
+    if (-not $Detailed) {
+        if ($chosen) { return [string]$chosen.Path }
+        return $null
+    }
+    $name = Get-Command -Name qemu-img -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
+    $namePath = if ($name) { [string]$name.Source } else { $null }
+    $nameRecord = @($records | Where-Object { $namePath -and $_.Path -eq $namePath }) | Select-Object -First 1
+    return [pscustomobject]@{
+        PSTypeName  = 'Yuruna.QemuImgResolution'
+        Path        = if ($chosen) { [string]$chosen.Path } else { $null }
+        Version     = if ($chosen) { $chosen.Version } else { $null }
+        Candidate   = [object[]]$records
+        NamePath    = $namePath
+        NameVersion = if ($nameRecord) { $nameRecord.Version } elseif ($namePath) { Get-QemuImgVersion -Path $namePath } else { $null }
+    }
 }
 
 function Convert-Qcow2ToVhdx {
@@ -650,7 +796,7 @@ function Convert-Qcow2ToVhdx {
         Hyper-V boots VHDX; the Ubuntu / AL cloud images ship qcow2. qemu-img
         on Windows writes the VHDX through NTFS sparse files, leaving
         FILE_ATTRIBUTE_SPARSE_FILE set so Resize-VHD then fails with
-        0xC03A001A ("must not be sparse") -- see feedback_qemu_img_vhdx_sparse.md.
+        0xC03A001A ("must not be sparse").
         This clears the flag, then resizes via Resize-VHD with a qemu-img
         fallback. A convert failure, or a resize that fails on both paths,
         removes the partial DestPath and returns $false. Native qemu-img output
@@ -687,7 +833,7 @@ function Convert-Qcow2ToVhdx {
         return $false
     }
     # Clear the NTFS sparse flag qemu-img leaves set, else Resize-VHD fails
-    # with 0xC03A001A. See feedback_qemu_img_vhdx_sparse.md.
+    # with 0xC03A001A.
     & fsutil sparse setflag $DestPath 0 2>&1 | Out-Null
     if ($SizeBytes -le 0) {
         Write-Information (Format-YurunaOperatorMessage -Key 'host.operator_37f19dd02679f7aa') -InformationAction Continue
@@ -959,7 +1105,7 @@ function Save-UbuntuExtensionImage {
     if ($Image.Format -eq 'vhdx') {
         # --- REGION: Convert qcow2 to VHDX
         # Convert-Qcow2ToVhdx owns qemu-img discovery and the NTFS sparse-flag
-        # clear (feedback_qemu_img_vhdx_sparse.md), so the trap fix lives once.
+        # clear, so the Resize-VHD sparse-file fix lives in one place.
         if (-not (Convert-Qcow2ToVhdx -SourcePath $downloadFile -DestPath $stagedFile)) {
             Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_e7460979e261a022')
             Remove-Item -LiteralPath $downloadFile -Force -ErrorAction SilentlyContinue
@@ -1025,7 +1171,6 @@ function Expand-ExtensionVmDisk {
     if ($Format -eq 'vhdx') {
         # Copying a VHDX can carry the NTFS sparse attribute along, and
         # Resize-VHD refuses a sparse file with 0xC03A001A.
-        # See feedback_qemu_img_vhdx_sparse.md.
         & fsutil sparse setflag $Path 0 2>&1 | Out-Null
         # See https://yuruna.link/42d69dfa-000b
         try {
@@ -1181,5 +1326,5 @@ function Invoke-DownloadAgentFirst {
 # --- REGION: Exports
 Export-ModuleMember -Function Get-YurunaHttpErrorStatus, Invoke-DownloadAgentFirst, Save-ImageWithChecksum, Get-ImageChecksumLine, Get-PublishedChecksumBody, ConvertTo-ChecksumText, `
     Convert-Qcow2ToVhdx, Test-PublishedChecksumSignature, `
-    Resolve-QemuImgCommand, Get-UbuntuExtensionImageBaseName, Get-UbuntuExtensionImageInfo, Save-UbuntuExtensionImage, Expand-ExtensionVmDisk, `
+    Resolve-QemuImgCommand, Get-QemuImgVersion, Get-QemuImgCandidate, Select-QemuImgCandidate, Get-UbuntuExtensionImageBaseName, Get-UbuntuExtensionImageInfo, Save-UbuntuExtensionImage, Expand-ExtensionVmDisk, `
     Assert-YurunaBaseImage

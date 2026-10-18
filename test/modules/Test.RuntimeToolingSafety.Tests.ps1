@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.14
+.VERSION 2026.10.18
 .GUID 42c43b4f-9392-49b0-a0ce-755a0560f4cd
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -78,7 +78,7 @@ Describe 'UTF-8 gate control scanning matches character semantics' {
             if ($code -in 9,10,13) { $findings.Count | Should -Be 0 }
             else { ($findings -join ';') | Should -Match ('U\+{0:X4}' -f $code) }
         }
-        foreach ($text in @("`u{2066}a`u{2067}b`u{2069}c`u{2069}", "plain `u{00E9} `u{0627} `u{4E2D} `u{1F680}`n`t", 'ordinary text ' * 10000)) {
+        foreach ($text in @("`u{2066}a`u{2067}b`u{2069}c`u{2069}", "plain `u{00E9} `u{0627} `u{4E2D} `u{1F680}`n`t", ('ordinary text ' * 10000))) {
             @(Test-Utf8TextByte -Bytes ([Text.Encoding]::UTF8.GetBytes($text))).Count | Should -Be 0
         }
         foreach ($text in @("`u{2069}", "`u{2066}unclosed", "`u{202A}wrong closer`u{2069}", "`u{2066}wrong closer`u{202C}")) {

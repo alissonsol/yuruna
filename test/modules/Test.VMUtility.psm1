@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.14
+.VERSION 2026.10.18
 .GUID 42cfa437-bd81-47fb-8d48-e2ca1335fa07
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -681,7 +681,7 @@ function Get-StashServiceProbeCommand {
         Resolved by name first so a session that already loaded the extension
         keeps its copy. The on-demand import is deliberately NOT -Global: only
         this module calls the probe, and a -Force import into the global scope
-        would evict a caller's binding (feedback_module_force_import_evicts_global).
+        would evict a caller's binding.
     .OUTPUTS
         [System.Management.Automation.CommandInfo] or $null.
     #>
@@ -783,7 +783,7 @@ function Update-StashServiceMarkerAddress {
                 # outer retry, and a generous per-probe deadline would spend the
                 # entire budget confirming a single dead predecessor. The second
                 # attempt absorbs the connect-latency tail a first packet pays
-                # (feedback_wifi-connect-timeout-tail.md).
+                # (ARP resolution, a Wi-Fi radio waking from power-save).
                 if (& $probe -Address $candidate -Attempts 2 -TimeoutSeconds 3 -BackoffMs 250) {
                     $ip = $candidate
                     break

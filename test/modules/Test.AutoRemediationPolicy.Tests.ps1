@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.14
+.VERSION 2026.10.18
 .GUID 42c9b3e7-1d58-4a06-9e24-7f3b5c8d1a60
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -64,9 +64,12 @@ Describe 'the auto-remediation allow-list' {
         # credential_expired belongs with them -- its handler asks for an
         # operator, and a credential the vault cannot satisfy is not repaired
         # by shortening the pause before the next attempt.
+        # hypervisor_unresponsive joins them: the control channel that stopped
+        # acting is repaired by restarting the hypervisor application, which
+        # no retry performs.
         foreach ($c in @('plan_invalid', 'payload_unavailable', 'pool_storage_full',
                 'project_access_denied', 'elevation_required', 'script_error',
-                'credential_expired', 'host_network_degraded', 'unknown')) {
+                'credential_expired', 'host_network_degraded', 'hypervisor_unresponsive', 'unknown')) {
             Assert-True (-not (Test-AutoRemediationAllowed -FailureClass $c)) "$c must NOT be retried unattended"
         }
     }

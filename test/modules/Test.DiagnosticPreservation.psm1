@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.14
+.VERSION 2026.10.18
 .GUID 42805144-34fe-4c3d-8d6b-916357d3b102
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -28,6 +28,10 @@ function Get-DiagnosticVmPreservation {
             ($entry.Attributes -band [IO.FileAttributes]::ReparsePoint) -or
             (-not $IsWindows -and $entry.UnixMode -notmatch '^-')) { throw 'Nonregular preservation marker.' }
         if ($entry.Length -gt 65536) { throw 'Oversized preservation marker.' }
+        # Never opened: a zero-byte marker carries no record, and a FIFO, a
+        # device or a socket reports zero length while an open for reading
+        # blocks for as long as nothing writes to it.
+        if ($entry.Length -eq 0) { throw 'Empty preservation marker.' }
         $record = Get-Content -LiteralPath $path -Raw -ErrorAction Stop | ConvertFrom-Json -AsHashtable -ErrorAction Stop
         if ($record.schemaVersion -ne 1 -or [string]::IsNullOrWhiteSpace([string]$record.vmName)) { throw 'Invalid preservation marker.' }
         return $record

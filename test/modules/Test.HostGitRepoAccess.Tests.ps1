@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.14
+.VERSION 2026.10.18
 .GUID 424d0ae7-c25c-4fdf-b29d-12a4768bb7d1
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -127,7 +127,7 @@ Describe 'Get-HostRepositoryAccess -- the clone this host holds answers first' {
         Mock -ModuleName Test.HostGit Invoke-GitNetworkCommand { throw 'the network must not be touched when a clone can answer' }
         $r = Get-HostRepositoryAccess -RepoDir $script:cloned -ConfiguredUrl 'https://github.com/alius-git/amisad.dev' -Probe
         Assert-Equal 'amisad.dev' $r.Access
-        Assert-MockCalled -ModuleName Test.HostGit Invoke-GitNetworkCommand -Exactly -Times 0 -Scope It
+        Should -Invoke -ModuleName Test.HostGit Invoke-GitNetworkCommand -Exactly -Times 0 -Scope It
     }
     It 'reports nothing for a host with neither a clone nor a configured url (in-tree project layout)' {
         $r = Get-HostRepositoryAccess -RepoDir $script:notARepo -ConfiguredUrl ''
@@ -151,7 +151,7 @@ Describe 'Get-HostRepositoryAccess -- the probe is opt-in and decides the blank'
         # Nothing to point at while the answer is pending: the column renders a
         # blank here, and a blank must not carry a link.
         Assert-Equal '' $r.Url
-        Assert-MockCalled -ModuleName Test.HostGit Invoke-GitNetworkCommand -Exactly -Times 0 -Scope It
+        Should -Invoke -ModuleName Test.HostGit Invoke-GitNetworkCommand -Exactly -Times 0 -Scope It
     }
     It 'names the configured repository when the probe reaches it (cloned soon, readable now)' {
         Mock -ModuleName Test.HostGit Invoke-GitNetworkCommand { return @{ ExitCode = 0; Output = '' } }
@@ -205,6 +205,6 @@ Describe 'Test-GitRemoteAccess -- the auth/network split survives the collapse' 
         Mock -ModuleName Test.HostGit Invoke-GitNetworkCommand { throw 'nothing to probe' }
         $r = Test-GitRemoteAccess -Url ''
         Assert-Equal $false $r.Reachable
-        Assert-MockCalled -ModuleName Test.HostGit Invoke-GitNetworkCommand -Exactly -Times 0 -Scope It
+        Should -Invoke -ModuleName Test.HostGit Invoke-GitNetworkCommand -Exactly -Times 0 -Scope It
     }
 }

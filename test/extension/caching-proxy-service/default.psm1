@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.14
+.VERSION 2026.10.18
 .GUID 42c30a62-cbee-46de-84c0-e6f2b967b3ec
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -112,8 +112,7 @@ function Get-CachingProxyServiceInfo {
     into a spurious miss on a service that is up. The first attempt warms ARP
     and wakes the radio; a follow-up answers in milliseconds. A wired host
     passes on attempt 1 so the retries cost nothing there, and a daemon that
-    is genuinely down misses every attempt. See
-    feedback_wifi-connect-timeout-tail.md.
+    is genuinely down misses every attempt.
 
     -NoProxy is deliberate, and doubly so here: routing a probe for the proxy
     through the proxy would report the cache's health as the daemon's.

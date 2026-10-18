@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.14
+.VERSION 2026.10.18
 .GUID 42d76e1e-670d-4849-af41-08ce879f3532
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -413,6 +413,38 @@ Describe 'Enter-/Exit-PoolStorageDrainLock (single instance across BOTH invocati
             $null = Exit-PoolStorageDrainLock -RuntimeDir $f.RuntimeDir -Confirm:$false
         } finally { Clear-MoveFixture $f }
     }
+    It 'holds a lock whose creator is still writing its body, and reclaims it once that has plainly stalled' {
+        # CreateNew makes the file before its body lands; a second drain that
+        # read the empty file as stale would delete it and run beside the first.
+        $f = Get-MoveFixture
+        try {
+            $lock = Join-Path $f.RuntimeDir 'poolstorage.drain.lock'
+            [IO.File]::WriteAllText($lock, '')
+            Assert-False (Enter-PoolStorageDrainLock -RuntimeDir $f.RuntimeDir) 'a lock created a moment ago with no body yet is not stale'
+            Assert-Equal -Expected '' -Actual ([IO.File]::ReadAllText($lock)) -Because 'and it is left in place'
+            [IO.File]::SetLastWriteTimeUtc($lock, [datetime]::UtcNow.AddMinutes(-1))
+            Assert-True (Enter-PoolStorageDrainLock -RuntimeDir $f.RuntimeDir) 'an empty lock past the write grace is stale'
+            $null = Exit-PoolStorageDrainLock -RuntimeDir $f.RuntimeDir -Confirm:$false
+        } finally { Clear-MoveFixture $f }
+    }
+    It 'puts back a lock that a live holder published after the reclaimer judged the old one stale' {
+        # Two drains can judge the same dead holder stale; the one that reclaims
+        # second must not delete the lock the first has just published.
+        $f = Get-MoveFixture
+        try {
+            $lock = Join-Path $f.RuntimeDir 'poolstorage.drain.lock'
+            $live = ConvertTo-Json -Compress -InputObject ([ordered]@{ pid = $PID; startTicks = (Get-Process -Id $PID).StartTime.ToUniversalTime().Ticks })
+            [IO.File]::WriteAllText($lock, $live)
+            # The judgment reads the earlier, dead holder; the taken file is read as it is.
+            Mock -ModuleName Yuruna.Common Read-YurunaPidFileLockText {
+                if ($Path -like '*poolstorage.drain.lock') { return '{"pid":999999,"startTicks":1}' }
+                return [IO.File]::ReadAllText($Path)
+            }
+            Assert-False (Enter-PoolStorageDrainLock -RuntimeDir $f.RuntimeDir) 'the live lock is not taken'
+            Assert-Equal -Expected $live -Actual ([IO.File]::ReadAllText($lock)) -Because 'it is back in place'
+            Assert-Equal -Expected 1 -Actual @(Get-ChildItem -LiteralPath $f.RuntimeDir -Filter 'poolstorage.drain.lock*').Count -Because 'and no taken copy is left behind'
+        } finally { Clear-MoveFixture $f }
+    }
     It 'reports lockBusy and does nothing when the lock is already held' {
         $f = Get-MoveFixture
         try {
@@ -452,15 +484,13 @@ while (-not (Test-Path -LiteralPath $StopPath) -and [datetime]::UtcNow -lt $unti
             Assert-True (Test-Path -LiteralPath $lockPath) 'child reported ownership'
             Assert-False (Enter-PoolStorageDrainLock -RuntimeDir $f.RuntimeDir) 'a second process cannot steal a live lock'
             $ast = [System.Management.Automation.Language.Parser]::ParseFile((Join-Path $PSScriptRoot 'Invoke-PoolPushForwarder.ps1'), [ref]$null, [ref]$null)
-            foreach ($name in @('Get-PushProcStartUtc','Test-PushLockHeldLive')) {
-                $fn = $ast.Find({param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq $name}, $true)
-                . ([scriptblock]::Create($fn.Extent.Text))
-            }
-            Assert-True (Test-PushLockHeldLive -Path $lockPath) 'the push forwarder recognizes the same live owner'
+            $forwarderLock = @($ast.FindAll({param($n) $n -is [System.Management.Automation.Language.CommandAst] -and $n.GetCommandName() -eq 'Enter-YurunaPidFileLock'}, $true))
+            Assert-Equal -Expected 1 -Actual $forwarderLock.Count -Because 'the push forwarder takes the same PID-file lock'
+            Assert-True (Test-YurunaPidFileLockLive -Path $lockPath) 'the shared lock reader recognizes the same live owner'
             $body = Get-Content -Raw -LiteralPath $lockPath | ConvertFrom-Json
             $body.startTicks = [long]$body.startTicks - [TimeSpan]::TicksPerMinute
             $body | ConvertTo-Json -Compress | Set-Content -LiteralPath $lockPath
-            Assert-False (Test-PushLockHeldLive -Path $lockPath) 'a reused PID with a different start is stale'
+            Assert-False (Test-YurunaPidFileLockLive -Path $lockPath) 'a reused PID with a different start is stale'
             Assert-True (Enter-PoolStorageDrainLock -RuntimeDir $f.RuntimeDir) 'the stale process identity is reclaimed'
         } finally {
             if ($child) {

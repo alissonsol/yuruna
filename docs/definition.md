@@ -190,6 +190,17 @@ executing downloaded bytes. No token or command body is stored in the
 context. Missing, changed, or oversized context data fails before the
 payload runs.
 
+Console input can arrive damaged: a key whose release reaches the guest late
+repeats, and one extra character makes the compact envelope's base64 invalid.
+`yfe --gui` then prints `NONZERO SCRIPT EXIT: YFE_<code>` and, keyed by the
+envelope digest typed outside the envelope, records the code and the length
+and SHA-256 of the text it received under
+`~/.local/state/yuruna/gui-rejection/`. Every refusal precedes the payload.
+The host reads and removes that record over SSH and types the envelope once
+more only for `YFE_GUI_ENCODING` or `YFE_GUI_DIGEST`, and only when the guest
+holds no prepared context and runs no fetch. The step's failure record carries
+the refusal as `causeDetail.launcherRejection`.
+
 Guests are rebuilt from current seeds; this contract has no warm-image or
 mixed-version fallback. A missing `yfe` is a provisioning failure.
 Existing guests and snapshots with an older launcher must be rebuilt from
@@ -540,7 +551,7 @@ under a single owner.
 NAT IP that any inherited `http_proxy` (e.g. the caching-proxy-service) cannot
 route to.
 
-Sources (every guest script that needs framework/project repos
+Sources (every guest script that needs framework/project repositories
 re-implements this same scheme):
 
 - [`guest/ubuntu.server.24/ubuntu.server.24.update.sh`](../guest/ubuntu.server.24/ubuntu.server.24.update.sh)
@@ -601,9 +612,7 @@ is deliberately avoided: spawning pwsh from a tofu provisioner is a
 recurring failure point under pwsh 7.6.x / .NET 10 (observed on
 7.6.1) -- the child pwsh crashes at process startup with a
 `FileLoadException` on `System.Collections.Specialized` carrying a
-truncated `PublicKeyToken`, before any script line runs. The trap
-class is captured in the memory file
-`feedback_pwsh_provisioner_assemblyname_flake.md`; the
+truncated `PublicKeyToken`, before any script line runs. The
 `global/resources/azure/aks-cluster` hooks share the same rationale.
 
 **Plan-time execution.** `Set-Resource`'s planfile-pinned apply means
@@ -1562,7 +1571,7 @@ Page-specific behavior:
   `gitCommit` + top-level `repoUrl`. The `<a href>` is gated on
   `https?://` scheme AND alphanumeric SHA so a hostile `repoUrl`
   cannot inject markup. `gitCommits[0]` is the framework SHA (used
-  to build the per-cycle log URL); later entries are project repos
+  to build the per-cycle log URL); later entries are project repositories
   and additional layers. The runner records a browser-routable
   `repoUrl` for the project entry: a `repositories.projectUrl` that is
   a local clone path or an ssh remote (both valid clone sources) is
@@ -2033,7 +2042,7 @@ enums in [Test.SequenceAction.psm1](../test/modules/Test.SequenceAction.psm1):
   bootstrap_sync, plan_invalid, elevation_required, project_access_denied,
   host_network_degraded, ip_not_discovered, payload_unavailable,
   pool_storage_full, dhcp_identity_unbounded, lab_dependency_down, input_lost,
-  unknown.
+  hypervisor_unresponsive, unknown.
 * **severity**: hard, soft, unknown.
 
 `actionVerb`, `action`, `description`, `sequencePath`, `vmName`,
@@ -2476,6 +2485,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.14
+Last review: 2026.10.18
 
 Back to [Yuruna](../README.md)

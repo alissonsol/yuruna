@@ -260,8 +260,7 @@ Each `Implementation` is a `param([hashtable]$a)` scriptblock returning
 `Test.HostIO`'s registry table is anchored on
 `$global:YurunaHostIOProviders` so `-Force` re-imports of the module
 (triggered by sibling-module imports during cycle startup) do not
-empty the table. See repo memory
-`feedback_module_force_import_evicts_global.md` for the trap class.
+empty the table.
 
 The paired provider registries (`Test.ScreenshotProvider`,
 `Test.VncProvider`, ...) follow the same pattern: each delegates storage
@@ -346,6 +345,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.14
+Last review: 2026.10.18
 
 Back to [Yuruna](../README.md)

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.14
+.VERSION 2026.10.18
 .GUID 42da4d2b-cbcd-4c6d-b4e8-973686da3b1a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -83,6 +83,7 @@ function Reset-FailState {
     # Same reasoning: a staged-input verdict left set would reclassify every
     # later failure in this file as input_lost.
     $f.StepInputLost = $null
+    $f.StepLauncherRejection = $null
     # Same reasoning as the flood slot: a test that sets either of these would
     # otherwise leave every later test in this file reporting a parked console or
     # an operator hold it never had.
@@ -129,6 +130,25 @@ Describe 'progress observations remain advisory' {
         $r.OutputStaticSeconds | Should -BeNullOrEmpty
         $r.Signals | Should -Contain 'stale-recorder-heartbeat'
         $r.AutomaticRecoveryAllowed | Should -BeFalse
+    }
+    It 'lists a guest clock anomaly as a signal without scoring it as a stall' {
+        $r = Get-GuestProgressAdvisory -HeartbeatAgeSeconds 10 -SshResponsiveness responsive `
+            -ClockWarningCodes @('cpu-idle-exceeds-boot-uptime', 'clock-evidence-incomplete', 'cpu-idle-exceeds-boot-uptime')
+        $r.Verdict | Should -Be 'insufficient-evidence'
+        $r.Signals | Should -Contain 'guest-clock-anomaly'
+        @($r.ClockWarnings) | Should -Be @('cpu-idle-exceeds-boot-uptime')
+        $r.AutomaticRecoveryAllowed | Should -BeFalse
+    }
+    It 'keeps progress-suspect when a clock anomaly joins a stale heartbeat and a dead transport' {
+        $r = Get-GuestProgressAdvisory -HeartbeatAgeSeconds 256 -SshResponsiveness unresponsive -ClockWarningCodes @('cpu-idle-exceeds-boot-uptime')
+        $r.Verdict | Should -Be 'progress-suspect'
+        $r.Signals | Should -Contain 'guest-clock-anomaly'
+        $r.Signals | Should -Contain 'ssh-unresponsive'
+    }
+    It 'stays unavailable when nothing was measured and only incomplete clock evidence exists' {
+        (Get-GuestProgressAdvisory -ClockWarningCodes @()).Verdict | Should -Be unavailable
+        (Get-GuestProgressAdvisory -ClockWarningCodes @('clock-evidence-incomplete')).Verdict | Should -Be unavailable
+        @((Get-GuestProgressAdvisory -ClockWarningCodes @('clock-evidence-incomplete')).ClockWarnings).Count | Should -Be 0
     }
 }
 
@@ -381,6 +401,31 @@ Describe 'New-SequenceFailureRecord classificationSource discrimination' {
         $f.WaitForTextMatchedFailurePattern = 'NONZERO SCRIPT EXIT:'
         $r = New-SequenceFailureRecord -Reason step -VMName 'v' -GuestKey 'g' -HostType 'h' -SequencePath $script:seqPath -LogDir 'd' -TotalSteps 5
         Assert-Equal -Expected 'pattern_matched_failure' -Actual $r.File.failureClass
+    }
+
+    It 'records a launcher refusal beside the matched pattern without changing the class' {
+        # The refusal names what the keyboard delivered; the class still says the
+        # step's failure sentinel matched.
+        $f = Reset-FailState
+        $f.WaitForTextMatchedFailurePattern = 'NONZERO SCRIPT EXIT:'
+        $f.StepLauncherRejection = [ordered]@{ code = 'YFE_GUI_ENCODING'; attempt = 2; receivedChars = 1069; expectedChars = 1068
+            receivedSha256 = 'b' * 64; expectedSha256 = 'c' * 64; payloadState = 'NOT_PREPARED' }
+        $r = New-SequenceFailureRecord -Reason step -VMName 'v' -GuestKey 'g' -HostType 'h' -SequencePath $script:seqPath -LogDir 'd' -TotalSteps 5
+        Assert-Equal -Expected 'pattern_matched_failure' -Actual $r.File.failureClass
+        $rejection = $r.File.context.causeDetail.launcherRejection
+        Assert-Equal -Expected 'YFE_GUI_ENCODING' -Actual $rejection.code
+        Assert-Equal -Expected 1069 -Actual $rejection.receivedChars
+        Assert-Equal -Expected 1068 -Actual $rejection.expectedChars
+        Assert-Equal -Expected 'NOT_PREPARED' -Actual $rejection.payloadState
+        Assert-Equal -Expected 'YFE_GUI_ENCODING' -Actual $r.Event.causeLauncherRejection
+    }
+
+    It 'leaves the launcher refusal empty when nothing was refused' {
+        $null = Reset-FailState
+        $r = New-SequenceFailureRecord -Reason step -VMName 'v' -GuestKey 'g' -HostType 'h' -SequencePath $script:seqPath -LogDir 'd' -TotalSteps 5
+        Assert-True ($r.File.context.causeDetail.Contains('launcherRejection')) 'the field must always be present'
+        Assert-True ($null -eq $r.File.context.causeDetail.launcherRejection) 'and null without a refusal'
+        Assert-Equal -Expected '' -Actual $r.Event.causeLauncherRejection
     }
 
     It 'leaves the flood field empty, not absent, on an ordinary failure' {

@@ -304,6 +304,45 @@ is still live is re-discovered on the aggregator's next poll, so stop/drain it
 before forgetting. It refuses this host's own uuid, or a record last seen < 24 h
 ago, unless `-Force`. Run it on a host with the pool share mounted.
 
+<a id="4207d71a-0025"></a>
+
+## A step failure names the caching proxy
+
+A guest-side message that blames the caching proxy -- an image pull that could not
+reach the registry cache, a package fetch that timed out on the web cache -- has two
+causes that look identical from inside the guest: the proxy is down, or that one guest
+lost its path to the lab. Three checks, in this order, tell them apart. Stop at the
+first one that answers.
+
+1. **The Yuruna hosts dashboard, row *Drill-down: caching proxy*.** Set the time
+   range around the failing minute; the *Step failures that name the caching proxy*
+   panel in that row lists the event with its UTC time. Green liveness and pull-path
+   tiles, every other guest's line still present in the per-client panels, and the
+   failing guest's line absent, is a guest that lost its own path -- the proxy is
+   cleared, continue with check 2. Red tiles, or every client line ending at once, is
+   the proxy: continue on the cache-health dashboard (the proxy VM's own board) and
+   leave the guest alone. What each tile and panel means is in
+   [pool-dashboard](https://yuruna.link/422226cb).
+2. **The failure folder on the host, beside `last_failure.json`.** The host writes two
+   files there at failure time: `network-cross-check.json`, whose verdict records what
+   the host itself could still reach at that moment, and, on Hyper-V hosts, `vm-network.state.txt`,
+   the guest's network adapter and virtual switch state as the host saw it. Read the
+   verdict first: a host that reached the proxy while its guest's adapter was
+   disconnected, or sat on a switch with no uplink, names a host-side fault, and the
+   state file says which; a host that reached nothing names its own uplink.
+3. **The proxy's logs for the guest's own address, in the failing minute.** In
+   Grafana Explore against the Loki datasource, with the time range set to that minute
+   and the guest's lab address in place of the example:
+
+   ```
+   {job="squid"} |= "192.0.2.57"
+   {job="zot"} | json | clientIP=~"192.0.2.57:.*"
+   ```
+
+   Lines from other clients and none from this guest confirm it never reached the
+   proxy VM. Lines from this guest with a slow or failed status say it did, and move
+   the question back to the proxy.
+
 <a id="4207d71a-000b"></a>
 
 ## Command summary
@@ -1127,6 +1166,8 @@ then to standalone -- a pool never stops a host from testing.
   (a separate, NAS-only feature).
 - [test/extension/pool-aggregator-service/README.md](../test/extension/pool-aggregator-service/README.md) --
   the read-only pool dashboard + telemetry collector.
+- [pool-dashboard.md](pool-dashboard.md) -- what each panel of the Yuruna hosts
+  dashboard means, including the caching-proxy row the triage recipe above starts from.
 - [test-config.md](test-config.md) -- the host-side `pool` config keys.
 
 ---
@@ -1135,6 +1176,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.14
+Last review: 2026.10.18
 
 Back to [Yuruna](../README.md)

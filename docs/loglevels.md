@@ -94,7 +94,7 @@ calls `Get-Image.ps1` and `New-VM.ps1` with the call operator), and a
 forced re-import there tears down and rebuilds the module instance the
 caller is already using -- taking whatever that instance keeps in module
 scope with it, and narrating a dozen import lines into the transcript at
-Verbose (`feedback_module_force_import_evicts_global`). The tradeoff is
+Verbose. The tradeoff is
 that an edit to the module mid-session is not picked up, which is
 acceptable for a leaf script that only reads the level. The two values
 that must outlive such a re-import -- the child transcript's path/owner
@@ -174,6 +174,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.14
+Last review: 2026.10.18
 
 Back to [Yuruna](../README.md)

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.14
+.VERSION 2026.10.18
 .GUID 42bb2613-9d4e-4ac0-aeb2-0784a83e7a8a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -202,7 +202,7 @@ function Get-YurunaGitAuthAttemptList {
 
         Descriptors are hashtables, never nested bare arrays: a nested array
         return unrolls one level on the pipeline and an empty inner array
-        vanishes entirely (see feedback_return_comma_list_plus_at_paren_double_wraps).
+        vanishes entirely.
     .OUTPUTS
         [hashtable[]] -- @{ Source = <label for logs>; Args = [string[]] git -c pairs },
         in the order the attempts should run.
@@ -1294,6 +1294,44 @@ function Resolve-GitRepositoryWebUrl {
     return $null
 }
 
+function Get-ProjectGitCommitReference {
+    <#
+    .SYNOPSIS
+        The checked-out project's revision and safe commit-link base for a cycle.
+    .DESCRIPTION
+        Every cycle owner publishes the same project provenance. Require the
+        project's own .git entry and bind Git to it when querying HEAD: Git
+        otherwise walks up from an in-tree or invalid project checkout and
+        returns the enclosing framework revision.
+        A local or SSH clone source is resolved to its web origin when possible;
+        other sources remain visible as unlinked provenance without credentials.
+        Missing project metadata is best-effort and returns null.
+    #>
+    [CmdletBinding()]
+    [OutputType([System.Collections.Specialized.OrderedDictionary])]
+    param(
+        [Parameter(Mandatory)][string]$RepoRoot,
+        [AllowNull()][AllowEmptyString()][string]$ProjectUrl
+    )
+    if ([string]::IsNullOrWhiteSpace($ProjectUrl)) { return $null }
+    $projectDir = Join-Path $RepoRoot 'project'
+    if (-not (Test-Path -LiteralPath (Join-Path $projectDir '.git'))) { return $null }
+    try {
+        $sha = & git -C $projectDir --git-dir=.git rev-parse --short HEAD 2>$null
+        if ($LASTEXITCODE -ne 0 -or -not $sha) { return $null }
+        $sha = "$sha".Trim()
+        $repoUrl = Resolve-GitRepositoryWebUrl -Url $ProjectUrl
+        if (-not $repoUrl) {
+            $repoUrl = (Resolve-GitRemoteLink -Url $ProjectUrl).Url
+            if (-not $repoUrl) { $repoUrl = $ProjectUrl }
+        }
+        return [ordered]@{ sha = [string]$sha; repoUrl = $repoUrl }
+    } catch {
+        Write-Verbose "Project commit metadata unavailable: $($_.Exception.Message)"
+        return $null
+    }
+}
+
 function Get-GitRepositoryName {
     <#
     .SYNOPSIS
@@ -1531,4 +1569,4 @@ function Install-PSScriptAnalyzerIfMissing {
     return Install-YurunaGalleryModuleIfMissing -Name 'PSScriptAnalyzer' @PSBoundParameters
 }
 
-Export-ModuleMember -Function Invoke-GitPull, Get-GitUpstreamStatus, Get-GitUnmergedPath, Test-GitWorktreeMerged, Get-CurrentGitCommit, Get-FileLockingProcess, Update-ProjectClone, Restore-ProjectCloneSwap, Test-ProjectCloneHealth, Remove-ProjectCloneDirectory, Resolve-GitRepositoryWebUrl, Resolve-GitRemoteLink, Get-GitRepositoryName, Test-GitRemoteAccess, Get-HostRepositoryAccess, Install-PowerShellYamlIfMissing, Install-PSScriptAnalyzerIfMissing, Test-GitRemoteAuthFailure, Get-GitFirstOutputLine, Get-GitAuthRefreshRemedy, Write-GitAuthRefreshBanner, Invoke-GitNetworkCommand, Get-YurunaGitCredentialArg, Get-YurunaGhCliCredentialArg, Get-YurunaGitAuthAttemptList
+Export-ModuleMember -Function Invoke-GitPull, Get-GitUpstreamStatus, Get-GitUnmergedPath, Test-GitWorktreeMerged, Get-CurrentGitCommit, Get-FileLockingProcess, Update-ProjectClone, Restore-ProjectCloneSwap, Test-ProjectCloneHealth, Remove-ProjectCloneDirectory, Resolve-GitRepositoryWebUrl, Resolve-GitRemoteLink, Get-ProjectGitCommitReference, Get-GitRepositoryName, Test-GitRemoteAccess, Get-HostRepositoryAccess, Install-PowerShellYamlIfMissing, Install-PSScriptAnalyzerIfMissing, Test-GitRemoteAuthFailure, Get-GitFirstOutputLine, Get-GitAuthRefreshRemedy, Write-GitAuthRefreshBanner, Invoke-GitNetworkCommand, Get-YurunaGitCredentialArg, Get-YurunaGhCliCredentialArg, Get-YurunaGitAuthAttemptList

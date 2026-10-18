@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.14
+.VERSION 2026.10.18
 .GUID 42fe1ae4-05a9-49ae-b073-a5c31573254d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -120,7 +120,7 @@ Describe 'Get-SnapshotManifestDir / Get-SnapshotManifestPath' {
         Assert-Equal -Expected $dir -Actual (Get-SnapshotManifestDir -Confirm:$false)
         Assert-True (Test-Path -LiteralPath $dir) 'a second call must not disturb the directory'
     }
-    It 'names the manifest <vm>__<snapshot>.manifest.json' {
+    It 'names the manifest `<vm`>__`<snapshot`>.manifest.json' {
         $path = Get-SnapshotManifestPath -VMName 'yuruna-ubuntu-01' -SnapshotId 'pre-upgrade'
         Assert-Equal -Expected (Join-Path $snapshotDir 'yuruna-ubuntu-01__pre-upgrade.manifest.json') -Actual $path
     }
@@ -324,6 +324,8 @@ Describe 'Runtime-directory resolution' {
         # here reproduces exactly what the module sees on those hosts.
         $savedRuntime = $env:YURUNA_RUNTIME_DIR
         $savedTemp    = $env:TEMP
+        $dir = $null
+        $existedBefore = Test-Path -LiteralPath (Join-Path ([System.IO.Path]::GetTempPath()) 'snapshots')
         try {
             $env:YURUNA_RUNTIME_DIR = $null
             $env:TEMP = $null
@@ -334,6 +336,9 @@ Describe 'Runtime-directory resolution' {
         } finally {
             $env:TEMP = $savedTemp
             $env:YURUNA_RUNTIME_DIR = $savedRuntime
+            # The module created it for this call; one that was there already
+            # belongs to someone else.
+            if ($dir -and -not $existedBefore) { Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction SilentlyContinue }
         }
     }
 }

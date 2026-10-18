@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.14
+.VERSION 2026.10.18
 .GUID 42697c34-7060-4995-8ce1-baeb7bd4bbd6
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -480,7 +480,7 @@ Describe 'Get-PoolStorageCycleIdentity (stable identity, no duplicate replicatio
     It 'strips the .incomplete suffix' {
         Assert-Equal -Expected '000001.2026-06-10.12-00-00.42abc' -Actual (Get-PoolStorageCycleIdentity -Name '000001.2026-06-10.12-00-00.42abc.incomplete') -Because 'incomplete -> base'
     }
-    It 'strips the .aborted.<UTC> suffix' {
+    It 'strips the .aborted.`<UTC`> suffix' {
         Assert-Equal -Expected '000001.2026-06-10.12-00-00.42abc' -Actual (Get-PoolStorageCycleIdentity -Name '000001.2026-06-10.12-00-00.42abc.aborted.2026-06-10T13-00-00Z') -Because 'aborted -> base'
     }
     It 'leaves a bare base name unchanged' {
@@ -567,7 +567,7 @@ Describe 'Test-PoolStorageVaultDecision (loud-fail gate)' {
 }
 
 Describe 'Get-PoolStorageHostFolderPath / Get-PoolStorageCycleRootPath (on-share layout)' {
-    It 'puts the host root under hosts/, beside the info.<hostId>.yml registry records' {
+    It 'puts the host root under hosts/, beside the info.`<hostId`>.yml registry records' {
         $cfg = Get-TestPoolConfig
         Assert-Equal -Expected (Join-Path '/mnt/ypool-nas' (Join-Path 'hosts' '4212abc')) -Actual (Get-PoolStorageHostFolderPath -Config $cfg -HostId '4212abc') -Because 'host root = localPath/hosts/hostId'
     }

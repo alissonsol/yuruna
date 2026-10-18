@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.14
+.VERSION 2026.10.18
 .GUID 42228108-7cf2-409b-8ae4-1bb3028f378f
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -526,33 +526,8 @@ function Resolve-YurunaRunnerProcessTarget {
 $script:StartToleranceMs = 2000
 $script:LinuxClockTicks  = $null
 
-function ConvertTo-YurunaUnixMs {
-    <#
-    .SYNOPSIS
-        A DateTime as Unix milliseconds (UTC), the unit every identity record
-        in this module uses.
-    #>
-    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseSingularNouns', '',
-        Justification = 'The plural is the unit, not a collection: a time value is named <Name>Ms so a bare number cannot be read in the wrong unit.')]
-    [CmdletBinding()]
-    [OutputType([long])]
-    param([Parameter(Mandatory)][datetime]$Value)
-    $utc = if ($Value.Kind -eq [DateTimeKind]::Utc) { $Value } else { $Value.ToUniversalTime() }
-    return [long]([DateTimeOffset]::new([DateTime]::SpecifyKind($utc, [DateTimeKind]::Utc))).ToUnixTimeMilliseconds()
-}
-
-function Get-YurunaIdentityPlatform {
-    <#
-    .SYNOPSIS
-        Linux, MacOS or Windows for the running process.
-    #>
-    [CmdletBinding()]
-    [OutputType([string])]
-    param()
-    if ($IsWindows) { return 'Windows' }
-    if ($IsMacOS) { return 'MacOS' }
-    return 'Linux'
-}
+# ConvertTo-YurunaUnixMs (Unix milliseconds, the unit every identity record in
+# this module uses) and Get-YurunaIdentityPlatform come from Test.InnerSpawn.
 
 function Get-YurunaIdentityComparison {
     <#
@@ -1090,11 +1065,9 @@ function Get-YurunaProcessStartUnixMs {
         $row = $lookupRecord.Row
         if ($row -and $null -ne $row.StartTimeUnixMs) { return [long]$row.StartTimeUnixMs }
     }
-    try {
-        return (ConvertTo-YurunaUnixMs -Value ([System.Diagnostics.Process]::GetProcessById($ProcessId).StartTime))
-    } catch {
-        return $null
-    }
+    $start = Get-YurunaProcessStartUtc -ProcessId $ProcessId
+    if ($null -eq $start) { return $null }
+    return (ConvertTo-YurunaUnixMs -Value $start)
 }
 
 function Get-YurunaProcessLiveIdentity {

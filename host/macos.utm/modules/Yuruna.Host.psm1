@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.14
+.VERSION 2026.10.18
 .GUID 42bd906d-30b3-44f2-9020-fea9dbf0805f
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -249,6 +249,7 @@ $script:UtmHostTool = @{
     'kill'       = '/bin/kill'
     'killall'    = 'killall'
     'launchctl'  = 'launchctl'
+    'log'        = '/usr/bin/log'
     'open'       = 'open'
     'osascript'  = 'osascript'
     'pgrep'      = 'pgrep'
@@ -293,6 +294,13 @@ $script:UtmAppleEventReasonPattern = [ordered]@{
     'permission-denied' = '-1743\b|Not authorized to send Apple events'
     'timeout'           = '-1712\b|AppleEvent timed out'
     'no-session'        = 'does not work from SSH'
+    # -609 (connectionInvalid) is the Apple Event transport reporting that the
+    # target process went away while the event was pending: from utmctl it is
+    # what a UTM.app that crashed or was replaced mid-request looks like. It is
+    # its own row because the next request usually reaches a relaunched UTM,
+    # and whether that one still acts on lifecycle verbs is the question the
+    # start retry has to answer separately.
+    'connection-invalid' = '-609\b|connection is invalid'
     'provider-error'    = 'OSStatus error|couldn.t be completed|Error from event|Apple ?Event'
 }
 
@@ -357,7 +365,7 @@ function Invoke-UtmHostTool {
     [OutputType([hashtable])]
     param(
         [Parameter(Mandatory)]
-        [ValidateSet('arp', 'dscl', 'id', 'ifconfig', 'kill', 'killall', 'launchctl', 'osascript', 'pgrep', 'plistbuddy', 'plutil', 'ps', 'qemu-img', 'sudo')]
+        [ValidateSet('arp', 'dscl', 'id', 'ifconfig', 'kill', 'killall', 'launchctl', 'log', 'osascript', 'pgrep', 'plistbuddy', 'plutil', 'ps', 'qemu-img', 'sudo')]
         [string]$Tool,
         [string[]]$ArgumentList = @(),
         [ValidateRange(1, 600)][int]$TimeoutSeconds = 10,
@@ -1352,6 +1360,16 @@ function Get-UtmStartFailureKind {
     replayed on its exit code. The settle poll that follows is the fresh
     postcondition, and the next attempt re-observes before it may start again.
 
+    Two consecutive starts that UTM did not act on because the control
+    channel itself failed -- the call waited out the Apple Event timeout
+    (-1712), the connection to UTM.app was invalidated (-609), or the bounded
+    call never returned -- end the loop early with kind 'apple-event' and
+    controlHung=$true, whatever MaxAttempts says. A UTM that answers state
+    queries but holds every lifecycle verb to its timeout does not recover
+    between attempts; each further attempt only adds the timeout to the
+    outage, and the caller needs the verdict, not the delay. A single such
+    failure is still retried, because a momentary refusal does recover.
+
     With -Deadline every wait, backoff, state read and start is bounded by
     what that shared deadline has left, on top of -- never instead of --
     MaxAttempts and SettleSeconds.
@@ -1376,7 +1394,9 @@ function Get-UtmStartFailureKind {
 
 .OUTPUTS
     [hashtable] success, errorMessage, attempts, kind ('none' | 'qemu' |
-    'apple-event' | 'unresolved' | 'absent').
+    'apple-event' | 'unresolved' | 'absent'), controlHung ([bool]: the loop
+    ended on two consecutive control-channel failures) and appleEventReason
+    (the wording-table row of the last Apple Event failure, or 'none').
 #>
 function Invoke-UtmVMStartWithRetry {
     [CmdletBinding(SupportsShouldProcess)]
@@ -1389,12 +1409,16 @@ function Invoke-UtmVMStartWithRetry {
         $Deadline
     )
     if (-not $PSCmdlet.ShouldProcess($VMName, (Format-YurunaOperatorMessage -Key 'host.operator_5e0073f7baaa6926'))) {
-        return @{ success = $false; errorMessage = 'WhatIf'; attempts = 0; kind = 'none' }
+        return @{ success = $false; errorMessage = 'WhatIf'; attempts = 0; kind = 'none'; controlHung = $false; appleEventReason = 'none' }
     }
     $attemptCap = [Math]::Max(1, $MaxAttempts)
     $settleMs   = [long][Math]::Max(1, $SettleSeconds) * 1000
     $lastError  = ''
     $lastKind   = 'none'
+    $lastAppleEventReason = 'none'
+    # Consecutive starts the control channel itself failed; reset by any
+    # attempt that UTM answered, even with a refusal.
+    $controlStreak = 0
     $startsIssued = 0
     # Reads the state until one of $Until is observed or $Window ends. The
     # window only paces the polling; each read is bounded by the shared
@@ -1413,7 +1437,7 @@ function Invoke-UtmVMStartWithRetry {
     }
     $unresolved = {
         param([string]$Message, [int]$Attempt)
-        return @{ success = $false; attempts = $Attempt; kind = 'unresolved'; errorMessage = $Message }
+        return @{ success = $false; attempts = $Attempt; kind = 'unresolved'; errorMessage = $Message; controlHung = $false; appleEventReason = $lastAppleEventReason }
     }
     for ($attempt = 1; $attempt -le $attemptCap; $attempt++) {
         if ($Deadline -and (Test-YurunaDeadlineExpired -Deadline $Deadline)) {
@@ -1421,7 +1445,7 @@ function Invoke-UtmVMStartWithRetry {
         }
         $before = & $observe (Get-UtmChildDeadline -Milliseconds $settleMs -Parent $Deadline) @('running', 'stopped') $Deadline
         if ($before.State -eq 'running') {
-            return @{ success = $true; errorMessage = $null; attempts = $attempt; kind = 'none' }
+            return @{ success = $true; errorMessage = $null; attempts = $attempt; kind = 'none'; controlHung = $false; appleEventReason = 'none' }
         }
         if ($before.State -eq 'absent') { continue }
         if ($before.State -ne 'stopped') {
@@ -1442,6 +1466,11 @@ function Invoke-UtmVMStartWithRetry {
         $text = [string]$start.Text
         if ($text) { Write-Information -MessageData (Format-YurunaOperatorMessage -Key 'host.operator_4d8f5df44a5acae0' -Arguments @{ text = "$text" }) -InformationAction Continue }
         $lastKind = [string]$start.FailureKind
+        $lastAppleEventReason = if ($lastKind -eq 'apple-event') { Get-UtmAppleEventReason -Text $text } else { 'none' }
+        # A denial or a generic provider error is an answer from UTM; only a
+        # request the channel never completed counts toward the streak.
+        $controlFailed = (-not $start.OutcomeKnown) -or ($lastAppleEventReason -in @('timeout', 'connection-invalid'))
+        $controlStreak = if ($controlFailed) { $controlStreak + 1 } else { 0 }
         $lastError = if (-not $start.OutcomeKnown) {
             Format-YurunaOperatorMessage -Key 'host.utmctl_lifecycle_timeout' -Arguments @{ verb = 'start'; vmName = "$VMName"; timeoutSeconds = "$($start.TimeoutSeconds)" }
         } elseif ($start.ExitCode -ne 0) {
@@ -1456,18 +1485,22 @@ function Invoke-UtmVMStartWithRetry {
         }
         $after = & $observe $settle @('running') $Deadline
         if ($after.State -eq 'running') {
-            return @{ success = $true; errorMessage = $null; attempts = $attempt; kind = 'none' }
+            return @{ success = $true; errorMessage = $null; attempts = $attempt; kind = 'none'; controlHung = $false; appleEventReason = 'none' }
         }
         if ($lastKind -eq 'qemu') {
-            return @{ success = $false; attempts = $attempt; kind = 'qemu'
+            return @{ success = $false; attempts = $attempt; kind = 'qemu'; controlHung = $false; appleEventReason = 'none'
                       errorMessage = (Format-YurunaOperatorMessage -Key 'host.operator_d2824e1687d3fb3f' -Arguments @{ vMName = "$VMName"; lastError = "$lastError" }) }
+        }
+        if ($controlStreak -ge 2) {
+            return @{ success = $false; attempts = $attempt; kind = 'apple-event'; controlHung = $true; appleEventReason = $lastAppleEventReason
+                      errorMessage = (Format-YurunaOperatorMessage -Key 'host.utm_start_control_hung' -Arguments @{ vmName = "$VMName"; attempts = "$attempt"; lastError = "$lastError" }) }
         }
         if ($after.State -ne 'stopped' -and $after.State -ne 'absent') {
             return (& $unresolved (Format-YurunaOperatorMessage -Key 'host.operator_5cde67d59ac2073f' -Arguments @{ vMName = "$VMName"; attempt = "$attempt" }) $attempt)
         }
     }
     if ($startsIssued -eq 0) {
-        return @{ success = $false; attempts = $attemptCap; kind = 'absent'
+        return @{ success = $false; attempts = $attemptCap; kind = 'absent'; controlHung = $false; appleEventReason = 'none'
                   errorMessage = (Format-YurunaOperatorMessage -Key 'host.utm_start_absent_observed' -Arguments @{ vmName = "$VMName"; waitSeconds = "$([int]($settleMs / 1000))"; attempt = "$attemptCap" }) }
     }
     $detail = if ($lastKind -eq 'apple-event') {
@@ -1477,7 +1510,7 @@ function Invoke-UtmVMStartWithRetry {
     } else {
         Format-YurunaOperatorMessage -Key 'host.utm_start_dropped' -Arguments @{ vmName = "$VMName"; attempts = "$attemptCap" }
     }
-    return @{ success = $false; errorMessage = $detail; attempts = $attemptCap; kind = $lastKind }
+    return @{ success = $false; errorMessage = $detail; attempts = $attemptCap; kind = $lastKind; controlHung = $false; appleEventReason = $lastAppleEventReason }
 }
 
 <#
@@ -1513,7 +1546,7 @@ function Start-UtmVM {
             # must not rewrite its active VNC configuration or clear vmstate.
             if ((Get-VMStateRecord -VMName $VMName).State -eq 'running') {
                 if ($BeforeLaunch) { $null = & $BeforeLaunch }
-                return @{ success = $true; errorMessage = $null }
+                return @{ success = $true; errorMessage = $null; kind = 'none'; controlHung = $false }
             }
             $vmstatePath = Join-Path $utmBundle "Data/vmstate"
             if (Test-Path $vmstatePath) {
@@ -1553,10 +1586,17 @@ function Start-UtmVM {
             # See https://yuruna.link/42e5cdfd-0003
             $start = Invoke-UtmVMStartWithRetry -VMName $VMName -Confirm:$false
             if (-not $start.success) {
-                return @{ success = $false; errorMessage = $start.errorMessage }
+                # The kind travels with the record so a caller can tell a
+                # control channel that stopped acting (retrying is pointless
+                # until UTM is restarted) from a VM that refused to come up.
+                if ($start.controlHung) {
+                    $null = Save-UtmControlSnapshot -Trigger 'start-control-hung' -VMName $VMName -Confirm:$false
+                }
+                return @{ success = $false; errorMessage = $start.errorMessage; kind = [string]$start.kind
+                          controlHung = [bool]$start.controlHung; appleEventReason = [string]$start.appleEventReason }
             }
         }
-        return @{ success = $true; errorMessage = $null }
+        return @{ success = $true; errorMessage = $null; kind = 'none'; controlHung = $false }
     } catch {
         return @{ success = $false; errorMessage = (Format-YurunaOperatorMessage -Key 'host.operator_3f0823f611b21152' -Arguments @{ vMName = "$VMName"; value = "$_" }) }
     }
@@ -1738,10 +1778,9 @@ function Get-UtmRunningVmInventory {
     or when utmctl errors. Cheap (single `utmctl list` call).
 
 .DESCRIPTION
-    utmctl list columns are UUID, Status, Name (see
-    [[utmctl-list-column-order]] memory note). A caller that must tell "none
-    running" from "could not ask" uses Get-UtmRunningVmInventory instead:
-    this wrapper emits nothing in both cases.
+    utmctl list columns are UUID, Status, Name. A caller that must tell
+    "none running" from "could not ask" uses Get-UtmRunningVmInventory
+    instead: this wrapper emits nothing in both cases.
 #>
 function Get-RunningVmName {
     [CmdletBinding()]
@@ -2663,6 +2702,227 @@ function Get-UtmClockTick {
     param($Deadline)
     if ($Deadline -and $Deadline.ClockTicks) { return [long](& $Deadline.ClockTicks) }
     return [long][Environment]::TickCount64
+}
+
+<#
+.SYNOPSIS
+    Where host-side evidence for the running cycle belongs, or $null when no
+    cycle is running.
+.DESCRIPTION
+    An explicit directory wins. Otherwise the cycle folder is read from the
+    YURUNA_CYCLE_CONTEXT handle the framework publishes to the child processes
+    of a host action, then from the runner's own cycle-folder handle, then the
+    shared log root. A directory that is named but no longer on disk is
+    skipped: the cycle is over, and writing it back would recreate a folder
+    nothing collects.
+#>
+function Get-UtmEvidenceDirectory {
+    [CmdletBinding()]
+    [OutputType([string])]
+    param([AllowNull()][AllowEmptyString()][string]$Explicit)
+    if (-not [string]::IsNullOrWhiteSpace($Explicit)) { return $Explicit }
+    if (-not [string]::IsNullOrWhiteSpace($env:YURUNA_CYCLE_CONTEXT)) {
+        try {
+            $context = $env:YURUNA_CYCLE_CONTEXT | ConvertFrom-Json -AsHashtable -ErrorAction Stop
+            $root = if ($context -is [System.Collections.IDictionary]) { [string]$context['rootCycleFolder'] } else { '' }
+            if ($root -and (Test-Path -LiteralPath $root -PathType Container)) { return $root }
+        } catch {
+            Write-Verbose "Get-UtmEvidenceDirectory: unreadable cycle context: $($_.Exception.Message)"
+        }
+    }
+    $folder = Get-Variable -Name '__YurunaCycleFolder' -Scope Global -ValueOnly -ErrorAction SilentlyContinue
+    if ($folder -and (Test-Path -LiteralPath ([string]$folder) -PathType Container)) { return [string]$folder }
+    if ($env:YURUNA_LOG_DIR -and (Test-Path -LiteralPath $env:YURUNA_LOG_DIR -PathType Container)) { return $env:YURUNA_LOG_DIR }
+    return $null
+}
+
+<#
+.SYNOPSIS
+    Record what UTM's control channel looked like at the moment a request
+    went unanswered, in the cycle folder, for the reader who was not there.
+.DESCRIPTION
+    A lifecycle verb that UTM did not act on leaves nothing behind: the
+    transcript shows the OSStatus text, and the state of UTM.app itself --
+    whether it crashed and relaunched, which helper processes survived, what
+    the unified log said in the minutes before -- is gone by the time anyone
+    reads the failure. This writes that evidence while it still exists:
+
+      - the same-user UTM and QEMU helper census, each pid with its start
+        time and command line (a UTM pid or start time that differs from the
+        one the cycle began with is a crash-and-relaunch);
+      - one bounded `utmctl list`, raw, so the query path's answer is on
+        record beside the verb that hung;
+      - the crash reports under ~/Library/Logs/DiagnosticReports written in
+        the window, named and copied (the newest few, size-capped);
+      - a bounded `log show` excerpt for the UTM, QEMUHelper and utmctl
+        processes over the window;
+      - with -VMName, a screenshot of that VM's display, for a guest that was
+        started but never reported.
+
+    Every read is bounded and every failure is recorded in the snapshot
+    rather than thrown; with no cycle folder to write into nothing is
+    written and the result says so. The files are named after -Trigger so a
+    second capture in the same cycle for a different reason does not replace
+    the first.
+.PARAMETER OutputDirectory
+    Where to write. Default: the running cycle's folder (Get-UtmEvidenceDirectory).
+.PARAMETER Trigger
+    A short token naming why the snapshot was taken; part of the file names.
+.PARAMETER VMName
+    The VM the failed request concerned, for the screenshot.
+.PARAMETER LogWindowMinutes
+    How far back the unified-log excerpt and the crash-report scan reach.
+.PARAMETER LogTimeoutSeconds
+    Cap for the `log show` call, which can be slow on a loaded host.
+.PARAMETER Deadline
+    Optional shared deadline (New-YurunaDeadline).
+.OUTPUTS
+    [pscustomobject] Written, Reason, Directory, Path, Record.
+#>
+function Save-UtmControlSnapshot {
+    [CmdletBinding(SupportsShouldProcess)]
+    [OutputType([pscustomobject])]
+    param(
+        [string]$OutputDirectory,
+        [ValidatePattern('^[a-z0-9][a-z0-9.-]{0,63}$')][string]$Trigger = 'operator',
+        [AllowEmptyString()][string]$VMName = '',
+        [ValidateRange(1, 1440)][int]$LogWindowMinutes = 30,
+        [ValidateRange(1, 600)][int]$LogTimeoutSeconds = 60,
+        $Deadline
+    )
+    $stopwatch = [System.Diagnostics.Stopwatch]::StartNew()
+    $result = [ordered]@{ Written = $false; Reason = ''; Directory = ''; Path = ''; Record = $null }
+    $directory = Get-UtmEvidenceDirectory -Explicit $OutputDirectory
+    if (-not $directory) {
+        $result.Reason = 'no-output-directory'
+        return [pscustomobject]$result
+    }
+    $result.Directory = $directory
+    if (-not $PSCmdlet.ShouldProcess($directory, (Format-YurunaOperatorMessage -Key 'host.utm_control_snapshot_action' -Arguments @{ trigger = "$Trigger" }))) {
+        $result.Reason = 'preview'
+        return [pscustomobject]$result
+    }
+    $record = [ordered]@{
+        schema           = 'yuruna.utm-control-snapshot/v1'
+        observedUtc      = [DateTime]::UtcNow.ToString('o')
+        trigger          = $Trigger
+        vmName           = $VMName
+        sessionKind      = 'Unknown'
+        application      = $null
+        processes        = @()
+        listing          = $null
+        crashReports     = @()
+        unifiedLog       = $null
+        screenshot       = $null
+        problems         = @()
+    }
+    $problems = [System.Collections.Generic.List[string]]::new()
+    $cap = {
+        param([string]$Text, [int]$Length)
+        if ([string]::IsNullOrEmpty($Text)) { return '' }
+        if ($Text.Length -le $Length) { return $Text }
+        return $Text.Substring(0, $Length)
+    }
+    try {
+        try { $record.sessionKind = [string](Get-UtmProbeSessionKind -Deadline $Deadline) } catch { $problems.Add("session: $($_.Exception.Message)") }
+        $app = $null
+        try {
+            $app = Get-UtmApplicationState -Deadline $Deadline
+            $record.application = [ordered]@{
+                state = [string]$app.State; reason = [string]$app.Reason; uid = [string]$app.Uid
+                utmPid = [int[]]@($app.UtmPid); helperPid = [int[]]@($app.HelperPid); observedUtc = [string]$app.ObservedUtc
+            }
+        } catch { $problems.Add("census: $($_.Exception.Message)") }
+        $processes = [System.Collections.Generic.List[object]]::new()
+        if ($app) {
+            foreach ($processId in @(@($app.UtmPid) + @($app.HelperPid) | Where-Object { $_ -gt 0 } | Select-Object -Unique)) {
+                try {
+                    $identity = Get-UtmProcessIdentity -ProcessId $processId -Deadline $Deadline
+                    $processes.Add([ordered]@{
+                        pid = [int]$processId; found = [bool]$identity.Found; reason = [string]$identity.Reason
+                        startText = [string]$identity.StartText; command = (& $cap ([string]$identity.Command) 400)
+                    })
+                } catch { $problems.Add("process ${processId}: $($_.Exception.Message)") }
+            }
+        }
+        $record.processes = @($processes)
+        try {
+            $listing = Invoke-UtmctlProbe -Arguments @('list') -TimeoutSeconds 20 -Deadline $Deadline -Quiet
+            $record.listing = [ordered]@{
+                started = [bool]$listing['Started']; exitCode = [int]$listing['ExitCode']; timedOut = [bool]$listing['TimedOut']
+                outputTruncated = [bool]$listing['OutputTruncated']; elapsedMs = [long]$listing['ElapsedMs']
+                text = (& $cap "$($listing['StdOut'])`n$($listing['StdErr'])".Trim() 8192)
+            }
+        } catch { $problems.Add("listing: $($_.Exception.Message)") }
+        # Crash reports: named always, copied while small, so the snapshot
+        # stays a few files and the originals remain where macOS put them.
+        $since = [DateTime]::UtcNow.AddMinutes(-$LogWindowMinutes)
+        $reportDir = Join-Path $HOME 'Library/Logs/DiagnosticReports'
+        $reports = [System.Collections.Generic.List[object]]::new()
+        try {
+            if (Test-Path -LiteralPath $reportDir -PathType Container) {
+                $copied = 0
+                $files = @(Get-ChildItem -LiteralPath $reportDir -File -ErrorAction Stop |
+                    Where-Object { $_.Name -match '^(UTM|QEMUHelper|qemu)' -and $_.LastWriteTimeUtc -ge $since } |
+                    Sort-Object LastWriteTimeUtc -Descending)
+                foreach ($file in $files) {
+                    $entry = [ordered]@{ name = $file.Name; sizeBytes = [long]$file.Length; modifiedUtc = $file.LastWriteTimeUtc.ToString('o'); copied = $false }
+                    if ($copied -lt 3 -and $file.Length -le 2MB) {
+                        try {
+                            $copyDir = Join-Path $directory "utm-crash-reports.$Trigger"
+                            if (-not (Test-Path -LiteralPath $copyDir)) { $null = New-Item -ItemType Directory -Force -Path $copyDir }
+                            Copy-Item -LiteralPath $file.FullName -Destination (Join-Path $copyDir $file.Name) -Force -ErrorAction Stop
+                            $entry.copied = $true
+                            $copied++
+                        } catch { $problems.Add("crash report $($file.Name): $($_.Exception.Message)") }
+                    }
+                    $reports.Add($entry)
+                }
+            }
+        } catch { $problems.Add("crash reports: $($_.Exception.Message)") }
+        $record.crashReports = @($reports)
+        try {
+            $predicate = 'process == "UTM" OR process == "QEMUHelper" OR process == "utmctl"'
+            $show = Invoke-UtmHostTool -Tool 'log' -ArgumentList @('show', '--last', "${LogWindowMinutes}m", '--style', 'compact', '--predicate', $predicate) `
+                -TimeoutSeconds $LogTimeoutSeconds -Deadline $Deadline
+            $logText = [string]$show['StdOut']
+            $logPath = Join-Path $directory "utm-log-show.$Trigger.txt"
+            if ($show['Started'] -and -not [string]::IsNullOrWhiteSpace($logText)) {
+                [System.IO.File]::WriteAllText($logPath, $logText, [System.Text.UTF8Encoding]::new($false))
+            } else { $logPath = '' }
+            $record.unifiedLog = [ordered]@{
+                started = [bool]$show['Started']; exitCode = [int]$show['ExitCode']; timedOut = [bool]$show['TimedOut']
+                outputTruncated = [bool]$show['OutputTruncated']; deadlineExhausted = [bool]$show['DeadlineExhausted']
+                lines = @($logText -split "`r?`n" | Where-Object { $_ }).Count; path = $logPath
+                stderr = (& $cap ([string]$show['StdErr']).Trim() 1024)
+            }
+        } catch { $problems.Add("unified log: $($_.Exception.Message)") }
+        if (-not [string]::IsNullOrWhiteSpace($VMName)) {
+            $shotPath = Join-Path $directory "utm-control-snapshot.$Trigger.$VMName.png"
+            $shot = [ordered]@{ vmName = $VMName; path = ''; outcome = 'not-attempted' }
+            try {
+                $null = Get-VMScreenshot -VMName $VMName -OutFile $shotPath -ErrorAction Stop
+                if (Test-Path -LiteralPath $shotPath -PathType Leaf) { $shot.path = $shotPath; $shot.outcome = 'captured' } else { $shot.outcome = 'not-captured' }
+            } catch { $shot.outcome = 'failed'; $problems.Add("screenshot: $($_.Exception.Message)") }
+            $record.screenshot = $shot
+        }
+    } catch {
+        $problems.Add("snapshot: $($_.Exception.Message)")
+    }
+    $record.problems = @($problems)
+    $record['elapsedMs'] = [long]$stopwatch.ElapsedMilliseconds
+    $result.Record = [pscustomobject]$record
+    try {
+        if (-not (Test-Path -LiteralPath $directory -PathType Container)) { $null = New-Item -ItemType Directory -Force -Path $directory }
+        $path = Join-Path $directory "utm-control-snapshot.$Trigger.json"
+        [System.IO.File]::WriteAllText($path, (ConvertTo-Json -InputObject $record -Depth 8), [System.Text.UTF8Encoding]::new($false))
+        $result.Path = $path
+        $result.Written = $true
+        $result.Reason = 'written'
+    } catch {
+        $result.Reason = "write-failed: $($_.Exception.Message)"
+    }
+    return [pscustomobject]$result
 }
 
 # --- REGION: Host proxy helpers
@@ -4979,9 +5239,8 @@ function Send-Key {
     if (Test-Path $sequenceEngine) {
         # Import once and reuse: a -Force re-import evicts the global
         # Invoke-Sequence (and its nested modules + $script: state) that the
-        # outer loop still calls (feedback_module_force_import_evicts_global,
-        # feedback_module_script_state_reset_by_force_reimport), and paying
-        # that on every keystroke is pure overhead.
+        # outer loop still calls, and paying that on every keystroke is pure
+        # overhead.
         if (-not (Get-Module -Name Test.SequenceEngine)) { Import-Module $sequenceEngine -DisableNameChecking -Global }
         return [bool](Test.SequenceEngine\Send-Key -HostType (Resolve-HostTag) -VMName $VMName -KeyName $Key)
     }
@@ -6732,6 +6991,20 @@ function Test-VirtualizationResponsive {
              fully drained or cut at the cap -> invalid-response even at exit 0;
              anything unrecognized -> invalid-response; a cap hit or -1712 -> a
              timeout candidate.
+          5. with -LifecycleProbe, after a recognized listing: `utmctl stop` on
+             a VM that listing shows as stopped. UTM has a wedge in which
+             enumeration keeps answering while every lifecycle verb (start,
+             stop, delete) waits out the Apple Event timeout; a listing alone
+             rates that UTM responsive, and a start issued into it burns its
+             whole timeout. A stop sent to a VM already stopped changes
+             nothing on a healthy UTM and returns at once, so it is the one
+             lifecycle round trip that is safe to send unasked. The VM is
+             chosen from this probe's own listing (never from an earlier
+             read), preferring names under -LifecycleProbePrefix; with no
+             stopped VM the step is skipped and recorded as such, and the
+             listing's verdict stands. The verb answering at all -- even with
+             a refusal -- is responsive; a cap hit or -1712 is a timeout
+             candidate.
         A timeout is not, by itself, evidence that UTM is hung: an unanswered
         Automation consent dialog blocks the sender and looks exactly like one.
         Without -Corroborate a timeout is Undetermined/timeout. With
@@ -6744,8 +7017,19 @@ function Test-VirtualizationResponsive {
         first. When the deadline cannot fit the window plus one probe the result
         stays Undetermined/timeout.
 
-        Read-only: never writes, never repairs the utmctl link, never throws.
-        Diagnostic text goes only to the private 'diagnostic' field.
+        A lifecycle timeout is corroborated on different grounds: the listing
+        that preceded it in the same probe is a completed round trip under this
+        process's own grant, so a consent dialog cannot be what held the verb.
+        The wait before the second probe is therefore -LifecycleRetryWindowSeconds
+        rather than the dialog window, and a second lifecycle timeout is
+        Unresponsive/timeout with corroborated=$true whether or not the
+        Automation subject was recorded. The reason token stays 'timeout' so
+        the restart gate reads it as the control timeout it is; which path hung
+        is in evidence.lifecycle.
+
+        Read-only apart from that one no-op stop: never writes, never repairs
+        the utmctl link, never throws. Diagnostic text goes only to the private
+        'diagnostic' field.
     .PARAMETER TimeoutSeconds
         Cap for each utmctl call.
     .PARAMETER Deadline
@@ -6758,13 +7042,22 @@ function Test-VirtualizationResponsive {
         Automation subjects previously seen to complete a responsive round trip.
     .PARAMETER IncludeInventory
         With a Responsive result, attach the parsed listing as 'inventory'.
+    .PARAMETER LifecycleProbe
+        Also exercise one lifecycle verb, as described in step 5.
+    .PARAMETER LifecycleProbePrefix
+        Name prefixes preferred when choosing the stopped VM for step 5.
+    .PARAMETER LifecycleRetryWindowSeconds
+        The pause before the second probe when the first failure was a
+        lifecycle timeout after an answered listing.
     .OUTPUTS
         [pscustomobject] PSTypeName 'Yuruna.VirtualizationProbe': schemaVersion,
         hostType, state, reason, started, timedOut, deadlineExhausted,
         corroborated, observedUtc, observedTick, elapsedMs, evidence
         {utmctlSource; sessionKind; appState; automationGrant; exitCode;
-        drainTimedOut; outputTruncated}, diagnostic, automationSubject,
-        inventory.
+        drainTimedOut; outputTruncated; lifecycle {attempted; verb; vmName;
+        outcome ('not-attempted' | 'skipped-no-stopped-vm' | 'responsive' |
+        'timeout' | 'deadline-exhausted'); exitCode; timedOut}}, diagnostic,
+        automationSubject, inventory.
     #>
     [CmdletBinding()]
     [OutputType([pscustomobject])]
@@ -6774,7 +7067,10 @@ function Test-VirtualizationResponsive {
         [switch]$Corroborate,
         [ValidateRange(0, 600)][int]$DialogWindowSeconds = 120,
         [string[]]$RecordedAutomationSubject = @(),
-        [switch]$IncludeInventory
+        [switch]$IncludeInventory,
+        [switch]$LifecycleProbe,
+        [string[]]$LifecycleProbePrefix = @(),
+        [ValidateRange(0, 600)][int]$LifecycleRetryWindowSeconds = 15
     )
     $stopwatch   = [System.Diagnostics.Stopwatch]::StartNew()
     $observedUtc = [DateTime]::UtcNow.ToString('o')
@@ -6782,7 +7078,8 @@ function Test-VirtualizationResponsive {
         utmctlSource = 'missing'; sessionKind = 'Unknown'; appState = 'unknown'; automationGrant = 'unknown'
         exitCode = -1; drainTimedOut = $false; outputTruncated = $false
         started = $false; timedOut = $false; deadlineExhausted = $false; corroborated = $false
-        diagnostic = ''; subject = ''; inventory = $null
+        diagnostic = ''; subject = ''; inventory = $null; rows = @()
+        lifecycle = [ordered]@{ attempted = $false; verb = 'stop'; vmName = ''; outcome = 'not-attempted'; exitCode = -1; timedOut = $false }
     }
     $emit = {
         param([string]$State, [string]$Reason)
@@ -6807,6 +7104,14 @@ function Test-VirtualizationResponsive {
                 exitCode        = [int]$facts.exitCode
                 drainTimedOut   = [bool]$facts.drainTimedOut
                 outputTruncated = [bool]$facts.outputTruncated
+                lifecycle       = [pscustomobject]@{
+                    attempted = [bool]$facts.lifecycle.attempted
+                    verb      = [string]$facts.lifecycle.verb
+                    vmName    = [string]$facts.lifecycle.vmName
+                    outcome   = [string]$facts.lifecycle.outcome
+                    exitCode  = [int]$facts.lifecycle.exitCode
+                    timedOut  = [bool]$facts.lifecycle.timedOut
+                }
             }
             diagnostic        = ConvertTo-UtmDiagnosticText -Text ([string]$facts.diagnostic)
             automationSubject = [string]$facts.subject
@@ -6830,7 +7135,42 @@ function Test-VirtualizationResponsive {
         $parsed = ConvertFrom-UtmctlListResult -Result $listing
         if ($parsed.Reason -eq 'timeout') { $facts.timedOut = $true; return 'timeout' }
         if (-not $parsed.Recognized) { return [string]$parsed.Reason }
+        $facts.rows = @($parsed.Row)
         if ($WithInventory) { $facts.inventory = ConvertTo-UtmInventoryRecord -Parsed $parsed }
+        return 'responsive'
+    }
+    # One bounded no-op lifecycle verb against a VM this probe's own listing
+    # shows stopped; returns 'responsive', 'timeout' or 'deadline-exhausted',
+    # and records the attempt. With no stopped VM the listing's verdict stands.
+    $preferredPrefix = [string[]]@($LifecycleProbePrefix | Where-Object { -not [string]::IsNullOrWhiteSpace("$_") })
+    $probeLifecycle = {
+        param($Window, [int]$CapSeconds)
+        $stopped = @($facts.rows | Where-Object { "$($_.Status)" -eq 'stopped' -and -not [string]::IsNullOrWhiteSpace("$($_.Name)") })
+        $preferred = @($stopped | Where-Object {
+                $name = "$($_.Name)"
+                [bool]@($preferredPrefix | Where-Object { $name.StartsWith([string]$_, [System.StringComparison]::OrdinalIgnoreCase) }).Count
+            })
+        $pool = if ($preferred.Count -gt 0) { $preferred } else { $stopped }
+        $candidate = @($pool | Sort-Object { [string]$_.Name } | Select-Object -First 1)
+        if ($candidate.Count -eq 0) {
+            $facts.lifecycle.outcome = 'skipped-no-stopped-vm'
+            return 'responsive'
+        }
+        $vmName = [string]$candidate[0].Name
+        $facts.lifecycle.attempted = $true
+        $facts.lifecycle.vmName = $vmName
+        $verb = Invoke-UtmctlLifecycle -Verb 'stop' -VMName $vmName -TimeoutSeconds $CapSeconds -Deadline $Window -Quiet
+        $facts.lifecycle.exitCode = [int]$verb['ExitCode']
+        $facts.lifecycle.timedOut = [bool]$verb['TimedOut']
+        if ($verb['Text']) { $facts.diagnostic = "$($facts.diagnostic)`nstop $vmName`: $($verb['Text'])" }
+        if ($verb['DeadlineExhausted']) { $facts.lifecycle.outcome = 'deadline-exhausted'; $facts.deadlineExhausted = $true; return 'deadline-exhausted' }
+        if ($verb['TimedOut'] -or (Get-UtmAppleEventReason -Text ([string]$verb['Text'])) -eq 'timeout') {
+            $facts.lifecycle.outcome = 'timeout'
+            $facts.lifecycle.timedOut = $true
+            $facts.timedOut = $true
+            return 'timeout'
+        }
+        $facts.lifecycle.outcome = 'responsive'
         return 'responsive'
     }
     try {
@@ -6853,14 +7193,21 @@ function Test-VirtualizationResponsive {
         if ($app.State -eq 'absent') { return (& $emit 'Unresponsive' 'app-stopped') }
 
         $first = & $probeOnce $Deadline $resolver.Path $TimeoutSeconds ([bool]$IncludeInventory)
+        $lifecycleHeld = $false
+        if ($first -eq 'responsive' -and $LifecycleProbe) {
+            $first = & $probeLifecycle $Deadline $TimeoutSeconds
+            $lifecycleHeld = ($first -eq 'timeout')
+        }
         if ($first -eq 'responsive') { return (& $emit 'Responsive' 'responsive') }
         if ($first -ne 'timeout') { return (& $emit 'Undetermined' $first) }
         if (-not $Corroborate) { return (& $emit 'Undetermined' 'timeout') }
 
         # Corroboration needs the whole dialog window and one more probe of
         # at least a second; a deadline that cannot fit both leaves the
-        # timeout uncorroborated rather than cutting the window short.
-        $windowMs = [long]$DialogWindowSeconds * 1000
+        # timeout uncorroborated rather than cutting the window short. A
+        # lifecycle verb held after an answered listing has no dialog to wait
+        # for, so its window is the shorter retry pause.
+        $windowMs = if ($lifecycleHeld) { [long]$LifecycleRetryWindowSeconds * 1000 } else { [long]$DialogWindowSeconds * 1000 }
         if ($Deadline -and (Get-YurunaDeadlineRemainingMs -Deadline $Deadline) -lt ($windowMs + 1000)) {
             return (& $emit 'Undetermined' 'timeout')
         }
@@ -6870,10 +7217,15 @@ function Test-VirtualizationResponsive {
         if ($again.State -eq 'absent') { return (& $emit 'Unresponsive' 'app-stopped') }
         if ($again.State -ne 'running') { return (& $emit 'Undetermined' 'timeout') }
         $second = & $probeOnce $Deadline $resolver.Path $TimeoutSeconds ([bool]$IncludeInventory)
+        $lifecycleHeldAgain = $false
+        if ($second -eq 'responsive' -and $LifecycleProbe) {
+            $second = & $probeLifecycle $Deadline $TimeoutSeconds
+            $lifecycleHeldAgain = ($second -eq 'timeout')
+        }
         if ($second -eq 'responsive') { return (& $emit 'Responsive' 'responsive') }
         if ($second -ne 'timeout') { return (& $emit 'Undetermined' $second) }
         $facts.timedOut = $true
-        if ($facts.automationGrant -eq 'recorded') {
+        if ($facts.automationGrant -eq 'recorded' -or ($lifecycleHeld -and $lifecycleHeldAgain)) {
             $facts.corroborated = $true
             return (& $emit 'Unresponsive' 'timeout')
         }
@@ -7086,7 +7438,7 @@ Export-ModuleMember -Function Write-UtmBundleConfiguration, New-UtmServiceBundle
     Confirm-UtmVMCreated, Remove-UtmTestVM, Test-UtmVMRegistered, Get-UtmVMRegistrationState, Remove-UtmVMRegistration, Start-UtmVM, Stop-UtmVM, Confirm-UtmVMStarted, Wait-UtmVMPoweredOff, Restart-UtmConsole, `
     Get-RunningVmName, Test-UtmctlResponsive, Invoke-UtmctlProbe, Assert-NoConcurrentUtmVm, Resume-YurunaServiceVM, `
     Resolve-UtmctlExecutable, Invoke-UtmctlLifecycle, Get-VMStateRecord, Get-UtmRunningVmInventory, `
-    Get-UtmApplicationState, Get-UtmControlPrerequisite, Stop-UtmApplication, Start-UtmApplication, Restart-UtmApplication, `
+    Get-UtmApplicationState, Get-UtmControlPrerequisite, Stop-UtmApplication, Start-UtmApplication, Restart-UtmApplication, Save-UtmControlSnapshot, `
     Get-UtmBundleNetwork, Get-UtmArpTable, Get-UtmHostSubnetEvidence, Get-UtmSharedLeaseText, Resolve-UtmGuestAddressPassive, `
     Get-VMPassiveAddressContext, Get-VMPassiveAddress, Get-PortMapTarget, `
     Get-MacProxyMarkerPath, Test-MacProxyIsYurunaManaged, Get-MacActiveNetworkService, Read-MacProxyState, `

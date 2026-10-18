@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.14
+.VERSION 2026.10.18
 .GUID 42801635-2de0-4574-8b48-dbac5d2347c2
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -1177,8 +1177,7 @@ function Start-SudoKeepAlive {
 
     The refresher is spawned with Start-Process and no redirection, which gives
     it its own console and no inheritable handles, so it cannot pin the stdout
-    pipe this script reads from its own children
-    (feedback_windows-detached-grandchild-pins-pipe). It stops itself when this
+    pipe this script reads from its own children. It stops itself when this
     process goes away, so an interrupted run cannot strand a process that holds
     a live root authorization.
 #>
@@ -1352,8 +1351,8 @@ function Invoke-RepoScript {
     $startInfo.Environment['YURUNA_NONINTERACTIVE'] = '1'
     if ($Script:ElevationOk) { $startInfo.Environment['YURUNA_SUDO_PRIMED'] = '1' }
     # The child's stdout is a pipe into a file, and PowerShell on Unix emits VT color unless told not
-    # to. Use NO_COLOR rather than TERM=dumb: TERM is inherited by ssh, curses tools and Write-Progress
-    # (feedback_pwsh_linux_write_progress_setcursor).
+    # to. Use NO_COLOR rather than TERM=dumb: TERM is inherited by ssh, curses tools and Write-Progress,
+    # whose SetCursorPosition call throws on a terminal without cursor addressing.
     $startInfo.Environment['NO_COLOR'] = '1'
     # -NonInteractive on the child pwsh itself, so an engine-level prompt (a
     # mandatory parameter nobody bound, an unsuppressed confirmation) is an error
@@ -1959,6 +1958,72 @@ function Test-SetupAnswerSet {
     # with @(...) and report each message on its own line, and an empty result has
     # to collect as an empty list rather than as one empty array.
     return $problems.ToArray()
+}
+
+function Set-SetupProjectUrl {
+<#
+.SYNOPSIS
+    Point repositories.projectUrl in test.config.yml at a project repository
+    without overwriting a URL the operator already chose.
+.DESCRIPTION
+    An operator who pointed projectUrl at their own project repository -- the
+    documented way to test something other than yuruna-project -- must not have
+    it replaced by the script's built-in default just for re-running setup. Only
+    a value the operator supplied for this run (-FromAnswerFile) wins over one
+    already in the file; the default fills a blank and otherwise leaves what is
+    there alone.
+
+    A replacement is reported as "projectUrl: previous -> new" on the console,
+    never as the new value alone. A line naming only the new value reads as
+    confirmation to the operator whose value was just replaced, and the cycles
+    that follow then test the wrong project while every check stays green,
+    because the telemetry agrees with the configuration it was handed.
+
+    A line-level edit, deliberately: a full YAML round-trip through
+    ConvertTo-Yaml would drop this file's comments, which are most of its
+    documentation.
+.OUTPUTS
+    An object with Outcome ('kept', 'filled' or 'replaced'), Previous and
+    Current.
+#>
+    [CmdletBinding(SupportsShouldProcess)]
+    [OutputType([pscustomobject])]
+    param(
+        [Parameter(Mandatory)][string]$ConfigPath,
+        [Parameter(Mandatory)][string]$ProjectUrl,
+        [switch]$FromAnswerFile
+    )
+    $lines = @(Get-Content -LiteralPath $ConfigPath)
+    $index = -1
+    $indent = ''
+    $existing = ''
+    for ($i = 0; $i -lt $lines.Count; $i++) {
+        if ($lines[$i] -match '^(\s*)projectUrl\s*:\s*(.*)$') {
+            $indent = $Matches[1]
+            $existing = "$($Matches[2])".Trim().Trim('"', "'")
+            $index = $i
+            break
+        }
+    }
+    if ($index -lt 0) { throw "no projectUrl key found in $ConfigPath to set" }
+    if ($existing -and -not $FromAnswerFile) {
+        Write-SetupDetail "projectUrl kept as $existing (already set in $ConfigPath; set setup.projectUrl in an answer file to change it)"
+        return [pscustomobject]@{ Outcome = 'kept'; Previous = $existing; Current = $existing }
+    }
+    if ($existing -eq $ProjectUrl) {
+        Write-SetupDetail "projectUrl already $existing in $ConfigPath"
+        return [pscustomobject]@{ Outcome = 'kept'; Previous = $existing; Current = $existing }
+    }
+    $lines[$index] = "${indent}projectUrl: $ProjectUrl"
+    if ($PSCmdlet.ShouldProcess($ConfigPath, "set projectUrl to $ProjectUrl")) {
+        Set-Content -LiteralPath $ConfigPath -Value $lines
+    }
+    if ($existing) {
+        Write-SetupMessage "projectUrl: $existing -> $ProjectUrl (replaced in $ConfigPath by setup.projectUrl from the answer file)"
+        return [pscustomobject]@{ Outcome = 'replaced'; Previous = $existing; Current = $ProjectUrl }
+    }
+    Write-SetupDetail "projectUrl: (blank) -> $ProjectUrl"
+    return [pscustomobject]@{ Outcome = 'filled'; Previous = ''; Current = $ProjectUrl }
 }
 
 function Get-StorageAliasTier {
@@ -2773,34 +2838,7 @@ if (-not $IsWindows) {
         throw "neither $ConfigPath nor its template ($template) exists"
     }
     if ($projectUrl) {
-        # Line-level edit, deliberately: a full YAML round-trip through
-        # ConvertTo-Yaml would drop this file's comments, which are most of its
-        # documentation.
-        $lines = Get-Content -LiteralPath $ConfigPath
-        $hit = $false
-        $existing = ''
-        for ($i = 0; $i -lt $lines.Count; $i++) {
-            if ($lines[$i] -match '^(\s*)projectUrl\s*:\s*(.*)$') {
-                $existing = "$($Matches[2])".Trim().Trim('"', "'")
-                # An operator who pointed this at their own project repo -- the
-                # documented way to test something other than yuruna-project --
-                # must not have it replaced by the script's built-in default just
-                # for re-running setup. Only a value the operator actually
-                # supplied wins over one already in the file; the default fills a
-                # blank and otherwise leaves what is there alone.
-                if ($existing -and -not $projectUrlFromAnswer) { break }
-                $lines[$i] = "$($Matches[1])projectUrl: $projectUrl"
-                $hit = $true
-                break
-            }
-        }
-        if (-not $hit -and -not $existing) { throw "no projectUrl key found in $ConfigPath to set" }
-        if ($hit) {
-            Set-Content -LiteralPath $ConfigPath -Value $lines
-            Write-SetupDetail "projectUrl -> $projectUrl"
-        } else {
-            Write-SetupDetail "projectUrl kept as $existing (already set in $ConfigPath; set setup.projectUrl in an answer file to change it)"
-        }
+        [void](Set-SetupProjectUrl -ConfigPath $ConfigPath -ProjectUrl $projectUrl -FromAnswerFile:$projectUrlFromAnswer)
     }
 })
 

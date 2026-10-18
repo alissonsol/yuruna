@@ -43,7 +43,7 @@ resource "azurerm_kubernetes_cluster" "default" {
 
   # Imports the cluster context to local .kube/config. Bash + az/kubectl rather
   # than pwsh, matching the localhost-registry-check.sh pattern that avoids the
-  # FileLoadException trap class (feedback_pwsh_provisioner_assemblyname_flake.md).
+  # FileLoadException a pwsh provisioner child can crash with at startup.
   provisioner "local-exec" {
     command = "./cluster-import.sh"
     interpreter = ["bash"]

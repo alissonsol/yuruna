@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.14
+.VERSION 2026.10.18
 .GUID 42fb91f9-ac3c-48ec-849f-108167698afd
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -102,8 +102,70 @@ function Write-OrchestratorLine {
     # flagged by PSScriptAnalyzer. -InformationAction Continue makes it display
     # and be captured by the cycle-log transcript. Same convention as
     # Test.SequenceRunner's chain-progress output.
-    param([Parameter(ValueFromPipeline)][object]$Message)
-    process { Write-Information $Message -InformationAction Continue }
+    # -Tail keeps the last lines for a caller that will need to quote them
+    # (a host action's failure reason); the transcript tee is unchanged.
+    param(
+        [Parameter(ValueFromPipeline)][object]$Message,
+        [AllowNull()][System.Collections.Generic.List[string]]$Tail
+    )
+    process {
+        if ($null -ne $Tail) { Add-OrchestratorOutputTail -Tail $Tail -Line "$Message" }
+        Write-Information $Message -InformationAction Continue
+    }
+}
+
+function Add-OrchestratorOutputTail {
+    <#
+    .SYNOPSIS
+        Keep the last lines a host action printed, plain text, bounded.
+    .DESCRIPTION
+        The transcript keeps everything; this keeps only what a failure reason
+        can quote. Console color sequences are stripped so the line reads the
+        same in a JSON record as on the screen, and the list never grows past
+        -Limit entries.
+    #>
+    [CmdletBinding()]
+    [OutputType([void])]
+    param(
+        [AllowNull()][AllowEmptyCollection()][System.Collections.Generic.List[string]]$Tail,
+        [AllowNull()][AllowEmptyString()][string]$Line,
+        [ValidateRange(1, 1000)][int]$Limit = 40
+    )
+    if ($null -eq $Tail) { return }
+    $plain = ("$Line" -replace '\x1b\[[0-9;?]*[ -/]*[@-~]', '').Trim()
+    if (-not $plain) { return }
+    $Tail.Add($plain)
+    while ($Tail.Count -gt $Limit) { $Tail.RemoveAt(0) }
+}
+
+function Get-OrchestratorHostActionDetail {
+    <#
+    .SYNOPSIS
+        The one line of a failed host action's output worth putting in the
+        failure reason: its last error line, else its last line.
+    .DESCRIPTION
+        A host action that exits non-zero has usually said why on its last
+        Write-Error, and the orchestrator's own reason ("exited 1") loses it:
+        the sentence survives only in the transcript, which the dashboard and
+        the failure record never quote. The error prefix the console adds is
+        dropped; the text is capped so a record stays a record.
+    #>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param(
+        [AllowNull()][System.Collections.Generic.List[string]]$Tail,
+        [ValidateRange(40, 4000)][int]$MaxLength = 600
+    )
+    if ($null -eq $Tail -or $Tail.Count -eq 0) { return '' }
+    $errorPattern = '^(Write-Error:\s*|ERROR:\s*|Error:\s*)'
+    $pick = ''
+    for ($i = $Tail.Count - 1; $i -ge 0; $i--) {
+        if ($Tail[$i] -match $errorPattern) { $pick = $Tail[$i] -replace $errorPattern, ''; break }
+    }
+    if (-not $pick) { $pick = $Tail[$Tail.Count - 1] }
+    $pick = $pick.Trim()
+    if ($pick.Length -gt $MaxLength) { $pick = $pick.Substring(0, $MaxLength - 3) + '...' }
+    return $pick
 }
 
 function Invoke-OrchestratorHostAction {
@@ -113,6 +175,8 @@ function Invoke-OrchestratorHostAction {
         the sibling script(s) named in host.script (single) or
         host.scripts (ordered, stop at first non-zero). Honors
         host.elevated / host.arguments. Returns the exit code (0 = pass).
+        With -OutputTail, the last lines the scripts printed are appended to
+        that list (color sequences stripped) for the caller's failure reason.
     .NOTES
         DESIGN -- console vs. HTML transcript for host-action stages.
         The host script's own stdout and stderr are routed through the
@@ -142,7 +206,8 @@ function Invoke-OrchestratorHostAction {
     param(
         [Parameter(Mandatory)]$Sequence,
         [Parameter(Mandatory)][string]$SequencePath,
-        [Parameter(Mandatory)][string]$Name
+        [Parameter(Mandatory)][string]$Name,
+        [AllowNull()][System.Collections.Generic.List[string]]$OutputTail
     )
     $hostBlock = $Sequence['host']
     $elevated  = $hostBlock.Contains('elevated') -and [bool]$hostBlock['elevated']
@@ -175,7 +240,7 @@ function Invoke-OrchestratorHostAction {
         }
         Write-OrchestratorLine (Format-YurunaOperatorMessage -Key 'runner.operator_4ed4aab44d7af64a' -Arguments @{ scriptPath = "$scriptPath"; join = "$($hostArgs -join ' ')"; elevated = "$(if ($elevated) { ' (elevated)' })" })
         # See https://yuruna.link/4213a0b3-00b6
-        & $pwshExe -NoProfile -ExecutionPolicy Bypass -File $scriptPath @hostArgs 2>&1 | Write-OrchestratorLine
+        & $pwshExe -NoProfile -ExecutionPolicy Bypass -File $scriptPath @hostArgs 2>&1 | Write-OrchestratorLine -Tail $OutputTail
         $exitCode = $LASTEXITCODE
         if ($exitCode -ne 0) { break }
     }
@@ -435,6 +500,13 @@ function Invoke-OrchestrationSequence {
         }
         $gitCommitsList = @()
         if ($frameworkCommit) { $gitCommitsList += [ordered]@{ sha = $frameworkCommit; repoUrl = $frameworkUrl } }
+        $projectCommitReference = $null
+        if ($Config.repositories -is [System.Collections.IDictionary] -and
+            (Get-Command Get-ProjectGitCommitReference -ErrorAction SilentlyContinue)) {
+            $projectCommitReference = Get-ProjectGitCommitReference -RepoRoot $RepoRoot -ProjectUrl $Config.repositories.projectUrl
+        }
+        $projectCommit = if ($projectCommitReference) { [string]$projectCommitReference.sha } else { $null }
+        if ($projectCommitReference) { $gitCommitsList += $projectCommitReference }
 
         $cycleStartUtc = Initialize-StatusDocument `
             -StatusFilePath $statusFile -HostType $HostType -Hostname (hostname) `
@@ -455,15 +527,6 @@ function Invoke-OrchestrationSequence {
         # any child pwsh they spawn) adopt automatically.
         if (Get-Command -Name Start-PerfCycle -ErrorAction SilentlyContinue) {
             try {
-                # Project SHA resolved the same way the guest-cycle path does:
-                # only from a real <RepoRoot>/project/.git, and 'unknown' is
-                # dropped so rows carry a null rather than a fake commit.
-                $projectCommit = $null
-                $projectDir = Join-Path $RepoRoot 'project'
-                if ((Test-Path (Join-Path $projectDir '.git')) -and (Get-Command Get-CurrentGitCommit -ErrorAction SilentlyContinue)) {
-                    $maybe = Get-CurrentGitCommit -RepoRoot $projectDir
-                    if ($maybe -and $maybe -ne 'unknown') { $projectCommit = [string]$maybe }
-                }
                 # Built only when the cycle folder is actually known: Join-Path
                 # throws on an empty Path, and letting that reach the catch
                 # below would trade a missing hostInfoHash for a cycle with no
@@ -608,9 +671,20 @@ function Invoke-OrchestrationSequence {
                     $ok = $false
                     $reason = $labHoldReason
                 } elseif ($e.kind -eq 'host') {
-                    $exit = Invoke-OrchestratorHostAction -Sequence $e.sequence -SequencePath $e.path -Name $e.name
+                    $hostTail = [System.Collections.Generic.List[string]]::new()
+                    $exit = Invoke-OrchestratorHostAction -Sequence $e.sequence -SequencePath $e.path -Name $e.name -OutputTail $hostTail
                     $ok = ($exit -eq 0)
-                    if (-not $ok) { $reason = (Format-YurunaOperatorMessage -Key 'runner.operator_8d9e40dd307d47d9' -Arguments @{ name = "$($e.name)"; exit = "$exit" }) }
+                    if (-not $ok) {
+                        # The action's own last error line is the cause a reader
+                        # needs; a classified record the action wrote replaces
+                        # this reason below, so the richer text always wins.
+                        $detail = Get-OrchestratorHostActionDetail -Tail $hostTail
+                        $reason = if ($detail) {
+                            Format-YurunaOperatorMessage -Key 'runner.host_action_exit_detail' -Arguments @{ name = "$($e.name)"; exit = "$exit"; detail = "$detail" }
+                        } else {
+                            Format-YurunaOperatorMessage -Key 'runner.operator_8d9e40dd307d47d9' -Arguments @{ name = "$($e.name)"; exit = "$exit" }
+                        }
+                    }
                 } elseif ($e.kind -eq 'guest') {
                     $entryCacheReady = $true
                     if ((Test-SequenceRequiresCacheRegistry -SequenceName ([string]$e.name)) -and

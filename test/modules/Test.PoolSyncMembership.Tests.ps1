@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.14
+.VERSION 2026.10.18
 .GUID 42f48182-9ec5-4e1c-bd71-e3bf9945ef6e
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -139,10 +139,10 @@ Describe 'Sync-YurunaPoolConfiguration bounds the pull by one deadline and surfa
             Mock -ModuleName Test.PoolSync Write-YurunaPoolManifest { $true }
             $cfg = @{ pool = @{ enabled = $true; configurationGitUrl = 'http://localhost/x.git'; localClonePath = $tmp; pullTimeoutSeconds = 5 } }
             $null = Sync-YurunaPoolConfiguration -Config $cfg -HostId '42none000000000000000000000000'
-            Assert-MockCalled -ModuleName Test.PoolSync Invoke-PoolSyncGit -Times 1 -Exactly -ParameterFilter {
+            Should -Invoke -ModuleName Test.PoolSync Invoke-PoolSyncGit -Times 1 -Exactly -ParameterFilter {
                 ($ArgumentList -contains 'fetch') -and $TimeoutSeconds -eq 5
             }
-            Assert-MockCalled -ModuleName Test.PoolSync Invoke-PoolSyncGit -Times 1 -Exactly -ParameterFilter {
+            Should -Invoke -ModuleName Test.PoolSync Invoke-PoolSyncGit -Times 1 -Exactly -ParameterFilter {
                 ($ArgumentList -contains 'reset') -and $TimeoutSeconds -ge 1 -and $TimeoutSeconds -le 4
             }
         } finally {

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.14
+.VERSION 2026.10.18
 .GUID 42fcd8c5-0a6a-4e17-b89b-9c4d030faa8e
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -1238,6 +1238,10 @@ function Test-TcpConnectOutcome {
         Reachable = [bool] Outcome -eq 'reachable'
         ElapsedMs = [int]
         Detail    = socket error text, '' when there was none
+        SocketErrorCode = socket error enum name, '' when there was none
+        SocketAddressFamily = connected socket family, '' when unknown
+        RemoteAddress = connected peer IP, '' when no connection was established
+        RemoteAddressFamily = connected peer IP family, '' when unknown
     }
 #>
     [CmdletBinding()]
@@ -1251,6 +1255,10 @@ function Test-TcpConnectOutcome {
     $tcp     = New-Object System.Net.Sockets.TcpClient
     $outcome = 'timeout'
     $detail  = ''
+    $socketErrorCode = ''
+    $socketAddressFamily = ''
+    $remoteAddress = ''
+    $remoteAddressFamily = ''
     try {
         $async = $tcp.BeginConnect($IpAddress, $Port, $null, $null)
         if ($async.AsyncWaitHandle.WaitOne($TimeoutMs)) {
@@ -1261,13 +1269,24 @@ function Test-TcpConnectOutcome {
             try {
                 $tcp.EndConnect($async)
                 $outcome = if ($tcp.Connected) { 'reachable' } else { 'refused' }
+                if ($tcp.Connected) {
+                    # Reading Client before hostname dialing can initialize a
+                    # socket and change the runtime's address selection. Capture
+                    # the actual connected socket only after it has succeeded.
+                    $socketAddressFamily = [string]$tcp.Client.AddressFamily
+                    $peer = $tcp.Client.RemoteEndPoint.Address
+                    if ($peer.IsIPv4MappedToIPv6) { $peer = $peer.MapToIPv4() }
+                    $remoteAddress = $peer.ToString()
+                    $remoteAddressFamily = [string]$peer.AddressFamily
+                }
             } catch {
                 $detail = $_.Exception.Message
                 # The SocketException can arrive wrapped; walk to it rather
                 # than matching on message text, which is localized.
                 $ex = $_.Exception
                 while ($ex -and -not ($ex -is [System.Net.Sockets.SocketException])) { $ex = $ex.InnerException }
-                switch ("$(if ($ex) { $ex.SocketErrorCode })") {
+                $socketErrorCode = if ($ex) { [string]$ex.SocketErrorCode } else { '' }
+                switch ($socketErrorCode) {
                     'ConnectionRefused'  { $outcome = 'refused' }
                     'HostUnreachable'    { $outcome = 'unreachable' }
                     'NetworkUnreachable' { $outcome = 'unreachable' }
@@ -1280,6 +1299,9 @@ function Test-TcpConnectOutcome {
     } catch {
         $detail  = $_.Exception.Message
         $outcome = 'error'
+        $ex = $_.Exception
+        while ($ex -and -not ($ex -is [System.Net.Sockets.SocketException])) { $ex = $ex.InnerException }
+        $socketErrorCode = if ($ex) { [string]$ex.SocketErrorCode } else { '' }
     } finally {
         $tcp.Close()
         $sw.Stop()
@@ -1289,6 +1311,10 @@ function Test-TcpConnectOutcome {
         Reachable = ($outcome -eq 'reachable')
         ElapsedMs = [int]$sw.ElapsedMilliseconds
         Detail    = $detail
+        SocketErrorCode = $socketErrorCode
+        SocketAddressFamily = $socketAddressFamily
+        RemoteAddress = $remoteAddress
+        RemoteAddressFamily = $remoteAddressFamily
     }
 }
 
@@ -2390,7 +2416,7 @@ function Invoke-BoundedNativeTreeKill {
     Deliberately not SupportsShouldProcess and not named with a
     state-changing verb: an ambient -WhatIf would otherwise turn the kill
     into a no-op and leave a timed-out child running past the cap its
-    caller was promised (feedback_whatif-preference-is-process-ambient.md).
+    caller was promised.
 
     Process.Kill($true) signals the child and every descendant it can still
     enumerate. A descendant that already detached itself (a double fork
@@ -2440,8 +2466,7 @@ function Invoke-BoundedNativeCommand {
       * A tool that reaches for the terminal -- a credential prompt, a consent
         dialog, anything that opens the controlling tty -- stops its whole
         process group with SIGTTIN/SIGTTOU when the caller is not the
-        foreground job, and nobody is there to resume it
-        (feedback_timeout-background-pgrp-tty-stop.md).
+        foreground job, and nobody is there to resume it.
       * A tool that talks to a wedged system service simply never returns.
         macOS `osascript` and `utmctl` both ride Apple Events, and an
         unresponsive tccd, appleeventsd or target application blocks the call
@@ -2472,7 +2497,10 @@ function Invoke-BoundedNativeCommand {
     complete, which can be far longer than any cap the caller thought they
     were getting. `DrainTimedOut` reports exactly that situation: the streams
     did not reach EOF inside the cap, so the captured output may be
-    incomplete and must not be read as a complete answer.
+    incomplete and must not be read as a complete answer. A read that faults
+    (a decoder that refuses the child's bytes, a broken handle) is reported
+    the same way: that stream is not polled again, and whatever it did not
+    deliver is unknown, which is not end of file.
 
     The cap covers the whole call, cleanup included. A child still running
     when only a cleanup reserve of the cap is left -- a tenth of the cap, at
@@ -2551,15 +2579,16 @@ function Invoke-BoundedNativeCommand {
     when the deadline left no time to issue it; ExitCode then stays -1 and
     both streams are empty. TimedOut with ExitCode 124 means the child was
     still running at the cap and was killed. DrainTimedOut means a stream had
-    not reached EOF when this call returned, so StdOut/StdErr may be
-    incomplete even though ExitCode is real. KillFailed means the kill threw,
-    or the child was not observed to exit before the cap. OutputTruncated
-    means a stream was cut at MaxCapturedChars. DeadlineExhausted means
-    nothing was launched because the shared deadline had under one second
-    left. ProcessId is the direct child's PID, 0 when nothing started.
-    StartError retains the launch exception detail. CleanupPending reports
-    asynchronous resource disposal still in progress; it does not invalidate
-    fully drained output from a process that exited normally. Gate
+    not reached EOF when this call returned, or a read of it faulted, so
+    StdOut/StdErr may be incomplete even though ExitCode is real. KillFailed
+    means the kill threw, or the child was not observed to exit before the
+    cap. OutputTruncated means a stream was cut at MaxCapturedChars.
+    DeadlineExhausted means nothing was launched because the shared deadline
+    had under one second left. ProcessId is the direct child's PID, 0 when
+    nothing started. StartError retains the launch exception detail.
+    CleanupPending reports asynchronous resource disposal still in progress;
+    it does not invalidate fully drained output from a process that exited
+    normally. Gate
     any reading of the output as a complete answer on
     Test-BoundedNativeResultComplete.
 #>
@@ -2651,6 +2680,7 @@ function Invoke-BoundedNativeCommand {
     $errTrunc   = $false
     $outEof     = $false
     $errEof     = $false
+    $readFault  = $false
     $exited     = $false
     $killIssued = $false
     $killThrew  = $false
@@ -2716,7 +2746,13 @@ function Invoke-BoundedNativeCommand {
         }
         if ($finished -eq $outTask -and -not $outEof) {
             $n = 0
-            try { $n = $outTask.GetAwaiter().GetResult() } catch { $outEof = $true }
+            # A faulted read ends the polling of this stream but is not end
+            # of file: what the child wrote past the fault is unknown, so
+            # the capture is reported incomplete, as an unfinished drain is.
+            try { $n = $outTask.GetAwaiter().GetResult() } catch {
+                $outEof = $true; $readFault = $true
+                Write-Verbose "Invoke-BoundedNativeCommand: reading stdout of '$resolved' failed: $($_.Exception.Message)"
+            }
             if ($n -le 0) { $outEof = $true }
             else {
                 if ($OutputHandler -and -not $result.OutputHandlerError) {
@@ -2732,7 +2768,10 @@ function Invoke-BoundedNativeCommand {
         }
         if ($finished -eq $errTask -and -not $errEof) {
             $n = 0
-            try { $n = $errTask.GetAwaiter().GetResult() } catch { $errEof = $true }
+            try { $n = $errTask.GetAwaiter().GetResult() } catch {
+                $errEof = $true; $readFault = $true
+                Write-Verbose "Invoke-BoundedNativeCommand: reading stderr of '$resolved' failed: $($_.Exception.Message)"
+            }
             if ($n -le 0) { $errEof = $true }
             else {
                 if ($OutputHandler -and -not $result.OutputHandlerError) {
@@ -2748,7 +2787,7 @@ function Invoke-BoundedNativeCommand {
         }
     }
 
-    $result.DrainTimedOut   = -not ($outEof -and $errEof)
+    $result.DrainTimedOut   = $readFault -or -not ($outEof -and $errEof)
     $result.OutputTruncated = ($outTrunc -or $errTrunc)
     $result.StdOut          = $outSb.ToString()
     $result.StdErr          = $errSb.ToString()
@@ -3089,7 +3128,7 @@ function Get-YurunaIoFailureKind {
 
     Classification is by exception type first, then by HResult, never by
     message text: messages are localized and reworded between runtime
-    versions (feedback_transient-classifier-is-regex-over-english.md). On
+    versions. On
     Unix .NET puts the raw errno in an IOException's HResult, and errno
     numbers differ between Linux and macOS, so the platform selects the
     table. On Windows the HResult is the Win32 error in HRESULT form.
@@ -3326,11 +3365,9 @@ function Get-YurunaUnixPathStat {
 .DESCRIPTION
     The file-system provider's UnixStat gives the owning uid and gid without
     a `stat` process, and without GNU (-c) versus BSD (-f) flag differences.
-    It is read through Get-Item -Force (Get-Item hides dotfiles otherwise,
-    feedback_get-item-hides-dotfiles-on-unix.md; raw DirectoryInfo carries no
-    UnixStat) with a short retry, because the provider can briefly miss a
-    path this process just created
-    (feedback_sandbox-filesystem-provider-visibility-lag.md).
+    It is read through Get-Item -Force (Get-Item hides dotfiles otherwise;
+    raw DirectoryInfo carries no UnixStat) with a short retry, because the
+    provider can briefly miss a path this process just created.
 .OUTPUTS
     [pscustomobject] @{ UserId; GroupId; Inode; DeviceId } or $null
 #>
@@ -3661,8 +3698,7 @@ function Test-YurunaCallerWhatIf {
     module's scopes and the global one only. A -WhatIf given to an advanced
     function in another module sets the variable in that module's session
     state, so a call from there into this module would read $false and
-    create what the preview promised to leave alone
-    (feedback_whatif-preference-is-process-ambient.md). The calling
+    create what the preview promised to leave alone. The calling
     function's $PSCmdlet.SessionState is its caller's session state, so the
     variable is read there as well.
 .PARAMETER Cmdlet
@@ -4192,6 +4228,640 @@ function Get-YurunaProcessIdentityLiveness {
     return 'dead'
 }
 
+function Get-YurunaProcessStartUtc {
+    <#
+    .SYNOPSIS
+        A process's start time in UTC, or $null when it is not running or its
+        start time cannot be read. Callers convert to the unit they record.
+    #>
+    [CmdletBinding()]
+    [OutputType([datetime])]
+    param([Parameter(Mandatory)][int]$ProcessId)
+    $process = $null
+    try {
+        $process = [System.Diagnostics.Process]::GetProcessById($ProcessId)
+        return $process.StartTime.ToUniversalTime()
+    } catch {
+        return $null
+    } finally {
+        if ($process) { $process.Dispose() }
+    }
+}
+
+# --- REGION: PID-file locks
+# A lock file names its holder as {"pid":N,"startTicks":T}, T being the holder's
+# UTC start time in ticks, so a recycled PID never passes for the holder. Ticks,
+# not an ISO-8601 string: ConvertFrom-Json turns that into a [datetime] whose
+# string form is locale-formatted, and every live lock would read as stale.
+# CreateNew lets exactly one process create the file, but the body lands a
+# moment after the file appears: an empty or unparsable body on a file younger
+# than the grace below belongs to a creator still writing it, and is held. A
+# stale lock is taken by renaming it aside, which only one reclaimer can do to a
+# given file, and the taken text is compared with the text judged stale; a lock
+# published in between belongs to a live holder and is put back.
+$script:PidFileLockWriteGraceSeconds = 10
+
+function Read-YurunaPidFileLockText {
+    [CmdletBinding()]
+    [OutputType([string])]
+    param([Parameter(Mandatory)][string]$Path)
+    try {
+        return [System.IO.File]::ReadAllText($Path)
+    } catch [System.IO.FileNotFoundException], [System.IO.DirectoryNotFoundException] {
+        return $null
+    } catch {
+        return ''
+    }
+}
+
+function Add-YurunaPidFileLockFile {
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param([Parameter(Mandatory)][string]$Path, [Parameter(Mandatory)][string]$Body)
+    try {
+        $stream = [System.IO.File]::Open($Path, [System.IO.FileMode]::CreateNew, [System.IO.FileAccess]::Write, [System.IO.FileShare]::Read)
+        try { $bytes = [System.Text.Encoding]::UTF8.GetBytes($Body); $stream.Write($bytes, 0, $bytes.Length) } finally { $stream.Dispose() }
+        return $true
+    } catch {
+        return $false
+    }
+}
+
+function Test-YurunaPidFileLockBodyLive {
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param([Parameter(Mandatory)][AllowEmptyString()][string]$Text, [Parameter(Mandatory)][string]$Path)
+    $holder = $null
+    try { $holder = ConvertFrom-Json -InputObject $Text -ErrorAction Stop } catch { $holder = $null }
+    if ($null -eq $holder -or -not $holder.PSObject.Properties['pid']) {
+        try { return (([datetime]::UtcNow - [System.IO.File]::GetLastWriteTimeUtc($Path)).TotalSeconds -lt $script:PidFileLockWriteGraceSeconds) } catch { return $false }
+    }
+    try {
+        if (-not $holder.pid -or -not $holder.PSObject.Properties['startTicks'] -or -not $holder.startTicks) { return $false }
+        $start = Get-YurunaProcessStartUtc -ProcessId ([int]$holder.pid)
+        if ($null -eq $start) { return $false }
+        # Process.StartTime on Unix has sub-millisecond cross-process rounding.
+        return ([Math]::Abs($start.Ticks - [long]$holder.startTicks) -le [TimeSpan]::TicksPerSecond)
+    } catch {
+        return $false
+    }
+}
+
+function Test-YurunaPidFileLockLive {
+    <#
+    .SYNOPSIS
+        Whether the PID-file lock at Path is held by a running process, or is
+        still being written by the process that created it.
+    #>
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param([Parameter(Mandatory)][string]$Path)
+    $text = Read-YurunaPidFileLockText -Path $Path
+    if ($null -eq $text) { return $false }
+    return (Test-YurunaPidFileLockBodyLive -Text $text -Path $Path)
+}
+
+function Enter-YurunaPidFileLock {
+    <#
+    .SYNOPSIS
+        Takes the PID-file lock at Path for this process, reclaiming it once
+        when its holder is gone. $true when this process now holds it.
+    #>
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param([Parameter(Mandatory)][string]$Path)
+    $start = Get-YurunaProcessStartUtc -ProcessId $PID
+    $body = ConvertTo-Json -Compress -InputObject ([ordered]@{ pid = $PID; startTicks = $(if ($start) { $start.Ticks } else { $null }) })
+    if (Add-YurunaPidFileLockFile -Path $Path -Body $body) { return $true }
+    $judged = Read-YurunaPidFileLockText -Path $Path
+    if ($null -eq $judged) { return (Add-YurunaPidFileLockFile -Path $Path -Body $body) }
+    if (Test-YurunaPidFileLockBodyLive -Text $judged -Path $Path) { return $false }
+    $taken = '{0}.{1}.stale' -f $Path, [guid]::NewGuid().ToString('N')
+    try { [System.IO.File]::Move($Path, $taken) } catch { return $false }
+    $takenText = Read-YurunaPidFileLockText -Path $taken
+    if ($takenText -cne $judged) {
+        # When the put-back loses to a third process, the holder whose lock was
+        # taken keeps running beside it; dropping the taken copy keeps the
+        # runtime folder clean either way.
+        try { [System.IO.File]::Move($taken, $Path) } catch { Remove-Item -LiteralPath $taken -Force -ErrorAction SilentlyContinue }
+        return $false
+    }
+    Remove-Item -LiteralPath $taken -Force -ErrorAction SilentlyContinue
+    return (Add-YurunaPidFileLockFile -Path $Path -Body $body)
+}
+
+function Exit-YurunaPidFileLock {
+    <#
+    .SYNOPSIS
+        Releases the PID-file lock at Path, but only while this process holds
+        it, so a reclaim by another process is never undone.
+    #>
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param([Parameter(Mandatory)][string]$Path)
+    $text = Read-YurunaPidFileLockText -Path $Path
+    if ($null -eq $text) { return $true }
+    $owner = 0
+    try { $owner = [int](ConvertFrom-Json -InputObject $text -ErrorAction Stop).pid } catch { $owner = 0 }
+    if ($owner -eq $PID) { Remove-Item -LiteralPath $Path -Force -ErrorAction SilentlyContinue }
+    return $true
+}
+
+# --- REGION: Orphaned runtime IPC entries
+# Every .NET process on Linux and macOS -- every pwsh the harness starts --
+# creates three entries in the temp folder at startup and removes them on a
+# clean exit: the debugger transport FIFOs clr-debug-pipe-<pid>-<key>-in/-out,
+# the diagnostic server socket dotnet-diagnostic-<pid>-<key>-socket, and
+# PowerShell's Enter-PSHostProcess socket CoreFxPipe_PSHost.<hex>.<pid>.<domain>.<name>.
+# A process that is killed (Process.Kill sends SIGKILL, which every bounded
+# command, suite timeout and watchdog uses) or that crashes never runs that
+# cleanup, so the entries outlive it for good. Windows uses named pipes for all
+# three and leaves nothing in %TEMP%.
+$script:YurunaRuntimeIpcPattern = [ordered]@{
+    'clr-debug-pipe'    = '^clr-debug-pipe-(?<pid>\d+)-(?<key>\d+)-(?:in|out)$'
+    'dotnet-diagnostic' = '^dotnet-diagnostic-(?<pid>\d+)-(?<key>\d+)-socket$'
+    'pshost-pipe'       = '^CoreFxPipe_PSHost\.[0-9A-Fa-f]+\.(?<pid>\d+)\.[^.]+\.(?<name>[^.]+)$'
+}
+
+function Get-YurunaTempRoot {
+    <#
+    .SYNOPSIS
+        The temp folders this host's processes write to.
+    .DESCRIPTION
+        The process temp path ([IO.Path]::GetTempPath(), which reads TMPDIR on
+        Unix and TMP/TEMP on Windows each time it is called), and on Unix also
+        /tmp when that differs: a process started without TMPDIR -- a sudo
+        child, a launchd job, an SSH session with a scrubbed environment --
+        falls back to /tmp, so on macOS the two folders fill independently.
+    .OUTPUTS
+        [string[]] existing directories, without trailing separators, distinct.
+    #>
+    [CmdletBinding()]
+    [OutputType([string[]])]
+    param()
+    $roots = [System.Collections.Generic.List[string]]::new()
+    $comparer = if ($IsWindows) { [System.StringComparer]::OrdinalIgnoreCase } else { [System.StringComparer]::Ordinal }
+    $seen = [System.Collections.Generic.HashSet[string]]::new($comparer)
+    $candidates = @([System.IO.Path]::GetTempPath())
+    if (-not $IsWindows) { $candidates += '/tmp' }
+    foreach ($candidate in $candidates) {
+        if ([string]::IsNullOrWhiteSpace($candidate)) { continue }
+        $trimmed = $candidate.TrimEnd([System.IO.Path]::DirectorySeparatorChar, [System.IO.Path]::AltDirectorySeparatorChar)
+        if (-not $trimmed) { $trimmed = [string][System.IO.Path]::DirectorySeparatorChar }
+        $resolved = $trimmed
+        try {
+            $info = [System.IO.DirectoryInfo]::new($trimmed)
+            if (-not $info.Exists) { continue }
+            if ($info.LinkTarget) { $resolved = $info.ResolveLinkTarget($true).FullName.TrimEnd('/') }
+        } catch { continue }
+        if ($seen.Add($resolved)) { $roots.Add($trimmed) }
+    }
+    return [string[]]$roots.ToArray()
+}
+
+function Get-YurunaRuntimeIpcEntry {
+    <#
+    .SYNOPSIS
+        Parse one temp-folder entry name as a .NET runtime IPC entry.
+    .OUTPUTS
+        [pscustomobject] @{ Kind; ProcessId; Key; ProcessName } or $null for
+        any other name. Key is the owner's start-time key from the name, or
+        $null for the PowerShell host pipe, whose name carries a different
+        encoding but ends with the owner's process name instead.
+    #>
+    [CmdletBinding()]
+    [OutputType([pscustomobject])]
+    param([AllowEmptyString()][string]$Name)
+    foreach ($kind in $script:YurunaRuntimeIpcPattern.Keys) {
+        $match = [regex]::Match($Name, $script:YurunaRuntimeIpcPattern[$kind])
+        if (-not $match.Success) { continue }
+        $processId = 0
+        if (-not [int]::TryParse($match.Groups['pid'].Value, [ref]$processId) -or $processId -le 0) { return $null }
+        $key = if ($match.Groups['key'].Success) { $match.Groups['key'].Value } else { $null }
+        $processName = if ($match.Groups['name'].Success) { $match.Groups['name'].Value } else { $null }
+        return [pscustomobject]@{ Kind = $kind; ProcessId = $processId; Key = $key; ProcessName = $processName }
+    }
+    return $null
+}
+
+function Get-YurunaRuntimeIpcOwnerState {
+    <#
+    .SYNOPSIS
+        alive or dead for the process a runtime IPC entry names.
+    .DESCRIPTION
+        On Linux the key in the entry name is the owner's start time in clock
+        ticks since boot, field 22 of /proc/<pid>/stat, so a recycled pid is
+        told apart exactly: a live pid with a different start time is a
+        different process and the entry's owner is dead. /proc also answers
+        for a thread id, so a dead owner's pid that the kernel has since
+        handed to a thread of another process is dead too (its Tgid differs).
+        The PowerShell host pipe carries no start time; its owner's process
+        name stands in, and a live pid running a different program is a
+        recycled pid. Elsewhere a live pid with a matching name counts as the
+        owner. Anything that cannot be read counts as alive: a sweep that
+        guesses wrong deletes a live process's debugger or diagnostic
+        endpoint, so it never guesses.
+    .PARAMETER ProcessName
+        The owner's process name from the entry, when the entry carries one.
+    .PARAMETER ProcRoot
+        The procfs mount; a test points it at a fake tree.
+    .PARAMETER Platform
+        linux, macos or windows; defaults to the current OS.
+    .OUTPUTS
+        [string] 'alive' or 'dead'.
+    #>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param(
+        [Parameter(Mandatory)][ValidateRange(1, [int]::MaxValue)][int]$ProcessId,
+        [AllowNull()][AllowEmptyString()][string]$Key,
+        [AllowNull()][AllowEmptyString()][string]$ProcessName,
+        [string]$ProcRoot = '/proc',
+        [ValidateSet('linux', 'macos', 'windows')][string]$Platform
+    )
+    if (-not $Platform) { $Platform = Get-YurunaPlatformName }
+    if ($Platform -eq 'linux') {
+        $statPath = [System.IO.Path]::Combine($ProcRoot, "$ProcessId", 'stat')
+        if (-not [System.IO.File]::Exists($statPath)) {
+            # /proc itself unreadable says nothing about this pid.
+            if (-not [System.IO.Directory]::Exists($ProcRoot)) { return 'alive' }
+            return 'dead'
+        }
+        try {
+            $statusPath = [System.IO.Path]::Combine($ProcRoot, "$ProcessId", 'status')
+            if ([System.IO.File]::Exists($statusPath)) {
+                $tgid = [regex]::Match([System.IO.File]::ReadAllText($statusPath), '(?m)^Tgid:\s*(\d+)')
+                if ($tgid.Success -and $tgid.Groups[1].Value -ne "$ProcessId") { return 'dead' }
+            }
+            $text = [System.IO.File]::ReadAllText($statPath)
+            # The command name is parenthesized and may hold spaces or ')';
+            # the fields after the LAST ')' start at field 3.
+            $close = $text.LastIndexOf(')')
+            if (-not [string]::IsNullOrEmpty($Key)) {
+                $fields = $text.Substring($close + 1).Trim() -split '\s+'
+                if ($fields.Count -gt 19) { return $(if ($fields[19] -eq $Key) { 'alive' } else { 'dead' }) }
+                return 'alive'
+            }
+            if (-not [string]::IsNullOrEmpty($ProcessName)) {
+                $open = $text.IndexOf('(')
+                if ($open -ge 0 -and $close -gt $open) {
+                    $command = $text.Substring($open + 1, $close - $open - 1)
+                    return $(if (Test-YurunaProcessNameMatch -Observed $command -Expected $ProcessName) { 'alive' } else { 'dead' })
+                }
+            }
+        } catch {
+            Write-Verbose "Get-YurunaRuntimeIpcOwnerState: '$statPath' unreadable: $($_.Exception.Message)"
+        }
+        return 'alive'
+    }
+    try {
+        $process = [System.Diagnostics.Process]::GetProcessById($ProcessId)
+        if (-not [string]::IsNullOrEmpty($ProcessName) -and
+            -not (Test-YurunaProcessNameMatch -Observed $process.ProcessName -Expected $ProcessName)) { return 'dead' }
+        return 'alive'
+    } catch [System.ArgumentException] {
+        return 'dead'
+    } catch {
+        return 'alive'
+    }
+}
+
+function Test-YurunaProcessNameMatch {
+    <#
+    .SYNOPSIS
+        Whether a running process's name is the name an entry recorded.
+    .DESCRIPTION
+        Kernels cut the command name short (15 characters on Linux, 16 on
+        macOS), and the recorded name may have been cut the same way or not,
+        so a name that is a leading part of the other at a cut length still
+        matches. Anything else is a different program.
+    .OUTPUTS
+        [bool]
+    #>
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param(
+        [AllowEmptyString()][string]$Observed,
+        [AllowEmptyString()][string]$Expected
+    )
+    if ([string]::IsNullOrEmpty($Observed) -or [string]::IsNullOrEmpty($Expected)) { return $true }
+    if ($Observed -ceq $Expected) { return $true }
+    $shorter, $longer = if ($Observed.Length -lt $Expected.Length) { $Observed, $Expected } else { $Expected, $Observed }
+    return ($shorter.Length -ge 15 -and $longer.StartsWith($shorter, [System.StringComparison]::Ordinal))
+}
+
+function Remove-YurunaOrphanedRuntimeIpc {
+    <#
+    .SYNOPSIS
+        Remove the .NET runtime IPC entries whose owner process is gone.
+    .DESCRIPTION
+        Only entries that match one of the three runtime name shapes exactly,
+        are owned by this user, and whose owner is dead by
+        Get-YurunaRuntimeIpcOwnerState are removed; an entry that is not a
+        FIFO or socket, another user's entry, or one whose owner cannot be
+        ruled alive is left alone. Each folder is listed once, and the work is
+        capped so a folder holding millions of entries cannot stall the
+        caller: what is left over is removed by the next call.
+
+        Windows keeps these as named pipes, outside %TEMP%, so there is
+        nothing to do there and the result says so.
+    .PARAMETER TempRoot
+        Folders to sweep. Default: Get-YurunaTempRoot.
+    .PARAMETER MaxEntries
+        Upper bound on the entries examined per call, across all folders.
+    .PARAMETER ProcRoot
+        Passed to Get-YurunaRuntimeIpcOwnerState.
+    .PARAMETER Platform
+        linux, macos or windows; defaults to the current OS.
+    .OUTPUTS
+        [pscustomobject] Applicable, Examined, Removed, KeptAlive,
+        SkippedForeign, Failed, ByKind (removed count per kind), Roots.
+    #>
+    [CmdletBinding(SupportsShouldProcess)]
+    [OutputType([pscustomobject])]
+    param(
+        [string[]]$TempRoot,
+        [ValidateRange(1, 10000000)][int]$MaxEntries = 200000,
+        [string]$ProcRoot = '/proc',
+        [ValidateSet('linux', 'macos', 'windows')][string]$Platform
+    )
+    if (-not $Platform) { $Platform = Get-YurunaPlatformName }
+    $summary = [ordered]@{
+        Applicable = ($Platform -ne 'windows'); Examined = 0; Removed = 0; KeptAlive = 0
+        SkippedForeign = 0; Failed = 0; ByKind = [ordered]@{}; Roots = [string[]]@()
+    }
+    if (-not $summary.Applicable) { return [pscustomobject]$summary }
+    if (-not $PSBoundParameters.ContainsKey('TempRoot')) { $TempRoot = Get-YurunaTempRoot }
+    $summary.Roots = [string[]]@($TempRoot)
+    $owner = Get-YurunaCurrentOwnerId
+    if (-not $owner.Resolved) { return [pscustomobject]$summary }
+    $me = [long]$owner.OwnerId
+    $action = Format-YurunaOperatorMessage -Key 'automation.runtime_ipc_remove_action'
+    foreach ($root in @($TempRoot)) {
+        if ($summary.Examined -ge $MaxEntries) { break }
+        $items = @()
+        try { $items = @(Get-ChildItem -LiteralPath $root -Force -File -ErrorAction Stop) } catch {
+            Write-Verbose "Remove-YurunaOrphanedRuntimeIpc: '$root' unreadable: $($_.Exception.Message)"
+            continue
+        }
+        foreach ($item in $items) {
+            if ($summary.Examined -ge $MaxEntries) { break }
+            $entry = Get-YurunaRuntimeIpcEntry -Name $item.Name
+            if (-not $entry) { continue }
+            $summary.Examined++
+            $stat = $item.UnixStat
+            if ($null -eq $stat -or [long]$stat.UserId -ne $me) { $summary.SkippedForeign++; continue }
+            # A regular file or directory under one of these names is not the
+            # runtime's, whatever it is called.
+            if ([string]$stat.ItemType -notin @('NamedPipe', 'Socket')) { $summary.SkippedForeign++; continue }
+            if ((Get-YurunaRuntimeIpcOwnerState -ProcessId $entry.ProcessId -Key $entry.Key -ProcessName $entry.ProcessName -ProcRoot $ProcRoot -Platform $Platform) -ne 'dead') {
+                $summary.KeptAlive++
+                continue
+            }
+            if (-not $PSCmdlet.ShouldProcess($item.FullName, $action)) { continue }
+            try {
+                [System.IO.File]::Delete($item.FullName)
+                $summary.Removed++
+                $summary.ByKind[$entry.Kind] = 1 + [int]$(if ($summary.ByKind.Contains($entry.Kind)) { $summary.ByKind[$entry.Kind] } else { 0 })
+            } catch {
+                $summary.Failed++
+                Write-Verbose "Remove-YurunaOrphanedRuntimeIpc: '$($item.FullName)': $($_.Exception.Message)"
+            }
+        }
+    }
+    return [pscustomobject]$summary
+}
+
+function New-YurunaSeedDirectory {
+    <#
+    .SYNOPSIS
+        A new, empty seed folder for one VM build, in the temp folder.
+    .DESCRIPTION
+        CreateTempSubdirectory creates the folder exclusively under a random
+        name (seed_<VMName>_ followed by an 8.3 random name on Windows), so a
+        folder or link planted at a predictable path is never reused. The
+        caller removes the folder once the seed ISO is built.
+    .OUTPUTS
+        [string] the full path of the folder.
+    #>
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+        Justification = 'Creates a private temp folder that its caller removes in a finally block.')]
+    [CmdletBinding()]
+    [OutputType([string])]
+    param([Parameter(Mandatory)][string]$VMName)
+    return [System.IO.Directory]::CreateTempSubdirectory("seed_${VMName}_").FullName
+}
+
+# --- REGION: Stale harness temp entries
+# The temp names the harness and its tests create, each with the code that
+# creates it. Only these are ever removed, and only past their age: a broad
+# 'yuruna-*' match would also take an operator's own working folders, and the
+# folders kept on purpose are left out here by design -- the transcript folder
+# prunes itself, the OCR helpers are content-addressed caches, a failing
+# accessibility run leaves its generated pages to open, and the performance
+# capture's .zip is the deliverable. Test.TempHousekeeping holds every row to a
+# creating site that still exists.
+$script:YurunaStaleTempPattern = [ordered]@{
+    # Production
+    # A seed folder ends in four digits or in the 8.3 random name that
+    # CreateTempSubdirectory gives on Windows; a host can hold either.
+    'seed'                  = @{ Pattern = '^seed_.+_(?:\d{4}|[a-z0-9]{8}\.[a-z0-9]{3})$'; Source = 'automation/Yuruna.Common.psm1'; Literal = 'seed_${VMName}_' }
+    'serial-capture'        = @{ Pattern = '^yuruna-serial-.+\.(?:log|state\.json)$'; Source = 'host/windows.hyper-v/modules/Yuruna.Host.psm1'; Literal = 'yuruna-serial-' }
+    'dhcp-capture'          = @{ Pattern = '^yuruna-dhcp-.+\.(?:etl|pcap)$'; Source = 'host/windows.hyper-v/modules/Yuruna.Host.psm1'; Literal = 'yuruna-dhcp-' }
+    'squid-ca'              = @{ Pattern = '^yuruna-squid-ca(?:-[0-9a-f]{32})?\.pem$'; Source = 'host/modules/Yuruna.HostDownload.psm1'; Literal = 'yuruna-squid-ca-' }
+    'status-bounce'         = @{ Pattern = '^yuruna-status-bounce-\d+\.log(?:\.out|\.err)?$'; Source = 'test/modules/Test.ConfigServiceSync.psm1'; Literal = 'yuruna-status-bounce-' }
+    'host-performance'      = @{ Pattern = '^yuruna-host-performance-\d{8}T\d{6}Z-[0-9a-f]{32}$'; Source = 'automation/Collect-HostPerformance.ps1'; Literal = 'yuruna-host-performance-' }
+    'preflight-sidecar'     = @{ Pattern = '^yuruna-preflight-[0-9a-f]{32}\.json$'; Source = 'test/modules/Test.ConfigPreflight.psm1'; Literal = 'yuruna-preflight-' }
+    'execpolicy-log'        = @{ Pattern = '^yuruna-execpolicy-.+-\d+\.log$'; Source = 'test/New-LocalTestUser.ps1'; Literal = 'yuruna-execpolicy-' }
+    'move-cache-askpass'    = @{ Pattern = '^yuruna-move-cache-[0-9a-f]{32}$'; Source = 'test/service/Move-CachingProxyService.ps1'; Literal = 'yuruna-move-cache-' }
+    'gpg-home'              = @{ Pattern = '^yuruna-gpg-[0-9a-f]{32}$'; Source = 'host/modules/Yuruna.Image.psm1'; Literal = 'yuruna-gpg-' }
+    'installer-copy'        = @{ Pattern = '^yuruna-windows-hyper-v-[0-9a-f]{32}\.ps1$'; Source = 'install/windows.hyper-v.ps1'; Literal = 'yuruna-windows-hyper-v-' }
+    # The guest wrapper's; a guest prunes them on its next run, and a host has
+    # them only from test runs of the wrapper.
+    'fae-recorder'          = @{ Pattern = '^yuruna-fae-recorder\.[A-Za-z0-9]{8}$'; Source = 'automation/fetch-and-execute.sh'; Literal = 'yuruna-fae-recorder.' }
+    'fae-profile'           = @{ Pattern = '^yuruna-fae-profile\.[A-Za-z0-9]{6,32}$'; Source = 'automation/fetch-and-execute.sh'; Literal = 'yuruna-fae-profile.' }
+    # Tools and test runs
+    'suite-temp'            = @{ Pattern = '^yrn-suite-[0-9a-f]{12}$'; Source = 'tools/Invoke-TestSuite.ps1'; Literal = 'yrn-suite-' }
+    'run-temp'              = @{ Pattern = '^yrn-run-[0-9a-f]{12}$'; Source = 'tools/Invoke-TestSuite.ps1'; Literal = 'yrn-run-' }
+    'go-stage'              = @{ Pattern = '^yuruna-gotest-[0-9a-f]{32}$'; Source = 'tools/Invoke-GoTest.ps1'; Literal = 'yuruna-gotest-' }
+    'go-test-temp'          = @{ Pattern = '^yrn-go-[0-9a-f]{12}$'; Source = 'tools/Invoke-GoTest.ps1'; Literal = 'yrn-go-' }
+    'lint-batch'            = @{ Pattern = '^yuruna-lint-[0-9a-f]{32}$'; Source = 'tools/Invoke-Lint.ps1'; Literal = 'yuruna-lint-' }
+    'a11y-profile'          = @{ Pattern = '^yuruna-a11y-[0-9a-f]{12}$'; Source = 'tools/Invoke-A11yCheck.ps1'; Literal = 'yuruna-a11y-' }
+    'browser-profile'       = @{ Pattern = '^yuruna-browser-profile-[0-9a-f]{32}$'; Source = 'test/modules/Test.Assert.psm1'; Literal = 'yuruna-browser-profile' }
+    'parser-test'           = @{ Pattern = '^yrn-(?:parser-follow|parser-missing|truncate)-\d+$'; Source = 'test/extension/caching-proxy-parser-service/main_linux_test.go'; Literal = 'yrn-parser-follow-' }
+    'project-map-test'      = @{ Pattern = '^yuruna-project-map-[0-9a-f]{32}$'; Source = 'test/modules/Test.ProjectLocaleMap.Tests.ps1'; Literal = 'yuruna-project-map-' }
+    'dlagent-test'          = @{ Pattern = '^yrn-dlagent(?:-client)?-\d+$'; Source = 'test/modules/Test.DownloadAgentService.Tests.ps1'; Literal = 'yrn-dlagent-client-' }
+    'configpreflight-test'  = @{ Pattern = '^yuruna-configpreflight-tests-\d+$'; Source = 'test/modules/Test.ConfigPreflight.Tests.ps1'; Literal = 'yuruna-configpreflight-tests-' }
+    'image-test'            = @{ Pattern = '^yuruna-image-test-[0-9a-f]{32}$'; Source = 'host/modules/Yuruna.Image.Tests.ps1'; Literal = 'yuruna-image-test' }
+    'refresh-safe-test'     = @{ Pattern = '^yuruna-refresh-safe-[0-9a-f]{32}$'; Source = 'test/modules/Test.StatusServiceRefreshSafe.Tests.ps1'; Literal = 'yuruna-refresh-safe' }
+    'chain-test'            = @{ Pattern = '^yrn-chain-[0-9a-f]{32}$'; Source = 'test/modules/Test.RunnerThreeProcess.Tests.ps1'; Literal = 'yrn-chain' }
+    'utmctl-outside-test'   = @{ Pattern = '^utmctl-outside-[0-9a-f]{32}$'; Source = 'test/modules/Test.UtmctlOutsideDriver.Tests.ps1'; Literal = 'utmctl-outside' }
+    'status-test'           = @{ Pattern = '^yrn-status-test-[0-9a-z]{8}\.[0-9a-z]{3}$'; Source = 'test/modules/Test.Status.Tests.ps1'; Literal = 'yrn-status-test' }
+    'localization-lock'     = @{ Pattern = '^yuruna-localization-[0-9a-f]{64}\.lock$'; Source = 'dev-only/localization-pro/Import-Localization.ps1'; Literal = 'yuruna-localization-' }
+}
+
+function Test-YurunaPowerShellTranscriptFile {
+    <#
+    .SYNOPSIS
+        Whether a temp file is a PowerShell transcript named by
+        GetTempFileName -- the unnamed transcripts that an entry point naming
+        its transcript that way leaves, such as one from an older checkout.
+    .DESCRIPTION
+        The name alone (tmpXXXX.tmp) belongs to every program that calls
+        GetTempFileName, so the file must also begin with the header
+        Start-Transcript writes. Reads at most the first 512 bytes.
+    #>
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param([Parameter(Mandatory)][System.IO.FileInfo]$File)
+    if ($File.Name -notmatch '^tmp[0-9A-Za-z]{4,8}\.tmp$' -or $File.Length -lt 40) { return $false }
+    $stream = $null
+    try {
+        $stream = [System.IO.File]::Open($File.FullName, [System.IO.FileMode]::Open, [System.IO.FileAccess]::Read, [System.IO.FileShare]::ReadWrite -bor [System.IO.FileShare]::Delete)
+        $buffer = [byte[]]::new([Math]::Min(512, [int]$File.Length))
+        $read = $stream.Read($buffer, 0, $buffer.Length)
+        $head = [System.Text.Encoding]::UTF8.GetString($buffer, 0, $read).TrimStart([char]0xFEFF)
+        return ($head.StartsWith('**********************') -and $head.Contains('PowerShell transcript start'))
+    } catch {
+        return $false
+    } finally {
+        if ($stream) { $stream.Dispose() }
+    }
+}
+
+function Test-YurunaRunTempLive {
+    <#
+    .SYNOPSIS
+        Whether a run master folder belongs to a run that is still going.
+    .DESCRIPTION
+        The coordinator of a test run holds an exclusive lock on run.lock inside
+        its master folder for the whole run. The lock is released by the
+        operating system when the process ends, killed or not, so a master
+        whose lock can be taken is left by a run that is gone. A missing lock
+        file means the run never got as far as taking it. Any other failure to
+        read the lock counts as live: removing a running master is the one
+        outcome this check exists to prevent.
+    #>
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param([Parameter(Mandatory)][string]$Path)
+    $lockPath = Join-Path $Path 'run.lock'
+    if (-not (Test-Path -LiteralPath $lockPath -PathType Leaf)) { return $false }
+    $probe = $null
+    try {
+        $probe = [IO.File]::Open($lockPath, [IO.FileMode]::Open, [IO.FileAccess]::ReadWrite, [IO.FileShare]::None)
+        return $false
+    } catch {
+        return $true
+    } finally {
+        if ($probe) { $probe.Dispose() }
+    }
+}
+
+function Remove-YurunaStaleTempEntry {
+    <#
+    .SYNOPSIS
+        Remove the harness's own temp files and folders that are past their
+        age: what a killed cycle, a killed suite, a killed test run or an
+        earlier version left.
+    .DESCRIPTION
+        An entry is removed only when its name matches a row of the harness's
+        own name table (or it is an unnamed PowerShell transcript, see
+        Test-YurunaPowerShellTranscriptFile), it was last written more than
+        -MinimumAgeHours ago, and on Unix it is owned by this user. A run master
+        folder (yrn-run-*) is also kept while its run still holds the master's
+        lock, however old it is. Anything else in the temp folder is never
+        touched. Runs at cycle start, when every process of the previous cycle
+        has exited, so an entry that old has no writer left. Bounded and never
+        throws.
+    .PARAMETER TempRoot
+        Folders to sweep. Default: Get-YurunaTempRoot.
+    .PARAMETER MinimumAgeHours
+        Age below which nothing is removed.
+    .PARAMETER MaxEntries
+        Upper bound on the entries examined per call, across all folders.
+    .PARAMETER Now
+        The reference time; a test passes it.
+    .OUTPUTS
+        [pscustomobject] Examined, Removed, KeptYoung, KeptLive, SkippedForeign,
+        Failed, ByKind (removed count per row), Roots.
+    #>
+    [CmdletBinding(SupportsShouldProcess)]
+    [OutputType([pscustomobject])]
+    param(
+        [string[]]$TempRoot,
+        [ValidateRange(0, 8760)][double]$MinimumAgeHours = 12,
+        [ValidateRange(1, 10000000)][int]$MaxEntries = 200000,
+        [datetime]$Now = [datetime]::UtcNow
+    )
+    $summary = [ordered]@{
+        Examined = 0; Removed = 0; KeptYoung = 0; KeptLive = 0; SkippedForeign = 0; Failed = 0
+        ByKind = [ordered]@{}; Roots = [string[]]@()
+    }
+    if (-not $PSBoundParameters.ContainsKey('TempRoot')) { $TempRoot = Get-YurunaTempRoot }
+    $summary.Roots = [string[]]@($TempRoot)
+    $me = $null
+    if (-not $IsWindows) {
+        $owner = Get-YurunaCurrentOwnerId
+        if (-not $owner.Resolved) { return [pscustomobject]$summary }
+        $me = [long]$owner.OwnerId
+    }
+    $cutoff = $Now.ToUniversalTime().AddHours(-$MinimumAgeHours)
+    $action = Format-YurunaOperatorMessage -Key 'automation.stale_temp_remove_action'
+    foreach ($root in @($TempRoot)) {
+        if ($summary.Examined -ge $MaxEntries) { break }
+        $items = @()
+        try { $items = @(Get-ChildItem -LiteralPath $root -Force -ErrorAction Stop) } catch {
+            Write-Verbose "Remove-YurunaStaleTempEntry: '$root' unreadable: $($_.Exception.Message)"
+            continue
+        }
+        foreach ($item in $items) {
+            if ($summary.Examined -ge $MaxEntries) { break }
+            $kind = $null
+            foreach ($row in $script:YurunaStaleTempPattern.Keys) {
+                if ($item.Name -match $script:YurunaStaleTempPattern[$row].Pattern) { $kind = $row; break }
+            }
+            if (-not $kind -and $item -is [System.IO.FileInfo] -and (Test-YurunaPowerShellTranscriptFile -File $item)) { $kind = 'unnamed-transcript' }
+            if (-not $kind) { continue }
+            $summary.Examined++
+            if ($null -ne $me) {
+                $stat = $item.UnixStat
+                if ($null -eq $stat -or [long]$stat.UserId -ne $me) { $summary.SkippedForeign++; continue }
+            }
+            # A link is removed as itself, never followed: Remove-Item on a
+            # link to a directory must not reach into the target.
+            if ($item.LastWriteTimeUtc -gt $cutoff) { $summary.KeptYoung++; continue }
+            if ($kind -eq 'run-temp' -and (Test-YurunaRunTempLive -Path $item.FullName)) { $summary.KeptLive++; continue }
+            if (-not $PSCmdlet.ShouldProcess($item.FullName, $action)) { continue }
+            try {
+                if ($item.LinkTarget) { $item.Delete() }
+                elseif ($item -is [System.IO.DirectoryInfo]) { Remove-Item -LiteralPath $item.FullName -Recurse -Force -ErrorAction Stop }
+                else { Remove-Item -LiteralPath $item.FullName -Force -ErrorAction Stop }
+                $summary.Removed++
+                $summary.ByKind[$kind] = 1 + [int]$(if ($summary.ByKind.Contains($kind)) { $summary.ByKind[$kind] } else { 0 })
+            } catch {
+                $summary.Failed++
+                Write-Verbose "Remove-YurunaStaleTempEntry: '$($item.FullName)': $($_.Exception.Message)"
+            }
+        }
+    }
+    return [pscustomobject]$summary
+}
+
+function Get-YurunaStaleTempPattern {
+    <#
+    .SYNOPSIS
+        The harness temp-name table Remove-YurunaStaleTempEntry sweeps, for
+        tests and documentation.
+    .OUTPUTS
+        [System.Collections.Specialized.OrderedDictionary] row -> @{ Pattern; Source; Literal }.
+    #>
+    [CmdletBinding()]
+    [OutputType([System.Collections.Specialized.OrderedDictionary])]
+    param()
+    return $script:YurunaStaleTempPattern
+}
+
 function Format-YurunaVirtualizationProbeDiagnostic {
     <# .SYNOPSIS
         Shared host virtualization record/diagnostic factory. #>
@@ -4414,4 +5084,4 @@ function New-YurunaVirtualizationProbeRecord {
     }
 }
 
-Export-ModuleMember -Function New-YurunaVirtualizationProbeRecord, Save-YurunaHostProxyBackup, Read-YurunaHostProxyBackup, Remove-YurunaHostProxyBackup, ConvertFrom-YurunaPemCertificate, Test-Utf8TextByte, Test-YurunaServiceHealth, Invoke-YurunaTcpProbeSet, Get-YurunaProcessIdentityLiveness, Format-YurunaVirtualizationProbeDiagnostic, New-YurunaVirtualizationStartAction, New-YurunaVirtualizationStartResult, New-YurunaTimestampedBackup, Get-HostProxyBackupPath, ConvertTo-ProxyHostPort, Get-PortMapStatePath, Test-IsAdministrator, Get-PwshApplicationPath, Get-SudoPwshArgumentList, Invoke-YurunaSudo, Test-YurunaSudoRefusal, Test-YurunaCanPrompt, Assert-YurunaPromptable, Get-CachingProxyServicePort, Get-CachingProxyMemoryProfile, Test-Ipv4Address, Test-Ipv6Address, Format-IpUrlHost, Test-IpAddress, Select-YurunaRoutableAddress, ConvertTo-Sha512CryptHash, ConvertTo-YurunaMacAddress, Get-YurunaHostMacSeed, Get-YurunaGuestMacAddress, Test-YurunaGuestMacMatchesName, ConvertTo-Ipv4UInt32, Get-HostIpv4Subnet, Get-Ipv4OnLinkVerdict, Get-PoolFacingIpv4Segment, Get-Ipv4PoolSegmentVerdict, Test-TcpConnectOutcome, Get-TcpOutcomeExplanation, Select-DhcpLeaseIpAddress, Select-StaleDhcpLeaseBlock, Remove-DhcpLeaseBlockText, Get-UtmGuestSeedHostname, ConvertTo-MemoryStartupBytes, Get-GuestBuilderMemoryMb, Get-ServiceVmMemoryMb, Select-SetupServiceVmKey, Get-ServiceVmMemoryVerdict, Get-HostPhysicalMemoryMb, Select-NameByPrefix, Get-YurunaServiceVmName, Invoke-BoundedNativeCommand, Get-BoundedNativeOutputLine, Test-BoundedNativeResultComplete, New-YurunaDeadline, New-YurunaDeadlineFromExpiry, Get-YurunaDeadlineRemainingMs, Test-YurunaDeadlineExpired, Get-YurunaDeadlineBoundedSeconds, Wait-YurunaDeadlineInterval, Get-YurunaIoFailureKind, Resolve-YurunaCanonicalPath, Get-YurunaPathDriveInfo, Get-YurunaPathOwnerId, Get-YurunaCurrentOwnerId, Get-YurunaPrivateStateRoot, Get-YurunaPrivateStatePath
+Export-ModuleMember -Function New-YurunaVirtualizationProbeRecord, Save-YurunaHostProxyBackup, Read-YurunaHostProxyBackup, Remove-YurunaHostProxyBackup, ConvertFrom-YurunaPemCertificate, Test-Utf8TextByte, Test-YurunaServiceHealth, Invoke-YurunaTcpProbeSet, Get-YurunaProcessIdentityLiveness, Get-YurunaProcessStartUtc, Test-YurunaPidFileLockLive, Enter-YurunaPidFileLock, Exit-YurunaPidFileLock, Get-YurunaPlatformName, New-YurunaSeedDirectory, Format-YurunaVirtualizationProbeDiagnostic, New-YurunaVirtualizationStartAction, New-YurunaVirtualizationStartResult, New-YurunaTimestampedBackup, Get-HostProxyBackupPath, ConvertTo-ProxyHostPort, Get-PortMapStatePath, Test-IsAdministrator, Get-PwshApplicationPath, Get-SudoPwshArgumentList, Invoke-YurunaSudo, Test-YurunaSudoRefusal, Test-YurunaCanPrompt, Assert-YurunaPromptable, Get-CachingProxyServicePort, Get-CachingProxyMemoryProfile, Test-Ipv4Address, Test-Ipv6Address, Format-IpUrlHost, Test-IpAddress, Select-YurunaRoutableAddress, ConvertTo-Sha512CryptHash, ConvertTo-YurunaMacAddress, Get-YurunaHostMacSeed, Get-YurunaGuestMacAddress, Test-YurunaGuestMacMatchesName, ConvertTo-Ipv4UInt32, Get-HostIpv4Subnet, Get-Ipv4OnLinkVerdict, Get-PoolFacingIpv4Segment, Get-Ipv4PoolSegmentVerdict, Test-TcpConnectOutcome, Get-TcpOutcomeExplanation, Select-DhcpLeaseIpAddress, Select-StaleDhcpLeaseBlock, Remove-DhcpLeaseBlockText, Get-UtmGuestSeedHostname, ConvertTo-MemoryStartupBytes, Get-GuestBuilderMemoryMb, Get-ServiceVmMemoryMb, Select-SetupServiceVmKey, Get-ServiceVmMemoryVerdict, Get-HostPhysicalMemoryMb, Select-NameByPrefix, Get-YurunaServiceVmName, Invoke-BoundedNativeCommand, Get-BoundedNativeOutputLine, Test-BoundedNativeResultComplete, New-YurunaDeadline, New-YurunaDeadlineFromExpiry, Get-YurunaDeadlineRemainingMs, Test-YurunaDeadlineExpired, Get-YurunaDeadlineBoundedSeconds, Wait-YurunaDeadlineInterval, Get-YurunaIoFailureKind, Get-YurunaTempRoot, Get-YurunaRuntimeIpcEntry, Get-YurunaRuntimeIpcOwnerState, Test-YurunaProcessNameMatch, Remove-YurunaOrphanedRuntimeIpc, Test-YurunaPowerShellTranscriptFile, Remove-YurunaStaleTempEntry, Get-YurunaStaleTempPattern, Resolve-YurunaCanonicalPath, Get-YurunaPathDriveInfo, Get-YurunaPathOwnerId, Get-YurunaCurrentOwnerId, Get-YurunaPrivateStateRoot, Get-YurunaPrivateStatePath

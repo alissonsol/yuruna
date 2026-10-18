@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.14
+.VERSION 2026.10.18
 .GUID 427bf883-f57a-449e-98af-a9cec3b9704c
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -58,12 +58,36 @@ Import-Module (Join-Path (Split-Path -Parent $PSCommandPath) 'Test.Assert.psm1')
 $parseErrors = $null
 $setupAst = [System.Management.Automation.Language.Parser]::ParseFile($setupPs1, [ref]$null, [ref]$parseErrors)
 if ($parseErrors) { throw "Parse errors in ${setupPs1}: $($parseErrors[0].Message)" }
-foreach ($wanted in @('New-SetupAnswerDocument', 'Test-SetupAnswerSet')) {
+foreach ($wanted in @('New-SetupAnswerDocument', 'Test-SetupAnswerSet', 'Set-SetupProjectUrl')) {
     $definition = @($setupAst.FindAll({ param($n)
         $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq $wanted
     }, $true)) | Select-Object -First 1
     if (-not $definition) { throw "$wanted is not defined in $setupPs1" }
     . ([scriptblock]::Create($definition.Extent.Text))
+}
+
+# setup.ps1's console and log writers, replaced so the lifted function's report
+# can be read back from the information stream: the console line is what the
+# operator sees during the run, the log line is what a failure is diagnosed from.
+function Write-SetupMessage { param([Parameter(Position = 0)][AllowEmptyString()][string]$Message = '') Write-Information "console: $Message" }
+function Write-SetupDetail  { param([Parameter(Position = 0)][AllowEmptyString()][string]$Message = '') Write-Information "log: $Message" }
+
+# A test.config.yml with the comments a line-level edit has to keep.
+function New-SetupConfigFile {
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+        Justification = 'Test fixture: writes one file into a throwaway directory the calling It block deletes.')]
+    [CmdletBinding()] [OutputType([string])]
+    param([string]$Directory, [string]$ProjectUrl)
+    $path = Join-Path $Directory 'test.config.yml'
+    Set-Content -LiteralPath $path -Value @(
+        '# Repositories under test; comments are most of this file''s documentation.'
+        'repositories:'
+        '  frameworkUrl: https://github.com/alissonsol/yuruna'
+        "  projectUrl: $ProjectUrl"
+        'statusService:'
+        '  port: 8080'
+    )
+    return $path
 }
 
 # 'setup.type' etc. -- the flattened paths, so a document and a set of
@@ -192,6 +216,75 @@ Describe 'the validator refuses what an unattended run cannot finish' {
         $problems = @(Test-SetupAnswerSet -SetupType 'standalone' -StorageKind 'nas' `
             -NetworkPath '//ypool-nas/work/yuruna.pool' -NetworkUser 'yuruna-pool' -OnFailure 'local')
         Assert-Equal -Expected 0 -Actual $problems.Count -Because 'the fallback carries its own check at the point it is reached'
+    }
+}
+
+Describe 'projectUrl in test.config.yml across setup runs' {
+    # An operator who points projectUrl at their own project repository and
+    # re-runs setup without an answer file must find it untouched. A setup that
+    # replaces it with the built-in default while printing only the new value
+    # sends the cycles that follow to the wrong project with every check green,
+    # so the console line for a real replacement names both values.
+    It 'keeps a project URL the operator set when setup runs again with its built-in default' {
+        $d = New-YurunaTestTempDir -Prefix 'yrn-setup-url'
+        try {
+            $cfg = New-SetupConfigFile -Directory $d -ProjectUrl 'file:///Users/operator/git/amisad.dev'
+            $before = Get-Content -Raw -LiteralPath $cfg
+            $report = $null
+            $r = Set-SetupProjectUrl -ConfigPath $cfg -ProjectUrl 'https://github.com/alissonsol/yuruna-project' -InformationVariable report
+            Assert-Equal -Expected 'kept' -Actual $r.Outcome -Because 'the default never replaces a value already there'
+            Assert-Equal -Expected 'file:///Users/operator/git/amisad.dev' -Actual $r.Current -Because 'the operator value stands'
+            Assert-StringEqual -Expected $before -Actual (Get-Content -Raw -LiteralPath $cfg) -Because 'the file was not rewritten'
+            $lines = @($report | ForEach-Object { "$($_.MessageData)" })
+            Assert-Equal -Expected 1 -Actual @($lines | Where-Object { $_ -match '^log: projectUrl kept as file:///Users/operator/git/amisad\.dev ' }).Count -Because 'the log says what was kept and how to change it'
+            Assert-Equal -Expected 0 -Actual @($lines | Where-Object { $_ -match '->' }).Count -Because 'nothing was replaced, so no replacement is reported'
+        } finally { Remove-Item -LiteralPath $d -Recurse -Force -ErrorAction SilentlyContinue }
+    }
+    It 'reports previous -> new on the console when an answer file replaces the operator value' {
+        $d = New-YurunaTestTempDir -Prefix 'yrn-setup-url'
+        try {
+            $cfg = New-SetupConfigFile -Directory $d -ProjectUrl 'file:///Users/operator/git/amisad.dev'
+            $report = $null
+            $r = Set-SetupProjectUrl -ConfigPath $cfg -ProjectUrl 'https://example/other-project' -FromAnswerFile -InformationVariable report
+            Assert-Equal -Expected 'replaced' -Actual $r.Outcome -Because 'a value the operator supplied for this run wins'
+            Assert-Equal -Expected 'file:///Users/operator/git/amisad.dev' -Actual $r.Previous -Because 'previous value returned'
+            $after = @(Get-Content -LiteralPath $cfg)
+            Assert-Equal -Expected '  projectUrl: https://example/other-project' -Actual $after[3] -Because 'the line was replaced in place'
+            Assert-Equal -Expected '# Repositories under test; comments are most of this file''s documentation.' -Actual $after[0] -Because 'comments survive the edit'
+            $console = @($report | ForEach-Object { "$($_.MessageData)" } | Where-Object { $_ -like 'console: *' })
+            Assert-Equal -Expected 1 -Actual $console.Count -Because 'a replacement reaches the operator''s screen, not only the log'
+            Assert-Match '^console: projectUrl: file:///Users/operator/git/amisad\.dev -> https://example/other-project ' $console[0] 'the line names the value that was replaced, never only the new one'
+        } finally { Remove-Item -LiteralPath $d -Recurse -Force -ErrorAction SilentlyContinue }
+    }
+    It 'fills a blank key with the default and says it was blank' {
+        $d = New-YurunaTestTempDir -Prefix 'yrn-setup-url'
+        try {
+            $cfg = New-SetupConfigFile -Directory $d -ProjectUrl '""'
+            $report = $null
+            $r = Set-SetupProjectUrl -ConfigPath $cfg -ProjectUrl 'https://github.com/alissonsol/yuruna-project' -InformationVariable report
+            Assert-Equal -Expected 'filled' -Actual $r.Outcome -Because 'the default fills a blank'
+            Assert-Equal -Expected '  projectUrl: https://github.com/alissonsol/yuruna-project' -Actual @(Get-Content -LiteralPath $cfg)[3] -Because 'blank replaced on disk'
+            $lines = @($report | ForEach-Object { "$($_.MessageData)" })
+            Assert-Equal -Expected 1 -Actual @($lines | Where-Object { $_ -eq 'log: projectUrl: (blank) -> https://github.com/alissonsol/yuruna-project' }).Count -Because 'the log records that nothing was lost'
+        } finally { Remove-Item -LiteralPath $d -Recurse -Force -ErrorAction SilentlyContinue }
+    }
+    It 'leaves the file alone when the answer file names the value already there' {
+        $d = New-YurunaTestTempDir -Prefix 'yrn-setup-url'
+        try {
+            $cfg = New-SetupConfigFile -Directory $d -ProjectUrl 'https://example/other-project'
+            $before = Get-Content -Raw -LiteralPath $cfg
+            $r = Set-SetupProjectUrl -ConfigPath $cfg -ProjectUrl 'https://example/other-project' -FromAnswerFile -InformationAction SilentlyContinue
+            Assert-Equal -Expected 'kept' -Actual $r.Outcome -Because 'same value, nothing to replace'
+            Assert-StringEqual -Expected $before -Actual (Get-Content -Raw -LiteralPath $cfg) -Because 'the file was not rewritten'
+        } finally { Remove-Item -LiteralPath $d -Recurse -Force -ErrorAction SilentlyContinue }
+    }
+    It 'refuses a file with no projectUrl key instead of guessing where to add one' {
+        $d = New-YurunaTestTempDir -Prefix 'yrn-setup-url'
+        try {
+            $cfg = Join-Path $d 'test.config.yml'
+            Set-Content -LiteralPath $cfg -Value @('repositories:', '  frameworkUrl: https://github.com/alissonsol/yuruna')
+            Assert-Throw { Set-SetupProjectUrl -ConfigPath $cfg -ProjectUrl 'https://example/p' -InformationAction SilentlyContinue } 'no projectUrl key found' 'a missing key is an error, not a silent no-op'
+        } finally { Remove-Item -LiteralPath $d -Recurse -Force -ErrorAction SilentlyContinue }
     }
 }
 

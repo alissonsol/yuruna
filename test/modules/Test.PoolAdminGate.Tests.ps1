@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.14
+.VERSION 2026.10.18
 .GUID 42074735-e5df-4b56-b216-96e6299e53f9
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -129,8 +129,8 @@ Describe 'Invoke-PoolAdminGitWithRetry survives a transient failure within a bou
             Invoke-PoolAdminGitWithRetry -ArgumentList @('-C', 'x', 'fetch', '--quiet', 'origin') -Label 'git fetch' -BudgetSeconds $Budget -DelaySeconds $Delay
         } 30 1
         $rc | Should -Be 0
-        Assert-MockCalled -ModuleName Test.PoolAdmin Invoke-PoolSyncGit -Times 1 -Exactly -Scope It
-        Assert-MockCalled -ModuleName Test.PoolAdmin Start-Sleep -Times 0 -Exactly -Scope It
+        Should -Invoke -ModuleName Test.PoolAdmin Invoke-PoolSyncGit -Times 1 -Exactly -Scope It
+        Should -Invoke -ModuleName Test.PoolAdmin Start-Sleep -Times 0 -Exactly -Scope It
     }
     It 'retries a transient failure and returns 0 once the next attempt succeeds' {
         $env:POOLADMIN_GIT_ATTEMPTS = '0'
@@ -146,8 +146,8 @@ Describe 'Invoke-PoolAdminGitWithRetry survives a transient failure within a bou
                 Invoke-PoolAdminGitWithRetry -ArgumentList @('-C', 'x', 'push', '--quiet', 'origin', 'HEAD:main') -Label 'git push' -BudgetSeconds $Budget -DelaySeconds $Delay
             } 30 1
             $rc | Should -Be 0
-            Assert-MockCalled -ModuleName Test.PoolAdmin Invoke-PoolSyncGit -Times 2 -Exactly -Scope It
-            Assert-MockCalled -ModuleName Test.PoolAdmin Start-Sleep -Times 1 -Exactly -Scope It
+            Should -Invoke -ModuleName Test.PoolAdmin Invoke-PoolSyncGit -Times 2 -Exactly -Scope It
+            Should -Invoke -ModuleName Test.PoolAdmin Start-Sleep -Times 1 -Exactly -Scope It
         } finally { Remove-Item Env:\POOLADMIN_GIT_ATTEMPTS -ErrorAction SilentlyContinue }
     }
     It 'gives up with the failing exit code once the wall-clock budget is spent (bounded, real backoff)' {
@@ -159,7 +159,7 @@ Describe 'Invoke-PoolAdminGitWithRetry survives a transient failure within a bou
         $rc | Should -Be 128
         # >=2 attempts proves it retried; the test returning at all proves the
         # deadline bounds the loop (a budget-blind retry would spin forever).
-        Assert-MockCalled -ModuleName Test.PoolAdmin Invoke-PoolSyncGit -Times 2 -Scope It
+        Should -Invoke -ModuleName Test.PoolAdmin Invoke-PoolSyncGit -Times 2 -Scope It
     }
 }
 
@@ -206,7 +206,7 @@ Describe 'Open-YurunaPoolConfiguration refuses to reset --hard over unpushed loc
         $r = Open-YurunaPoolConfiguration -ConfigurationGitUrl 'https://example/configuration' -ConfigurationDir 'TestDrive:\configuration' -Confirm:$false
         $r.Ok | Should -Be $false
         $r.Error | Should -Match 'refusing to reset'
-        Assert-MockCalled -ModuleName Test.PoolAdmin Invoke-PoolSyncGit -Scope It -Times 0 -Exactly -ParameterFilter { $ArgumentList -contains 'reset' }
+        Should -Invoke -ModuleName Test.PoolAdmin Invoke-PoolSyncGit -Scope It -Times 0 -Exactly -ParameterFilter { $ArgumentList -contains 'reset' }
     }
     It 'proceeds with the reset when HEAD is contained in FETCH_HEAD (merge-base = 0)' {
         Mock -ModuleName Test.PoolAdmin Test-Path { param($LiteralPath) $LiteralPath -notlike '*rebase-*' }
@@ -214,7 +214,7 @@ Describe 'Open-YurunaPoolConfiguration refuses to reset --hard over unpushed loc
         Mock -ModuleName Test.PoolAdmin Invoke-PoolSyncGit { 0 }
         $r = Open-YurunaPoolConfiguration -ConfigurationGitUrl 'https://example/configuration' -ConfigurationDir 'TestDrive:\configuration' -Confirm:$false
         $r.Ok | Should -Be $true
-        Assert-MockCalled -ModuleName Test.PoolAdmin Invoke-PoolSyncGit -Scope It -Times 1 -Exactly -ParameterFilter { $ArgumentList -contains 'reset' }
+        Should -Invoke -ModuleName Test.PoolAdmin Invoke-PoolSyncGit -Scope It -Times 1 -Exactly -ParameterFilter { $ArgumentList -contains 'reset' }
     }
     It 'returns Ok=$false and does NOT reset when a rebase is in progress (mid-rebase clone)' {
         Mock -ModuleName Test.PoolAdmin Test-Path { $true }
@@ -223,7 +223,7 @@ Describe 'Open-YurunaPoolConfiguration refuses to reset --hard over unpushed loc
         $r = Open-YurunaPoolConfiguration -ConfigurationGitUrl 'https://example/configuration' -ConfigurationDir 'TestDrive:\configuration' -Confirm:$false
         $r.Ok | Should -Be $false
         $r.Error | Should -Match 'unfinished rebase'
-        Assert-MockCalled -ModuleName Test.PoolAdmin Invoke-PoolSyncGit -Scope It -Times 0 -Exactly -ParameterFilter { $ArgumentList -contains 'reset' }
+        Should -Invoke -ModuleName Test.PoolAdmin Invoke-PoolSyncGit -Scope It -Times 0 -Exactly -ParameterFilter { $ArgumentList -contains 'reset' }
     }
 }
 
@@ -253,7 +253,7 @@ Describe 'An existing configuration clone must match the requested configuration
         $r = Open-YurunaPoolConfiguration -ConfigurationGitUrl 'https://example.test/org/configuration-two.git' -ConfigurationDir $script:originClone -Confirm:$false
         $r.Ok | Should -BeFalse
         $r.Error | Should -Match 'different origin'
-        Assert-MockCalled -ModuleName Test.PoolAdmin Invoke-PoolAdminGitWithRetry -Scope It -Times 0 -Exactly
+        Should -Invoke -ModuleName Test.PoolAdmin Invoke-PoolAdminGitWithRetry -Scope It -Times 0 -Exactly
     }
     It 'repoints the runner cache clone at the configured URL before it fetches' {
         Mock -ModuleName Test.PoolSync Invoke-PoolSyncGit { 0 }
@@ -264,7 +264,7 @@ Describe 'An existing configuration clone must match the requested configuration
         try {
             $cfg = @{ pool = @{ enabled = $true; configurationGitUrl = 'https://example.test/org/configuration-two.git'; localClonePath = $script:originClone; pullTimeoutSeconds = 5 } }
             $null = Sync-YurunaPoolConfiguration -Config $cfg -HostId '42none000000000000000000000000'
-            Assert-MockCalled -ModuleName Test.PoolSync Invoke-PoolSyncGit -Scope It -Times 1 -Exactly -ParameterFilter { ($ArgumentList -contains 'set-url') -and ($ArgumentList -contains 'https://example.test/org/configuration-two.git') }
+            Should -Invoke -ModuleName Test.PoolSync Invoke-PoolSyncGit -Scope It -Times 1 -Exactly -ParameterFilter { ($ArgumentList -contains 'set-url') -and ($ArgumentList -contains 'https://example.test/org/configuration-two.git') }
         } finally { if ($shimmed) { Remove-Item function:\ConvertFrom-Yaml -Force -ErrorAction SilentlyContinue } }
     }
 }

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.14
+.VERSION 2026.10.18
 .GUID 42741ee4-f795-4b5e-ab28-a68625394829
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -22,6 +22,10 @@ BeforeAll {
     Import-Module (Join-Path $repoRoot 'automation/Yuruna.Resource.psm1') -Force -DisableNameChecking
     Import-Module (Join-Path $repoRoot 'automation/Yuruna.Clear.psm1') -Force -DisableNameChecking
     Import-Module (Join-Path $PSScriptRoot 'Test.Assert.psm1') -Force -Global -DisableNameChecking
+    # Captured before any Mock: a filtered mock alone fails the calls its
+    # filter does not match, and this suite relies on the real command there.
+    $script:RealSaveResourceOutput = & (Get-Module Yuruna.Resource) { Get-Command Save-ResourceOutput }
+    $script:RealGetCommand = Get-Command Get-Command -CommandType Cmdlet
 
     function New-StateSafetyFixture {
         [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
@@ -193,6 +197,7 @@ Describe 'resource state survives failed provisioning and teardown' {
         Set-Content -LiteralPath $output -Value (ConvertTo-Yaml @{ globalVariables = @{}; earlier = @{ id = 'retained' } })
         # Leave the other saves real: registration failure must prevent apply,
         # while an output save failure must retain its already-written owner.
+        Mock Save-ResourceOutput -ModuleName Yuruna.Resource { & $script:RealSaveResourceOutput @PesterBoundParameters }
         Mock Save-ResourceOutput -ModuleName Yuruna.Resource { throw 'manifest storage unavailable' } -ParameterFilter {
             $Resources.Contains('sample') -and (($null -ne $Resources['sample'].id) -eq $FailAtOutput)
         }
@@ -223,6 +228,7 @@ Describe 'resource state survives failed provisioning and teardown' {
         Set-Content -LiteralPath "$work/terraform.tfstate" -Value 'live state'
         $savedPassword = 'saved$literal$(throw 123)'
         Set-Content -LiteralPath "$root/config/lab/resources.output.yml" -Value (ConvertTo-Yaml @{ globalVariables = @{ adminPassword = $savedPassword }; sample = @{} })
+        Mock Get-Command -ModuleName Yuruna.Clear { & $script:RealGetCommand @PesterBoundParameters }
         Mock Get-Command -ModuleName Yuruna.Clear { $null } -ParameterFilter { $Name -eq 'tofu' }
         $global:LASTEXITCODE = 0
         $result = Clear-Configuration $root lab 3>$null

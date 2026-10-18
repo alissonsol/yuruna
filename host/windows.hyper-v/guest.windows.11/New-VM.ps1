@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.14
+.VERSION 2026.10.18
 .GUID 427027e4-02aa-49bd-8f50-95db47263320
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -126,128 +126,131 @@ Write-Verbose "Creating 512GB dynamically expanding VHDX..."
 New-VHD -Path $vhdxFile -SizeBytes 512GB -Dynamic | Out-Null
 
 # --- REGION: Render the autounattend.xml + build a CD with it
-# Autounattend seed ISO. 4-digit entropy is weak by design (10k cases)
-# but enough to defeat the deterministic-path symlink trap: an attacker
-# dropping a symlink at %TEMP%\seed_<VMName>\ before New-VM runs can't
-# predict the trailing 4 digits per run.
-$SeedDir = Join-Path $env:TEMP ("seed_${VMName}_{0:D4}" -f (Get-Random -Maximum 10000))
-if (Test-Path -LiteralPath $SeedDir) { Remove-Item -LiteralPath $SeedDir -Recurse -Force }
-New-Item -ItemType Directory -Force -Path $SeedDir | Out-Null
+# Autounattend seed ISO.
+# New-YurunaSeedDirectory creates the folder exclusively under a random name,
+# so nothing planted at a predictable %TEMP% path is ever reused.
+Import-Module (Join-Path $PSScriptRoot '../../../automation/Yuruna.Common.psm1') -DisableNameChecking
+try {
+    $SeedDir = New-YurunaSeedDirectory -VMName $VMName
 
-$VmConfigDir = Join-Path $ScriptDir "vmconfig"
-$AnswerFileTemplate = Join-Path $VmConfigDir "autounattend.xml"
-if (-not (Test-Path $AnswerFileTemplate)) {
-    Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_659701d157b56883' -Arguments @{ answerFileTemplate = "$AnswerFileTemplate" })
-    exit 1
-}
-
-# --- REGION: Select the guest network
-# Pick a vSwitch -- prefer Yuruna-External (LAN-bridged) so the install
-# VM gets a real LAN IP via DHCP. Default Switch fallback for hosts
-# that can't create an External vSwitch. Same pattern as guest.caching-proxy-service.
-$switchName = Resolve-HyperVGuestSwitch
-
-# --- REGION: https://yuruna.link/4220a755-002d
-# Seed durable host identity; treat the status address as a hint that may expire during Setup.
-$YurunaHostIp = Get-GuestReachableHostIp -SwitchName $switchName
-if (-not $YurunaHostIp) { $YurunaHostIp = '' }
-Import-Module (Join-Path $repoRoot 'test/modules/Test.Config.psm1') -Global -Force
-Import-Module (Join-Path $PSScriptRoot '../../../automation/Yuruna.Common.psm1') -Force -DisableNameChecking
-$_statusSeed = Get-YurunaStatusServiceSeed -RepoRoot $repoRoot
-$YurunaHostPort = $_statusSeed.Port
-$YurunaHostId = ''
-if ($env:YURUNA_RUNTIME_DIR) {
-    $uuidPath = Join-Path $env:YURUNA_RUNTIME_DIR 'host.uuid'
-    if (Test-Path -LiteralPath $uuidPath -PathType Leaf) {
-        $YurunaHostId = ([string](Get-Content -LiteralPath $uuidPath -Raw -ErrorAction SilentlyContinue)).Trim()
+    $VmConfigDir = Join-Path $ScriptDir "vmconfig"
+    $AnswerFileTemplate = Join-Path $VmConfigDir "autounattend.xml"
+    if (-not (Test-Path $AnswerFileTemplate)) {
+        Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_659701d157b56883' -Arguments @{ answerFileTemplate = "$AnswerFileTemplate" })
+        exit 1
     }
+
+    # --- REGION: Select the guest network
+    # Pick a vSwitch -- prefer Yuruna-External (LAN-bridged) so the install
+    # VM gets a real LAN IP via DHCP. Default Switch fallback for hosts
+    # that can't create an External vSwitch. Same pattern as guest.caching-proxy-service.
+    $switchName = Resolve-HyperVGuestSwitch
+
+    # --- REGION: https://yuruna.link/4220a755-002d
+    # Seed durable host identity; treat the status address as a hint that may expire during Setup.
+    $YurunaHostIp = Get-GuestReachableHostIp -SwitchName $switchName
+    if (-not $YurunaHostIp) { $YurunaHostIp = '' }
+    Import-Module (Join-Path $repoRoot 'test/modules/Test.Config.psm1') -Global -Force
+    Import-Module (Join-Path $PSScriptRoot '../../../automation/Yuruna.Common.psm1') -Force -DisableNameChecking
+    $_statusSeed = Get-YurunaStatusServiceSeed -RepoRoot $repoRoot
+    $YurunaHostPort = $_statusSeed.Port
+    $YurunaHostId = ''
+    if ($env:YURUNA_RUNTIME_DIR) {
+        $uuidPath = Join-Path $env:YURUNA_RUNTIME_DIR 'host.uuid'
+        if (Test-Path -LiteralPath $uuidPath -PathType Leaf) {
+            $YurunaHostId = ([string](Get-Content -LiteralPath $uuidPath -Raw -ErrorAction SilentlyContinue)).Trim()
+        }
+    }
+    $YurunaCacheIp = "$($env:YURUNA_CACHING_PROXY_SERVICE_IP)".Trim()
+
+    # The first-logon bootstrap: coordinates, resolver, refresh schedule, then git
+    # credentials. Shared with the UTM and KVM Windows guests -- the script it
+    # builds is byte-identical given the same inputs, and only the resolution of
+    # those inputs above is per-platform.
+    Import-Module (Join-Path $repoRoot 'automation/Yuruna.GuestSeed.psm1') -Force -DisableNameChecking
+    $ghSource = Get-YurunaGitHubSource -RepoRoot $repoRoot
+    $guestBootstrap = New-WindowsGuestBootstrap -RepoRoot $repoRoot `
+        -StatusServiceIp $YurunaHostIp -StatusServicePort $YurunaHostPort `
+        -HostId $YurunaHostId -CachingProxyIp $YurunaCacheIp -GhToken $ghSource.Token `
+        -FrameworkUrl $ghSource.FrameworkUrl -ProjectUrl $ghSource.ProjectUrl
+
+    foreach ($seedFile in $guestBootstrap.Files.Keys) {
+        [IO.File]::WriteAllText((Join-Path $SeedDir $seedFile), $guestBootstrap.Files[$seedFile], [Text.UTF8Encoding]::new($true))
+    }
+
+    $AnswerFile = (Get-Content -Raw $AnswerFileTemplate) `
+        -replace 'COMPUTERNAME_PLACEHOLDER', $VMName `
+        -replace 'GUEST_BOOTSTRAP_B64_PLACEHOLDER', $guestBootstrap.EncodedCommand
+    Set-Content -Path "$SeedDir/autounattend.xml" -Value $AnswerFile -NoNewline
+
+    $SeedIso = Join-Path $vmDir "seed.iso"
+    Write-Verbose "Generating seed.iso with autounattend configuration..."
+    # OEMDRV volume label causes Windows Setup to automatically pick up autounattend.xml
+    CreateIso -SourceDir $SeedDir -OutputFile $SeedIso -VolumeId "OEMDRV"
+
+    # --- REGION: Create and configure the Hyper-V VM
+    Write-Verbose "Creating new VM '$VMName' on switch '$switchName'..."
+    Hyper-V\New-VM -Name $VMName -Generation 2 -MemoryStartupBytes 12288MB -SwitchName $switchName -VHDPath $vhdxFile | Out-Null
+
+    # Deterministic per (host, VM name): a rebuilt guest presents the SAME MAC, so the
+    # DHCP server returns the SAME lease instead of consuming a new one. Random MACs
+    # make every rebuild a fresh lease request, which drains a shared pool until guests
+    # boot with no IPv4 at all. Hyper-V takes bare hex, no separators.
+    $YurunaGuestMac = Get-YurunaGuestMacAddress -VMName $VMName
+    Hyper-V\Set-VMNetworkAdapter -VMName $VMName -StaticMacAddress ($YurunaGuestMac -replace ':','')
+    Write-Verbose "Deterministic guest MAC for '$VMName': $YurunaGuestMac"
+
+    Set-VM -Name $VMName -MemoryStartupBytes 12288MB -MemoryMinimumBytes 12288MB -MemoryMaximumBytes 12288MB -AutomaticCheckpointsEnabled $false | Out-Null
+    Set-VMMemory -VMName $VMName -DynamicMemoryEnabled $false
+
+    # Enable Secure Boot with Microsoft Windows certificate (required for Windows 11)
+    Set-VMFirmware -VMName $VMName -SecureBootTemplate MicrosoftWindows | Out-Null
+
+    # Add virtual TPM (required for Windows 11)
+    Set-VMKeyProtector -VMName $VMName -NewLocalKeyProtector
+    Enable-VMTPM -VMName $VMName
+
+    # Prune stale per-VM ACEs accumulated on this SHARED base image before
+    # Hyper-V appends this VM's ACE on attach. Without it the file's DACL grows
+    # unbounded across runs (Hyper-V never revokes on Remove-VM) and eventually
+    # hits the ~64 KB ACL limit, failing the attach with 0x8007053C ("does not
+    # have permission to open attachment"). See https://yuruna.link/429f3d06-0093
+    $prunedAce = Remove-OrphanedVMFileAccess -Path $baseImageFile
+    if ($prunedAce -gt 0) { Write-Verbose "Pruned $prunedAce stale per-VM ACE(s) from base image before attach." }
+    Add-VMDvdDrive -VMName $VMName -Path $baseImageFile | Out-Null
+    Add-VMDvdDrive -VMName $VMName -Path $SeedIso | Out-Null
+
+    $dvdDrive = Get-VMDvdDrive -VMName $VMName | Where-Object { $_.Path -eq $baseImageFile }
+    Set-VMFirmware -VMName $VMName -FirstBootDevice $dvdDrive
+
+    # --- REGION: https://yuruna.link/42fa6f45-0015
+    $vmCores = [math]::Max(4, [math]::Floor($hostCores / 2))
+    Write-Verbose "Host cores: $hostCores -- assigning $vmCores virtual processors to VM."
+    # Virtualization extensions only on request (validated in the environment
+    # checks above): the flag is unsupported on ARM64 hosts and unnecessary for
+    # guests that run no hypervisor of their own.
+    $vmProcessorArgs = @{ VMName = $VMName; Count = $vmCores }
+    if ($exposeVirt) { $vmProcessorArgs.ExposeVirtualizationExtensions = $true }
+    Set-VMProcessor @vmProcessorArgs | Out-Null
+
+    # Enable Guest Service Interface for file copy (Hyper-V Integration Services)
+    Enable-VMIntegrationService -VMName $VMName -Name "Guest Service Interface"
+
+    # WARNING: The test harness OCR is calibrated for 1920x1080.
+    # Changing this resolution may break automated screen-text detection
+    # in waitForText sequence steps.
+    Set-VMVideo -VMName $VMName -HorizontalResolution 1920 -VerticalResolution 1080 -ResolutionType Single
+
+    # Disable Enhanced Session so VMConnect uses basic mode (no resolution dialog)
+    # Note: EnhancedSessionTransportType only accepts VMBus or HvSocket; disable at host level instead.
+    Set-VMHost -EnableEnhancedSessionMode $false
+
+    # --- REGION: Clean up temporary files
+} finally {
+    # The seed holds the guest's admin credentials; it must not outlive this
+    # script on any path, an early exit or a throw included.
+    Remove-Item -LiteralPath $SeedDir -Recurse -Force -ErrorAction SilentlyContinue
 }
-$YurunaCacheIp = "$($env:YURUNA_CACHING_PROXY_SERVICE_IP)".Trim()
-
-# The first-logon bootstrap: coordinates, resolver, refresh schedule, then git
-# credentials. Shared with the UTM and KVM Windows guests -- the script it
-# builds is byte-identical given the same inputs, and only the resolution of
-# those inputs above is per-platform.
-Import-Module (Join-Path $repoRoot 'automation/Yuruna.GuestSeed.psm1') -Force -DisableNameChecking
-$ghSource = Get-YurunaGitHubSource -RepoRoot $repoRoot
-$guestBootstrap = New-WindowsGuestBootstrap -RepoRoot $repoRoot `
-    -StatusServiceIp $YurunaHostIp -StatusServicePort $YurunaHostPort `
-    -HostId $YurunaHostId -CachingProxyIp $YurunaCacheIp -GhToken $ghSource.Token `
-    -FrameworkUrl $ghSource.FrameworkUrl -ProjectUrl $ghSource.ProjectUrl
-
-foreach ($seedFile in $guestBootstrap.Files.Keys) {
-    [IO.File]::WriteAllText((Join-Path $SeedDir $seedFile), $guestBootstrap.Files[$seedFile], [Text.UTF8Encoding]::new($true))
-}
-
-$AnswerFile = (Get-Content -Raw $AnswerFileTemplate) `
-    -replace 'COMPUTERNAME_PLACEHOLDER', $VMName `
-    -replace 'GUEST_BOOTSTRAP_B64_PLACEHOLDER', $guestBootstrap.EncodedCommand
-Set-Content -Path "$SeedDir/autounattend.xml" -Value $AnswerFile -NoNewline
-
-$SeedIso = Join-Path $vmDir "seed.iso"
-Write-Verbose "Generating seed.iso with autounattend configuration..."
-# OEMDRV volume label causes Windows Setup to automatically pick up autounattend.xml
-CreateIso -SourceDir $SeedDir -OutputFile $SeedIso -VolumeId "OEMDRV"
-
-# --- REGION: Create and configure the Hyper-V VM
-Write-Verbose "Creating new VM '$VMName' on switch '$switchName'..."
-Hyper-V\New-VM -Name $VMName -Generation 2 -MemoryStartupBytes 12288MB -SwitchName $switchName -VHDPath $vhdxFile | Out-Null
-
-# Deterministic per (host, VM name): a rebuilt guest presents the SAME MAC, so the
-# DHCP server returns the SAME lease instead of consuming a new one. Random MACs
-# make every rebuild a fresh lease request, which drains a shared pool until guests
-# boot with no IPv4 at all. Hyper-V takes bare hex, no separators.
-$YurunaGuestMac = Get-YurunaGuestMacAddress -VMName $VMName
-Hyper-V\Set-VMNetworkAdapter -VMName $VMName -StaticMacAddress ($YurunaGuestMac -replace ':','')
-Write-Verbose "Deterministic guest MAC for '$VMName': $YurunaGuestMac"
-
-Set-VM -Name $VMName -MemoryStartupBytes 12288MB -MemoryMinimumBytes 12288MB -MemoryMaximumBytes 12288MB -AutomaticCheckpointsEnabled $false | Out-Null
-Set-VMMemory -VMName $VMName -DynamicMemoryEnabled $false
-
-# Enable Secure Boot with Microsoft Windows certificate (required for Windows 11)
-Set-VMFirmware -VMName $VMName -SecureBootTemplate MicrosoftWindows | Out-Null
-
-# Add virtual TPM (required for Windows 11)
-Set-VMKeyProtector -VMName $VMName -NewLocalKeyProtector
-Enable-VMTPM -VMName $VMName
-
-# Prune stale per-VM ACEs accumulated on this SHARED base image before
-# Hyper-V appends this VM's ACE on attach. Without it the file's DACL grows
-# unbounded across runs (Hyper-V never revokes on Remove-VM) and eventually
-# hits the ~64 KB ACL limit, failing the attach with 0x8007053C ("does not
-# have permission to open attachment"). See https://yuruna.link/429f3d06-0093
-$prunedAce = Remove-OrphanedVMFileAccess -Path $baseImageFile
-if ($prunedAce -gt 0) { Write-Verbose "Pruned $prunedAce stale per-VM ACE(s) from base image before attach." }
-Add-VMDvdDrive -VMName $VMName -Path $baseImageFile | Out-Null
-Add-VMDvdDrive -VMName $VMName -Path $SeedIso | Out-Null
-
-$dvdDrive = Get-VMDvdDrive -VMName $VMName | Where-Object { $_.Path -eq $baseImageFile }
-Set-VMFirmware -VMName $VMName -FirstBootDevice $dvdDrive
-
-# --- REGION: https://yuruna.link/42fa6f45-0015
-$vmCores = [math]::Max(4, [math]::Floor($hostCores / 2))
-Write-Verbose "Host cores: $hostCores -- assigning $vmCores virtual processors to VM."
-# Virtualization extensions only on request (validated in the environment
-# checks above): the flag is unsupported on ARM64 hosts and unnecessary for
-# guests that run no hypervisor of their own.
-$vmProcessorArgs = @{ VMName = $VMName; Count = $vmCores }
-if ($exposeVirt) { $vmProcessorArgs.ExposeVirtualizationExtensions = $true }
-Set-VMProcessor @vmProcessorArgs | Out-Null
-
-# Enable Guest Service Interface for file copy (Hyper-V Integration Services)
-Enable-VMIntegrationService -VMName $VMName -Name "Guest Service Interface"
-
-# WARNING: The test harness OCR is calibrated for 1920x1080.
-# Changing this resolution may break automated screen-text detection
-# in waitForText sequence steps.
-Set-VMVideo -VMName $VMName -HorizontalResolution 1920 -VerticalResolution 1080 -ResolutionType Single
-
-# Disable Enhanced Session so VMConnect uses basic mode (no resolution dialog)
-# Note: EnhancedSessionTransportType only accepts VMBus or HvSocket; disable at host level instead.
-Set-VMHost -EnableEnhancedSessionMode $false
-
-# --- REGION: Clean up temporary files
-Remove-Item -LiteralPath $SeedDir -Recurse -Force -ErrorAction SilentlyContinue
 
 # --- REGION: Start Windows installer
 # Load the keyboard transport before powering on: console initialization can

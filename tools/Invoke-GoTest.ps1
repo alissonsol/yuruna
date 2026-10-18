@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.14
+.VERSION 2026.10.18
 .GUID 423bf361-3c2d-4eec-ac8d-50aca4319afe
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -93,67 +93,94 @@ $failures = [Collections.Generic.List[string]]::new()
 # guest builds it.
 $sdkReplace = '(?m)^\s*replace\s+yuruna\.com/test/extension/extension-sdk\s+=>\s+\.\./extension-sdk\s*$'
 
-foreach ($module in $modules) {
-    $name = [IO.Path]::GetRelativePath($RepoRoot, $module) -replace '\\', '/'
+# `go test` and the test binaries it builds write to the OS temp folder, and
+# some tests keep what they create there by design (a tail that never returns
+# cannot clean up behind itself). Pointing TMPDIR (Unix) and TMP/TEMP (Windows)
+# at a folder this run owns, and removing it at the end, keeps all of it off the
+# host's temp folder -- including when the gate itself is killed, since the
+# next temp housekeeping pass removes a stale yrn-go- folder by its name.
+$goTempBase = if ($IsWindows) { [IO.Path]::GetTempPath() } else { '/tmp' }
+$goTemp = Join-Path $goTempBase ('yrn-go-' + [Guid]::NewGuid().ToString('N').Substring(0, 12))
+$null = New-Item -ItemType Directory -Path $goTemp -Force
+$savedGoTemp = @{}
+foreach ($tempName in 'TMPDIR', 'TMP', 'TEMP') {
+    $savedGoTemp[$tempName] = [Environment]::GetEnvironmentVariable($tempName)
+    [Environment]::SetEnvironmentVariable($tempName, $goTemp)
+}
+try {
+    foreach ($module in $modules) {
+        $name = [IO.Path]::GetRelativePath($RepoRoot, $module) -replace '\\', '/'
 
-    $stage = $null
-    $runIn = $module
-    if ((Get-Content -Raw -LiteralPath (Join-Path $module 'go.mod')) -match $sdkReplace) {
-        # Walk outwards for the SDK rather than assuming a depth: a module whose
-        # go.mod sits somewhere other than <area>/server would otherwise stage a
-        # directory that is not the SDK, and fail a phase later with an error
-        # about the code instead of about the layout.
-        $sdk = $null
-        for ($dir = Split-Path -Parent $module; $dir; $dir = Split-Path -Parent $dir) {
-            $candidate = Join-Path $dir 'extension-sdk'
-            if (Test-Path -LiteralPath (Join-Path $candidate 'go.mod')) { $sdk = $candidate; break }
-        }
-        if (-not $sdk) {
-            $failures.Add("${name}: requires the extension SDK, and no extension-sdk module sits above it")
-            continue
-        }
-        $stage = Join-Path ([IO.Path]::GetTempPath()) ('yuruna-gotest-' + [Guid]::NewGuid().ToString('n'))
-        New-Item -ItemType Directory -Path $stage -Force | Out-Null
-        Copy-Item -LiteralPath $module -Destination (Join-Path $stage 'server') -Recurse
-        Copy-Item -LiteralPath $sdk -Destination (Join-Path $stage 'extension-sdk') -Recurse
-        $runIn = Join-Path $stage 'server'
-    }
-
-    try {
-        foreach ($phase in $phases) {
-            Push-Location $runIn
+        $stage = $null
+        $runIn = $module
+        if ((Get-Content -Raw -LiteralPath (Join-Path $module 'go.mod')) -match $sdkReplace) {
+            # Walk outwards for the SDK rather than assuming a depth: a module whose
+            # go.mod sits somewhere other than <area>/server would otherwise stage a
+            # directory that is not the SDK, and fail a phase later with an error
+            # about the code instead of about the layout.
+            $sdk = $null
+            for ($dir = Split-Path -Parent $module; $dir; $dir = Split-Path -Parent $dir) {
+                $candidate = Join-Path $dir 'extension-sdk'
+                if (Test-Path -LiteralPath (Join-Path $candidate 'go.mod')) { $sdk = $candidate; break }
+            }
+            if (-not $sdk) {
+                $failures.Add("${name}: requires the extension SDK, and no extension-sdk module sits above it")
+                continue
+            }
+            $stage = Join-Path ([IO.Path]::GetTempPath()) ('yuruna-gotest-' + [Guid]::NewGuid().ToString('n'))
+            New-Item -ItemType Directory -Path $stage -Force | Out-Null
+            # The finally that removes the stage is below; a copy that throws here
+            # never reaches it.
             try {
-                # -buildvcs=false because a staged module is a copy in a temp
-                # directory with no repository above it. Go treats a VCS query
-                # it cannot answer as a build failure, so without this every
-                # SDK-consuming service fails the gate for a reason that has
-                # nothing to do with its code -- and a gate that always fails
-                # is read as broken tooling and then ignored.
-                $goArgs = @($phase)
-                if ($stage) { $goArgs += '-buildvcs=false' }
-                $goArgs += './...'
-                $output = & go @goArgs 2>&1
-                $ok = ($LASTEXITCODE -eq 0)
-            } finally {
-                Pop-Location
+                Copy-Item -LiteralPath $module -Destination (Join-Path $stage 'server') -Recurse
+                Copy-Item -LiteralPath $sdk -Destination (Join-Path $stage 'extension-sdk') -Recurse
+            } catch {
+                Remove-Item -LiteralPath $stage -Recurse -Force -ErrorAction SilentlyContinue
+                throw
             }
-            if (-not $ok) {
-                $failures.Add("${name}: go $phase failed")
-                if (-not $Quiet) {
-                    Write-Information "--- ${name}: go $phase ---" -InformationAction Continue
-                    ($output | Out-String).TrimEnd() | Write-Information -InformationAction Continue
-                }
-                # The later phases would only restate the same breakage.
-                break
-            }
-            if (-not $Quiet -and $phase -eq 'test') {
-                ($output | Where-Object { $_ -match '^(ok|---|FAIL|\?)' } | Out-String).TrimEnd() |
-                    Write-Information -InformationAction Continue
-            }
+            $runIn = Join-Path $stage 'server'
         }
-    } finally {
-        if ($stage) { Remove-Item -LiteralPath $stage -Recurse -Force -ErrorAction SilentlyContinue }
+
+        try {
+            foreach ($phase in $phases) {
+                Push-Location $runIn
+                try {
+                    # -buildvcs=false because a staged module is a copy in a temp
+                    # directory with no repository above it. Go treats a VCS query
+                    # it cannot answer as a build failure, so without this every
+                    # SDK-consuming service fails the gate for a reason that has
+                    # nothing to do with its code -- and a gate that always fails
+                    # is read as broken tooling and then ignored.
+                    $goArgs = @($phase)
+                    if ($stage) { $goArgs += '-buildvcs=false' }
+                    $goArgs += './...'
+                    $output = & go @goArgs 2>&1
+                    $ok = ($LASTEXITCODE -eq 0)
+                } finally {
+                    Pop-Location
+                }
+                if (-not $ok) {
+                    $failures.Add("${name}: go $phase failed")
+                    if (-not $Quiet) {
+                        Write-Information "--- ${name}: go $phase ---" -InformationAction Continue
+                        ($output | Out-String).TrimEnd() | Write-Information -InformationAction Continue
+                    }
+                    # The later phases would only restate the same breakage.
+                    break
+                }
+                if (-not $Quiet -and $phase -eq 'test') {
+                    ($output | Where-Object { $_ -match '^(ok|---|FAIL|\?)' } | Out-String).TrimEnd() |
+                        Write-Information -InformationAction Continue
+                }
+            }
+        } finally {
+            if ($stage) { Remove-Item -LiteralPath $stage -Recurse -Force -ErrorAction SilentlyContinue }
+        }
     }
+
+} finally {
+    foreach ($tempName in $savedGoTemp.Keys) { [Environment]::SetEnvironmentVariable($tempName, $savedGoTemp[$tempName]) }
+    Remove-Item -LiteralPath $goTemp -Recurse -Force -ErrorAction SilentlyContinue
 }
 
 Write-Information ("{0} Go module(s), {1} failed" -f $modules.Count, $failures.Count) -InformationAction Continue

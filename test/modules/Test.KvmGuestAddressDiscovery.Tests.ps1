@@ -331,6 +331,7 @@ Describe 'Invoke-GuestSsh honors the unresolved-address sentinel' {
 
     BeforeAll {
         Import-Module (Join-Path -Path $PSScriptRoot -ChildPath 'Test.Ssh.psm1') -Force -DisableNameChecking -Global
+        Mock -ModuleName Test.Ssh -CommandName Get-YurunaSshPrivateKeyPath -MockWith { 'fixture-key' }
     }
 
     It 're-resolves once when the first lookup returns the bare VM name' {

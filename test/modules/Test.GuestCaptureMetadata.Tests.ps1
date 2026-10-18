@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.14
+.VERSION 2026.10.18
 .GUID 42fceff5-e96e-4072-9219-6ca416d6489c
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -68,6 +68,24 @@ Describe 'Guest archive and clone provenance' {
             $output | Should -Match 'guestProvenance.project.revisionSource=archive'
             $output | Should -Match "guestProvenance.project.tools/example-workload.sh.sha256=$digest"
             $output | Should -Not -Match 'private-source-content'
+        }
+    }
+
+    It 'hashes each installed helper at the path the seed installs it' -Skip:(-not $IsLinux) {
+        $seed = Get-Content (Join-Path $script:repo 'host/vmconfig/ubuntu.server.base.user-data') -Raw
+        $installed = @([regex]::Matches($seed, '> /target(/usr/local/[^\s]+)') | ForEach-Object { $_.Groups[1].Value })
+        $expected = [ordered]@{
+            'fetch-and-execute.sh'    = '/usr/local/lib/yuruna/fetch-and-execute.sh'
+            'yuruna-retry.sh'         = '/usr/local/lib/yuruna/yuruna-retry.sh'
+            'yuruna-fetch-context.sh' = '/usr/local/bin/yfe'
+        }
+        foreach ($path in $expected.Values) { $installed | Should -Contain $path -Because 'the seed installs every hashed helper' }
+        $fixture = "guest_evidence_hash() { printf 'HASH %s %s\n' `"`$1`" `"`$2`"; }`nguest_evidence_provenance"
+        foreach ($functions in $script:metadataFunctions) {
+            $output = Invoke-GuestMetadataFixture -Functions $functions -Fixture $fixture -FixtureHome (Get-GuestFixtureHome)
+            foreach ($name in $expected.Keys) {
+                $output | Should -Match ('(?m)^HASH installed\.{0} {1}$' -f [regex]::Escape($name), [regex]::Escape($expected[$name]))
+            }
         }
     }
 

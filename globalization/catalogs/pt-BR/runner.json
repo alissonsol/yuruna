@@ -7,6 +7,11 @@
       "sourceHash": "dfe83cd8b5988a985ad32d3947c60f072b424ac48d11494c12c7912154e72816",
       "message": "A tentativa do executor terminou com código {exitCode} porque a validação da configuração falhou. Nenhum novo ciclo de testes foi iniciado. Corrija a configuração antes de tentar novamente."
     },
+    "runner.config_value_replaced": {
+      "sourceHash": "a551b4f33b38d1775b7f5c91f0a0e4b558431ed6cfcc68bcb7aea19927aa8c21",
+      "origin": "machine",
+      "message": "test.config.yml: {path}: {previous} -> {current}. A sobreposição do modelo deve manter todos os valores que você definiu, portanto esta substituição é um defeito na sobreposição, não uma mudança de esquema; restaure o valor anterior manualmente se não foi intencional e relate o defeito."
+    },
     "runner.config_naming_backup": {
       "sourceHash": "09b1dd67cd409cdf44458eb072bee871b6590426666cf45beaf0244417b75b5e",
       "message": "Fazer backup da configuração em {backupPath}"
@@ -6025,6 +6030,16 @@
       "sourceHash": "dc3a2a7e2754b6f3dcfdd855a77cdb8fc9cda1d62aff713d484006bdd301859c",
       "message": "a ação da máquina '{name}' terminou {exit}"
     },
+    "runner.host_action_exit_detail": {
+      "sourceHash": "fadc85358a52a26851580ffee0c30777bfd00295096579ae5f2d28886205c58c",
+      "origin": "machine",
+      "message": "a ação da máquina '{name}' terminou {exit}: {detail}"
+    },
+    "runner.hypervisor_control_unresponsive": {
+      "sourceHash": "b5f2ec70194e82421f3e78f0a136a0ab08380fffb0c05e592743c785a0e72083",
+      "origin": "machine",
+      "message": "O canal de controle do hipervisor nesta máquina responde a consultas de estado, mas não atende mais às solicitações de ciclo de vida (sondagem {state}/{reason}; verbo de ciclo de vida: {lifecycle}). O ciclo para antes de construir qualquer coisa, porque cada início e parada de VM esperaria até o fim do seu tempo limite. Reinicie o aplicativo do hipervisor nesta máquina (no macOS, encerre o UTM.app na sessão da área de trabalho ou execute test/lab/Invoke-HostRefresh.ps1) e então retome o executor."
+    },
     "runner.operator_8da15c4079305665": {
       "sourceHash": "14e9a0a5d3e5397c33edbedd8998d73d81945848abc7e1c86306057a24118e65",
       "message": "Não foi possível executar a instalação de sudoers interativos: {message} -- use os passos manuais abaixo."
@@ -11158,6 +11173,21 @@
       "origin": "machine",
       "message": "Não foi possível registrar a evidência de atualização do hospedeiro deste ciclo ({reason}); a atualização automática do hospedeiro não a contabilizará."
     },
+    "runner.host_refresh_hung_hypervisor_manual_hyperv": {
+      "sourceHash": "d0f883d700be2047f7ef7bd3d0b63d4b9bdf75e6db03fff878a8e68797b09322",
+      "origin": "machine",
+      "message": "O canal de controle do hipervisor está travado e nenhum nível alcançável repara isso neste hospedeiro. Reinicie o serviço de gerenciamento do Hyper-V em um console elevado (Restart-Service vmms) ou reinicie o hospedeiro manualmente e então retome com: pwsh test/lab/Invoke-HostRefresh.ps1 -Resume. Uma retomada sem esse reparo apenas refaz a sonda e consome uma das tentativas limitadas."
+    },
+    "runner.host_refresh_hung_hypervisor_manual_kvm": {
+      "sourceHash": "ec779be2fc6140bc1745e56047085014ee51fda9634cc2fff36644c4b0a3abcf",
+      "origin": "machine",
+      "message": "O canal de controle do hipervisor está travado e nenhum nível alcançável repara isso neste hospedeiro. Reinicie os daemons do libvirt (sudo systemctl restart libvirtd) ou reinicie o hospedeiro manualmente e então retome com: pwsh test/lab/Invoke-HostRefresh.ps1 -Resume. Uma retomada sem esse reparo apenas refaz a sonda e consome uma das tentativas limitadas."
+    },
+    "runner.host_refresh_hung_hypervisor_manual_utm": {
+      "sourceHash": "b62363d5ef3d6b25b7f4fb44a216c8fd6c41528161c124fe89ace2172b51e69a",
+      "origin": "machine",
+      "message": "O canal de controle do hipervisor está travado e nenhum nível alcançável repara isso neste hospedeiro. Feche e reabra o UTM na sessão de desktop conectada ou reinicie o hospedeiro manualmente e então retome com: pwsh test/lab/Invoke-HostRefresh.ps1 -Resume. Uma retomada sem esse reparo apenas refaz a sonda e consome uma das tentativas limitadas."
+    },
     "runner.host_refresh_identity_refused": {
       "sourceHash": "303d0b942cd0597006c24c2486e537855d4dfe86e615175773cb7603ab4e3f5d",
       "origin": "machine",
@@ -11513,6 +11543,16 @@
       "origin": "machine",
       "message": "[ciclo externo {cycle}] o portão de atualização do hospedeiro liberou o runner; os ciclos são retomados."
     },
+    "runner.refresh_gate_status_ensure_failed": {
+      "sourceHash": "c76a02fb744af2f0e7cbe0561314fa97357f9f40c31c515689b7d4f4a3ea97f3",
+      "origin": "machine",
+      "message": "Start-TestRunner: não foi possível iniciar o status-service enquanto o portão retém: {message}"
+    },
+    "runner.refresh_gate_status_ensured": {
+      "sourceHash": "ad018593fe728b9fbe51e904f36639753a91b2cf11b46159e72f0455d3eacc59",
+      "origin": "machine",
+      "message": "Start-TestRunner: a atualização do hospedeiro {requestId} não tem worker ativo; o status-service foi iniciado na porta {port} para que seu painel possa mostrar e retomar a solicitação não resolvida. O início do runner continua recusado até que a solicitação seja resolvida."
+    },
     "runner.refresh_gate_unreadable": {
       "sourceHash": "66a416c9396bfbcf7a1780fa9415735f23af29722e9489863b6188151a89b797",
       "origin": "machine",
@@ -11602,6 +11642,11 @@
       "sourceHash": "18397e0114c985bd7ae7be63221704b0d73e1ccfeecf446bf90c183f17669570",
       "origin": "machine",
       "message": "Ciclo encerrado antes de {site}: a atualização do hospedeiro {requestId} retém este hospedeiro (portão {state}). Nada foi alterado; o runner aguarda a atualização."
+    },
+    "runner.refresh_status_ensure_orphaned": {
+      "sourceHash": "74450959460dac475ed385451c4b0c4e988a49325f816ce0ad60abdf246ab116",
+      "origin": "machine",
+      "message": "[ciclo externo {cycle}] a atualização do hospedeiro {requestId} retém o runner (portão {state}) e seu worker não está mais em execução; garantindo novamente o status-service para que seu painel possa mostrar e retomar a solicitação não resolvida."
     },
     "runner.refresh_status_ensure_skipped": {
       "sourceHash": "f6cf77a5a4e0f12d6e25ba8a955f38017750097e14e1a0f8631bb7d08b9f7da3",
@@ -12012,6 +12057,21 @@
       "message": "Solicitar o desligamento do convidado pelo driver do hospedeiro e aguardar a VM informar que parou",
       "origin": "machine",
       "sourceHash": "6b613cda17e48d3b6d5d324a2cd9ef816a8b7c71a914b34e65d94a4139497414"
+    },
+    "runner.temp_housekeeping_removed": {
+      "sourceHash": "dff696c2c9e5dbae75ba8fc331f0db460530cea23e41d0e41475c6a630859bac",
+      "origin": "machine",
+      "message": "A limpeza de arquivos temporários ({sweep}) removeu {removed} item(ns) remanescente(s) de {roots}."
+    },
+    "runner.preflight_tcp_failed": {
+      "sourceHash": "312a9aa9414442c95e7316cc8b7e16098594a35642f323b78bb48503a9ea1f39",
+      "message": "A conexão TCP com {hostName}:{port} falhou após {attemptCount} tentativa(s): {outcome}. Consulte os diagnósticos de rede para ver todas as tentativas.",
+      "origin": "machine"
+    },
+    "runner.preflight_network_diagnostics": {
+      "sourceHash": "de8bb1cd8c3782c6541cc40b17ea18cce988b08c975f74f0da56be69685895ad",
+      "message": "Diagnósticos de rede: {diagnostics}",
+      "origin": "machine"
     }
   }
 }

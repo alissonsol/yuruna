@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.14
+.VERSION 2026.10.18
 .GUID 42a6bdf9-496a-46e5-9f44-7ae4c1d0e643
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -53,6 +53,9 @@ Import-Module (Join-Path $PSScriptRoot 'Yuruna.Globalization.psm1') -DisableName
 
 $ErrorActionPreference = 'Stop'
 Import-Module (Join-Path $PSScriptRoot '../test/modules/Test.HostSampling.psm1') -Force
+# A folder this script names for itself is staging for the zip it delivers;
+# one the caller named is the caller's to keep.
+$stagingOwned = -not $OutputDirectory
 if (-not $OutputDirectory) { $OutputDirectory = Join-Path ([IO.Path]::GetTempPath()) ('yuruna-host-performance-' + [datetime]::UtcNow.ToString('yyyyMMddTHHmmssZ') + '-' + [guid]::NewGuid().ToString('N')) }
 if ($Worker) {
     Invoke-YurunaHostSampling -Directory $OutputDirectory -DurationSeconds $DurationSeconds -IntervalSeconds $IntervalSeconds -OwnerProcessId $OwnerProcessId
@@ -131,5 +134,6 @@ try {
     $manifest.ElapsedSeconds=$started.Elapsed.TotalSeconds
     $manifest | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath (Join-Path $OutputDirectory 'capture.json') -Encoding utf8
     Compress-Archive -LiteralPath $OutputDirectory -DestinationPath ($OutputDirectory + '.zip')
+    if ($stagingOwned) { Remove-Item -LiteralPath $OutputDirectory -Recurse -Force -ErrorAction SilentlyContinue }
     Write-Output ($OutputDirectory + '.zip')
 }

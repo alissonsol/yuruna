@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.14
+.VERSION 2026.10.18
 .GUID 42a7417f-269d-7411-6f6f-5a366471b90c
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -19,6 +19,17 @@
 # locale: he-IL  domain: remediation
 
 @{
+    'remediation.hypervisor_unresponsive_action_evidence' = 'קראו את ⁦utm-control-snapshot.*.json⁩ ואת ⁦utm-log-show.*.txt⁩ בתיקיית המחזור: מזהה תהליך או זמן התחלה של UTM שהשתנו באמצע המחזור מעידים על קריסה והפעלה מחדש, וקטע היומן המאוחד מציין מה קדם לכך'
+    'remediation.hypervisor_unresponsive_action_restart' = 'הפעילו מחדש את יישום הבקרה של ההיפרווייזר במארח: ב-macOS צאו מ-⁦UTM.app⁩ מתוך הפעלת שולחן העבודה (או הריצו ⁦test/lab/Invoke-HostRefresh.ps1⁩), ואז ודאו ש-⁦`utmctl stop`⁩ על מכונה וירטואלית עצורה חוזר מיד'
+    'remediation.hypervisor_unresponsive_action_resume' = 'חדשו את פעולת המריץ ברגע שפועל מחזור חיים חוזר לענות; המחזור הבא בודק את ערוץ הבקרה לפני שהוא בונה דבר'
+    'remediation.hypervisor_unresponsive_rationale' = @(
+        'hypervisor_unresponsive: ערוץ הבקרה של ההיפרווייזר הפסיק לבצע בקשות מחזור חיים בעודו ממשיך לענות לשאילתות מצב, ולכן כל הפעלה, עצירה ומחיקה של מכונה וירטואלית ממתינה עד תום פסק הזמן שלה, ושום דבר שמחזור עושה אינו יכול לשקם זאת. ניסיון חוזר חוזר על אותם פסקי זמן; את היישום שבבעלותו הערוץ יש להפעיל מחדש במארח, וזאת יכולה לעשות רק הפעלת שולחן עבודה או רענון מארח.'
+        @{
+            'arg' = 'detail'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+    )
     'remediation.operator_00fd2209b1a993b2' = 'בדקו את ⁦last_failure.json⁩ ידנית'
     'remediation.operator_01b3c9512f168859' = @(
         'console_flooded ב-'

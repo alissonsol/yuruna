@@ -77,6 +77,17 @@ the lab's declared services and **holds** the cycle -- the same parked state the
 returns. A service this host has never reached never holds, so a host with no
 stash still fails fast rather than parking.
 
+Each cycle also starts with temp housekeeping, which never fails the cycle. It
+removes the entries a killed .NET process leaves in the temp folder
+(`clr-debug-pipe-*`, `dotnet-diagnostic-*` and `CoreFxPipe_PSHost.*`) once the
+process that created them is gone, and the harness's own temp names after they
+are 12 hours old. The names are an allowlist (`Get-YurunaStaleTempPattern` in
+`automation/Yuruna.Common.psm1`), such as `yuruna-browser-profile-*` and the
+seed folders, plus stale `tmp*.tmp` files that carry a PowerShell transcript
+header; nothing outside it is touched. On Linux and macOS both sweeps remove
+only entries owned by the account that runs the harness, and the runner logs
+how many each removed.
+
 <a id="42d38664-0004"></a>
 
 ## Modes
@@ -140,6 +151,7 @@ source searches and status-UI click-throughs land on their exported entry point.
 | `Test.ScreenshotProvider` | Screenshot-capture provider registry + `Repair-ScreenshotRing` |
 | `Test.OcrEngine` / `Test.Tesseract` | Pluggable [OCR providers](ocr.md) and the Tesseract locate / install / invoke helpers |
 | `Test.OcrMatch`        | OCR-tolerant normalization and matching (confusion groups) + the multi-engine combiner |
+| `Test.OcrPath`         | `Resolve-OcrImagePath` -- copies a capture to a short temporary path when the real one is past a native OCR engine's path ceiling; shared by the Tesseract and WinRT providers |
 | `Test.Ssh`             | Per-guest SSH keys, the mandatory host-key options, and the `ssh` / `scp` helpers |
 
 **Host platform** -- what this machine is, and what it must be for a cycle to run:
@@ -153,7 +165,10 @@ source searches and status-UI click-throughs land on their exported entry point.
 | `Test.HostGit`         | Cycle-start framework update (`Invoke-GitPull`), HEAD short hashes, verified project clone replacement, Windows file-locker PID diagnosis after `Remove-Item` failures (Restart Manager / PEB current-directory scanner), repository-access answers for pool UIs (`Get-HostRepositoryAccess`), and on-demand PSGallery installs (`powershell-yaml`, `PSScriptAnalyzer`) PowerShell 7 does not ship |
 | `Test.HostAutomationState` | Records each host knob's prior value before `Enable-TestAutomation` writes it, so `Disable` can restore rather than guess |
 | `Test.HostFacts`       | The machine's own hardware facts in the shape `/control/host-facts` serves them, including the storage-counting rules |
+| `Test.HostSampling`    | Bounded host performance evidence retained independently of the inner runner: counter inventory, power status, VM snapshots and the VM livelock verdict (`Start-YurunaHostSampling`, `Get-YurunaVmLivelockVerdict`) |
+| `Test.HostMetricsExporter` | Converges the Windows host-metrics exporter, the per-host Prometheus endpoint for memory commit, CPU, disk and Hyper-V VM state: package acquisition, service, firewall rule and probe (`Set-YurunaHostMetricsExporter`). Best-effort; never throws |
 | `Test.HostIdentity`    | Hardware fingerprint + the operator-confirmed uuid reclaim that keeps a reimaged host's pool history from forking |
+| `Test.HostIdentitySeed` | `Resolve-SeededHostId` -- the hardware-derived seed for a new `host.uuid`, derived only when needed, with a random fallback when hardware is unavailable or `YURUNA_HOST_ID_SEED` is `random` |
 | `Test.HostAddressBeacon` | Push half of address discovery: re-announces this host when its address changes instead of waiting for the aggregator's pull |
 | `Test.VMUtility`       | Cross-host VM helpers shared by every Yuruna.Host driver |
 | `Test.ServiceVm`       | Service-VM roster and the reachability probe that brings them back after a host reboot; the Preserve/Repair policy that decides what an unknown state means (`Test-YurunaServiceVmRunning`), and restoration that carries each probe's reason, skips a service an operator stopped, and verifies the consumer endpoint within a shared deadline |
@@ -175,7 +190,9 @@ source searches and status-UI click-throughs land on their exported entry point.
 | `Test.RunnerWatchdog`  | Out-of-process step-heartbeat watchdog; kills a wedged inner |
 | `Test.RunnerHeartbeat` | Threadpool-timer process heartbeat, which keeps ticking while the runspace blocks |
 | `Test.RunnerState`     | Explicit outer-runner state machine with persisted state + NDJSON transition events |
+| `Test.RunnerAttemptHistory` | Per-attempt evidence directories under `runner-attempts/`, outer-loop fault artifacts, and the bounded history index rebuilt from retained evidence (`Update-RunnerAttemptHistory`) |
 | `Test.RunnerElevation` | Launch-time elevation contract: resolve it once while an operator is present, or refuse to start |
+| `Test.PrivateStateRepair` | `Repair-YurunaStartupPrivateState` -- recovers private-state permissions at runner or status-service startup; elevates only on an explicit interactive request and never prompts an unattended caller |
 | `Test.SingleInstance`  | Pidfile guard shared by the runner trio (`Get-RunnerInstanceState`, `Stop-StaleRunner`); the process-table builder and identity classifier that decide which runner processes a repair may stop, the refresh gate that holds spawns during a repair, the handoff token and readiness acknowledgment that bring the runner back, and the persisted launch record a resumed runner starts from |
 | `Test.InnerSpawn`      | `New-InnerRunnerArgList` -- type-preserving `pwsh -Command` argv builder for the outer->inner spawn and `Invoke-TestProject`; `Start-YurunaDetachedProcess`, which starts a worker that outlives its launcher and confirms it with a handshake |
 | `Test.Recovery`        | Boot-time sweep that detects and archives every stale state class a crashed cycle left behind; its refresh-preservation mode keeps operator controls and the reclaimed runner's records when a repair restarts the runner |
@@ -205,7 +222,11 @@ source searches and status-UI click-throughs land on their exported entry point.
 | `Test.YurunaDir`       | Resolves and creates `$env:YURUNA_LOG_DIR` / `$env:YURUNA_RUNTIME_DIR` |
 | `Test.Status`          | `status.json` lifecycle, including the nested-cycle lock |
 | `Test.EventSchema`     | Validates every NDJSON record at the emit site, so a field typo is caught before it lands on disk |
+| `Test.Message`         | The versioned message envelope that crosses a process, persistence or network boundary: one namespaced code, typed JSON-safe arguments and a bounded, redacted detail (`New-MessageEnvelope`, `Test-MessageEnvelope`), plus the one converter for legacy fields |
+| `Test.Locale`          | Locale decisions: the supported-locale manifest, canonical tags, `Accept-Language` selection and the immutable context for one cycle, command or request (`New-LocaleContext`) |
+| `Test.Catalog`         | Renders a message key from the compiled catalogs in a resolved locale, with plural categories and locale number formatting (`Format-CatalogMessage`) |
 | `Test.Perf`            | One JSONL perf row per step execution, one file per cycle |
+| `Test.PerfAggregate`   | Groups perf rows by sequence invocation, counting enclosing work once, and matches a checkpoint to its execution (`ConvertTo-PerfSequenceAggregate`, `Find-PerfCheckpoint`) |
 | `Test.Provenance`      | Reads the base-image provenance sidecar `Get-Image.ps1` writes |
 | `Test.FrameworkSource` | Which framework snapshot a service VM was built from, and whether the guest fell back to the public mirror |
 | `Test.PortOwner`       | `Get-PortListenerPid` (Windows HTTP.sys + Unix lsof) + `Resolve-PortOrphan` for the status-service port |
@@ -221,7 +242,12 @@ source searches and status-UI click-throughs land on their exported entry point.
 | `Test.Remediation`     | Failure-class -> recovery dispatcher (`Register-RecoveryHandler`) -- see [Failure schema](failure-schema.md) |
 | `Test.GuestQuarantine` | Per-guest circuit breaker: N same-class failures quarantine that guest, with host-scoped classes excluded |
 | `Test.Diagnostic`      | Post-failure guest capture and its strategy chain -- see [Per-cycle diagnostic capture](#per-cycle-diagnostic-capture) |
+| `Test.DiagnosticPreservation` | The durable failed-VM hold (`diagnostic-preserve.json`): recorded before capture can throw or hang, it parks the runner before recovery or VM cleanup until the operator releases the evidence |
+| `Test.GuestNetworkCrossCheck` | Host-side probe of the caching proxy and the guest after a failure, which tells a guest that lost its address from a proxy that stopped answering (`network-cross-check.json`); never throws |
 | `Test.SnapshotManifest`| Snapshot sidecars, so a restore can refuse a snapshot it does not recognize |
+| `Test.RecoveryContract` | The one result shape every entry point returns -- outcomes, runner fault classes, recovery states, failure fingerprint, redaction, evidence and step results -- and its best-effort persistence |
+| `Test.RecoveryLedger`  | The append-only `recovery.ledger.ndjson` that bounds what the runner repairs on its own, the registry of repairs and the protocol that runs one: write before act, and an unreadable ledger counts as an exhausted budget |
+| `Test.RecoveryActions` | The three repairs registered on the ledger (`Register-BuiltinRecoveryAction`): move a stale git lock aside, retry the project clone, and end the failure pause early |
 | `Test.CredentialProvider` | Test-only inspection / repair helpers over the [component-login registry](authentication.md#component-registry-login) |
 
 **Pool and lab** -- everything that is only meaningful with more than one machine:
@@ -256,8 +282,12 @@ source searches and status-UI click-throughs land on their exported entry point.
 | `Test.StateFile`       | Atomic sidecar writer -- see [State sidecars](#state-sidecars) |
 | `Test.CriticalRecord`  | Checksummed, generation-numbered private records with a retained previous generation and bounded, flushed writes (process-crash durability), for state that authorizes a mutation |
 | `Test.Hash`            | Byte array -> lowercase hex, so every hashing caller shares one encoding |
+| `Test.CanonicalJson`   | `ConvertTo-CanonicalApprovalJson` -- one deterministic JSON text (ordinal key order, invariant-culture numbers, no insignificant whitespace) for digests compared byte for byte |
+| `Test.LocalizationExchange` | The localization exchange's row model -- terms, messages, documents and project scalars as rows with one identity and one source digest -- and the request digest that binds an answer to its request |
 | `Test.Assert`          | The suite assertion vocabulary and test scaffolds -- see [One assertion vocabulary](#one-assertion-vocabulary). Imported by suites only, never by harness code |
 | `Test.MacUtmFakeHost`  | Test support: a stand-in macOS/UTM host (fake `utmctl`, `osascript`, `pgrep` and friends) for the macOS driver suites `Test.MacVirtualizationResponsive`, `Test.MacUtmLifecycle` and `Test.MacUtmBoundedNative`. Imported by suites only |
+| `Test.CatalogSource`   | Test support: `Get-CatalogSourceMessage` resolves the literal catalog keys in an inspected source body to their compiled English text. Imported by suites only |
+| `Test.ProductGlobalization` | Test support: `Invoke-ProductGlobalizationCheck` runs a product's own Node, Go or Pester checks and fails when a test process or a required row fails. Imported by suites only |
 
 <a id="42d38664-0006"></a>
 
@@ -433,9 +463,11 @@ rule, including the three placements that look like the trap and are correct.
 
 ## Running the suites
 
-The suite runner requires Pester 5.x (version 5.9.1 is the documented install
-version). Suites use `BeforeAll`/`AfterAll` for execution setup and cleanup
-across the discovery/run boundary. Pester 4 is not a supported runner.
+The suite runner requires Pester 6.x (version 6.2.0 is the documented install
+version), the same line the pre-commit test pass requires; the host installers
+install the newest 6.x. See [Pester install](install.md#pester-install).
+Suites use `BeforeAll`/`AfterAll` for execution setup and cleanup across the
+discovery/run boundary. Pester 5 and 4 are not supported runners.
 
 The suites are **not** part of a test cycle. They run beside the harness:
 
@@ -449,6 +481,18 @@ One process per suite, so one suite's imports, global state or crash cannot
 color another's result. Each child sets a `PesterConfiguration` and then invokes
 the suite with the call operator rather than `Invoke-Pester -Path`, which is
 what keeps the file-scope-fixture suites working while still emitting NUnit XML.
+
+**Each suite runs in a temp folder of its own.** The runner creates a
+`yrn-suite-<id>` folder under the run's `yrn-run-<id>` master (which sits under
+`/tmp` on Linux and macOS, in the user temp folder on Windows) and points
+`TMPDIR`, `TMP` and `TEMP` at it, so the suite, Pester's `TestDrive` and every
+process the suite starts write there. The folder is kept until the run ends,
+including after a timeout or a cancellation kill, and the run's master folder
+is removed then; a folder that resists removal is named in a warning. The runner
+also sets `DOTNET_EnableDiagnostics=0`, so a killed suite process leaves no .NET
+debugger pipes or diagnostic socket behind. `tools/_InvokeOneSuite.ps1` does the
+same for itself when it runs directly. After the last suite, the runner applies
+the same temp housekeeping a test cycle does.
 
 **On Windows, run the suites from an elevated PowerShell that has Git for Windows'
 `usr\bin` on `PATH`.** Elevation: some suites create symbolic links or rewrite the
@@ -1217,8 +1261,9 @@ call. Each sample replaces
 5 MiB cap also apply here. Each POST has a 6-second limit plus kill grace;
 failed uploads remain visible in the next sample and local `status` file. The
 final upload marks the recorder stopped. Local samples remain in the private
-`/tmp/yuruna-fae-recorder.*` directory named in the execution log until guest
-cleanup. Without a status endpoint, local recording still works.
+`/tmp/yuruna-fae-recorder.*` directory named in the execution log until the
+next invocation on that guest removes the directory and profile the previous
+log names, or until guest cleanup. Without a status endpoint, local recording still works.
 
 After a slow or failed invocation, `fetch-and-execute.<id>.evidence.json` and the
 `step_end` execution evidence record distinguish SSH timeout, missing trace,
@@ -1231,8 +1276,7 @@ VM", so the guest may be mid-reboot when `Save-GuestDiagnostic` runs.
 Without a real-handshake gate, the call would either bail at
 `Get-GuestAddress` (empty per-guest folder) or write a near-useless
 file whose body is just the SSH connection error (a port-22-open but
-sshd-still-binding "half-up sshd" race -- see
-`feedback_save_diag_post_reboot.md`). `Wait-SshReady` polls a real
+sshd-still-binding "half-up sshd" race). `Wait-SshReady` polls a real
 `echo yuruna-ssh-ready` handshake and re-resolves `Get-GuestAddress`
 each iteration, so a late-binding KVP entry on the Hyper-V External
 vSwitch is picked up automatically. On timeout, the SSH rungs are skipped
@@ -1301,6 +1345,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.14
+Last review: 2026.10.18
 
 Back to [Yuruna](../README.md)

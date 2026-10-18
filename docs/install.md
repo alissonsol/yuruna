@@ -272,16 +272,29 @@ Two ways an innocent PID reaches the candidate list:
   installer's own log `tee` (SIGPIPE with no PIPE trap installed -- the
   installer dies) or its sudo keepalive.
 
-Gating on the executable name closes both: `pwsh` for every real
-target; `bash` / `tee` / `sleep` / ... for everything that must NOT be
-touched. The bash installers read `ps -o comm=` -- the executable name,
+Gating on the executable name closes the second, and the first whenever
+the recycled PID now belongs to anything but PowerShell: `pwsh` for
+every real target; `bash` / `tee` / `sleep` / ... for everything that
+must NOT be touched. The bash installers read `ps -o comm=` -- the executable name,
 NOT argv, which the launch path contaminates with the pattern names --
 using `-ww` so BSD/macOS `ps` does not truncate the output when no TTY
-is attached (the `feedback_bsd_ps_args_truncation` trap class). An
+is attached. An
 empty `comm` for a LIVE pid means `ps` could not report it; the pid is
 kept rather than silently disabling the stop (a degrade to the
 pre-validation behavior). This mirrors the PowerShell side's
 PID-identity check (the `Start-TestRunner.ps1` stale-pid guard).
+
+The executable name cannot tell a runner from an unrelated PowerShell
+process that inherited its PID -- the shell that launched the
+installer among them. So a PID read from a pidfile must also still
+belong to its owner: the process runs one of the channel-2 scripts, or
+it started, within two seconds, when the `.start` record beside the
+pidfile says (`runner.start` from the outer runner, `inner.start` from
+the inner loop, both ISO-8601 UTC). `server.pid` has no start record,
+so the status service is matched by its command line alone. Windows
+reads the command line from one `Win32_Process` listing, which also
+serves channel 2, and the start time from `Get-Process`; the bash
+installers read `ps -o args=` and `ps -o lstart=`.
 
 <a id="429fb30b-000c"></a>
 
@@ -543,6 +556,32 @@ installer installs `powershell-yaml` (CurrentUser scope,
 and re-exported via `Test.HostContract`) is still called from
 `Enable-TestAutomation.ps1` as a safety net for manual-clone
 bootstraps.
+
+<a id="429fb30b-003b"></a>
+
+### Pester install
+
+The host installers run [`tools/Install-TestModule.ps1`](../tools/Install-TestModule.ps1),
+which installs the newest Pester **6.x** for the CurrentUser scope; 6.2.0 is the
+documented version. The suite runner loads that line (see
+[Running the suites](test-harness.md#running-the-suites)), and the pre-commit
+test pass requires it on the host.
+
+The installer removes nothing. An older Pester left on the host is never
+selected: `tools/Invoke-TestSuite.ps1` and `tools/_InvokeOneSuite.ps1` import
+the newest 6.x by its resolved path. A bare `Invoke-Pester` loads the newest
+installed copy, whichever line it is on, so run the suites through the runner.
+
+PSScriptAnalyzer is installed alongside them when it is absent. A failure reaches
+the installer's closing summary, and the installer keeps going.
+
+A commit that stages a test file is refused from a host that has `pwsh` but no
+Pester 6.x. The refusal names the command that installs the documented version
+by hand:
+
+```
+Install-Module Pester -RequiredVersion 6.2.0 -Scope CurrentUser -SkipPublisherCheck
+```
 
 ---
 
@@ -1175,6 +1214,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.14
+Last review: 2026.10.18
 
 Back to [Yuruna](../README.md)

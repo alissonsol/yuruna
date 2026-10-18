@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.10.14
+# Version: 2026.10.18
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 # See https://yuruna.link/42e220c4-0005
@@ -200,7 +200,11 @@ VERSION_STR=$(cat "$REPO_DIR/VERSION" 2>/dev/null | head -n1 | tr -d '[:space:]'
 echo ""
 echo -e "\e[1;36m==== Building pool-control-service ($VERSION_STR) from $SERVER_DIR ====\e[0m"
 BUILD="$(yuruna_service_stage "$SERVER_DIR" 'pool-control-service')"
-trap 'rm -rf -- "$BUILD"' EXIT
+# One EXIT trap for every temp path this script makes: the configuration seed
+# below is created later, and a set -e abort between its mktemp and its own
+# removal would otherwise leave it in this long-lived VM's /tmp.
+SEED_TMP=""
+trap 'rm -rf -- "$BUILD"; [ -z "${SEED_TMP:-}" ] || sudo -u "$SERVICE_USER" rm -rf -- "$SEED_TMP"' EXIT
 yuruna_service_build "$BUILD" 'pool-control-service' "$VERSION_STR"
 
 # --- REGION: Install the binary

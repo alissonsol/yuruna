@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.14
+.VERSION 2026.10.18
 .GUID 4253a1e0-9103-4f16-8461-710adf91da65
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -90,6 +90,20 @@ BeforeAll {
 
 AfterAll {
     foreach ($dir in $script:Created) { Remove-YurunaTestTempDir $dir }
+}
+
+BeforeDiscovery {
+    $script:SymlinkPermitted = $false
+    $probeRoot = Join-Path ([System.IO.Path]::GetTempPath()) ('yuruna-link-probe-' + [guid]::NewGuid().ToString('N'))
+    try {
+        $null = New-Item -ItemType Directory -Path (Join-Path $probeRoot 'target') -Force
+        $null = New-Item -ItemType SymbolicLink -Path (Join-Path $probeRoot 'link') -Target (Join-Path $probeRoot 'target') -ErrorAction Stop
+        $script:SymlinkPermitted = $true
+    } catch {
+        $script:SymlinkPermitted = $false
+    } finally {
+        Remove-Item -LiteralPath $probeRoot -Recurse -Force -ErrorAction SilentlyContinue
+    }
 }
 
 Describe 'Get-VirtualizationRepairRung: shape and completeness' {
@@ -557,7 +571,7 @@ Describe 'Resolve-HostRefreshContext' {
         Assert-True (@($context.Observation) -contains 'private-root-absent')
     }
 
-    It 'canonicalizes an explicit configuration reached through a link' {
+    It 'canonicalizes an explicit configuration reached through a link' -Skip:(-not $script:SymlinkPermitted) {
         $fixture = New-ContextFixture
         $alias = Join-Path $fixture.Root 'alias'
         $null = New-Item -ItemType SymbolicLink -Path $alias -Target (Split-Path -Parent $fixture.Config)
@@ -759,6 +773,63 @@ Describe 'Write-HostRefreshLog' {
         } finally {
             if ($saved.Present) { $env:YURUNA_RUNTIME_DIR = $saved.Value } else { Remove-Item -LiteralPath Env:YURUNA_RUNTIME_DIR -ErrorAction SilentlyContinue }
         }
+    }
+}
+
+Describe 'Write-HostRefreshSummary hung-hypervisor guidance' {
+    BeforeEach {
+        $script:SummaryKeys = [System.Collections.Generic.List[string]]::new()
+        Mock -ModuleName Test.HostRefresh Write-HostRefreshLog { $script:SummaryKeys.Add($Key) }
+    }
+    # The summary fixture: a terminal still-unresponsive worker result whose
+    # hung-repair rungs were all skipped, the shape the ladder leaves when a
+    # hung control channel sits outside what this host can repair.
+    BeforeAll {
+        function New-HungSummaryResult {
+            [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+                Justification = 'Test fixture: builds an in-memory worker-result object; no system state.')]
+            [CmdletBinding()]
+            param([string]$HostType = 'host.windows.hyper-v', [object[]]$Rungs = $null, [string]$ProbeReason = 'timeout', [string]$Verdict = 'still-unresponsive')
+            if ($null -eq $Rungs) {
+                $Rungs = @(
+                    [pscustomobject]@{ order = 0; name = 'probe'; outcome = 'succeeded'; reason = $ProbeReason }
+                    [pscustomobject]@{ order = 3; name = 'restart-if-hung'; outcome = 'skipped'; reason = 'outside-ceiling' }
+                    [pscustomobject]@{ order = 4; name = 'restart-broker'; outcome = 'skipped'; reason = 'outside-ceiling' }
+                    [pscustomobject]@{ order = 7; name = 'reboot'; outcome = 'skipped'; reason = 'outside-ceiling' }
+                )
+            }
+            return [pscustomobject]@{
+                hostType = $HostType; plan = $null
+                finalProbe = [pscustomobject]@{ state = 'Unresponsive'; reason = $ProbeReason; elapsedMs = 19037 }
+                initialProbe = $null; runnerStatus = 'AliveOwned'; context = $null; rungs = $Rungs
+                verdict = $Verdict; requestId = 'r1'; attempt = 1; state = 'recovery-pending'
+                obligations = @(); operatorAction = 'resume-request'; operatorInstruction = @()
+            }
+        }
+    }
+    It 'names the by-hand remedy when still-unresponsive and no hung-repair rung ran' {
+        Write-HostRefreshSummary -Result (New-HungSummaryResult)
+        Assert-True (@($script:SummaryKeys) -contains 'runner.host_refresh_hung_hypervisor_manual_hyperv') 'the Hyper-V manual remedy is named'
+    }
+    It 'names each host type its own remedy' {
+        Write-HostRefreshSummary -Result (New-HungSummaryResult -HostType 'host.ubuntu.kvm')
+        Assert-True (@($script:SummaryKeys) -contains 'runner.host_refresh_hung_hypervisor_manual_kvm') 'the KVM manual remedy is named'
+        $script:SummaryKeys.Clear()
+        Write-HostRefreshSummary -Result (New-HungSummaryResult -HostType 'host.macos.utm')
+        Assert-True (@($script:SummaryKeys) -contains 'runner.host_refresh_hung_hypervisor_manual_utm') 'the UTM manual remedy is named'
+    }
+    It 'stays quiet when a hung-repair rung actually ran' {
+        $rungs = @(
+            [pscustomobject]@{ order = 0; name = 'probe'; outcome = 'succeeded'; reason = 'timeout' }
+            [pscustomobject]@{ order = 3; name = 'restart-if-hung'; outcome = 'failed'; reason = 'restart-failed' }
+        )
+        Write-HostRefreshSummary -Result (New-HungSummaryResult -Rungs $rungs)
+        Assert-Equal 0 @($script:SummaryKeys | Where-Object { $_ -like 'runner.host_refresh_hung_hypervisor_manual_*' }).Count 'a rung that ran owns the story'
+    }
+    It 'stays quiet for an app-stopped probe and for a verdict that is not still-unresponsive' {
+        Write-HostRefreshSummary -Result (New-HungSummaryResult -ProbeReason 'app-stopped')
+        Write-HostRefreshSummary -Result (New-HungSummaryResult -Verdict 'repaired')
+        Assert-Equal 0 @($script:SummaryKeys | Where-Object { $_ -like 'runner.host_refresh_hung_hypervisor_manual_*' }).Count -Because 'a stopped app and a repaired host need no manual remedy'
     }
 }
 

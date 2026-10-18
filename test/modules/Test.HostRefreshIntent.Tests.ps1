@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.14
+.VERSION 2026.10.18
 .GUID 42e5f6a7-8b9c-4d0e-af1a-2b3c4d5e6f7a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -41,7 +41,9 @@ BeforeAll {
     $script:Pwsh = (Get-Process -Id $PID).Path
     $script:Created = [System.Collections.Generic.List[string]]::new()
     # One temp directory per run (TMPDIR decides where), removed in AfterAll.
-    $script:ScratchBase = New-YurunaTestTempDir -Prefix 'yuruna-host-refresh-intent'
+    # Short names keep the journal's temp file under the 260-character Windows
+    # path limit inside the coordinator's nested temp folders.
+    $script:ScratchBase = New-YurunaTestTempDir -Prefix 'hr-intent'
     $script:Created.Add($script:ScratchBase)
 
     # The runner gate reader the admission path resolves by name. A test
@@ -68,7 +70,7 @@ BeforeAll {
         [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
             Justification = 'Test fixture: creates a scratch home and points the module at it.')]
         param()
-        $dir = Join-Path $script:ScratchBase ('intent-' + [Guid]::NewGuid().ToString('N'))
+        $dir = Join-Path $script:ScratchBase ('intent-' + [Guid]::NewGuid().ToString('N').Substring(0, 12))
         $null = New-Item -ItemType Directory -Path $dir -Force
         $runtime = Join-Path $dir 'runtime'
         $null = New-Item -ItemType Directory -Path $runtime -Force

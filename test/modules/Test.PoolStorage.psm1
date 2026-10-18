@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.14
+.VERSION 2026.10.18
 .GUID 42273fc7-eee1-4ff4-9191-32ad482e41dd
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -994,7 +994,7 @@ function ConvertTo-PoolStorageBool {
 
 <#
 .SYNOPSIS
-Returns a normalized pool config object, or $null when the feature is OFF (any of networkPath/networkUser/localPath empty); the object's MoveLogs field carries networkStorage.moveLogsToPoolStorage. Accepts an already-parsed config (IDictionary), else reads test.config.yml via Read-TestConfig using a RESOLVED path ($env:YURUNA_CONFIG_PATH) -- never with the path omitted, because Read-TestConfig's Mandatory $Path would stall forever on the interactive parameter prompt under the headless runner (see feedback_byname_detection_mandatory_param_prompt_hang).
+Returns a normalized pool config object, or $null when the feature is OFF (any of networkPath/networkUser/localPath empty); the object's MoveLogs field carries networkStorage.moveLogsToPoolStorage. Accepts an already-parsed config (IDictionary), else reads test.config.yml via Read-TestConfig using a RESOLVED path ($env:YURUNA_CONFIG_PATH) -- never with the path omitted, because Read-TestConfig's Mandatory $Path would stall forever on the interactive parameter prompt under the headless runner.
 .DESCRIPTION
 The three populated paths ARE the opt-in to archiving: a host that names a share, an
 account and a mount point has asked for its cycles to reach that share. MoveLogs then
@@ -2148,69 +2148,33 @@ function Format-PoolStorageSize {
 # script: move mode calls the function directly and in-process, so a lock held
 # only by the script would leave the synchronous mover free to race a detached
 # drain still working through a backlog from an earlier cycle -- one deleting
-# local folders the other is mid-copy from.
-function Get-PoolStorageProcessStart {
-    param([int]$ProcId)
-    try { return ((Get-Process -Id $ProcId -ErrorAction Stop).StartTime.ToUniversalTime().Ticks) } catch { return $null }
-}
+# local folders the other is mid-copy from. The lock file itself is Yuruna.Common's
+# PID-file lock, which the push forwarder takes too.
 
-function Test-PoolStorageLockHeldLive {
-    [CmdletBinding()]
-    [OutputType([bool])]
-    param([Parameter(Mandatory)][string]$Path)
-    try { $j = (Get-Content -Raw -LiteralPath $Path -ErrorAction Stop) | ConvertFrom-Json -ErrorAction Stop } catch { return $false }
-    if (-not $j.pid) { return $false }
-    $liveStart = Get-PoolStorageProcessStart -ProcId ([int]$j.pid)
-    if (-not $liveStart) { return $false }                          # PID not running -> stale
-    if (-not $j.startTicks) { return $false }                       # no recorded start -> identity unprovable, treat as stale/reclaimable
-    # Process.StartTime on Unix has sub-millisecond cross-process rounding.
-    if ([Math]::Abs([long]$liveStart - [long]$j.startTicks) -gt [TimeSpan]::TicksPerSecond) { return $false } # PID reused -> stale
-    return $true
-}
-
-function Add-PoolStorageLockFile {
-    [CmdletBinding()]
-    [OutputType([bool])]
-    param([Parameter(Mandatory)][string]$Path, [Parameter(Mandatory)][string]$Body)
-    try {
-        $fs = [System.IO.File]::Open($Path, [System.IO.FileMode]::CreateNew, [System.IO.FileAccess]::Write, [System.IO.FileShare]::Read)
-        try { $b = [System.Text.Encoding]::UTF8.GetBytes($Body); $fs.Write($b, 0, $b.Length) } finally { $fs.Dispose() }
-        return $true
-    } catch { return $false }   # already exists (or unwritable) -> not acquired
-}
-
-<#
-.SYNOPSIS
-Acquires runtime/poolstorage.drain.lock, reclaiming it once when stale. Returns $true when the caller owns the lock and must release it.
-#>
 function Enter-PoolStorageDrainLock {
+    <#
+    .SYNOPSIS
+    Acquires runtime/poolstorage.drain.lock, reclaiming it once when stale. Returns $true when the caller owns the lock and must release it.
+    #>
     [CmdletBinding()]
     [OutputType([bool])]
     param([Parameter(Mandatory)][string]$RuntimeDir)
     if (-not (Test-Path -LiteralPath $RuntimeDir)) { New-Item -ItemType Directory -Force -Path $RuntimeDir | Out-Null }
-    $lockPath = Join-Path $RuntimeDir 'poolstorage.drain.lock'
-    $lockBody = (@{ pid = $PID; startTicks = (Get-PoolStorageProcessStart -ProcId $PID) } | ConvertTo-Json -Compress)
-    if (Add-PoolStorageLockFile -Path $lockPath -Body $lockBody) { return $true }
-    if (Test-PoolStorageLockHeldLive -Path $lockPath) { return $false }
-    Remove-Item -LiteralPath $lockPath -Force -ErrorAction SilentlyContinue
-    return (Add-PoolStorageLockFile -Path $lockPath -Body $lockBody)
+    return (Enter-YurunaPidFileLock -Path (Join-Path $RuntimeDir 'poolstorage.drain.lock'))
 }
 
-<#
-.SYNOPSIS
-Releases the drain lock, but only when this process still owns it -- so a stale-lock reclaim by another drain cannot have us delete its newer lock.
-#>
 function Exit-PoolStorageDrainLock {
+    <#
+    .SYNOPSIS
+    Releases the drain lock, but only when this process still owns it -- so a stale-lock reclaim by another drain cannot have us delete its newer lock.
+    #>
     [CmdletBinding(SupportsShouldProcess)]
     [OutputType([bool])]
     param([Parameter(Mandatory)][string]$RuntimeDir)
     $lockPath = Join-Path $RuntimeDir 'poolstorage.drain.lock'
     if (-not (Test-Path -LiteralPath $lockPath)) { return $true }
     if (-not $PSCmdlet.ShouldProcess($lockPath, (Format-YurunaOperatorMessage -Key 'runner.operator_b44432b7c8a18687'))) { return $false }
-    $owner = 0
-    try { $owner = [int](((Get-Content -Raw -LiteralPath $lockPath -ErrorAction Stop) | ConvertFrom-Json -ErrorAction Stop).pid) } catch { $owner = 0 }
-    if ($owner -eq $PID) { Remove-Item -LiteralPath $lockPath -Force -ErrorAction SilentlyContinue }
-    return $true
+    return (Exit-YurunaPidFileLock -Path $lockPath)
 }
 
 <#

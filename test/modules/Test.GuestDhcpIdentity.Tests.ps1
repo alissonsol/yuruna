@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.14
+.VERSION 2026.10.18
 .GUID 4223adbe-1c67-4f91-9007-d00e25adf8ec
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -99,6 +99,26 @@ BeforeAll {
         }
         return $out
     }
+
+    # The keys of one YAML mapping: the lines at the indentation of the line
+    # at $Index, inside the contiguous run of lines indented at least that
+    # deep. Comments and blank lines do not end the run, so a why-comment
+    # between two keys of one interface entry keeps them siblings.
+    function Get-YamlSiblingLine {
+        param([string[]]$Lines, [int]$Index)
+        $indent = [regex]::Match($Lines[$Index], '^[ \t]*').Value.Length
+        $leaves = {
+            param($line)
+            ($line -notmatch '^\s*(#|$)') -and ([regex]::Match($line, '^[ \t]*').Value.Length -lt $indent)
+        }
+        $first = $Index
+        while ($first -gt 0 -and -not (& $leaves $Lines[$first - 1])) { $first-- }
+        $last = $Index
+        while ($last -lt ($Lines.Count - 1) -and -not (& $leaves $Lines[$last + 1])) { $last++ }
+        return @($Lines[$first..$last] | Where-Object {
+            ($_ -notmatch '^\s*(#|$)') -and ([regex]::Match($_, '^[ \t]*').Value.Length -eq $indent)
+        })
+    }
 }
 
 Describe 'the shared guest DHCP identity file' {
@@ -115,6 +135,10 @@ Describe 'the shared guest DHCP identity file' {
         # happens to use would pass a single-host check and leak on the others.
         @([regex]::Matches($text, '(?m)^\s*dhcp-identifier:\s*mac\s*$')).Count |
             Should -Be 2 -Because 'both interface families must carry the pin'
+        # The kernel expires a DHCP address by its own clock; critical keeps
+        # the lifetime open so only the lease can drop the address.
+        @([regex]::Matches($text, '(?m)^\s*critical:\s*true\s*$')).Count |
+            Should -Be 2 -Because 'both interface families must keep their address through a guest clock jump'
     }
 }
 
@@ -386,6 +410,55 @@ Describe 'the installer-driven guests' {
             $section.Groups[1].Value | Should -Match 'dhcp-identifier:\s*mac' `
                 -Because "$($o.Name) must pin the installer's client identity, not only the installed system's"
         }
+    }
+
+    # systemd-networkd installs the DHCPv4 address in the kernel with a valid
+    # lifetime equal to the lease, and from then on two clocks run: the kernel
+    # expires the address on its own jiffies-based clock, networkd renews on
+    # CLOCK_BOOTTIME. A guest clock anomaly that advances jiffies deletes the
+    # address and its routes while networkd still holds a valid lease and asks
+    # for nothing -- a guest off the network with a healthy-looking lease.
+    # `critical: true` renders as KeepConfiguration=true, under which networkd
+    # installs the address with an infinite kernel lifetime, so only the lease
+    # can end it. Renewal, and the release on shutdown (networkctl down), still
+    # run on networkd's own timers and are unaffected.
+    It 'keeps the installer''s DHCP address as critical beside every identity pin' {
+        $overlays = @(Get-ChildItem -LiteralPath (Join-Path $script:RepoRoot 'host/vmconfig') `
+                                    -Filter 'ubuntu.server.*.overlay.yml' -File)
+        $overlays.Count | Should -BeGreaterThan 0 -Because 'the overlays must actually have been found'
+        foreach ($o in $overlays) {
+            $text = Get-Content -Raw -LiteralPath $o.FullName
+            $section = [regex]::Match($text, '(?ms)^# === YURUNA_OVERLAY_NETWORK ===\s*$(.*?)^# === YURUNA_OVERLAY_')
+            $section.Success | Should -BeTrue -Because "$($o.Name) must anchor a NETWORK section"
+            $lines = @($section.Groups[1].Value -split "`r?`n")
+            $pins = @(0..($lines.Count - 1) | Where-Object { $lines[$_] -match '^\s*dhcp-identifier:\s*mac\s*$' })
+            $pins.Count | Should -BeGreaterThan 0 -Because "$($o.Name) must pin the identity the address pin rides beside"
+            foreach ($i in $pins) {
+                # A sibling of the identity key, not merely somewhere in the
+                # section: the key belongs to the interface entry, and one on
+                # another level is netplan's to reject at install time.
+                @(Get-YamlSiblingLine -Lines $lines -Index $i | Where-Object { $_ -match '^\s*critical:\s*true\s*$' }).Count |
+                    Should -Be 1 -Because "$($o.Name): the entry pinned at line $($i + 1) of its NETWORK section must keep its address as critical"
+            }
+            @($lines | Where-Object { $_ -match '^\s*critical:' }).Count |
+                Should -Be $pins.Count -Because "$($o.Name) must carry critical: true once per dhcp-identifier: mac and nowhere else"
+        }
+    }
+
+    # The counterpart for the installed system, and it has to be a pass of its
+    # own: the identity guard skips a file that already carries that key, which
+    # is every file the installer writes from the overlay, so a critical pin
+    # folded into the same pass would never run on the common case.
+    It 'keeps the in-target netplan patch pinning the address as critical, idempotently' {
+        $userData = Get-Content -Raw -LiteralPath (Join-Path $script:RepoRoot 'host/vmconfig/ubuntu.server.base.user-data')
+        $userData | Should -Match "grep -q 'critical:'" -Because 'the patch must stay idempotent across re-runs'
+        # Anchored on the identity line and reusing its captured indentation,
+        # so the key lands inside the same interface entry whatever renderer or
+        # indentation wrote the file.
+        $userData | Should -Match '(?m)^\s*sed -i -E ''s/\^\(\[\[:space:\]\]\*\)dhcp-identifier:[^\r\n]*\\n\\1critical: true/'' "\$f"\s*$' `
+            -Because 'the installed netplan must carry the pin on the line after dhcp-identifier: mac, at its indentation'
+        $userData.IndexOf('\1critical: true') | Should -BeGreaterThan $userData.IndexOf('\1dhcp-identifier: mac') `
+            -Because 'the critical pass anchors on the identity line the earlier pass guarantees'
     }
 
     # The installed system's console-quiet grub drop-in governs the kernel booted

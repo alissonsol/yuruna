@@ -1,5 +1,8 @@
 # Yuruna Contributor Guidance
 
+Agents must follow the [agent rules](AGENTS.md) for workspace synchronization,
+commit messages, code quality and Pester validation.
+
 See [Yuruna Architecture](docs/architecture.md) for project architecture and
 [Test harness](docs/test-harness.md) for the test-harness internals.
 
@@ -155,7 +158,7 @@ only ever pull.
 
 - GitHub -> *Settings* -> *Developer settings* -> *Personal access tokens* ->
   **Fine-grained tokens** -> *Generate new token*.
-- **Resource owner:** the account that owns both repos (e.g. `alissonsol`).
+- **Resource owner:** the account that owns both repositories (e.g. `alissonsol`).
 - **Repository access:** *Only select repositories* -> select **both**
   `yurunadev` **and** `yurunadev-project`.
 - **Permissions** -> *Repository permissions* -> **Contents: Read-only**. That is
@@ -179,7 +182,7 @@ Two constraints before you generate one:
 - **A fine-grained token covers a single resource owner.** It works here because
   `frameworkUrl` and `projectUrl` live under the same account. If they ever move
   to different owners or orgs, no single fine-grained token can pull from both,
-  and `repositories.ghToken` holds only one -- you would need the repos under a
+  and `repositories.ghToken` holds only one -- you would need the repositories under a
   common owner, or a GitHub App.
 - **A classic PAT is a poor fit.** Its smallest useful scope, `repo`, is
   read-**write** and reaches *every* repository the account can see. On a
@@ -304,6 +307,10 @@ workarounds collected during development live in [Yuruna Workarounds](docs/worka
   `PSUseBOMForUnicodeEncodedFile`. Resolve a genuine false positive with a
   scoped `[Diagnostics.CodeAnalysis.SuppressMessageAttribute(... ,
   Justification = '...')]` carrying a one-line reason, not a blanket exclusion.
+- **Pester** -- the suites run on the 6.x line that the runner selects, and a
+  commit that stages a test file needs Pester 6.x on the host. `pwsh -NoProfile
+  -File tools/Install-TestModule.ps1` installs the newest 6.x; see
+  [Pester install](docs/install.md#pester-install).
 - **Software bill of materials** -- [SBOM maintenance](docs/sbom/README.md)
   generates repository, host, and guest inventories from the staged snapshot,
   stages changed files, and retains the preceding version as `.previous`.
@@ -449,6 +456,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.14
+Last review: 2026.10.18
 
 Back to [Yuruna](README.md)

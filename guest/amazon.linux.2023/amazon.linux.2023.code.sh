@@ -1,9 +1,13 @@
 #!/bin/bash
-# Version: 2026.10.14
+# Version: 2026.10.18
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 # --- REGION: Initialize environment
 set -euo pipefail
+# Fixed-name downloads and the version probe's throwaway VS Code profile go on
+# every path out, an aborted install included; the guest is snapshotted after.
+_yuruna_code_profile=""
+trap 'rm -f /tmp/dotnet-install.sh /tmp/microsoft.asc; [ -z "${_yuruna_code_profile:-}" ] || rm -rf -- "$_yuruna_code_profile"' EXIT
 
 # --- REGION: Detect architecture
 ARCH=$(uname -m)
@@ -115,6 +119,7 @@ echo "Java: $(javac -version 2>&1 || echo 'version probe failed')"
 echo "PowerShell: $(pwsh --version 2>&1 || echo 'version probe failed')"
 if [ -z "${TMPDIR:-}" ]; then
     TMPDIR=$(mktemp -d)
+    _yuruna_code_profile="$TMPDIR"
     export TMPDIR
     echo "TMPDIR not set. Created and set TMPDIR to $TMPDIR"
 fi

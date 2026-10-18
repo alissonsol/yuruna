@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.14
+.VERSION 2026.10.18
 .GUID 42539052-a22b-452d-ad7f-0bbf053904ff
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -1279,8 +1279,7 @@ function Send-Key {
     if (Test-Path $sequenceEngine) {
         # Import only when the dispatcher isn't already resolvable: a -Force
         # import evicts the global Invoke-Sequence (and its nested modules)
-        # the outer loop still calls
-        # (feedback_module_force_import_evicts_global).
+        # the outer loop still calls.
         if (-not (Get-Command 'Test.SequenceEngine\Send-Key' -ErrorAction SilentlyContinue)) {
             Import-Module $sequenceEngine -Force -DisableNameChecking -Global
         }
@@ -1339,6 +1338,8 @@ function Get-VMScreenshot {
     Invoke-Virsh -VirshArgs @('screenshot', $VMName, $ppm) | Out-Null
     if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $ppm)) {
         Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_ba1882e41aac59a1' -Arguments @{ vMName = "$VMName" })
+        # A failed virsh call can still leave a partial PPM behind.
+        Remove-Item -LiteralPath $ppm -Force -ErrorAction SilentlyContinue
         return $null
     }
     if (Get-Command convert -ErrorAction SilentlyContinue) {
@@ -4658,6 +4659,9 @@ function Save-VMDhcpCapture {
         [Parameter(Mandatory)][string]$VMName,
         [Parameter(Mandatory)][string]$OutputDirectory
     )
+    # Set once this call owns the capture, so the finally below removes the
+    # pcap on every path out and never touches another VM's window.
+    $claimed = $null
     try {
         $capture = $script:YurunaDhcpCapture
         if (-not $capture -or $capture.VMName -ne $VMName) {
@@ -4674,6 +4678,7 @@ function Save-VMDhcpCapture {
         }
         $script:YurunaDhcpCapture = $null
         $script:YurunaDhcpTrail = "the window armed for '$VMName' was saved"
+        $claimed = $capture
         if ($capture.Process -and -not $capture.Process.HasExited) {
             $capture.Process.Kill($true)
             [void]$capture.Process.WaitForExit(2000)
@@ -4716,12 +4721,13 @@ function Save-VMDhcpCapture {
             if ($pcapItem -and $pcapItem.Length -gt 0) {
                 Copy-Item -LiteralPath $capture.PcapPath -Destination (Join-Path $OutputDirectory 'dhcp.capture.pcap') -Force
             }
-            Remove-Item -LiteralPath $capture.PcapPath -Force -ErrorAction SilentlyContinue
         }
         return $true
     } catch {
         Write-Verbose "Save-VMDhcpCapture failed: $($_.Exception.Message)"
         return $false
+    } finally {
+        if ($claimed -and $claimed.PcapPath) { Remove-Item -LiteralPath $claimed.PcapPath -Force -ErrorAction SilentlyContinue }
     }
 }
 

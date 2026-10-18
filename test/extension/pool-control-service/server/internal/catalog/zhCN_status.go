@@ -856,6 +856,7 @@ const DatazhCNstatus = `{
       "trust": "external"
     }
   ],
+  "status.host_refresh_remote_viewer": "此页面是从另一台计算机打开的，因此只能观察宿主机刷新，无法启动刷新。请在宿主机上启动：使用其本机仪表板，或运行pwsh test/lab/Invoke-HostRefresh.ps1。",
   "status.host_refresh_retry": "重试",
   "status.host_refresh_stale": [
     "刷新",
@@ -1199,6 +1200,7 @@ const DatazhCNstatus = `{
   "status.pill_new_vm_resource": "新建虚拟机",
   "status.pill_start_guestos": "启动操作系统",
   "status.pill_start_guestworkload": "工作负载",
+  "status.preflight_failed": "预检失败",
   "status.process_environment_value_the_status_service_inherited_at_startup": "status service在启动时继承的进程环境变量值。此处为只读，仅用作备用来源：周期开始时会先探测上方的vmStart.cachingProxyIp字段，若其:3128响应，则优先使用该字段。对于配置字段为空的宿主机，请在启动Start-TestRunner.ps1的shell中导出此变量。",
   "status.quarantine_pinned": [
     "因同类故障反复发生而被隔离（在有新提交前跳过；固定在",
@@ -1254,6 +1256,10 @@ const DatazhCNstatus = `{
       "trust": "external"
     }
   ],
+  "status.runner_attempts_description": "最近 20 次运行器尝试中的失败记录会在恢复后保留在此处。预检失败发生在新测试周期开始之前。",
+  "status.runner_attempts_empty": "没有保留的运行器尝试失败记录。",
+  "status.runner_attempts_title": "运行器尝试失败记录",
+  "status.runner_attempts_unavailable": "运行器尝试历史记录不可用。",
   "status.runner_failure_record": "失败记录",
   "status.runner_failure_transcript": "配置检查记录",
   "status.runner_framework_commit": [

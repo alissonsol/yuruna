@@ -117,6 +117,17 @@ Test-Path "$env:ProgramFiles\qemu\qemu-img.exe"
 The ADK installs Oscdimg once per architecture (`amd64`, `arm64`, `x86`);
 the harness picks the one native to this host.
 
+A `qemu-img` that IS on PATH is usually another package's: the Cloudbase
+2.3.0 port (winget `cloudbase.qemu-img`, Chocolatey `qemu-img`). The harness
+does not take it for being on PATH; it runs the newest copy it finds among
+the QEMU install directory and everything on PATH, and the installer names
+both when they differ. To see the choice yourself:
+
+```
+Import-Module "$HOME\git\yuruna\host\modules\Yuruna.Image.psm1"
+Resolve-QemuImgCommand -Detailed
+```
+
 ## 9) Seed the Test Config
 
 ```
@@ -161,6 +172,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.14
+Last review: 2026.10.18
 
 Back to [Yuruna](../../README.md)

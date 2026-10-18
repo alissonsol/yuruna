@@ -9,10 +9,26 @@ umask 077
 
 # --- REGION: Context validation
 gui_failure=0
+gui_rejection_sha=
 fail() {
-    if (( gui_failure )); then printf 'NONZERO SCRIPT EXIT: YFE_%s\n' "$1" >&2
+    if (( gui_failure )); then
+        record_gui_rejection "$1"
+        printf 'NONZERO SCRIPT EXIT: YFE_%s\n' "$1" >&2
     else printf 'YFE_%s\n' "$1" >&2; fi
     exit 125
+}
+# Every refusal of a GUI envelope happens before the payload runs. The host
+# reads the console through OCR, so the verdict is also left where it reads it
+# over SSH, keyed by the digest it typed outside the envelope: the code, and
+# the length and SHA-256 of the text the keyboard actually delivered.
+record_gui_rejection() {
+    [[ -n $gui_rejection_sha && -n ${HOME-} ]] || return 0
+    local dir="$HOME/.local/state/yuruna/gui-rejection" received
+    [[ ! -L $dir ]] || return 0
+    { mkdir -p -- "$dir" && chmod 700 -- "$dir"; } 2>/dev/null || return 0
+    received=$(printf '%s' "${encoded_gui-}" | sha256sum 2>/dev/null) || return 0
+    printf 'code=YFE_%s\nreceivedChars=%s\nreceivedSha256=%s\n' "$1" "${#encoded_gui}" "${received%% *}" \
+        > "$dir/$gui_rejection_sha" 2>/dev/null || true
 }
 valid_id() { [[ ${1-} =~ ^[0-9a-f]{11}$ ]]; }
 valid_sha() { [[ ${1-} =~ ^[0-9a-f]{64}$ ]]; }
@@ -136,6 +152,7 @@ if [[ ${1-} == --gui ]]; then
     [[ $# == 3 ]] || fail ARGUMENTS
     expected_gui_sha=$2 encoded_gui=$3
     valid_sha "$expected_gui_sha" || fail ARGUMENTS
+    gui_rejection_sha=$expected_gui_sha
     [[ ${#encoded_gui} -le 131072 && $encoded_gui =~ ^[A-Za-z0-9+/]+={0,2}$ ]] || fail GUI_ENCODING
     gui_tmp=$(mktemp -d) || fail CONTEXT_DIRECTORY
     # The cap applies while inflating, before retaining or parsing any data.

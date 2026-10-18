@@ -10,6 +10,7 @@
   # See https://yuruna.link/4220a755-000b
   # See https://yuruna.link/429f3d06-0015
   # Pin the installer lease before /target exists, and refuse IPv6 router advertisements.
+  # critical: a clock jump expires the kernel's address lifetime, not the lease; only the lease may drop the address.
   network:
     version: 2
     ethernets:
@@ -18,6 +19,7 @@
         dhcp6: false
         accept-ra: false
         dhcp-identifier: mac
+        critical: true
 # === YURUNA_OVERLAY_EARLY_COMMANDS ===
   # --- REGION: early-commands
   early-commands:

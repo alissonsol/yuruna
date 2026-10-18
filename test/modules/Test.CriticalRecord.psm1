@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.14
+.VERSION 2026.10.18
 .GUID 42e8abe9-fab4-421a-90ab-caa2e130911b
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -21,7 +21,7 @@ Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Common.psm1') -D
 
 # See https://yuruna.link/4213a0b3-0049
 
-$script:CriticalRecordIoTypeName = 'Yuruna.CriticalRecordIoV2'
+$script:CriticalRecordIoTypeName = 'Yuruna.CriticalRecordIoV3'
 $script:CriticalRecordIoUnavailable = $false
 $script:CriticalRecordFormat = 'yuruna.critical-record'
 $script:CriticalRecordVersion = 1
@@ -58,7 +58,7 @@ using System.Threading.Tasks;
 
 namespace Yuruna
 {
-    public static class CriticalRecordIoV2
+    public static class CriticalRecordIoV3
     {
         [DllImport("libc", SetLastError = true, EntryPoint = "open")]
         private static extern int PosixOpen(string path, int flags);
@@ -202,7 +202,7 @@ namespace Yuruna
             {
                 if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
                 {
-                    if (!MoveFileEx(source, destination, MoveReplaceExisting | MoveWriteThrough))
+                    if (!MoveFileEx(ExtendedLengthPath(source), ExtendedLengthPath(destination), MoveReplaceExisting | MoveWriteThrough))
                     {
                         throw new IOException(destination, Marshal.GetHRForLastWin32Error());
                     }
@@ -210,6 +210,26 @@ namespace Yuruna
                 }
                 File.Move(source, destination, true);
             });
+        }
+
+        // The runtime's own file APIs give a path of 260 characters or more
+        // the \\?\ prefix, so every other step of a write accepts such a
+        // path; a direct MoveFileExW call does not, and refuses the rename
+        // with ERROR_PATH_NOT_FOUND, which reads as a missing parent. Same
+        // rule as the runtime: a fully qualified path at or past 260 is
+        // extended, and a device path is left alone.
+        private static string ExtendedLengthPath(string path)
+        {
+            if (path.Length < 260 || !Path.IsPathFullyQualified(path) ||
+                path.StartsWith(@"\\?\", StringComparison.Ordinal) || path.StartsWith(@"\\.\", StringComparison.Ordinal))
+            {
+                return path;
+            }
+            if (path.StartsWith(@"\\", StringComparison.Ordinal))
+            {
+                return @"\\?\UNC\" + path.Substring(2);
+            }
+            return @"\\?\" + path;
         }
 
         public static Task DeleteFileAsync(string path)
@@ -253,19 +273,6 @@ namespace Yuruna
     }
 }
 '@
-
-function Get-YurunaCriticalRecordPlatform {
-    <#
-    .SYNOPSIS
-        linux, macos or windows for the current process.
-    #>
-    [CmdletBinding()]
-    [OutputType([string])]
-    param()
-    if ($IsWindows) { return 'windows' }
-    if ($IsMacOS) { return 'macos' }
-    return 'linux'
-}
 
 function Initialize-YurunaCriticalRecordIo {
     <#
@@ -355,7 +362,7 @@ function Get-YurunaCriticalRecordDurability {
     [CmdletBinding()]
     [OutputType([pscustomobject])]
     param([ValidateSet('linux', 'macos', 'windows')][string]$Platform)
-    if (-not $Platform) { $Platform = Get-YurunaCriticalRecordPlatform }
+    if (-not $Platform) { $Platform = Get-YurunaPlatformName }
     $entry = $script:CriticalRecordDurability[$Platform]
     return [pscustomobject]@{
         Platform           = $Platform

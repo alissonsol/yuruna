@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.14
+.VERSION 2026.10.18
 .GUID 42322a4d-f414-3c38-3588-7ad936bc7aa9
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -5210,6 +5210,7 @@
             'trust' = 'external'
         }
     )
+    'automation.runtime_ipc_remove_action' = 'הסירו את רשומת זמן הריצה של .NET שנותרה מתהליך שכבר אינו קיים'
     'automation.setup_service_vm_reason_intended_stopped' = 'הוא נעצר במכוון; מתבצעת בנייה מחדש כי תוכנית ההתקנה התבקשה להפעיל אותו'
     'automation.setup_service_vm_reason_lock_unavailable' = 'לא ניתן להשיג את נעילת הפעולה שלו'
     'automation.setup_service_vm_reason_operation_busy' = 'פעולת הפעלה או עצירה אחרת של שירות זה עדיין מתבצעת'
@@ -5222,6 +5223,7 @@
         }
         ')'
     )
+    'automation.stale_temp_remove_action' = 'הסירו את הרשומה הזמנית המיושנת של Yuruna'
     'automation.system_diagnostic_registry_images_refused' = @(
         'REGISTRY: המטמון סירב ל־'
         @{

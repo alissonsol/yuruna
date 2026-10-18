@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.14
+.VERSION 2026.10.18
 .GUID 42547b68-a60f-4a35-be1d-21d02f08f7bf
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -37,8 +37,7 @@ Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Globalization.ps
     deadlocked inside a never-terminating OCR / SSH / virsh loop.
     runner.stepHeartbeat is touched by Invoke-Sequence at the top of
     each step iteration from the runspace thread itself, so it goes
-    stale iff that thread is genuinely wedged. See
-    feedback_threadpool_heartbeat_watchdog_blind.md for the trap class.
+    stale iff that thread is genuinely wedged.
 
     Two bounds, selected by runner.phase (Write-RunnerPhase /
     Clear-RunnerPhase in Test.RunnerHeartbeat.psm1):

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.14
+.VERSION 2026.10.18
 .GUID 42e7a0f2-fce5-47f4-aa02-059ecae18abf
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -43,8 +43,26 @@ Describe 'Test.FailureTaxonomy canonical arrays' {
         Assert-True ($fc -contains 'provisioning_failure') 'has the infra provisioning class'
         Assert-True ($fc -contains 'bootstrap_sync') 'has the infra bootstrap class'
         Assert-True ($fc -contains 'plan_invalid') 'has the infra plan class'
+        Assert-True ($fc -contains 'hypervisor_unresponsive') 'has the hung hypervisor control-channel class'
         Assert-True ($fc[-1] -eq 'unknown') "'unknown' stays last as the catch-all"
         Assert-Equal -Expected 'hard|soft|unknown' -Actual ((Get-SeverityEnum) -join '|') -Because 'severity set'
+    }
+
+    It 'documents every failure class at a unique dashboard-link destination' {
+        $repoRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
+        $classes = @(Get-FailureClassEnum | Sort-Object)
+        foreach ($relativePath in @('docs/failure-schema.md', 'docs/pt-BR/failure-schema.md')) {
+            $document = Get-Content -Raw -LiteralPath (Join-Path $repoRoot $relativePath)
+            $rows = [regex]::Matches($document, '(?m)^\| <a id="failure-class-([a-z_]+)"></a>`\1` \| (.+?) \| (.+?) \|\r?$')
+            $documented = @($rows | ForEach-Object { $_.Groups[1].Value } | Sort-Object)
+            Assert-Equal -Expected ($classes -join '|') -Actual ($documented -join '|') `
+                -Because "$relativePath must give every canonical class one linked meaning and first check"
+            foreach ($class in $classes) {
+                $anchor = 'id="failure-class-' + $class + '"'
+                Assert-Equal -Expected 1 -Actual ([regex]::Matches($document, [regex]::Escape($anchor)).Count) `
+                    -Because "$relativePath must resolve the $class link to exactly one destination"
+            }
+        }
     }
 }
 

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.14
+.VERSION 2026.10.18
 .GUID 42acc4f5-2748-4b33-95f6-25b431645860
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -215,7 +215,9 @@ Describe 'Update-TestConfigNaming.ps1 (refuses to guess)' {
             Assert-Equal -Expected $onDisk -Actual (Get-Content -Raw -LiteralPath $cfg) -Because 'nothing rewritten'
             Assert-False (Test-Path -LiteralPath "$cfg.pre-renaming") 'no backup taken when nothing was written'
         } finally {
-            Remove-Item -LiteralPath $cfg -Force -ErrorAction SilentlyContinue
+            # The backup too: a regression that does write one fails the assert
+            # above, and must not then leave it behind.
+            Remove-Item -LiteralPath $cfg, "$cfg.pre-renaming" -Force -ErrorAction SilentlyContinue
         }
     }
 }
@@ -313,7 +315,7 @@ Describe 'naming tool recovery of an already reconciled configuration' {
             (Invoke-MigrateTool -ConfigPath $cfg).ExitCode | Should -Be 1
             [IO.File]::ReadAllText($cfg) | Should -BeExactly $inputText
             Test-Path "$cfg.pre-renaming" | Should -BeFalse
-        } finally { Remove-Item -LiteralPath $cfg -Force -ErrorAction SilentlyContinue }
+        } finally { Remove-Item -LiteralPath $cfg, "$cfg.pre-renaming" -Force -ErrorAction SilentlyContinue }
     }
 }
 

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.14
+.VERSION 2026.10.18
 .GUID 4227f6df-0fe0-4a7d-b85b-64c7c2f5ede7
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -370,6 +370,7 @@ Describe 'Case B: a refresh resume keeps the controls and admits only its prefli
     It 'refuses to take over a live runner record, acknowledging the failure, and leaves that runner alive' {
         $f = New-ChainTree -StubInner
         $standIn = $null
+        $runner = $null
         try {
             $root = Initialize-ChainPrivateRoot -F $f
             $standIn = Start-PwshStandIn -Command 'Start-Sleep -Seconds 120'
@@ -393,8 +394,11 @@ Describe 'Case B: a refresh resume keeps the controls and admits only its prefli
             Assert-Equal -Expected "$($standIn.Id)" -Actual (Get-Content -LiteralPath (Join-Path $f.Runtime 'runner.pid') -Raw).Trim() -Because 'its record was not deleted'
             Assert-Equal -Expected $liveState -Actual ([System.IO.File]::ReadAllText($statePath)) -Because 'the live runner''s state was not reset'
         } finally {
-            if ($standIn -and -not $standIn.HasExited) { $standIn.Kill() }
-            Remove-YurunaTestTempDir $f.Base
+            # A runner still alive after a failed wait keeps writing into the
+            # tree the removal below is about to take away.
+            if ($runner -and -not $runner.HasExited) { $runner.Kill($true); [void]$runner.WaitForExit(5000) }
+            if ($standIn -and -not $standIn.HasExited) { $standIn.Kill(); [void]$standIn.WaitForExit(5000) }
+            Remove-YurunaTestTempDir $f.Base -Attempts 5
         }
     }
 }

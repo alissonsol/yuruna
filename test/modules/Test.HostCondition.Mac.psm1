@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.14
+.VERSION 2026.10.18
 .GUID 42ed1667-e5c7-4bea-b28b-0e6c1706de72
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -2562,7 +2562,7 @@ function Invoke-MacOperatorGrantAssist {
         if ($granted) {
             Write-Information "  $($s.Title): granted."
         } else {
-            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_d2c83bbe84cd06f9' -Arguments @{ title = "$($s.Title)"; compact = "$((Get-MacOperatorGrantInstruction -Grant $s.Grant -Compact)[0])" })
+            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_d2c83bbe84cd06f9' -Arguments @{ title = "$($s.Title)"; compact = "$(@(Get-MacOperatorGrantInstruction -Grant $s.Grant -Compact)[0])" })
             if ($s.Blocking) { $pending.Add($s.Id) }
         }
     }

@@ -8866,6 +8866,15 @@ const DataheILhost = `{
     },
     "). שחזרו את הגישה ל-⁦UTM⁩ או העבירו ⁦-CachingProxyServiceUrl \"\"⁩ כדי להוריד ישירות."
   ],
+  "host.utm_control_snapshot_action": [
+    "רשמו את תמונת המצב של ערוץ הבקרה של UTM (",
+    {
+      "arg": "trigger",
+      "type": "token",
+      "trust": "internal"
+    },
+    ")"
+  ],
   "host.utm_detached_launch_action": [
     "הפעילו את ",
     {
@@ -8968,6 +8977,27 @@ const DataheILhost = `{
       "trust": "internal"
     },
     "; לא נשלחה בקשת הפעלה."
+  ],
+  "host.utm_start_control_hung": [
+    "ערוץ הבקרה של UTM הפסיק לבצע בקשות מחזור חיים: ",
+    {
+      "arg": "attempts",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " בקשות הפעלה רצופות עבור '",
+    {
+      "arg": "vmName",
+      "type": "detail",
+      "trust": "external"
+    },
+    "' נותרו ללא מענה, והאחרונה דיווחה '",
+    {
+      "arg": "lastError",
+      "type": "detail",
+      "trust": "external"
+    },
+    "'. utmctl עדיין הגיע אל ⁦UTM.app⁩ לשאילתות מצב, כך שהיישום פועל אך אינו מבצע עוד start, stop או delete, וניסיון חוזר רק מוסיף עוד פסק זמן. הפעילו מחדש את ⁦UTM.app⁩ במארח זה (צאו ממנו מתוך הפעלת שולחן העבודה, או הריצו ⁦test/lab/Invoke-HostRefresh.ps1⁩), ואז הפעילו את המכונה הווירטואלית שוב. המכונה הווירטואלית לא הופעלה מעולם והדיסק שלה לא שונה."
   ],
   "host.utm_start_dropped": [
     "'",

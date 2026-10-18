@@ -303,3 +303,33 @@ func urls(entries []Entry) []string {
 	}
 	return out
 }
+
+// The parsed counter is the readiness signal a reader of the ring polls, so
+// an entry must be in the ring by the time the count covers it. Loading the
+// count and then snapshotting the ring must never find fewer entries than
+// the count promises, up to the ring's size.
+func TestParsedCounterNeverLeadsRing(t *testing.T) {
+	r, s := &ring{}, newStats()
+	const lines = 5000 // well past ringSize, so the write index wraps while the reader watches
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for i := 0; i < lines; i++ {
+			recordLine(goldenLine, r, s)
+		}
+	}()
+	for {
+		counted := s.parsed.Load()
+		if got, want := int64(len(r.snapshot())), min(counted, int64(ringSize)); got < want {
+			t.Fatalf("parsed=%d but the ring holds %d entries: the counter advanced before the push", counted, got)
+		}
+		select {
+		case <-done:
+			if got := s.parsed.Load(); got != lines {
+				t.Fatalf("parsed=%d, want %d", got, lines)
+			}
+			return
+		default:
+		}
+	}
+}

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.14
+.VERSION 2026.10.18
 .GUID 42869a92-a8d2-410d-9364-cdfba1a4ed8e
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -105,6 +105,13 @@ $script:TransportModule = Get-Module Test.Transport
             throw [System.IO.IOException]::new('injected mid-send failure')
         }
         [void]$script:rec.Add([pscustomobject]@{ Sym = [int]$KeySym; Down = [bool]$Down })
+    }
+    # One write carries both halves, and a write that dies part-way can still
+    # have delivered the press: record it as the two events it puts on the wire.
+    function script:Send-VncKeyTap {
+        param($Client, $KeySym)
+        Send-VncKeyEvent -Client $Client -KeySym $KeySym -Down $true
+        Send-VncKeyEvent -Client $Client -KeySym $KeySym -Down $false
     }
 }
 function Reset-KeyRecording {
@@ -292,6 +299,45 @@ Describe 'VNC sends never leave a key held in the guest' {
         Reset-KeyRecording -FailAt 3
         Send-KeyVNC -VMName 'vm' -KeyName 'CtrlU' 3>$null | Out-Null
         Assert-True ((Get-HeldKeySym).Count -eq 0) "interrupted chord left keys held: $(Get-HeldKeySym)"
+    }
+}
+
+Describe 'VNC key taps reach the server with their release' {
+    # A release that trails its press by more than the guest's autorepeat delay
+    # types the key twice. Nagle holds a small second write until the first is
+    # acknowledged, and a VNC server that sends nothing back acknowledges late.
+
+    It 'writes the press and the release of a key in one stream write' {
+        $tap = [System.Management.Automation.Language.Parser]::ParseInput((Get-TransportFunctionText -Name 'Send-VncKeyTap'), [ref]$null, [ref]$null)
+        $writes = @($tap.FindAll({ param($n) $n -is [System.Management.Automation.Language.InvokeMemberExpressionAst] -and $n.Member.Extent.Text -eq 'Write' }, $true))
+        Assert-Equal -Expected 1 -Actual $writes.Count -Because 'both KeyEvent messages go out in a single write'
+        foreach ($keySender in 'Send-TextVNC', 'Send-KeyVNC') {
+            Assert-True ((Get-TransportFunctionText -Name $keySender) -match 'Send-VncKeyTap') "$keySender types each ordinary key as one tap"
+        }
+    }
+
+    It 'puts a down KeyEvent and then an up KeyEvent for the same keysym on the wire' {
+        . ([scriptblock]::Create((Get-TransportFunctionText -Name 'Send-VncKeyTap')))
+        $listener = [System.Net.Sockets.TcpListener]::new([System.Net.IPAddress]::Loopback, 0)
+        $listener.Start()
+        try {
+            $client = [System.Net.Sockets.TcpClient]::new()
+            $client.Connect([System.Net.IPAddress]::Loopback, ([System.Net.IPEndPoint]$listener.LocalEndpoint).Port)
+            $server = $listener.AcceptTcpClient()
+            try {
+                Send-VncKeyTap -Client $client -KeySym 0x70
+                $received = [byte[]]::new(16)
+                $stream = $server.GetStream()
+                $stream.ReadTimeout = 5000
+                $read = 0
+                while ($read -lt 16) { $got = $stream.Read($received, $read, 16 - $read); if ($got -le 0) { break }; $read += $got }
+                Assert-Equal -Expected '04010000000000700400000000000070' -Actual ([Convert]::ToHexString($received)) -Because 'down(p) then up(p), RFB KeyEvent layout'
+            } finally { $server.Dispose(); $client.Dispose() }
+        } finally { $listener.Stop() }
+    }
+
+    It 'turns off Nagle on the VNC connection' {
+        Assert-True ((Get-TransportFunctionText -Name 'Connect-VNC') -match '\$tcp\.NoDelay\s*=\s*\$true') 'Connect-VNC sets TcpClient.NoDelay'
     }
 }
 

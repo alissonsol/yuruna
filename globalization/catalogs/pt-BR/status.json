@@ -1678,6 +1678,11 @@
       "origin": "machine",
       "message": "O hospedeiro rejeitou a solicitação de atualização: {detail}"
     },
+    "status.host_refresh_remote_viewer": {
+      "sourceHash": "c3e7bea03101a96f1efc6bd91514653375ab2912dc28f925be2a457e67ea5a91",
+      "origin": "machine",
+      "message": "Esta página está aberta em outra máquina, então ela pode acompanhar uma atualização do hospedeiro, mas não iniciá-la. Inicie-a no próprio hospedeiro: pelo painel dele, ou com pwsh test/lab/Invoke-HostRefresh.ps1."
+    },
     "status.host_refresh_retry": {
       "sourceHash": "0652202c1a5f16f4b6edf8ce72290f62b7c19495dbaf4b9e33d051c0c15e9ff7",
       "origin": "machine",
@@ -1797,6 +1802,31 @@
       "sourceHash": "58f43380871f4e102a1123638c086cfad39c13e95373d64d4998efcc78ff4227",
       "origin": "machine",
       "message": "Runner iniciado"
+    },
+    "status.preflight_failed": {
+      "sourceHash": "25b9509846e9875002e2839c39fbc6ac2589b0d6033595e4e86e366994ecb5f0",
+      "message": "FALHA NA VERIFICAÇÃO PRÉVIA",
+      "origin": "machine"
+    },
+    "status.runner_attempts_title": {
+      "sourceHash": "f424289c7e871ddb789be2cc58a7c586089e2339ddd5144d2def45b926ccb8b6",
+      "message": "Falhas nas tentativas do executor",
+      "origin": "machine"
+    },
+    "status.runner_attempts_description": {
+      "sourceHash": "ca4036f65cf8e0840e7fed11fec0db167fd0c6056ccfa940d227fd94a3aa5560",
+      "message": "As falhas das últimas 20 tentativas do executor permanecem aqui após a recuperação. As falhas na verificação prévia ocorrem antes do início de um novo ciclo de testes.",
+      "origin": "machine"
+    },
+    "status.runner_attempts_empty": {
+      "sourceHash": "c9d1b0d4291b2e1d28e3c3562b21885552523dbb427ce4f6222f4512e95d4ffd",
+      "message": "Nenhuma falha de tentativa do executor retida.",
+      "origin": "machine"
+    },
+    "status.runner_attempts_unavailable": {
+      "sourceHash": "61a96ef0db4d80c0ca0b694f9bf762a6598f04c8222b89230edd167fa839b0c2",
+      "message": "O histórico de tentativas do executor está indisponível.",
+      "origin": "machine"
     }
   }
 }

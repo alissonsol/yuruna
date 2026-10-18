@@ -209,8 +209,12 @@ func TestPollRunnerFaultPreservesCompletedCycle(t *testing.T) {
 						t.Fatalf("incorrect cycle: %v", line)
 					}
 				}
-				if s.hosts[hid].statusLabel() != "fail" {
-					t.Fatal("runner fault must remain visible in live health")
+				wantHealth := "fail"
+				if separateFault {
+					wantHealth = "preflight-failed"
+				}
+				if s.hosts[hid].statusLabel() != wantHealth {
+					t.Fatalf("runner fault health = %q, want %q", s.hosts[hid].statusLabel(), wantHealth)
 				}
 				encoded, err := json.Marshal(s.hosts[hid].Status)
 				if err != nil {
@@ -259,8 +263,8 @@ func TestPollFirstAttemptFaultWithoutCycle(t *testing.T) {
 	})}
 	s.pollOnce(client, filepath.Join(t.TempDir(), "absent.log"), "http://loki.invalid/push", time.Now().UTC())
 	hv := s.hosts[hid]
-	if !hv.Reachable || hv.statusLabel() != "fail" {
-		t.Fatalf("first attempt must be a reachable failing host: %+v", hv)
+	if !hv.Reachable || hv.statusLabel() != "preflight-failed" {
+		t.Fatalf("first attempt must be a reachable host with a preflight failure: %+v", hv)
 	}
 	if s.pass[hid] != 0 || s.fail[hid] != 0 || len(s.seen) != 0 || pushes != 0 {
 		t.Fatalf("attempt invented cycle accounting: pass=%v fail=%v seen=%v pushes=%d", s.pass, s.fail, s.seen, pushes)

@@ -10,6 +10,7 @@
   # --- REGION: network
   # See https://yuruna.link/4220a755-000b
   # Pin the installer lease before /target exists.
+  # critical: a clock jump expires the kernel's address lifetime, not the lease; only the lease may drop the address.
   network:
     version: 2
     ethernets:
@@ -18,11 +19,13 @@
           name: "en*"
         dhcp4: true
         dhcp-identifier: mac
+        critical: true
       yuruna-eth:
         match:
           name: "eth*"
         dhcp4: true
         dhcp-identifier: mac
+        critical: true
 # === YURUNA_OVERLAY_EARLY_COMMANDS ===
   # --- REGION: early-commands
   early-commands:

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.18
+.VERSION 2026.10.18.1
 .GUID 426ffdec-7946-4b27-9d2c-487151f04ec7
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -428,6 +428,36 @@ Describe 'A diagnostic capture cannot spend a budget it has already used' {
 }
 
 Describe 'Pre-cycle refusal preserves the previous completed cycle' {
+    It 'retains framework update stage and diagnostics separately from the previous passing cycle' {
+        $dir = Initialize-TempRuntimeDir
+        try {
+            $previous = New-RunningStatusDocument
+            $previous.overallStatus = 'pass'; $previous.finishedAt = '2026-09-19T18:00:00Z'
+            $previous.history = @(@{ cycle = 1234; overallStatus = 'pass' })
+            $path = Write-StatusDocument -Dir $dir -Document $previous
+            $evidence = @{ stage = 'FrameworkPull'; description = 'local files prevent the update'; frameworkCommitSha = 'old-sha' }
+            foreach ($attempt in 1..2) {
+                $null = Update-RunnerFaultStatus -RuntimeDir $dir -RunnerState 'fault' `
+                    -FailureClass 'bootstrap_sync' -AttemptGeneration 'runner:next' `
+                    -SpawnedAtUtc ([datetime]'2026-09-19T18:01:00Z') -AttemptEvidence $evidence -Confirm:$false
+            }
+            $doc = Read-StatusDocument -Path $path
+            $doc.overallStatus | Should -Be 'pass'
+            $doc.cycle | Should -Be 1234
+            $doc.gitCommits[0].sha | Should -Be 'abc1234'
+            @($doc.history).Count | Should -Be 1
+            $doc.history[0].overallStatus | Should -Be 'pass'
+            $doc.runnerFault.failureClass | Should -Be 'bootstrap_sync'
+            $doc.runnerFault.stage | Should -Be 'FrameworkPull'
+            $doc.runnerFault.errorMessage | Should -Be $evidence.description
+            $index = Get-Content -LiteralPath (Join-Path $dir 'runner-attempts/index.json') -Raw | ConvertFrom-Json
+            @($index.attempts).Count | Should -Be 1
+            $index.attempts[0].stage | Should -Be 'FrameworkPull'
+            $record = Get-Content -LiteralPath (Join-Path $dir $index.attempts[0].recordPath) -Raw | ConvertFrom-Json
+            $record.evidence.description | Should -Be $evidence.description
+        } finally { Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction SilentlyContinue }
+    }
+
     It 'records its own attempt and artifacts without repainting the previous pass or cause' {
         $dir = Initialize-TempRuntimeDir
         try {

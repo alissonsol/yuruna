@@ -178,6 +178,9 @@ func TestStatusLabelPaused(t *testing.T) {
 		{"preflight failure above armed pause", fault(mk(true, &hostStatus{OverallStatus: "pass", CyclePaused: true})), "preflight-failed", 9},
 		{"cycle failure stays red", mk(true, &hostStatus{OverallStatus: "fail"}), "fail", 3},
 		{"runner crash stays red", mk(true, &hostStatus{OverallStatus: "pass", RunnerFault: &runnerFault{FailureClass: "preamble_stall"}}), "fail", 3},
+		{"framework update is preflight", mk(true, &hostStatus{OverallStatus: "pass", RunnerFault: &runnerFault{FailureClass: "bootstrap_sync", Stage: "FrameworkPull"}}), "preflight-failed", 9},
+		{"guest bootstrap stays red", mk(true, &hostStatus{OverallStatus: "pass", RunnerFault: &runnerFault{FailureClass: "bootstrap_sync", Stage: "GuestBootstrap"}}), "fail", 3},
+		{"unknown bootstrap phase stays red", mk(true, &hostStatus{OverallStatus: "pass", RunnerFault: &runnerFault{FailureClass: "bootstrap_sync"}}), "fail", 3},
 		{"stopped above attempt failure", dead(fault(mk(true, &hostStatus{OverallStatus: "pass"}))), "stopped", 8},
 		{"unreachable above attempt failure", fault(mk(false, &hostStatus{OverallStatus: "pass"})), "unreachable", 0},
 	}

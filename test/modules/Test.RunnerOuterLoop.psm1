@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.18
+.VERSION 2026.10.18.1
 .GUID 42904a4e-7e96-4d32-883d-8326239ad090
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -45,6 +45,7 @@
 
 Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
 Import-Module (Join-Path $PSScriptRoot 'Test.OuterLog.psm1') -DisableNameChecking
+Import-Module (Join-Path $PSScriptRoot 'Test.HostGit.psm1') -DisableNameChecking
 # The refresh gate, the cycle record and the handoff helpers the loop consults
 # before every spawn live in Test.SingleInstance. Imported here as well as by the
 # Outer module set so the gate is never absent from a process that can spawn.
@@ -124,9 +125,9 @@ function Invoke-OuterNetworkGit {
 function Test-OuterNewCommitsAvailable {
     <#
     .SYNOPSIS
-        Fetch origin and report whether the upstream tracking branch's tip
-        now differs from $BaselineSha. $false on any git/fetch failure or
-        when there is no upstream.
+        Report a changed configured upstream tip, including a rewind or a new
+        history root. The baseline is the remote tip observed at pause entry,
+        so an unchanged remote cannot repeatedly wake a locally ahead checkout.
     #>
     [CmdletBinding()]
     [OutputType([bool])]
@@ -134,67 +135,24 @@ function Test-OuterNewCommitsAvailable {
         [Parameter(Mandatory)][string]$RepoRoot,
         [Parameter(Mandatory)][string]$BaselineSha
     )
-    # Bounded + credential-prompt-proof + credential-chained: a wedged /
-    # half-dead remote or a credential prompt must never hang the outer loop
-    # (the watchdog only guards the inner). rev-parse below is local -- no
-    # network -- so it stays raw.
-    if ((Invoke-OuterNetworkGit -ArgumentList @('-C', $RepoRoot, 'fetch', '--quiet', 'origin') -TimeoutSeconds 45).ExitCode -ne 0) { return $false }
-    $upstream = & git -C $RepoRoot rev-parse '@{u}' 2>$null
-    if ($LASTEXITCODE -ne 0 -or -not $upstream) { return $false }
-    if (([string]$upstream).Trim() -eq $BaselineSha) { return $false }
-    # Differing from the baseline is necessary but not sufficient. A clone
-    # holding a local commit that was never pushed differs from the upstream
-    # tip permanently, so a tip-vs-HEAD comparison alone reports "new commits"
-    # on every poll forever: the failure pause then breaks at the first poll
-    # each cycle, the backoff cap never applies, and the console announces
-    # upstream commits that do not exist. Only commits this clone does NOT
-    # have are new, which is what the behind-count answers.
-    $behind = & git -C $RepoRoot rev-list --count 'HEAD..@{u}' 2>$null
-    if ($LASTEXITCODE -ne 0 -or -not $behind) { return $false }
-    return ([int]([string]$behind).Trim() -gt 0)
+    $target = Get-GitRepositoryUpdateTarget -RepoRoot $RepoRoot
+    return [bool]($target.Success -and -not $target.Skipped -and $target.Revision -ne $BaselineSha)
 }
 
 function Invoke-OuterGitPull {
     <#
     .SYNOPSIS
-        Fast-forward-only pull of the repo at $RepoRoot, streaming git's
-        output. Returns $true when the pull succeeded, $false otherwise.
+        Update clean framework sources to their configured upstream snapshot.
+        Return one boolean and retain a redacted failure for the cycle record.
     #>
     [CmdletBinding()]
     [OutputType([bool])]
     param([Parameter(Mandatory)][string]$RepoRoot)
-    # Bounded + credential-prompt-proof + credential-chained (see
-    # Invoke-OuterNetworkGit). The capture shape preserves git's (already
-    # --quiet) output for the console.
-    # Stream via Write-Information, NOT Write-Output: this function's contract is a
-    # single [bool], and git's stderr on a failure would otherwise ride the pipeline
-    # and turn the caller's `-not (Invoke-OuterGitPull ...)` into `-not <array>`
-    # ($false), masking the failure.
     $script:LastOuterPullFailure = ''
-    $pull = Invoke-OuterNetworkGit -ArgumentList @('-C', $RepoRoot, 'pull', '--ff-only', '--quiet') -TimeoutSeconds 60
-    if ($pull.StdOut) { Write-Information ($pull.StdOut.TrimEnd()) -InformationAction Continue }
-    if ($pull.StdErr) { Write-Information ($pull.StdErr.TrimEnd()) -InformationAction Continue }
-    if ($pull.ExitCode -ne 0) {
-        # A stale/expired GitHub credential is the one failure worth naming: surface
-        # the same refresh-your-login guidance the inner pull uses so an operator
-        # fixes it in one step instead of chasing a generic pull error or a hang.
-        if ((Get-Command Test-GitRemoteAuthFailure -ErrorAction SilentlyContinue) -and (Test-GitRemoteAuthFailure -Output $pull.Output)) {
-            $remoteUrl = & git -C $RepoRoot config --get remote.origin.url 2>$null
-            Write-GitAuthRefreshBanner -RemoteUrl ("$remoteUrl".Trim()) -GitOutput $pull.Output
-        }
-    }
-    if ($pull.ExitCode -ne 0) {
-        $script:LastOuterPullFailure = ConvertTo-RecoverySafeText -Text "$($pull.StdErr) $($pull.StdOut)"
-        return $false
-    }
-    # Exit 0 is not proof the working copy is usable. Every yuruna clone runs
-    # with rebase.autoStash, so a pull against a dirty worktree can fast-forward
-    # and then fail to re-apply the stash -- git writes conflict markers into
-    # the sources and still exits 0. Spawning the inner runner on that checkout
-    # executes .ps1/.psm1 files containing '<<<<<<<'.
-    if ((Get-Command Test-GitWorktreeMerged -ErrorAction SilentlyContinue) -and
-        -not (Test-GitWorktreeMerged -RepoRoot $RepoRoot -Label 'framework repository')) {
-        $script:LastOuterPullFailure = 'the working tree holds conflict markers or unmerged paths after the pull'
+    $result = Invoke-GitRepositoryUpdate -RepoRoot $RepoRoot -Confirm:$false
+    if (-not $result.Success) {
+        $script:LastOuterPullFailure = ConvertTo-RecoverySafeText -Text ([string]$result.ErrorMessage)
+        if ($script:LastOuterPullFailure) { Write-Information $script:LastOuterPullFailure -InformationAction Continue }
         return $false
     }
     return $true
@@ -1641,6 +1599,7 @@ function Update-RunnerFaultStatus {
         }
         $doc['runnerFault'] = if ($attemptCompleted) { $null } else { [ordered]@{
             failureClass = $cause.failureClass
+            stage = if ($AttemptEvidence) { [string]$AttemptEvidence['stage'] } else { '' }
             severity = $cause.severity
             stepName = $cause.stepName
             errorMessage = $cause.errorMessage
@@ -3191,6 +3150,21 @@ function Invoke-RunnerOuterLoop {
         }
         # See https://yuruna.link/4213a0b3-0117
         if ($outcome -in @('pull-error','paused','spawn-failed','cycle-aborted')) {
+            if ($outcome -eq 'pull-error' -and $env:YURUNA_RUNTIME_DIR) {
+                $updateReason = if ($recoveryResult -and $recoveryResult.reason) { [string]$recoveryResult.reason } else { Get-LastOuterPullFailure }
+                $updateEvidence = @{
+                    stage = 'FrameworkPull'
+                    description = $updateReason
+                    frameworkCommitSha = Get-OuterCommitSha -RepoRoot $State.RepoRoot
+                }
+                $null = Update-RunnerFaultStatus -RuntimeDir $env:YURUNA_RUNTIME_DIR -RunnerState 'paused' `
+                    -FailureClass 'bootstrap_sync' -Reason $updateReason -AttemptEvidence $updateEvidence `
+                    -AttemptGeneration ([string]$State['CycleGeneration']) -SpawnedAtUtc $cycleSpawnedAtUtc -ExitCode 1 -Confirm:$false
+                Write-OuterLog "[FrameworkPull] bootstrap_sync: $updateReason"
+                if (Get-Command Set-RunnerState -ErrorAction SilentlyContinue) {
+                    $null = Set-RunnerState -To 'paused' -Reason 'framework update failed; waiting to retry' -Confirm:$false
+                }
+            }
             # A framework pull that fails on a stale git lock is repaired and retried
             # at once; left alone it fails the same way after every hold.
             if ($outcome -eq 'pull-error' -and $recoveryResult) {
@@ -3405,6 +3379,12 @@ function Invoke-RunnerOuterLoop {
 
         # See https://yuruna.link/4213a0b3-0118
         $baselineSha         = Get-OuterCommitSha -RepoRoot $State.RepoRoot
+        # Compare remote observations, not a local-only commit, so a stable
+        # upstream never shortens every failure pause indefinitely.
+        if (-not $State.NoGitPull) {
+            $trackingSha = & git -C $State.RepoRoot rev-parse '@{u}' 2>$null
+            if ($LASTEXITCODE -eq 0 -and $trackingSha) { $baselineSha = ([string]$trackingSha).Trim() }
+        }
         $baselineProjectUrl  = Get-OuterProjectUrl -ConfigPath $State.ConfigPath
         $baselineProjectSha  = if ($baselineProjectUrl) { Get-OuterRemoteSha -RemoteUrl $baselineProjectUrl } else { $null }
         $baselineConfigMtime = Get-OuterConfigMtime -ConfigPath $State.ConfigPath
@@ -3475,7 +3455,7 @@ function Invoke-RunnerOuterLoop {
                 }
                 if ($State.ShutdownState['Requested']) { break }
                 # Trigger 1: framework repo new commit.
-                if (Test-OuterNewCommitsAvailable -RepoRoot $State.RepoRoot -BaselineSha $baselineSha) {
+                if (-not $State.NoGitPull -and $baselineSha -and (Test-OuterNewCommitsAvailable -RepoRoot $State.RepoRoot -BaselineSha $baselineSha)) {
                     Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_c35b2e556a3ef075' -Arguments @{ cycle = "$cycle" })
                     Write-OuterLog (Format-YurunaOperatorMessage -Key 'runner.operator_0211ffdf400b40cc' -Arguments @{ cycle = "$cycle" })
                     break

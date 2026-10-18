@@ -8,9 +8,9 @@
   "totals": {
     "domains": 16,
     "files": 547,
-    "candidates": 7955,
+    "candidates": 7983,
     "fragments": 1796,
-    "catalogCalls": 5433,
+    "catalogCalls": 5422,
     "pages": 15,
     "markdown": 125,
     "yamlFields": 178
@@ -350,9 +350,9 @@
       "repository": "yuruna",
       "present": true,
       "files": 132,
-      "candidates": 2013,
+      "candidates": 2041,
       "fragments": 306,
-      "catalogCalls": 2369,
+      "catalogCalls": 2358,
       "pages": 0,
       "markdown": 1,
       "yamlFields": 0,

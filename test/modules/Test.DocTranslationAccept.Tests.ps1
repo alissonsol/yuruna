@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.18
+.VERSION 2026.10.18.1
 .GUID 42717e9e-cb41-455c-9848-aef41009bf87
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -241,7 +241,7 @@ Describe 'accepting a translation against its English source' {
     }
 
     It 'a prose edit stales the row' {
-        $run = Invoke-EditedSourceCheck -Name 'prose-edit' -SourceBody "# Template`n`nLast review: 2026.10.18`n" `
+        $run = Invoke-EditedSourceCheck -Name 'prose-edit' -SourceBody "# Template`n`nLast review: 2026.10.18.1`n" `
             -Edit { param($text) $text + "A new sentence the translation does not have.`n" }
         Assert-Equal -Expected 1 -Actual $run.Code 'an English prose edit left the translation current'
         Assert-Match -Pattern 'changed since' -Actual $run.Output 'the stale document is not named'

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.18
+.VERSION 2026.10.18.1
 .GUID 421d3153-a504-4156-917e-10ff36bab08d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -70,7 +70,6 @@ $rootAst = Get-ModuleAst -Path $modulePath
 # silently un-testing the pull path. File-scope variables survive into the run
 # phase. The two functions get distinct names so neither guard can read the
 # other's source.
-$script:invokeGitPullText     = (Get-FunctionAst -RootAst $rootAst -FunctionName 'Invoke-GitPull').Extent.Text
 $script:updateProjectCloneText = (Get-FunctionAst -RootAst $rootAst -FunctionName 'Update-ProjectClone').Extent.Text
 $script:invokeGitNetworkText  = (Get-FunctionAst -RootAst $rootAst -FunctionName 'Invoke-GitNetworkCommand').Extent.Text
 
@@ -104,20 +103,65 @@ Describe 'Test-GitRemoteAuthFailure -- flags a credential problem, not a network
     }
 }
 
-Describe 'Invoke-GitPull -- the network git path stays prompt-proof' {
-    It 'routes network git through the prompt-proof helper' {
-        Assert-True ($script:invokeGitPullText -match 'Invoke-GitNetworkCommand') 'Invoke-GitPull must call Invoke-GitNetworkCommand for network git'
+Describe 'Invoke-GitPull delegates the shared repository update contract' {
+    It 'returns only a successful boolean for an installed revision' {
+        Mock -ModuleName Test.HostGit Invoke-GitRepositoryUpdate {
+            @{ Success = $true; Changed = $true; Skipped = $false; PreviousRevision = ('a' * 40);
+                Revision = ('b' * 40); BackupRef = 'refs/yuruna/update-backups/previous'; ErrorMessage = '' }
+        }
+        $result = @(Invoke-GitPull -RepoRoot 'customer-checkout' 6>$null)
+        $result.Count | Should -Be 1
+        $result[0] | Should -BeOfType ([bool])
+        $result[0] | Should -BeTrue
+        Should -Invoke -ModuleName Test.HostGit Invoke-GitRepositoryUpdate -Exactly -Times 1 -ParameterFilter {
+            $RepoRoot -eq 'customer-checkout'
+        }
     }
-    It 'issues no raw hang-prone `git ... fetch` / `git ... pull`' {
-        # The only remaining bare `git` call is the local `config --get remote.origin.url`
-        # (no network, no prompt). A raw fetch/pull is the call that hung.
-        Assert-True ($script:invokeGitPullText -notmatch 'git\s+-C\s+\$RepoRoot\s+fetch') 'raw `git -C $RepoRoot fetch` must be gone'
-        Assert-True ($script:invokeGitPullText -notmatch 'git\s+-C\s+\$RepoRoot\s+pull')  'raw `git -C $RepoRoot pull` must be gone'
+    It 'reports refusal as false without allowing diagnostic text into the success stream' {
+        Mock -ModuleName Test.HostGit Invoke-GitRepositoryUpdate {
+            @{ Success = $false; Changed = $false; Skipped = $false; PreviousRevision = ('a' * 40);
+                Revision = ('a' * 40); BackupRef = ''; ErrorMessage = 'tracked operator edits prevent update' }
+        }
+        $result = @(Invoke-GitPull -RepoRoot 'customer-checkout' -ErrorAction SilentlyContinue 2>$null 6>$null)
+        $result.Count | Should -Be 1
+        $result[0] | Should -BeOfType ([bool])
+        $result[0] | Should -BeFalse
     }
-    It 'preflights the remote and emits the refresh-access banner on auth failure' {
-        Assert-True ($script:invokeGitPullText -match 'ls-remote')                 'a cheap ls-remote preflight must run before the fetch'
-        Assert-True ($script:invokeGitPullText -match 'Test-GitRemoteAuthFailure') 'an auth failure must be classified'
-        Assert-True ($script:invokeGitPullText -match 'Write-GitAuthRefreshBanner') 'an auth failure must surface the refresh-access banner'
+    It 'retains a skipped intentional pin as a successful no-op' {
+        Mock -ModuleName Test.HostGit Invoke-GitRepositoryUpdate {
+            @{ Success = $true; Changed = $false; Skipped = $true; PreviousRevision = ('a' * 40);
+                Revision = ('a' * 40); BackupRef = ''; ErrorMessage = '' }
+        }
+        Invoke-GitPull -RepoRoot 'pinned-checkout' 6>$null | Should -BeTrue
+    }
+}
+
+Describe 'framework update authentication diagnostics stay inside the result' {
+    It 'returns actionable advice without emitting credentialed URLs before caller redaction' {
+        Mock -ModuleName Test.HostGit Invoke-GitUpdateCommand {
+            $text = switch ($ArgumentList[0]) {
+                'rev-parse' { 'a' * 40 }
+                'symbolic-ref' { 'refs/heads/main' }
+                'for-each-ref' { "origin`trefs/heads/main`trefs/remotes/origin/main" }
+                'remote' { 'https://operator:private-fixture-value@github.com/acme/framework.git' }
+                default { throw "Unexpected local update command: $($ArgumentList -join ' ')" }
+            }
+            @{ ExitCode = 0; Output = $text; Error = '' }
+        }
+        Mock -ModuleName Test.HostGit Invoke-GitNetworkCommand {
+            @{ ExitCode = 128; Output = "fatal: Authentication failed for 'https://operator:private-fixture-value@github.com/acme/framework.git'" }
+        }
+        $events = @(Get-GitRepositoryUpdateTarget -RepoRoot 'customer-checkout' *>&1)
+        $messages = (@($events | Where-Object { $_ -isnot [System.Collections.IDictionary] }) | Out-String)
+        $messages | Should -Not -Match 'private-fixture-value'
+        $messages.Trim() | Should -BeNullOrEmpty
+        $answers = @($events | Where-Object { $_ -is [System.Collections.IDictionary] })
+        $answers.Count | Should -Be 1
+        $answers[0].Success | Should -BeFalse
+        $answers[0].ErrorMessage | Should -Match 'Authentication failed'
+        $answers[0].ErrorMessage | Should -Match 'gh auth login'
+        $answers[0].ErrorMessage | Should -Match 'GH_TOKEN'
+        $answers[0].ErrorMessage | Should -Match 'credential helper'
     }
 }
 
@@ -360,25 +404,26 @@ Describe 'Reporting an auth-shaped failure as one -- not as "offline, or maybe c
 }
 
 Describe 'external Git diagnostics use an invariant child locale' {
-    It 'pins the fallback child locale and restores the caller even when Git fails' {
+    It 'bounds the fallback and sets only the child locale even when Git fails' {
         Mock -ModuleName Test.HostGit Get-Command { $null } -ParameterFilter { $Name -eq 'Invoke-PoolSyncGitCapture' }
+        Mock -ModuleName Test.HostGit Invoke-BoundedNativeCommand {
+            $TimeoutSeconds | Should -Be 7
+            foreach ($name in @('LC_ALL', 'LANG', 'LANGUAGE')) { $Environment[$name] | Should -BeExactly 'C' }
+            $env:LC_ALL | Should -BeExactly 'pt_BR.UTF-8'
+            $env:LANG | Should -BeExactly 'de_DE.UTF-8'
+            $env:LANGUAGE | Should -BeExactly 'pt:de'
+            throw 'synthetic child failure'
+        }
         InModuleScope Test.HostGit {
             $before = @{}
             foreach ($name in @('LC_ALL', 'LANG', 'LANGUAGE')) { $before[$name] = [Environment]::GetEnvironmentVariable($name) }
             try {
                 $env:LC_ALL = 'pt_BR.UTF-8'; $env:LANG = 'de_DE.UTF-8'; $env:LANGUAGE = 'pt:de'
-                function git {
-                    $env:LC_ALL | Should -BeExactly 'C'
-                    $env:LANG | Should -BeExactly 'C'
-                    $env:LANGUAGE | Should -BeExactly 'C'
-                    throw 'synthetic child failure'
-                }
-                { Invoke-GitNetworkCommandOnce -GitArgs @('--version') } | Should -Throw 'synthetic child failure'
+                { Invoke-GitNetworkCommandOnce -GitArgs @('--version') -TimeoutSeconds 7 } | Should -Throw 'synthetic child failure'
                 $env:LC_ALL | Should -BeExactly 'pt_BR.UTF-8'
                 $env:LANG | Should -BeExactly 'de_DE.UTF-8'
                 $env:LANGUAGE | Should -BeExactly 'pt:de'
             } finally {
-                Remove-Item function:git -ErrorAction SilentlyContinue
                 foreach ($name in $before.Keys) { [Environment]::SetEnvironmentVariable($name, $before[$name]) }
             }
         }

@@ -45,7 +45,7 @@
       "source": "docs/install.md",
       "locale": "pt-BR",
       "translated": "docs/pt-BR/install.md",
-      "sourceHash": "38720eb5dc58108a34817e15ee4f5362cee1cb32138910819c934b53b99a5e08",
+      "sourceHash": "37c8b87816843bc73b040ff3c985ce66ad32ffbcfdd8fde701c652904a6414a8",
       "origin": "machine"
     },
     {
@@ -93,7 +93,7 @@
       "source": "docs/test-harness.md",
       "locale": "pt-BR",
       "translated": "docs/pt-BR/test-harness.md",
-      "sourceHash": "c60b4c57869811e2332dfc4b694058e78f118458f9f3bc4fb2b91144722342a4",
+      "sourceHash": "546889d6482ab5e25fa60b11732af4ed7b4d8a8cbe38d5e9a13170ec91b48f89",
       "origin": "machine"
     },
     {

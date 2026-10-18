@@ -347,6 +347,7 @@ type hostStatus struct {
 type runnerFault struct {
 	FailureClass string `json:"failureClass"`
 	Severity     string `json:"severity"`
+	Stage        string `json:"stage,omitempty"`
 }
 
 type cycleVerdict struct {
@@ -997,7 +998,8 @@ func (hv *hostView) statusLabel() string {
 		return "idle"
 	}
 	if hv.Status.RunnerFault != nil && hv.Status.RunnerFault.FailureClass != "" {
-		if hv.Status.RunnerFault.FailureClass == "config_gate_failed" {
+		fault := hv.Status.RunnerFault
+		if fault.FailureClass == "config_gate_failed" || (fault.FailureClass == "bootstrap_sync" && fault.Stage == "FrameworkPull") {
 			return "preflight-failed"
 		}
 		return "fail"
@@ -1673,7 +1675,7 @@ func fetchCurrentAction(client *http.Client, base string) (bool, error) {
 // served by the status service at /yuruna-repo/VERSION -- the SAME source the
 // host's own status pages read for their header (their getHostInfo() fetches
 // yuruna-repo/VERSION via JS, so the version is not embedded in the HTML). A tiny
-// plain-text file (one CalVer line, e.g. "2026.10.18"), so it is lighter than any
+// plain-text file (one CalVer line, e.g. "2026.10.18.1"), so it is lighter than any
 // status HTML page and fetchable server-side without a JS engine. Returns
 // ("", err) on any failure; the caller keeps the prior version on a transient
 // miss (the version is stable across polls). The value is capped + first-line

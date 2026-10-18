@@ -52,5 +52,5 @@ const generatedDefault = "en-US"
 const generatedMaxTagLength = 35
 const generatedMaxHeaderLength = 512
 
-const generatedCatalogVersion = "2026.10.18"
-const generatedCatalogHash = "525f7f6850b377f7a501605c1a7ac8204f70fd6f5cfdf4a9f82bc44b66cf3cd2"
+const generatedCatalogVersion = "2026.10.18.1"
+const generatedCatalogHash = "f603afb31049f6da8bc02f7df14e9ec8521a587934760ce795e525b25f86b7c5"

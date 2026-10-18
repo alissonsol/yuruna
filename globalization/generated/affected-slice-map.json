@@ -6217,7 +6217,7 @@
     {
       "wireCode": "host_refresh.unknown",
       "path": "test/modules/Test.HostGit.psm1",
-      "matchCount": 3,
+      "matchCount": 2,
       "reason": "Repository ahead/behind sync state and commit fallback; not the host-refresh state."
     },
     {

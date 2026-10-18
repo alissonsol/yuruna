@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.18
+.VERSION 2026.10.18.1
 .GUID 4276a748-cfa3-4a04-8af7-f29a0d4ab830
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -83,6 +83,7 @@ function Get-RunnerAttemptHistoryEntry {
                 skipped = [bool]$record['skipped']
                 exitCode = [int]$record['exitCode']
                 failureClass = [string]$record['failureClass']
+                stage = [string]$record['stage']
                 description = $description
                 recordPath = $relative + '/' + $name
                 transcriptPath = $transcriptPath
@@ -169,6 +170,7 @@ function Write-RunnerAttemptFaultArtifact {
         skipped = $false
         exitCode = $ExitCode
         failureClass = $FailureClass
+        stage = if ($Evidence) { [string]$Evidence['stage'] } else { '' }
         description = $Description
         recordPath = $recordPath
         transcriptPath = if ($existing) { [string]$existing.transcriptPath } else { '' }

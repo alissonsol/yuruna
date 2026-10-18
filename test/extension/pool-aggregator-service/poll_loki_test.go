@@ -136,9 +136,14 @@ func TestPollOnceSlowLokiLeavesPoolReadableAndSnapshotsTransitions(t *testing.T)
 }
 
 func TestPollRunnerFaultPreservesCompletedCycle(t *testing.T) {
-	for _, separateFault := range []bool{false, true} {
+	for _, faultKind := range []string{"legacy", "config", "update"} {
+		separateFault := faultKind != "legacy"
+		failureClass, stage := "config_gate_failed", ""
+		if faultKind == "update" {
+			failureClass, stage = "bootstrap_sync", "FrameworkPull"
+		}
 		for _, prior := range []string{"", "pass"} {
-			t.Run(fmt.Sprintf("separate=%v/prior=%s", separateFault, prior), func(t *testing.T) {
+			t.Run(fmt.Sprintf("fault=%s/prior=%s", faultKind, prior), func(t *testing.T) {
 				const hid = "42aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 				const start = "2026-10-01T12:00:00Z"
 				s := newPoolState("default", 8080)
@@ -180,7 +185,7 @@ func TestPollRunnerFaultPreservesCompletedCycle(t *testing.T) {
 						case "/runtime/status.json":
 							body = fmt.Sprintf(`{"hostId":%q,"cycleStartUtc":%q,"overallStatus":"fail","runnerState":%q,"lastFailure":{"failureClass":"preamble_stall"},"history":[{"cycleStartUtc":%q,"overallStatus":"pass","finishedAt":"2026-10-01T12:30:00Z","hostname":"private-host","lastFailure":null}]}`, hid, start, runnerState, start)
 							if separateFault {
-								body = fmt.Sprintf(`{"hostId":%q,"cycleStartUtc":%q,"overallStatus":"pass","finishedAt":"2026-10-01T12:30:00Z","runnerState":%q,"runnerFault":{"failureClass":"config_gate_failed","severity":"fatal","errorMessage":"private-host","transcriptPath":"private-host"}}`, hid, start, runnerState)
+								body = fmt.Sprintf(`{"hostId":%q,"cycleStartUtc":%q,"overallStatus":"pass","finishedAt":"2026-10-01T12:30:00Z","runnerState":%q,"runnerFault":{"failureClass":%q,"stage":%q,"severity":"fatal","errorMessage":"private-host","transcriptPath":"private-host"}}`, hid, start, runnerState, failureClass, stage)
 							}
 						case "/runtime/host.registration.json":
 							body = `{"poolId":"test-pool"}`

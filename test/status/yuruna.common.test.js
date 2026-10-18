@@ -1,7 +1,7 @@
 /*
   LICENSEURI https://yuruna.link/license
   Copyright (c) 2019-2026 by Alisson Sol et al.
-  Version: 2026.10.18
+  Version: 2026.10.18.1
 
   Framework-free checks for test/status/yuruna.common.js. Run: node yuruna.common.test.js
   (exit 0 = pass). No package.json / test runner in the repo, so this uses the Node
@@ -98,6 +98,13 @@ assert.strictEqual(bannerEl.className, 'preflight-failed', 'a preflight failure 
 assert.strictEqual(faultData.overallStatus, 'pass', 'displaying an attempt failure must preserve the completed cycle verdict');
 Y.applyBanner({ runnerFault: faultData.runnerFault }, null, { running: true });
 assert.strictEqual(bannerEl.className, 'preflight-failed', 'a first-attempt failure needs no completed cycle to be visible');
+var updateFault = { failureClass: 'bootstrap_sync', stage: 'FrameworkPull', errorMessage: 'remote history changed' };
+Y.applyBanner({ overallStatus: 'pass', runnerFault: updateFault }, null, { running: true });
+assert.strictEqual(bannerEl.className, 'preflight-failed', 'a framework update failure is a yellow preflight refusal');
+Y.applyBanner({ runnerFault: { failureClass: 'bootstrap_sync', stage: 'GuestBootstrap' } }, null, { running: true });
+assert.strictEqual(bannerEl.className, 'fail', 'bootstrap failures inside a cycle must remain red');
+Y.applyBanner({ overallStatus: 'pass', cycleStartUtc: '2026-10-12T12:44:04Z' }, null, { running: true });
+assert.strictEqual(bannerEl.className, 'pass', 'a cleared update fault restores the completed verdict');
 Y.applyBanner({ runnerFault: { failureClass: 'inner_exited' } }, null, { running: true });
 assert.strictEqual(bannerEl.className, 'fail', 'runner crashes must remain red');
 Y.applyBanner({ overallStatus: 'fail', guests: [{}] }, null, { running: true });
@@ -106,6 +113,9 @@ Y.applyBanner(faultData, null, { running: false });
 assert.strictEqual(bannerEl.className, 'stopped', 'verified stopped runner keeps precedence');
 documentShim.getElementById = getElementById;
 var faultEl = makeEl();
+Y.renderRunnerFault(faultEl, { runnerFault: updateFault });
+assert.match(faultEl.className, /preflight-failed/, 'the update fault notice uses the yellow style');
+assert.match(faultEl.innerHTML, /badge preflight-failed/, 'the update fault badge uses the yellow style');
 Y.renderRunnerFault(faultEl, faultData);
 assert.strictEqual(faultEl.hidden, false);
 assert.match(faultEl.innerHTML, /&lt;script&gt;bad\(\)&lt;\/script&gt;/, 'diagnostic text is escaped');
@@ -122,6 +132,8 @@ assert.strictEqual(faultEl.hidden, true, 'a successful new attempt clears the no
 assert.strictEqual(faultEl.innerHTML, '');
 
 var attemptsEl = makeEl();
+Y.renderRunnerAttempts(attemptsEl, { schemaVersion: 1, attempts: [Object.assign({ passed: false }, updateFault)] });
+assert.match(attemptsEl.innerHTML, /badge preflight-failed/, 'retained framework update failures stay yellow');
 var retainedFailure = {
   attemptGeneration: 'runner:7', passed: false, failureClass: 'config_gate_failed',
   startedAtUtc: '2026-10-18T01:38:32Z', finishedAtUtc: '2026-10-18T01:38:48Z',

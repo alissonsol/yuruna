@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.18
+.VERSION 2026.10.18.1
 .GUID 4277cde3-5e56-4d5e-beb5-7bed391f35c5
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -169,27 +169,16 @@ Describe 'The failure pause shortcut is budgeted by the ledger' {
 }
 
 Describe 'Why a framework pull failed' {
-    BeforeAll {
-        # The caller's named arguments are of no interest here; they land in $args.
-        function global:Test-GitWorktreeMerged {
-            return $global:__pullMerged
-        }
-    }
-    AfterAll {
-        # The path form: the scope-qualified spelling removes nothing.
-        Remove-Item -Path Function:\Test-GitWorktreeMerged -ErrorAction SilentlyContinue
-        Remove-Variable __pullMerged -Scope Global -ErrorAction SilentlyContinue
-    }
     BeforeEach {
-        $global:__pullMerged = $true
-        $script:Pull = @{ ExitCode = 1; StdOut = ''; StdErr = '' }
-        Mock -ModuleName Test.RunnerOuterLoop Invoke-OuterNetworkGit {
-            [pscustomobject]@{ ExitCode = $script:Pull.ExitCode; StdOut = $script:Pull.StdOut; StdErr = $script:Pull.StdErr; Output = ($script:Pull.StdErr + $script:Pull.StdOut) }
+        $script:Pull = @{ Success = $false; ErrorMessage = ''; Changed = $false; Skipped = $false;
+            PreviousRevision = ('a' * 40); Revision = ('a' * 40); BackupRef = '' }
+        Mock -ModuleName Test.RunnerOuterLoop Invoke-GitRepositoryUpdate {
+            return $script:Pull
         }
     }
 
     It 'keeps the git output of a failed pull, redacted, for the cycle outcome record' {
-        $script:Pull.StdErr = "fatal: Unable to create '/x/.git/index.lock': File exists.`nfatal: could not read from https://user:s3cr3t@github.com/x/y.git"
+        $script:Pull.ErrorMessage = "fatal: Unable to create '/x/.git/index.lock': File exists.`nfatal: could not read from https://user:s3cr3t@github.com/x/y.git"
         Invoke-OuterGitPull -RepoRoot 'R' 6>$null | Should -BeFalse
         $why = Get-LastOuterPullFailure
         $why | Should -Match 'index\.lock'
@@ -197,17 +186,16 @@ Describe 'Why a framework pull failed' {
         $why | Should -Not -Match "`n"
     }
     It 'forgets the failure once a pull succeeds' {
-        $script:Pull.StdErr = 'fatal: Unable to create index.lock'
+        $script:Pull.ErrorMessage = 'fatal: Unable to create index.lock'
         $null = Invoke-OuterGitPull -RepoRoot 'R' 6>$null
         Get-LastOuterPullFailure | Should -Not -BeNullOrEmpty
-        $script:Pull.ExitCode = 0
-        $script:Pull.StdErr = ''
+        $script:Pull.Success = $true
+        $script:Pull.ErrorMessage = ''
         Invoke-OuterGitPull -RepoRoot 'R' 6>$null | Should -BeTrue
         Get-LastOuterPullFailure | Should -Be ''
     }
-    It 'says why a pull that exited 0 is still not usable' {
-        $script:Pull.ExitCode = 0
-        $global:__pullMerged = $false
+    It 'retains the shared updater refusal for an unmerged checkout' {
+        $script:Pull.ErrorMessage = 'the working tree holds conflict markers or unmerged paths'
         Invoke-OuterGitPull -RepoRoot 'R' 6>$null | Should -BeFalse
         Get-LastOuterPullFailure | Should -Match 'conflict markers or unmerged'
     }
@@ -298,5 +286,30 @@ Describe 'A framework pull that fails on a stale git lock' {
         $null = Invoke-FakeLoop -ConfigPath $script:Config -Cycle @('pull-error', 'stop') -RepoRoot $script:Repo
         Test-Path -LiteralPath $script:Lock | Should -BeTrue -Because 'a network failure is not a stale lock'
         $script:Waits.Count | Should -Be 1
+    }
+    It 'publishes a framework preflight failure before retrying without changing the prior pass or counting a crash' {
+        $script:Config = New-LoopConfig -Enabled $false
+        $statusPath = Join-Path $script:Runtime 'status.json'
+        $prior = @{ schemaVersion = 1; overallStatus = 'pass'; testsPassed = 7; testsFailed = 0;
+            finishedAt = '2026-10-18T01:00:00Z'; history = @(@{ overallStatus = 'pass'; cycleNumber = 42 }); guests = @() }
+        $prior | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $statusPath
+        $script:ObservedBeforeWait = $null
+        Mock -ModuleName Test.RunnerOuterLoop Update-RunnerCrashGating { throw 'an update refusal is not a runner crash' }
+        Mock -ModuleName Test.RunnerOuterLoop Wait-OuterInterruptible {
+            $script:ObservedBeforeWait = Get-Content -LiteralPath (Join-Path $script:Runtime 'status.json') -Raw | ConvertFrom-Json
+            $script:Waits.Add([int]$Seconds)
+            return $true
+        }
+        $null = Invoke-FakeLoop -ConfigPath $script:Config -Cycle @('pull-error', 'stop') -RepoRoot $script:Repo
+        $script:ObservedBeforeWait.runnerFault.failureClass | Should -Be 'bootstrap_sync'
+        $script:ObservedBeforeWait.runnerFault.stage | Should -Be 'FrameworkPull'
+        $script:ObservedBeforeWait.runnerFault.errorMessage | Should -Match 'index\.lock'
+        $script:ObservedBeforeWait.overallStatus | Should -Be 'pass'
+        $script:ObservedBeforeWait.testsPassed | Should -Be 7
+        $script:ObservedBeforeWait.testsFailed | Should -Be 0
+        @($script:ObservedBeforeWait.history).Count | Should -Be 1
+        $script:ObservedBeforeWait.history[0].cycleNumber | Should -Be 42
+        $script:Waits.Count | Should -Be 1
+        Should -Invoke -ModuleName Test.RunnerOuterLoop Update-RunnerCrashGating -Exactly -Times 0
     }
 }

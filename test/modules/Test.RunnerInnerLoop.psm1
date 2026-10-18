@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.18
+.VERSION 2026.10.18.1
 .GUID 42479415-ffbe-4fef-9daa-15edda547208
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -1692,11 +1692,13 @@ function Write-GitPullFailureBanner {
         Get-GitHubConnectivityDiagnostic.
     #>
     [CmdletBinding()]
-    param([bool]$DnsOk, [bool]$TcpOk, [string]$NetDiag)
+    param([bool]$DnsOk, [bool]$TcpOk, [string]$NetDiag, [string]$ErrorMessage)
     Write-Output ""
     Write-Output "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"
     Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_d63204d143ea3d13')
-    if (-not $DnsOk -or -not $TcpOk) {
+    if ($ErrorMessage) {
+        Write-Output $ErrorMessage
+    } elseif (-not $DnsOk -or -not $TcpOk) {
         Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_137d30041e9fa016' -Arguments @{ netDiag = "$NetDiag" })
         Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_26e46bcd3899a7d0')
         Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_6104479e2632e4fe')
@@ -2485,29 +2487,20 @@ do {
     Reset-StatusDocumentForCycleStart -StatusFilePath $StatusFile -Confirm:$false
 
     # --- REGION: Git pull
-    # Unconditional single-shot pull at cycle start by design. Gating on
-    # `git ls-remote HEAD` SHA vs local to skip no-op fetches would be
-    # two round-trips to github.com (ls-remote + pull) where one already
-    # does the work; the single `pull --ff-only` is the source of truth
-    # for "did HEAD move?" without an extra network call. Keeping it
-    # unconditional also means a host that just came back online
-    # recovers in one cycle without an extra branch.
+    # Resolve the configured upstream on every cycle so a host that returns
+    # online adopts its current snapshot even when the remote rewrote history.
+    # The shared updater preserves pins, local edits and operator state.
     if (-not $NoGitPull) {
         if (-not (Invoke-GitPull -RepoRoot $RepoRoot)) {
-            # Differentiate a network outage from a local branch divergence so the
-            # operator is not sent to "rebase/merge manually" for an unplugged NIC.
-            # The two flags also classify the infra failure (network_timeout vs
-            # bootstrap_sync) below. See Get-GitHubConnectivityDiagnostic.
-            $netProbe = Get-GitHubConnectivityDiagnostic
-            $dnsOk   = $netProbe.DnsOk
-            $tcpOk   = $netProbe.TcpOk
-            $netDiag = $netProbe.Message
-
-            Write-GitPullFailureBanner -DnsOk $dnsOk -TcpOk $tcpOk -NetDiag $netDiag
-            $gitPullErr = "Git sync failed. Branch may have diverged, or network is unreachable."
+            # The updater reports the operation that actually failed. Probing
+            # GitHub here could misclassify a local edit or a file:// source.
+            $gitPullErr = Get-LastGitUpdateFailure
+            if (-not $gitPullErr) { $gitPullErr = 'Framework update failed; inspect the Git diagnostics above.' }
+            $gitPullErr = ConvertTo-RecoverySafeText -Text $gitPullErr
+            Write-GitPullFailureBanner -ErrorMessage $gitPullErr
             $gitPullCommit = (Get-CurrentGitCommit -RepoRoot $RepoRoot)
             # See https://yuruna.link/4213a0b3-00f1
-            $gitClass = if (-not $dnsOk -or -not $tcpOk) { 'network_timeout' } else { 'bootstrap_sync' }
+            $gitClass = 'bootstrap_sync'
             Write-CycleInfraFailure -Stage 'GitPull' -FailureClass $gitClass -GuestKey '(bootstrap)' -ErrorMessage $gitPullErr -HostType $HostType
             # Route this bootstrap failure through the shared consecutive-failure
             # notification gating (see Invoke-RunnerBootstrapFailureGate). break +

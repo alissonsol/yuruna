@@ -112,7 +112,7 @@ would stall waiting for GitHub credentials this run doesn't have.
 
 ### Release pinning + signed integrity
 
-`VERSION` (bare CalVer, `YYYY.MM.DD`) is the source of truth for releases.
+`VERSION` (CalVer, `YYYY.MM.DD` or `YYYY.MM.DD.N` for a patch) is the source of truth for releases.
 At release time `tools/Update-YurunaReleasePins.ps1` regenerates
 `install/install.sha256`, signs it (`install/install.sha256.sig`, RSA-4096),
 runs the ASCII/no-BOM gate as a hard precondition, and bumps the one tag still
@@ -121,13 +121,23 @@ work is just: bump `VERSION`, run the script, cut the tag. The installers carry
 no baked version; they read `VERSION` at install time.
 
 The clone DEFAULT stays on the moving `main` branch, so a normal install
-**auto-updates the framework every cycle** (the runner's per-cycle `git pull
---ff-only` fast-forwards the tracking branch). To freeze a host at the current
+**auto-updates the framework every cycle**. The runner fetches the configured
+upstream branch and installs its exact revision, including a remote rewind or
+replacement history. It preserves the previous revision under a local backup
+ref and keeps untracked operator configuration and runtime data. Dirty tracked
+files or incoming files that would overwrite local data block the update with
+an actionable preflight failure. The updater never merges or rebases customer
+changes into downloaded framework code. To freeze a host at the current
 release, pass `-PinVersion` (Windows) / `PIN_VERSION=1` or `--pin-version`
 (macOS, Ubuntu): after cloning, the installer reads the repo's `VERSION` file
 and checks that tag out as a detached HEAD, which the per-cycle pull leaves
-untouched (no upstream -> no-op). An explicit `-YurunaBranch <tag>` /
+untouched. An explicit `-YurunaBranch <tag>` /
 `YURUNA_BRANCH=<tag>` pins to any specific release instead.
+
+The project is refreshed independently: a fresh clone of `repositories.projectUrl`
+is validated before replacing the previous project checkout. This also accepts
+replacement Git histories and `file:///` sources. `-NoGitPull` disables framework
+updates; `-NoProjectClone` independently disables project replacement.
 
 The convenience one-liners stay on `refs/heads/main` (latest, UNVERIFIED). The
 **verified** install path -- download the installer + `install.sha256` + `.sig`
@@ -1214,6 +1224,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.18
+Last review: 2026.10.18.1
 
 Back to [Yuruna](../README.md)

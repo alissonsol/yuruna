@@ -61,7 +61,12 @@ e o motivo para distingui-las.
 
 Cada iteração de `Start-TestRunner.ps1`:
 
-1. Executa `git pull` e relê `test.config.yml`.
+1. Atualiza o framework para a revisão do upstream configurado e relê o
+   `test.config.yml` preservado. O atualizador aceita históricos do Git
+   reescritos e mantém uma revisão anterior recuperável; conflitos com
+   arquivos locais interrompem a tentativa antes de iniciar um ciclo de
+   convidado. O projeto usa um novo clone validado separadamente, portanto
+   suas atualizações também não dependem da ancestralidade do Git.
 2. A cada 7 dias na configuração fornecida (configurável): atualiza as imagens
    base com `Get-Image.ps1`. Quando a configuração está ausente, o valor de fallback é 24h.
 3. Para cada convidado do plano de ciclo resolvido a partir de `test/test.runner.yml` no
@@ -1435,6 +1440,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.18
+Last review: 2026.10.18.1
 
 Voltar para [Yuruna](../../README.md)

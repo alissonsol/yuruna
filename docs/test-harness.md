@@ -54,7 +54,11 @@ and the reason to distinguish them.
 
 Each iteration of `Start-TestRunner.ps1`:
 
-1. `git pull`, then re-read `test.config.yml`.
+1. Update the framework to its configured upstream revision, then re-read the
+   preserved `test.config.yml`. The updater accepts rewritten Git history and
+   keeps a recoverable previous revision; local file conflicts stop the attempt
+   before a guest cycle starts. The project uses a separately validated fresh
+   clone, so project updates do not depend on Git ancestry either.
 2. Every 7 days by the shipped configuration (configurable): refresh base
    images via `Get-Image.ps1`. The fallback when the setting is absent is 24h.
 3. For each guest in the cycle plan resolved from `test/test.runner.yml` in the
@@ -1345,6 +1349,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.18
+Last review: 2026.10.18.1
 
 Back to [Yuruna](../README.md)

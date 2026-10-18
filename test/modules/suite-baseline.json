@@ -3,8 +3,8 @@
   "recordedUtc": "2026-09-30T17:16:40.8543919Z",
   "pesterVersion": "5.9.0",
   "totals": {
-    "suites": 399,
-    "tests": 8940,
+    "suites": 400,
+    "tests": 8968,
     "failed": 0,
     "skipped": 39
   },
@@ -711,6 +711,11 @@
       "total": 19,
       "skipped": 0,
       "seconds": 3.24
+    },
+    "test/modules/Test.HostGitUpdate.Tests.ps1": {
+      "total": 28,
+      "skipped": 0,
+      "seconds": 7.73
     },
     "test/modules/Test.HostGitWebUrl.Tests.ps1": {
       "total": 36,
@@ -2480,6 +2485,17 @@
       "tests": 5,
       "sourceSha256": {
         "test/modules/Test.JsonSchemaError.Tests.ps1": "07706A1D6DDD92E36D4E5214215D8D8228D7C031F75A4FA3D19CC9350DFD2726"
+      }
+    },
+    {
+      "registeredUtc": "2026-10-18T21:03:16.8741306Z",
+      "pesterVersion": "6.2.0",
+      "suites": [
+        "test/modules/Test.HostGitUpdate.Tests.ps1"
+      ],
+      "tests": 28,
+      "sourceSha256": {
+        "test/modules/Test.HostGitUpdate.Tests.ps1": "C47AFCE23ED4B9F1DA6446B3852878E2F9B1DA9FF65E537C4F501903F26BA952"
       }
     }
   ]

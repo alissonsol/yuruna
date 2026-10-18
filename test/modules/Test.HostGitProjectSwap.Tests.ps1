@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.18
+.VERSION 2026.10.18.1
 .GUID 4207281c-d594-4c5f-b5f3-215bb075539f
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -108,6 +108,44 @@ Describe 'Update-ProjectClone swaps in a proven-complete clone' {
         $null = Update-ProjectClone -RepoRoot $repo -ProjectUrl $script:Remote -WhatIf 6>$null
         Test-Path -LiteralPath (Join-Path $repo 'project/old.txt') | Should -BeTrue
         Test-Path -LiteralPath (Join-Path $repo 'project.incoming') | Should -BeFalse
+    }
+    It 'replaces an unrelated project history through its configured file URL' {
+        $repo = New-RepoRootFixture -Root $script:Root
+        $url = ([UriBuilder]::new('file', '', -1, $script:Remote)).Uri.AbsoluteUri
+        $config = "repositories:`n  projectUrl: $url`n"
+        [IO.File]::WriteAllText((Join-Path $repo 'test.config.yml'), $config)
+        $first = Update-ProjectClone -RepoRoot $repo -ProjectUrl $url -Confirm:$false 6>$null
+        $first.success | Should -BeTrue -Because $first.errorMessage
+        $branch = (& git -C $script:Remote branch --show-current).Trim()
+        & git -C $script:Remote checkout --quiet --orphan replacement 2>&1 | Out-Null
+        & git -C $script:Remote rm --quiet -rf . 2>&1 | Out-Null
+        Set-Content -LiteralPath (Join-Path $script:Remote 'replacement.txt') -Value 'replacement project'
+        & git -C $script:Remote add . 2>&1 | Out-Null
+        & git -C $script:Remote -c user.name=fixture -c user.email=fixture@example.invalid commit --quiet -m 'replacement' 2>&1 | Out-Null
+        $LASTEXITCODE | Should -Be 0
+        & git -C $script:Remote branch -M $branch 2>&1 | Out-Null
+        $result = Update-ProjectClone -RepoRoot $repo -ProjectUrl $url -Confirm:$false 6>$null
+        $result.success | Should -BeTrue -Because $result.errorMessage
+        $result.revision | Should -BeExactly ((& git -C $script:Remote rev-parse HEAD).Trim())
+        $result.revision | Should -Not -Be $first.revision
+        Test-Path -LiteralPath (Join-Path $repo 'project/tracked.txt') | Should -BeFalse
+        Get-Content -LiteralPath (Join-Path $repo 'project/replacement.txt') -Raw | Should -Match 'replacement project'
+        Get-Content -LiteralPath (Join-Path $repo 'test.config.yml') -Raw | Should -BeExactly $config
+    }
+    It 'removes deleted source and generated files when the project advances' {
+        $repo = New-RepoRootFixture -Root $script:Root
+        (Update-ProjectClone -RepoRoot $repo -ProjectUrl $script:Remote -Confirm:$false 6>$null).success | Should -BeTrue
+        Set-Content -LiteralPath (Join-Path $repo 'project/generated-output.txt') -Value 'previous cycle output'
+        & git -C $script:Remote rm --quiet tracked.txt 2>&1 | Out-Null
+        Set-Content -LiteralPath (Join-Path $script:Remote 'new-source.txt') -Value 'current source'
+        & git -C $script:Remote add . 2>&1 | Out-Null
+        & git -C $script:Remote -c user.name=fixture -c user.email=fixture@example.invalid commit --quiet -m 'advance' 2>&1 | Out-Null
+        $LASTEXITCODE | Should -Be 0
+        $result = Update-ProjectClone -RepoRoot $repo -ProjectUrl $script:Remote -Confirm:$false 6>$null
+        $result.success | Should -BeTrue -Because $result.errorMessage
+        Test-Path -LiteralPath (Join-Path $repo 'project/tracked.txt') | Should -BeFalse
+        Test-Path -LiteralPath (Join-Path $repo 'project/generated-output.txt') | Should -BeFalse
+        Get-Content -LiteralPath (Join-Path $repo 'project/new-source.txt') -Raw | Should -Match 'current source'
     }
 }
 

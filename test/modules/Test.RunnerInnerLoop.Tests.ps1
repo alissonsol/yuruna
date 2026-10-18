@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.18
+.VERSION 2026.10.18.1
 .GUID 422a68fe-a953-4858-a4d5-e3de9fbbbaf8
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -620,6 +620,21 @@ Describe 'Get-GitHubConnectivityDiagnostic' {
             # Message is empty only when both probes pass; non-empty otherwise.
             if (($r.DnsOk -and $r.TcpOk) -and $r.Message -ne '') { throw "Message should be empty on success: '$($r.Message)'" }
             if ((-not ($r.DnsOk -and $r.TcpOk)) -and $r.Message -eq '') { throw 'Message should describe the failing probe' }
+        }
+    }
+}
+
+Describe 'Framework update failure details' {
+    It 'prints the actual <Kind> reason without unrelated rebase or network advice' -TestCases @(
+        @{ Kind = 'operator-file collision'; Reason = "Framework update would replace operator path 'local.txt'. No files were replaced." }
+        @{ Kind = 'configured-remote failure'; Reason = 'Framework fetch failed: file:///operator/releases is unavailable.' }
+    ) {
+        param($Reason)
+        InModuleScope Test.RunnerInnerLoop -Parameters @{ Reason = $Reason } {
+            param($Reason)
+            $output = @(Write-GitPullFailureBanner -ErrorMessage $Reason)
+            $output | Should -Contain $Reason
+            ($output -join "`n") | Should -Not -Match 'rebase|merge manually|ping|8\.8\.8\.8'
         }
     }
 }

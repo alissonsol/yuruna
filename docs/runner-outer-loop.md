@@ -18,12 +18,16 @@ together, see [Test harness -- architecture](test-harness.md).
 
 The eternal cycle loop in
 [`test/modules/Test.RunnerOuterLoop.psm1`](../test/modules/Test.RunnerOuterLoop.psm1)
-is what makes the test runner resilient. Each pass pulls the repository,
+is what makes the test runner resilient. Each pass updates the repository,
 re-reads `test.config.yml`, refreshes base images on a configurable cadence,
 then walks the cycle plan resolved from `test.runner.yml` -- creating a fresh
 VM, driving its sequences, and recording results. Concretely, each cycle:
 
-1. `git pull` the framework repo.
+1. Fetch the framework's configured upstream and install its exact revision.
+   Rewritten history and remote rewinds are supported. Preserve the previous
+   revision in a backup ref; refuse dirty tracked files and collisions with
+   untracked operator data. Detached version pins and `-NoGitPull` keep their
+   existing revision.
 2. Reconcile the pool configuration when the host belongs to a pool: `drain` stops
    the runner at this cycle boundary, `paused` holds without spawning.
 3. Wipe last cycle's `inner.pid` / `inner.start` / `runner.stepHeartbeat` /
@@ -50,6 +54,12 @@ spawning a real inner pwsh.
 
 While a host refresh repairs the host, every one of these steps is held; see
 [Host refresh and the runner](#host-refresh-and-the-runner).
+
+A framework update failure in the outer loop is a yellow preflight failure. Its retained attempt
+record explains the failed update, while the previous completed cycle keeps its
+original verdict and counters. The runner retries without starting a guest cycle.
+An ordinary update follows the configured branch rather than comparing CalVer
+strings, so an intentionally pinned release is never silently advanced.
 
 <a id="42f909ad-0002"></a>
 
@@ -1105,6 +1115,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.18
+Last review: 2026.10.18.1
 
 Back to [Yuruna](../README.md)

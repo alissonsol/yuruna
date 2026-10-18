@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.18
+.VERSION 2026.10.18.1
 .GUID 42bb2613-9d4e-4ac0-aeb2-0784a83e7a8a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -19,17 +19,17 @@
 # Git and project-clone helpers: ../../docs/test-harness.md#module-responsibilities.
 
 Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
+Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Common.psm1') -DisableNameChecking
 function Get-GitUpstreamStatus {
     <#
     .SYNOPSIS
         Classify a git working tree vs its upstream: no-tree / no-upstream /
         up-to-date / ahead / behind / diverged.
     .DESCRIPTION
-        Pure read-only -- does NOT fetch (each caller fetches its own way first,
-        with its own retry / offline policy), so the result reflects whatever
-        the local refs currently say. One comparison code path: Invoke-GitPull
-        maps the State to a pull/skip/error decision; Test-RepoFreshness
-        (Test.ConfigValidator) maps the same State to a PASS/WARN row.
+        Pure read-only -- does NOT fetch, so the result reflects whatever the
+        local refs currently say. Test-RepoFreshness (Test.ConfigValidator) maps
+        this diagnostic state to a PASS/WARN row. Framework updates resolve an
+        exact upstream snapshot independently of this ancestry classification.
     .OUTPUTS
         [hashtable] @{ State; Ahead; Behind; Local; Remote }
     #>
@@ -225,8 +225,8 @@ function Invoke-GitNetworkCommandOnce {
     .SYNOPSIS
         One prompt-proof network-git run (see Invoke-GitNetworkCommand). Prefers
         the bounded, process-tree-killing pool-sync runner when it is loaded;
-        otherwise neutralizes the credential-prompt env on this process around a
-        plain call and restores it after.
+        otherwise uses the same bounded native runner directly. Child-only
+        environment overrides never change the caller's locale or credentials.
     .OUTPUTS
         [hashtable] @{ ExitCode; Output }.
     #>
@@ -241,26 +241,12 @@ function Invoke-GitNetworkCommandOnce {
         $text = ((@($r.StdOut, $r.StdErr) | Where-Object { $_ }) -join "`n").Trim()
         return @{ ExitCode = [int]$r.ExitCode; Output = $text }
     }
-    # Fallback: neutralize the prompt env on THIS process around a plain call.
-    $names = @('GIT_TERMINAL_PROMPT', 'GIT_ASKPASS', 'SSH_ASKPASS', 'GCM_INTERACTIVE', 'LC_ALL', 'LANG', 'LANGUAGE')
-    $prev  = @{}
-    foreach ($n in $names) { $prev[$n] = [Environment]::GetEnvironmentVariable($n) }
-    $env:GIT_TERMINAL_PROMPT = '0'
-    $env:GIT_ASKPASS         = ''
-    $env:SSH_ASKPASS         = ''
-    $env:GCM_INTERACTIVE     = 'never'
-    # The adapter classifies external Git diagnostics before localizing its
-    # own result; the child must use the invariant Git diagnostic vocabulary.
-    $env:LC_ALL = 'C'; $env:LANG = 'C'; $env:LANGUAGE = 'C'
-    try {
-        $out = & git @GitArgs 2>&1
-        return @{ ExitCode = $LASTEXITCODE; Output = ((@($out) -join "`n")).Trim() }
-    } finally {
-        foreach ($n in $names) {
-            if ($null -eq $prev[$n]) { Remove-Item -Path "Env:$n" -ErrorAction SilentlyContinue }
-            else { Set-Item -Path "Env:$n" -Value $prev[$n] }
-        }
-    }
+    $r = Invoke-BoundedNativeCommand -FilePath 'git' -ArgumentList $GitArgs -TimeoutSeconds $TimeoutSeconds -Environment @{ LC_ALL = 'C'; LANG = 'C'; LANGUAGE = 'C'; GIT_TERMINAL_PROMPT = '0'; GIT_ASKPASS = ''; SSH_ASKPASS = ''; GCM_INTERACTIVE = 'never' } -MaxCapturedChars 262144
+    $exitCode = if (-not $r.Started -or (Test-BoundedNativeResultComplete -Result $r)) { [int]$r.ExitCode } else { 124 }
+    $text = ((@($r.StdOut, $r.StdErr) | Where-Object { $_ }) -join "`n").Trim()
+    if (-not $text -and $exitCode -eq -1) { $text = "Git could not be started. $($r.StartError)".Trim() }
+    if (-not $text -and $exitCode -eq 124) { $text = 'Git timed out or returned incomplete output.' }
+    return @{ ExitCode = $exitCode; Output = $text }
 }
 
 function Invoke-GitNetworkCommand {
@@ -384,115 +370,219 @@ function Write-GitAuthRefreshBanner {
     Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_def404610b1df98a' -Arguments @{ remote = "$remote"; options = "$options"; said = "$said" })
 }
 
+function Invoke-GitUpdateCommand {
+    <#
+    .SYNOPSIS
+        Run a local update probe or mutation without truncating path lists or
+        allowing an external Git helper to block the cycle indefinitely.
+    #>
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param([Parameter(Mandatory)][string]$RepoRoot, [Parameter(Mandatory)][string[]]$ArgumentList)
+    $r = Invoke-BoundedNativeCommand -FilePath 'git' -ArgumentList (@('-C', $RepoRoot) + $ArgumentList) -TimeoutSeconds 60 -Environment @{ LC_ALL = 'C'; LANG = 'C'; LANGUAGE = 'C'; GIT_TERMINAL_PROMPT = '0' } -MaxCapturedChars 8388608
+    $exitCode = if (-not $r.Started -or (Test-BoundedNativeResultComplete -Result $r)) { [int]$r.ExitCode } else { 124 }
+    $detail = [string]$r.StdErr
+    if (-not $detail -and $exitCode -eq -1) { $detail = "Git could not be started. $($r.StartError)".Trim() }
+    if (-not $detail -and $exitCode -eq 124) { $detail = 'Git timed out or returned incomplete output.' }
+    return @{ ExitCode = $exitCode; Output = [string]$r.StdOut; Error = $detail }
+}
+
+function Get-GitRepositoryUpdateTarget {
+    <#
+    .SYNOPSIS
+        Fetch the configured upstream and resolve one immutable update target.
+    .DESCRIPTION
+        Detached checkouts are release pins. An attached branch without an
+        upstream is an operator configuration error; guessing origin/main could
+        replace a deliberately selected source. Only a remote-tracking ref may
+        be force-updated, so rewritten public history never rewrites a local
+        branch during the fetch. No working-tree files are changed here.
+    #>
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param([Parameter(Mandatory)][string]$RepoRoot)
+    $result = @{ Success = $false; Skipped = $false; PreviousRevision = ''; Revision = ''; ErrorMessage = ''; RemoteUrl = '' }
+    $head = Invoke-GitUpdateCommand -RepoRoot $RepoRoot -ArgumentList @('rev-parse', '--verify', 'HEAD^{commit}')
+    if ($head.ExitCode -ne 0) { $result.ErrorMessage = "Cannot resolve the framework commit: $($head.Error)"; return $result }
+    $result.PreviousRevision = $head.Output.Trim()
+    $branch = Invoke-GitUpdateCommand -RepoRoot $RepoRoot -ArgumentList @('symbolic-ref', '--quiet', 'HEAD')
+    if ($branch.ExitCode -eq 1) {
+        $result.Success = $true; $result.Skipped = $true; $result.Revision = $result.PreviousRevision
+        return $result
+    }
+    if ($branch.ExitCode -ne 0) { $result.ErrorMessage = "Cannot resolve the framework branch: $($branch.Error)"; return $result }
+    $tracking = Invoke-GitUpdateCommand -RepoRoot $RepoRoot -ArgumentList @('for-each-ref', '--format=%(upstream:remotename)%09%(upstream:remoteref)%09%(upstream)', $branch.Output.Trim())
+    $parts = $tracking.Output.TrimEnd("`r", "`n").Split("`t")
+    if ($tracking.ExitCode -ne 0 -or $parts.Count -ne 3 -or -not $parts[0] -or $parts[0] -eq '.' -or
+        -not $parts[1].StartsWith('refs/heads/', [StringComparison]::Ordinal) -or
+        -not $parts[2].StartsWith('refs/remotes/', [StringComparison]::Ordinal)) {
+        $result.ErrorMessage = 'The framework branch has no supported remote upstream. Configure its intended upstream or pin a detached release before retrying.'
+        return $result
+    }
+    $remote = $parts[0]; $remoteRef = $parts[1]; $trackingRef = $parts[2]
+    $url = Invoke-GitUpdateCommand -RepoRoot $RepoRoot -ArgumentList @('remote', 'get-url', $remote)
+    if ($url.ExitCode -ne 0) { $result.ErrorMessage = "Cannot read the configured framework remote: $($url.Error)"; return $result }
+    $result.RemoteUrl = $url.Output.Trim()
+    $fetch = Invoke-GitNetworkCommand -GitArgs @('-C', $RepoRoot, 'fetch', '--no-tags', '--no-recurse-submodules', '--refmap=', '--', $remote, "+${remoteRef}:${trackingRef}") -TimeoutSeconds 60
+    if ($fetch.ExitCode -ne 0) {
+        $result.ErrorMessage = "Framework fetch failed (exit $($fetch.ExitCode)): $($fetch.Output)"
+        if (Test-GitRemoteAuthFailure -Output $fetch.Output) {
+            # The caller redacts this result before publishing it. Printing a
+            # banner here would expose credentialed URLs before that boundary.
+            $remedies = @(Get-GitAuthRefreshRemedy) -join '; '
+            $result.ErrorMessage = "Framework authentication failed (exit $($fetch.ExitCode)). Refresh credentials: $remedies. Git: $($fetch.Output)"
+        }
+        return $result
+    }
+    $target = Invoke-GitUpdateCommand -RepoRoot $RepoRoot -ArgumentList @('rev-parse', '--verify', "${trackingRef}^{commit}")
+    if ($target.ExitCode -ne 0) { $result.ErrorMessage = "Cannot resolve the fetched framework commit: $($target.Error)"; return $result }
+    $result.Revision = $target.Output.Trim()
+    $result.Success = $true
+    return $result
+}
+
+function Invoke-GitRepositoryUpdate {
+    <#
+    .SYNOPSIS
+        Install the configured upstream snapshot without requiring shared history.
+    .DESCRIPTION
+        Only clean tracked sources are replaced. Ignored and untracked operator
+        files are preserved, including paths Git's reset could otherwise replace.
+        The previous commit remains reachable under a durable backup ref before
+        reset --keep starts. Git's index locking and keep semantics guard the
+        application; an interrupted application is refused as dirty on the next
+        attempt, leaving the backup available for an operator to recover.
+        Callers serialize this operation through the runner's cycle gate.
+    #>
+    [CmdletBinding(SupportsShouldProcess)]
+    [OutputType([hashtable])]
+    param([Parameter(Mandatory)][string]$RepoRoot)
+    $result = @{ Success = $false; Skipped = $false; Changed = $false; PreviousRevision = ''; Revision = ''; BackupRef = ''; ErrorMessage = '' }
+    if (-not $PSCmdlet.ShouldProcess($RepoRoot, 'Update clean framework sources to the configured upstream snapshot')) {
+        $result.Success = $true; $result.Skipped = $true
+        return $result
+    }
+    try {
+        # A detached release is outside automatic updates, including its local
+        # edits. Inspecting its cleanliness must not turn an intentional pin
+        # into a failed preflight or require remote access.
+        $branch = Invoke-GitUpdateCommand -RepoRoot $RepoRoot -ArgumentList @('symbolic-ref', '--quiet', 'HEAD')
+        if ($branch.ExitCode -eq 1) {
+            $pin = Get-GitRepositoryUpdateTarget -RepoRoot $RepoRoot
+            $result.Success = $pin.Success; $result.Skipped = $pin.Skipped
+            $result.PreviousRevision = $pin.PreviousRevision; $result.Revision = $pin.Revision
+            $result.ErrorMessage = $pin.ErrorMessage
+            return $result
+        }
+        if ($branch.ExitCode -ne 0) { throw "Cannot inspect the framework branch: $($branch.Error)" }
+        $gitDir = Invoke-GitUpdateCommand -RepoRoot $RepoRoot -ArgumentList @('rev-parse', '--absolute-git-dir')
+        if ($gitDir.ExitCode -ne 0) { throw "Cannot inspect the framework checkout: $($gitDir.Error)" }
+        foreach ($marker in @('MERGE_HEAD', 'rebase-merge', 'rebase-apply', 'CHERRY_PICK_HEAD', 'REVERT_HEAD', 'sequencer', 'BISECT_LOG')) {
+            if (Test-Path -LiteralPath (Join-Path $gitDir.Output.Trim() $marker)) { throw "An unfinished Git operation ($marker) needs an operator decision before framework updates can resume." }
+        }
+        $dirty = Invoke-GitUpdateCommand -RepoRoot $RepoRoot -ArgumentList @('status', '--porcelain=v1', '--untracked-files=no')
+        if ($dirty.ExitCode -ne 0) { throw "Cannot inspect tracked framework files: $($dirty.Error)" }
+        if ($dirty.Output) { throw "Tracked framework files have local changes. Preserve or finish those edits before retrying; no files were replaced. $($dirty.Output.Trim())" }
+        $tracked = Invoke-GitUpdateCommand -RepoRoot $RepoRoot -ArgumentList @('ls-files', '-v', '-z')
+        if ($tracked.ExitCode -ne 0) { throw "Cannot inspect the framework index: $($tracked.Error)" }
+        $trackedPaths = [Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+        foreach ($entry in $tracked.Output.Split([char]0, [StringSplitOptions]::RemoveEmptyEntries)) {
+            if ($entry -cmatch '^[a-zS] ') { throw 'Sparse or assume-unchanged framework files require an operator decision; their local contents cannot be proven clean.' }
+            $null = $trackedPaths.Add($entry.Substring(2))
+        }
+        $target = Get-GitRepositoryUpdateTarget -RepoRoot $RepoRoot
+        $result.PreviousRevision = $target.PreviousRevision; $result.Revision = $target.Revision
+        if (-not $target.Success) { throw $target.ErrorMessage }
+        if ($target.Skipped -or $target.Revision -eq $target.PreviousRevision) {
+            $result.Success = $true; $result.Skipped = $target.Skipped
+            return $result
+        }
+        $files = Invoke-GitUpdateCommand -RepoRoot $RepoRoot -ArgumentList @('ls-tree', '-r', '--name-only', '-z', $target.Revision)
+        $others = Invoke-GitUpdateCommand -RepoRoot $RepoRoot -ArgumentList @('ls-files', '--others', '--directory', '-z')
+        if ($files.ExitCode -ne 0 -or $others.ExitCode -ne 0) { throw "Cannot prove that operator files are safe: $($files.Error) $($others.Error)" }
+        # No exclude rules: ignored runtime/configuration paths need exactly the
+        # same protection as ordinary untracked files. Collapsed directories keep
+        # this bounded even when a project checkout or log archive is large.
+        $comparison = if ($IsWindows -or $IsMacOS) { [StringComparison]::OrdinalIgnoreCase } else { [StringComparison]::Ordinal }
+        $protected = @($others.Output.Split([char]0, [StringSplitOptions]::RemoveEmptyEntries))
+        foreach ($relative in $files.Output.Split([char]0, [StringSplitOptions]::RemoveEmptyEntries)) {
+            foreach ($entry in $protected) {
+                $directory = $entry.EndsWith('/', [StringComparison]::Ordinal)
+                $local = $entry.TrimEnd('/')
+                if ($relative.Equals($local, $comparison) -or $local.StartsWith($relative + '/', $comparison) -or
+                    (-not $directory -and $relative.StartsWith($local + '/', $comparison))) {
+                    throw "Framework update would replace operator path '$local' with tracked path '$relative'. Move or reconcile that path explicitly before retrying; no files were replaced."
+                }
+            }
+            # A collapsed untracked directory may safely hold siblings of a new
+            # source file. Inspect the destination and its ancestors instead of
+            # rejecting that whole directory or traversing a large log archive.
+            # Linked ancestors must never redirect writes outside the checkout.
+            $prefix = ''
+            foreach ($part in $relative.Split('/')) {
+                $prefix = if ($prefix) { "$prefix/$part" } else { $part }
+                $item = Get-Item -LiteralPath (Join-Path $RepoRoot $prefix) -Force -ErrorAction SilentlyContinue
+                if ($item -and ($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -and
+                    ($prefix -ne $relative -or -not $trackedPaths.Contains($prefix))) {
+                    throw "Framework update is blocked by linked operator path '$prefix'. Resolve that path before retrying; no files were replaced."
+                }
+                if ($item -and -not $trackedPaths.Contains($prefix)) {
+                    $trackedDirectory = $false
+                    if ($item.PSIsContainer -and $prefix -eq $relative) {
+                        foreach ($trackedPath in $trackedPaths) {
+                            if ($trackedPath.StartsWith($prefix + '/', $comparison)) { $trackedDirectory = $true; break }
+                        }
+                    }
+                    if (-not $item.PSIsContainer -or ($prefix -eq $relative -and -not $trackedDirectory)) {
+                        throw "Framework update would replace operator path '$prefix'. Move or reconcile that path explicitly before retrying; no files were replaced."
+                    }
+                }
+            }
+        }
+        $headNow = Invoke-GitUpdateCommand -RepoRoot $RepoRoot -ArgumentList @('rev-parse', '--verify', 'HEAD^{commit}')
+        if ($headNow.ExitCode -ne 0 -or $headNow.Output.Trim() -ne $target.PreviousRevision) { throw 'The framework commit changed during update preparation. Retry after the other Git operation finishes.' }
+        $result.BackupRef = "refs/yuruna/update-backups/$($target.PreviousRevision)"
+        $backup = Invoke-GitUpdateCommand -RepoRoot $RepoRoot -ArgumentList @('update-ref', $result.BackupRef, $target.PreviousRevision)
+        if ($backup.ExitCode -ne 0) { throw "Cannot preserve the previous framework commit: $($backup.Error)" }
+        $apply = Invoke-GitUpdateCommand -RepoRoot $RepoRoot -ArgumentList @('reset', '--keep', $target.Revision)
+        if ($apply.ExitCode -ne 0) { throw "Framework update could not be applied (exit $($apply.ExitCode)): $($apply.Error) $($apply.Output). Previous revision is preserved at $($result.BackupRef); inspect the checkout before retrying." }
+        $after = Invoke-GitUpdateCommand -RepoRoot $RepoRoot -ArgumentList @('rev-parse', '--verify', 'HEAD^{commit}')
+        $clean = Invoke-GitUpdateCommand -RepoRoot $RepoRoot -ArgumentList @('status', '--porcelain=v1', '--untracked-files=no')
+        if ($after.ExitCode -ne 0 -or $after.Output.Trim() -ne $target.Revision -or $clean.ExitCode -ne 0 -or $clean.Output) {
+            throw "Framework update did not leave a verified clean target. Inspect the checkout; the previous revision remains at $($result.BackupRef)."
+        }
+        $result.Success = $true; $result.Changed = $true
+    } catch {
+        $result.ErrorMessage = $_.Exception.Message
+    }
+    return $result
+}
+
+$script:LastGitUpdateFailure = ''
+
+function Get-LastGitUpdateFailure {
+    <# .SYNOPSIS
+        Return the latest inner framework update failure, or an empty string.
+    #>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param()
+    return $script:LastGitUpdateFailure
+}
+
 function Invoke-GitPull {
     <#
     .SYNOPSIS
-    Runs git pull in the repo root. Returns $true on success.
-    .DESCRIPTION
-    Every network git call routes through Invoke-GitNetworkCommand, so a stale or
-    missing GitHub login can never block the runner on git's interactive username
-    prompt. A cheap ls-remote preflight verifies the remote is both reachable AND
-    authorized before the fetch; an auth failure (at the preflight, the fetch, or
-    the pull) stops FAST with the "refresh GitHub access" message instead of
-    hanging or spending the whole retry budget on a problem that will not
-    self-heal.
+        Compatibility wrapper for the runner's configured-upstream update.
     #>
-    param([string]$RepoRoot)
-
-    # Origin URL for the diagnostic message only (local config read -- no network,
-    # no prompt). Best-effort: an unusual remote name just yields a blank here.
-    $remoteUrl = & git -C $RepoRoot config --get remote.origin.url 2>$null
-    if ($remoteUrl) { $remoteUrl = "$remoteUrl".Trim() }
-
-    # Preflight: confirm the credential still AUTHORIZES against origin without ever
-    # blocking on a login prompt. This is the "will the pull work?" check the fetch
-    # below would otherwise discover only by hanging. Only an auth signature
-    # short-circuits here; a network blip, a missing 'origin', or a timeout falls
-    # through to the retry loop, which owns the transient-network backoff and the
-    # no-upstream handling. One extra lightweight ref advertisement per cycle -- far
-    # cheaper than a fetch, and it turns a silent hang into a clear message.
-    $pre = Invoke-GitNetworkCommand -GitArgs @('-C', $RepoRoot, 'ls-remote', '--exit-code', '--quiet', 'origin', 'HEAD') -TimeoutSeconds 30
-    if ($pre.ExitCode -ne 0 -and (Test-GitRemoteAuthFailure -Output $pre.Output)) {
-        Write-GitAuthRefreshBanner -RemoteUrl $remoteUrl -GitOutput $pre.Output
-        return $false
-    }
-
-    # See https://yuruna.link/4213a0b3-0081
-    $maxRetries      = 5
-    $maxTotalSeconds = 180   # wall-clock cap (in addition to the attempt count) so a hung/slow
-                             # fetch cannot stretch the loop far past the intended ~2.5 min window
-    $startUtc        = [DateTime]::UtcNow
-    $attempt         = 0
-    while ($true) {
-        $attempt++
-        $totalAttempts = $maxRetries + 1
-        Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_dc945b6f852c089a' -Arguments @{ repoRoot = "$RepoRoot"; attempt = "$attempt"; totalAttempts = "$totalAttempts" }) -InformationAction Continue
-        $fetch = Invoke-GitNetworkCommand -GitArgs @('-C', $RepoRoot, 'fetch') -TimeoutSeconds 60
-        Write-Information "$($fetch.Output)" -InformationAction Continue
-        if ($fetch.ExitCode -eq 0) { break }
-        # An auth failure never self-heals across retries -- stop now with the actionable message.
-        if (Test-GitRemoteAuthFailure -Output $fetch.Output) {
-            Write-GitAuthRefreshBanner -RemoteUrl $remoteUrl -GitOutput $fetch.Output
-            return $false
-        }
-        $elapsed = [int]([DateTime]::UtcNow - $startUtc).TotalSeconds
-        if ($attempt -gt $maxRetries -or $elapsed -ge $maxTotalSeconds) {
-            Write-Error (Format-YurunaOperatorMessage -Key 'exceptions.runner_2736bc206a47f22d' -Arguments @{ exitCode = "$($fetch.ExitCode)"; attempt = "$attempt"; elapsed = "${elapsed}"; maxTotalSeconds = "${maxTotalSeconds}" })
-            return $false
-        }
-        # Clamp the backoff so we never sleep past the wall-clock deadline.
-        $waitSeconds = [Math]::Min(10 * $attempt, [Math]::Max(1, $maxTotalSeconds - $elapsed))
-        Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_9b70d85e67370315' -Arguments @{ exitCode = "$($fetch.ExitCode)"; waitSeconds = "${waitSeconds}" }) -InformationAction Continue
-        Start-Sleep -Seconds $waitSeconds
-    }
-
-    # One shared comparison path (Get-GitUpstreamStatus); this function maps
-    # the State to a pull/skip/error action. The fetch above already ran, so
-    # the classifier reads fresh remote refs.
-    $st = Get-GitUpstreamStatus -Path $RepoRoot
-    switch ($st.State) {
-        'no-upstream' {
-            Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_c3946652c6bc4408') -InformationAction Continue
-            return $true
-        }
-        'up-to-date' {
-            Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_35fd2fea5f98f145') -InformationAction Continue
-            return $true
-        }
-        'ahead' {
-            Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_33bdd943ad4ebb3e') -InformationAction Continue
-            return $true
-        }
-        'behind' {
-            Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_80ee1545f3f94a52' -Arguments @{ behind = "$($st.Behind)" }) -InformationAction Continue
-            $pull = Invoke-GitNetworkCommand -GitArgs @('-C', $RepoRoot, 'pull', '--ff-only') -TimeoutSeconds 60
-            if ($pull.ExitCode -eq 0) {
-                # Exit 0 is not proof the working copy is usable: an autostash
-                # that failed to re-apply leaves conflict markers behind and
-                # still exits 0.
-                if (-not (Test-GitWorktreeMerged -RepoRoot $RepoRoot -Label 'framework repository')) { return $false }
-                Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_3f1b99fc3416e2fa' -Arguments @{ output = "$($pull.Output)" }) -InformationAction Continue
-                return $true
-            }
-            if (Test-GitRemoteAuthFailure -Output $pull.Output) {
-                Write-GitAuthRefreshBanner -RemoteUrl $remoteUrl -GitOutput $pull.Output
-                return $false
-            }
-            Write-Error (Format-YurunaOperatorMessage -Key 'exceptions.runner_9fe3c4a46ba0668d' -Arguments @{ exitCode = "$($pull.ExitCode)"; output = "$($pull.Output)" })
-            return $false
-        }
-        'unknown' {
-            # Could not determine ahead/behind (rev-list failed). Do not block the cycle on an
-            # undeterminable status -- warn and skip the ahead/behind check.
-            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_8bd112e1835b85ac')
-            return $true
-        }
-        default {
-            # diverged (no-tree cannot reach here -- the fetch above already ran)
-            Write-Error (Format-YurunaOperatorMessage -Key 'runner.operator_825c1426c2725e0c' -Arguments @{ ahead = "$($st.Ahead)"; behind = "$($st.Behind)" })
-            return $false
-        }
-    }
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param([Parameter(Mandatory)][string]$RepoRoot)
+    $result = Invoke-GitRepositoryUpdate -RepoRoot $RepoRoot -Confirm:$false
+    $script:LastGitUpdateFailure = [string]$result.ErrorMessage
+    # The caller publishes this detail through its redacted failure banner and
+    # recovery record. Keeping it off this pipeline also preserves one boolean.
+    return [bool]$result.Success
 }
 
 function Get-GitUnmergedPath {
@@ -1569,4 +1659,4 @@ function Install-PSScriptAnalyzerIfMissing {
     return Install-YurunaGalleryModuleIfMissing -Name 'PSScriptAnalyzer' @PSBoundParameters
 }
 
-Export-ModuleMember -Function Invoke-GitPull, Get-GitUpstreamStatus, Get-GitUnmergedPath, Test-GitWorktreeMerged, Get-CurrentGitCommit, Get-FileLockingProcess, Update-ProjectClone, Restore-ProjectCloneSwap, Test-ProjectCloneHealth, Remove-ProjectCloneDirectory, Resolve-GitRepositoryWebUrl, Resolve-GitRemoteLink, Get-ProjectGitCommitReference, Get-GitRepositoryName, Test-GitRemoteAccess, Get-HostRepositoryAccess, Install-PowerShellYamlIfMissing, Install-PSScriptAnalyzerIfMissing, Test-GitRemoteAuthFailure, Get-GitFirstOutputLine, Get-GitAuthRefreshRemedy, Write-GitAuthRefreshBanner, Invoke-GitNetworkCommand, Get-YurunaGitCredentialArg, Get-YurunaGhCliCredentialArg, Get-YurunaGitAuthAttemptList
+Export-ModuleMember -Function Invoke-GitPull, Invoke-GitRepositoryUpdate, Get-GitRepositoryUpdateTarget, Get-LastGitUpdateFailure, Get-GitUpstreamStatus, Get-GitUnmergedPath, Test-GitWorktreeMerged, Get-CurrentGitCommit, Get-FileLockingProcess, Update-ProjectClone, Restore-ProjectCloneSwap, Test-ProjectCloneHealth, Remove-ProjectCloneDirectory, Resolve-GitRepositoryWebUrl, Resolve-GitRemoteLink, Get-ProjectGitCommitReference, Get-GitRepositoryName, Test-GitRemoteAccess, Get-HostRepositoryAccess, Install-PowerShellYamlIfMissing, Install-PSScriptAnalyzerIfMissing, Test-GitRemoteAuthFailure, Get-GitFirstOutputLine, Get-GitAuthRefreshRemedy, Write-GitAuthRefreshBanner, Invoke-GitNetworkCommand, Get-YurunaGitCredentialArg, Get-YurunaGhCliCredentialArg, Get-YurunaGitAuthAttemptList

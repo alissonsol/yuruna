@@ -4,6 +4,14 @@ Yuruna uses [Calendar Versioning](https://calver.org/): `YYYY.MM.DD`.
 Tags are cut from the `main` branch; entries below summarize each
 tagged release.
 
+## 2026.10.18.1
+
+- **Updates survive rewritten repository history.** Framework updates follow the
+  configured upstream revision while preserving operator data and a recoverable
+  previous revision. Unsafe local file conflicts found by the outer loop stop
+  before a cycle starts and appear as yellow preflight failures. Release checks protect upgrade paths from
+  previously published versions.
+
 ## 2026.10.18
 
 - **Failure evidence that survives a dead guest network.** Hosts record a
@@ -604,6 +612,6 @@ LICENSEURI <https://yuruna.link/license>
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.18
+Last review: 2026.10.18.1
 
 Back to [Yuruna](README.md)

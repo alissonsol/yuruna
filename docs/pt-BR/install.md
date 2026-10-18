@@ -121,7 +121,7 @@ GitHub que esta execução não tem.
 
 ### Fixação de release + integridade assinada
 
-`VERSION` (CalVer puro, `YYYY.MM.DD`) é a fonte da verdade para as releases.
+`VERSION` (CalVer, `YYYY.MM.DD` ou `YYYY.MM.DD.N` para um patch) é a fonte da verdade para as releases.
 No momento da release, o `tools/Update-YurunaReleasePins.ps1` regenera
 `install/install.sha256`, o assina (`install/install.sha256.sig`, RSA-4096),
 executa o gate ASCII/sem-BOM como pré-condição obrigatória e atualiza a única
@@ -131,14 +131,27 @@ script, criar a tag. Os instaladores não carregam versão embutida; eles leem
 `VERSION` no momento da instalação.
 
 O PADRÃO do clone permanece no branch móvel `main`, então uma instalação
-normal **atualiza o framework automaticamente a cada ciclo** (o `git pull
---ff-only` por ciclo do executor avança o branch de rastreamento). Para
+normal **atualiza o framework automaticamente a cada ciclo**. O executor busca
+o branch upstream configurado e instala sua revisão exata, inclusive quando
+o remoto retorna a uma revisão anterior ou substitui seu histórico. Ele
+preserva a revisão anterior em uma referência local de backup e mantém os
+arquivos não rastreados de configuração do operador e os dados de execução.
+Arquivos rastreados com alterações locais ou arquivos recebidos que
+sobrescreveriam dados locais bloqueiam a atualização com uma falha na
+verificação prévia que orienta a correção. O atualizador nunca faz merge ou
+rebase das alterações do cliente no código baixado do framework. Para
 congelar um hospedeiro na release atual, passe `-PinVersion` (Windows) /
 `PIN_VERSION=1` ou `--pin-version` (macOS, Ubuntu): após clonar, o
 instalador lê o arquivo `VERSION` do repositório e faz o checkout dessa tag
-como HEAD destacado, que o pull por ciclo deixa intocado (sem upstream ->
-no-op). Um `-YurunaBranch <tag>` / `YURUNA_BRANCH=<tag>` explícito fixa em
+como HEAD destacado, que o pull por ciclo deixa intocado.
+Um `-YurunaBranch <tag>` / `YURUNA_BRANCH=<tag>` explícito fixa em
 qualquer release específica.
+
+O projeto é atualizado de forma independente: um novo clone de
+`repositories.projectUrl` é validado antes de substituir o checkout anterior
+do projeto. Esse processo também aceita a substituição do histórico do Git
+e origens `file:///`. `-NoGitPull` desativa as atualizações do framework;
+`-NoProjectClone` desativa a substituição do projeto de forma independente.
 
 Os comandos de uma linha por conveniência permanecem em `refs/heads/main`
 (mais recente, NÃO VERIFICADO). O caminho de instalação **verificado** --
@@ -1279,6 +1292,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Última revisão: 2026.10.18
+Última revisão: 2026.10.18.1
 
 Voltar para [Yuruna](../../README.md)

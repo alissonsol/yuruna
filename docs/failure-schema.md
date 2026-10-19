@@ -120,6 +120,7 @@ These appear on **both** step and crash records (a crash after step N began stil
 | `crash` | Crash records only: `{ error, origin, stack }`. |
 | `dependencyFailures` | Optional infra evidence for unavailable lab services. Lab-health entries include area, attempted and last known addresses, last success, detail and pool discovery outcome. Stash preflight entries include area, address, endpoint, source, outcome, detail and retry attempt. Discovery HTTP responses remain available to distinguish missing registration from an unreachable service. Mirrored as `dependencyFailures` on the event. |
 | `hostMemory` | Infra records only, and only when the host driver could measure the machine: `{ availableMb, committedBytes, commitLimitBytes, commitAvailableBytes, source }`. A VM's startup memory is charged against the system commit limit -- physical memory plus the current page-file size -- and not against free physical memory, so a provisioning refusal is explained by the commit figures while free physical memory can be at its highest in the same instant. **Absent** when nothing measured, never zeroed: a zeroed block reads as a machine that was measured and found empty, which is a different fact with a different next step. Mirrored flat on the event as `hostAvailableMb` / `hostCommittedBytes` / `hostCommitLimitBytes` / `hostCommitAvailableBytes`. |
+| `hostStorage` | Optional infra storage evidence: `{ allowed, status, reason, timestamp, source, errorCode, volumes, vms }`. Volume rows retain caller-available bytes and required bytes on the actual runtime/configuration and VHD volumes; VM rows retain startup requirements, allocated runtime-file bytes, extra disk allowances, and bounded VHD/checkpoint footprint evidence. `status` is `ready`, `insufficient`, or `unknown`. Unavailable readings remain `null`, never zero; the block is absent when no probe ran. The event carries the same nested object as `hostStorage`. |
 
 <a id="42820e91-0006"></a>
 
@@ -199,6 +200,9 @@ infra event whose stage measured the host adds `hostAvailableMb`,
 `hostCommittedBytes`, `hostCommitLimitBytes` and `hostCommitAvailableBytes`
 (the nested `context.hostMemory` block lifted flat); the four are present or
 absent together.
+
+When a storage probe ran, `hostStorage` on the event preserves the complete
+`context.hostStorage` object, including per-volume evidence and unknown readings.
 
 `failureClass`, `severity` and `suggestedRecoveries` on this event are the
 classification of the failure that happened. A failed `step_end` row carries
@@ -294,6 +298,14 @@ call can take the reading: by the time the record is filed the guest has been
 torn down and the numbers that explain the refusal are gone. Drivers that cannot
 measure their host omit the block rather than filling it with zeros, so its
 presence always means a real measurement.
+
+Hyper-V startup also carries `context.hostStorage` when the storage probe ran.
+A measured shortage or numeric disk-full error (`0x80070070` / `0x80070027`)
+requires operator intervention; the remediation proposal does not recommend
+blind retries. A probe that could not measure capacity retains the existing
+retry policy. Storage admission before a cycle uses the configuration-gate
+failure path (yellow on the pool dashboard); a VM startup failure during a
+cycle remains a provisioning failure with its original evidence.
 
 <a id="42820e91-000b"></a>
 

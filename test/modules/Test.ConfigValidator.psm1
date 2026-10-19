@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.18.1
+.VERSION 2026.10.18.2
 .GUID 4233bb36-0ed5-4529-acff-23258b23fec0
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -165,4 +165,80 @@ function Test-RepoFreshness {
     }
 }
 
-Export-ModuleMember -Function Test-IsSet, Test-AgainstSchema, Test-RepoFreshness
+function Test-ProjectHostStorage {
+    <#
+    .SYNOPSIS
+        Evaluate a project's declared VM storage allowance on the applicable host.
+    .DESCRIPTION
+        The declaration is read-only admission policy. An unavailable volume probe
+        is not a measured shortage; each VM start still checks its actual storage.
+    #>
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param(
+        [Parameter(Mandatory)][string]$ProjectRoot,
+        [Parameter(Mandatory)][string]$HostType,
+        [string]$RepoRoot
+    )
+    $path = Join-Path $ProjectRoot 'test/host-storage.requirements.json'
+    $result = @{ allowed = $true; status = 'not-applicable'; reason = ''; path = $path; hostStorage = $null }
+    if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { return $result }
+    try {
+        if ((Get-Item -LiteralPath $path).Length -gt 65536) { throw 'The storage declaration exceeds 64 KiB.' }
+        $policy = Get-Content -Raw -LiteralPath $path | ConvertFrom-Json -AsHashtable -Depth 12 -ErrorAction Stop
+        if ($policy -isnot [System.Collections.IDictionary] -or $policy.schemaVersion -ne 1) { throw 'Expected storage schemaVersion 1.' }
+        if ($policy.hostType -notin @('host.windows.hyper-v', 'host.ubuntu.kvm', 'host.macos.utm')) { throw 'A supported hostType is required.' }
+        if ($policy.hostType -ne $HostType) { return $result }
+        $readBytes = {
+            param($Value)
+            if (($Value -isnot [long] -and $Value -isnot [int]) -or $Value -lt 0) { throw 'Storage byte counts must be nonnegative Int64 integers.' }
+            return [long]$Value
+        }
+        $reserve = & $readBytes $policy.reserveBytes
+        $provisioning = if ($policy.Contains('provisioningMemoryBytes')) { & $readBytes $policy.provisioningMemoryBytes } else { [long]0 }
+        if ($policy.virtualMachines -isnot [array] -or $policy.virtualMachines.Count -lt 1 -or $policy.virtualMachines.Count -gt 128) {
+            throw 'virtualMachines must contain between 1 and 128 VM requirements.'
+        }
+        $memory = @{}
+        $growth = @{}
+        $names = [System.Collections.Generic.List[string]]::new()
+        foreach ($vm in $policy.virtualMachines) {
+            if ($vm -isnot [System.Collections.IDictionary] -or $vm.name -isnot [string]) { throw 'Each VM requirement must have a name.' }
+            $name = $vm.name.Trim()
+            if (-not $name -or $name -in @('.', '..') -or $name -match '[\\/:*?"<>|]' -or $memory.ContainsKey($name)) { throw 'VM names must be unique, nonempty names without path separators.' }
+            $memory[$name] = & $readBytes $vm.startupMemoryBytes
+            $growth[$name] = & $readBytes $vm.additionalStorageBytes
+            $names.Add($name)
+        }
+    } catch {
+        $result.allowed = $false
+        $result.status = 'invalid'
+        $result.reason = "Invalid host storage requirements: $($_.Exception.Message)"
+        return $result
+    }
+    try {
+        if (-not (Get-Command Test-VMStorageCapacity -ErrorAction SilentlyContinue) -and $RepoRoot) {
+            $null = Initialize-YurunaHost -RepoRoot $RepoRoot -HostType $HostType
+        }
+        $capacityCommand = Get-Command Test-VMStorageCapacity -ErrorAction SilentlyContinue
+        if (-not $capacityCommand) { throw 'The host driver does not provide storage capacity measurements.' }
+        $capacityArgs = @{ VMName = $names.ToArray(); StartupMemoryBytes = $memory; AdditionalStorageBytes = $growth; ReserveBytes = $reserve }
+        if ($provisioning -gt 0) {
+            if (-not $capacityCommand.Parameters.ContainsKey('ProvisioningMemoryBytes')) { throw 'The host driver cannot measure the declared provisioning memory allowance.' }
+            $capacityArgs.ProvisioningMemoryBytes = $provisioning
+        }
+        $reading = Test-VMStorageCapacity @capacityArgs
+        if ($reading -isnot [System.Collections.IDictionary] -or $reading.status -notin @('ready', 'insufficient', 'unknown')) { throw 'The host driver returned no valid storage capacity measurement.' }
+        $result.status = [string]$reading.status
+        $result.allowed = $reading.status -ne 'insufficient'
+        $result.reason = [string]$reading.reason
+        if ($reading.status -eq 'ready' -and -not $result.reason) { $result.reason = "Host storage: capacity is available for $($names.Count) declared VM(s), including growth allowances and reserve." }
+        $result.hostStorage = $reading
+    } catch {
+        $result.status = 'unknown'
+        $result.reason = "Host storage capacity is unavailable: $($_.Exception.Message)"
+    }
+    return $result
+}
+
+Export-ModuleMember -Function Test-IsSet, Test-AgainstSchema, Test-RepoFreshness, Test-ProjectHostStorage

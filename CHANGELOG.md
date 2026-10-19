@@ -4,6 +4,15 @@ Yuruna uses [Calendar Versioning](https://calver.org/): `YYYY.MM.DD`.
 Tags are cut from the `main` branch; entries below summarize each
 tagged release.
 
+## 2026.10.18.2
+
+- **Storage shortages stop before a test cycle starts.** Hyper-V checks available
+  capacity against VM memory and disk growth requirements, and measured shortages
+  appear as yellow preflight failures while preserving the previous cycle.
+- **More evidence for guest stalls.** Guests retain the first kernel stall report
+  and a following sample, with a longer bounded clock capture and early interrupt
+  counters to help diagnose a recurrence.
+
 ## 2026.10.18.1
 
 - **Updates survive rewritten repository history.** Framework updates follow the

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.18.1
+.VERSION 2026.10.18.2
 .GUID 42fceff5-e96e-4072-9219-6ca416d6489c
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -231,6 +231,45 @@ bash '__WRAPPER__' guest/test.sh
 }
 
 Describe 'Clock and memory sample capture' {
+    It 'keeps both clock samples when optional boot metadata cannot complete' -Skip:(-not $IsLinux) {
+        $probe = Join-Path $TestDrive 'clock-before-metadata.sh'
+        $source = $script:snapshotText.Replace('# --- REGION: Clock correlation', @'
+guest_evidence_boot_metadata() { printf 'metadata unavailable\n'; exit 124; }
+export E_CLOCK_ONLY=1
+# --- REGION: Clock correlation
+'@)
+        [IO.File]::WriteAllText($probe,$source)
+        $output = (& bash $probe 2>&1) -join "`n"
+        $LASTEXITCODE | Should -Be 124
+        @([regex]::Matches($output,'(?m)^guestEvidenceSchema=2$')).Count | Should -Be 2
+        $output | Should -Match '(?m)^cpu0\s+\d+'
+        $output | Should -Not -Match 'snapshotCompleteUtc='
+    }
+
+    It 'retains timestamped interrupt counters before a later read interrupts each sample' -Skip:(-not $IsLinux) {
+        foreach ($mode in 'recorder','snapshot') {
+            $probe = Join-Path $TestDrive "early-interrupts-$mode.sh"
+            $readName = if ($mode -eq 'recorder') { 'fae_recorder_read' } else { 'snapshot_read' }
+            $stub = @'
+__READ__() {
+    if [ "$1" = /proc/meminfo ]; then exit 124; fi
+    printf '\n--- %s ---\n' "$1"
+    case "$1" in /proc/interrupts) printf '10: 100 200 arch_timer\n';; /proc/softirqs) printf 'TIMER: 10 20\n';; esac
+}
+'@.Replace('__READ__',$readName)
+            $source = if ($mode -eq 'recorder') { $script:recorderFunctions+"`n"+$stub+"`nfae_recorder_collect" }
+                else { $script:snapshotText.Replace('# --- REGION: Clock correlation',$stub+"`n# --- REGION: Clock correlation") }
+            [IO.File]::WriteAllText($probe,$source)
+            foreach ($sample in 1..2) {
+                $output = (& bash $probe 2>&1) -join "`n"
+                $LASTEXITCODE | Should -Be 124
+                $output | Should -Match 'guestClockUtc=\d{4}-\d{2}-\d{2}T'
+                $output | Should -Match '(?m)^10: 100 200 arch_timer$' -Because "$mode sample $sample must retain IRQ data before slower reads"
+                $output | Should -Match '(?m)^TIMER: 10 20$'
+            }
+        }
+    }
+
     It 'captures two independent CPU-accounting samples within the restart observation budget' -Skip:(-not $IsLinux) {
         $oldMode = $env:E_CLOCK_ONLY
         try {

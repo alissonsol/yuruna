@@ -3,8 +3,8 @@
   "recordedUtc": "2026-09-30T17:16:40.8543919Z",
   "pesterVersion": "5.9.0",
   "totals": {
-    "suites": 400,
-    "tests": 8968,
+    "suites": 401,
+    "tests": 8984,
     "failed": 0,
     "skipped": 39
   },
@@ -1332,6 +1332,11 @@
       "skipped": 0,
       "seconds": 23.9
     },
+    "test/modules/Test.ProjectHostStorage.Tests.ps1": {
+      "total": 16,
+      "skipped": 0,
+      "seconds": 1.59
+    },
     "test/modules/Test.ProjectLocaleMap.Tests.ps1": {
       "total": 35,
       "skipped": 0,
@@ -2496,6 +2501,17 @@
       "tests": 28,
       "sourceSha256": {
         "test/modules/Test.HostGitUpdate.Tests.ps1": "C47AFCE23ED4B9F1DA6446B3852878E2F9B1DA9FF65E537C4F501903F26BA952"
+      }
+    },
+    {
+      "registeredUtc": "2026-10-18T22:33:26.1096732Z",
+      "pesterVersion": "6.2.0",
+      "suites": [
+        "test/modules/Test.ProjectHostStorage.Tests.ps1"
+      ],
+      "tests": 16,
+      "sourceSha256": {
+        "test/modules/Test.ProjectHostStorage.Tests.ps1": "26D75F75CF98D8610C5744A7A2BD9063BE1BCF1DEB5F528DDCC0ECEB3B457CD2"
       }
     }
   ]

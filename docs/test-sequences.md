@@ -1493,8 +1493,11 @@ whose unqualified name collides with a platform cmdlet.
 Collect two guest clock and CPU-accounting samples using the snapshot helper
 and an already proven SSH address. The required `phase` is
 `before-cpu-restart` or `after-cpu-restart`. Native ARM64 Hyper-V Linux guests
-use a five-second SSH wall budget; other hosts skip the action. Missing evidence
-and clock warnings are advisory, so the action does not fail the sequence.
+use a ten-second SSH wall budget; other hosts skip the action. The two samples
+are collected before optional boot metadata so slow metadata reads cannot erase
+the observations. The budget includes authentication and transport cleanup.
+Missing evidence and clock warnings are advisory, so the action does not fail
+the sequence.
 Ubuntu Server 26 places these captures before clean shutdown and after the
 existing SSH readiness or console login steps. `startVm` separately brackets
 the offline processor change with bounded host Hyper-V context.

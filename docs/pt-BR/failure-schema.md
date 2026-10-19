@@ -126,6 +126,7 @@ Eles aparecem em registros **tanto** de etapa quanto de falha do mecanismo (uma 
 | `crash` | Apenas registros de falha do mecanismo: `{ error, origin, stack }`. |
 | `dependencyFailures` | Evidências opcionais de infraestrutura para serviços do laboratório indisponíveis. As entradas da barreira de saúde do laboratório incluem a área, os endereços tentados e os últimos endereços conhecidos, o último êxito, detalhes e o resultado da descoberta no grupo. As entradas da verificação prévia do stash incluem a área, o endereço, o endpoint, a origem, o resultado, detalhes e a tentativa de repetição. As respostas HTTP de descoberta são preservadas para diferenciar um registro ausente de um serviço inacessível. Espelhado no evento como `dependencyFailures`. |
 | `hostMemory` | Apenas registros de infraestrutura, e somente quando o driver do hospedeiro conseguiu medir a máquina: `{ availableMb, committedBytes, commitLimitBytes, commitAvailableBytes, source }`. A memória de inicialização de uma VM é cobrada do limite de confirmação do sistema -- memória física mais o tamanho atual do arquivo de paginação --, não da memória física livre; por isso, uma recusa de provisionamento é explicada pelos valores de confirmação enquanto a memória física livre pode estar em seu máximo nesse mesmo instante. **Ausente** quando nada foi medido, nunca preenchido com zeros: um bloco zerado indica uma máquina que foi medida e estava vazia, que é um fato diferente com uma próxima ação diferente. Espelhado sem aninhamento no evento como `hostAvailableMb` / `hostCommittedBytes` / `hostCommitLimitBytes` / `hostCommitAvailableBytes`. |
+| `hostStorage` | Evidências opcionais de armazenamento da infraestrutura: `{ allowed, status, reason, timestamp, source, errorCode, volumes, vms }`. As linhas dos volumes preservam os bytes disponíveis para o usuário que executa a chamada e os bytes necessários nos volumes reais de estado de execução/configuração e de VHD. As linhas das VMs preservam os requisitos de inicialização, os bytes alocados dos arquivos de estado de execução, as reservas adicionais de disco e as evidências do espaço ocupado pelos VHDs e checkpoints, coletadas com limites de percurso. `status` pode ser `ready`, `insufficient` ou `unknown`. Leituras indisponíveis permanecem `null`, nunca zero; o bloco fica ausente quando nenhuma sondagem foi executada. O evento contém o mesmo objeto aninhado em `hostStorage`. |
 
 <a id="42820e91-0006"></a>
 
@@ -215,6 +216,10 @@ evento de infraestrutura cuja etapa mediu o hospedeiro acrescenta `hostAvailable
 `hostCommittedBytes`, `hostCommitLimitBytes` e `hostCommitAvailableBytes`
 (o bloco aninhado `context.hostMemory` trazido para o nível superior); os quatro estão presentes ou
 ausentes juntos.
+
+Quando uma sondagem de armazenamento foi executada, `hostStorage` no evento
+preserva o objeto `context.hostStorage` completo, incluindo as evidências por
+volume e as leituras desconhecidas.
 
 `failureClass`, `severity` e `suggestedRecoveries` nesse evento são a
 classificação da falha que ocorreu. Uma linha `step_end` com falha contém
@@ -317,6 +322,16 @@ chamada pode obter a leitura: quando o registro é arquivado, o convidado já fo
 desmontado e os números que explicam a recusa desapareceram. Drivers que não conseguem
 medir seu hospedeiro omitem o bloco, em vez de preenchê-lo com zeros, para que sua
 presença sempre signifique uma medição real.
+
+A inicialização no Hyper-V também contém `context.hostStorage` quando a sondagem
+de armazenamento foi executada. Uma insuficiência medida ou um erro numérico de
+disco cheio (`0x80070070` / `0x80070027`) exige intervenção do operador; a proposta
+de remediação não recomenda novas tentativas sem corrigir a causa. Uma sondagem
+que não conseguiu medir a capacidade preserva a política de novas tentativas
+existente. A admissão de armazenamento antes de um ciclo usa o caminho de falha
+da barreira de configuração (amarelo no painel do grupo); uma falha de
+inicialização de VM durante um ciclo continua sendo uma falha de provisionamento,
+com suas evidências originais.
 
 <a id="42820e91-000b"></a>
 

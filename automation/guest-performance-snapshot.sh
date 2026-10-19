@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.10.18.1
+# Version: 2026.10.18.2
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 #
@@ -148,7 +148,7 @@ guest_evidence_boot_metadata() {
 
 # --- REGION: Clock correlation
 if [ "${E_CLOCK_ONLY:-0}" = 1 ]; then
-    guest_evidence_boot_metadata
+    # Preserve the short observations even when optional metadata is slow.
     for snapshot_index in 1 2; do
         printf '\n--- YURUNA CLOCK SAMPLE ---\n'
         guest_evidence_clock
@@ -156,6 +156,7 @@ if [ "${E_CLOCK_ONLY:-0}" = 1 ]; then
         snapshot_read /proc/stat 65536
         [ "$snapshot_index" -eq 2 ] || sleep 1
     done
+    guest_evidence_boot_metadata
     printf '\nsnapshotCompleteUtc=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%S.%NZ)"
     exit 0
 fi
@@ -168,7 +169,9 @@ snapshot_read /proc/sys/kernel/random/boot_id 128
 snapshot_read /proc/uptime 128
 
 # --- REGION: CPU, memory, and storage pressure
-for snapshot_path in /proc/stat /proc/loadavg /proc/pressure/cpu /proc/pressure/io /proc/pressure/memory /proc/meminfo /proc/vmstat /proc/interrupts /proc/softirqs /proc/diskstats; do
+# Interrupt counters precede larger reads so timed-out samples still expose
+# per-CPU timer progress alongside the clock recorded above.
+for snapshot_path in /proc/stat /proc/interrupts /proc/softirqs /proc/loadavg /proc/pressure/cpu /proc/pressure/io /proc/pressure/memory /proc/meminfo /proc/vmstat /proc/diskstats; do
     snapshot_read "$snapshot_path"
 done
 

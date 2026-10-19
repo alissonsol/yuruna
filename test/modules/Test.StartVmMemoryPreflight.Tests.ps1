@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.18.1
+.VERSION 2026.10.18.2
 .GUID 42b5c288-370d-4abd-9a24-488e540acb2d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -96,7 +96,7 @@ function New-ResourceRefusal {
         Justification = 'Builds an in-memory exception for a test case; it changes nothing a confirmation could protect.')]
     [CmdletBinding()]
     [OutputType([System.Exception], [System.Runtime.InteropServices.COMException], [System.InvalidOperationException], [System.ComponentModel.Win32Exception])]
-    param([ValidateSet('hresult', 'inner', 'win32', 'text', 'lowercase', 'other-hresult', 'unrelated', 'access')][string]$Shape)
+    param([ValidateSet('hresult', 'inner', 'win32', 'text', 'lowercase', 'other-hresult', 'unrelated', 'access', 'disk-full')][string]$Shape)
     switch ($Shape) {
         'hresult' {
             $e = [System.Runtime.InteropServices.COMException]::new("'guest' could not initialize.")
@@ -117,6 +117,7 @@ function New-ResourceRefusal {
             return $e
         }
         'access'        { return [System.ComponentModel.Win32Exception]::new(5) }
+        'disk-full'     { return [System.ComponentModel.Win32Exception]::new(112) }
         default         { return [System.Exception]::new("'guest' failed to start: the virtual disk is in use.") }
     }
 }
@@ -200,9 +201,10 @@ function Invoke-StartCase {
         [int64]$StartupMemory = 2GB,
         [hashtable]$Reading,
         [int]$MemoryWaitSeconds = 45,
-        [switch]$AsWhatIf
+        [switch]$AsWhatIf,
+        [hashtable[]]$StorageReading = @(@{ allowed = $true; status = 'ready'; volumes = @(); vms = @(); errorCode = ''; reason = '' })
     )
-    $seen = [pscustomobject]@{ Starts = 0; Definitions = 0; Sleeps = 0 }
+    $seen = [pscustomobject]@{ Starts = 0; Definitions = 0; Sleeps = 0; StorageReads = 0 }
     function Hyper-V\Start-VM {
         [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseApprovedVerbs', '',
             Justification = 'The name is the module-qualified call the driver makes, not a verb-noun pair; spelling it exactly is what makes the stand-in resolve.')]
@@ -217,6 +219,12 @@ function Invoke-StartCase {
         $seen.Definitions++
         if ($StartupMemory -le 0) { throw "Hyper-V could not find a virtual machine named '$Name'." }
         return [pscustomobject]@{ MemoryStartup = $StartupMemory }
+    }
+    function Test-VMStorageCapacity {
+        param($VMName)
+        $value = $StorageReading[[Math]::Min($seen.StorageReads, $StorageReading.Count - 1)]
+        $seen.StorageReads++
+        return $value
     }
     function Get-VMState { param($VMName) $VMState }
     function Get-HostMemoryStatus { $Reading }
@@ -236,6 +244,8 @@ function Invoke-StartCase {
     }
     . ([scriptblock]::Create($script:Lifted['Get-HyperVVMStartupMemory']))
     . ([scriptblock]::Create($script:Lifted['Wait-HostMemoryHeadroom']))
+    $errorCodeFunction = Get-YurunaTestFunctionAst -Path $script:Driver -Name 'Get-HyperVStorageErrorCode'
+    if ($errorCodeFunction) { . ([scriptblock]::Create($errorCodeFunction.Extent.Text)) }
     . ([scriptblock]::Create($script:Lifted['Start-HyperVVM']))
 
     $savedSystemRoot = $env:SystemRoot
@@ -252,7 +262,7 @@ function Invoke-StartCase {
         $env:SystemRoot = $savedSystemRoot
         Remove-Item -LiteralPath $emptyRoot -Recurse -Force -ErrorAction SilentlyContinue
     }
-    return @{ Result = $result; Starts = $seen.Starts; Definitions = $seen.Definitions; Sleeps = $seen.Sleeps }
+    return @{ Result = $result; Starts = $seen.Starts; Definitions = $seen.Definitions; Sleeps = $seen.Sleeps; StorageReads = $seen.StorageReads }
 }
 
 $script:Ample = New-HostMemoryReading -CommitAvailableBytes 30GB
@@ -417,6 +427,46 @@ Describe 'Start-VM waits, attempts, and retries only what a wait can fix' {
         Assert-Equal -Expected 0 -Actual $run.Sleeps -Because 'the common restart path must cost nothing'
     }
 
+    It 'refuses a known storage shortage before waiting or starting and keeps its reading' {
+        $storage = @{ allowed = $false; status = 'insufficient'; reason = 'C: needs 12 GiB but has 9 GiB'; volumes = @(@{ freeBytes = 9GB; requiredBytes = 12GB }); vms = @(); errorCode = '0x80070070' }
+        $run = Invoke-StartCase -Reading $script:Ample -StorageReading $storage
+        $run.Result.success | Should -BeFalse
+        $run.Starts | Should -Be 0
+        $run.Sleeps | Should -Be 0
+        $run.Result['kind'] | Should -Be 'storage-capacity'
+        $run.Result['errorCode'] | Should -Be '0x80070070'
+        $run.Result['hostStorage'].volumes[0].freeBytes | Should -Be 9GB
+    }
+
+    It 'keeps an unavailable storage probe distinct from zero and lets Hyper-V decide' {
+        $storage = @{ allowed = $true; status = 'unknown'; reason = 'probe unavailable'; volumes = @(@{ freeBytes = $null }); vms = @(); errorCode = '' }
+        $run = Invoke-StartCase -Reading $script:Ample -StorageReading $storage
+        $run.Result.success | Should -BeTrue
+        $run.Starts | Should -Be 1
+        $run.Result['hostStorage'].status | Should -Be 'unknown'
+        $run.Result['hostStorage'].volumes[0].freeBytes | Should -BeNullOrEmpty
+    }
+
+    It 'captures a numeric disk-full failure without a memory retry' {
+        $run = Invoke-StartCase -Reading $script:Ample -RefusalCount 1 -RefusalShape 'disk-full'
+        $run.Result.success | Should -BeFalse
+        $run.Starts | Should -Be 1
+        $run.Sleeps | Should -Be 0
+        $run.Result['kind'] | Should -Be 'storage-capacity'
+        $run.Result['errorCode'] | Should -Be '0x80070070'
+        $run.Result['hostStorage'].errorCode | Should -Be '0x80070070'
+    }
+
+    It 'rechecks storage after a memory retry wait instead of using its old reading' {
+        $ready = @{ allowed = $true; status = 'ready'; reason = ''; volumes = @(); vms = @(); errorCode = '' }
+        $short = @{ allowed = $false; status = 'insufficient'; reason = 'storage changed'; volumes = @(); vms = @(); errorCode = '0x80070070' }
+        $run = Invoke-StartCase -Reading $script:Ample -RefusalCount 1 -StorageReading @($ready, $short)
+        $run.Result.success | Should -BeFalse
+        $run.Starts | Should -Be 1
+        $run.StorageReads | Should -Be 2
+        $run.Result['hostStorage'].reason | Should -Be 'storage changed'
+    }
+
     It 'starts nothing under -WhatIf' {
         $run = Invoke-StartCase -Reading $script:Ample -AsWhatIf
         Assert-Equal -Expected 0 -Actual $run.Starts -Because 'ShouldProcess gates the whole attempt'
@@ -431,7 +481,7 @@ Describe 'the driver publishes what the runner and the record builder call' {
         $export = [regex]::Match($source, '(?s)Export-ModuleMember\s+-Function\s+(?<names>.+?)\r?\n\r?\n')
         Assert-True $export.Success 'the driver must carry an Export-ModuleMember block'
         foreach ($name in 'Get-HostMemoryStatus', 'Format-HostMemoryStatus', 'Test-HostResourceExhaustionError',
-                          'Wait-HostMemoryHeadroom', 'Get-HyperVVMStartupMemory') {
+                          'Wait-HostMemoryHeadroom', 'Get-HyperVVMStartupMemory', 'Test-VMStorageCapacity') {
             Assert-Match $name $export.Groups['names'].Value "an unexported $name is invisible outside the driver"
         }
     }
@@ -443,6 +493,271 @@ Describe 'the driver publishes what the runner and the record builder call' {
         $run = Invoke-StartCase -Reading $script:Ample
         Assert-True ($run.Result -is [hashtable]) 'the start result is a hashtable the caller indexes'
         Assert-True ($run.Result.ContainsKey('hostMemory')) 'the Windows driver states the reading under hostMemory'
+    }
+}
+
+
+Describe 'VM storage admission measures the target volumes and incremental allocation' {
+    BeforeAll {
+        $capacityAst = Get-YurunaTestFunctionAst -Path $script:Driver -Name 'Test-VMStorageCapacity'
+        if ($capacityAst) { $script:CapacityFunction = $capacityAst.Extent.Text }
+        function Invoke-StorageCase {
+            [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter', '', Justification = 'Fixture parameters are consumed by local probe stand-ins.')]
+            param([hashtable[]]$VM, [hashtable]$Volume, [int64]$ReserveBytes = 2GB, [string[]]$Names = @(), [hashtable]$Growth = @{}, [int64]$ProvisioningMemoryBytes = 0, [string]$ProvisioningPath = 'C:/configuration')
+            function Get-HyperVVMStorageRequirement {
+                param($VMName, $StartupMemoryBytes)
+                $null = $StartupMemoryBytes
+                return @($VM | Where-Object { $_.vmName -eq $VMName })[0]
+            }
+            function Get-HyperVStorageVolume { param($Path) return $Volume[$Path] }
+            function Hyper-V\Get-VMHost {
+                [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseApprovedVerbs', '', Justification = 'The stand-in uses the exact module-qualified Hyper-V command name.')]
+                param()
+                return [pscustomobject]@{ VirtualMachinePath = $ProvisioningPath }
+            }
+            if ($script:CapacityFunction) { . ([scriptblock]::Create($script:CapacityFunction)) }
+            if (-not $Names.Count) { $Names = @($VM | ForEach-Object { $_.vmName }) }
+            $arguments = @{ VMName = $Names; ReserveBytes = $ReserveBytes; AdditionalStorageBytes = $Growth }
+            if ($ProvisioningMemoryBytes -gt 0) { $arguments.ProvisioningMemoryBytes = $ProvisioningMemoryBytes }
+            return Test-VMStorageCapacity @arguments
+        }
+        function New-StorageVM {
+            [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '', Justification = 'Builds only an in-memory test fixture.')]
+            param([string]$Name = 'core', [string]$Path = 'C:/VM/core.vmrs', [int64]$Required = 12GB, [bool]$Known = $true)
+            return @{ vmName = $Name; runtimePath = $Path; storagePath = 'D:/disks'; additionalBytes = $Required; known = $Known; state = 'Off'; reason = ''; footprint = @() }
+        }
+    }
+    It 'blocks the actual runtime volume even when another disk has ample space' {
+        $r = Invoke-StorageCase -VM @(New-StorageVM) -Volume @{ 'C:/VM/core.vmrs' = @{ known = $true; volume = 'C:/'; freeBytes = 10GB } }
+        $r.allowed | Should -BeFalse
+        $r.status | Should -Be 'insufficient'
+        $r.volumes[0].freeBytes | Should -Be 10GB
+        $r.volumes[0].requiredBytes | Should -Be 14GB
+    }
+    It 'combines stopped guests and counts the reserve once per volume' {
+        $vms = @((New-StorageVM -Name core), (New-StorageVM -Name edge -Path C:/VM/edge.vmrs -Required 4GB))
+        $r = Invoke-StorageCase -VM $vms -Volume @{ 'C:/VM/core.vmrs' = @{ known = $true; volume = 'C:/'; freeBytes = 17GB }; 'C:/VM/edge.vmrs' = @{ known = $true; volume = 'C:/'; freeBytes = 17GB } }
+        $r.allowed | Should -BeFalse
+        $r.volumes.Count | Should -Be 1
+        $r.volumes[0].requiredBytes | Should -Be 18GB
+    }
+    It 'does not borrow capacity across separate volumes or count duplicate VM names' {
+        $vms = @((New-StorageVM -Name core), (New-StorageVM -Name edge -Path D:/VM/edge.vmrs -Required 4GB))
+        $r = Invoke-StorageCase -VM $vms -Names @('core','core','edge') -Volume @{ 'C:/VM/core.vmrs' = @{ known = $true; volume = 'C:/'; freeBytes = 14GB }; 'D:/VM/edge.vmrs' = @{ known = $true; volume = 'D:/'; freeBytes = 5GB } }
+        $r.allowed | Should -BeFalse
+        $r.volumes.Count | Should -Be 2
+        @($r.volumes | Where-Object volume -eq 'C:/')[0].requiredBytes | Should -Be 14GB
+    }
+    It 'charges disk growth to the attached disk volume separately from runtime state' {
+        $r = Invoke-StorageCase -VM @(New-StorageVM) -Growth @{ core = 16GB } -Volume @{ 'C:/VM/core.vmrs' = @{ known = $true; volume = 'C:/'; freeBytes = 14GB }; 'D:/disks' = @{ known = $true; volume = 'D:/'; freeBytes = 17GB } }
+        $r.allowed | Should -BeFalse
+        $r.volumes.Count | Should -Be 2
+        @($r.volumes | Where-Object volume -eq 'C:/')[0].requiredBytes | Should -Be 14GB
+        @($r.volumes | Where-Object volume -eq 'D:/')[0].requiredBytes | Should -Be 18GB
+    }
+    It 'combines aliases of one actual volume without duplicating the reserve' {
+        $r = Invoke-StorageCase -VM @(New-StorageVM) -Growth @{ core = 16GB } -Volume @{ 'C:/VM/core.vmrs' = @{ known = $true; volume = 'volume-id'; freeBytes = 30GB }; 'D:/disks' = @{ known = $true; volume = 'volume-id'; freeBytes = 29GB } }
+        $r.allowed | Should -BeFalse
+        $r.volumes.Count | Should -Be 1
+        $r.volumes[0].requiredBytes | Should -Be 30GB
+        $r.volumes[0].freeBytes | Should -Be 29GB
+    }
+    It 'checks the initial builder configuration volume even when final storage is elsewhere' {
+        $vm = New-StorageVM -Path 'D:/VM/core.vmrs'
+        $r = Invoke-StorageCase -VM @($vm) -ProvisioningMemoryBytes 12GB -Growth @{ core = 16GB } -Volume @{
+            'C:/configuration' = @{ known = $true; volume = 'C:/'; freeBytes = 10GB }
+            'D:/VM/core.vmrs' = @{ known = $true; volume = 'D:/'; freeBytes = 100GB }
+            'D:/disks' = @{ known = $true; volume = 'D:/'; freeBytes = 100GB }
+        }
+        $r.allowed | Should -BeFalse
+        $r.volumes.Count | Should -Be 2
+        @($r.volumes | Where-Object volume -eq 'C:/')[0].requiredBytes | Should -Be 14GB
+        @($r.volumes | Where-Object volume -eq 'D:/')[0].requiredBytes | Should -Be 30GB
+    }
+    It 'charges the maximum phase runtime on a shared volume rather than their sum' {
+        $vms = @((New-StorageVM -Name core -Required 12GB), (New-StorageVM -Name edge -Path C:/VM/edge.vmrs -Required 4GB))
+        $r = Invoke-StorageCase -VM $vms -ProvisioningMemoryBytes 12GB -Growth @{ core = 16GB } -Volume @{
+            'C:/configuration' = @{ known = $true; volume = 'shared-volume'; freeBytes = 34GB }
+            'C:/VM/core.vmrs' = @{ known = $true; volume = 'shared-volume'; freeBytes = 34GB }
+            'C:/VM/edge.vmrs' = @{ known = $true; volume = 'shared-volume'; freeBytes = 34GB }
+            'D:/disks' = @{ known = $true; volume = 'shared-volume'; freeBytes = 34GB }
+        }
+        $r.allowed | Should -BeTrue
+        $r.volumes.Count | Should -Be 1
+        $r.volumes[0].requiredBytes | Should -Be 34GB
+    }
+    It 'uses a larger provisioning peak when the final running topology is smaller' {
+        $r = Invoke-StorageCase -VM @((New-StorageVM -Required 4GB)) -ProvisioningMemoryBytes 12GB -Volume @{
+            'C:/configuration' = @{ known = $true; volume = 'C:/'; freeBytes = 14GB }
+            'C:/VM/core.vmrs' = @{ known = $true; volume = 'C:/'; freeBytes = 14GB }
+        }
+        $r.allowed | Should -BeTrue
+        $r.volumes[0].requiredBytes | Should -Be 14GB
+    }
+    It 'preserves an unavailable provisioning volume as unknown instead of calling it empty' {
+        $r = Invoke-StorageCase -VM @(New-StorageVM) -ProvisioningMemoryBytes 12GB -Volume @{
+            'C:/configuration' = @{ known = $false; volume = ''; freeBytes = $null; reason = 'unavailable' }
+            'C:/VM/core.vmrs' = @{ known = $true; volume = 'C:/'; freeBytes = 14GB }
+        }
+        $r.allowed | Should -BeTrue
+        $r.status | Should -Be 'unknown'
+        @($r.volumes | Where-Object { -not $_.known })[0].freeBytes | Should -BeNullOrEmpty
+    }
+    It 'rejects a negative or overflowing declared growth budget' {
+        $volumes = @{ 'C:/VM/core.vmrs' = @{ known = $true; volume = 'C:/'; freeBytes = 100GB }; 'D:/disks' = @{ known = $true; volume = 'D:/'; freeBytes = 100GB } }
+        { Invoke-StorageCase -VM @(New-StorageVM) -Growth @{ core = -1 } -Volume $volumes } | Should -Throw
+        { Invoke-StorageCase -VM @(New-StorageVM) -Growth @{ core = [long]::MaxValue } -Volume $volumes } | Should -Throw
+    }
+    It 'accepts an exact threshold and records its timestamp' {
+        $r = Invoke-StorageCase -VM @(New-StorageVM) -Volume @{ 'C:/VM/core.vmrs' = @{ known = $true; volume = 'C:/'; freeBytes = 14GB } }
+        $r.allowed | Should -BeTrue
+        $r.status | Should -Be 'ready'
+        $r.timestamp | Should -Match '^\d{4}-\d{2}-\d{2}T'
+    }
+    It 'represents an unreadable volume separately from a measured full volume' {
+        $vm = @(New-StorageVM)
+        $unknown = Invoke-StorageCase -VM $vm -Volume @{ 'C:/VM/core.vmrs' = @{ known = $false; volume = 'C:/'; freeBytes = $null; reason = 'unreadable' } }
+        $unknown.allowed | Should -BeTrue
+        $unknown.status | Should -Be 'unknown'
+        $unknown.volumes[0].freeBytes | Should -BeNullOrEmpty
+        $full = Invoke-StorageCase -VM $vm -Volume @{ 'C:/VM/core.vmrs' = @{ known = $true; volume = 'C:/'; freeBytes = 0L } }
+        $full.allowed | Should -BeFalse
+    }
+    It 'does not block a running VM that needs no new runtime allocation' {
+        $r = Invoke-StorageCase -VM @((New-StorageVM -Required 0)) -Volume @{ 'C:/VM/core.vmrs' = @{ known = $true; volume = 'C:/'; freeBytes = 0L } }
+        $r.allowed | Should -BeTrue
+        $r.volumes[0].requiredBytes | Should -Be 0
+    }
+}
+
+
+Describe 'VM storage requirements credit only allocated runtime bytes' {
+    BeforeAll {
+        $script:RequirementFunction = (Get-YurunaTestFunctionAst -Path $script:Driver -Name 'Get-HyperVVMStorageRequirement').Extent.Text
+        function Invoke-RequirementCase {
+            [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseApprovedVerbs', '', Justification = 'Module-qualified Hyper-V stand-ins must use the exact production command names.')]
+            [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter', '', Justification = 'Fixture parameters are consumed by local probe stand-ins.')]
+            param([string]$Presence = 'present', [string]$State = 'Off', [hashtable]$Expected = @{}, [int64]$AllocatedBytes = 1MB, [bool]$AllocationKnown = $true, [switch]$DiskProbeFails)
+            $configuration = Join-Path $TestDrive 'configuration'
+            $diskRoot = Join-Path $TestDrive 'disks'
+            $diskPath = Join-Path $diskRoot 'core.avhdx'
+            function Resolve-HyperVVM {
+                param($VMName)
+                return [pscustomobject]@{ Presence = $Presence; Cause = 'fixture'; VM = [pscustomobject]@{ Name = $VMName; Id = 'fixture-id'; State = $State; MemoryStartup = 12GB; ConfigurationLocation = $configuration } }
+            }
+            function Hyper-V\Get-VMHost { return [pscustomobject]@{ VirtualHardDiskPath = $diskRoot; VirtualMachinePath = $configuration } }
+            function Hyper-V\Get-VMHardDiskDrive {
+                param($VMName)
+                if ($DiskProbeFails) { throw 'disk inventory unavailable' }
+                return [pscustomobject]@{ Path = $diskPath }
+            }
+            function Hyper-V\Get-VHD {
+                param($Path)
+                return [pscustomobject]@{ ParentPath = $(if ($Path.EndsWith('.avhdx')) { Join-Path $diskRoot 'core.vhdx' } else { '' }) }
+            }
+            function Get-HyperVStorageFile {
+                param($Path)
+                return @{ path = $Path; known = $AllocationKnown; exists = $true; logicalBytes = 12GB; allocatedBytes = $(if ($AllocationKnown) { $AllocatedBytes } else { $null }); reason = '' }
+            }
+            . ([scriptblock]::Create($script:RequirementFunction))
+            return Get-HyperVVMStorageRequirement -VMName core -StartupMemoryBytes $Expected
+        }
+    }
+    It 'uses the VM configuration path for runtime state and the attached disk path for growth' {
+        $r = Invoke-RequirementCase
+        $r.known | Should -BeTrue
+        $r.runtimePath | Should -Be (Join-Path $TestDrive 'configuration/Virtual Machines/fixture-id.vmrs')
+        $r.storagePath | Should -Be (Join-Path $TestDrive 'disks')
+        $r.footprint.Count | Should -Be 3
+        $r.footprint[2].path | Should -Be (Join-Path $TestDrive 'disks/core.vhdx')
+    }
+    It 'does not mistake a sparse runtime file logical length for reserved disk space' {
+        $r = Invoke-RequirementCase -AllocatedBytes 1MB
+        $r.startupBytes | Should -Be 12GB
+        $r.additionalBytes | Should -Be (12GB - 1MB)
+    }
+    It 'does not charge already allocated runtime bytes again' {
+        $r = Invoke-RequirementCase -AllocatedBytes 12GB
+        $r.additionalBytes | Should -Be 0
+    }
+    It 'keeps unreadable runtime allocation unknown instead of treating it as zero' {
+        $r = Invoke-RequirementCase -AllocationKnown $false
+        $r.known | Should -BeFalse
+        $r.allocatedBytes | Should -BeNullOrEmpty
+        $r.additionalBytes | Should -BeNullOrEmpty
+    }
+    It 'charges no new runtime allocation for a running or explicitly disk-only VM' {
+        (Invoke-RequirementCase -State Running).additionalBytes | Should -Be 0
+        (Invoke-RequirementCase -Expected @{ core = 0L }).additionalBytes | Should -Be 0
+    }
+    It 'uses the builder persisted-storage root for a declared future VM' {
+        $r = Invoke-RequirementCase -Presence absent -Expected @{ core = 12GB }
+        $r.known | Should -BeTrue
+        $r.runtimePath | Should -Be (Join-Path $TestDrive 'disks/core/Virtual Machines/core.vmrs')
+        $r.additionalBytes | Should -Be 12GB
+        $r.source | Should -Be 'declared-topology'
+        (Invoke-RequirementCase -Presence absent -Expected @{ core = 0L }).additionalBytes | Should -Be 0
+    }
+    It 'does not infer absence or capacity when the VM inventory is unavailable' {
+        $r = Invoke-RequirementCase -Presence unknown -Expected @{ core = 12GB }
+        $r.known | Should -BeFalse
+        $r.additionalBytes | Should -BeNullOrEmpty
+    }
+    It 'keeps missing disk-path evidence unknown instead of using the configuration volume' {
+        $r = Invoke-RequirementCase -DiskProbeFails
+        $r.known | Should -BeTrue -Because 'the runtime allocation still has a reliable location'
+        $r.storagePath | Should -BeNullOrEmpty
+        $r.footprintError | Should -Match 'disk inventory unavailable'
+    }
+}
+
+Describe 'disk-full classification is independent of language and exception wrapping' {
+    BeforeAll {
+        . ([scriptblock]::Create((Get-YurunaTestFunctionAst -Path $script:Driver -Name 'Get-HyperVStorageErrorCode').Extent.Text))
+    }
+    It 'recognizes a nested disk-full HRESULT and localized numeric messages' {
+        $inner = [Runtime.InteropServices.COMException]::new('fixture', -2147024784)
+        $wrapped = [InvalidOperationException]::new('outer', $inner)
+        Get-HyperVStorageErrorCode -ErrorRecord $wrapped | Should -Be '0x80070070'
+        Get-HyperVStorageErrorCode -ErrorRecord ([Exception]::new('Espace insuffisant (0x80070070)')) | Should -Be '0x80070070'
+        Get-HyperVStorageErrorCode -ErrorRecord ([ComponentModel.Win32Exception]::new(39)) | Should -Be '0x80070027'
+    }
+    It 'does not label a memory resource or access refusal as disk full' {
+        Get-HyperVStorageErrorCode -ErrorRecord (New-ResourceRefusal -Shape hresult) | Should -Be ''
+        Get-HyperVStorageErrorCode -ErrorRecord (New-ResourceRefusal -Shape access) | Should -Be ''
+    }
+}
+
+
+Describe 'storage readers preserve unavailable and missing-file evidence' {
+    BeforeAll {
+        foreach ($name in 'Initialize-HyperVStorageNativeLibrary', 'Get-HyperVStorageFile') {
+            . ([scriptblock]::Create((Get-YurunaTestFunctionAst -Path $script:Driver -Name $name).Extent.Text))
+        }
+    }
+    It 'loads the architecture-neutral Windows API declarations idempotently without calling Windows' {
+        Initialize-HyperVStorageNativeLibrary
+        Initialize-HyperVStorageNativeLibrary
+        ('Yuruna.HyperVStorageNative' -as [type]) | Should -Not -BeNullOrEmpty
+    }
+    It 'records an absent runtime file as a known zero allocation' {
+        $r = Get-HyperVStorageFile -Path (Join-Path $TestDrive 'missing.vmrs')
+        $r.known | Should -BeTrue
+        $r.exists | Should -BeFalse
+        $r.logicalBytes | Should -Be 0
+        $r.allocatedBytes | Should -Be 0
+    }
+    It 'retains a failed file probe as unknown instead of inventing zero allocation' {
+        function Get-Item {
+            [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidOverwritingBuiltInCmdlets', '', Justification = 'Local read-only failure fixture; it cannot address the real filesystem.')]
+            param($LiteralPath)
+            throw [UnauthorizedAccessException]::new("Access denied to $LiteralPath")
+        }
+        $r = Get-HyperVStorageFile -Path (Join-Path $TestDrive 'denied.vmrs')
+        $r.known | Should -BeFalse
+        $r.exists | Should -BeNullOrEmpty
+        $r.allocatedBytes | Should -BeNullOrEmpty
+        $r.reason | Should -Match 'Access denied'
     }
 }
 

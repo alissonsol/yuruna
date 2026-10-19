@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.18.1
+.VERSION 2026.10.18.2
 .GUID 42da4d2b-cbcd-4c6d-b4e8-973686da3b1a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -594,6 +594,29 @@ Describe 'New-InfraFailureRecord (infra-stage failures)' {
     # ABSENT, never zeroed: a zeroed reading is indistinguishable from a measured
     # one, and a fabricated memory figure reads as a measurement. The drivers
     # that cannot measure their host state nothing at all.
+    It 'preserves storage evidence and unavailable measurements in file and event JSON' {
+        $storage = @{ status = 'insufficient'; timestamp = '2026-10-18T21:18:01Z'; errorCode = '0x80070070'; volumes = @(@{ volume = 'C:'; freeBytes = 10GB; requiredBytes = 14GB }, @{ volume = 'D:'; freeBytes = $null; requiredBytes = 2GB }); vms = @(@{ name = 'core'; runtimePath = 'C:\\VMs\\core'; startupMemoryBytes = 12GB }) }
+        $r = New-InfraFailureRecord -Stage 'Start-VM' -FailureClass 'provisioning_failure' -VMName 'core' -HostStorage $storage
+        $file = $r.File | ConvertTo-Json -Depth 12 | ConvertFrom-Json -AsHashtable
+        $eventRecord = $r.Event | ConvertTo-Json -Depth 12 | ConvertFrom-Json -AsHashtable
+        foreach ($reading in @($file.context.hostStorage, $eventRecord.hostStorage)) {
+            $reading.status | Should -Be 'insufficient'
+            $reading.errorCode | Should -Be '0x80070070'
+            $reading.volumes[0].requiredBytes | Should -Be 14GB
+            $reading.volumes[1].freeBytes | Should -BeNullOrEmpty
+            $reading.vms[0].name | Should -Be 'core'
+        }
+        @(Test-CycleEventSchema -Record $r.Event).Count | Should -Be 0
+    }
+
+    It 'omits storage evidence when no host measurement was supplied' {
+        foreach ($reading in @($null, @{})) {
+            $r = New-InfraFailureRecord -Stage 'Start-VM' -FailureClass 'provisioning_failure' -HostStorage $reading
+            $r.File.context.Contains('hostStorage') | Should -BeFalse
+            $r.Event.Contains('hostStorage') | Should -BeFalse
+        }
+    }
+
     It 'states no host memory at all when the driver could not measure it' {
         $cases = @(
             @{ Label = 'no argument'; Reading = $null; Pass = $false },

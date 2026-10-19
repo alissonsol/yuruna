@@ -493,6 +493,12 @@
     },
     {
       "wireCode": "host_refresh.invalid",
+      "path": "test/modules/Test.ConfigValidator.psm1",
+      "matchCount": 1,
+      "reason": "Project host-storage declaration validation verdict; not a host-refresh state."
+    },
+    {
+      "wireCode": "host_refresh.invalid",
       "path": "test/modules/Test.DiagnosticPreservation.psm1",
       "matchCount": 1,
       "reason": "Unreadable or invalid preservation marker state."
@@ -1298,8 +1304,8 @@
     {
       "wireCode": "host_refresh.unknown",
       "path": "host/windows.hyper-v/modules/Yuruna.Host.psm1",
-      "matchCount": 21,
-      "reason": "Uplink verdict and virtual machine state fallbacks; not the host-refresh state."
+      "matchCount": 24,
+      "reason": "Uplink verdict, virtual machine state fallbacks, and storage admission inventory or capacity readings; not the host-refresh state."
     },
     {
       "wireCode": "host_refresh.unknown",
@@ -1396,6 +1402,12 @@
       "path": "test/modules/Test.CachingProxyServiceLock.psm1",
       "matchCount": 1,
       "reason": "Virtual machine state of the caching-proxy service VM; not a host-refresh value."
+    },
+    {
+      "wireCode": "host_refresh.unknown",
+      "path": "test/modules/Test.ConfigValidator.psm1",
+      "matchCount": 2,
+      "reason": "Accepted host-storage measurement status and unavailable capacity verdict; not a host-refresh state."
     },
     {
       "wireCode": "host_refresh.unknown",

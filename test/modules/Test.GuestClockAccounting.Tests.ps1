@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.18.1
+.VERSION 2026.10.18.2
 .GUID 420a1aa7-8b02-47f6-a89d-1a0d0b35585e
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -224,12 +224,13 @@ Describe 'Advisory clock and CPU accounting analysis' {
 }
 
 Describe 'Bounded observe-only CPU restart capture' {
-    It 'runs the native two-sample clock collector through the real SSH transport within its five-second budget' -Skip:(-not $IsLinux) {
+    It 'captures both clock samples after a slow SSH handshake within its ten-second budget' -Skip:(-not $IsLinux) {
         $bin=Join-Path $TestDrive 'clock-ssh-bin'
         [void][IO.Directory]::CreateDirectory($bin)
         $ssh=Join-Path $bin 'ssh'
         [IO.File]::WriteAllText($ssh, @'
 #!/bin/bash
+sleep 3
 exec bash -c "${@: -1}"
 '@)
         & chmod +x $ssh
@@ -237,12 +238,13 @@ exec bash -c "${@: -1}"
         Mock Test-Path -ModuleName Test.Diagnostic { & $script:RealTestPath @PesterBoundParameters }
         Mock Test-Path -ModuleName Test.Diagnostic -ParameterFilter { $LiteralPath -like '*yuruna_ed25519' } { return $true }
         Mock Save-HyperVCpuRestartHostContext -ModuleName Test.Diagnostic { return @{status='complete';settings=@{processorCount=2}} }
+        Mock Test-GuestSshPortProbe -ModuleName Test.Diagnostic { return @{connected=$false;error='separate advisory probe'} }
         $oldPath=$env:PATH
         try {
             $env:PATH=$bin+[IO.Path]::PathSeparator+$oldPath
             $clock=[Diagnostics.Stopwatch]::StartNew()
             $capture=Save-GuestCpuRestartEvidence -VMName clock-vm -GuestKey guest.ubuntu.server.26 -OutputFolder $TestDrive -Phase after-cpu-restart
-            $clock.Elapsed.TotalSeconds | Should -BeLessThan 5
+            $clock.Elapsed.TotalSeconds | Should -BeLessThan 10
             $capture.diagnosticOutcome | Should -Be complete
             $capture.analysis.validSampleCount | Should -Be 2
             $capture.analysis.warnings.Count | Should -Be 0
@@ -262,7 +264,7 @@ exec bash -c "${@: -1}"
         $capture=Save-GuestCpuRestartEvidence -VMName fixture-vm -GuestKey guest.ubuntu.server.26 -OutputFolder $TestDrive -Phase after-cpu-restart
         $capture.diagnosticOutcome | Should -Be complete
         $capture.samples.Count | Should -Be 2
-        $script:clockTimeout | Should -Be 5
+        $script:clockTimeout | Should -Be 10
         $script:provenOnly | Should -BeTrue
         $script:observedClockCommand | Should -Match 'E_CLOCK_ONLY=1 bash'
         (Get-Content $capture.outPath -Raw) | Should -Match 'cpu0 1000'

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.18.1
+.VERSION 2026.10.18.2
 .GUID 42479415-ffbe-4fef-9daa-15edda547208
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -2010,6 +2010,7 @@ function Write-CycleInfraFailure {
         # failed, so the stage forwards what it was handed rather than taking a
         # reading of its own here, seconds and one teardown later.
         [AllowNull()][hashtable]$HostMemory,
+        [AllowNull()][hashtable]$HostStorage,
         [hashtable[]]$DependencyFailures = @()
     )
     try {
@@ -2026,7 +2027,7 @@ function Write-CycleInfraFailure {
         $effectiveClass = Resolve-HostNetworkFailureClass -FailureClass $FailureClass -GuestKey $GuestKey
         $rec = New-InfraFailureRecord -Stage $Stage -FailureClass $effectiveClass -Severity $Severity `
             -GuestKey $GuestKey -VMName $VMName -HostType $HostType -ErrorMessage $ErrorMessage `
-            -HostMemory $HostMemory -DependencyFailures $DependencyFailures
+            -HostMemory $HostMemory -HostStorage $HostStorage -DependencyFailures $DependencyFailures
         $failFile = Join-Path $dir 'last_failure.json'
         if (-not (Test-Path -LiteralPath $failFile) -and (Get-Command Write-YurunaStateFile -ErrorAction SilentlyContinue)) {
             $null = Write-YurunaStateFile -Path $failFile -Content ($rec.File | ConvertTo-Json -Depth 12) -Confirm:$false
@@ -2376,6 +2377,7 @@ $MaxConsecutiveCrashes = 3
 # before changing anything, OverallPassed stays true and the gating counters
 # are untouched: a held cycle is neither a pass nor a failure.
 $refreshGated         = $false
+$configGateFailed     = $false
 
 # Run-once scope: per-cycle iteration is owned by the outer Start-TestRunner.ps1,
 # so this body executes exactly once. do/while($false) states that single pass
@@ -2477,14 +2479,6 @@ do {
 
     # --- REGION: Authentication vault: fresh per cycle
     Initialize-CycleAuthVault
-
-    # --- REGION: Reset status.json for cycle start
-    # The dashboard stops showing the previous cycle's pass/fail + per-guest
-    # pills while the slow setup below (git pull, project clone, status-service
-    # restart, module re-imports, cycle-plan resolution) runs.
-    # Initialize-StatusDocument later populates the fully-shaped doc once the
-    # guest list is known.
-    Reset-StatusDocumentForCycleStart -StatusFilePath $StatusFile -Confirm:$false
 
     # --- REGION: Git pull
     # Resolve the configured upstream on every cycle so a host that returns
@@ -2672,6 +2666,27 @@ do {
     # --- REGION: Re-import modules
     # A mid-run `git pull` propagates code changes through this re-import.
     Update-CycleModuleImport -RepoRoot $RepoRoot -HostType $HostType -ModulesDir $ModulesDir
+
+    # The launch-time gate cannot see a new or newly selected project's policy.
+    # Admit the synchronized checkout before replacing the last completed cycle.
+    Write-RunnerPhase -Phase 'config-gate'
+    $storageGate = Invoke-ProjectStorageGate -RepoRoot $RepoRoot -HostType $HostType -Skip:([bool]$State.NoConfigGate)
+    foreach ($line in $storageGate.lines) { Write-Information $line -InformationAction Continue }
+    if (-not $storageGate.skipped) {
+        try {
+            $null = Write-ConfigGateArtifact -RuntimeDir $env:YURUNA_RUNTIME_DIR -Gate $storageGate `
+                -AttemptGeneration ([string]$env:YURUNA_CYCLE_GENERATION) -FrameworkCommitSha $GitCommit -PreservePrevious -Confirm:$false
+        } catch {
+            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.gate_evidence_save_failed' -Arguments @{ detail = [string]$_.Exception.Message })
+        }
+    }
+    if (-not $storageGate.passed) {
+        $OverallPassed = $false
+        $configGateFailed = $true
+        $script:CycleFinalized = $true
+        break
+    }
+    Clear-RunnerPhase
 
     # --- REGION: Hypervisor control gate
     # A hypervisor whose control channel still answers state queries but no
@@ -3454,6 +3469,7 @@ do {
     $State.FailuresBeforeAlert  = $FailuresBeforeAlert
     $State.GatingFile           = $GatingFile
     $State.RefreshGated         = $refreshGated
+    $State.ConfigGateFailed     = $configGateFailed
 }
 
 function Complete-GuestStepFailure {
@@ -3465,7 +3481,7 @@ function Complete-GuestStepFailure {
     param([Parameter(Mandatory)][hashtable]$IterState, [string]$GuestKey, [string]$VMName,
         [string]$StepName, [string]$ErrorMessage, [string]$HostType, [string]$RepoRoot,
         [string]$ModulesDir, [string]$LogFile, [switch]$StopOnFailure, [string]$FailureClass,
-        [AllowNull()]$HostMemory, [switch]$PublishSummary)
+        [AllowNull()]$HostMemory, [AllowNull()]$HostStorage, [switch]$PublishSummary)
     Set-StepStatus -GuestKey $GuestKey -StepName $StepName -Status 'fail' -ErrorMessage $ErrorMessage
     Set-GuestStatus -GuestKey $GuestKey -Status 'fail'
     $IterState.OverallPassed = $false
@@ -3477,7 +3493,7 @@ function Complete-GuestStepFailure {
         $null = Set-DiagnosticVmPreservation -VMName $VMName -GuestKey $GuestKey -StepName $StepName -Confirm:$false
     }
     if ($FailureClass) {
-        Write-CycleInfraFailure -Stage $StepName -FailureClass $FailureClass -GuestKey $GuestKey -VMName $VMName -ErrorMessage $ErrorMessage -HostType $HostType -HostMemory $HostMemory
+        Write-CycleInfraFailure -Stage $StepName -FailureClass $FailureClass -GuestKey $GuestKey -VMName $VMName -ErrorMessage $ErrorMessage -HostType $HostType -HostMemory $HostMemory -HostStorage $HostStorage
     }
     if ($PublishSummary) {
         if ((Get-Command Get-FailureEventData -ErrorAction SilentlyContinue) -and (Get-Command Set-LastFailureSummary -ErrorAction SilentlyContinue)) {
@@ -3705,7 +3721,7 @@ function Invoke-GuestProvisionIteration {
     } else {
         Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_edd7d5feb4d01b90' -Arguments @{ guestKey = "$GuestKey"; errorMessage = "$($r.errorMessage)" })
         Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_229f581dd7c7aad2' -Arguments @{ dIR = "$env:YURUNA_LOG_DIR" })
-        Complete-GuestStepFailure -IterState $IterState -GuestKey $GuestKey -VMName $VMName -StepName 'Start-VM' -ErrorMessage $r.errorMessage -HostType $HostType -RepoRoot $RepoRoot -ModulesDir $ModulesDir -LogFile $LogFile -StopOnFailure:$StopOnFailure -FailureClass 'provisioning_failure' -HostMemory $r['hostMemory']
+        Complete-GuestStepFailure -IterState $IterState -GuestKey $GuestKey -VMName $VMName -StepName 'Start-VM' -ErrorMessage $r.errorMessage -HostType $HostType -RepoRoot $RepoRoot -ModulesDir $ModulesDir -LogFile $LogFile -StopOnFailure:$StopOnFailure -FailureClass 'provisioning_failure' -HostMemory $r['hostMemory'] -HostStorage $r['hostStorage']
         return
     }
 

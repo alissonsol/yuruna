@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.18.1
+.VERSION 2026.10.18.2
 .GUID 42bd6583-4d45-42df-b3b7-3411df4c5af9
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -364,6 +364,8 @@ function Invoke-Remediation {
             severity             = $severity
             suggestedRecoveries  = $suggested
             failureClass         = $failureClass
+            hostStorage          = & $recField 'hostStorage'
+            dependencyFailures   = & $recField 'dependencyFailures'
             # Enriched routing context (forwarded so a handler can act/repro
             # without re-reading last_failure.json). Empty string, never $null,
             # so a handler can string-test without a null guard.
@@ -726,6 +728,28 @@ function Register-BuiltinRecoveryHandler {
 
     Register-RecoveryHandler -FailureClass 'provisioning_failure' -Handler {
         param([hashtable]$c)
+        $storageEvidence = @($c.Context.hostStorage)
+        $capacityFailure = $false
+        # Project orchestration retains each VM's startup evidence in dependency
+        # rows, including numeric errors from drivers without volume measurements.
+        foreach ($dependency in @($c.Context.dependencyFailures)) {
+            if ($dependency -isnot [System.Collections.IDictionary]) { continue }
+            if ($dependency.errorCode -in @('0x80070070', '0x80070027')) { $capacityFailure = $true }
+            $storageEvidence += $dependency.hostStorage
+        }
+        foreach ($storage in $storageEvidence) {
+            if ($storage -is [System.Collections.IDictionary] -and ($storage.status -eq 'insufficient' -or $storage.errorCode -in @('0x80070070', '0x80070027'))) {
+                $capacityFailure = $true
+                break
+            }
+        }
+        if ($capacityFailure) {
+            return @{
+                Recommendation = 'operator_intervention_required'
+                Rationale = [string]$c.Failure.description
+                Actions = @((Format-YurunaOperatorMessage -Key 'remediation.operator_bb372789b3ee6502'))
+            }
+        }
         return @{
             Recommendation = 'retry_with_backoff'
             Rationale      = (Format-YurunaOperatorMessage -Key 'remediation.operator_d16851977ec6a779' -Arguments @{ vmName = "$($c.Context.vmName)" })

@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.10.18.1
+# Version: 2026.10.18.2
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 
@@ -774,7 +774,9 @@ fae_recorder_redact() {
 fae_kernel_collect() {
     local recorder_priv=()
     if [ "$(id -u)" != 0 ] && command -v sudo >/dev/null 2>&1 && sudo -n true 2>/dev/null; then recorder_priv=(sudo -n); fi
-    "${recorder_priv[@]}" journalctl -k -b --no-pager -n 60 -o short-monotonic 2>&1
+    # A stall header and its CPU stacks can exceed a short journal tail. The
+    # caller still bounds collection time and redacted bytes independently.
+    "${recorder_priv[@]}" journalctl -k -b --no-pager -n 256 -o short-monotonic 2>&1
 }
 
 fae_kernel_upload() {
@@ -791,6 +793,10 @@ fae_kernel_upload() {
         fi
         printf '\n--- independent kernel evidence ---\n'
         head -c 140000 -- "$folder/kernel.evidence.txt" 2>/dev/null || true
+        if [ -r "$folder/kernel.first-stall.txt" ]; then
+            printf '\n--- first observed kernel stall ---\n'
+            head -c 68000 -- "$folder/kernel.first-stall.txt"
+        fi
     } > "$path"
     if [ -n "${E_RECORDER_URL:-}" ]; then
         upload=failed
@@ -803,7 +809,7 @@ fae_kernel_upload() {
 
 fae_kernel_loop() {
     local owner=$1 folder=$2 interval=${3:-5} limit=${4:-1440} producer=${5:-} heartbeat=${6:-60} index=0 started=$SECONDS before slot path
-    local collector_pid sample_rc bytes truncated upload=not-configured signature previous_signature='' last_upload=$SECONDS
+    local collector_pid sample_rc bytes truncated upload=not-configured signature previous_signature='' last_upload=$SECONDS first_stall_index=-1
     export E_SI E_QI GH_TOKEN
     export -f fae_kernel_collect fae_recorder_redact
     while [ "$index" -lt "$limit" ] && [ "$((SECONDS-started))" -lt 7200 ] && \
@@ -819,6 +825,24 @@ fae_kernel_loop() {
         kill -KILL -- "-$collector_pid" 2>/dev/null || true
         bytes=$(wc -c < "$folder/kernel.sample.$slot")
         truncated=false; [ "$bytes" -ge 32768 ] && truncated=true
+        # Freeze the first redacted stall report outside the rotating tail.
+        # One following sample retains stacks emitted after the first read;
+        # both samples remain capped, with incomplete collection explicit.
+        if [ "$first_stall_index" -lt 0 ] && grep -Eiq 'rcu:.*(detected.*stall|timer wakeup didn)|watchdog:.*(soft|hard) lockup|BUG:.*(soft|hard) lockup' "$folder/kernel.sample.$slot"; then
+            first_stall_index=$index
+            {
+                printf 'kernelFirstStallAdvisoryOnly=true\nkernelFirstStallUtc=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%S.%NZ)"
+                printf 'stepInvocationId=%s\nsequenceInvocationId=%s\n' "${E_SI:-}" "${E_QI:-}"
+                printf 'kernelFirstStallSampleIndex=%s\nkernelFirstStallSampleExitCode=%s\nkernelFirstStallSampleTruncated=%s\n' "$index" "$sample_rc" "$truncated"
+                cat -- "$folder/kernel.sample.$slot"
+            } > "$folder/kernel.first-stall.txt"
+        elif [ "$first_stall_index" -ge 0 ] && [ "$index" -eq "$((first_stall_index+1))" ]; then
+            {
+                printf '\n--- following kernel sample ---\nkernelFirstStallFollowupUtc=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%S.%NZ)"
+                printf 'kernelFirstStallFollowupExitCode=%s\nkernelFirstStallFollowupTruncated=%s\n' "$sample_rc" "$truncated"
+                cat -- "$folder/kernel.sample.$slot"
+            } >> "$folder/kernel.first-stall.txt"
+        fi
         {
             printf 'kernelRecorderSchema=1\nkernelRecorderState=running\n'
             printf 'stepInvocationId=%s\nsequenceInvocationId=%s\nkernelHeartbeatUtc=%s\n' "${E_SI:-}" "${E_QI:-}" "$(date -u +%Y-%m-%dT%H:%M:%S.%NZ)"
@@ -1012,8 +1036,9 @@ fae_recorder_collect() {
     printf 'sampleUtc=%s\nstepInvocationId=%s\nsequenceInvocationId=%s\n' \
         "$(date -u +%Y-%m-%dT%H:%M:%S.%NZ)" "${E_SI:-}" "${E_QI:-}"
     guest_evidence_clock
-    for path in /proc/sys/kernel/random/boot_id /proc/uptime /proc/stat /proc/loadavg \
-        /proc/pressure/{cpu,io,memory} /proc/{meminfo,vmstat,interrupts,softirqs,diskstats}; do
+    # Keep timestamped IRQ history even if a later memory or stack read stalls.
+    for path in /proc/sys/kernel/random/boot_id /proc/uptime /proc/stat /proc/interrupts /proc/softirqs /proc/loadavg \
+        /proc/pressure/{cpu,io,memory} /proc/{meminfo,vmstat,diskstats}; do
         fae_recorder_read "$path" 8192
     done
     # A guest keeps sampling after it loses its address, route, or link, so

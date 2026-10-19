@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.18.1
+.VERSION 2026.10.18.2
 .GUID 425e6973-60a5-43b1-90b8-194b4331c1f8
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -2144,6 +2144,303 @@ function Wait-HostMemoryHeadroom {
     }
 }
 
+function Initialize-HyperVStorageNativeLibrary {
+    <#
+    .SYNOPSIS
+    Loads the Windows volume and allocated-file-size readers.
+    #>
+    [CmdletBinding()]
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '', Justification = 'Loads process-local interop declarations; changes no host configuration.')]
+    param()
+    if ('Yuruna.HyperVStorageNative' -as [type]) { return }
+    Add-Type -TypeDefinition @'
+using System;
+using System.ComponentModel;
+using System.Runtime.InteropServices;
+using System.Text;
+namespace Yuruna {
+    public static class HyperVStorageNative {
+        [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+        public static extern bool GetVolumePathNameW(string path, StringBuilder volume, uint length);
+        [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+        public static extern bool GetVolumeNameForVolumeMountPointW(string mount, StringBuilder volume, uint length);
+        [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+        public static extern bool GetDiskFreeSpaceExW(string path, out ulong available, out ulong total, out ulong free);
+        [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+        private static extern uint GetCompressedFileSizeW(string path, out uint high);
+        public static ulong AllocatedBytes(string path) {
+            uint high;
+            uint low = GetCompressedFileSizeW(path, out high);
+            int error = Marshal.GetLastWin32Error();
+            if (low == UInt32.MaxValue && error != 0) throw new Win32Exception(error);
+            return ((ulong)high << 32) | low;
+        }
+    }
+}
+'@ -ErrorAction Stop
+}
+
+function Get-HyperVStorageVolume {
+    <#
+    .SYNOPSIS
+    Reads available bytes on the volume backing a VM path.
+    .DESCRIPTION
+    Resolve the closest existing directory, including volume mount points and
+    junctions. A drive-letter or machine-wide sum can report space on a different
+    volume. Available bytes honor the caller's quota. A failed probe stays unknown.
+
+    #>
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param([Parameter(Mandatory)][string]$Path)
+    $result = @{ known = $false; path = $Path; volume = ''; mountPath = ''; freeBytes = $null; totalBytes = $null; reason = ''; source = 'GetDiskFreeSpaceExW' }
+    try {
+        if (-not $IsWindows) { throw 'Windows storage APIs are unavailable on this platform.' }
+        Initialize-HyperVStorageNativeLibrary
+        $directory = $Path
+        while (-not [IO.Directory]::Exists($directory)) {
+            $parent = [IO.Path]::GetDirectoryName($directory.TrimEnd('\', '/'))
+            if (-not $parent -or $parent -eq $directory) { throw "No accessible parent directory for '$Path'." }
+            $directory = $parent
+        }
+        $directory = $directory.TrimEnd('\', '/') + [IO.Path]::DirectorySeparatorChar
+        $mount = [Text.StringBuilder]::new(32768)
+        if (-not [Yuruna.HyperVStorageNative]::GetVolumePathNameW($directory, $mount, $mount.Capacity)) {
+            throw [ComponentModel.Win32Exception]::new([Runtime.InteropServices.Marshal]::GetLastWin32Error())
+        }
+        $result.mountPath = $mount.ToString()
+        $volume = [Text.StringBuilder]::new(32768)
+        $result.volume = if ([Yuruna.HyperVStorageNative]::GetVolumeNameForVolumeMountPointW($result.mountPath, $volume, $volume.Capacity)) { $volume.ToString() } else { $result.mountPath }
+        [uint64]$available = 0; [uint64]$total = 0; [uint64]$free = 0
+        if (-not [Yuruna.HyperVStorageNative]::GetDiskFreeSpaceExW($directory, [ref]$available, [ref]$total, [ref]$free)) {
+            throw [ComponentModel.Win32Exception]::new([Runtime.InteropServices.Marshal]::GetLastWin32Error())
+        }
+        $result.freeBytes = [int64]$available
+        $result.totalBytes = [int64]$total
+        $result.known = $true
+    } catch { $result.reason = $_.Exception.Message }
+    return $result
+}
+
+function Get-HyperVStorageFile {
+    <#
+    .SYNOPSIS
+    Distinguishes missing, allocated, and unreadable VM storage files.
+    #>
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param([Parameter(Mandatory)][string]$Path)
+    $result = @{ path = $Path; known = $false; exists = $null; logicalBytes = $null; allocatedBytes = $null; reason = '' }
+    try {
+        $file = Get-Item -LiteralPath $Path -ErrorAction Stop
+        $result.exists = $true
+        $result.logicalBytes = [int64]$file.Length
+        if (-not $IsWindows) { throw 'Windows allocated-file-size API is unavailable on this platform.' }
+        Initialize-HyperVStorageNativeLibrary
+        # Length is insufficient for a sparse VMRS: logical size does not mean
+        # the space is already reserved. This API reports allocated storage.
+        $result.allocatedBytes = [int64][Yuruna.HyperVStorageNative]::AllocatedBytes($file.FullName)
+        $result.known = $true
+    } catch {
+        if ($_.CategoryInfo.Category -eq 'ObjectNotFound') {
+            $result.exists = $false
+            $result.logicalBytes = [int64]0
+            $result.allocatedBytes = [int64]0
+            $result.known = $true
+        } else { $result.reason = $_.Exception.Message }
+    }
+    return $result
+}
+
+function Get-HyperVVMStorageRequirement {
+    <#
+    .SYNOPSIS
+    Describes one VM's additional runtime allocation and bounded disk evidence.
+    .DESCRIPTION
+    Existing VMs use their own configuration location and VM identifier, never
+    the host's default or the VHD volume. Prospective persisted VMs use the
+    builder's VHD root: Save-VMDiskSnapshot moves their configuration there.
+    Explicit startup zero describes a disk-only VM that this topology will not
+    start. Disk growth is budgeted separately by Test-VMStorageCapacity.
+
+    #>
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param([Parameter(Mandatory)][string]$VMName, [hashtable]$StartupMemoryBytes = @{})
+    $row = @{ vmName = $VMName; known = $false; state = 'unknown'; runtimePath = ''; storagePath = ''; startupBytes = $null; allocatedBytes = $null; additionalBytes = $null; footprint = @(); reason = ''; source = 'Hyper-V' }
+    try {
+        $resolved = Resolve-HyperVVM -VMName $VMName
+        if ($resolved.Presence -eq 'unknown') { throw "VM inventory is unavailable ($($resolved.Cause))." }
+        if ($resolved.Presence -eq 'absent') {
+            if (-not $StartupMemoryBytes.ContainsKey($VMName)) { throw 'The absent VM has no declared startup-memory requirement.' }
+            [int64]$expected = $StartupMemoryBytes[$VMName]
+            if ($expected -lt 0) { throw 'Startup memory must be nonnegative.' }
+            $root = [string](Hyper-V\Get-VMHost -ErrorAction Stop).VirtualHardDiskPath
+            if (-not $root) { throw 'The Hyper-V virtual-hard-disk path is unavailable.' }
+            $row.storagePath = Join-Path $root $VMName
+            $row.runtimePath = Join-Path (Join-Path $row.storagePath 'Virtual Machines') "$VMName.vmrs"
+            $row.state = 'absent'
+            $row.startupBytes = $expected
+            $row.allocatedBytes = [int64]0
+            $row.additionalBytes = $expected
+            $row.known = $true
+            $row.source = 'declared-topology'
+            return $row
+        }
+        $vm = $resolved.VM
+        $row.state = [string]$vm.State
+        $row.startupBytes = [int64]$vm.MemoryStartup
+        $configuration = [string]$vm.ConfigurationLocation
+        $id = [string]$vm.Id
+        if (-not $configuration -or -not $id) { throw 'The VM configuration location or identifier is unavailable.' }
+        $row.runtimePath = Join-Path (Join-Path $configuration 'Virtual Machines') "$id.vmrs"
+        $runtime = Get-HyperVStorageFile -Path $row.runtimePath
+        $row.allocatedBytes = $runtime.allocatedBytes
+        $files = [Collections.Generic.List[hashtable]]::new()
+        $files.Add($runtime)
+        # Enumerate only attached disks and their parent chain, not a recursive
+        # host-wide scan. Snapshot history is already represented by that chain.
+        try {
+            $disks = @(Hyper-V\Get-VMHardDiskDrive -VMName $VMName -ErrorAction Stop)
+            $seen = [Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
+            foreach ($disk in $disks) {
+                $path = [string]$disk.Path
+                if (-not $row.storagePath -and $path) { $row.storagePath = Split-Path -Parent $path }
+                for ($depth = 0; $path -and $depth -lt 32 -and $seen.Add($path); $depth++) {
+                    $files.Add((Get-HyperVStorageFile -Path $path))
+                    $path = [string](Hyper-V\Get-VHD -Path $path -ErrorAction Stop).ParentPath
+                }
+            }
+        } catch { $row.footprintError = $_.Exception.Message }
+        $row.footprint = @($files.ToArray())
+        $diskOnly = $StartupMemoryBytes.ContainsKey($VMName) -and [int64]$StartupMemoryBytes[$VMName] -eq 0
+        if ($row.state -eq 'Running' -or $diskOnly) {
+            $row.additionalBytes = [int64]0
+            $row.known = $true
+        } elseif ($runtime.known -and $row.startupBytes -gt 0) {
+            $row.additionalBytes = [int64][Math]::Max([int64]0, [int64]($row.startupBytes - $runtime.allocatedBytes))
+            $row.known = $true
+        } else { $row.reason = 'Runtime allocation or startup memory is unavailable.' }
+    } catch { $row.reason = $_.Exception.Message }
+    return $row
+}
+
+function Test-VMStorageCapacity {
+    <#
+    .SYNOPSIS
+    Checks additional runtime and declared disk growth on each actual volume.
+    .DESCRIPTION
+    A topology is admitted only against its own volumes. Existing runtime
+    allocation is credited once; a reserve is charged once per volume needing
+    growth. Unknown readings remain unknown and permit the hypervisor to decide.
+    AdditionalStorageBytes is an explicit per-VM disk/checkpoint-growth budget,
+    not the virtual disk's maximum size or a claim about measured usage.
+    ProvisioningMemoryBytes describes the peak sequential builder runtime before
+    persisted VMs move to the VHD root. The initial and final runtime phases do
+    not overlap, so a shared volume needs their maximum, not their sum.
+
+    #>
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param(
+        [Parameter(Mandatory)][string[]]$VMName,
+        [hashtable]$StartupMemoryBytes = @{},
+        [hashtable]$AdditionalStorageBytes = @{},
+        [ValidateRange(0, [long]::MaxValue)][int64]$ReserveBytes = 2GB,
+        [ValidateRange(0, [long]::MaxValue)][int64]$ProvisioningMemoryBytes = 0
+    )
+    $result = @{ allowed = $true; status = 'ready'; timestamp = [DateTime]::UtcNow.ToString('o'); source = 'Hyper-V VM storage admission'; errorCode = ''; reason = ''; volumes = @(); vms = @() }
+    $groups = @{}
+    $rows = [Collections.Generic.List[hashtable]]::new()
+    $unknown = $false
+    foreach ($name in @($VMName | Select-Object -Unique)) {
+        $row = Get-HyperVVMStorageRequirement -VMName $name -StartupMemoryBytes $StartupMemoryBytes
+        $rows.Add($row)
+        if (-not $row.known) { $unknown = $true }
+        [int64]$growth = 0
+        if ($AdditionalStorageBytes.ContainsKey($name)) {
+            if (-not [int64]::TryParse([string]$AdditionalStorageBytes[$name], [ref]$growth) -or $growth -lt 0) { throw "The additional storage budget for '$name' must be a nonnegative Int64 byte count." }
+        }
+        $row.additionalStorageBytes = $growth
+        $requests = @(@{ path = $row.runtimePath; bytes = $row.additionalBytes; known = $row.known; purpose = 'runtime' })
+        if ($growth -gt 0) { $requests += @{ path = $row.storagePath; bytes = $growth; known = [bool]$row.storagePath; purpose = 'disk-growth' } }
+        foreach ($request in $requests) {
+            $probe = if ($request.path) { Get-HyperVStorageVolume -Path $request.path } else { @{ known = $false; volume = ''; freeBytes = $null; reason = 'VM storage location is unavailable.' } }
+            $key = if ($probe.volume) { [string]$probe.volume } else { "$name/$($request.purpose)" }
+            if (-not $groups.ContainsKey($key)) {
+                $groups[$key] = @{ volume = [string]$probe.volume; path = [string]$request.path; freeBytes = $probe.freeBytes; additionalBytes = [int64]0; runtimeBytes = [int64]0; provisioningBytes = [int64]0; requiredBytes = [int64]0; reserveBytes = [int64]0; known = [bool]$probe.known; vmNames = @(); reason = [string]$probe.reason }
+            }
+            $group = $groups[$key]
+            # Repeated observations of a shared volume use the lower headroom.
+            if (-not $probe.known) { $group.known = $false; $group.freeBytes = $null }
+            elseif ($group.known) { $group.freeBytes = [Math]::Min([int64]$group.freeBytes, [int64]$probe.freeBytes) }
+            if ($group.vmNames -notcontains $name) { $group.vmNames += $name }
+            if ($request.known) {
+                $sum = [decimal]$group.additionalBytes + [decimal]$request.bytes
+                if ($sum -gt [int64]::MaxValue - $ReserveBytes) { throw 'The combined VM storage budget exceeds Int64 capacity.' }
+                $group.additionalBytes = [int64]$sum
+                if ($request.purpose -eq 'runtime') { $group.runtimeBytes += [int64]$request.bytes }
+            } else { $unknown = $true }
+            if (-not $probe.known) { $unknown = $true }
+        }
+    }
+    if ($ProvisioningMemoryBytes -gt 0) {
+        $configurationPath = ''
+        try {
+            $configurationPath = [string](Hyper-V\Get-VMHost -ErrorAction Stop).VirtualMachinePath
+            if (-not $configurationPath) { throw 'The default Hyper-V configuration path is unavailable.' }
+            $probe = Get-HyperVStorageVolume -Path $configurationPath
+        } catch { $probe = @{ known = $false; volume = ''; freeBytes = $null; reason = $_.Exception.Message } }
+        $result.provisioning = @{ path = $configurationPath; memoryBytes = $ProvisioningMemoryBytes; source = 'Hyper-V default configuration path' }
+        $key = if ($probe.volume) { [string]$probe.volume } else { 'provisioning' }
+        if (-not $groups.ContainsKey($key)) {
+            $groups[$key] = @{ volume = [string]$probe.volume; path = $configurationPath; freeBytes = $probe.freeBytes; additionalBytes = [int64]0; runtimeBytes = [int64]0; provisioningBytes = [int64]0; requiredBytes = [int64]0; reserveBytes = [int64]0; known = [bool]$probe.known; vmNames = @(); reason = [string]$probe.reason }
+        }
+        $group = $groups[$key]
+        $group.provisioningBytes = $ProvisioningMemoryBytes
+        if (-not $probe.known) { $group.known = $false; $group.freeBytes = $null; $unknown = $true }
+        elseif ($group.known) { $group.freeBytes = [Math]::Min([int64]$group.freeBytes, [int64]$probe.freeBytes) }
+        $group.vmNames += '(sequential provisioning)'
+    }
+    $messages = [Collections.Generic.List[string]]::new()
+    foreach ($group in $groups.Values) {
+        $additional = [decimal]$group.additionalBytes - $group.runtimeBytes + [Math]::Max([int64]$group.runtimeBytes, [int64]$group.provisioningBytes)
+        if ($additional -gt [int64]::MaxValue - $ReserveBytes) { throw 'The combined VM storage budget exceeds Int64 capacity.' }
+        $group.additionalBytes = [int64]$additional
+        if ($group.additionalBytes -gt 0) { $group.reserveBytes = $ReserveBytes }
+        $group.requiredBytes = $group.additionalBytes + $group.reserveBytes
+        if ($group.known -and $group.freeBytes -lt $group.requiredBytes) {
+            $result.allowed = $false
+            $messages.Add(("VM storage volume '{0}' for {1} has {2:N2} GiB available; {3:N2} GiB additional capacity is required including {4:N2} GiB reserve." -f $group.path, ($group.vmNames -join ', '), ($group.freeBytes / 1GB), ($group.requiredBytes / 1GB), ($group.reserveBytes / 1GB)))
+        }
+    }
+    $result.vms = @($rows.ToArray())
+    $result.volumes = @($groups.Values | Sort-Object path)
+    if (-not $result.allowed) { $result.status = 'insufficient'; $result.errorCode = '0x80070070'; $result.reason = $messages -join ' ' }
+    elseif ($unknown) { $result.status = 'unknown'; $result.reason = 'One or more VM storage locations or capacity readings are unavailable; Hyper-V will decide the start.' }
+    return $result
+}
+
+function Get-HyperVStorageErrorCode {
+    <#
+    .SYNOPSIS
+    Recognizes disk-full errors by numeric identity, including wrapped/localized errors.
+    #>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param([AllowNull()]$ErrorRecord)
+    $exception = if ($ErrorRecord -is [Management.Automation.ErrorRecord]) { $ErrorRecord.Exception } else { $ErrorRecord -as [Exception] }
+    $text = [string]$ErrorRecord
+    for ($depth = 0; $exception -and $depth -lt 8; $depth++) {
+        if ($exception.HResult -eq -2147024784 -or (($exception -is [ComponentModel.Win32Exception]) -and $exception.NativeErrorCode -eq 112)) { return '0x80070070' }
+        if ($exception.HResult -eq -2147024857 -or (($exception -is [ComponentModel.Win32Exception]) -and $exception.NativeErrorCode -eq 39)) { return '0x80070027' }
+        $text += " $($exception.Message)"
+        $exception = $exception.InnerException
+    }
+    if ($text -match '(?i)0x800700(70|27)\b') { return $Matches[0].ToUpperInvariant().Replace('0X', '0x') }
+    return ''
+}
+
 <#
 .SYNOPSIS
 Start a Hyper-V VM and open a vmconnect window in basic mode.
@@ -2162,8 +2459,13 @@ nature -- the host is between releasing one guest's reservation and being able
 to grant the next -- while every other start failure is a standing fault that a
 second attempt merely delays the report of.
 
-Returns a hashtable @{ success; errorMessage; hostMemory } so callers can
-branch on transport failures separately from PowerShell exceptions. hostMemory
+Checks the VM's actual runtime-state volume after the memory wait. A known
+storage shortage refuses the start without a memory retry; an unavailable
+storage probe preserves its unknown status and leaves the decision to Hyper-V.
+
+Returns a hashtable @{ success; errorMessage; hostMemory; hostStorage; kind;
+errorCode } so callers retain the resource evidence and numeric disk-full cause.
+hostMemory
 is the reading taken immediately before the attempt that decided the outcome,
 so a failure record can state what the machine held at the instant it refused;
 it is $null when the host would not state it. Read it with the indexer
@@ -2184,6 +2486,8 @@ function Start-HyperVVM {
     # start either way.
     $overheadBytes = 512MB
     $memory = $null
+    $storage = $null
+    $storageError = ''
     try {
         if ($PSCmdlet.ShouldProcess($VMName, (Format-YurunaOperatorMessage -Key 'host.operator_a3da8d2bcc4b8ff7'))) {
             # A VM that is already running holds its commit and a start against
@@ -2207,14 +2511,19 @@ function Start-HyperVVM {
             $attempt = 0
             while ($true) {
                 $null   = Wait-HostMemoryHeadroom -RequiredBytes $required -Label "'$VMName'" -TimeoutSeconds $MemoryWaitSeconds
-                # Taken after the wait and before the attempt, so the reading a
-                # failure record carries is the position the refusal was made in.
+                # Read both resource positions after any wait, before the
+                # admission decision and the attempt they describe.
                 $memory = Get-HostMemoryStatus
+                $storage = Test-VMStorageCapacity -VMName $VMName
+                if (-not $storage.allowed) {
+                    return @{ success = $false; errorMessage = $storage.reason; hostMemory = $memory; hostStorage = $storage; kind = 'storage-capacity'; errorCode = $storage.errorCode }
+                }
                 try {
                     Hyper-V\Start-VM -Name $VMName -ErrorAction Stop -WarningAction SilentlyContinue 6>$null
                     break
                 } catch {
-                    if ($attempt -ge 1 -or -not (Test-HostResourceExhaustionError -ErrorRecord $_)) { throw }
+                    $storageError = Get-HyperVStorageErrorCode -ErrorRecord $_
+                    if ($storageError -or $attempt -ge 1 -or -not (Test-HostResourceExhaustionError -ErrorRecord $_)) { throw }
                     $attempt++
                     Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_4c797db53595bac6' -Arguments @{ vMName = "$VMName"; memory = "$(Format-HostMemoryStatus -Status $memory)" })
                     # A fixed pause before the wait re-reads: the refusal can
@@ -2235,13 +2544,15 @@ function Start-HyperVVM {
                 [void](Resolve-VMConnectAnotherUserDialog -VMName $VMName -TimeoutSeconds 8)
             }
         }
-        return @{ success = $true; errorMessage = $null; hostMemory = $memory }
+        return @{ success = $true; errorMessage = $null; hostMemory = $memory; hostStorage = $storage; kind = 'none'; errorCode = '' }
     } catch {
         # The reading from just before the failed attempt is the one that
         # describes the refusal; the fallback covers only a throw raised before
         # any attempt was made.
         if (-not $memory) { $memory = Get-HostMemoryStatus }
-        return @{ success = $false; errorMessage = (Format-YurunaOperatorMessage -Key 'host.operator_b97fb4abbfde180c' -Arguments @{ vMName = "$VMName"; value = "$_" }); hostMemory = $memory }
+        if (-not $storageError) { $storageError = Get-HyperVStorageErrorCode -ErrorRecord $_ }
+        if ($storage -and $storageError) { $storage.errorCode = $storageError }
+        return @{ success = $false; errorMessage = (Format-YurunaOperatorMessage -Key 'host.operator_b97fb4abbfde180c' -Arguments @{ vMName = "$VMName"; value = "$_" }); hostMemory = $memory; hostStorage = $storage; kind = $(if ($storageError) { 'storage-capacity' } else { 'error' }); errorCode = $storageError }
     }
 }
 
@@ -6700,6 +7011,7 @@ Export-ModuleMember -Function Remove-HyperVGuestDefinition, Resolve-HyperVGuestS
     Confirm-HyperVVMCreated, Stop-HyperVVMForce, Remove-HyperVTestVM, `
     Start-HyperVVM, Stop-HyperVVM, Request-HyperVVMShutdown, Confirm-HyperVVMStarted, `
     Get-HostMemoryStatus, Format-HostMemoryStatus, Test-HostResourceExhaustionError, Wait-HostMemoryHeadroom, Get-HyperVVMStartupMemory, `
+    Test-VMStorageCapacity, `
     Resolve-VMConnectAnotherUserDialog, Restart-HyperVConnect, `
     Test-WindowsProxyIsYurunaManaged, Read-WindowsProxyState, Invoke-WinInetRefresh, `
     Set-WindowsHostProxy, Restore-WindowsHostProxy, Disable-WindowsHostProxy, Remove-WindowsHostProxy, `

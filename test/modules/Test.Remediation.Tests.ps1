@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.18.1
+.VERSION 2026.10.18.2
 .GUID 42430431-3a59-45e7-9caa-8e653f023904
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -137,6 +137,62 @@ Describe 'Invoke-Remediation persists last_remediation.json' {
 }
 
 Describe 'Invoke-Remediation routes the infra-stage failure classes' {
+    It 'requires capacity repair instead of retrying a measured storage shortage' {
+        $record = @{ failureClass = 'provisioning_failure'; severity = 'hard'; vmName = 'core'; description = 'C: needs 14 GiB, 10 GiB available'; context = @{ hostStorage = @{ status = 'insufficient'; errorCode = '0x80070070' } } }
+        $r = Invoke-Remediation -FailureRecord $record
+        $r.Recommendation | Should -Be 'operator_intervention_required'
+        $r.AutoApply | Should -BeFalse
+        $r.Rationale | Should -Match 'C:'
+    }
+
+    It 'does not infer a storage shortage from an unavailable capacity probe' {
+        $record = @{ failureClass = 'provisioning_failure'; severity = 'hard'; context = @{ hostStorage = @{ status = 'unknown' } } }
+        (Invoke-Remediation -FailureRecord $record).Recommendation | Should -Be 'retry_with_backoff'
+    }
+
+    It 'requires capacity repair for measured dependency storage shortages in <Shape> records' -ForEach @(
+        @{ Shape = 'inline' }
+        @{ Shape = 'persisted' }
+    ) {
+        $record = @{ failureClass = 'provisioning_failure'; severity = 'hard'; description = 'Edge runtime allocation has insufficient storage' }
+        $rows = @(@{ vmName = 'edge'; hostStorage = @{ status = 'insufficient' } })
+        if ($Shape -eq 'inline') { $record.dependencyFailures = $rows }
+        else { $record.context = @{ dependencyFailures = $rows } }
+        $result = Invoke-Remediation -FailureRecord $record
+        $result.Recommendation | Should -Be 'operator_intervention_required'
+        $result.Rationale | Should -Be $record.description
+    }
+
+    It 'requires capacity repair for an older driver dependency carrying only <ErrorCode>' -ForEach @(
+        @{ ErrorCode = '0x80070070' }
+        @{ ErrorCode = '0x80070027' }
+    ) {
+        $record = @{ failureClass = 'provisioning_failure'; severity = 'hard'; description = 'VM runtime allocation failed'; context = @{
+            hostStorage = @{ status = 'unknown' }
+            dependencyFailures = @(@{ vmName = 'core'; errorCode = $ErrorCode })
+        } }
+        (Invoke-Remediation -FailureRecord $record).Recommendation | Should -Be 'operator_intervention_required'
+    }
+
+    It 'recognizes a dependency disk-full error even when its earlier capacity reading was ready' {
+        $record = @{ failureClass = 'provisioning_failure'; severity = 'hard'; context = @{
+            dependencyFailures = @(@{ vmName = 'edge'; hostStorage = @{ status = 'ready'; errorCode = '0x80070070' } })
+        } }
+        (Invoke-Remediation -FailureRecord $record).Recommendation | Should -Be 'operator_intervention_required'
+    }
+
+    It 'keeps retry guidance for unavailable and malformed dependency capacity evidence' {
+        $record = @{ failureClass = 'provisioning_failure'; severity = 'hard'; context = @{
+            dependencyFailures = @($null, '0x80070070', @{ hostStorage = @{ status = 'unknown' } }, @{ errorCode = '0x80004005' })
+        } }
+        (Invoke-Remediation -FailureRecord $record).Recommendation | Should -Be 'retry_with_backoff'
+    }
+
+    It 'routes a numeric disk-full failure even when the later capacity reading is ready' {
+        $record = @{ failureClass = 'provisioning_failure'; severity = 'hard'; description = 'VM runtime allocation failed'; context = @{ hostStorage = @{ status = 'ready'; errorCode = '0x80070070' } } }
+        (Invoke-Remediation -FailureRecord $record).Recommendation | Should -Be 'operator_intervention_required'
+    }
+
     It 'routes provisioning_failure to retry_with_backoff (transient host provisioning)' {
         $r = Invoke-Remediation -FailureRecord @{ failureClass = 'provisioning_failure'; severity = 'hard'; vmName = 'vm1' }
         Assert-Equal -Expected 'retry_with_backoff' -Actual $r.Recommendation -Because 'provisioning is retryable'

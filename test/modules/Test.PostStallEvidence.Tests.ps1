@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.18.1
+.VERSION 2026.10.18.2
 .GUID 42e157fc-5dda-4b28-a498-afaf9bcafda2
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -86,6 +86,65 @@ Describe 'Bounded persistent guest journal' {
 }
 
 Describe 'Kernel evidence uploads do not depend on SSH or the process collector' -Skip:(-not $IsLinux) {
+    It 'preserves the first stall and its long stack after later messages replace the kernel ring' {
+        $fixture = Invoke-KernelFixture @'
+export GH_TOKEN=first-stall-private-value
+cat > "$FAE_TEST_FOLDER/bin/journalctl" <<'JOURNAL'
+#!/bin/bash
+count=0
+if [ -r "$FAE_TEST_FOLDER/reads" ]; then read -r count < "$FAE_TEST_FOLDER/reads"; fi
+printf '%s\n' "$((count+1))" > "$FAE_TEST_FOLDER/reads"
+lines=60
+while [ "$#" -gt 0 ]; do if [ "$1" = -n ]; then shift; lines=$1; fi; shift; done
+{
+    if [ "$count" -eq 0 ]; then
+        printf '[424.0] rcu: INFO: rcu_preempt detected stalls on CPUs/tasks:\n'
+        printf '[424.1] first-stall-private-value\n'
+        for ((i=0; i<100; i++)); do printf '[424.2] stack_frame_%s\n' "$i"; done
+        printf '[424.3] ret_from_fork\n'
+    else
+        for ((i=0; i<300; i++)); do printf '[999.0] unrelated later kernel message %s\n' "$i"; done
+    fi
+} | tail -n "$lines"
+JOURNAL
+chmod +x "$FAE_TEST_FOLDER/bin/journalctl"
+fae_kernel_loop "$BASHPID" "$FAE_TEST_FOLDER/ring" 0 7
+'@
+        $fixture.Result.ExitCode | Should -Be 0 -Because $fixture.Result.StdErr
+        $upload = Get-Content -LiteralPath (Join-Path $fixture.Folder 'last-upload.txt') -Raw
+        $upload | Should -Match '--- first observed kernel stall ---'
+        $upload | Should -Match 'rcu_preempt detected stalls'
+        $upload | Should -Match 'stack_frame_0\b'
+        $upload | Should -Match 'ret_from_fork'
+        $upload | Should -Not -Match 'first-stall-private-value'
+        $upload | Should -Match '\[REDACTED SECRET\]'
+        $upload | Should -Match 'unrelated later kernel message'
+        (Get-Content -LiteralPath (Join-Path $fixture.Folder 'ring/kernel.evidence.txt') -Raw) | Should -Not -Match 'rcu_preempt detected stalls'
+        (Get-Item -LiteralPath (Join-Path $fixture.Folder 'ring/kernel.first-stall.txt')).Length | Should -BeLessThan 68000
+    }
+
+    It 'retains a following stack when the first stall collection ends before the stack is printed' {
+        $fixture = Invoke-KernelFixture @'
+fae_kernel_collect() {
+    count=0
+    if [ -r "$FAE_TEST_FOLDER/reads" ]; then read -r count < "$FAE_TEST_FOLDER/reads"; fi
+    printf '%s\n' "$((count+1))" > "$FAE_TEST_FOLDER/reads"
+    case "$count" in
+        0) printf '[100] watchdog: BUG: soft lockup - CPU#0 stuck for 22s!\n';;
+        1) printf '[101] Call trace:\n[101] handle_softirqs\n[101] ret_from_fork\n';;
+        *) printf '[200] later ordinary message\n';;
+    esac
+}
+fae_kernel_loop "$BASHPID" "$FAE_TEST_FOLDER/ring" 0 7
+'@
+        $fixture.Result.ExitCode | Should -Be 0 -Because $fixture.Result.StdErr
+        $upload = Get-Content -LiteralPath (Join-Path $fixture.Folder 'last-upload.txt') -Raw
+        $upload | Should -Match 'soft lockup - CPU#0'
+        $upload | Should -Match 'handle_softirqs'
+        $upload | Should -Match 'ret_from_fork'
+        $upload | Should -Match 'kernelFirstStallFollowupExitCode=0'
+    }
+
     It 'uploads new kernel messages while full execution evidence remains stalled' {
         $fixture = Invoke-KernelFixture @'
 printf 'heartbeatUtc=old-process-sample\nraw-process-evidence\n' > "$FAE_TEST_FOLDER/ring/evidence.txt"
@@ -101,6 +160,7 @@ fae_kernel_loop "$BASHPID" "$FAE_TEST_FOLDER/ring" 1 2
         $upload | Should -Match 'kernel blocked-task evidence'
         $upload | Should -Match 'kernelRecorderState=stopped'
         $upload | Should -Match 'kernelSampleIndex=1'
+        Test-Path -LiteralPath (Join-Path $fixture.Folder 'ring/kernel.first-stall.txt') | Should -BeFalse
         @(Get-Content -LiteralPath (Join-Path $fixture.Folder 'uploads.txt')).Count | Should -Be 3
         $fixture.Result.StdErr | Should -Not -Match 'SSH unexpectedly'
     }
@@ -180,7 +240,7 @@ fae_kernel_loop "$BASHPID" "$FAE_TEST_FOLDER/ring" 0 1
     It 'caps the kernel ring, redacts known secrets, and never sends its environment' {
         $fixture = Invoke-KernelFixture @'
 export GH_TOKEN=known-kernel-secret
-fae_kernel_collect() { printf 'ordinary message\nknown-kernel-secret\n'; yes 'ordinary kernel message'; }
+fae_kernel_collect() { printf 'rcu: INFO: rcu_preempt detected stalls on CPUs/tasks:\nknown-kernel-secret\n'; yes 'ordinary kernel message'; }
 fae_kernel_loop "$BASHPID" "$FAE_TEST_FOLDER/ring" 0 5
 '@
         $fixture.Result.ExitCode | Should -Be 0 -Because $fixture.Result.StdErr
@@ -188,6 +248,13 @@ fae_kernel_loop "$BASHPID" "$FAE_TEST_FOLDER/ring" 0 5
         $upload | Should -Not -Match 'known-kernel-secret'
         $upload | Should -Match '\[REDACTED SECRET\]'
         $upload | Should -Match 'kernelSampleTruncated=true'
+        $upload | Should -Match 'kernelFirstStallSampleTruncated=true'
+        $upload | Should -Match 'kernelFirstStallFollowupTruncated=true'
+        $first = Get-Content -LiteralPath (Join-Path $fixture.Folder 'ring/kernel.first-stall.txt') -Raw
+        $first | Should -Match 'stepInvocationId=kernel-fixture'
+        $first | Should -Match 'sequenceInvocationId=sequence-fixture'
+        $first | Should -Not -Match 'known-kernel-secret'
+        (Get-Item -LiteralPath (Join-Path $fixture.Folder 'ring/kernel.first-stall.txt')).Length | Should -BeLessThan 68000
         @(Get-ChildItem -LiteralPath (Join-Path $fixture.Folder 'ring') -Filter 'kernel.sample.*').Count | Should -Be 4
         (Get-Item -LiteralPath (Join-Path $fixture.Folder 'ring/kernel.evidence.txt')).Length | Should -BeLessThan 140000
         @(Get-ChildItem -LiteralPath (Join-Path $fixture.Folder 'ring') -Filter 'kernel-upload.*').Count | Should -Be 0

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.18.1
+.VERSION 2026.10.18.2
 .GUID 4245d5d1-5745-4e5e-b405-e37f1c12f700
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -225,7 +225,8 @@ $innerParams = [ordered]@{
     ConfigPath     = $ConfigPath
     NoGitPull      = [switch]::new($true)
     NoProjectClone = [switch]::new($true)
-    NoConfigGate   = [switch]::new($true)
+    NoConfigGate   = [switch]::new([bool]$NoConfigGate)
+    ConfigGateInherited = [switch]::new($true)
 }
 # Forward -NoStatusService so the inner's shared status-service gate honors it; the
 # server is the inner's responsibility, so Invoke-TestProject only passes it through.

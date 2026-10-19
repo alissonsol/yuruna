@@ -3,7 +3,7 @@
   "dataLicense": "CC0-1.0",
   "SPDXID": "SPDXRef-DOCUMENT",
   "name": "yuruna-hosts",
-  "documentNamespace": "https://github.com/alissonsol/yuruna/sbom/hosts/b37354885ae09e26378c4b6628167d3d4e46163f30c62d931f3f6f6df0139b2a",
+  "documentNamespace": "https://github.com/alissonsol/yuruna/sbom/hosts/c18cce68242f8ac33ec9719b8fbd339ff80eead0b38fca1940590cb37bf51bbc",
   "creationInfo": {
     "created": "2026-10-03T16:48:41Z",
     "creators": [
@@ -25,8 +25,8 @@
       "licenseDeclared": "LicenseRef-Yuruna",
       "copyrightText": "NOASSERTION",
       "supplier": "Organization: Alisson Sol et al.",
-      "comment": "Declared hosts inventory; source-inputs SHA256 b37354885ae09e26378c4b6628167d3d4e46163f30c62d931f3f6f6df0139b2a. Not an installed-system scan.",
-      "versionInfo": "2026.10.18.1"
+      "comment": "Declared hosts inventory; source-inputs SHA256 c18cce68242f8ac33ec9719b8fbd339ff80eead0b38fca1940590cb37bf51bbc. Not an installed-system scan.",
+      "versionInfo": "2026.10.18.2"
     },
     {
       "name": "acl",

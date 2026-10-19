@@ -23,6 +23,15 @@ no plan -- so an edit to it, in this file or through the editor, changes nothing
 on a host whose project repository resolves a plan. The editor shows the guest
 set the last cycle actually ran beside the field.
 
+Projects may also supply `test/host-storage.requirements.json` as read-only
+storage admission policy; see the [Hyper-V storage checks](host-hyperv.md#42dc5bb9-0010).
+The cycle runner checks the selected project after synchronization, using the
+configuration-gate reporting path. A measured
+shortage or malformed declaration stops before the cycle begins and appears
+as a yellow configuration preflight failure. Missing declarations are optional;
+unavailable measurements produce an explicit warning, not a fabricated zero
+or a passing measurement. These checks never rewrite operator configuration.
+
 <a id="42b11c32-0002"></a>
 
 ## Key names

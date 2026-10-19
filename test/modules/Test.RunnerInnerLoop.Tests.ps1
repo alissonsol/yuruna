@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.18.1
+.VERSION 2026.10.18.2
 .GUID 422a68fe-a953-4858-a4d5-e3de9fbbbaf8
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -851,11 +851,13 @@ Describe 'Write-CycleInfraFailure' {
         $oldLogDir = $env:YURUNA_LOG_DIR
         $env:YURUNA_LOG_DIR = $tmp
         $global:__yrnSeenHostMemory = 'not called'
+        $global:__yrnSeenHostStorage = 'not called'
         function global:New-InfraFailureRecord {
             [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter', '',
                 Justification = 'Stub mirrors the -Global builder signature Write-CycleInfraFailure binds by name; the test asserts only on the reading it records.')]
-            param($Stage, $FailureClass, $Severity, $GuestKey, $VMName, $HostType, $ErrorMessage, $HostMemory)
+            param($Stage, $FailureClass, $Severity, $GuestKey, $VMName, $HostType, $ErrorMessage, $HostMemory, $HostStorage)
             $global:__yrnSeenHostMemory = $HostMemory
+            $global:__yrnSeenHostStorage = $HostStorage
             @{ File = [ordered]@{ stage = $Stage }; Event = [ordered]@{ stage = $Stage } }
         }
         function global:Write-YurunaStateFile {
@@ -871,14 +873,18 @@ Describe 'Write-CycleInfraFailure' {
                 Write-CycleInfraFailure -Stage 'Start-VM' -FailureClass 'provisioning_failure' -GuestKey 'guest.a' `
                     -VMName '(vm)' -ErrorMessage 'refused' -HostType 'host.test' `
                     -HostMemory @{ availableMb = 1192; committedBytes = 46236958720; commitLimitBytes = 48257269760
-                                   commitAvailableBytes = 2020311040; source = 'Win32_OperatingSystem' }
+                                   commitAvailableBytes = 2020311040; source = 'Win32_OperatingSystem' } `
+                    -HostStorage @{ status = 'insufficient'; volumes = @(@{ freeBytes = 10GB; requiredBytes = 14GB }) }
             }
             Assert-True ($global:__yrnSeenHostMemory -is [hashtable]) "the builder must receive the reading; got: $($global:__yrnSeenHostMemory)"
             Assert-Equal -Expected 48257269760 -Actual $global:__yrnSeenHostMemory['commitLimitBytes'] `
                 -Because 'the reading must arrive unaltered'
+            $global:__yrnSeenHostStorage.status | Should -Be 'insufficient'
+            $global:__yrnSeenHostStorage.volumes[0].freeBytes | Should -Be 10GB
         } finally {
             Remove-Item function:New-InfraFailureRecord, function:global:Write-YurunaStateFile -ErrorAction SilentlyContinue
             Remove-Variable -Name __yrnSeenHostMemory -Scope Global -ErrorAction SilentlyContinue
+            Remove-Variable -Name __yrnSeenHostStorage -Scope Global -ErrorAction SilentlyContinue
             if ($null -eq $oldLogDir) { Remove-Item Env:YURUNA_LOG_DIR -ErrorAction SilentlyContinue } else { $env:YURUNA_LOG_DIR = $oldLogDir }
             Remove-Item -LiteralPath $tmp -Recurse -Force -ErrorAction SilentlyContinue
         }
@@ -1045,14 +1051,15 @@ Describe 'Inner-cycle control-flow shape (guest dispatch + single-pass invariant
     # early exit or a step-failure arm. The helper signals the caller through
     # $IterState.Control instead of a break/continue that would (wrongly) return from
     # the whole cycle; these assertions pin that discipline.
-    It 'runs the cycle body once via do{...}while($false): 17 unlabeled breaks, 0 continues' {
-        # Three of the seventeen are the host-refresh gate sites (cycle start,
+    It 'runs the cycle body once via do{...}while($false): 18 unlabeled breaks, 0 continues' {
+        # Three of the eighteen are the host-refresh gate sites (cycle start,
         # before the pull, before the cycle-start VM sweep): each ends the
         # cycle before any change while a host refresh holds the runner. One
         # more is the hypervisor control gate, which ends the cycle before any
-        # guest when the hypervisor no longer acts on lifecycle verbs.
+        # guest when the hypervisor no longer acts on lifecycle verbs. Storage
+        # admission also ends the attempt before cycle accounting can start.
         $f = Get-InnerCycleControlFlow -Psm1Path (Join-Path $here 'Test.RunnerInnerLoop.psm1')
-        Assert-True ($f.DoWhileBreaks -eq 17) "do/while must have 17 break arms, found $($f.DoWhileBreaks)"
+        Assert-True ($f.DoWhileBreaks -eq 18) "do/while must have 18 break arms, found $($f.DoWhileBreaks)"
         Assert-True ($f.DoWhileContinues -eq 0) "do/while must have 0 continue arms (a continue would re-run the single-pass body), found $($f.DoWhileContinues)"
         Assert-True ($f.LabeledFlow -eq 0) "inner cycle must have 0 labeled break/continue, found $($f.LabeledFlow)"
     }
@@ -1372,5 +1379,112 @@ Describe 'Runner config and exit safety' {
         $OverallPassed = $true
         . ([scriptblock]::Create($first.Extent.Text))
         Assert-False $OverallPassed
+    }
+}
+
+Describe 'Post-sync storage refusal preserves the completed cycle' {
+    BeforeAll {
+        Initialize-YurunaEntryPointModuleSet -For Inner -ModulesDir $here
+        Import-Module (Join-Path $here 'Test.ConfigValidator.psm1') -Global -DisableNameChecking
+        Import-Module (Join-Path $here 'Test.RunnerOuterLoop.psm1') -Global -DisableNameChecking
+        $script:PriorRuntimeDir = $env:YURUNA_RUNTIME_DIR
+        $script:PriorCycleGeneration = $env:YURUNA_CYCLE_GENERATION
+    }
+    AfterAll {
+        $env:YURUNA_RUNTIME_DIR = $script:PriorRuntimeDir
+        $env:YURUNA_CYCLE_GENERATION = $script:PriorCycleGeneration
+    }
+    BeforeEach {
+        Mock -ModuleName Test.RunnerInnerLoop Initialize-CycleGatingState {
+            @{ CycleCount=42; ConsecutiveCrashes=0; FailuresBeforeAlert=3; SuccessesBeforeRearm=2; ConsecutiveFailures=1; ConsecutiveSuccesses=0; AlertArmed=$true; GatingFile='fixture-gating.json' }
+        }
+        Mock -ModuleName Test.RunnerInnerLoop Test-YurunaRefreshCycleGate { $true }
+        Mock -ModuleName Test.RunnerInnerLoop Assert-HostConditionSet { $true }
+        Mock -ModuleName Test.RunnerInnerLoop Initialize-HostDisplay {}
+        Mock -ModuleName Test.RunnerInnerLoop Initialize-HostMetricsExporter {}
+        Mock -ModuleName Test.RunnerInnerLoop Invoke-RunnerTempHousekeeping {}
+        Mock -ModuleName Test.RunnerInnerLoop Initialize-CycleAuthVault {}
+        Mock -ModuleName Test.RunnerInnerLoop Get-CurrentGitCommit { 'framework-sha' }
+        Mock -ModuleName Test.RunnerInnerLoop Read-YurunaPoolManifest { $null }
+        Mock -ModuleName Test.RunnerInnerLoop Get-ProjectGitCommitReference { @{sha='project-sha';repoUrl='fixture://project'} }
+        Mock -ModuleName Test.RunnerInnerLoop Write-UncommittedChangesWarning {}
+        Mock -ModuleName Test.RunnerInnerLoop Update-CycleModuleImport {}
+        Mock -ModuleName Test.RunnerInnerLoop Test-RunnerHypervisorControlGate { @{Ok=$false;Message='test boundary reached'} }
+        Mock -ModuleName Test.RunnerInnerLoop Write-CycleInfraFailure {}
+        Mock -ModuleName Test.RunnerInnerLoop Invoke-RunnerBootstrapFailureGate {}
+        Mock -ModuleName Test.RunnerInnerLoop Start-CycleLogFile {}
+        $env:YURUNA_RUNTIME_DIR = Join-Path $TestDrive 'runtime'
+        $env:YURUNA_CYCLE_GENERATION = 'runner:post-sync'
+        $null = New-Item -ItemType Directory -Path $env:YURUNA_RUNTIME_DIR -Force
+    }
+
+    It 'handles <Case> after synchronization without replacing completed cycle evidence' -ForEach @(
+        @{Case='newly invalid policy';NoClone=$false;Skip=$false;Unavailable=$false;EvidenceFails=$false;Refused=$true},
+        @{Case='parent-refreshed invalid policy';NoClone=$true;Skip=$false;Unavailable=$false;EvidenceFails=$false;Refused=$true},
+        @{Case='artifact write failure';NoClone=$false;Skip=$false;Unavailable=$false;EvidenceFails=$true;Refused=$true},
+        @{Case='explicit gate bypass';NoClone=$false;Skip=$true;Unavailable=$false;EvidenceFails=$false;Refused=$false},
+        @{Case='unavailable storage measurement';NoClone=$false;Skip=$false;Unavailable=$true;EvidenceFails=$false;Refused=$false}
+    ) {
+        Mock -ModuleName Test.RunnerInnerLoop Invoke-CycleCheckoutStep {
+            param($RepoRoot)
+            $null = New-Item -ItemType Directory -Path (Join-Path $RepoRoot 'project/test') -Force
+            Set-Content -LiteralPath (Join-Path $RepoRoot 'project/test/host-storage.requirements.json') -Value '{broken'
+            @{Ok=$true;Skipped=$false;ErrorMessage='';Revision='project-sha'}
+        }
+        $repo = Join-Path $TestDrive 'repo'
+        $null = New-Item -ItemType Directory -Path (Join-Path $repo 'project/test') -Force
+        $policyPath = Join-Path $repo 'project/test/host-storage.requirements.json'
+        Set-Content -LiteralPath $policyPath -Value '{"schemaVersion":1,"hostType":"host.macos.utm"}'
+        (Invoke-ProjectStorageGate -RepoRoot $repo -HostType 'host.windows.hyper-v').passed | Should -BeTrue
+        if ($NoClone) {
+            $null = New-Item -ItemType Directory -Path (Join-Path $repo 'project/.git') -Force
+            Set-Content -LiteralPath $policyPath -Value '{broken'
+        }
+        if ($Unavailable) {
+            Mock -ModuleName Test.ConfigPreflight Test-ProjectHostStorage {
+                @{allowed=$true;status='unknown';reason='measurement unavailable';path='project/test/host-storage.requirements.json';hostStorage=@{status='unknown'}}
+            }
+        }
+        if ($EvidenceFails) { Mock -ModuleName Test.RunnerInnerLoop Write-ConfigGateArtifact { throw 'fixture evidence storage unavailable' } }
+        $lastFailurePath = Join-Path $env:YURUNA_RUNTIME_DIR 'last_failure.json'
+        [IO.File]::WriteAllText($lastFailurePath, '{"preserve":"last failure"}')
+        $statusPath = Join-Path $env:YURUNA_RUNTIME_DIR 'status.json'
+        $status = '{"overallStatus":"pass","cycle":41,"cycleGeneration":"runner:previous","history":[{"cycle":40,"status":"pass"}]}'
+        [IO.File]::WriteAllText($statusPath, $status)
+        $state = @{
+            RepoRoot=$repo;TestRoot=(Join-Path $repo 'test');SequencesDir='sequences';ScreenshotsDir='screenshots'
+            StatusFile=$statusPath;ConfigPath='fixture.yml';TemplatePath='template.yml';HostType='host.windows.hyper-v';ModulesDir=$here
+            NoGitPull=$true;NoProjectClone=$NoClone;NoConfigGate=$Skip;NoStatusService=$true;CycleDelaySeconds=0
+            CachingProxyServiceUrl='';StartScript='fixture.ps1';StepHeartbeatFile=(Join-Path $env:YURUNA_RUNTIME_DIR 'heartbeat')
+            ShutdownState=@{Requested=$false};RunnerCfgState=@{StopOnFailure=$true;GetImageRefreshSeconds=0;CycleDelaySeconds=0}
+            Config=@{repositories=@{projectUrl='fixture://project'}}
+        }
+        Invoke-RunnerInnerCycle -State $state 6>$null 3>$null
+        $state.ConfigGateFailed | Should -Be $Refused
+        $state.OverallPassed | Should -BeFalse
+        $state.ConsecutiveFailures | Should -Be 1
+        $state.ConsecutiveCrashes | Should -Be 0
+        [IO.File]::ReadAllText($statusPath) | Should -BeExactly $status
+        [IO.File]::ReadAllText($lastFailurePath) | Should -BeExactly '{"preserve":"last failure"}'
+        $expectedControlCalls = if ($Refused) { 0 } else { 1 }
+        Should -Invoke -ModuleName Test.RunnerInnerLoop Test-RunnerHypervisorControlGate -Times $expectedControlCalls
+        Should -Invoke -ModuleName Test.RunnerInnerLoop Write-CycleInfraFailure -Times $expectedControlCalls
+        Should -Invoke -ModuleName Test.RunnerInnerLoop Start-CycleLogFile -Times 0
+        if ($Refused) {
+            $cycleState = $state
+            $OverallPassed = $state.OverallPassed
+            $ExitOk = 0; $ExitFailure = 1
+            $null = @($cycleState, $OverallPassed, $ExitOk, $ExitFailure) # Inputs read by the production exit expression below.
+            $innerAst = [Management.Automation.Language.Parser]::ParseFile((Join-Path $here 'Invoke-TestRunnerInnerLoop.ps1'), [ref]$null, [ref]$null)
+            $exitAssignment = $innerAst.Find({param($node) $node -is [Management.Automation.Language.AssignmentStatementAst] -and $node.Left.Extent.Text -eq '$finalCode'}, $true)
+            . ([scriptblock]::Create($exitAssignment.Extent.Text))
+            $finalCode | Should -Be 78
+            $fault = Get-RunnerAttemptFault -RuntimeDir $env:YURUNA_RUNTIME_DIR -AttemptGeneration $env:YURUNA_CYCLE_GENERATION -ExitCode $finalCode
+            $fault.FailureClass | Should -Be 'config_gate_failed'
+            $fault.IsCrash | Should -BeFalse
+            if (-not $EvidenceFails) {
+                $fault.Evidence.structuredResult.storageAdmission.status | Should -Be 'invalid'
+            }
+        }
     }
 }

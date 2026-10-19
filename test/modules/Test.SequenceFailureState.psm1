@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.18.1
+.VERSION 2026.10.18.2
 .GUID 428d5583-549b-428b-9150-dfe8fe3266a4
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -743,6 +743,7 @@ function New-InfraFailureRecord {
         # could not: a zeroed reading is indistinguishable from a measured one,
         # and the difference is the whole value of the field.
         [AllowNull()][hashtable]$HostMemory,
+        [AllowNull()][hashtable]$HostStorage,
         [AllowNull()][hashtable[]]$DependencyFailures
     )
     # Two-step [string[]] guard so the empty recoveries list never collapses to
@@ -794,6 +795,10 @@ function New-InfraFailureRecord {
     if ($DependencyFailures) {
         $file.context['dependencyFailures'] = @($DependencyFailures)
         $eventRecord['dependencyFailures'] = @($DependencyFailures)
+    }
+    if ($HostStorage -and $HostStorage.Count -gt 0) {
+        $file.context['hostStorage'] = $HostStorage
+        $eventRecord['hostStorage'] = $HostStorage
     }
     # See https://yuruna.link/4213a0b3-0155
     if ($HostMemory -and $HostMemory.Contains('commitLimitBytes')) {

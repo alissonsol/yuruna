@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.18.1
+.VERSION 2026.10.18.2
 .GUID 42871662-c8fc-4b5a-9380-fa9ff5c48ae5
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -357,8 +357,10 @@ Describe 'One gate per cycle, at the front of it' {
     It 'the bypass reaches the layer that now gates' {
         Assert-True ($script:outerText -notmatch 'OuterOnlyParams') `
             '-NoConfigGate withheld from the inner would re-impose the gate the operator bypassed'
-        Assert-True ($script:projText -match 'NoConfigGate\s+= \[switch\]::new\(\$true\)') `
-            'the entry point that gates before its own re-clone must not make the cycle gate again'
+        Assert-True ($script:projText -match 'ConfigGateInherited\s+= \[switch\]::new\(\$true\)') `
+            'the parent gate must be inherited without suppressing the refreshed project check'
+        Assert-True ($script:projText -match 'NoConfigGate\s+= \[switch\]::new\(\[bool\]\$NoConfigGate\)') `
+            'only the operator bypass suppresses the refreshed project check'
     }
 
     It 'names a structural bypass as itself' {
@@ -528,5 +530,100 @@ $NoConfigGate = $false
         $LASTEXITCODE | Should -Be 78
         Test-Path -LiteralPath (Join-Path $dir 'runner.configGate.json') | Should -BeFalse
         (Get-Content -Raw -LiteralPath (Join-Path $dir 'runner.phase')).Trim() | Should -Be 'config-gate'
+    }
+}
+
+Describe 'Storage admission after project synchronization' {
+    BeforeAll {
+        Import-Module (Join-Path $here 'Test.ConfigValidator.psm1') -DisableNameChecking -Global
+    }
+
+    It 'reads the refreshed project declaration instead of retaining an earlier absent policy' {
+        $repo = Join-Path $TestDrive 'fresh-project'
+        $project = Join-Path $repo 'project'
+        $null = New-Item -ItemType Directory -Path (Join-Path $project 'test') -Force
+        $before = Invoke-ProjectStorageGate -RepoRoot $repo -HostType 'host.windows.hyper-v'
+        $before.passed | Should -BeTrue
+        Set-Content -LiteralPath (Join-Path $project 'test/host-storage.requirements.json') -Value '{broken'
+        $after = Invoke-ProjectStorageGate -RepoRoot $repo -HostType 'host.windows.hyper-v'
+        $after.passed | Should -BeFalse
+        $after.exitCode | Should -Be 78
+        $after.structuredResult.storageAdmission.status | Should -Be 'invalid'
+        $after.failureLines[0] | Should -Match 'host-storage.requirements.json'
+    }
+
+    It 'honors an explicit bypass without reading or probing the project policy' {
+        $repo = Join-Path $TestDrive 'bypassed-project'
+        $null = New-Item -ItemType Directory -Path (Join-Path $repo 'project/test') -Force
+        Set-Content -LiteralPath (Join-Path $repo 'project/test/host-storage.requirements.json') -Value '{broken'
+        $result = Invoke-ProjectStorageGate -RepoRoot $repo -HostType 'host.windows.hyper-v' -Skip
+        $result.passed | Should -BeTrue
+        $result.skipped | Should -BeTrue
+        $result.structuredResult | Should -BeNullOrEmpty
+    }
+
+    It 'retains unknown probe diagnostics without treating them as measured shortages' {
+        Mock -ModuleName Test.ConfigPreflight Test-ProjectHostStorage {
+            @{ allowed=$true; status='unknown'; reason='volume probe unavailable'; path='project/test/host-storage.requirements.json'; hostStorage=@{status='unknown'} }
+        }
+        $result = Invoke-ProjectStorageGate -RepoRoot $TestDrive -HostType 'host.windows.hyper-v'
+        $result.passed | Should -BeTrue
+        $result.lines[0] | Should -Match 'volume probe unavailable'
+        $result.structuredResult.storageAdmission.hostStorage.status | Should -Be 'unknown'
+    }
+
+    It 'keeps the initial gate evidence while publishing the current refusal for the same attempt' {
+        $dir = Join-Path $TestDrive 'post-sync-evidence'
+        $null = New-Item -ItemType Directory -Path $dir -Force
+        $statusPath = Join-Path $dir 'status.json'
+        $lastFailurePath = Join-Path $dir 'last_failure.json'
+        $status = '{"overallStatus":"pass","cycle":41,"history":[{"cycle":40,"status":"pass"}]}'
+        [IO.File]::WriteAllText($statusPath, $status)
+        [IO.File]::WriteAllText($lastFailurePath, '{"preserve":"previous failure"}')
+        $gate = @{ passed=$true; skipped=$false; exitCode=0; startedAtUtc=[datetime]::UtcNow.ToString('o'); lines=@('initial config passed'); failureLines=@(); structuredResult=@{initial='config'} }
+        $null = Write-ConfigGateArtifact -RuntimeDir $dir -Gate $gate -AttemptGeneration 'runner:storage' -Confirm:$false
+        $gate = @{ passed=$false; skipped=$false; exitCode=78; startedAtUtc=[datetime]::UtcNow.ToString('o'); lines=@('Host storage: measured shortage'); failureLines=@('measured shortage'); structuredResult=@{storageAdmission=@{status='insufficient'}} }
+        $artifact = Write-ConfigGateArtifact -RuntimeDir $dir -Gate $gate -AttemptGeneration 'runner:storage' -PreservePrevious -Confirm:$false
+        $record = Get-Content -Raw (Join-Path $dir 'runner.configGate.json') | ConvertFrom-Json
+        $record.failureClass | Should -Be 'config_gate_failed'
+        $record.attemptGeneration | Should -Be 'runner:storage'
+        $record.priorConfigGate.structuredResult.initial | Should -Be 'config'
+        @(Get-Content (Join-Path $dir $artifact.transcriptPath)) | Should -Be @('initial config passed','Host storage: measured shortage')
+        (Get-Content -Raw (Join-Path $dir 'runner-attempts/index.json') | ConvertFrom-Json).attempts[0].failureClass | Should -Be 'config_gate_failed'
+        [IO.File]::ReadAllText($statusPath) | Should -BeExactly $status
+        [IO.File]::ReadAllText($lastFailurePath) | Should -BeExactly '{"preserve":"previous failure"}'
+    }
+}
+
+Describe 'Project runner inherited gate arguments' {
+    It 'forwards inheritance separately from both values of the explicit bypass' {
+        Import-Module (Join-Path $here 'Test.InnerSpawn.psm1') -DisableNameChecking
+        $path = Join-Path (Split-Path -Parent $here) 'Invoke-TestProject.ps1'
+        $ast = [Management.Automation.Language.Parser]::ParseFile($path, [ref]$null, [ref]$null)
+        $assignment = $ast.Find({param($node) $node -is [Management.Automation.Language.AssignmentStatementAst] -and $node.Left.Extent.Text -eq '$innerParams'}, $true)
+        $ConfigPath = 'fixture.yml'
+        $null = $ConfigPath # Read by the production argument expression below.
+        foreach ($NoConfigGate in @($false,$true)) {
+            . ([scriptblock]::Create($assignment.Extent.Text))
+            $argsForInner = New-InnerRunnerArgList -ScriptPath 'fixture-inner.ps1' -Parameters $innerParams
+            $argsForInner[-1] | Should -Match '-ConfigGateInherited'
+            ($argsForInner[-1] -match '-NoConfigGate') | Should -Be $NoConfigGate
+        }
+    }
+
+    It 'loads the storage validator when no earlier command imported it' {
+        $repo = Join-Path $TestDrive 'isolated-gate'
+        $null = New-Item -ItemType Directory -Path (Join-Path $repo 'project/test') -Force
+        Set-Content -LiteralPath (Join-Path $repo 'project/test/host-storage.requirements.json') -Value '{broken'
+        $probe = Join-Path $TestDrive 'isolated-storage.ps1'
+        @'
+param($ModulePath,$RepoRoot)
+Import-Module $ModulePath -DisableNameChecking
+$result = Invoke-ProjectStorageGate -RepoRoot $RepoRoot -HostType host.windows.hyper-v
+if ($result.passed -or $result.structuredResult.storageAdmission.status -ne 'invalid') { exit 1 }
+exit 0
+'@ | Set-Content -LiteralPath $probe
+        & (Join-Path $PSHOME ($IsWindows ? 'pwsh.exe' : 'pwsh')) -NoProfile -File $probe -ModulePath (Join-Path $here 'Test.ConfigPreflight.psm1') -RepoRoot $repo
+        $LASTEXITCODE | Should -Be 0
     }
 }

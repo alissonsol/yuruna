@@ -244,6 +244,15 @@ performance provider exposes them. Save these readings with the guest console
 and disk-latency readings. A VMBus stack or udev timeout alone does not identify
 the interrupt source.
 
+Compare these host readings with the guest's timestamped `/proc/interrupts`,
+`/proc/softirqs`, and retained kernel stacks. An RCU timer-wakeup warning or a
+soft-lockup stack in interrupt handling establishes a guest kernel symptom;
+it does not identify a specific host device, timer, driver, or firmware defect.
+Host external-interrupt rates and guest cumulative IRQ counts measure different
+things and must not be treated as the same counter. The
+[guest evidence recorder](system-diagnostic.md#423ef7f5-0014) preserves the first
+bounded stall report and a following sample outside its rotating history.
+
 The same [host module](../host/windows.hyper-v/modules/Yuruna.Host.psm1) records
 a same-kernel clockevent comparison as historical
 context. No raw capture or Ubuntu backport recipe for that comparison is
@@ -602,6 +611,35 @@ commit charge briefly exceeds its available commit budget. Physical free memory
 alone cannot explain that refusal. The exporter and local sampler preserve the
 commit charge and limit alongside CPU, storage, and VM evidence.
 
+Disk capacity is a separate admission check. Before each VM start, the driver
+checks the volume that holds its configuration/runtime state, credits only
+physically allocated `.vmrs` bytes, and reserves 2 GiB of headroom. A sparse
+file's logical length is not reusable capacity. Volume identity follows mount
+points and junctions, and available bytes honor the caller's storage quota.
+Known shortages stop before `Start-VM`; an unavailable probe is reported as
+unknown and leaves the normal startup attempt in place. Numeric disk-full
+errors are retained even if capacity recovers before a later reading.
+
+A project can declare topology-wide requirements in
+`test/host-storage.requirements.json` (schema version 1). Each `virtualMachines`
+entry supplies `name`, `startupMemoryBytes`, and `additionalStorageBytes`;
+the policy also supplies `hostType` and `reserveBytes`. Optional
+`provisioningMemoryBytes` describes the peak sequential provisioning VM on
+Hyper-V's default configuration volume before its storage is moved. On a shared
+volume, the larger of that peak and the final topology's runtime requirement is
+charged, since those phases do not overlap. Separate configuration and VHD
+volumes are checked independently, with one reserve per volume. An explicit
+zero startup requirement describes a VM that retains disks but will be stopped
+before the final topology runs.
+
+Additional disk allowances are project policy, not measured future growth or
+guarantees. Existing VHD/checkpoint chains are reported with bounded traversal;
+admission does not delete files, change VM paths, or resize disks. A project
+should check growth before provisioning and recheck actual runtime requirements
+before concurrent starts, without charging the same growth allowance twice.
+When capacity is insufficient, reclaim only storage known to be disposable or
+move the VM store to a volume with sufficient capacity, then retry.
+
 Windows hosts publish `http://<host>:9182/metrics` with the collectors `cpu`,
 `hyperv`, `logical_disk`, `memory`, `net`, and `os`. The `net` collector and
 the `virtual_network_adapter` and `virtual_switch` Hyper-V sub-collectors
@@ -681,6 +719,11 @@ Failed steps can carry a separate `progressAdvisory` combining static console
 output, execution-recorder heartbeat age and SSH responsiveness. It never
 authorizes a restart. A single heavily trapping processor also occurs during
 successful workloads, so the all-processor recovery predicate remains intact.
+Kernel-stall evidence can explain a failed workload even when that recovery
+verdict remains `not-livelocked`; it does not relax the predicate. CPU-restart
+clock captures use a ten-second SSH budget and collect both observations before
+optional boot metadata. Missing or partial captures remain advisory and cannot
+establish that a processor-count change caused a later stall.
 
 Records carry host UTC and monotonic QPC anchors, actual AC/DC state, and VM CPU
 and memory configuration, including processor reserve/maximum/weight, nested

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.18.1
+.VERSION 2026.10.18.2
 .GUID 426aeda1-aa39-4af4-ab2d-2e9d00f2ca45
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -231,6 +231,40 @@ function Invoke-ConfigGate {
     return @{ passed = $true; exitCode = 0; skipped = $false; lines = $capturedLines.ToArray(); failureLines = @(); structuredResult = $sidecar; startedAtUtc = $startedAtUtc }
 }
 
+function Invoke-ProjectStorageGate {
+    <#
+    .SYNOPSIS
+        Check the synchronized project's storage policy before cycle accounting starts.
+    #>
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param(
+        [Parameter(Mandatory)][string]$RepoRoot,
+        [Parameter(Mandatory)][string]$HostType,
+        [switch]$Skip
+    )
+    $gate = @{
+        passed = $true; exitCode = 0; skipped = [bool]$Skip
+        lines = @(); failureLines = @(); structuredResult = $null
+        startedAtUtc = [DateTime]::UtcNow.ToString('o')
+    }
+    if ($Skip) { return $gate }
+    if (-not (Get-Command Test-ProjectHostStorage -ErrorAction SilentlyContinue)) {
+        Import-Module (Join-Path $PSScriptRoot 'Test.ConfigValidator.psm1') -DisableNameChecking
+    }
+    $storage = Test-ProjectHostStorage -ProjectRoot (Join-Path $RepoRoot 'project') -HostType $HostType -RepoRoot $RepoRoot
+    $gate.structuredResult = @{ storageAdmission = $storage }
+    if ($storage.status -eq 'not-applicable') { return $gate }
+    $message = "$($storage.reason) [$($storage.path)]"
+    $gate.lines = @($message)
+    if (-not $storage.allowed) {
+        $gate.passed = $false
+        $gate.exitCode = 78
+        $gate.failureLines = @($message)
+    }
+    return $gate
+}
+
 # --- REGION: Configuration gate artifacts
 function Write-ConfigGateArtifact {
     <#
@@ -247,6 +281,7 @@ function Write-ConfigGateArtifact {
         [Parameter(Mandatory)][hashtable]$Gate,
         [string]$AttemptGeneration = '',
         [string]$FrameworkCommitSha = '',
+        [switch]$PreservePrevious,
         [ValidateRange(1, 1000)][int]$MaxAttempts = 20
     )
     if (-not $PSCmdlet.ShouldProcess($RuntimeDir, 'Persist configuration gate evidence')) { return @{} }
@@ -277,7 +312,21 @@ function Write-ConfigGateArtifact {
             throw "Configuration gate artifact is not a regular file: $artifact"
         }
     }
-    [IO.File]::WriteAllLines((Join-Path $RuntimeDir $transcriptPath), [string[]]@($Gate.lines), [Text.UTF8Encoding]::new($false))
+    $transcriptLines = [string[]]@($Gate.lines)
+    if ($PreservePrevious -and (Test-Path -LiteralPath (Join-Path $RuntimeDir $recordPath) -PathType Leaf)) {
+        # The post-sync check belongs to the same attempt as the initial gate.
+        # Keep that gate's evidence while the latest pointer names the new verdict.
+        try {
+            $previous = [IO.File]::ReadAllText((Join-Path $RuntimeDir $recordPath)) | ConvertFrom-Json -AsHashtable -ErrorAction Stop
+            if ($previous -is [System.Collections.IDictionary] -and $previous.attemptGeneration -ceq $AttemptGeneration) {
+                $record.priorConfigGate = if ($previous.priorConfigGate) { $previous.priorConfigGate } else { $previous }
+                if (Test-Path -LiteralPath (Join-Path $RuntimeDir $transcriptPath) -PathType Leaf) {
+                    $transcriptLines = [IO.File]::ReadAllLines((Join-Path $RuntimeDir $transcriptPath)) + $transcriptLines
+                }
+            }
+        } catch { Write-Verbose "Prior configuration gate evidence could not be retained: $($_.Exception.Message)" }
+    }
+    [IO.File]::WriteAllLines((Join-Path $RuntimeDir $transcriptPath), $transcriptLines, [Text.UTF8Encoding]::new($false))
     [IO.File]::WriteAllText((Join-Path $RuntimeDir $recordPath), ($record | ConvertTo-Json -Depth 32), [Text.UTF8Encoding]::new($false))
     if (-not (Get-Command Write-YurunaStateFileJson -ErrorAction SilentlyContinue)) {
         Import-Module (Join-Path $PSScriptRoot 'Test.StateFile.psm1') -DisableNameChecking
@@ -304,4 +353,4 @@ function Write-ConfigGateArtifact {
     return @{ recordPath = $recordPath; transcriptPath = $transcriptPath; attemptGeneration = $AttemptGeneration }
 }
 
-Export-ModuleMember -Function Invoke-ConfigGate, Write-ConfigGateArtifact
+Export-ModuleMember -Function Invoke-ConfigGate, Invoke-ProjectStorageGate, Write-ConfigGateArtifact

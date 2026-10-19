@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.18.1
+.VERSION 2026.10.18.2
 .GUID 42a266d5-29ef-459f-9141-78b35e35cc6c
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -1499,8 +1499,10 @@ function Save-GuestCpuRestartEvidence {
             if ($entry[1] -match '^[A-Za-z0-9-]{1,64}$') { $prefix += "$($entry[0])=$($entry[1]) " }
         }
         $clock=@{beforeUtc=[DateTime]::UtcNow.ToString('o');beforeTicks=[Diagnostics.Stopwatch]::GetTimestamp();frequency=[Diagnostics.Stopwatch]::Frequency}
+        # Authentication and two samples separated by a second must fit before
+        # the transport reserves time to drain partial output after a timeout.
         $result=Invoke-GuestEvidenceSsh -VMName $VMName -GuestKey $GuestKey -Command "printf '%s' '$encoded' | base64 -d | ${prefix}bash" `
-            -TimeoutSeconds 5 -MaxCapturedChars 262144 -ProvenAddressOnly
+            -TimeoutSeconds 10 -MaxCapturedChars 262144 -ProvenAddressOnly
         $clock.afterTicks=[Diagnostics.Stopwatch]::GetTimestamp(); $clock.afterUtc=[DateTime]::UtcNow.ToString('o')
         $capture.hostClock=$clock
         $probeAddress=''

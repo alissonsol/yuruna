@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.18.1
+.VERSION 2026.10.18.2
 .GUID 42b44044-9076-41c3-a573-d5fa643cd35e
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -28,6 +28,8 @@
     Skip `git pull` at cycle start
 .PARAMETER NoConfigGate
     Skip this cycle's Test-Config.ps1 preflight
+.PARAMETER ConfigGateInherited
+    The parent already ran Test-Config.ps1; still check the synchronized project.
 .PARAMETER NoStatusService
     Skip the built-in HTTP status service
 .PARAMETER CycleDelaySeconds
@@ -64,6 +66,7 @@ param(
     # so an operator who bypassed the startup gate for an in-progress edit is
     # not stopped by the same check one layer down.
     [switch]$NoConfigGate,
+    [switch]$ConfigGateInherited,
     [int]$CycleDelaySeconds    = 30,
     # Three-state: omitted -> read test.config.yml.logLevel; explicit
     # value -> override JSON for the lifetime of this runner. Cmdline
@@ -338,7 +341,8 @@ Resolve-LogLevel
 # See https://yuruna.link/4213a0b3-001a
 if ($RefreshMode.Mode -ne 'preflight') {
     Write-RunnerPhase -Phase 'config-gate'
-    $gate = Invoke-ConfigGate -TestRoot $TestRoot -ConfigPath $ConfigPath -Skip:$NoConfigGate -CallerName 'cycle start'
+    $gateSkipReason = if ($NoConfigGate) { '-NoConfigGate' } else { 'parent command already validated configuration' }
+    $gate = Invoke-ConfigGate -TestRoot $TestRoot -ConfigPath $ConfigPath -Skip:($NoConfigGate -or $ConfigGateInherited) -SkipReason $gateSkipReason -CallerName 'cycle start'
     $gateCommitSha = ([string](& git -C $RepoRoot rev-parse HEAD 2>$null)).Trim()
     try {
         $null = Write-ConfigGateArtifact -RuntimeDir $env:YURUNA_RUNTIME_DIR -Gate $gate `
@@ -888,6 +892,7 @@ $cycleState = @{
     RepoRoot=$RepoRoot; TestRoot=$TestRoot; SequencesDir=$SequencesDir; ScreenshotsDir=$ScreenshotsDir
     StatusFile=$StatusFile; ConfigPath=$ConfigPath; TemplatePath=$TemplatePath; HostType=$HostType; ModulesDir=$ModulesDir
     NoStatusService=[bool]$NoStatusService; NoGitPull=[bool]$NoGitPull; NoProjectClone=[bool]$NoProjectClone; CycleDelaySeconds=$CycleDelaySeconds
+    NoConfigGate=[bool]$NoConfigGate
     CachingProxyServiceUrl=$cachingProxyUrl; StartScript=$startScript; StepHeartbeatFile=$StepHeartbeatFile
     ShutdownState=$script:ShutdownState; RunnerCfgState=$script:RunnerCfgState; Config=$script:Config
 }
@@ -1072,6 +1077,6 @@ try {
     Write-Verbose "Final gating-state save failed (best-effort, ignoring): $($_.Exception.Message)"
 }
 
-$finalCode = ($OverallPassed ? $ExitOk : $ExitFailure)
+$finalCode = if ($cycleState.ConfigGateFailed) { Get-ConfigGateFailureExitCode } else { $OverallPassed ? $ExitOk : $ExitFailure }
 Write-InnerLog "about to exit with code $finalCode"
 exit $finalCode

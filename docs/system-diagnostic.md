@@ -370,15 +370,22 @@ and accessible stack. Memory pressure, VM counters, and cgroup memory events
 help distinguish CPU stalls from reclaim or OOM failures.
 
 Ubuntu Server 26 sequences on native ARM64 Hyper-V capture two clock samples
-before the one-to-two CPU restart and after SSH becomes ready. The five-second
-SSH budget uses an already proven address; an unavailable capture remains
-advisory. Samples include boot ID, UTC, BOOTTIME uptime, monotonic time when
-Python is available, tick rate, online CPUs, and raw per-CPU `/proc/stat`.
+before the one-to-two CPU restart and after the existing SSH readiness or
+console-login step. The ten-second SSH budget uses an already proven address
+and allows for authentication, the one-second interval between samples, and
+transport cleanup. Both samples precede optional boot metadata; a timeout
+retains any completed samples and remains advisory. Samples include boot ID,
+UTC, BOOTTIME uptime, monotonic time when Python is available, tick rate, online
+CPUs, and raw per-CPU `/proc/stat`.
 Host samples bracket the processor change with UTC, performance-counter ticks,
 and bounded Hyper-V processor and VM context. Analysis flags impossible
 accounting, counter decreases, incomplete samples, and clock discontinuities.
 Counters from different boot IDs are never subtracted; Linux iowait decreases
-are permitted. Warnings record evidence and do not change the workload result.
+are permitted. Timestamped process samples collect `/proc/interrupts` and
+`/proc/softirqs` immediately after `/proc/stat`, before larger memory and stack
+reads can consume the collection budget. Retained samples allow per-CPU
+interrupt and softirq progress to be compared within the same boot. Warnings
+record evidence and do not change the workload result or authorize a restart.
 
 Provenance is collected from the guest itself: owned Git HEAD or validated
 archive `.yuruna-revision`, fixed helper and Dockerfile hashes, installed helper
@@ -389,8 +396,9 @@ per execution and retained outside the rolling process samples.
 
 A separate kernel collector starts with the execution recorder and uploads
 through the host's existing HTTP diagnostic endpoint without SSH. It keeps
-four 32 KiB samples, polls every five seconds, and posts only changed evidence
-plus the cached process ring. An unchanged-data heartbeat is uploaded every
+four 32 KiB samples, reads up to 256 journal lines per sample, polls every five
+seconds, and posts only changed evidence plus the cached process ring.
+An unchanged-data heartbeat is uploaded every
 60 seconds, and failed uploads are retried. Kernel collection
 has a two-second deadline and HTTP a six-second deadline, each with a
 one-second kill grace. Both recorders stop with their owner or after two hours;
@@ -398,6 +406,21 @@ credentials are redacted before retention. Disable only the kernel stream with
 `EXEC_KERNEL_RECORDER=0`; the existing execution-recorder controls still apply.
 No guest uploader can run through a complete kernel stall, so the last upload
 and the host-side observations remain essential.
+
+The first observed RCU stall, missed RCU timer wakeup, or watchdog lockup is
+also retained outside the rotating kernel ring in `kernel.first-stall.txt`.
+Its first redacted sample and one following sample preserve the initial report
+and stacks that finish printing after that first read. Each sample keeps the
+same 32 KiB cap and two-second collection deadline; the additional upload
+section is capped at 68,000 bytes. The existing
+`execution.system.diagnostic.<step>.txt` artifact includes this under
+`--- first observed kernel stall ---`, with the step and sequence identities,
+`kernelFirstStallAdvisoryOnly=true`, and explicit sample exit codes and
+truncation flags. `kernelFirstStallUtc` and `kernelFirstStallFollowupUtc` are
+capture times; the journal lines retain their kernel monotonic timestamps.
+These timestamps do not prove when the triggering defect began. A report or
+stack exceeding the collection bounds can still be incomplete. This evidence
+does not change the all-processor livelock predicate or permit automatic reset.
 
 New Ubuntu and Amazon Linux seeds keep the journal across boots with 32 MiB
 disk and 8 MiB runtime caps, a 256 MiB free-space reserve, and 30-second sync.

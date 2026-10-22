@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.18.2
+.VERSION 2026.10.22
 .GUID 42f81a2e-d65b-4d01-a8b1-3eb5638207d8
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -70,6 +70,7 @@ Import-Module (Join-Path (Split-Path -Parent (Split-Path -Parent (Split-Path -Pa
 Write-BaseImageProvenance -BaseImagePath $baseImageFile
 
 # --- REGION: Remove existing VM
+# See https://yuruna.link/42e220c4-0004
 # Runs AFTER the base image is confirmed so a failed image fetch never
 # destroys a working VM.
 Write-Verbose "Creating VM '$VMName' using image: $baseImageFile"
@@ -127,7 +128,8 @@ $MetaData = (Get-Content -Raw $MetaDataTemplate) `
     -replace 'HOSTNAME_PLACEHOLDER', $GuestHostname
 
 # --- REGION: Yuruna harness SSH key
-# Use the shared key for post-boot harness access.
+# See https://yuruna.link/42e220c4-0004
+# Seed the shared harness key so guest provisioning and failure diagnostics agree.
 $TestSshModule = Join-Path (Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $ScriptDir))) "test/modules/Test.Ssh.psm1"
 Import-Module $TestSshModule -Force
 $SshAuthorizedKey = Get-YurunaSshPublicKey
@@ -184,7 +186,8 @@ if ($LASTEXITCODE -ne 0) {
     exit 1
 }
 
-# --- REGION: Create and configure the UTM bundle (config.plist, QEMU backend)
+# --- REGION: Create and configure the UTM bundle
+# config.plist selects the QEMU backend.
 $TemplatePath = Join-Path $ScriptDir "config.plist.template"
 if (-not (Test-Path $TemplatePath)) {
     Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_603b5ff75924a72c' -Arguments @{ templatePath = "$TemplatePath" })

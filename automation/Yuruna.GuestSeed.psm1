@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.18.2
+.VERSION 2026.10.22
 .GUID 428d485e-047b-4cc1-8ed5-93ab18e050f7
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -17,6 +17,7 @@
 #requires -version 7
 
 Import-Module (Join-Path $PSScriptRoot 'Yuruna.Globalization.psm1') -DisableNameChecking
+Import-Module (Join-Path $PSScriptRoot 'Yuruna.GitHubSource.psm1') -DisableNameChecking
 
 
 # See https://yuruna.link/42e220c4-0006
@@ -142,6 +143,7 @@ function New-WindowsGuestBootstrap {
         throw (Format-YurunaOperatorMessage -Key 'automation.operator_fac07c9b40638bff' -Arguments @{ templatePath = "$templatePath" })
     }
     $script = Get-Content -LiteralPath $templatePath -Raw
+    $source = Get-YurunaGitHubSource -RepoRoot $RepoRoot
 
     # __TOKEN__ and __ASKPASS__ inside the nested $profileText here-string are
     # replaced by the GUEST at run time -- they must survive into the profile
@@ -151,6 +153,8 @@ function New-WindowsGuestBootstrap {
                       Replace('__STATUS_PORT__', $StatusServicePort).
                       Replace('__HOST_ID__',     $HostId).
                       Replace('__CACHE_IP__',    $CachingProxyIp).
+                      Replace('__GITHUB_REPO__', $source.Repo).
+                      Replace('__GITHUB_REF__',  $source.Ref).
                       Replace('__FRAMEWORK_URL__', $FrameworkUrl).
                       Replace('__PROJECT_URL__', $ProjectUrl).
                       Replace("`$token = '__TOKEN__'", "`$token = '$GhToken'")

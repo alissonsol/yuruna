@@ -39,6 +39,9 @@ type timelineCycle struct {
 	Key        string
 	Start, End time.Time
 	Code       int
+	// A status summary establishes the completed interval, but does not say
+	// what happened after it. Do not hold its final verdict into an unknown gap.
+	NoFinalHold bool
 }
 
 // statusTimelineCode is the yuruna_pool_host_status value of a final status, the
@@ -107,6 +110,45 @@ func mergeTimeline(fromLoki []timelineCycle, outcomes map[string]cycleOutcome) [
 	return out
 }
 
+// timelineFromHistory accepts only completed, timestamped intervals. The
+// collector's snapshot is sufficient to draw these intervals even when the
+// host's log directories cannot be read, but cannot recreate its event log.
+func timelineFromHistory(history []cycleVerdict, now time.Time) []timelineCycle {
+	var out []timelineCycle
+	seen := map[string]bool{}
+	for _, row := range history {
+		if row.OverallStatus != "pass" && row.OverallStatus != "fail" && row.OverallStatus != "skipped" {
+			continue
+		}
+		start, startOK := parseUTC(row.CycleStartUtc)
+		end, endOK := parseUTC(row.FinishedAt)
+		key := cycleKey(row.CycleStartUtc)
+		if !startOK || !endOK || end.Before(start) || end.After(now) || seen[key] {
+			continue
+		}
+		seen[key] = true
+		out = append(out, timelineCycle{Key: key, Start: start, End: end, Code: statusTimelineCode(row.OverallStatus), NoFinalHold: true})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Start.Before(out[j].Start) })
+	return out
+}
+
+// mergeTimelineHistory fills only cycles missing from Loki and the local index;
+// their reconstructed events remain authoritative when the summary disagrees.
+func mergeTimelineHistory(cycles []timelineCycle, history []cycleVerdict, now time.Time) []timelineCycle {
+	have := map[string]bool{}
+	for _, cycle := range cycles {
+		have[cycle.Key] = true
+	}
+	for _, cycle := range timelineFromHistory(history, now) {
+		if !have[cycle.Key] {
+			cycles = append(cycles, cycle)
+		}
+	}
+	sort.Slice(cycles, func(i, j int) bool { return cycles[i].Start.Before(cycles[j].Start) })
+	return cycles
+}
+
 // timelineCodeAt is the host's status code at t: running inside a cycle, then
 // the cycle's final code for at most hold after it ended. False before the first
 // known cycle and once the hold has run out.
@@ -117,6 +159,9 @@ func timelineCodeAt(cycles []timelineCycle, t time.Time, hold time.Duration) (in
 	}
 	if t.Before(cycles[i].End) {
 		return 1, true
+	}
+	if cycles[i].NoFinalHold {
+		hold = 0
 	}
 	if t.After(cycles[i].End.Add(hold)) {
 		return 0, false
@@ -189,6 +234,25 @@ func timelineSamples(cycles []timelineCycle, uncovered []int64, sampleStep, hold
 			}
 			out = append(out, promSample{T: t, V: float64(code)})
 		}
+	}
+	// A summary's final status is known only at its completion time, which
+	// usually falls between grid points. Preserve that observation without
+	// extending it into an unknown interval or a window the collector covers.
+	for i, cycle := range cycles {
+		if !cycle.NoFinalHold || (i+1 < len(cycles) && !cycles[i+1].Start.After(cycle.End)) {
+			continue
+		}
+		at := cycle.End.UnixMilli()
+		window := sort.Search(len(uncovered), func(i int) bool { return uncovered[i]*1000 >= at })
+		if window == len(uncovered) || at <= uncovered[window]*1000-windowMs {
+			continue
+		}
+		pos := sort.Search(len(out), func(i int) bool { return out[i].T >= at })
+		if pos == len(out) || out[pos].T != at {
+			out = append(out, promSample{})
+			copy(out[pos+1:], out[pos:])
+		}
+		out[pos] = promSample{T: at, V: float64(cycle.Code)}
 	}
 	return out
 }

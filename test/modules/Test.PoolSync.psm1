@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.18.2
+.VERSION 2026.10.22
 .GUID 4238dc49-0c94-4ba6-a7be-b24343a6ca42
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -506,7 +506,7 @@ function Sync-YurunaPoolConfiguration {
             # full PullTimeoutSeconds and let the pair run to ~2x the intended bound.
             $deadlineUtc = [DateTime]::UtcNow.AddSeconds($pcfg.PullTimeoutSeconds)
             $fetchBudget = [Math]::Max(1, [int][Math]::Ceiling(($deadlineUtc - [DateTime]::UtcNow).TotalSeconds))
-            $rc = Invoke-PoolSyncGit -ArgumentList @('-C', $clone, 'fetch', '--depth', '1', '--quiet', 'origin') -TimeoutSeconds $fetchBudget
+            $rc = Invoke-PoolSyncGit -ArgumentList @('-C', $clone, 'fetch', '--quiet', 'origin') -TimeoutSeconds $fetchBudget
             if ($rc -eq 0) {
                 $resetBudget = [Math]::Max(1, [int][Math]::Ceiling(($deadlineUtc - [DateTime]::UtcNow).TotalSeconds))
                 $rc = Invoke-PoolSyncGit -ArgumentList @('-C', $clone, 'reset', '--hard', '--quiet', 'FETCH_HEAD') -TimeoutSeconds $resetBudget
@@ -515,7 +515,9 @@ function Sync-YurunaPoolConfiguration {
         } else {
             $parent = Split-Path -Parent $clone
             if ($parent -and -not (Test-Path -LiteralPath $parent)) { New-Item -ItemType Directory -Force -Path $parent | Out-Null }
-            $rc = Invoke-PoolSyncGit -ArgumentList @('clone', '--depth', '1', '--quiet', $pcfg.ConfigurationGitUrl, $clone) -TimeoutSeconds $script:PoolSyncCloneTimeoutSeconds
+            # The proxy serves static Git files, whose transport cannot perform
+            # shallow operations. This configuration repository is intentionally small.
+            $rc = Invoke-PoolSyncGit -ArgumentList @('clone', '--quiet', $pcfg.ConfigurationGitUrl, $clone) -TimeoutSeconds $script:PoolSyncCloneTimeoutSeconds
             $pullOk = ($rc -eq 0)
         }
     } catch { $rc = -1; Write-Verbose "Sync-YurunaPoolConfiguration: git step threw: $($_.Exception.Message)" }

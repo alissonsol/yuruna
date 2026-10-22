@@ -151,6 +151,37 @@ pause state -- the same ladder the host's own status banner shows:
 the Loki transition log -- exact, and reaching back to Loki retention -- with a per-host
 zero baseline so they always show, 0 included.
 
+**Commit** shows the first 8 characters of each reported Git commit, framework
+first and project second, separated by a comma. Its links open the corresponding
+commits in their repositories. A bracketed label after each hash describes how
+the host verified that repository's selected revision:
+
+| Label | `verification` in saved records | Meaning |
+|---|---|---|
+| `mirror.origin` | `mirror-confirmed` | The host accepted a signed mirror response confirming the selected commit against GitHub. Object fetches try the local mirror first and can fall back to the origin. |
+| `remote.origin` | `origin-direct` | The host successfully checked the requested ref directly against GitHub, the upstream origin. This can be a normal fallback when the mirror is unavailable, unsupported, still populating, or not trusted by that host; origin-first mode can also produce it. |
+| `mirror.stale` | `mirror-stale` | The mirror could not confirm its cached revision with GitHub, and the host's direct attempt also failed with a network error. The host accepted a signed cached revision within the configured age and rollback limits. Treat this as degraded connectivity; it does not confirm the latest upstream revision. |
+| `mirror.fresh` | `mirror-fresh` | Legacy freshness terminology. Current hosts report `mirror.origin` for a revision confirmed through the mirror; this label is retained for records using the older wording. |
+| `not.applicable` | `not-applicable` | Mirror verification does not apply: mirroring is disabled or the repository URL is outside the supported GitHub mirror scope. |
+
+`remote.origin` describes **verification**, so it does not by itself mean an
+update failed or the running checkout is stale. Git objects can still come from
+the mirror when it holds the exact commit independently verified by the host.
+The labels record the source selection reported with that commit, rather than a
+continuous check of mirror health. A plain hash without a label means the host
+did not report a recognized verification state; older hosts may do this.
+The dotted names are display labels; saved records retain their protocol values
+so older hosts and existing cycle history remain readable.
+
+To learn why a particular host used the origin, open its status page through
+**Control** and hover over the provenance label beside the commit. The tooltip
+includes `source` (where the objects came from), `verification`, `fallbackReason`,
+and `originCheckedAt` (the last upstream confirmation time). The same fields are
+available in that host's `status.json`, under `gitCommits`. For example,
+`mirror-unavailable` means the mirror endpoint could not be used, while
+`mirror-untrusted` means the host has no enrolled verification key. See
+[Git mirror outage behavior and diagnostics](caching.md#42f6b05f-005a).
+
 **Control** is the host link *and* says up front whether following it will let you
 drive the host:
 
@@ -354,17 +385,28 @@ network one.
 ## Drill-down: host memory
 
 The two tables in this collapsed row combine the collector's host inventory with
-memory readings scraped directly from each Windows host's metrics exporter. Every
+memory readings scraped directly from Windows, Ubuntu, and macOS hosts. Every
 host in the inventory has a row, including hosts without a memory reading. Missing
 readings show `n/a`.
 
-- **Available memory per host** -- physical memory the host has free.
-- **Commit headroom per host** -- the commit limit minus committed bytes: how much
-  more memory the host can still promise before an allocation is refused outright.
-  A virtual machine asks for its whole allocation at once, so a start is measured
-  against this floor rather than against free physical memory, and the floor itself
-  moves while Windows resizes the paging file. This is a Windows memory measure;
-  Linux and macOS memory counters do not have an interchangeable meaning.
+- **Available memory per host** -- Windows available physical memory; Ubuntu's
+  `MemAvailable`, including memory the kernel expects to reclaim; and a macOS
+  estimate of free plus inactive pages from `vm_stat`. The macOS estimate uses
+  the reported page size and is not a memory-pressure measurement or a guarantee
+  that every inactive page can be reclaimed immediately.
+- **Commit headroom per host** -- the commit limit minus committed bytes. On
+  Windows this measures how much more memory the host can promise before an
+  allocation is refused, and the limit moves while Windows resizes the paging
+  file. Ubuntu reports `/proc/meminfo`'s `CommitLimit` minus `Committed_AS`;
+  its allocation meaning depends on the kernel's overcommit policy and the
+  difference can be negative. It is not the Windows allocation guarantee.
+  macOS has no equivalent counter, so its commit readings remain `n/a`, even
+  when **Exporter** is **Up**. The **Support** column shows **Unsupported** for
+  macOS, **Supported** for Windows and Ubuntu, and **Unknown** for other or
+  unreported platforms. Support comes from the host inventory, so a macOS host
+  remains **Unsupported** when it is unreachable. A supported host with missing
+  telemetry still shows `n/a` for its byte readings; support does not imply a
+  healthy exporter.
 
 **Host ID** shows the first 8 characters, just as in *Pool hosts*. Click it to see the
 full GUID and open that host's status page. **Type** identifies the host platform.
@@ -378,15 +420,38 @@ readings, so a latest value can remain visible while the exporter is down.
   still means that the requested metric was not supplied.
 - **Down** -- the exporter scrape failed. The host's status page can remain reachable
   while its exporter port is blocked or the metrics request times out.
-- **Not scraped** -- there is no current scrape result. Only reachable Windows hosts
-  are discovered as exporter targets; other platforms and unreachable hosts have no
-  target. Their inventory rows remain visible.
+- **Not scraped** -- there is no current scrape result. Only reachable Windows,
+  Ubuntu, and macOS hosts are discovered as exporter targets; unsupported platforms
+  and unreachable hosts have no target. Their inventory rows remain visible.
 
 The collector discovers exporter addresses from the hosts it currently reaches;
 Prometheus follows that list. Series use the stable `hostId`, including as their
 scrape identity, so a DHCP address change keeps the same memory history. The tables
 join that history to the inventory on `hostId` and exclude retired host IDs. An absent
 reading stays unavailable rather than becoming a zero-byte reading.
+
+Windows uses `windows_exporter` on port 9182 (or the configured host metrics port).
+Ubuntu and macOS expose native `yuruna_host_memory_*` metrics at `/metrics` on
+their existing status service, normally port 8080; no extra exporter package or
+listener is needed. Discovery uses each confirmed status endpoint, including an
+announced custom port. Failed native memory collection returns HTTP 503 so the
+**Exporter** column reports **Down** instead of implying a successful reading.
+The proxy's metric allowlist keeps both Windows and native Unix memory metrics.
+Existing installations need the updated Unix status service, collector discovery,
+Prometheus allowlist, and dashboard before Unix readings appear. Memory samples
+begin when scraping starts; cycle-history backfill cannot recover earlier memory
+readings.
+
+Ubuntu hosts running public version `2026.10.18.2` do not yet expose the native
+`/metrics` endpoint. Their platform is **Supported**, but a 404 from that listener
+means the installed release lacks the endpoint. Those hosts need the next public
+release containing native memory metrics; a proxy rebuild alone cannot add the
+host endpoint. Keep their configured repository and branch when updating them.
+
+Host Refresh preserves an already-running status listener. After the framework
+update, a normal test cycle restarts it when the installed commit changes;
+copied working-tree changes require an explicit status-service restart using the
+host's existing configuration. Updating files alone does not activate `/metrics`.
 
 <a id="422226cb-000c"></a>
 
@@ -410,6 +475,15 @@ on its next sweep. All times are UTC from end to end: hosts write them, the job 
 them, and Loki and Prometheus store them. It never writes a cycle, an event or a
 timeline sample the stores already hold, so it is safe to leave running and to restart.
 
+The collector also carries each host's recent completed-cycle summaries in
+`status.history` (normally the last 30 cycles). These can restore the timeline's
+known start-to-finish intervals even when the host's log listing or event files
+cannot be read, or the backfill has deferred requests to that host. This recovery
+uses the summaries already held by the collector, preserves existing samples,
+and leaves unknown intervals empty. It does not reconstruct detailed events or
+the Loki cycle counts; those still require readable cycle files. A host with a
+long gap can therefore regain recent timeline blocks before its full history.
+
 What it cannot restore:
 
 - a cycle no readable copy of survives -- it is tried three times and then left out;
@@ -431,7 +505,11 @@ It asks a host for its cycle listing once and then at most hourly, working in be
 from the folders that listing found and from the pool share. A host's status service
 answers one request at a time, so a listing that takes longer than 10 seconds keeps
 that host's guests waiting: the job then sends the host nothing for a day, still restores
-its cycles from the pool share, and says until when in its log.
+its cycles from the pool share and recent timeline intervals from the collector's
+summaries, and says until when in its log. When the proxy can read the host's
+archive directory directly, it requests `/log/?localOnly=true`: the host lists
+local folders without enumerating the same NAS archive and checking every
+completion sentinel. Ordinary `/log/` requests still include archived cycles.
 Loki answers for a line stamped days in the past only once it has filed the line away,
 about half an hour after the write, so a backfilled cycle reaches the Loki panels that
 long after the job reports it written; the timeline row, read from Prometheus, shows it
@@ -469,6 +547,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.18.1
+Last review: 2026.10.22
 
 Back to [Yuruna](../README.md)

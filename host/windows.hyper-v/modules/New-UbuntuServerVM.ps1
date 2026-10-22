@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.18.2
+.VERSION 2026.10.22
 .GUID 42aeab54-8f84-4752-b632-c84283524072
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -126,8 +126,9 @@ $baseImageFile = Join-Path $downloadDir "$baseImageName.iso"
 Import-Module -Name (Join-Path (Split-Path -Parent (Split-Path -Parent $GuestScriptRoot)) 'modules/Yuruna.Image.psm1') -Force
 if (-not (Assert-YurunaBaseImage -BaseImageFile $baseImageFile -GuestFolder $GuestScriptRoot)) { exit 1 }
 
-# --- REGION: https://yuruna.link/42e220c4-0004
-# Use the persistent vault password, or the explicit YURUNA_GUEST_PASSWORD override.
+# --- REGION: Vault user password
+# See https://yuruna.link/42e220c4-0004
+# Read the persistent authentication vault; a new cycle must not reset credentials.
 $_repoRootForExt = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $ScriptDir))
 Import-Module (Join-Path $_repoRootForExt 'test/modules/Test.Extension.psm1') -Global -Force -Verbose:$false
 $_authActiveName = @(Import-Extension -Area 'authentication' -RequireSingle)[0]
@@ -154,6 +155,9 @@ Import-Module (Join-Path (Split-Path -Parent (Split-Path -Parent (Split-Path -Pa
 Write-BaseImageProvenance -BaseImagePath $baseImageFile
 
 # --- REGION: Remove existing VM
+# See https://yuruna.link/42e220c4-0004
+# Runs AFTER the base image is confirmed so a failed image fetch never
+# destroys a working VM.
 Remove-HyperVGuestDefinition -VMName $VMName -Confirm:$false
 
 # --- REGION: Create copies and files for VM
@@ -166,10 +170,9 @@ if (Test-Path -Path $vhdxFile) {
     Remove-Item -Path $vhdxFile -Force
 }
 # --- REGION: Create empty install target
-# 64 GB dynamic VHDX is enough headroom for the k8s + dotnet build
-# workload yet stays a uniform cap across hosts: ubuntu.kvm /
-# windows.hyper-v / macos.utm. Paired with sizing-policy: all in
-# host/vmconfig/ubuntu.server.base.user-data so the root LV consumes the whole PV.
+# The 64 GB sparse disk fits the k8s and .NET build workloads and is the uniform
+# cap across hosts; sizing-policy: all in host/vmconfig/ubuntu.server.base.user-data
+# lets the root LV consume the whole PV.
 Write-Verbose "Creating 64GB dynamically expanding VHDX..."
 New-VHD -Path $vhdxFile -SizeBytes 64GB -Dynamic | Out-Null
 if (-not (Test-Path -LiteralPath $vhdxFile)) {
@@ -177,7 +180,7 @@ if (-not (Test-Path -LiteralPath $vhdxFile)) {
     exit 1
 }
 
-# Autoinstall seed ISO.
+# --- REGION: Stage the cloud-init seed directory
 # New-YurunaSeedDirectory creates the folder exclusively under a random name,
 # so nothing planted at a predictable %TEMP% path is ever reused.
 try {
@@ -198,7 +201,8 @@ try {
     Import-Module (Join-Path $RepoRoot 'automation/Yuruna.GuestSeed.psm1') -Force
 
     # --- REGION: Yuruna harness SSH key
-    # SSH public key used by the test harness.
+    # See https://yuruna.link/42e220c4-0004
+    # Seed the shared harness key so guest provisioning and failure diagnostics agree.
     $TestSshModule = Join-Path (Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $ScriptDir))) "test/modules/Test.Ssh.psm1"
     Import-Module $TestSshModule -Force
     $SshAuthorizedKey = Get-YurunaSshPublicKey
@@ -289,11 +293,8 @@ To intentionally skip the cache:
     $switchName = Resolve-HyperVGuestSwitch
 
     # --- REGION: Yuruna host coordinates
-    # Yuruna host (status service) IP+port baked into the seed for the dev
-    # iteration loop. Guest scripts read /etc/yuruna/host.env (written by
-    # the user-data late-commands) to resolve a local URL before falling
-    # back to GitHub. Default Switch's host IP changes across host
-    # reboots -- see Test-YurunaHost.ps1 for the in-guest probe.
+    # See https://yuruna.link/4220a755-001b
+    # Bake the status-service address reachable through the selected guest network.
     $YurunaHostIp = Get-GuestReachableHostIp -SwitchName $switchName
     if (-not $YurunaHostIp) { $YurunaHostIp = '' }
     Import-Module (Join-Path (Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $GuestScriptRoot))) 'test/modules/Test.Config.psm1') -Global -Force
@@ -318,9 +319,7 @@ To intentionally skip the cache:
 
     # --- REGION: Render user-data / meta-data
     # See https://yuruna.link/4220a755-0003
-    # Bake yuruna-retry.sh + fetch-and-execute.sh into the seed as base64-encoded
-    # write_files entries, so both files are on disk before any guest script
-    # runs and the guest needs no network fetch to bootstrap.
+    # Embed the guest libraries as base64 write_files entries so bootstrap needs no download.
     $null = New-CloudInitUserData `
         -BasePath    $BaseUserData `
         -OverlayPath $OverlayUserData `
@@ -380,7 +379,7 @@ To intentionally skip the cache:
     Set-VMMemory -VMName $VMName -DynamicMemoryEnabled $false
     Set-VMFirmware -VMName $VMName -EnableSecureBoot Off | Out-Null
     # --- REGION: Serial console pipe
-    # See https://yuruna.link/42e220c4-0007
+    # See https://yuruna.link/42dc5bb9-0004
     # COM1 to a named pipe the host reads during the cycle: the one guest-side
     # record that survives a guest whose VMBus devices stop answering. Harmless
     # when the guest never opens the port.

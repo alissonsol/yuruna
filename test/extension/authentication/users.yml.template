@@ -72,3 +72,19 @@ users:
     corporate:   { domain: "", sam: "", upn: "" }
     vaultKey:           ""
     localOsPasswordRef: ""
+
+  # Optional read-only GitHub Contents token. An absent entry stays anonymous;
+  # provisioning never auto-generates a token.
+  github-mirror-token:
+    localOsUser: ""
+    corporate:   { domain: "", sam: "", upn: "" }
+    vaultKey:           ""
+    localOsPasswordRef: ""
+
+  # The proxy owner's dedicated RSA signing key, stored as base64 PEM. Rebuilds
+  # reuse it. A failed vault read must never rotate the signing identity.
+  github-mirror-signing-key:
+    localOsUser: ""
+    corporate:   { domain: "", sam: "", upn: "" }
+    vaultKey:           ""
+    localOsPasswordRef: ""

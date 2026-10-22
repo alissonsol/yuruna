@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.18.2
+.VERSION 2026.10.22
 .GUID 42bc659c-43c2-496e-bcea-01f39b34ee81
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -54,11 +54,69 @@ BeforeAll {
             }
             $script:ProjectFetchRuns[$match.Groups[1].Value] = $record
         }
-        if ($script:ProjectFetchRuns.Count -ne 25) { throw "Expected all 25 isolated scenarios; captured output: $output" }
+        if ($script:ProjectFetchRuns.Count -ne 34) { throw "Expected all 34 isolated scenarios; captured output: $output" }
     }
 }
 
 Describe 'Project payload fallback and invocation evidence' -Skip:(-not $script:ProjectFetchBash) {
+    It 'uses the mirror at the invocation commit without credentials or proxy configuration' {
+        $run = $script:ProjectFetchRuns.mirror
+        $run.ExitCode | Should -Be 0 -Because $run.Error
+        $run.Output | Should -Match 'PAYLOAD_RAN'
+        $run.Output | Should -Match 'source: mirror'
+        $run.Log | Should -Match '# source: mirror'
+        $run.Calls | Should -Match 'http://mirror.invalid/git-raw/framework/repository/1111111111111111111111111111111111111111/guest/workload.sh'
+        $run.Calls | Should -Match '--no-config'
+        $run.Calls | Should -Match '--no-proxy'
+        $run.Calls | Should -Not -Match 'AUTH_HEADER_MATCH|--config=|github'
+        @([regex]::Matches($run.Calls, '/git-mirror/status.json')).Count | Should -Be 1
+    }
+    It 'keeps project and retry-library repository pins separate on the mirror' {
+        $project = $script:ProjectFetchRuns.mirror_project
+        $project.ExitCode | Should -Be 0
+        $project.Calls | Should -Match '/git-raw/private/project/2222222222222222222222222222222222222222/example/workload.sh'
+        $library = $script:ProjectFetchRuns.mirror_library
+        $library.ExitCode | Should -Be 0
+        $library.Calls | Should -Match '/git-raw/framework/repository/1111111111111111111111111111111111111111/automation/yuruna-retry.sh'
+        $library.Output | Should -Match 'sha256 verified \(automation/yuruna-retry.sh\)'
+    }
+    It 'retries a mirror digest mismatch once and never executes or changes sources' {
+        $run = $script:ProjectFetchRuns.mirror_mismatch
+        $run.ExitCode | Should -Be 3
+        $run.Output | Should -Not -Match 'PAYLOAD_RAN'
+        $run.Calls | Should -Not -Match 'github'
+        @([regex]::Matches($run.Calls, '/git-raw/')).Count | Should -Be 2
+    }
+    It 'falls through a mirror 404 to the same pinned authenticated GitHub source' {
+        $run = $script:ProjectFetchRuns.mirror_missing
+        $run.ExitCode | Should -Be 0
+        $run.Calls | Should -Match '/git-raw/'
+        $run.Calls | Should -Match 'https://api.github.com/repos/framework/repository/contents/guest/workload.sh\?ref=1111111111111111111111111111111111111111'
+        $run.Calls | Should -Match 'AUTH_HEADER_MATCH=1'
+        $run.Log | Should -Match '# source: github'
+        $run.RemainingAuthFiles | Should -Be 0
+    }
+    It 'preserves fallback for old proxies and does not probe a mirror without an immutable pin' {
+        $old = $script:ProjectFetchRuns.mirror_old
+        $old.ExitCode | Should -Be 0
+        $old.Calls | Should -Match '/git-mirror/status.json'
+        $old.Calls | Should -Match 'raw.githubusercontent.com'
+        $unpinned = $script:ProjectFetchRuns.mirror_unpinned
+        $unpinned.ExitCode | Should -Be 0
+        $unpinned.Calls | Should -Not -Match '/git-mirror/|/git-raw/'
+    }
+    It 'keeps a live host ahead of the mirror' {
+        $run = $script:ProjectFetchRuns.mirror_host
+        $run.ExitCode | Should -Be 0
+        $run.Calls | Should -Match 'http://host.invalid:8080/yuruna-repo/guest/workload.sh'
+        $run.Calls | Should -Not -Match '/git-mirror/|/git-raw/|github'
+    }
+    It 'rejects a mirror blob larger than 16 MiB before execution' {
+        $run = $script:ProjectFetchRuns.mirror_oversized
+        $run.ExitCode | Should -Be 2
+        $run.Output | Should -Not -Match 'PAYLOAD_RAN'
+        $run.Calls | Should -Not -Match 'github'
+    }
     It 'keeps the complete project path for a host or manual base URL' -ForEach @(
         @{ Name = 'host'; Url = 'http://host.invalid/yuruna-repo/project/example/workload.sh' },
         @{ Name = 'base'; Url = 'https://manual.invalid/source/project/example/workload.sh' }

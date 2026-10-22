@@ -14672,6 +14672,41 @@
       "sourceHash": "de8bb1cd8c3782c6541cc40b17ea18cce988b08c975f74f0da56be69685895ad",
       "message": "网络诊断：{diagnostics}",
       "origin": "machine"
+    },
+    "runner.git_mirror_token_invalid": {
+      "sourceHash": "af2683cfac73ce062661f8383e7b0f03ba78abde097f2d616f298e14f55663c8",
+      "origin": "machine",
+      "message": "GitHub令牌包含不支持的字符。未存储任何内容。请重新运行并仅粘贴令牌，或按Enter保留当前身份验证。"
+    },
+    "runner.git_mirror_token_notice": {
+      "sourceHash": "29b86d452ba586ff0cd92a651846a6e1f0b5d359ab607b8443c73cf57b6ba57c",
+      "origin": "machine",
+      "message": "GitHub令牌为可选项。按Enter保留当前身份验证。提供令牌会重建缓存代理以应用该令牌，即使此宿主机已存储相同的令牌。重建约需15分钟，并会丢弃已预热的缓存。输入内容不会显示。"
+    },
+    "runner.git_mirror_token_prepare": {
+      "sourceHash": "ea0e687dc9337dcbdb629fd04e62f8ad6c7b82ab3970cd95d8f1fb37102f269e",
+      "origin": "machine",
+      "message": "询问可选的GitHub令牌并存储明确提供的值"
+    },
+    "runner.git_mirror_token_prompt": {
+      "sourceHash": "691c66cb33171dd8b6ef936a441ec1cb869a740861fea20286cf4896cab95915",
+      "origin": "machine",
+      "message": "可选的GitHub令牌（按Enter保留当前身份验证）"
+    },
+    "runner.git_mirror_token_provider_failed": {
+      "sourceHash": "ffdfb8c314233e2d9838679aa064b7c1442cb94c218ef3cc2f89ec5709b6f11b",
+      "origin": "machine",
+      "message": "无法配置可选的GitHub令牌。请检查身份验证提供程序和保管库权限，然后重新运行。在令牌配置成功之前，不得重建代理。"
+    },
+    "runner.git_mirror_token_replace_stored": {
+      "sourceHash": "6157930bb05ba4656a11c91bbcacd3d1bb7ced254ac76218d3918eed487d3bf3",
+      "origin": "machine",
+      "message": "github-mirror-token ({vaultKey}): (已存储的令牌) -> (操作员提供的令牌)。先前的值仍可从保管库的previousPassword字段恢复。"
+    },
+    "runner.git_mirror_token_store_new": {
+      "sourceHash": "1d24a4894abc4d52bf6bd71fd2194fecca373fde4a7cfac2660f8aad84c5edac",
+      "origin": "machine",
+      "message": "github-mirror-token ({vaultKey}): (未存储令牌) -> (操作员提供的令牌)。"
     }
   }
 }

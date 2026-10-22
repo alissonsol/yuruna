@@ -284,6 +284,328 @@ function watchDocumentKeys(box) {
   };
   return keys;
 }
+// These cases exercise a modal lifetime, so the page fixture needs connected
+// controls, real focus ownership, and the document's capture listeners. CSS hit
+// testing is left to the browser gate; a DOM shim cannot prove viewport cover.
+function interactivePage(box, byId) {
+  const doc = box.document;
+  const capture = {};
+  const add = doc.addEventListener;
+  const remove = doc.removeEventListener;
+  doc.addEventListener = function (type, fn, useCapture) {
+    if (useCapture) (capture[type] = capture[type] || []).push(fn);
+    return add.call(this, type, fn, useCapture);
+  };
+  doc.removeEventListener = function (type, fn, useCapture) {
+    if (useCapture) {
+      const list = capture[type] || [];
+      const i = list.indexOf(fn);
+      if (i >= 0) list.splice(i, 1);
+    }
+    return remove.call(this, type, fn, useCapture);
+  };
+  function dispatch(target, type, extra) {
+    const event = Object.assign({type, target, currentTarget: target, key: '', keyCode: 0, defaultPrevented: false,
+      preventDefault() { this.defaultPrevented = true; },
+      stopPropagation() { this.stopped = true; },
+      stopImmediatePropagation() { this.stopped = true; this.immediate = true; }
+    }, extra || {});
+    for (const fn of (capture[type] || []).slice()) {
+      fn(event);
+      if (event.immediate) break;
+    }
+    if (!event.stopped) for (const fn of (target.listeners[type] || []).slice()) {
+      fn(event);
+      if (event.immediate) break;
+    }
+    return event;
+  }
+  function decorate(el) {
+    let text = el.textContent;
+    Object.defineProperty(el, 'textContent', {configurable: true, get() { return text; }, set(value) {
+      text = value;
+      el.children.forEach(child => { child.parentNode = null; });
+      el.children = [];
+    }});
+    el.focus = function () {
+      if (!doc.body.contains(this)) return;
+      doc.activeElement = this;
+      dispatch(this, 'focusin');
+    };
+    el.querySelectorAll = function (selector) {
+      return nodes(this, node => node !== this && selector.split(',').some(part => {
+        const s = part.trim();
+        if (s === '[href]') return node.hasAttribute && node.hasAttribute('href');
+        if (s.indexOf('[tabindex]') === 0) return node.tabIndex >= 0;
+        if (s[0] === '#') return node.getAttribute && node.getAttribute('id') === s.slice(1);
+        return node.tagName === s.toUpperCase();
+      }));
+    };
+    el.querySelector = function (selector) { return this.querySelectorAll(selector)[0] || null; };
+    return el;
+  }
+  const create = doc.createElement;
+  doc.createElement = tag => decorate(create(tag));
+  decorate(doc.body);
+  for (const id of Object.keys(byId)) {
+    decorate(byId[id]);
+    byId[id].setAttribute('id', id);
+    doc.body.appendChild(byId[id]);
+  }
+  const originalGet = doc.getElementById;
+  doc.getElementById = id => originalGet(id) || nodes(doc.body, n => n.getAttribute && n.getAttribute('id') === id)[0] || null;
+  doc.querySelectorAll = selector => doc.body.querySelectorAll(selector);
+  doc.querySelector = selector => doc.body.querySelector(selector);
+  return {dispatch, listeners: type => (capture[type] || []).length};
+}
+function deferred() {
+  let resolve, reject;
+  const promise = new Promise((yes, no) => { resolve = yes; reject = no; });
+  return {promise, resolve, reject};
+}
+function barriers(env) {
+  return nodes(env.body, node => String(node.className || '').split(' ').includes('blocking'));
+}
+function statusSelect(env) {
+  return nodes(env.byId['pool-rows'], n => n.tagName === 'SELECT')[0];
+}
+async function statusBarrier() {
+  // The mutation and each subsequent read are independently held. A barrier
+  // that ends at the POST response would expose controls built from old state.
+  for (const outcome of ['success', 'partial', 'rejected', 'read-rejected', 'read-throws']) {
+    const post = deferred(), stateRead = deferred(), hostsRead = deferred();
+    const requests = [];
+    let afterPost = false, observed, input;
+    const ticks = [];
+    const env = load('pools.html', (box, byId) => {
+      input = interactivePage(box, byId);
+      observed = instrument(box, byId);
+      box.setInterval = fn => { ticks.push(fn); return ticks.length; };
+      const api = box.Y.api;
+      box.Y.mutate = (url, opts) => { requests.push({url, opts}); return post.promise; };
+      box.Y.api = (url, opts) => {
+        if (afterPost && url === '/api/state') {
+          if (outcome === 'read-throws') throw new Error('configuration read threw');
+          return stateRead.promise;
+        }
+        if (afterPost && url === '/api/pool/host-control') return hostsRead.promise;
+        return api(url, opts);
+      };
+    });
+    await settle();
+    assert.strictEqual(barriers(env).length, 0, outcome + ': ordinary reads do not block the page');
+    const select = statusSelect(env);
+    select.focus();
+    const keyListeners = input.listeners('keydown');
+    select.value = 'pause-after-step';
+    fire(select, 'change');
+    assert.strictEqual(barriers(env).length, 1, outcome + ': choosing Pool Status blocks immediately');
+    await settle();
+    assert.strictEqual(requests.length, 1);
+    assert.strictEqual(requests[0].url, '/api/pool/host-control');
+    assert.deepStrictEqual(JSON.parse(JSON.stringify(requests[0].opts.body)), {poolId: 'default', action: 'pause-after-step'});
+    const barrier = barriers(env)[0];
+    assert.strictEqual(barrier.getAttribute('aria-busy'), 'true');
+    assert.ok(barrier.contains(env.box.document.activeElement), outcome + ': keyboard focus moves inside the barrier');
+    env.byId.create.focus();
+    assert.ok(barrier.contains(env.box.document.activeElement), outcome + ': background controls cannot take focus while commands are pending');
+    for (const shiftKey of [false, true]) {
+      const event = input.dispatch(env.box.document.activeElement, 'keydown', {key: 'Tab', shiftKey});
+      assert.strictEqual(event.defaultPrevented, true, outcome + ': Tab stays within the wait surface');
+      assert.ok(barrier.contains(env.box.document.activeElement));
+    }
+    // An already queued selection event must not start a second fanout.
+    fire(select, 'change');
+    assert.strictEqual(requests.length, 1, outcome + ': duplicate commits send no second mutation');
+    const readsBeforeTick = observed.reads.length;
+    for (let i = 0; i < 65; i++) for (const tick of ticks) tick();
+    await settle();
+    assert.strictEqual(observed.reads.length, readsBeforeTick, outcome + ': auto-refresh waits for the mutation');
+
+    afterPost = true;
+    if (outcome === 'rejected') post.reject(new Error('host command refused'));
+    else post.resolve({ok: outcome !== 'partial', requested: 2, applied: outcome === 'partial' ? 1 : 2,
+      failed: outcome === 'partial' ? 1 : 0, hosts: outcome === 'partial' ? [{hostId: 'host-two', ok: false, error: 'host is offline'}] : []});
+    await settle();
+    if (outcome !== 'read-throws') {
+      assert.strictEqual(barriers(env).length, 1, outcome + ': POST completion keeps the page blocked through configuration read');
+      if (outcome === 'read-rejected') stateRead.reject(new Error('configuration read refused'));
+      else stateRead.resolve({ok: true, pools: [{poolId: 'default', poolGuid: '426d17ef0b88426b922180dad1a9e921', members: ['host-one', 'host-two']}]});
+      await settle();
+      if (outcome !== 'read-rejected') {
+        assert.strictEqual(barriers(env).length, 1, outcome + ': fresh rows stay blocked while host states are outstanding');
+        hostsRead.resolve({ok: true, pools: {default: {state: 'pause-after-step', hosts: []}}});
+      }
+    }
+    await settle();
+    assert.strictEqual(barriers(env).length, 0, outcome + ': terminal completion releases the page');
+    assert.strictEqual(env.byId['footer-busy'].hidden, true, outcome + ': completion also releases read progress');
+    assert.strictEqual(input.listeners('keydown'), keyListeners, outcome + ': modal key handlers do not leak');
+    assert.ok(statusSelect(env) && !statusSelect(env).disabled, outcome + ': Pool Status can be used again');
+    assert.ok(env.body.contains(env.box.document.activeElement), outcome + ': focus returns to a connected control');
+    assert.strictEqual(observed.notice().kind, ['success', 'read-rejected'].includes(outcome) ? 'ok' : 'error', outcome + ': outcome survives repaint');
+    if (outcome === 'partial') assert.ok(observed.notice().message.includes('host is offline'), 'partial failure names the refused host');
+  }
+  let writes = 0;
+  const env = load('pools.html', (box, byId) => {
+    interactivePage(box, byId);
+    box.confirm = () => false;
+    box.Y.mutate = () => { writes++; return Promise.resolve({ok: true}); };
+  });
+  await settle();
+  statusSelect(env).value = 'continue';
+  fire(statusSelect(env), 'change');
+  await settle();
+  assert.strictEqual(writes, 0, 'a declined status confirmation sends nothing');
+  assert.strictEqual(barriers(env).length, 0, 'a declined status confirmation leaves the page usable');
+}
+async function statusUnlockAndTimeout() {
+  for (const answer of ['unlock', 'cancel']) {
+    const retry = deferred();
+    let attempts = 0, observed, input;
+    const env = load('pools.html', (box, byId) => {
+      input = interactivePage(box, byId);
+      // Keep the real Y.mutate: the authentication retry is part of the action.
+      const mutate = box.Y.mutate;
+      observed = instrument(box, byId);
+      box.Y.mutate = mutate;
+      const api = box.Y.api;
+      box.Y.api = (url, opts) => {
+        if (url !== '/api/pool/host-control' || !opts || opts.method !== 'POST') return api(url, opts);
+        attempts++;
+        return attempts === 1 ? Promise.reject(Object.assign(new Error('session expired'), {status: 401})) : retry.promise;
+      };
+    });
+    await settle();
+    const select = statusSelect(env);
+    select.focus(); select.value = 'continue'; fire(select, 'change');
+    await settle();
+    const dialog = env.box.document.getElementById('yuruna-unlock');
+    assert.ok(dialog, answer + ': expired session opens the token prompt');
+    assert.strictEqual(barriers(env).length, 1, answer + ': page stays blocked while authentication is requested');
+    assert.ok(dialog.contains(env.box.document.activeElement), answer + ': the prompt can take keyboard focus');
+    const code = nodes(dialog, n => n.tagName === 'INPUT')[0];
+    code.value = 'abc123'; code.focus();
+    const typing = input.dispatch(code, 'keydown', {key: 'a'});
+    assert.strictEqual(typing.defaultPrevented, false, answer + ': barrier permits token entry');
+    if (answer === 'cancel') {
+      fire(nodes(dialog, n => n.tagName === 'BUTTON' && n.textContent === 'Cancel')[0], 'click');
+      await settle();
+      assert.strictEqual(attempts, 1, 'canceling token entry never retries host commands');
+      assert.strictEqual(barriers(env).length, 0, 'canceling unlock releases the page');
+      assert.strictEqual(observed.notice().kind, 'error');
+    } else {
+      fire(nodes(dialog, n => n.tagName === 'FORM')[0], 'submit');
+      await settle();
+      assert.strictEqual(attempts, 2, 'unlock retries the original host command once');
+      assert.strictEqual(env.box.document.getElementById('yuruna-unlock'), null);
+      assert.strictEqual(barriers(env).length, 1, 'host-command retry remains blocked');
+      assert.ok(barriers(env)[0].contains(env.box.document.activeElement), 'closing unlock restores focus into the wait surface');
+      retry.resolve({ok: true, applied: 1, hosts: []});
+      await settle();
+      assert.strictEqual(barriers(env).length, 0, 'successful authenticated action releases the page');
+      assert.strictEqual(observed.notice().kind, 'ok');
+    }
+  }
+  let request, observed;
+  const env = load('pools.html', (box, byId) => {
+    interactivePage(box, byId);
+    const mutate = box.Y.mutate;
+    observed = instrument(box, byId); box.Y.mutate = mutate;
+    const fetch = box.fetch;
+    box.fetch = (url, opts) => {
+      if (url === '/api/pool/host-control' && opts && opts.method === 'POST') { request = opts; return new Promise(() => {}); }
+      return fetch(url, opts);
+    };
+  });
+  await settle();
+  const select = statusSelect(env); select.value = 'continue'; fire(select, 'change');
+  assert.strictEqual(barriers(env).length, 1, 'a stalled request initially blocks the page');
+  await settle();
+  assert.ok(request.signal.aborted, 'the real API timeout aborts the stalled host command');
+  assert.strictEqual(barriers(env).length, 0, 'timeout releases the barrier');
+  assert.strictEqual(observed.notice().kind, 'error', 'timeout is reported to the operator');
+}
+async function statusOlderRead() {
+  for (const rejectOld of [false, true]) {
+    const oldRead = deferred(), nextRead = deferred();
+    const ticks = [];
+    let hostReads = 0, observed;
+    const env = load('pools.html', (box, byId) => {
+      interactivePage(box, byId);
+      observed = instrument(box, byId);
+      box.setInterval = fn => { ticks.push(fn); return ticks.length; };
+      const api = box.Y.api;
+      box.Y.api = (url, opts) => {
+        if (url !== '/api/pool/host-control') return api(url, opts);
+        hostReads++;
+        if (hostReads === 1) return oldRead.promise;
+        if (hostReads > 2) return nextRead.promise;
+        return Promise.resolve({ok: true, pools: {default: {state: 'pause-after-step', hosts: []}}});
+      };
+    });
+    await settle();
+    assert.strictEqual(hostReads, 1, 'an earlier background member read is still outstanding');
+    const select = statusSelect(env); select.focus(); select.value = 'pause-after-step'; fire(select, 'change');
+    await settle();
+    assert.strictEqual(hostReads, 2, 'the action independently reads back its new host state');
+    assert.strictEqual(barriers(env).length, 0, 'the action does not wait for an obsolete read');
+    const message = observed.notice().message;
+    const selectedAction = () => nodes(statusSelect(env), n => n.tagName === 'OPTION' && n.selected)[0].getAttribute('value');
+    assert.strictEqual(selectedAction(), 'pause-after-step');
+    env.byId['new-poolid'].focus();
+    if (rejectOld) oldRead.reject(new Error('old host-state read failed'));
+    else oldRead.resolve({ok: true, pools: {default: {state: 'continue', hosts: []}}});
+    await settle();
+    assert.strictEqual(selectedAction(), 'pause-after-step', 'late pre-action host state cannot replace the completed action');
+    assert.strictEqual(observed.notice().message, message, 'late read does not erase the operation result');
+    // A stale reply must not poison the cached state used for the next paint,
+    // either. Hold that refresh's member read so the cached value is visible.
+    for (let i = 0; i < 65; i++) for (const tick of ticks) tick();
+    await settle();
+    assert.ok(hostReads >= 3, 'the next ordinary refresh still runs');
+    assert.strictEqual(selectedAction(), 'pause-after-step', 'the next paint starts from the confirmed state');
+    nextRead.resolve({ok: true, pools: {default: {state: 'pause-after-step', hosts: []}}});
+    await settle();
+    assert.strictEqual(env.byId['footer-busy'].hidden, true, 'all read progress is released');
+  }
+}
+async function blockingFocusLifetimes() {
+  for (const newestFirst of [false, true]) {
+    let input;
+    const env = load('pools.html', (box, byId) => { input = interactivePage(box, byId); });
+    await settle();
+    env.byId.create.focus();
+    const beforeKeys = input.listeners('keydown'), beforeFocus = input.listeners('focusin');
+    const first = env.box.Y.block('first');
+    const second = env.box.Y.block('second');
+    assert.strictEqual(barriers(env).length, 2, 'overlapping shared blockers can coexist');
+    assert.ok(barriers(env)[1].contains(env.box.document.activeElement), 'the newest blocker owns focus');
+    input.dispatch(env.box.document.activeElement, 'keydown', {key: 'Tab'});
+    assert.ok(barriers(env)[1].contains(env.box.document.activeElement), 'Tab never activates an older blocker');
+    (newestFirst ? second : first)();
+    assert.strictEqual(barriers(env).length, 1);
+    input.dispatch(env.box.document.activeElement, 'keydown', {key: 'Tab'});
+    assert.ok(barriers(env)[0].contains(env.box.document.activeElement), 'the remaining blocker still contains keyboard navigation');
+    (newestFirst ? first : second)();
+    assert.strictEqual(barriers(env).length, 0);
+    assert.strictEqual(input.listeners('keydown'), beforeKeys);
+    assert.strictEqual(input.listeners('focusin'), beforeFocus, 'all modal focus handlers are removed');
+    env.byId.create.focus();
+    assert.strictEqual(env.box.document.activeElement, env.byId.create, 'normal focus is available after both completions');
+
+    // A deletion caller selects its surviving row before releasing the shared
+    // barrier. The disconnected opener must not override that deliberate move.
+    const opener = env.box.document.createElement('button');
+    env.body.appendChild(opener); opener.focus();
+    const done = env.box.Y.block('deleting');
+    env.body.removeChild(opener);
+    env.byId.create.focus();
+    assert.strictEqual(env.box.document.activeElement, env.byId.create, 'default shared blockers permit a caller to select replacement focus');
+    done();
+    assert.strictEqual(env.box.document.activeElement, env.byId.create, 'release preserves the caller\'s replacement focus');
+  }
+}
 async function dialogCleanup() {
   let unlockKeys;
   const env = load('pools.html', box => { unlockKeys = watchDocumentKeys(box); });
@@ -367,6 +689,6 @@ async function diagnosticRefreshAndTimeout() {
   assert.strictEqual(failing, undefined, 'failed checks render as report data');
   assert.ok(report.byId['check-rows'].children.length, 'failed checks remain visible');
 }
-Promise.resolve().then(boardGenerations).then(confirmationsAndBudgets).then(repositoryColumn).then(dialogCleanup).then(focusAndBusyLifetimes).then(diagnosticRefreshAndTimeout).then(() => {
-  console.log('PASS: pool request budgets, latest board generation, mutation confirmation, current-row feedback and the Framework / Project column');
+Promise.resolve().then(boardGenerations).then(confirmationsAndBudgets).then(repositoryColumn).then(statusBarrier).then(statusUnlockAndTimeout).then(statusOlderRead).then(blockingFocusLifetimes).then(dialogCleanup).then(focusAndBusyLifetimes).then(diagnosticRefreshAndTimeout).then(() => {
+  console.log('PASS: pool request budgets, latest board generation, mutation confirmation, current-row feedback, Pool Status blocking and the Framework / Project column');
 }).catch(error => { console.error(error.stack); process.exitCode = 1; });

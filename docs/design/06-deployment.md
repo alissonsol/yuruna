@@ -53,6 +53,10 @@ still starts through console input. See [GUI fetch transport](03-data-flows.md#g
 The status service can remain available while tests are idle. A browser can run on this same host;
 the operator frame shows the separate-machine case. Six boxes include all three
 host processes/families and the two other network nodes.
+[Start-McpServer](../../test/service/Start-McpServer.ps1) serves the framework's
+MCP tools over the standard input and output of a client-started process, so it
+adds no network endpoint; the Go service daemons mount `POST /mcp` on their own
+HTTP ports.
 
 ## Cache, image, and stash endpoints
 
@@ -117,7 +121,8 @@ and a default pool. [Start-CachingProxyServiceVM.ps1](../../test/service/Start-C
 is a no-op when `vmStart.cachingProxyIp` names an existing cache. Other hosts
 find the lab's stash and download agent through the aggregator's extension-host
 discovery. Each service seed fetches Yuruna source from its building host's
-status service on port 8080, falling back to GitHub.
+status service on port 8080; [Git mirror source endpoints](#git-mirror-source-endpoints)
+shows the fallbacks.
 
 The KVM and Hyper-V cache builders wait for the Zot sync self-test verdict on
 `/cache-health` and exit 1 for an incompatible release; the UTM builder prints
@@ -144,6 +149,76 @@ can preserve the original proxy client address using PROXY headers and the
 seed's dedicated 3138/3139 listeners. A forwarded host address and its guest
 destination are different endpoints; the provider's saved guest address targets
 the forwarder without routing it back to the host listener.
+
+## Git mirror source endpoints
+
+```mermaid
+flowchart LR
+    subgraph host["Hypervisor host"]
+        start-status-service-ps1["Status service"]
+        test-host-git-psm1["Host Git updates"]
+    end
+    subgraph guest["Workload guest VM"]
+    end
+    subgraph extension-service-vms["Extension service VMs"]
+    end
+    subgraph caching-proxy-service["Caching proxy VM"]
+    end
+    subgraph github["GitHub"]
+    end
+    test-host-git-psm1 -->|HTTP resolve, Git 80| caching-proxy-service
+    guest -->|HTTP repository 8080| start-status-service-ps1
+    extension-service-vms -->|HTTP archive 8080| start-status-service-ps1
+    caching-proxy-service -->|HTTP build source 8080| start-status-service-ps1
+    caching-proxy-service -->|HTTPS mirror refresh 443| github
+    %% optional: pinned LAN mirror fallback when the status service does not answer.
+    guest -.->|HTTP Git, git-raw 80| caching-proxy-service
+    extension-service-vms -.->|HTTP Git fetch 80| caching-proxy-service
+    %% optional: GitHub fallback when no local source supplies the commit.
+    test-host-git-psm1 -.->|HTTPS origin 443| github
+    guest -.->|HTTPS raw, clone 443| github
+    extension-service-vms -.->|HTTPS clone 443| github
+```
+
+Sources: [source selection](../../test/modules/Test.SourceSelection.psm1),
+[host Git updates](../../test/modules/Test.HostGit.psm1),
+[mirror seed settings](../../test/modules/Test.CachingProxyService.psm1),
+[fetch-and-execute.sh](../../automation/fetch-and-execute.sh),
+[shared guest updater](../../guest/shared/ubuntu.update.sh),
+[download-agent seed](../../host/vmconfig/download-agent-service.base.user-data),
+[cache seed](../../host/vmconfig/caching-proxy-service.base.user-data),
+[mirror roles](../../test/extension/caching-proxy-service/gitmirror.go), and
+[mirror Git client](../../test/extension/caching-proxy-service/gitmirror_git.go).
+
+The caching proxy's Git mirror keeps bare copies of the seeded GitHub
+repositories and serves them through Apache on port 80. Its worker refreshes
+them from `https://github.com` every `vmStart.cachingProxyGitMirrorRefreshSeconds`
+(default 60) and signs resolve receipts with a key minted in the host's
+authentication vault; an optional GitHub token from that vault authenticates the
+refresh. Apache serves read-only smart HTTP at `/git/<owner>/<repo>.git`, pinned
+files at `/git-raw/<owner>/<repo>/<commit>/<path>`, and status, metrics, and
+signed resolution under `/git-mirror/`. It admits these paths only from loopback
+and private IPv4 ranges and refuses `git-receive-pack`. The mirror relay answers
+only in the management daemon's local mode. A NAT-attached cache's port 80
+forwarder carries these paths as well.
+
+Host updates read `repositories.mirror`, whose URL defaults to
+`http://<caching proxy>`. The default `prefer` mode asks `/git-mirror/v1/resolve`
+for a receipt, verifies it with an enrolled public key, and fetches the selected
+commit from `/git/`. Without an enrolled key, an answering mirror, or a ready
+receipt, the host fetches from GitHub. `fallback` mode asks GitHub first and uses
+the mirror only after a network timeout; `off` uses the configured origin.
+Setup enrolls the key of the host's own cache, and configuration sync asks the
+operator before accepting a reference host's key.
+
+Guests and the download-agent, pool-control, and stash seeds take source from
+the building host's status service first: the tree under `/yuruna-repo/` or
+`/yuruna-archive.tar.gz`. When it does not answer, they read a pinned commit from
+the mirror and then from GitHub. `fetch-and-execute.sh` reads files from
+`/git-raw/`, while guest updaters and service seeds make a shallow `/git/` fetch.
+The cache seed builds its own daemons from the status service and falls back to
+GitHub raw content at the build commit, because its mirror is not yet running.
+The service-VM frame aggregates those three VMs, whose seeds share this order.
 
 ## Pool coordination endpoints
 
@@ -173,8 +248,8 @@ flowchart LR
     pool-control-service -->|HTTP scan, control 8080| host
     %% optional: remote refresh requires configured authority and operator credentials.
     pool-control-service -.->|signed refresh 8080| host
-    %% optional: only Windows hosts publish windows_exporter metrics.
-    caching-proxy-service -.->|Windows metrics 9182| host
+    %% optional: windows_exporter on Windows hosts; status-listener memory metrics on Ubuntu and macOS hosts.
+    caching-proxy-service -.->|Host metrics 9182/8080| host
 ```
 
 Sources: [pool event push](../../test/modules/Test.PoolPush.psm1),
@@ -193,8 +268,11 @@ certificate/key pair is present; without them it serves HTTP. The protocol choic
 is specific to each client, rather than a separate aggregator process. Service
 VMs bake `https://<cache>:9400` and try TLS without certificate verification
 first, then plain HTTP. Hosts also announce themselves to the aggregator over
-plain HTTP. Prometheus on the cache scrapes `windows_exporter` on Windows hosts,
-which the aggregator lists as scrape targets.
+plain HTTP. Prometheus on the cache scrapes the reachable hosts that the
+aggregator lists as scrape targets: `windows_exporter` on port 9182 for Windows
+hosts, and memory gauges at `/metrics` on the status listener for Ubuntu and
+macOS hosts; see [Test.HostMetricsExporter](../../test/modules/Test.HostMetricsExporter.psm1)
+and [Test.HostMemoryMetrics](../../test/modules/Test.HostMemoryMetrics.psm1).
 
 Pool-control sweeps for hosts every 15 minutes by default, reads their status and
 host facts, and sends proof-gated pause and resume controls; see
@@ -267,7 +345,7 @@ flowchart TB
     squid-zot -->|client IP discovery| pool-aggregator-service
     prometheus-loki -->|scrape and log tail| squid-zot
     prometheus-loki -->|metrics scrape| pool-aggregator-service
-    prometheus-loki -->|meta page scrape| apache2
+    prometheus-loki -->|meta and mirror scrape| apache2
     pool-aggregator-service -->|events to Loki| prometheus-loki
     grafana -->|metrics and logs| prometheus-loki
     apache2 -->|cache status| squid-zot
@@ -289,16 +367,24 @@ warm run, blames Zot only when the upstream serves the image, and can add an
 `http.compat` mode and restart Zot. Metrics and logs group Prometheus, Loki,
 Alloy, and exporters; the Zot metadata exporter publishes the self-test verdict
 on Apache's `/zot-meta` and `/cache-health`. Apache and management group the web
-server with the Go caching-proxy-service daemon. These processes communicate
-locally inside this VM.
+server with the Go caching-proxy-service daemon and that binary's Git mirror
+roles: the [worker unit](../../test/extension/caching-proxy-service/git-mirror-worker.service)
+refreshes and signs over a private Unix socket, the
+[reader unit](../../test/extension/caching-proxy-service/git-mirror-reader.service)
+serves pinned files, and the
+[CGI wrapper](../../test/extension/caching-proxy-service/git-mirror-http-backend.sh)
+runs read-only smart HTTP for Apache. Prometheus scrapes the mirror's metrics
+from the management daemon, and Alloy tails the worker's journal. These
+processes communicate locally inside this VM.
 
 | Endpoint | Default role |
 | --- | --- |
 | Squid 3128/3129 | HTTP proxy/CONNECT and the TLS inspection path. The latter needs the cache CA trusted by the client. |
 | Squid 3138/3139 | PROXY-header twins of 3128/3129; macOS Shared NAT forwarders target them to keep the client address. |
 | Zot 5000 | OCI registry API and on-demand pull-through sync; upstream fetches go through Squid 3129. |
-| Apache 80 | Landing page, CA certificates, `/squid-meta`, `/zot-meta`, `/cache-health` with the Zot self-test verdict, and pool configuration. |
-| Management 9310 | Go management API; Apache proxies its landing page. |
+| Apache 80 | Landing page, CA certificates, `/squid-meta`, `/zot-meta`, `/cache-health` with the Zot self-test verdict, pool configuration, and the Git mirror's `/git/`, `/git-raw/`, and `/git-mirror/` paths. |
+| Management 9310 | Go management API and Git mirror relay; Apache proxies its landing page and mirror status and resolution. |
+| Mirror reader 9311 | Loopback-only pinned file reads behind Apache's `/git-raw/`. |
 | Parser 9302 | Recent Squid requests held in memory. |
 | Aggregator 9400 | Pool facts, discovery, event ingestion, and controls. |
 | Grafana 3000 | Dashboards querying metrics and logs. |
@@ -343,8 +429,9 @@ name, but the current cache seed does not activate a stash mount. Stash,
 download-agent, and pool-control instead have CIFS credentials baked into their
 own seeds. Their current provisioning does not include this mTLS refresh client,
 so the cache rotation path must not be assumed for those VMs. The cache seed also
-bakes the internal authentication key and an optional Docker Hub token for Zot
-sync. A host synchronizing configuration from a reference pool host can fetch a
+bakes the internal authentication key, an optional Docker Hub token for Zot
+sync, and the Git mirror's signing key and optional GitHub token from the host's
+vault. A host synchronizing configuration from a reference pool host can fetch a
 missing storage credential from that host's status service at
 `/control/vault-credential`; the route is gated by the internal authentication
 key and returns the password encrypted with a key derived from it. See

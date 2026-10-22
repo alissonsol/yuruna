@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.18.2
+.VERSION 2026.10.22
 .GUID 42c1f7a0-6b2e-4d55-9f18-3ac6d0e41b72
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -175,6 +175,25 @@ if ($template.Contains($LocaleKey)) {
 
 # --- REGION: Validate reference
 $reference = [IO.File]::ReadAllText($ReferencePath)
+
+# The template is the allow-list for reconciliation and the status editor. A
+# missing mirror key would silently park an operator's setting on the next run.
+$mirrorDefaults = [ordered]@{
+    'repositories.mirror.mode' = 'prefer'
+    'repositories.mirror.url' = ''
+    'repositories.mirror.verificationPublicKeys' = '[]'
+    'repositories.mirror.mirrorOnlyMaxAgeSeconds' = '604800'
+    'vmStart.cachingProxyGitMirrorRefreshSeconds' = '60'
+}
+foreach ($path in $mirrorDefaults.Keys) {
+    $lookup = Get-ConfigValueAtPath -Config $template -Path $path
+    if (-not $lookup.Found) { Add-Finding "mirror template key missing: $path" }
+    elseif ($path.EndsWith('.verificationPublicKeys')) {
+        if ($lookup.Value -is [string] -or @($lookup.Value).Count -ne 0) { Add-Finding "mirror template must seed an empty trust list: $path" }
+    } elseif ([string]$lookup.Value -cne $mirrorDefaults[$path]) { Add-Finding "mirror template default changed: $path" }
+    if (-not $reference.Contains(('`' + $path + '`'))) { Add-Finding "mirror configuration reference missing: $path" }
+}
+foreach ($failure in @(Test-ConfigMirrorSetting -Config $template)) { Add-Finding "$($failure.Cause): $($failure.Path)" }
 
 # The enumeration of top-level sections is a whole-text list: a key missing from
 # it reads as a key that does not exist.

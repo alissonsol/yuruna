@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.18.2
+.VERSION 2026.10.22
 .GUID 42c1f5b8-9a37-4e02-b6d4-5081e7c3a9f6
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -54,8 +54,10 @@
 .PARAMETER EvidencePath
     Optional no-BOM JSON report containing both tree hashes and every row.
 .PARAMETER GateThrottleLimit
-    Maximum independent JavaScript, Go, and accessibility tools running at once.
-    Default 2; use 1 for serial execution. Other gates and Pester slices stay serial.
+    Maximum gates running at once. Every gate except the two inline project
+    checks runs in its own process from one pool, focused Pester slices
+    included. Default: half the logical processors, at least 2 and at most 12;
+    use 1 for serial execution.
 .PARAMETER Quiet
     Print only the summary and any findings.
 .EXAMPLE
@@ -73,7 +75,7 @@ param(
     [string]$ProjectTreeHash,
     [string]$LinkMap,
     [string]$EvidencePath,
-    [ValidateRange(1, 3)][int]$GateThrottleLimit = 2,
+    [ValidateRange(1, 64)][int]$GateThrottleLimit = [Math]::Clamp([int][Math]::Floor([Environment]::ProcessorCount / 2), 2, 12),
     [switch]$Quiet
 )
 
@@ -320,6 +322,10 @@ function Get-GateRemediation {
                 'host/vmconfig/caching-proxy-service.zot-qualified.json; commit that record. When it reports ' +
                 'that the release does not qualify, follow its instructions (usually an http.compat mode to add, ' +
                 'or keeping the previously qualified release) instead of editing the record.' }
+        @{ Gate = 'git-mirror-contract'; Match = ''; Code = 'focused-suite'
+            Action = 'Run Test.GitMirrorQualification.Tests.ps1 with the documented suite runner; restore missing discovery or count-floor coverage before release.' }
+        @{ Gate = 'host-git-mirror'; Match = ''; Code = 'focused-suite'
+            Action = 'Run Test.HostGitMirror.Tests.ps1 with the documented suite runner and inspect its real worker/receipt fixtures.' }
     )
 
     foreach ($candidate in $table) {
@@ -342,32 +348,19 @@ function Get-GateRemediation {
 }
 
 $rows = [Collections.Generic.List[object]]::new()
-function Invoke-ToolGate {
-    <#
-    .SYNOPSIS
-        Runs a tool and records the shared pass, cannot-run, or fail mapping.
-    .PARAMETER Gate
-        The gate row name.
-    .PARAMETER Arguments
-        Complete native PowerShell command arguments.
-    #>
-    [CmdletBinding()]
-    param([string]$Gate, [string[]]$Arguments)
-    $clock = [Diagnostics.Stopwatch]::StartNew()
-    $output = & pwsh -NonInteractive @Arguments 2>&1 | Out-String
-    $code = $LASTEXITCODE
-    Add-Row -Gate $Gate -State $(if ($code -eq 0) { 'pass' } elseif ($code -eq 2) { 'cannot-run' } else { 'fail' }) -Detail $output.Trim() -Seconds $clock.Elapsed.TotalSeconds
-}
-
 function Invoke-ToolGateBatch {
     <#
     .SYNOPSIS
         Run independent tools in isolated processes and retain every outcome.
+    .PARAMETER ResultOnly
+        Return one result per tool (Name, Code, Output, Seconds) instead of
+        recording rows, for a caller that judges some results itself.
     #>
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)][object[]]$Work,
-        [Parameter(Mandatory)][ValidateRange(1, 3)][int]$ThrottleLimit
+        [Parameter(Mandatory)][ValidateRange(1, 64)][int]$ThrottleLimit,
+        [switch]$ResultOnly
     )
     $gatePowerShell = (Get-Process -Id $PID).Path
     # Parallel records use the parent's preference when forwarded to the host.
@@ -391,6 +384,7 @@ function Invoke-ToolGateBatch {
             Seconds = $clock.Elapsed.TotalSeconds
         }
     })
+    if ($ResultOnly) { return $results }
     foreach ($item in $Work) {
         $result = @($results | Where-Object Name -CEQ $item.Name)
         if ($result.Count -ne 1) {
@@ -474,69 +468,90 @@ function Get-GitCandidatePath {
         } | ForEach-Object { [string]$_ } | Sort-Object -Unique)
 }
 
-function Invoke-FocusedPesterGate {
+function Get-FocusedPesterCompleteness {
     <#
     .SYNOPSIS
-        Run one named, fixed test slice without recursing into the full suite.
+        Detect empty discovery, omitted files, lost cases and incomplete results.
+    #>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param(
+        [Parameter(Mandatory)][string[]]$RequiredPath,
+        [Parameter(Mandatory)][hashtable]$Counts,
+        [Parameter(Mandatory)][hashtable]$Floors,
+        [int]$IncompleteCount
+    )
+    foreach ($path in $RequiredPath) {
+        if (-not $Counts.ContainsKey($path) -or [int]$Counts[$path] -lt 1) {
+            "No tests discovered for required suite: $path"
+        } elseif (-not $Floors.ContainsKey($path) -or [int]$Floors[$path] -lt 1) {
+            "No recorded positive count floor for required suite: $path"
+        } elseif ([int]$Counts[$path] -lt [int]$Floors[$path]) {
+            "Required suite lost tests: $path ($($Counts[$path]) < $($Floors[$path]))"
+        }
+    }
+    if ($IncompleteCount -gt 0) { "$IncompleteCount required tests were skipped or not run." }
+}
+
+function Add-FocusedPesterRow {
+    <#
+    .SYNOPSIS
+        Record one focused slice from what tools/Invoke-FocusedPesterSlice.ps1 reported.
     .DESCRIPTION
         Full/release authority needs a few shipped-builder and documentation
         assertions that have no standalone tool. A fixed file list keeps that
         boundary reviewable. A missing file, skipped test, or container that
-        never ran is reported separately from a clean result.
+        never ran is reported separately from a clean result. The slice runs in
+        a process of its own beside the other gates; this judges what it found.
+    .PARAMETER Code
+        The slice tool's exit code: 0 ran, 2 Pester 6.x missing, other failed to run.
+    .PARAMETER Output
+        Everything the slice tool printed; its facts are on the YURUNA_FOCUSED_SLICE line.
     #>
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)][string]$Gate,
-        [Parameter(Mandatory)][string[]]$RelativePath
+        [Parameter(Mandatory)][string[]]$RelativePath,
+        [Parameter(Mandatory)][int]$Code,
+        [AllowEmptyString()][string]$Output
     )
-    Write-GateProgress -Stage $Gate
-
-    $paths = @($RelativePath | ForEach-Object { Join-Path $RepoRoot $_ })
-    $missing = @($paths | Where-Object { -not (Test-Path -LiteralPath $_ -PathType Leaf) })
-    if ($missing.Count -gt 0) {
-        Add-Row -Gate $Gate -State 'cannot-run' -Detail ('required test file is missing: ' + ($missing -join ', '))
-        return
-    }
-    # Import-Module takes the highest copy in range. The bounds keep these
-    # slices on the 6.x line the runner selects, whatever else is installed.
-    if (-not (Get-Module -ListAvailable -Name Pester | Where-Object { $_.Version -ge [version]'6.0' -and $_.Version -lt [version]'7.0' })) {
-        Add-Row -Gate $Gate -State 'cannot-run' -Detail 'Pester 6.x is not installed'
+    if ($Code -eq 2) { Add-Row -Gate $Gate -State 'cannot-run' -Detail $Output.Trim(); return }
+    $line = @(([string]$Output) -split "`r?`n" | Where-Object { $_.StartsWith('YURUNA_FOCUSED_SLICE ') }) | Select-Object -Last 1
+    if ($Code -ne 0 -or -not $line) {
+        $why = if ($Output.Trim()) { $Output.Trim() } else { "the slice exited $Code without reporting what it found" }
+        if ($why -notlike 'focused Pester slice failed to execute*') { $why = "focused Pester slice failed to execute: $why" }
+        Add-Row -Gate $Gate -State 'fail' -Detail $why
         return
     }
     try {
-        Import-Module Pester -MinimumVersion 6.0 -MaximumVersion 6.999.999 -ErrorAction Stop
-        $result = Invoke-Pester -Path $paths -Output None -PassThru
-        $failed = [int]$result.FailedCount + [int]$result.FailedBlocksCount + [int]$result.FailedContainersCount
-        $incomplete = [int]$result.SkippedCount + [int]$result.NotRunCount
-        $detail = ("{0} passed, {1} failed, {2} skipped/not-run across {3} focused file(s)" -f `
-            [int]$result.PassedCount, $failed, $incomplete, $paths.Count)
-        if ($failed -gt 0) {
-            # Name AND reason. The marker rows downstream reduce this row to
-            # "<gate> failed", so a detail that carries only test names leaves an
-            # operator with no way to tell a real slice regression from a
-            # prerequisite that could not run, and the only route to the reason
-            # is re-running the slice by hand.
-            $failedNames = @($result.Tests | Where-Object Result -EQ 'Failed' |
-                ForEach-Object {
-                    $reason = ([string]($_.ErrorRecord | Select-Object -First 1)) -split "`r?`n" |
-                        Where-Object { $_ -and $_.Trim() } | Select-Object -First 1
-                    if ($reason) { "$($_.ExpandedPath) -- $($reason.Trim())" } else { [string]$_.ExpandedPath }
-                } | Where-Object { $_ } | Sort-Object -Unique)
-            # A container that fails before its tests run produces no failed test
-            # at all, so counting it without rendering it is how a row reports
-            # more failures than it can name. Only a container carrying its OWN
-            # error is rendered: one marked failed merely because a test inside
-            # it failed is already named above.
-            $failedNames += @($result.Containers | Where-Object Result -EQ 'Failed' |
-                ForEach-Object {
-                    $reason = ([string]($_.ErrorRecord | Select-Object -First 1)) -split "`r?`n" |
-                        Where-Object { $_ -and $_.Trim() } | Select-Object -First 1
-                    if ($reason) { "container $([IO.Path]::GetFileName([string]$_.Item)) -- $($reason.Trim())" }
-                } | Where-Object { $_ })
-            if ($failedNames.Count -gt 0) { $detail += '; failed: ' + ($failedNames -join ', ') }
+        $facts = ConvertFrom-Json -InputObject $line.Substring('YURUNA_FOCUSED_SLICE '.Length) -AsHashtable
+        $failed = [int]$facts.failed
+        $incomplete = [int]$facts.incomplete
+        $baseline = Get-Content -Raw -LiteralPath (Join-Path $RepoRoot 'test/modules/suite-baseline.json') | ConvertFrom-Json -AsHashtable
+        $counts, $floors = @{}, @{}
+        $platform = if ($IsWindows) { 'windows' } elseif ($IsMacOS) { 'macos' } else { 'linux' }
+        foreach ($relative in $RelativePath) {
+            if ($facts.counts.ContainsKey($relative)) { $counts[$relative] = [int]$facts.counts[$relative] }
+            if ($baseline.suites.ContainsKey($relative)) {
+                $record = $baseline.suites[$relative]
+                $floors[$relative] = if ($record.ContainsKey('platformTotal') -and $record.platformTotal.ContainsKey($platform)) {
+                    [int]$record.platformTotal[$platform]
+                } else { [int]$record.total }
+            }
         }
+        $completeness = @(Get-FocusedPesterCompleteness -RequiredPath $RelativePath -Counts $counts -Floors $floors -IncompleteCount $incomplete)
+        $detail = ("{0} passed, {1} failed, {2} skipped/not-run across {3} focused file(s)" -f `
+            [int]$facts.passed, $failed, $incomplete, $RelativePath.Count)
+        if ($completeness.Count) { $detail += '; ' + ($completeness -join '; ') }
+        # Name AND reason. The marker rows downstream reduce this row to
+        # "<gate> failed", so a detail that carries only test names leaves an
+        # operator with no way to tell a real slice regression from a
+        # prerequisite that could not run, and the only route to the reason is
+        # re-running the slice by hand.
+        $failedNames = @($facts.failedNames | Where-Object { $_ })
+        if ($failed -gt 0 -and $failedNames.Count -gt 0) { $detail += '; failed: ' + ($failedNames -join ', ') }
         Add-Row -Gate $Gate `
-            -State $(if ($failed -gt 0) { 'fail' } elseif ($incomplete -gt 0) { 'cannot-run' } else { 'pass' }) `
+            -State $(if ($failed -gt 0 -or $completeness.Count -gt 0) { 'fail' } elseif ($incomplete -gt 0) { 'cannot-run' } else { 'pass' }) `
             -Detail $detail
     } catch {
         Add-Row -Gate $Gate -State 'fail' -Detail "focused Pester slice failed to execute: $($_.Exception.Message)"
@@ -721,7 +736,9 @@ $focusedGates = @(
             'test/modules/Test.StatusPauseSlice.Tests.ps1') }
     @{ Gate = 'pool-slice-matrix'; RelativePath = @('test/modules/Test.PoolGlobalizationSlice.Tests.ps1') }
     @{ Gate = 'reference-slice-matrix'; RelativePath = @('test/modules/Test.ReferenceSliceMatrix.Tests.ps1') }
-    @{ Gate = 'zot-qualification'; RelativePath = @('test/modules/Test.ZotQualification.Tests.ps1') })
+    @{ Gate = 'zot-qualification'; RelativePath = @('test/modules/Test.ZotQualification.Tests.ps1') }
+    @{ Gate = 'git-mirror-contract'; RelativePath = @('test/modules/Test.GitMirrorQualification.Tests.ps1') }
+    @{ Gate = 'host-git-mirror'; RelativePath = @('test/modules/Test.HostGitMirror.Tests.ps1') })
 
 $plannedStages = [Collections.Generic.List[string]]::new()
 $plannedStages.AddRange([string[]]@('doc-translation', 'region-anchors', 'project-lint',
@@ -731,20 +748,17 @@ if ($runFramework) {
     $plannedStages.AddRange([string[]]@($frameworkGates | ForEach-Object { $_.Name }))
     $plannedStages.AddRange([string[]]@($focusedGates | ForEach-Object { $_.Gate }))
 }
-$script:StageTotal = $plannedStages.Count
+# Progress counts what runs one after another: the two inline project checks,
+# the release tree hashes, and the pool as one stage.
+$script:StageTotal = 3 + [int]$isRelease
 
 # --- REGION: Cross-repository gates
-# Translated documents. This one already reads both trees, which is why the
-# project's pt-BR drafts have been drift-checked all along.
-Write-GateProgress -Stage 'doc-translation'
-Invoke-ToolGate -Gate 'doc-translation' -Arguments @('-NoProfile', '-File', (Join-Path $PSScriptRoot 'Test-DocTranslation.ps1'), '-ProjectRoot', $ProjectRoot, '-Quiet')
-
-# Documentation anchors and the public link map, which span both repositories.
-Write-GateProgress -Stage 'region-anchors'
-$anchorArgs = @('-NoProfile', '-File', (Join-Path $PSScriptRoot 'Test-RegionAnchors.ps1'),
-    '-ProjectRoot', $ProjectRoot)
-if ($LinkMap) { $anchorArgs += @('-LinkMap', $LinkMap) }
-Invoke-ToolGate -Gate 'region-anchors' -Arguments $anchorArgs
+# Every gate below reads the trees and writes nothing another gate reads, so
+# after the two inline project checks and the release tree hashes they all run
+# in one pool of processes: the slow browser and Go checks beside the quick
+# ones, and each focused Pester slice in a process of its own. Their rows are
+# put back in the planned order before anything reads them.
+$pool = [Collections.Generic.List[object]]::new()
 
 # --- REGION: Project script validation
 Write-GateProgress -Stage 'project-lint'
@@ -801,30 +815,6 @@ if (-not $shellDiscoveryFailed) {
     }
 }
 
-# Parse and validate the complete additive project-map contract through its one
-# authoritative tool.  A regex here would silently disagree on quoted keys,
-# nested maps, canonical locale tags, bounds, or source-hash provenance.
-Write-GateProgress -Stage 'project-locale-map'
-Invoke-ToolGate -Gate 'project-locale-map' -Arguments @('-NoProfile', '-File', (Join-Path $PSScriptRoot 'Invoke-ProjectLocaleMap.ps1'), '-ProjectRoot', $ProjectRoot, '-Quiet')
-
-# Exact bytes, not ReadAllText's forgiving default. The recorded inventory is
-# also reverse-checked here so removing one project path cannot shrink the gate.
-Write-GateProgress -Stage 'project-utf8'
-Invoke-ToolGate -Gate 'project-utf8' -Arguments @('-NoProfile', '-File', (Join-Path $PSScriptRoot 'Test-ProjectTextEncoding.ps1'), '-ProjectRoot', $ProjectRoot, '-Quiet')
-
-# Changed-domain mode is useful only if every newly discovered boundary can be
-# attributed to an owned slice.  Run this in all three modes: it is cheap, its
-# output is deterministic, and a stale/missing map must block the seed rather
-# than disappear merely because the broader framework gates were not selected.
-Write-GateProgress -Stage 'affected-slice-map'
-$sliceTool = Join-Path $PSScriptRoot 'Invoke-AffectedSliceMap.ps1'
-if (-not (Test-Path -LiteralPath $sliceTool -PathType Leaf)) {
-    Add-Row -Gate 'affected-slice-map' -State 'cannot-run' `
-        -Detail 'the affected-slice authority tool is missing'
-} else {
-    Invoke-ToolGate -Gate 'affected-slice-map' -Arguments @('-NoProfile', '-File', $sliceTool, '-Check', '-Quiet')
-}
-
 # The private-stripped trees are a distinct release artifact. Run the cheap
 # deterministic framework gates from THAT framework checkout, not from the
 # developer tree that happened to launch the publisher, and bind the result to
@@ -866,31 +856,84 @@ if ($runFramework -and -not $executeFramework) {
         -Detail 'not executed because the supplied staged tree pair did not match the candidate indexes'
 }
 
+# Translated documents. This one already reads both trees, which is why the
+# project's pt-BR drafts have been drift-checked all along.
+$pool.Add([pscustomobject]@{ Name = 'doc-translation'
+        Arguments = @('-NoProfile', '-File', (Join-Path $PSScriptRoot 'Test-DocTranslation.ps1'), '-ProjectRoot', $ProjectRoot, '-Quiet') })
+
+# Documentation anchors and the public link map, which span both repositories.
+$anchorArgs = @('-NoProfile', '-File', (Join-Path $PSScriptRoot 'Test-RegionAnchors.ps1'),
+    '-ProjectRoot', $ProjectRoot)
+if ($LinkMap) { $anchorArgs += @('-LinkMap', $LinkMap) }
+$pool.Add([pscustomobject]@{ Name = 'region-anchors'; Arguments = $anchorArgs })
+
+# Parse and validate the complete additive project-map contract through its one
+# authoritative tool.  A regex here would silently disagree on quoted keys,
+# nested maps, canonical locale tags, bounds, or source-hash provenance.
+$pool.Add([pscustomobject]@{ Name = 'project-locale-map'
+        Arguments = @('-NoProfile', '-File', (Join-Path $PSScriptRoot 'Invoke-ProjectLocaleMap.ps1'), '-ProjectRoot', $ProjectRoot, '-Quiet') })
+
+# Exact bytes, not ReadAllText's forgiving default. The recorded inventory is
+# also reverse-checked here so removing one project path cannot shrink the gate.
+$pool.Add([pscustomobject]@{ Name = 'project-utf8'
+        Arguments = @('-NoProfile', '-File', (Join-Path $PSScriptRoot 'Test-ProjectTextEncoding.ps1'), '-ProjectRoot', $ProjectRoot, '-Quiet') })
+
+# Changed-domain mode is useful only if every newly discovered boundary can be
+# attributed to an owned slice.  Run this in all three modes: it is cheap, its
+# output is deterministic, and a stale/missing map must block the seed rather
+# than disappear merely because the broader framework gates were not selected.
+$sliceTool = Join-Path $PSScriptRoot 'Invoke-AffectedSliceMap.ps1'
+if (-not (Test-Path -LiteralPath $sliceTool -PathType Leaf)) {
+    Add-Row -Gate 'affected-slice-map' -State 'cannot-run' `
+        -Detail 'the affected-slice authority tool is missing'
+} else {
+    $pool.Add([pscustomobject]@{ Name = 'affected-slice-map'; Arguments = @('-NoProfile', '-File', $sliceTool, '-Check', '-Quiet') })
+}
+
 if ($executeFramework) {
-    $independentTools = [Collections.Generic.List[object]]::new()
     foreach ($gate in $frameworkGates) {
-        Write-GateProgress -Stage $gate.Name
         $tool = Join-Path $PSScriptRoot $gate.Script
         if (-not (Test-Path -LiteralPath $tool -PathType Leaf)) {
             Add-Row -Gate $gate.Name -State 'cannot-run' -Detail "staged tool is missing: $($gate.Script)"
             continue
         }
-        $gateArguments = @('-NoProfile', '-File', $tool) + @($gate.Args)
-        # These leaves read the frozen candidates and own separate processes.
-        # Keep compilation, inventory, lint workers, and Pester fixtures out of
-        # this pool so nested worker pools and generated-file writers cannot race.
-        if ($gate.Name -in @('js-test', 'go-build', 'accessibility')) {
-            $independentTools.Add([pscustomobject]@{ Name = $gate.Name; Arguments = $gateArguments })
-        } else { Invoke-ToolGate -Gate $gate.Name -Arguments $gateArguments }
+        $pool.Add([pscustomobject]@{ Name = $gate.Name; Arguments = @('-NoProfile', '-File', $tool) + @($gate.Args) })
     }
-    if ($independentTools.Count) {
-        Invoke-ToolGateBatch -Work $independentTools.ToArray() -ThrottleLimit $GateThrottleLimit
-    }
-
+    $focusedTool = Join-Path $PSScriptRoot 'Invoke-FocusedPesterSlice.ps1'
     foreach ($focused in $focusedGates) {
-        Invoke-FocusedPesterGate -Gate $focused.Gate -RelativePath $focused.RelativePath
+        $missing = @($focused.RelativePath | ForEach-Object { Join-Path $RepoRoot $_ } |
+            Where-Object { -not (Test-Path -LiteralPath $_ -PathType Leaf) })
+        if ($missing.Count -gt 0) {
+            Add-Row -Gate $focused.Gate -State 'cannot-run' -Detail ('required test file is missing: ' + ($missing -join ', '))
+            continue
+        }
+        if (-not (Test-Path -LiteralPath $focusedTool -PathType Leaf)) {
+            Add-Row -Gate $focused.Gate -State 'cannot-run' -Detail 'staged tool is missing: Invoke-FocusedPesterSlice.ps1'
+            continue
+        }
+        $pool.Add([pscustomobject]@{ Name = $focused.Gate; Focused = [string[]]$focused.RelativePath
+                Arguments = @('-NoProfile', '-File', $focusedTool, '-RelativePath', (@($focused.RelativePath) -join ';')) })
     }
+}
 
+Write-GateProgress -Stage "$($pool.Count) gates in parallel, at most $GateThrottleLimit at once"
+$poolResults = @(Invoke-ToolGateBatch -Work $pool.ToArray() -ThrottleLimit $GateThrottleLimit -ResultOnly)
+foreach ($item in $pool) {
+    $result = @($poolResults | Where-Object Name -CEQ $item.Name)
+    if ($result.Count -ne 1) {
+        Add-Row -Gate $item.Name -State 'cannot-run' -Detail 'the tool worker did not return exactly one result'
+        continue
+    }
+    $outcome = $result[0]
+    if ($item.PSObject.Properties['Focused']) {
+        Add-FocusedPesterRow -Gate $item.Name -RelativePath $item.Focused -Code $outcome.Code -Output $outcome.Output
+    } else {
+        Add-Row -Gate $item.Name -State $(if ($outcome.Code -eq 0) { 'pass' } elseif ($outcome.Code -eq 2) { 'cannot-run' } else { 'fail' }) `
+            -Detail $outcome.Output -Seconds $outcome.Seconds
+    }
+}
+
+if ($executeFramework) {
     $sliceEvidencePath = Join-Path $RepoRoot 'globalization/generated/affected-slice-map.json'
     $sliceEvidence = $null
     if (Test-Path -LiteralPath $sliceEvidencePath -PathType Leaf) {
@@ -913,6 +956,21 @@ foreach ($na in @(
     if ($executeFramework -and $na.Gate -in @('catalog-compile', 'perf-baseline', 'go-build')) { continue }
     Add-Row -Gate $na.Gate -State 'not-applicable' -Detail $na.Why
 }
+
+# --- REGION: Row order
+# The pool finishes in any order. Rows are reported in the planned gate order;
+# a row outside the plan keeps the place it was added in, after the planned ones.
+$plannedOrder = @{}
+for ($stageNumber = 0; $stageNumber -lt $plannedStages.Count; $stageNumber++) { $plannedOrder[$plannedStages[$stageNumber]] = $stageNumber }
+$rowNumber = 0
+$orderedRows = @($rows | ForEach-Object { [pscustomobject]@{ Row = $_; Added = $rowNumber++ } } |
+    Sort-Object -Property @{ Expression = {
+            $name = [string]$_.Row.Gate
+            if ($name -like 'staged-*-hash') { $name = 'staged-tree-hashes' }
+            if ($plannedOrder.ContainsKey($name)) { $plannedOrder[$name] } else { [int]::MaxValue }
+        } }, Added | ForEach-Object Row)
+$rows.Clear()
+foreach ($orderedRow in $orderedRows) { $rows.Add($orderedRow) }
 
 # One deduplicated list of what to do next, in the order the gates ran, built
 # from the rows themselves so a gate cannot be reported without one. It feeds

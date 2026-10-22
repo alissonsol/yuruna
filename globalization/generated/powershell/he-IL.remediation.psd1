@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.18.2
+.VERSION 2026.10.22
 .GUID 42a7417f-269d-7411-6f6f-5a366471b90c
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -716,5 +716,15 @@
             'trust' = 'internal'
         }
         '       # עוצר אותו באותו אופן שבו הופעל'
+    )
+    'remediation.source_integrity_action_evidence' = 'יש לבדוק את sourceSelections באבחון אימות התצורה ואת מצב המראה; יש להשאיר את אימות החתימה והקומיט פעיל.'
+    'remediation.source_integrity_action_identity' = 'יש להשוות את מזהי המפתחות הרשומים לזהות שייצא בעל שרת הפרוקסי, ולבדוק את האישור החתום ואת ה-SHA שנבחר.'
+    'remediation.source_integrity_rationale' = @(
+        'source_integrity: אימות המקור נכשל. יש לשמור את העותק המותקן ולבדוק את הראיות לפני ניסיון נוסף. '
+        @{
+            'arg' = 'detail'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
     )
 }

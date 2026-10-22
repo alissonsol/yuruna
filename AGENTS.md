@@ -22,6 +22,12 @@ the task changes only one repository. Discover the repositories from the active
 workspace instead of assuming a fixed list or directory layout. Do not start
 changes anywhere until synchronization has succeeded everywhere.
 
+A nested checkout at `project/` inside a workspace-root repository is excluded
+from this preflight unless the task explicitly targets it. Leave an excluded
+checkout untouched; its branch, upstream, or working-tree state does not block
+changes elsewhere, and no operator confirmation is required for this exclusion.
+This exception does not apply to a repository that is itself a workspace root.
+
 1. Inspect each checkout's branch, upstream and `git status --short --branch`.
    Stay on its current branch. If any checkout has uncommitted work, an
    unfinished merge/rebase, no upstream or a detached HEAD, stop and ask the
@@ -91,6 +97,17 @@ Define the success criteria before implementation. State material assumptions
 and tradeoffs, and give a brief plan for multi-step work. Ask for a human
 decision when requirements, scope or architectural intent are unclear rather
 than inventing an answer.
+
+## Do not invent requirements
+
+Implement what the operator asked for. Do not add a new mandatory step,
+precondition, prepared artifact, qualification, approval or gate to an existing
+workflow (building, testing, releasing, publishing, installing or provisioning)
+unless the operator explicitly requested it. A design document, plan or review
+finding that describes such a requirement does not approve enforcing it, and
+work the operator deferred must not become a blocker. When a change seems to
+need a new requirement, propose it with its reason and wait for clear approval
+before implementing it.
 
 ## Keep changes simple and focused
 
@@ -194,7 +211,11 @@ For code changes, run relevant checks during development and the complete
 existing Pester suites required by the affected repositories before declaring
 the work ready, committing or pushing. Include workspace suites that exercise
 changed shared behavior. Use the documented runners and required Pester
-versions; a focused test run alone is not evidence that all tests pass.
+versions; a focused test run alone is not evidence that all tests pass. A
+complete run may count a suite's recorded pass instead of running it again only
+when the documented runner proves that the suite's inputs, toolchain and
+environment are unchanged since that pass; report how many suites it reused. A
+release runs every suite again and reuses no recorded pass.
 
 Never delete or weaken assertions, lower coverage baselines, disable gates or
 add skips just to obtain a passing result. Preserve documented platform skips;

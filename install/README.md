@@ -43,9 +43,39 @@ pwsh install/setup.ps1 -logLevel Debug    # everything the run and its children 
 | **Lab** | A beacon other machines join: shared storage, the caching-proxy-service, the stash, pool-control and download-agent services, this host enrolled, and a `default` pool. |
 
 Storage is one of the questions, not an assumption: **this machine** (local SMB
-shares, the default for standalone), **an existing NAS share** (mounted, never
-created -- set up the share and `networkStorage.*` first), or **none**, which is
+shares, the default for standalone), **existing NAS shares** (mounted, never
+created -- create the shares and their accounts on the NAS first), or **none**, which is
 standalone-only and skips shared storage and the stash service.
+
+NAS setup configures and verifies **both pool and stash storage**. In answer
+files, `storage.networkPath` and `storage.networkUser` retain their existing
+meaning as the pool coordinates; `storage.stashNetworkPath` and
+`storage.stashNetworkUser` name the stash share and account. Omitted values use
+the existing `networkStorage.*` configuration, which the interactive questions
+offer as defaults. Existing local mount paths are preserved; platform defaults
+fill missing paths. A chosen replacement is reported as `previous -> new` before
+the config is written, with the previous file kept as a backup.
+
+Enter keeps the existing default displayed in brackets. A required NAS path
+without a default must be entered; a blank answer repeats that question
+immediately. Supply the actual share and account for each tier. Example paths
+show the syntax; setup does not guess a missing stash location from the pool.
+
+Before starting backend operations, interactive NAS setup asks for each SMB
+account's password with input hidden. Press Enter to retain its stored vault
+credential; an account without a stored credential needs its real NAS password.
+These are separate from the sudo prompt for **your login password** on Ubuntu
+and macOS. Sudo authorization is taken once, up front, only when needed. The
+remaining steps and child scripts do not ask for passwords.
+
+Passwords are never written to the answer file or setup log. For unattended
+`-AnswerFile` runs, populate the SMB vault entries beforehand using
+[the SMB credential instructions](../docs/test-config.md#setting-the-smb-passwords-in-the-vault)
+and authorize sudo with `sudo -v` on Ubuntu or macOS when needed. Missing
+credentials stop the storage step; setup does not invent NAS passwords.
+Required NAS answers must be present in the answer file or existing config.
+Without `-AnswerFile`, redirected or captured input or output stops the run
+when a question cannot reach an operator, rather than selecting an unseen default.
 
 It installs nothing and clones nothing -- it orchestrates the scripts that already
 do each job. Storage is configured **before** the service VMs in both modes,
@@ -61,9 +91,10 @@ Every run -- previews included -- is recorded in
 `test/status/log/setup.<yyyy.MM.dd.HH.mm>.log`: each question, the answer taken
 and whether anyone chose it, each step and its outcome, each child script's
 command line and exit code, and the closing report. The setup names the file at
-start and at end. The child scripts keep printing to the console rather than the
-log, so their prompts stay visible; on Windows the elevated relaunch continues
-the same file.
+start and at end. Child output is captured in per-script logs and folded into
+the run log; child stdin is closed and PowerShell runs noninteractively. The
+questions and credential prompts therefore happen before those scripts start.
+On Windows the elevated relaunch continues the same file.
 
 The log gets all of that whatever `-logLevel` says -- the level decides how much
 also reaches the terminal, and how much the child scripts say there. It is the
@@ -224,7 +255,7 @@ one statement, so a failed check stops it even when the console runs pasted
 lines one at a time:
 
 ```
-& { $ErrorActionPreference='Stop'; $base='https://raw.githubusercontent.com/alissonsol/yuruna/refs/tags/2026.10.18.2'; $t=Join-Path $env:TEMP ('yuruna-install-'+[guid]::NewGuid().ToString('N')); New-Item -ItemType Directory -Force $t|Out-Null
+& { $ErrorActionPreference='Stop'; $base='https://raw.githubusercontent.com/alissonsol/yuruna/refs/tags/2026.10.22'; $t=Join-Path $env:TEMP ('yuruna-install-'+[guid]::NewGuid().ToString('N')); New-Item -ItemType Directory -Force $t|Out-Null
 'install/windows.hyper-v.ps1','install/install.sha256','install/install.sha256.sig','install/keys/yuruna-release-signing.pub.xml'|%{ irm "$base/$_" -OutFile (Join-Path $t (Split-Path $_ -Leaf)) }
 $k=New-Object System.Security.Cryptography.RSACryptoServiceProvider; $k.FromXmlString((Get-Content "$t\yuruna-release-signing.pub.xml" -Raw))
 if(-not $k.VerifyData([IO.File]::ReadAllBytes("$t\install.sha256"),'SHA256',[IO.File]::ReadAllBytes("$t\install.sha256.sig"))){throw 'SIGNATURE INVALID -- do not run'}
@@ -236,7 +267,7 @@ $ErrorActionPreference='Continue'; & "$t\windows.hyper-v.ps1" }
 `S=install/ubuntu.kvm.sh` in the first line:
 
 ```
-BASE='https://raw.githubusercontent.com/alissonsol/yuruna/refs/tags/2026.10.18.2'; S=install/macos.utm.sh
+BASE='https://raw.githubusercontent.com/alissonsol/yuruna/refs/tags/2026.10.22'; S=install/macos.utm.sh
 t=$(mktemp -d); for f in "$S" install/install.sha256 install/install.sha256.sig install/keys/yuruna-release-signing.pub.pem; do curl -fsSL "$BASE/$f" -o "$t/$(basename "$f")" || { echo "DOWNLOAD FAILED: $f -- do not run"; exit 1; }; done
 openssl dgst -sha256 -verify "$t/yuruna-release-signing.pub.pem" -signature "$t/install.sha256.sig" "$t/install.sha256" || { echo 'SIGNATURE INVALID -- do not run'; exit 1; }
 got=$(openssl dgst -sha256 -r "$t/$(basename "$S")" | cut -d' ' -f1); want=$(awk -v p="$S" 'NF == 2 && $2 == p { print $1; n++ } END { if (n != 1) exit 1 }' "$t/install.sha256") || want=''
@@ -270,7 +301,7 @@ slot that `bash -c` gives its script text, so `--refresh` arrives as an
 argument:
 
 ```
-YURUNA_REFRESH=1 /bin/bash -c "$(curl -fsSL 'https://raw.githubusercontent.com/alissonsol/yuruna/refs/tags/2026.10.18.2/install/macos.utm.sh')" _ --refresh
+YURUNA_REFRESH=1 /bin/bash -c "$(curl -fsSL 'https://raw.githubusercontent.com/alissonsol/yuruna/refs/tags/2026.10.22/install/macos.utm.sh')" _ --refresh
 ```
 
 Verified form: run the **macOS UTM / Ubuntu KVM** block under **Verified
@@ -323,6 +354,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.18.1
+Last review: 2026.10.22
 
 Back to [Yuruna](../README.md)

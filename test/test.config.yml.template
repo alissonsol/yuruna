@@ -8,12 +8,9 @@ downloadAgentService:
   # Pre-download the stable image families for the host types the aggregator
   # reports, instead of waiting for a host to ask for one.
   autoSeed: true
-  # enabled: whether setup brings up the agent's VM. Deliberately UNSTATED
-  # here: unstated resolves by mode -- a lab runs the agent (sharing images
-  # across the pool's hosts is its whole point), a standalone host does not
-  # (the memory goes to its test guests instead; start it by hand with
-  # test/service/Start-DownloadAgentServiceVM.ps1 when wanted). State true or false
-  # to override the mode default.
+  # enabled is deliberately unstated: it resolves by mode (a lab runs the agent,
+  # a standalone host does not). State true or false to override that default.
+  # See https://yuruna.link/42b11c32-0006
   # How long an image stays fresh after its last successful origin check.
   freshnessSeconds: 86400
   # The scanner refreshes anything whose freshness expires within this window.
@@ -58,6 +55,17 @@ pool:
 repositories:
   frameworkUrl: https://github.com/alissonsol/yuruna
   ghToken: ""
+  mirror:
+    # prefer tries an enrolled LAN mirror before GitHub; fallback tries GitHub
+    # first; off uses the configured origin directly. No keys means no mirror.
+    mode: prefer
+    # Outage use requires an authenticated, retained pin. Zero disables it.
+    mirrorOnlyMaxAgeSeconds: 604800
+    # Empty derives http://<discovered caching proxy> without changing this file.
+    url: ""
+    # Single-line base64 DER SubjectPublicKeyInfo; enroll through an operator
+    # channel. A mirror response or pool overlay never enrolls a key.
+    verificationPublicKeys: []
   projectUrl: https://github.com/alissonsol/yuruna-project
 statusService:
   enabled: true
@@ -81,12 +89,8 @@ testCycle:
     enabled: true
     failuresToQuarantine: 3
     skipCycles: 5
-  # Lab-health gate: hold the cycle at the next step boundary when a lab service
-  # that WAS answering stops answering, and resume on its own when it returns.
-  # The probe set is derived from every extension area's declared healthPort, so
-  # nothing is listed here. A service this host has never reached never holds --
-  # that is not a change of condition, and the caller's own pre-flight gives a
-  # faster answer about a service that was never there.
+  # Lab-health gate: hold the cycle while a lab service that was answering is away.
+  # See https://yuruna.link/42b11c32-000e
   labHealth:
     enabled: true
     # Verdict freshness for a service the gate is watching. Below this age the
@@ -118,21 +122,13 @@ testCycle:
   stopOnFailure: false
   # See https://yuruna.link/42d38664-0023
   stepTimeoutSeconds: 3600
-  # Tighter watchdog bound for the runner's PREAMBLE -- process start through host
-  # detection, the caching-proxy gate and its port-map refresh, and the status-service
-  # start, i.e. everything before the first sequence step. None of it is legitimately
-  # slow, so a stall there means the runner is wedged (the case this exists for is a
-  # sudo or credential prompt on the inherited terminal with nobody present), and
-  # waiting out stepTimeoutSeconds means 45 minutes of a green dashboard over an idle
-  # host. Set to 0 to opt out, so stepTimeoutSeconds applies everywhere; raise it
-  # instead if a host has a genuinely slow preamble.
+  # Tighter watchdog bound before the first sequence step; 0 applies
+  # stepTimeoutSeconds everywhere.
+  # See https://yuruna.link/42f909ad-0015
   preambleTimeoutSeconds: 600
-  # Warm-resume checkpointing: on an eligible transient workload failure
-  # (network_timeout / wait_timeout / instrumentation_failure / host_io_blocked),
-  # re-run the failed sequence from its last-good step on the same live VM instead
-  # of tearing the guest down and redoing the whole install. Up to maxAttempts
-  # in-place tries; on exhaustion it falls back to the normal teardown + cold
-  # re-provision. Emits a warm_resume event.
+  # Warm-resume checkpointing: retry an eligible transient workload failure in
+  # place on the same live VM, up to maxAttempts, before a cold re-provision.
+  # See https://yuruna.link/42820e91-000f
   warmResume:
     enabled: true
     maxAttempts: 2
@@ -156,13 +152,12 @@ vmImage:
   refreshSeconds: 604800
 vmStart:
   bootDelaySeconds: 15
+  # Seed-time setting; rebuild the caching-proxy VM to apply a changed interval.
+  cachingProxyGitMirrorRefreshSeconds: 60
   cachingProxyIp: ""
-  # A zot release the caching-proxy-service build installs instead of the one
-  # this Yuruna release pins, for when the pinned release cannot sync the lab's
-  # images (the cache's /cache-health says so). Set both or neither: the tag
-  # (for example v2.1.21) and the SHA-256 of zot-linux-amd64, or zot-linux-arm64
-  # on an ARM64 host, from that release's checksums.sha256.txt. Rebuild the
-  # cache to apply.
+  # A zot release to install instead of the pinned one. Set both the tag and its
+  # SHA-256 or neither, then rebuild the cache to apply.
+  # See https://yuruna.link/42f6b05f-0056
   cachingProxyZotSha256: ""
   cachingProxyZotVersion: ""
   startTimeoutSeconds: 120

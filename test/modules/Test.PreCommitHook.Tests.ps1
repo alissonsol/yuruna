@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.18.2
+.VERSION 2026.10.22
 .GUID 42cf4f7f-3c33-488c-8cc6-1cb70b8f8836
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -66,12 +66,21 @@ function Invoke-FixtureGit {
     return @($output | ForEach-Object { [string]$_ })
 }
 
-# A stub records its name and arguments, then does what its behavior says.
+# A stub records its name and arguments, then does what its behavior says. The
+# hook starts its read-only gates together, so each record is appended under an
+# exclusive open, which another stub's append waits out instead of interleaving.
 function Get-StubText {
     param([Parameter(Mandatory)][string]$Name, [string]$Behavior = 'exit 0')
     return @"
 `$record = [ordered]@{ tool = '$Name'; args = @(`$args | ForEach-Object { [string]`$_ }) }
-[IO.File]::AppendAllText(`$env:YURUNA_HOOK_TEST_LOG, (ConvertTo-Json -InputObject `$record -Compress) + "``n")
+`$line = [Text.Encoding]::UTF8.GetBytes((ConvertTo-Json -InputObject `$record -Compress) + "``n")
+for (`$try = 0; `$try -lt 250; `$try++) {
+    try {
+        `$log = [IO.File]::Open(`$env:YURUNA_HOOK_TEST_LOG, [IO.FileMode]::Append, [IO.FileAccess]::Write, [IO.FileShare]::None)
+        try { `$log.Write(`$line, 0, `$line.Length) } finally { `$log.Dispose() }
+        break
+    } catch [IO.IOException] { Start-Sleep -Milliseconds 20 }
+}
 `$root = Split-Path -Parent (Split-Path -Parent `$PSCommandPath)
 `$base = Split-Path -Parent `$root
 $Behavior
@@ -450,6 +459,36 @@ exit 0
         $run = Invoke-HookCommit -Fixture $fixture
         $run.Code | Should -Be 0 -Because $run.Text
         $run.Text | Should -Match 'WARNING: a private test file changed without re-recording'
+    }
+
+    It 'warns, without blocking, when a staged file would publish the private repository name' {
+        $fixture = New-HookRepository -Name 'private-name-leak'
+        Write-FixtureFile -Path (Join-Path $fixture.Root 'dev-only/tools/Test-PrivateNameLeak.ps1') `
+            -Text (Get-StubText -Name 'Test-PrivateNameLeak' -Behavior "Write-Output 'LEAK  test/modules/Test.Leaky.psm1'`nexit 1")
+        Write-FixtureFile -Path (Join-Path $fixture.Root 'README.md') -Text "# Fixture, edited`n"
+        $null = Invoke-FixtureGit -Repository $fixture.Root -Argument @('add', '--', 'README.md')
+        $head = Invoke-FixtureGit -Repository $fixture.Root -Argument @('rev-parse', 'HEAD')
+        $run = Invoke-HookCommit -Fixture $fixture
+        $run.Code | Should -Be 0 -Because $run.Text
+        Invoke-FixtureGit -Repository $fixture.Root -Argument @('rev-parse', 'HEAD') | Should -Not -Be $head
+        $run.Text | Should -Match 'LEAK  test/modules/Test\.Leaky\.psm1'
+        $run.Text | Should -Match 'WARNING: the next release would refuse the file\(s\) above'
+        $call = @($run.Calls | Where-Object { $_.tool -eq 'Test-PrivateNameLeak' })
+        $call.Count | Should -Be 1
+        @($call[0].args) | Should -Be @('-Quiet')
+        # It runs with the read-only gates, ahead of the passes that write.
+        [Array]::IndexOf($run.Tools, 'Test-PrivateNameLeak') | Should -BeLessThan ([Array]::IndexOf($run.Tools, 'Invoke-DomainInventory'))
+    }
+
+    It 'says nothing about the private repository name when no staged file would publish it' {
+        $fixture = New-HookRepository -Name 'private-name-clean'
+        Write-FixtureFile -Path (Join-Path $fixture.Root 'dev-only/tools/Test-PrivateNameLeak.ps1') -Text (Get-StubText -Name 'Test-PrivateNameLeak')
+        Write-FixtureFile -Path (Join-Path $fixture.Root 'README.md') -Text "# Fixture, edited`n"
+        $null = Invoke-FixtureGit -Repository $fixture.Root -Argument @('add', '--', 'README.md')
+        $run = Invoke-HookCommit -Fixture $fixture
+        $run.Code | Should -Be 0 -Because $run.Text
+        $run.Tools | Should -Contain 'Test-PrivateNameLeak'
+        $run.Text | Should -Not -Match 'next release would refuse'
     }
 
     It 'refuses a test commit from a host without Pester 6.x, and names the install command' {

@@ -1,0 +1,36 @@
+# LICENSEURI https://yuruna.link/license
+# Copyright (c) 2019-2026 by Alisson Sol et al.
+[Unit]
+Description=Yuruna read-only Git mirror file service
+After=git-mirror-worker.service
+Wants=git-mirror-worker.service
+
+[Service]
+Type=simple
+User=yuruna-git-reader
+Group=yuruna-git-readers
+UMask=0027
+ExecStart=/usr/local/bin/caching-proxy-service --mirror-role=reader --http-addr=127.0.0.1:9311
+Restart=on-failure
+RestartSec=5
+KillMode=control-group
+TimeoutStopSec=10
+ProtectSystem=strict
+ReadOnlyPaths=/var/lib/yuruna/git
+ReadWritePaths=/run/yuruna/git-mirror-readers
+InaccessiblePaths=-/etc/yuruna/git-mirror/credentials -/etc/yuruna/git-mirror/signing-key.pem -/run/yuruna/git-mirror
+NoNewPrivileges=true
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+LockPersonality=true
+MemoryDenyWriteExecute=true
+RestrictRealtime=true
+SystemCallArchitectures=native
+
+[Install]
+WantedBy=multi-user.target

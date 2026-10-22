@@ -3,6 +3,52 @@
   "domain": "runner",
   "locale": "en-US",
   "messages": {
+    "runner.git_mirror_token_prepare": {
+      "message": "Ask for an optional GitHub token and store an explicitly supplied value",
+      "description": "Confirmation action before optional interactive GitHub token input. The token itself is never included.",
+      "lifecycle": "active",
+      "placeholders": {}
+    },
+    "runner.git_mirror_token_notice": {
+      "message": "A GitHub token is optional. Press Enter to keep the current authentication. Supplying a token rebuilds the caching proxy to apply it, even if this host already stores the same token. Rebuilding takes about 15 minutes and discards the warm cache. Input is hidden.",
+      "description": "Shown before secure optional input so supplying a token includes informed consent to the rebuild needed to apply it.",
+      "lifecycle": "active",
+      "placeholders": {}
+    },
+    "runner.git_mirror_token_prompt": {
+      "message": "Optional GitHub token (Enter keeps current authentication)",
+      "description": "Secure input prompt. Enter preserves stored authentication or anonymous access; never echo the supplied token.",
+      "lifecycle": "active",
+      "placeholders": {}
+    },
+    "runner.git_mirror_token_invalid": {
+      "message": "The GitHub token contains unsupported characters. Nothing was stored. Run again and paste only the token, or press Enter to keep the current authentication.",
+      "description": "Sanitized rejection of malformed optional token input. Never include any part of the supplied value.",
+      "lifecycle": "active",
+      "placeholders": {}
+    },
+    "runner.git_mirror_token_provider_failed": {
+      "message": "Could not configure the optional GitHub token. Check the authentication provider and vault permissions, then run again. The proxy must not be rebuilt until token configuration succeeds.",
+      "description": "Sanitized provider failure before service teardown; provider exceptions may contain the token and must not be interpolated.",
+      "lifecycle": "active",
+      "placeholders": {}
+    },
+    "runner.git_mirror_token_replace_stored": {
+      "message": "github-mirror-token ({vaultKey}): (stored token) -> (operator-supplied token). The previous value remains recoverable in the vault's previousPassword field.",
+      "description": "Masked replacement report emitted before a vault write. The key identifies the entry; token values must never appear.",
+      "lifecycle": "active",
+      "placeholders": {
+        "vaultKey": { "type": "identifier", "trust": "external", "example": "github-mirror-token" }
+      }
+    },
+    "runner.git_mirror_token_store_new": {
+      "message": "github-mirror-token ({vaultKey}): (no stored token) -> (operator-supplied token).",
+      "description": "Masked creation report emitted before a vault write. The key identifies the entry; token values must never appear.",
+      "lifecycle": "active",
+      "placeholders": {
+        "vaultKey": { "type": "identifier", "trust": "external", "example": "github-mirror-token" }
+      }
+    },
     "runner.config_gate_attempt_failed": {
       "message": "The runner attempt exited {exitCode} because configuration validation failed. No new test cycle started. Correct the configuration before retrying.",
       "description": "Runner attempt failure notification; configuration rejection precedes a new test cycle.",

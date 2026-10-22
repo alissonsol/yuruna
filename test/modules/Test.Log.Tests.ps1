@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.18.2
+.VERSION 2026.10.22
 .GUID 4246d32b-8525-4736-8ed7-b3883787ca97
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -453,5 +453,128 @@ Describe 'Add-OcrHistoryFrame keeps the earliest frames of a guest' {
         }
         $relative | Should -Be 'vm-01/failed_step1-attempt1'
         Test-Path (Join-Path $cycle 'vm-01/failed_step1-attempt1/earliest/raw_001.png') | Should -BeTrue
+    }
+    It 'retains VM observations when no screenshot was available' {
+        $cycle = Join-Path $TestDrive 'diagnostic-only'
+        $relative = Invoke-InCycleFolder -CycleFolder $cycle -LogDir (Join-Path $TestDrive 'diagnostic-log') -Action {
+            Save-StepFailureEvidence -VMName 'vm-01' -Label 'step2-attempt1' -Confirm:$false -DiagnosticRecord @{
+                vmName = 'vm-01'; hostType = 'host.ubuntu.kvm'; architecture = 'Arm64'; vmState = 'running'; unrelatedSecret = 'fixture-secret-value'
+                consoleSecondOpinion = @{ Verdict = 'guest-wedged'; QemuPid = 12; CpuPercent = 782; FramesChanged = $false; unrelatedSecret = 'fixture-secret-value' }
+            }
+        }
+        $relative | Should -Be 'vm-01/failed_step2-attempt1'
+        $record = Get-Content -Raw -LiteralPath (Join-Path $cycle "$relative/vm-diagnostics.json") | ConvertFrom-Json
+        $record.vmName | Should -Be 'vm-01'
+        $record.hostType | Should -Be 'host.ubuntu.kvm'
+        $record.architecture | Should -Be 'Arm64'
+        $record.vmState | Should -Be 'running'
+        $record.consoleSecondOpinion.Verdict | Should -Be 'guest-wedged'
+        $record.consoleSecondOpinion.FramesChanged | Should -BeFalse
+        (Get-Content -Raw -LiteralPath (Join-Path $cycle "$relative/vm-diagnostics.json")) | Should -Not -Match 'fixture-secret-value|unrelatedSecret'
+    }
+    It 'captures bounded UTM control evidence beside the failed attempt before returning it' {
+        . (Get-Module Test.Log) {
+            function New-YurunaDeadline {
+                [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+                    Justification = 'Test stub: returns an in-memory deadline marker; no external state.')]
+                param($TotalMilliseconds)
+                @{ Budget = $TotalMilliseconds }
+            }
+            function Save-UtmControlSnapshot {
+                [CmdletBinding(SupportsShouldProcess)]
+                param($OutputDirectory, $Trigger, $VMName, $LogTimeoutSeconds, $LogWindowMinutes, $Deadline, [switch]$SkipScreenshot)
+                $null = $PSCmdlet.ShouldProcess($OutputDirectory, 'Fixture snapshot')
+                $script:SnapshotArguments = @{ Directory = $OutputDirectory; Trigger = $Trigger; VMName = $VMName; LogTimeout = $LogTimeoutSeconds; LogWindow = $LogWindowMinutes; Budget = $Deadline.Budget; SkipScreenshot = [bool]$SkipScreenshot }
+                [IO.File]::WriteAllText((Join-Path $OutputDirectory 'utm-control-snapshot.startup-timeout.json'), '{"captured":true}')
+                [pscustomobject]@{ Written = $true; Reason = 'written'; Path = (Join-Path $OutputDirectory 'utm-control-snapshot.startup-timeout.json') }
+            }
+        }
+        $cycle = Join-Path $TestDrive 'utm-diagnostic'
+        $relative = Invoke-InCycleFolder -CycleFolder $cycle -LogDir (Join-Path $TestDrive 'utm-log') -Action {
+            Save-StepFailureEvidence -VMName 'vm-01' -Label 'step2-attempt1' -Confirm:$false -DiagnosticRecord @{
+                vmName = 'vm-01'; hostType = 'host.macos.utm'; architecture = 'Arm64'; vmState = 'running'; captureStartupSnapshot = $true
+                consoleSecondOpinion = @{ Verdict = 'guest-wedged'; CpuPercent = 782 }
+            }
+        }
+        $arguments = & (Get-Module Test.Log) { $script:SnapshotArguments }
+        $arguments.VMName | Should -Be 'vm-01'
+        $arguments.Trigger | Should -Be 'startup-timeout'
+        $arguments.LogTimeout | Should -Be 10
+        $arguments.LogWindow | Should -Be 60 -Because 'the first startup wait can exceed forty minutes before evidence is collected'
+        $arguments.Budget | Should -Be 30000
+        $arguments.SkipScreenshot | Should -BeTrue -Because 'the native screenshot API does not consume the shared deadline'
+        Test-Path (Join-Path $cycle "$relative/utm-control-snapshot.startup-timeout.json") | Should -BeTrue
+        $record = Get-Content -Raw -LiteralPath (Join-Path $cycle "$relative/vm-diagnostics.json") | ConvertFrom-Json
+        $record.controlSnapshot.written | Should -BeTrue
+    }
+    It 'keeps the observation record when optional native evidence capture fails' {
+        . (Get-Module Test.Log) {
+            function Save-UtmControlSnapshot {
+                [CmdletBinding(SupportsShouldProcess)]
+                param($OutputDirectory, $Trigger, $VMName, $LogTimeoutSeconds, $LogWindowMinutes, $Deadline, [switch]$SkipScreenshot)
+                $null = @($OutputDirectory, $Trigger, $VMName, $LogTimeoutSeconds, $LogWindowMinutes, $Deadline, $SkipScreenshot)
+                $null = $PSCmdlet.ShouldProcess('fixture', 'Snapshot failure')
+                throw 'fixture diagnostic failure'
+            }
+        }
+        $cycle = Join-Path $TestDrive 'utm-diagnostic-failure'
+        $relative = Invoke-InCycleFolder -CycleFolder $cycle -LogDir (Join-Path $TestDrive 'utm-failed-log') -Action {
+            Save-StepFailureEvidence -VMName 'vm-01' -Label 'step2-attempt1' -Confirm:$false -DiagnosticRecord @{
+                vmName = 'vm-01'; hostType = 'host.macos.utm'; captureStartupSnapshot = $true; consoleSecondOpinion = @{ Verdict = 'guest-wedged' }
+            }
+        }
+        $relative | Should -Be 'vm-01/failed_step2-attempt1'
+        $record = Get-Content -Raw -LiteralPath (Join-Path $cycle "$relative/vm-diagnostics.json") | ConvertFrom-Json
+        $record.consoleSecondOpinion.Verdict | Should -Be 'guest-wedged'
+        $record.controlSnapshot.written | Should -BeFalse
+        $record.controlSnapshot.reason | Should -Match 'fixture diagnostic failure'
+    }
+    It 'does not collect native evidence or write files during WhatIf' {
+        . (Get-Module Test.Log) {
+            $script:SnapshotArguments = $null
+            function Save-UtmControlSnapshot {
+                [CmdletBinding(SupportsShouldProcess)]
+                param()
+                $null = $PSCmdlet.ShouldProcess('fixture', 'Forbidden preview snapshot')
+                throw 'WhatIf must not invoke this capability'
+            }
+        }
+        $cycle = Join-Path $TestDrive 'diagnostic-preview'
+        $relative = Invoke-InCycleFolder -CycleFolder $cycle -LogDir (Join-Path $TestDrive 'preview-log') -Action {
+            Save-StepFailureEvidence -VMName 'vm-01' -Label 'step2-attempt1' -WhatIf -DiagnosticRecord @{ vmName = 'vm-01'; hostType = 'host.macos.utm'; captureStartupSnapshot = $true }
+        }
+        $relative | Should -BeNullOrEmpty
+        Test-Path $cycle | Should -BeFalse
+        & (Get-Module Test.Log) { $script:SnapshotArguments } | Should -BeNullOrEmpty
+    }
+    It 'retains an ordinary wait observation without collecting startup-only native evidence' {
+        . (Get-Module Test.Log) {
+            $script:OrdinarySnapshotCalls = 0
+            function New-YurunaDeadline {
+                [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+                    Justification = 'Test stub: returns an in-memory deadline marker; no external state.')]
+                param($TotalMilliseconds)
+                @{ Budget = $TotalMilliseconds }
+            }
+            function Save-UtmControlSnapshot {
+                [CmdletBinding(SupportsShouldProcess)]
+                param($OutputDirectory, $Trigger, $VMName, $LogTimeoutSeconds, $Deadline)
+                $null = @($Trigger, $VMName, $LogTimeoutSeconds, $Deadline)
+                $null = $PSCmdlet.ShouldProcess($OutputDirectory, 'Fixture snapshot')
+                $script:OrdinarySnapshotCalls++
+                [pscustomobject]@{ Written = $true; Reason = 'written'; Path = 'fixture-native.json' }
+            }
+        }
+        $cycle = Join-Path $TestDrive 'ordinary-wait'
+        $relative = Invoke-InCycleFolder -CycleFolder $cycle -LogDir (Join-Path $TestDrive 'ordinary-log') -Action {
+            Save-StepFailureEvidence -VMName 'vm-01' -Label 'step8-attempt1' -Confirm:$false -DiagnosticRecord @{
+                vmName = 'vm-01'; hostType = 'host.macos.utm'; consoleSecondOpinion = @{ Verdict = 'guest-wedged' }
+            }
+        }
+        $relative | Should -Be 'vm-01/failed_step8-attempt1'
+        $record = Get-Content -Raw -LiteralPath (Join-Path $cycle "$relative/vm-diagnostics.json") | ConvertFrom-Json
+        $record.consoleSecondOpinion.Verdict | Should -Be 'guest-wedged'
+        & (Get-Module Test.Log) { $script:OrdinarySnapshotCalls } | Should -Be 0
+        $record.controlSnapshot | Should -BeNullOrEmpty
     }
 }

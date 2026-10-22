@@ -290,7 +290,7 @@ $defs:
             maxAttempts: { type: integer, minimum: 1 }
             restartVmBeforeRetry:
               type: string
-              enum: [arm64HyperVColdPowerCycle, arm64HyperVInstallerBoot]
+              enum: [coldPowerCycle, arm64HyperVColdPowerCycle, arm64HyperVInstallerBoot]
             stepsAfterVmRestart:
               type: array
               minItems: 1

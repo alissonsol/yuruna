@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.18.2
+.VERSION 2026.10.22
 .GUID 422de2af-9e3f-4bca-8c35-df0040af74c0
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -180,8 +180,9 @@ if ($isNested) {
     Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_2ec80e33b40cafb3' -Arguments @{ cycleStartUtc = "$($cycleCtx.cycleStartUtc)"; parentId = "$($cycleCtx.parentId)" })
 }
 
-# --- REGION: logLevel resolution: cmdline > YAML > 'Information'
-# Canonical cascade: Test.LogLevel.psm1. See docs/loglevels.md.
+# --- REGION: Log level
+# Precedence: command line, then test.config.yml, then 'Information'.
+# See https://yuruna.link/42162449-0003
 # Reset + repopulate the sequence-action / host-I/O registries so a
 # stale extension registered earlier in the same shell cannot shadow
 # a renamed verb today. Rationale + ordering live in Test.Prelude.
@@ -326,6 +327,7 @@ if (-not $SequencePath) {
 
 if (-not (Assert-HostConditionSet -HostType $HostType)) { exit $ExitFailure }
 
+# --- REGION: Bootstrap runtime + log dirs
 # Test.YurunaDir / Test.OcrEngine / Test.Tesseract were
 # imported by Initialize-YurunaEntryPointModuleSet above.
 $null = Initialize-YurunaRuntimeDir

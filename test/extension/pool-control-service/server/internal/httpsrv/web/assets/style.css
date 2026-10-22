@@ -452,6 +452,22 @@ progress { vertical-align: middle; width: 12rem; max-width: 40vw; }
    pending fetch away and starts the same wait over. */
 .loading { display: flex; align-items: center; justify-content: center; padding: 2rem 1rem; color: var(--muted); }
 .loading .loading-text { margin-inline-start: .6rem; font-size: .95rem; }
+/* A pool-wide command keeps the whole page unavailable through its readback.
+   The panel is visible immediately so its initial focus can land. The Lab-token
+   dialog (20) remains usable when authentication is needed to send the command. */
+.blocking {
+  position: fixed; top: 0; inset-inline-end: 0; bottom: 0; inset-inline-start: 0;
+  z-index: 18; display: flex; align-items: center; justify-content: center;
+  padding: 1rem; background: rgba(17, 24, 39, .45);
+}
+.blocking, .blocking * { cursor: wait; }
+.blocking-box {
+  display: flex; align-items: center; max-width: 100%;
+  padding: .9rem 1.2rem; border-radius: 10px;
+  background: var(--bg); color: var(--fg); border: 1px solid var(--line);
+  box-shadow: 0 10px 28px rgba(0,0,0,.35);
+}
+.blocking-text { margin-inline-start: .6rem; font-size: .95rem; }
 /* A ring with one colored quarter: it is the rotation that reads as motion, so
    the ring must be visibly incomplete. flex-shrink keeps it circular when the
    message beside it is long enough to compete for the row. */

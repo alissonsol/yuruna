@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.18.2
+.VERSION 2026.10.22
 .GUID 42c69a51-1c69-4dba-ad62-2dda7b368e9c
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -150,7 +150,9 @@ function Write-Fail {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)][string]$Message,
-        [string]$FullPath
+        [string]$FullPath,
+        [string]$Cause,
+        [string]$Class
     )
     Write-Output "  [FAIL] $Message"
     $script:State.FailCount++
@@ -158,6 +160,8 @@ function Write-Fail {
         Section  = $script:State.CurrentSection
         Message  = $Message
         FullPath = $FullPath
+        Cause    = $Cause
+        Class    = $Class
     })
 }
 
@@ -241,6 +245,8 @@ function Write-FailureSidecar {
                     section  = [string]$f.Section
                     message  = [string]$f.Message
                     fullPath = [string]$f.FullPath
+                    cause    = [string]$f.Cause
+                    class    = [string]$f.Class
                     warnings = @(
                         if ($f.Section -and $script:State.WarningsBySection.Contains($f.Section)) {
                             $script:State.WarningsBySection[$f.Section] | ForEach-Object { [string]$_ }

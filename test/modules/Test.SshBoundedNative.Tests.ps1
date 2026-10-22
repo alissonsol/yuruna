@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.18.2
+.VERSION 2026.10.22
 .GUID 42f71118-c871-4ce5-99f5-744301324e82
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -24,6 +24,25 @@ BeforeAll {
 }
 
 Describe 'Native SSH subprocess lifecycle' {
+    It 'removes selected child variables before explicit overrides without changing the parent' {
+        $names = @('YURUNA_NATIVE_REMOVE', 'YURUNA_NATIVE_OVERRIDE', 'YURUNA_NATIVE_KEEP')
+        $saved = @{}; foreach ($name in $names) { $saved[$name] = [Environment]::GetEnvironmentVariable($name) }
+        try {
+            foreach ($name in $names) { [Environment]::SetEnvironmentVariable($name, 'parent') }
+            $reader = '[ordered]@{ removedExists=[Environment]::GetEnvironmentVariables().Contains("YURUNA_NATIVE_REMOVE"); removed=[Environment]::GetEnvironmentVariable("YURUNA_NATIVE_REMOVE"); overridden=$env:YURUNA_NATIVE_OVERRIDE; retained=$env:YURUNA_NATIVE_KEEP } | ConvertTo-Json -Compress'
+            $r = Invoke-BoundedNativeCommand -FilePath $script:Pwsh -ArgumentList @('-NoProfile', '-Command', $reader) -TimeoutSeconds 10 `
+                -RemoveEnvironmentVariable @('YURUNA_NATIVE_REMOVE', 'YURUNA_NATIVE_OVERRIDE') -Environment @{ YURUNA_NATIVE_OVERRIDE = 'child' }
+            $r.ExitCode | Should -Be 0
+            (Test-BoundedNativeResultComplete -Result $r) | Should -BeTrue
+            $answer = $r.StdOut | ConvertFrom-Json
+            $answer.removedExists | Should -BeFalse
+            $answer.removed | Should -BeNullOrEmpty
+            $answer.overridden | Should -BeExactly child
+            $answer.retained | Should -BeExactly parent
+            foreach ($name in $names) { [Environment]::GetEnvironmentVariable($name) | Should -BeExactly parent }
+        } finally { foreach ($name in $names) { [Environment]::SetEnvironmentVariable($name, $saved[$name]) } }
+    }
+
     It 'accepts long provisioning budgets without changing successful command completion' {
         $r = Invoke-BoundedNativeCommand -FilePath $script:Pwsh -ArgumentList @('-NoProfile', '-Command', 'exit 0') -TimeoutSeconds 7200
         $r.ExitCode | Should -Be 0

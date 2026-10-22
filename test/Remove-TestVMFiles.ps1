@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.18.2
+.VERSION 2026.10.22
 .GUID 42f7b847-f2dc-43ee-b9f7-f70bdc728c72
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -102,12 +102,9 @@ if ($Prefix.Count -eq 0) {
 }
 
 # --- REGION: Import host modules
-# Test.HostContract is needed for Get-HostType on every platform.
-# -Global is load-bearing: when this script is invoked via the call operator
-# from inside a module (the cycle runner calls it for the VM sweep), a -Force
-# import without -Global pulls Test.HostContract (and its host-contract exports)
-# out of the global table for unrelated modules (the legacy-eviction regression
-# class). -Global keeps the contract globally resolvable for every caller.
+# Test.HostContract is needed for Get-HostType on every platform. -Global keeps
+# the contract resolvable when the cycle runner calls this script from a module.
+# See https://yuruna.link/42aaf735-0006
 $hostModPath = Join-Path $ModulesDir "Test.HostContract.psm1"
 if (-not (Test-Path $hostModPath)) { Write-Error (Format-YurunaOperatorMessage -Key 'runner.operator_b715acbcf9355372' -Arguments @{ hostModPath = "$hostModPath" }); exit 1 }
 Import-Module -Name $hostModPath -Force -Global

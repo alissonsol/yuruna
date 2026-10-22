@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.18.2
+.VERSION 2026.10.22
 .GUID 42f7b3b7-64ca-41c6-96ad-88a15026c482
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -163,8 +163,8 @@ if (-not $agentServed) {
     }
 
     # --- REGION: Retrieve and process the files
-    # Reject checksum mismatches; a publisher that omits a checksum remains a soft pass.
     Remove-Item $downloadFile -Force -ErrorAction SilentlyContinue
+    # Reject checksum mismatches; a publisher that omits a checksum remains a soft pass.
     $checksumLink = ($html.Links | Where-Object { $_.href -match "\.$downloadExtension\.sha256$" } | Select-Object -First 1)
     $checksumUrl = if ($checksumLink) { $sourceUrl + $checksumLink.href } else { $null }
     $downloaded = Save-ImageWithChecksum `

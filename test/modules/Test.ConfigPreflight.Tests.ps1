@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.18.2
+.VERSION 2026.10.22
 .GUID 42871662-c8fc-4b5a-9380-fa9ff5c48ae5
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -228,7 +228,8 @@ Describe 'Invoke-ConfigGate' {
                 warnCount = 1
                 failures  = @(
                     [ordered]@{ section = 'storage'; message = 'poolStorageNetworkPath is not reachable'
-                                fullPath = '/mnt/ypool-nas'; warnings = @('share responded slowly') }
+                                fullPath = '/mnt/ypool-nas'; warnings = @('share responded slowly')
+                                cause = 'git-transport-failed'; class = 'network_timeout' }
                     [ordered]@{ section = 'project'; message = 'projectUrl is empty'; fullPath = ''; warnings = @() }
                 )
             }
@@ -243,6 +244,9 @@ Describe 'Invoke-ConfigGate' {
 
             Assert-Equal -Expected $false -Actual $o.Result.passed
             Assert-Equal -Expected 5 -Actual $o.Result.exitCode
+            $o.Result.structuredResult.failures[0].cause | Should -Be 'git-transport-failed'
+            $o.Result.structuredResult.failures[0].class | Should -Be 'network_timeout'
+            $o.Result.structuredResult.failures[1].class | Should -BeNullOrEmpty
             Assert-True ($o.Text -match 'poolStorageNetworkPath is not reachable') 'the first failure is reported'
             Assert-True ($o.Text -match 'projectUrl is empty') 'the second failure is reported'
             Assert-True ($o.Text -match 'share responded slowly') 'the warning the failure pointed at travels with it'

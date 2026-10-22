@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.18.2
+.VERSION 2026.10.22
 .GUID 422650f8-dbc0-42cf-8dcf-e365f9c7de11
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -113,6 +113,56 @@ Describe 'Guest boot stall evidence' {
             $script:Fail = @{ WaitForTextGuestBootStalled = $true }
             . ([scriptblock]::Create($reset.Extent.Text))
             $script:Fail.WaitForTextGuestBootStalled | Should -BeFalse
+        }
+    }
+}
+
+Describe 'Independent console observations remain available after the timeout' {
+    BeforeAll {
+        $ast = [Management.Automation.Language.Parser]::ParseInput($script:engineText, [ref]$null, [ref]$null)
+        $block = $ast.Find({
+            param($node)
+            $node -is [Management.Automation.Language.IfStatementAst] -and
+                $node.Clauses[0].Item1.Extent.Text -match '^\$consoleRestarts -ge \$maxConsoleRestarts'
+        }, $true)
+        $script:SecondOpinionBlock = [scriptblock]::Create($block.Extent.Text)
+        $script:SecondOpinionResets = @($ast.FindAll({
+            param($node)
+            $node -is [Management.Automation.Language.AssignmentStatementAst] -and
+                $node.Left.Extent.Text -eq '$script:Fail.WaitForTextConsoleSecondOpinion' -and
+                $node.Right.Extent.Text -eq '$null'
+        }, $true))
+    }
+    It 'retains the exact independent observation: <Verdict>' -TestCases @(
+        @{ Verdict = 'guest-wedged' }; @{ Verdict = 'guest-static' }; @{ Verdict = 'guest-live' }; @{ Verdict = 'unavailable' }
+    ) {
+        param($Verdict)
+        $observation = [pscustomobject]@{ Verdict = $Verdict; Detail = 'independent read'; VMName = 'vm-01'; QemuPid = 42; CpuPercent = 782.0; FramesChanged = $false }
+        function Get-VMConsoleSecondOpinion { param($VMName) $null = $VMName; $observation }
+        $consoleRestarts = 2; $maxConsoleRestarts = 2; $VMName = 'vm-01'
+        $script:LastWaitVerdict = @{ ConsoleSignalsMeasured = $false; ConsoleStaticSeconds = 0 }
+        $script:Fail = @{ WaitForTextMatchedFailurePattern = ''; WaitForTextConsoleFlood = '' }
+        $null = @($consoleRestarts, $maxConsoleRestarts, $VMName, $observation)
+        $WarningPreference = 'SilentlyContinue'
+        . $script:SecondOpinionBlock
+        $script:Fail.WaitForTextConsoleSecondOpinion | Should -Be $observation
+        $script:Fail.WaitForTextGuestBootStalled | Should -BeFalse -Because 'tail-confined observations do not authorize a reset'
+    }
+    It 'records a failed diagnostic probe without failing the timeout path' {
+        function Get-VMConsoleSecondOpinion { param($VMName) $null = $VMName; throw 'fixture native probe failed' }
+        $consoleRestarts = 2; $maxConsoleRestarts = 2; $VMName = 'vm-01'
+        $script:Fail = @{}
+        $null = @($consoleRestarts, $maxConsoleRestarts, $VMName)
+        . $script:SecondOpinionBlock
+        $script:Fail.WaitForTextConsoleSecondOpinion.Verdict | Should -Be 'unavailable'
+        $script:Fail.WaitForTextConsoleSecondOpinion.Detail | Should -Match 'fixture native probe failed'
+    }
+    It 'clears independent observations at both wait and step boundaries' {
+        $script:SecondOpinionResets.Count | Should -Be 2
+        foreach ($reset in $script:SecondOpinionResets) {
+            $script:Fail = @{ WaitForTextConsoleSecondOpinion = @{ Verdict = 'guest-wedged' } }
+            . ([scriptblock]::Create($reset.Extent.Text))
+            $script:Fail.WaitForTextConsoleSecondOpinion | Should -BeNullOrEmpty
         }
     }
 }

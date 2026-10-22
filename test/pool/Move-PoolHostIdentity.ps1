@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.18.2
+.VERSION 2026.10.22
 .GUID 42b7c714-750f-4b13-9c64-3f688f1db47d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -48,6 +48,9 @@ $ModulesDir = $paths.ModulesDir
 Initialize-YurunaEntryPointModuleSet -For PoolAdmin -ModulesDir $ModulesDir
 $ExitOk = Get-EntryPointExitCode -Outcome Ok
 $ExitFailure = Get-EntryPointExitCode -Outcome Failure
+# The failure paths below pass -ErrorAction Continue: under the strict
+# preference above, a bare Write-Error would itself terminate and skip
+# the clean exit-code path.
 Import-Module powershell-yaml -ErrorAction Stop
 
 # --- REGION: Validate the arguments

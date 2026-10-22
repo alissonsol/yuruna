@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.18.2
+.VERSION 2026.10.22
 .GUID 42904e1e-c247-4036-a38b-fb377e975d26
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -307,10 +307,10 @@ Describe 'agetty periodic redraw -- Ubuntu cold installs keep one wait deadline'
 
         $sequence = Read-SequenceFile -Path $path -NoCache
         $topSteps = @($sequence['steps'])
-        $retry = @($topSteps | Where-Object { $_['action'] -eq 'retry' -and $_['restartVmBeforeRetry'] -eq 'arm64HyperVColdPowerCycle' }) | Select-Object -First 1
+        $retry = @($topSteps | Where-Object { $_['action'] -eq 'retry' -and $_['restartVmBeforeRetry'] -eq 'coldPowerCycle' }) | Select-Object -First 1
         Assert-True ($null -ne $retry) "$name must retain the bounded pre-login retry"
-        Assert-Equal -Expected 'arm64HyperVColdPowerCycle' -Actual ([string]$retry['restartVmBeforeRetry']) `
-            -Because "$name must opt into the measured ARM64 Hyper-V recovery"
+        Assert-Equal -Expected 'coldPowerCycle' -Actual ([string]$retry['restartVmBeforeRetry']) `
+            -Because "$name must opt into bounded recovery on every supported host"
         $restartStep = @($retry['stepsAfterVmRestart'])[0]
         Assert-True ([bool]$restartStep['noSegmentMatch']) "$name must use bounded matching for the restarted login check too"
         Assert-Equal -Expected 'waitForAndEnter' -Actual ([string]$restartStep['action']) `
@@ -449,8 +449,8 @@ Describe 'credential rotation -- persist only after a confirmed shell login' {
             $postRetry = $postProvisionRetries[0].Step
             Assert-Equal -Expected 3 -Actual ([int]$postRetry['maxAttempts']) `
                 -Because "$name must bound post-provision boot recovery"
-            Assert-Equal -Expected 'arm64HyperVColdPowerCycle' -Actual ([string]$postRetry['restartVmBeforeRetry']) `
-                -Because "$name must scope post-provision recovery to the measured ARM64 Hyper-V mode"
+            Assert-Equal -Expected 'coldPowerCycle' -Actual ([string]$postRetry['restartVmBeforeRetry']) `
+                -Because "$name must recover post-provision startup on every supported host"
             Assert-Equal -Expected 'waitForSeconds' -Actual (@($postRetry['stepsAfterVmRestart'] | ForEach-Object { [string]$_['action'] }) -join ',') `
                 -Because "$name must only settle the console after a post-provision cold restart"
             Assert-Equal -Expected 'waitForTextWithNudge' -Actual (@($postRetry['steps'] | ForEach-Object { [string]$_['action'] }) -join ',') `

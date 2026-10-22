@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.18.2
+.VERSION 2026.10.22
 .GUID 4202eb15-d68a-475f-9f7f-9e84da9b500a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -251,6 +251,125 @@ if (Test-Path -LiteralPath $gitAskpassShim -PathType Leaf) {
 
 # --- REGION: Materialize the yuruna framework and project repos
 # See https://yuruna.link/42e220c4-000e
+function Invoke-GuestPinnedFramework {
+    <#
+    .SYNOPSIS
+        Materialize one trusted framework commit through the LAN or its origin.
+    #>
+    [CmdletBinding(SupportsShouldProcess)]
+    [OutputType([bool])]
+    param(
+        [Parameter(Mandatory)][string]$Destination,
+        [Parameter(Mandatory)][string]$Repository,
+        [Parameter(Mandatory)][string]$Revision,
+        [string]$MirrorIp = ''
+    )
+    if ($Repository -cnotmatch '^[A-Za-z0-9_-][A-Za-z0-9_.-]*/[A-Za-z0-9_-][A-Za-z0-9_.-]*$' -or
+        $Revision -cnotmatch '^[0-9a-f]{40}$' -or (Test-Path -LiteralPath $Destination)) { return $false }
+    if (-not $PSCmdlet.ShouldProcess($Destination, 'Materialize the selected framework commit')) { return $false }
+    $stage = "$Destination.fetch.$([Guid]::NewGuid().ToString('N'))"
+    $origin = "https://github.com/$Repository.git"
+    $sources = @()
+    if ($MirrorIp -cmatch '^[A-Za-z0-9][A-Za-z0-9.-]*$') { $sources += @{ Url = "http://$MirrorIp/git/$Repository.git"; Name = 'lan-mirror' } }
+    $sources += @{ Url = $origin; Name = 'github' }
+    try {
+        foreach ($source in $sources) {
+            if (Test-Path -LiteralPath $stage) { Remove-Item -LiteralPath $stage -Recurse -Force }
+            $null = New-Item -ItemType Directory -Path $stage
+            $deadline = [DateTimeOffset]::UtcNow.AddSeconds(120)
+            $complete = $true
+            foreach ($arguments in @(
+                    ,@('init', '--quiet', $stage)
+                    ,@('-C', $stage, 'fetch', '--quiet', '--depth', '1', '--no-tags', '--', $source.Url, $Revision)
+                    ,@('-C', $stage, 'checkout', '--quiet', '--detach', 'FETCH_HEAD')
+                )) {
+                if (-not (Invoke-GuestPinnedGitCommand -Arguments $arguments -Mirror:($source.Name -eq 'lan-mirror') -Deadline $deadline)) { $complete = $false; break }
+            }
+            if (-not $complete) { continue }
+            $actual = @(& git -C $stage rev-parse HEAD 2>$null)
+            $version = Join-Path $stage VERSION
+            if ($LASTEXITCODE -ne 0 -or ($actual -join '').Trim() -cne $Revision -or
+                -not (Test-Path -LiteralPath $version -PathType Leaf) -or (Get-Item -LiteralPath $version).Length -eq 0) { continue }
+            [IO.File]::WriteAllText((Join-Path $stage '.yuruna-revision'), "$Revision`n", [Text.UTF8Encoding]::new($false))
+            [IO.File]::WriteAllText((Join-Path $stage '.yuruna-origin'), "$origin`n", [Text.UTF8Encoding]::new($false))
+            foreach ($relative in @('.git', 'docs', 'dev-only')) {
+                $excluded = Join-Path $stage $relative
+                if (Test-Path -LiteralPath $excluded) { Remove-Item -LiteralPath $excluded -Recurse -Force }
+            }
+            [IO.Directory]::Move($stage, $Destination)
+            Write-Information "yuruna: framework source=$($source.Name) commit=$Revision" -InformationAction Continue
+            return $true
+        }
+    } finally {
+        if (Test-Path -LiteralPath $stage) { Remove-Item -LiteralPath $stage -Recurse -Force -ErrorAction SilentlyContinue }
+    }
+    return $false
+}
+
+function Invoke-GuestPinnedGitCommand {
+    <#
+    .SYNOPSIS
+        Bound a standalone guest Git process without forwarding credentials to the LAN.
+    #>
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param([string[]]$Arguments, [switch]$Mirror, [DateTimeOffset]$Deadline)
+    $remaining = [Math]::Floor(($Deadline - [DateTimeOffset]::UtcNow).TotalMilliseconds)
+    if ($remaining -le 0) { return $false }
+    $start = New-Object Diagnostics.ProcessStartInfo
+    $start.FileName = 'git'; $start.UseShellExecute = $false; $start.CreateNoWindow = $true
+    $start.RedirectStandardInput = $true; $start.RedirectStandardOutput = $true; $start.RedirectStandardError = $true
+    $privateHome = ''
+    $prefix = @('-c', 'http.lowSpeedLimit=1024', '-c', 'http.lowSpeedTime=30')
+    if ($Mirror) {
+        $prefix += @('-c', 'http.proxy=', '-c', 'credential.helper=', '-c', 'http.extraHeader=', '-c', 'http.followRedirects=false')
+        foreach ($name in @($start.EnvironmentVariables.Keys)) {
+            if ($name -like 'GIT_*' -or $name -like '*_PROXY' -or $name -in @('GH_TOKEN', 'GITHUB_TOKEN', 'SSH_ASKPASS')) { $start.EnvironmentVariables.Remove($name) }
+        }
+        $privateHome = Join-Path ([IO.Path]::GetTempPath()) ('yuruna-git-home-' + [Guid]::NewGuid().ToString('N'))
+        $null = New-Item -ItemType Directory -Path $privateHome
+        foreach ($name in @('HOME', 'USERPROFILE', 'XDG_CONFIG_HOME')) { $start.EnvironmentVariables[$name] = $privateHome }
+        $start.EnvironmentVariables['GIT_CONFIG_COUNT'] = '0'
+        $start.EnvironmentVariables['GIT_CONFIG_NOSYSTEM'] = '1'
+        $start.EnvironmentVariables['GIT_CONFIG_GLOBAL'] = '/dev/null'
+        $start.EnvironmentVariables['GIT_CONFIG_SYSTEM'] = '/dev/null'
+        $start.EnvironmentVariables['GIT_ASKPASS'] = ''
+        $start.EnvironmentVariables['SSH_ASKPASS'] = ''
+    }
+    $start.EnvironmentVariables['GIT_TERMINAL_PROMPT'] = '0'
+    $start.EnvironmentVariables['GCM_INTERACTIVE'] = 'never'
+    # ProcessStartInfo.ArgumentList is absent in Windows PowerShell 5.1.
+    # Quote each native argument using Windows' backslash-before-quote rules.
+    $start.Arguments = (($prefix + $Arguments | ForEach-Object {
+        '"' + [regex]::Replace([regex]::Replace($_, '(\\*)"', '$1$1\"'), '(\\+)$', '$1$1') + '"'
+    }) -join ' ')
+    $process = New-Object Diagnostics.Process
+    $process.StartInfo = $start
+    try {
+        if (-not $process.Start()) { return $false }
+        $process.StandardInput.Close()
+        # Discard native output while draining it; a mirror must not grow the
+        # guest's memory or leave it blocked on a descendant's inherited pipe.
+        $stdout = $process.StandardOutput.BaseStream.CopyToAsync([IO.Stream]::Null)
+        $stderr = $process.StandardError.BaseStream.CopyToAsync([IO.Stream]::Null)
+        if (-not $process.WaitForExit([int][Math]::Min(120000, $remaining))) {
+            if ($env:OS -eq 'Windows_NT') { & taskkill.exe /PID $process.Id /T /F *> $null }
+            else { $process.Kill($true) }
+            $null = $process.WaitForExit(5000)
+            return $false
+        }
+        foreach ($drain in @($stdout, $stderr)) {
+            $drainMilliseconds = [int][Math]::Max(0, [Math]::Min(120000, [Math]::Floor(($Deadline - [DateTimeOffset]::UtcNow).TotalMilliseconds)))
+            if (-not $drain.Wait($drainMilliseconds)) { return $false }
+        }
+        return $process.ExitCode -eq 0
+    } catch { return $false }
+    finally {
+        $process.Dispose()
+        if ($privateHome) { Remove-Item -LiteralPath $privateHome -Recurse -Force -ErrorAction SilentlyContinue }
+    }
+}
+
 if (-not (Test-Path -LiteralPath $yurunaRoot -PathType Container)) {
     $hostOk = $false
     if ($env:YURUNA_STATUS_SERVICE_IP -and $env:YURUNA_STATUS_SERVICE_PORT) {
@@ -273,6 +392,12 @@ if (-not (Test-Path -LiteralPath $yurunaRoot -PathType Container)) {
             Write-Output "yuruna: tarball fetch/extract failed - falling back to git clone"
             if (Test-Path -LiteralPath $yurunaRoot) { Remove-Item -LiteralPath $yurunaRoot -Recurse -Force -ErrorAction SilentlyContinue }
         }
+    }
+    $pinnedRepository = if ($env:E_FB_REPO) { $env:E_FB_REPO } else { $env:YURUNA_GITHUB_REPO }
+    $pinnedRevision = if ($env:E_FB_REF) { $env:E_FB_REF } else { $env:YURUNA_GITHUB_REF }
+    if (-not $hostOk -and ($pinnedRepository -or $pinnedRevision)) {
+        $hostOk = Invoke-GuestPinnedFramework -Destination $yurunaRoot -Repository $pinnedRepository -Revision $pinnedRevision -MirrorIp $env:YURUNA_CACHING_PROXY_SERVICE_IP -Confirm:$false
+        if (-not $hostOk) { throw 'The selected framework commit is unavailable; no different revision was installed.' }
     }
     if (-not $hostOk) {
         if (-not $frameworkUrl) {

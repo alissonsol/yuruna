@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.18.2
+.VERSION 2026.10.22
 .GUID 42ab6606-a979-4194-9acd-a8d1c653dace
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -56,7 +56,7 @@ $script:YurunaHostContract = @(
     'Get-BestHostIp', 'Get-GuestReachableHostIp',
     # --- REGION: Caching-proxy service
     'Test-CachingProxyServiceAvailable', 'Get-CachingProxyServiceVmIp',
-    # --- REGION: Host config
+    # --- REGION: Host configuration
     'Set-HostProxy', 'Clear-HostProxy', 'Remove-HostProxy',
     'Get-HostProxyBackupPath', 'Assert-Virtualization',
     # --- REGION: Virtualization repair

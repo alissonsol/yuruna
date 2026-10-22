@@ -1242,7 +1242,8 @@ The three guest-service scripts (download-agent, pool-control and stash) keep
 one pinned order: Confirm the service operation, Initialize service runtime,
 Storage preflight, Resolve the VM builder, Start the host status service,
 Verify the framework source, Create the VM, Configure Shared NAT forwarding,
-Probe service readiness, Evaluate service readiness. The phases around that
+Probe service readiness, Recover the VM address, Evaluate service readiness,
+Publish service readiness, Collect failure diagnostics. The phases around that
 skeleton differ on purpose.
 
 Runtime directory. Download-agent initializes it after the elevation check, so
@@ -1252,10 +1253,8 @@ the VM path checks elevation. Stash initializes it right before the readiness
 probe and treats a failure as non-fatal: the only loss is the marker it would
 have published, so the bring-up does not depend on it.
 
-Address recovery. Download-agent and pool-control evaluate readiness, and on a
-failure recover the guest address and evaluate again. Stash recovers first,
-behind an inline verdict check, and evaluates once. Both orders reach the same
-verdict from the same endpoint record.
+Address recovery. All three probe readiness, recover the guest address behind
+an inline verdict check when the probe failed, and evaluate readiness once.
 
 Success and failure branches. Download-agent and pool-control report the
 deployed source on the success branch and fall through to the failure

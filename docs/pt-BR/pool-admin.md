@@ -98,6 +98,35 @@ página do pool-control service (`http://<pool-control>/`) que faz a mesma alter
 executando o mesmo comando; uma alteração feita lá é desbloqueada com o token do laboratório
 ([Desbloqueio das ações](#4207d71a-0012)), em vez de receber `-ConfigurationGitUrl`.
 
+O proxy de cache monta o armazenamento do grupo com permissão de gravação para
+root e de leitura para o grupo `www-data` (arquivos `0640`, diretórios `0750`).
+As credenciais do NAS permanecem privadas. O Apache serve arquivos Git estáticos,
+portanto os executores usam clones e buscas completos; esse transporte não
+suporta operações superficiais. As reconstruções preservam o repositório de
+configuração existente e suas configurações Git. O
+`yuruna-pool-configuration.timer` repete a preparação a cada minuto após o fim de
+uma execução, inclusive quando o NAS fica disponível depois da inicialização,
+e atualiza os metadados Git estáticos dos repositórios cujos hooks de push não
+podem ser executados no CIFS.
+
+Para diagnosticar o acesso, consulte `http://<proxy>/pool-configuration-status` e
+`http://<proxy>/config-fetch-pool-status`. O primeiro informa o estado do
+armazenamento, do repositório, das permissões de leitura do Apache, das respostas
+HTTP e de uma verificação de clone completo por HTTP; a data e hora indicam a
+última execução. Os erros detalhados dos comandos ficam em
+`journalctl -u yuruna-pool-configuration.service` na VM. O resumo de prontidão
+da inicialização inclui esse resultado. `Test-CachingProxyService.ps1` também
+verifica `HEAD` e `info/refs` do Git a partir do hospedeiro que o executa, para
+que uma resposta HTTP 403 ou uma página HTML não seja confundida com acesso
+funcional ao grupo apenas porque a porta 80 responde. O executor mantém sua
+configuração em cache quando uma busca falha; sem cache, ele executa de forma
+independente e não pode receber alterações do grupo até que o acesso seja
+restabelecido.
+
+Os testes de regressão do serviço são executados em um hospedeiro de
+desenvolvimento Linux com Apache 2, Git, PowerShell, Python 3, curl e jq:
+`python3 -m unittest discover -s host/vmconfig/tests -p test_pool_configuration.py -v`.
+
 <a id="4207d71a-0004"></a>
 
 <a id="step-1----create-the-pool"></a>
@@ -336,19 +365,20 @@ a menos que `-Force` seja usado. Execute-o em um hospedeiro com o compartilhamen
 Uma mensagem do lado do convidado que culpa o proxy de cache -- um pull de imagem
 que não alcançou o cache de registro, um download de pacote que expirou no cache
 web -- tem duas causas que parecem idênticas de dentro do convidado: o proxy está
-fora, ou aquele único convidado perdeu seu caminho até o laboratório. Três
-verificações, nesta ordem, as distinguem. Pare na primeira que responder.
+indisponível, ou aquele convidado perdeu seu caminho até ele. Compare estas três
+verificações ao longo do intervalo da falha; sondagens bem-sucedidas depois
+disso podem não revelar uma falha transitória.
 
 1. **O painel Yuruna hosts, linha *Drill-down: caching proxy*.** Ajuste o intervalo
    de tempo em torno do minuto da falha; o painel *Step failures that name the
    caching proxy* dessa linha lista o evento com sua hora UTC. Blocos de liveness e
    de caminho de pull verdes, a linha de todos os outros convidados ainda presente
-   nos painéis por cliente, e a linha do convidado com falha ausente, é um
-   convidado que perdeu o próprio caminho -- o proxy está inocentado, siga para a
-   verificação 2. Blocos vermelhos, ou todas as linhas de clientes terminando ao
-   mesmo tempo, é o proxy: continue no painel cache-health (o painel da própria VM
-   do proxy) e deixe o convidado em paz. O significado de cada bloco e painel está
-   em [pool-dashboard](https://yuruna.link/422226cb).
+   nos painéis por cliente, e a linha do convidado com falha ausente, apontam para
+   o caminho desse convidado; siga para a verificação 2. Blocos vermelhos, ou todas
+   as linhas de clientes terminando ao mesmo tempo, apontam para uma falha de
+   serviço compartilhado ou de rede: continue no painel cache-health (o painel da
+   própria VM do proxy). O significado de cada bloco e painel está em
+   [pool-dashboard](https://yuruna.link/422226cb).
 2. **A pasta da falha no hospedeiro, ao lado de `last_failure.json`.** O hospedeiro
    grava ali dois arquivos no momento da falha: `network-cross-check.json`, cujo
    veredito registra o que o próprio hospedeiro ainda alcançava naquele instante, e,
@@ -358,6 +388,11 @@ verificações, nesta ordem, as distinguem. Pare na primeira que responder.
    ligado a um switch sem uplink, nomeia uma falha do lado do hospedeiro, e o
    arquivo de estado diz qual; um hospedeiro que não alcançou nada nomeia seu
    próprio uplink.
+   Para downloads da web, leia também `cacheHttpTcp` e `cacheHttpsTcp`: o registro
+   e a página de saúde podem responder enquanto a porta 3128 ou 3129 não responde.
+   Essas são observações do lado do hospedeiro no momento da captura; uma conexão
+   já restabelecida ou uma falha restrita ao caminho NAT do convidado pode deixar
+   todas as sondagens bem-sucedidas.
 3. **Os logs do proxy para o endereço do próprio convidado, no minuto da falha.**
    No Grafana Explore contra a fonte de dados Loki, com o intervalo de tempo
    ajustado para aquele minuto e o endereço de laboratório do convidado no lugar do
@@ -368,9 +403,11 @@ verificações, nesta ordem, as distinguem. Pare na primeira que responder.
    {job="zot"} | json | clientIP=~"192.0.2.57:.*"
    ```
 
-   Linhas de outros clientes e nenhuma deste convidado confirmam que ele nunca
-   alcançou a VM do proxy. Linhas deste convidado com status lento ou com falha
-   dizem que ele alcançou, e devolvem a pergunta ao proxy.
+   Linhas de outros clientes e nenhuma deste convidado sustentam a hipótese de
+   uma falha antes de o proxy registrar uma solicitação; elas não identificam
+   onde uma conexão TCP ficou bloqueada. Linhas deste convidado com resposta
+   lenta ou falha mostram que sua solicitação chegou ao proxy e fornecem as
+   próximas evidências a examinar.
 
 <a id="4207d71a-000b"></a>
 
@@ -1251,6 +1288,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.18.1
+Last review: 2026.10.22
 
 Voltar para [Yuruna](../../README.md)

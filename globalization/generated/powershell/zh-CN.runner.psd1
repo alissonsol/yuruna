@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.18.2
+.VERSION 2026.10.22
 .GUID 42dba0ee-ceaf-a7ec-5c0b-f7f0ef9d34c6
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -310,6 +310,29 @@
             'type' = 'detail'
             'trust' = 'external'
         }
+    )
+    'runner.git_mirror_token_invalid' = 'GitHub令牌包含不支持的字符。未存储任何内容。请重新运行并仅粘贴令牌，或按Enter保留当前身份验证。'
+    'runner.git_mirror_token_notice' = 'GitHub令牌为可选项。按Enter保留当前身份验证。提供令牌会重建缓存代理以应用该令牌，即使此宿主机已存储相同的令牌。重建约需15分钟，并会丢弃已预热的缓存。输入内容不会显示。'
+    'runner.git_mirror_token_prepare' = '询问可选的GitHub令牌并存储明确提供的值'
+    'runner.git_mirror_token_prompt' = '可选的GitHub令牌（按Enter保留当前身份验证）'
+    'runner.git_mirror_token_provider_failed' = '无法配置可选的GitHub令牌。请检查身份验证提供程序和保管库权限，然后重新运行。在令牌配置成功之前，不得重建代理。'
+    'runner.git_mirror_token_replace_stored' = @(
+        'github-mirror-token ('
+        @{
+            'arg' = 'vaultKey'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        '): (已存储的令牌) -> (操作员提供的令牌)。先前的值仍可从保管库的previousPassword字段恢复。'
+    )
+    'runner.git_mirror_token_store_new' = @(
+        'github-mirror-token ('
+        @{
+            'arg' = 'vaultKey'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        '): (未存储令牌) -> (操作员提供的令牌)。'
     )
     'runner.git_recovery_command' = @(
         '  使用以下命令恢复：git -C '''

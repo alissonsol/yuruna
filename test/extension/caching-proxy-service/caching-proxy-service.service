@@ -17,6 +17,7 @@ EnvironmentFile=-/etc/yuruna/globalization.env
 User=root
 Group=root
 EnvironmentFile=-/etc/yuruna/caching-proxy-service.env
+EnvironmentFile=-/etc/yuruna/git-mirror/worker.env
 ExecStart=/usr/local/bin/caching-proxy-service --language=${YURUNA_LANGUAGE} --allow-pseudo-locale=${YURUNA_ALLOW_PSEUDO_LOCALE} \
   --http-addr=${CACHING_PROXY_HTTP_ADDR} \
   --mode=${CACHING_PROXY_MODE} \
@@ -28,7 +29,10 @@ ExecStart=/usr/local/bin/caching-proxy-service --language=${YURUNA_LANGUAGE} --a
   --host-id=${CACHING_PROXY_HOST_ID} \
   --presence-interval=${CACHING_PROXY_PRESENCE_INTERVAL} \
   --auth-token-file=${CACHING_PROXY_AUTH_TOKEN_FILE} \
-  --parser-url=${CACHING_PROXY_PARSER_URL}
+  --parser-url=${CACHING_PROXY_PARSER_URL} \
+  --mirror-build-source=${CACHING_PROXY_MIRROR_BUILD_SOURCE} \
+  --mirror-build-repository=${CACHING_PROXY_MIRROR_BUILD_REPOSITORY} \
+  --mirror-build-commit=${CACHING_PROXY_MIRROR_BUILD_COMMIT}
 Restart=on-failure
 RestartSec=5
 
@@ -37,8 +41,9 @@ RestartSec=5
 # means running `squid -k reconfigure`. That is why it runs as root with a
 # narrow write path rather than as the proxy user with none.
 ProtectSystem=strict
-ReadWritePaths=/etc/squid/conf.d
+ReadWritePaths=/etc/squid/conf.d /var/lib/yuruna/git-mirror/registrations
 ReadOnlyPaths=/var/lib/yuruna
+InaccessiblePaths=-/etc/yuruna/git-mirror/signing-key.pem -/etc/yuruna/git-mirror/credentials
 NoNewPrivileges=true
 ProtectHome=true
 PrivateTmp=true

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.18.2
+.VERSION 2026.10.22
 .GUID 42aaece2-9ccd-4d9f-b467-c4468bc981ba
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -857,12 +857,20 @@ function Invoke-CycleCheckoutStep {
     [OutputType([pscustomobject])]
     param(
         [Parameter(Mandatory)][string]$RepoRoot,
-        [AllowNull()][AllowEmptyString()][string]$ProjectUrl = ''
+        [AllowNull()][AllowEmptyString()][string]$ProjectUrl = '',
+        [System.Collections.IDictionary]$SourceContext,
+        [System.Collections.IDictionary]$SourceSelection,
+        [System.Collections.IDictionary]$InstalledProvenance,
+        [DateTimeOffset]$SelectionAcceptedAt = [DateTimeOffset]::MinValue
     )
     $clone = $null
     $thrown = ''
     try {
-        $clone = Update-ProjectClone -RepoRoot $RepoRoot -ProjectUrl $ProjectUrl -Confirm:$false
+        $sourceArguments = @{}
+        foreach ($name in @('SourceContext', 'SourceSelection', 'InstalledProvenance', 'SelectionAcceptedAt')) {
+            if ($PSBoundParameters.ContainsKey($name)) { $sourceArguments[$name] = $PSBoundParameters[$name] }
+        }
+        $clone = Update-ProjectClone -RepoRoot $RepoRoot -ProjectUrl $ProjectUrl @sourceArguments -Confirm:$false
     } catch {
         $thrown = $_.Exception.Message
     }
@@ -872,8 +880,8 @@ function Invoke-CycleCheckoutStep {
     if (-not $ok -and -not $message) { $message = 'the project refresh reported failure without a message' }
     $revision = if ($clone -and $clone.PSObject.Properties['revision']) { [string]$clone.revision } elseif ($clone -is [System.Collections.IDictionary] -and $clone.Contains('revision')) { [string]$clone['revision'] } else { '' }
     return New-RecoveryStepResult -Step checkout -Ok $ok -Skipped:$skipped `
-        -FailureClass $(if ($ok) { '' } else { 'bootstrap_sync' }) -Reason $(if ($ok) { '' } else { $message }) `
-        -Extra @{ Stage = 'ProjectClone'; Revision = $revision; ErrorMessage = $message }
+        -FailureClass $(if ($ok) { '' } elseif ($clone -and $clone.failureClass) { [string]$clone.failureClass } else { 'bootstrap_sync' }) -Reason $(if ($ok) { '' } else { $message }) `
+        -Extra @{ Stage = 'ProjectClone'; Revision = $revision; ErrorMessage = $message; SourceSelection = $(if ($clone) { $clone.sourceSelection } else { $null }) }
 }
 
 function Invoke-CycleAdmissionStep {
@@ -979,7 +987,7 @@ function ConvertTo-RunnerRecoveryResult {
           completed, any other failure      failed
           outcome-unrecorded / no-cycle-result   infrastructure-fault (outcome_unrecorded)
           cycle-aborted                     aborted (cycle_killed)
-          pull-error                        infrastructure-fault (bootstrap_sync, FrameworkPull)
+          pull-error                        infrastructure-fault (source class or bootstrap_sync, FrameworkPull)
           spawn-failed                      infrastructure-fault (cycle_spawn_failed)
           storage-full                      infrastructure-fault (pool_storage_full)
     .PARAMETER Dispatch
@@ -1034,6 +1042,8 @@ function ConvertTo-RunnerRecoveryResult {
         }
         'pull-error' {
             $outcome = 'infrastructure-fault'; $class = 'bootstrap_sync'; $stage = 'FrameworkPull'
+            $sourceClass = & $property 'RecordFailureClass'
+            if ($sourceClass -and (Test-RecoveryFailureClass -FailureClass $sourceClass)) { $class = $sourceClass }
             $reason = & $property 'RecordDetail'
             if (-not $reason) { $reason = 'the framework repository could not be updated' }
         }

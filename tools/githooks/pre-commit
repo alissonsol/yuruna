@@ -188,7 +188,65 @@ if ! command -v pwsh >/dev/null 2>&1; then
     exit 0
 fi
 
-if ! NO_COLOR=1 pwsh -NoProfile -ExecutionPolicy Bypass -File "$gate" -Quiet; then
+# The read-only gates below and the suite-baseline check further down do not
+# depend on one another or on any pass that writes, so they start together here
+# and each verdict is read where that gate has always been reported. Each one's
+# output and exit code are kept in variables, and the scratch directory is
+# removed before any later pass sets its own exit trap.
+metadata_gate="$repo_root/tools/Test-SourceMetadata.ps1"
+pester_check="$repo_root/tools/Install-TestModule.ps1"
+baseline_gate="$repo_root/tools/Test-SuiteBaseline.ps1"
+private_name_check="$repo_root/dev-only/tools/Test-PrivateNameLeak.ps1"
+# --no-renames lists a suite moved out of these folders under its old path too.
+staged_test_files=$(git diff --cached --name-only --no-renames --diff-filter=ACMRD |
+    grep -E '^((test|host)/modules/.*|dev-only/test/.*)\.Tests\.ps1$')
+staged_tests=$(git diff --cached --name-only --diff-filter=ACMRD |
+    grep -E '^(test|host)/modules/.*\.Tests\.ps1$')
+hook_checks=$(mktemp -d 2>/dev/null || mktemp -d -t yuruna-checks) || {
+    echo "pre-commit: could not create a temporary directory for the read-only gates." >&2
+    exit 1
+}
+trap 'rm -rf "$hook_checks"' EXIT
+trap 'rm -rf "$hook_checks"; exit 130' INT
+trap 'rm -rf "$hook_checks"; exit 143' TERM
+check_start() {
+    check_name=$1
+    shift
+    { "$@" > "$hook_checks/$check_name.out" 2> "$hook_checks/$check_name.err"; echo $? > "$hook_checks/$check_name.rc"; } &
+}
+check_start ascii env NO_COLOR=1 pwsh -NoProfile -ExecutionPolicy Bypass -File "$gate" -Quiet
+check_start bom env NO_COLOR=1 pwsh -NoProfile -ExecutionPolicy Bypass -File "$gate" -BomOnly -Staged -Quiet
+if [ -f "$metadata_gate" ]; then
+    check_start metadata env NO_COLOR=1 pwsh -NoProfile -ExecutionPolicy Bypass -File "$metadata_gate" -Staged -Quiet
+fi
+if [ -n "$staged_test_files" ] && [ -f "$pester_check" ]; then
+    check_start pester env NO_COLOR=1 pwsh -NoProfile -ExecutionPolicy Bypass -File "$pester_check" -Check
+fi
+if [ -n "$staged_tests" ] && [ -f "$baseline_gate" ]; then
+    check_start baseline pwsh -NoProfile -ExecutionPolicy Bypass -File "$baseline_gate" -Quiet
+fi
+if [ -f "$private_name_check" ]; then
+    check_start private_name env NO_COLOR=1 pwsh -NoProfile -ExecutionPolicy Bypass -File "$private_name_check" -Quiet
+fi
+wait
+check_read() { cat "$hook_checks/$1.$2" 2>/dev/null; }
+ascii_rc=$(check_read ascii rc); ascii_out=$(check_read ascii out); ascii_err=$(check_read ascii err)
+bom_rc=$(check_read bom rc); bom_out=$(check_read bom out); bom_err=$(check_read bom err)
+metadata_rc=$(check_read metadata rc); metadata_out=$(check_read metadata out); metadata_err=$(check_read metadata err)
+pester_rc=$(check_read pester rc); pester_out=$(check_read pester out); pester_err=$(check_read pester err)
+baseline_rc=$(check_read baseline rc); baseline_out=$(check_read baseline out); baseline_err=$(check_read baseline err)
+private_name_rc=$(check_read private_name rc); private_name_out=$(check_read private_name out); private_name_err=$(check_read private_name err)
+rm -rf "$hook_checks"
+trap - EXIT INT TERM
+# Replays one gate's output (exit code, stdout, stderr) and answers whether it
+# passed; a gate that never reported an exit code did not pass.
+check_passed() {
+    if [ -n "$2" ]; then printf '%s\n' "$2"; fi
+    if [ -n "$3" ]; then printf '%s\n' "$3" >&2; fi
+    [ "$1" = 0 ]
+}
+
+if ! check_passed "$ascii_rc" "$ascii_out" "$ascii_err"; then
     echo "" >&2
     echo "pre-commit: ASCII/BOM gate failed (see tools/Test-AsciiNoBom.ps1 output above)." >&2
     echo "  A BOM or non-ASCII byte in a bootstrap / first-run script breaks first-install." >&2
@@ -202,7 +260,7 @@ fi
 # status service serves verbatim. Non-ASCII bytes are fine outside the bootstrap
 # set, so this pass checks only for the BOM. -Staged keeps it to what is about
 # to be committed; the whole tree is ~1000 files and this runs on every commit.
-if ! NO_COLOR=1 pwsh -NoProfile -ExecutionPolicy Bypass -File "$gate" -BomOnly -Staged -Quiet; then
+if ! check_passed "$bom_rc" "$bom_out" "$bom_err"; then
     echo "" >&2
     echo "pre-commit: a staged file carries a byte-order mark (see above)." >&2
     echo "  Rewrite it as BOM-less UTF-8, or bypass with 'git commit --no-verify'." >&2
@@ -217,9 +275,8 @@ fi
 # forces a stamp. Generated files, vendored files and synchronized copies are
 # exempt only through tools/source-metadata.exemptions.json. It runs here, ahead
 # of the generators below, so a refusal does not first spend their forty seconds.
-metadata_gate="$repo_root/tools/Test-SourceMetadata.ps1"
 if [ -f "$metadata_gate" ] &&
-    ! NO_COLOR=1 pwsh -NoProfile -ExecutionPolicy Bypass -File "$metadata_gate" -Staged -Quiet; then
+    ! check_passed "$metadata_rc" "$metadata_out" "$metadata_err"; then
     echo "" >&2
     echo "pre-commit: source-metadata gate failed (see tools/Test-SourceMetadata.ps1 output above)." >&2
     echo "  Add the header it shows, or declare a generated or vendored path in tools/source-metadata.exemptions.json" >&2
@@ -231,14 +288,10 @@ fi
 # Pester 6 suites. The installer's -Check answer reads the installed modules and
 # installs nothing, so the check costs one pwsh start. Public and private suites
 # both count.
-pester_check="$repo_root/tools/Install-TestModule.ps1"
-# --no-renames lists a suite moved out of these folders under its old path too.
-staged_test_files=$(git diff --cached --name-only --no-renames --diff-filter=ACMRD |
-    grep -E '^((test|host)/modules/.*|dev-only/test/.*)\.Tests\.ps1$')
 if [ -n "$staged_test_files" ]; then
     if [ ! -f "$pester_check" ]; then
         echo "pre-commit: WARNING: tools/Install-TestModule.ps1 is missing, so the Pester 6.x requirement was not checked." >&2
-    elif ! NO_COLOR=1 pwsh -NoProfile -ExecutionPolicy Bypass -File "$pester_check" -Check; then
+    elif ! check_passed "$pester_rc" "$pester_out" "$pester_err"; then
         echo "" >&2
         echo "pre-commit: Pester 6.x is not installed, and a commit that stages a test file requires it on this host." >&2
         echo "  Install it with 'pwsh -NoProfile -File tools/Install-TestModule.ps1', or" >&2
@@ -246,6 +299,17 @@ if [ -n "$staged_test_files" ]; then
         echo "  Or bypass with 'git commit --no-verify' (discouraged)." >&2
         exit 1
     fi
+fi
+
+# WARN only: a staged file that the next release would publish while naming the
+# private repository outside its curated list. The release publisher refuses
+# such a file, from the same prediction, before its private suites run; the
+# warning comes here, where the name was written. It never blocks, because the
+# author may be about to remove the name or to record a deliberate pointer in
+# that list. Only a private checkout carries the check.
+if [ -f "$private_name_check" ] &&
+    ! check_passed "$private_name_rc" "$private_name_out" "$private_name_err"; then
+    echo "pre-commit: WARNING: the next release would refuse the file(s) above (dev-only/tools/Test-PrivateNameLeak.ps1); this commit goes ahead." >&2
 fi
 
 # Third pass (WARN only): retired names. Each spelling below was replaced by a
@@ -923,12 +987,9 @@ fi
 # short of executing the suites can tell. The hook says so rather than
 # pretending to check it -- a staged test file is the one moment the author
 # knows whether their edit changed a count.
-staged_tests=$(git diff --cached --name-only --diff-filter=ACMRD |
-    grep -E '^(test|host)/modules/.*\.Tests\.ps1$')
 if [ -n "$staged_tests" ]; then
-    baseline_gate="$repo_root/tools/Test-SuiteBaseline.ps1"
     if [ -f "$baseline_gate" ] &&
-        ! pwsh -NoProfile -ExecutionPolicy Bypass -File "$baseline_gate" -Quiet; then
+        ! check_passed "$baseline_rc" "$baseline_out" "$baseline_err"; then
         echo "" >&2
         echo "pre-commit: the suite baseline no longer names what the runner discovers." >&2
         echo "  Register new suites with 'pwsh tools/Invoke-TestSuite.ps1 -RegisterNewSuites'," >&2

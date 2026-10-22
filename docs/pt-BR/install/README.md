@@ -47,9 +47,45 @@ pwsh install/setup.ps1 -logLevel Debug    # everything the run and its children 
 
 O armazenamento é uma das perguntas, não uma suposição: **esta máquina**
 (compartilhamentos SMB locais, o padrão no modo autônomo), **um
-compartilhamento NAS existente** (montado, nunca criado -- configure antes o
-compartilhamento e `networkStorage.*`) ou **nenhum**, que existe apenas no
+compartilhamento NAS existente** (montado, nunca criado -- crie antes os
+compartilhamentos e suas contas no NAS) ou **nenhum**, que existe apenas no
 modo autônomo e dispensa o armazenamento compartilhado e o serviço stash.
+
+A configuração do NAS configura e verifica **o armazenamento do pool e do
+stash**. Nos arquivos de respostas, `storage.networkPath` e
+`storage.networkUser` mantêm seu significado atual como coordenadas do pool;
+`storage.stashNetworkPath` e `storage.stashNetworkUser` identificam o
+compartilhamento e a conta do stash. Valores omitidos usam a configuração
+`networkStorage.*` existente, oferecida como padrão nas perguntas interativas.
+Os caminhos locais de montagem existentes são preservados; os padrões da
+plataforma preenchem os caminhos ausentes. Uma substituição escolhida é
+informada como `previous -> new` antes da gravação da configuração, e o arquivo
+anterior é mantido como backup.
+
+Enter mantém o padrão existente exibido entre colchetes. Um caminho NAS
+obrigatório sem padrão precisa ser informado; uma resposta em branco repete
+imediatamente a mesma pergunta. Informe o compartilhamento e a conta reais de
+cada camada. Os caminhos de exemplo mostram a sintaxe; a configuração não
+deduz um local ausente do stash a partir do pool.
+
+Antes de iniciar as operações de backend, a configuração interativa do NAS
+solicita a senha de cada conta SMB sem exibir o que é digitado. Pressione Enter
+para manter a credencial armazenada no cofre; uma conta sem credencial
+armazenada exige sua senha real no NAS. Essas senhas são distintas da solicitação
+do sudo pela **senha do seu login** no Ubuntu e no macOS. A autorização do sudo
+é obtida uma única vez, no início, somente quando necessária. As etapas e os
+scripts filhos seguintes não solicitam senhas.
+
+As senhas nunca são gravadas no arquivo de respostas nem no log de configuração.
+Para execuções sem interação com `-AnswerFile`, preencha previamente as entradas
+SMB no cofre usando [as instruções de credenciais SMB](../../test-config.md#setting-the-smb-passwords-in-the-vault)
+e autorize o sudo com `sudo -v` no Ubuntu ou no macOS quando necessário.
+Credenciais ausentes interrompem a etapa de armazenamento; a configuração não
+inventa senhas para o NAS.
+As respostas obrigatórias do NAS precisam estar no arquivo de respostas ou na
+configuração existente. Sem `-AnswerFile`, entrada ou saída redirecionada ou
+capturada interrompe a execução quando uma pergunta não pode chegar a um
+operador, em vez de selecionar um padrão que ninguém viu.
 
 Ele não instala nada e não clona nada -- ele orquestra os scripts que já
 fazem cada tarefa. O armazenamento é configurado **antes** das VMs de
@@ -67,9 +103,11 @@ Toda execução -- inclusive as prévias -- é registrada em
 `test/status/log/setup.<yyyy.MM.dd.HH.mm>.log`: cada pergunta, a resposta
 adotada e se alguém a escolheu, cada etapa e seu resultado, a linha de
 comando e o código de saída de cada script filho, e o relatório final. A
-configuração informa o nome do arquivo no início e no fim. Os scripts
-filhos continuam imprimindo no console em vez de no log, para que seus
-prompts permaneçam visíveis; no Windows, a reexecução elevada continua no
+configuração informa o nome do arquivo no início e no fim. A saída dos scripts
+filhos é capturada em logs individuais e incorporada ao log da execução; a
+entrada padrão dos filhos é fechada e o PowerShell é executado de forma não
+interativa. As perguntas e as solicitações de credenciais ocorrem, portanto,
+antes de esses scripts iniciarem. No Windows, a reexecução elevada continua no
 mesmo arquivo.
 
 O log recebe tudo isso independentemente do que diga `-logLevel` -- o nível
@@ -245,7 +283,7 @@ bloco é uma única instrução, então uma verificação que falha o interrompe
 quando o console executa as linhas coladas uma de cada vez:
 
 ```
-& { $ErrorActionPreference='Stop'; $base='https://raw.githubusercontent.com/alissonsol/yuruna/refs/tags/2026.10.18.2'; $t=Join-Path $env:TEMP ('yuruna-install-'+[guid]::NewGuid().ToString('N')); New-Item -ItemType Directory -Force $t|Out-Null
+& { $ErrorActionPreference='Stop'; $base='https://raw.githubusercontent.com/alissonsol/yuruna/refs/tags/2026.10.22'; $t=Join-Path $env:TEMP ('yuruna-install-'+[guid]::NewGuid().ToString('N')); New-Item -ItemType Directory -Force $t|Out-Null
 'install/windows.hyper-v.ps1','install/install.sha256','install/install.sha256.sig','install/keys/yuruna-release-signing.pub.xml'|%{ irm "$base/$_" -OutFile (Join-Path $t (Split-Path $_ -Leaf)) }
 $k=New-Object System.Security.Cryptography.RSACryptoServiceProvider; $k.FromXmlString((Get-Content "$t\yuruna-release-signing.pub.xml" -Raw))
 if(-not $k.VerifyData([IO.File]::ReadAllBytes("$t\install.sha256"),'SHA256',[IO.File]::ReadAllBytes("$t\install.sha256.sig"))){throw 'SIGNATURE INVALID -- do not run'}
@@ -257,7 +295,7 @@ $ErrorActionPreference='Continue'; & "$t\windows.hyper-v.ps1" }
 defina `S=install/ubuntu.kvm.sh` na primeira linha:
 
 ```
-BASE='https://raw.githubusercontent.com/alissonsol/yuruna/refs/tags/2026.10.18.2'; S=install/macos.utm.sh
+BASE='https://raw.githubusercontent.com/alissonsol/yuruna/refs/tags/2026.10.22'; S=install/macos.utm.sh
 t=$(mktemp -d); for f in "$S" install/install.sha256 install/install.sha256.sig install/keys/yuruna-release-signing.pub.pem; do curl -fsSL "$BASE/$f" -o "$t/$(basename "$f")" || { echo "DOWNLOAD FAILED: $f -- do not run"; exit 1; }; done
 openssl dgst -sha256 -verify "$t/yuruna-release-signing.pub.pem" -signature "$t/install.sha256.sig" "$t/install.sha256" || { echo 'SIGNATURE INVALID -- do not run'; exit 1; }
 got=$(openssl dgst -sha256 -r "$t/$(basename "$S")" | cut -d' ' -f1); want=$(awk -v p="$S" 'NF == 2 && $2 == p { print $1; n++ } END { if (n != 1) exit 1 }' "$t/install.sha256") || want=''
@@ -294,7 +332,7 @@ ocupa a posição de `$0` que o `bash -c` dá ao texto do script, para que
 `--refresh` chegue como argumento:
 
 ```
-YURUNA_REFRESH=1 /bin/bash -c "$(curl -fsSL 'https://raw.githubusercontent.com/alissonsol/yuruna/refs/tags/2026.10.18.2/install/macos.utm.sh')" _ --refresh
+YURUNA_REFRESH=1 /bin/bash -c "$(curl -fsSL 'https://raw.githubusercontent.com/alissonsol/yuruna/refs/tags/2026.10.22/install/macos.utm.sh')" _ --refresh
 ```
 
 Forma verificada: execute o bloco **macOS UTM / Ubuntu KVM** de **Instalação
@@ -349,6 +387,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Última revisão: 2026.10.18.1
+Última revisão: 2026.10.22
 
 Voltar para [Yuruna](../../../README.md)

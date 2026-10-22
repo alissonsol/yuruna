@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.18.2
+.VERSION 2026.10.22
 .GUID 42697c34-7060-4995-8ce1-baeb7bd4bbd6
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -454,6 +454,146 @@ Describe 'Set-PoolStorageSudoers (interactive drop-in installer)' {
         # Either way the Action is never "installed" and nothing is written.
         $r = Set-PoolStorageSudoers -WhatIf
         Assert-True ($r.Action -in @('whatif', 'unsupported', 'present')) "WhatIf must not install (got '$($r.Action)')"
+    }
+}
+
+Describe 'pool storage requires durable sudo authorization' -Skip:(-not $IsLinux) {
+    It 'rejects list-only permission even when cached credentials would work' {
+        Mock Invoke-PoolStorageProcess -ModuleName Test.PoolStorage {
+            param($ArgumentList)
+            if ($ArgumentList -contains '-l' -or $ArgumentList -notcontains '-k') { return 0 }
+            return 1
+        }
+        Test-PoolStorageSudoReady -Commands @('/fixture/mount') | Should -BeFalse
+    }
+    It 'executes harmless uncached probes for every mount command' {
+        Mock Invoke-PoolStorageProcess -ModuleName Test.PoolStorage { 0 }
+        Test-PoolStorageSudoReady -Commands @('/fixture/mkdir', '/fixture/mount', '/fixture/umount') | Should -BeTrue
+        Should -Invoke Invoke-PoolStorageProcess -ModuleName Test.PoolStorage -Times 3 -Exactly -ParameterFilter {
+            $FilePath -eq 'sudo' -and $ArgumentList[0] -eq '-n' -and $ArgumentList[1] -eq '-k' -and
+            $ArgumentList[-1] -eq '--version' -and $TimeoutSeconds -eq 15
+        }
+    }
+    It 'stops as soon as one required command lacks passwordless permission' {
+        Mock Invoke-PoolStorageProcess -ModuleName Test.PoolStorage {
+            param($ArgumentList)
+            if ($ArgumentList -contains '/fixture/mount') { return 1 }
+            return 0
+        }
+        Test-PoolStorageSudoReady -Commands @('/fixture/mkdir', '/fixture/mount', '/fixture/umount') | Should -BeFalse
+        Should -Invoke Invoke-PoolStorageProcess -ModuleName Test.PoolStorage -Times 2 -Exactly
+    }
+}
+
+Describe 'noninteractive pool sudo repair uses existing authorization' -Skip:(-not $IsLinux) {
+    BeforeEach {
+        $script:PoolSudoInstalled = $false
+        $script:PoolSudoCold = $false
+        $script:PoolSudoIneffective = $false
+        $script:PoolSudoValidationExit = 0
+        $script:PoolSudoInstallExit = 0
+        $script:PoolSudoRuleSource = ''
+        $script:PoolSudoRuleText = ''
+        Mock Get-PoolStorageSudoCommandPath -ModuleName Test.PoolStorage {
+            @{ Mkdir = '/fixture/mkdir'; Mount = '/fixture/mount'; Umount = '/fixture/umount' }
+        }
+        # Only the native boundary is replaced: readiness, the installer and
+        # its final permission proof all execute their production behavior.
+        Mock Invoke-PoolStorageProcessResult -ModuleName Test.PoolStorage {
+            param($FilePath, $ArgumentList)
+            if ($FilePath -ne 'sudo') { throw "Unexpected fixture command: $FilePath" }
+            if ($ArgumentList -contains '-l') { return @{ ExitCode = 1; StdErr = ''; StdOut = '' } }
+            if ($ArgumentList -contains '-k') {
+                return @{ ExitCode = $(if ($script:PoolSudoInstalled -and -not $script:PoolSudoIneffective) { 0 } else { 1 }); StdErr = ''; StdOut = '' }
+            }
+            if ($ArgumentList -contains '-v') {
+                return @{ ExitCode = $(if ($script:PoolSudoCold) { 1 } else { 0 }); StdErr = 'sudo: a password is required'; StdOut = '' }
+            }
+            if ($ArgumentList -contains 'install') {
+                $script:PoolSudoRuleSource = $ArgumentList[-2]
+                $script:PoolSudoRuleText = [IO.File]::ReadAllText($script:PoolSudoRuleSource)
+                $script:PoolSudoInstalled = $script:PoolSudoInstallExit -eq 0
+                return @{ ExitCode = $script:PoolSudoInstallExit; StdErr = ''; StdOut = '' }
+            }
+            if ($ArgumentList -contains 'visudo') {
+                return @{ ExitCode = $script:PoolSudoValidationExit; StdErr = 'fixture validation detail'; StdOut = '' }
+            }
+            if ($ArgumentList -contains 'rm') {
+                $script:PoolSudoInstalled = $false
+                return @{ ExitCode = 0; StdErr = ''; StdOut = '' }
+            }
+            throw "Unexpected fixture sudo arguments: $($ArgumentList -join ' ')"
+        }
+    }
+    It 'installs and proves durable permissions without another password prompt' {
+        $r = Set-PoolStorageSudoers -User fixture -NonInteractive -Confirm:$false
+        $r.Action | Should -Be 'installed'
+        $script:PoolSudoRuleText | Should -Be "fixture ALL=(root) NOPASSWD: /fixture/mkdir, /fixture/mount, /fixture/umount`n"
+        Test-Path -LiteralPath $script:PoolSudoRuleSource | Should -BeFalse
+        Should -Invoke Invoke-PoolStorageProcessResult -ModuleName Test.PoolStorage -Times 1 -Exactly -ParameterFilter {
+            $ArgumentList[0] -eq '-n' -and $ArgumentList[1] -eq 'install' -and
+            $ArgumentList[2] -eq '-m' -and $ArgumentList[3] -eq '0440' -and $ArgumentList[-1] -eq '/etc/sudoers.d/yuruna-poolstorage'
+        }
+        Should -Invoke Invoke-PoolStorageProcessResult -ModuleName Test.PoolStorage -Times 0 -Exactly -ParameterFilter { $ArgumentList[0] -ne '-n' }
+        Should -Invoke Invoke-PoolStorageProcessResult -ModuleName Test.PoolStorage -Times 4 -Exactly -ParameterFilter { $ArgumentList -contains '-k' }
+    }
+    It 'reports the manual remedy when the credential cache is cold' {
+        $script:PoolSudoCold = $true
+        $r = Set-PoolStorageSudoers -User fixture -NonInteractive -Confirm:$false
+        $r.Action | Should -Be 'skipped'
+        $r.Message | Should -Match 'sudoers.d/yuruna-poolstorage'
+        Should -Invoke Invoke-PoolStorageProcessResult -ModuleName Test.PoolStorage -Times 0 -Exactly -ParameterFilter {
+            $ArgumentList -contains 'install' -or $ArgumentList -contains 'visudo' -or $ArgumentList -contains 'rm'
+        }
+    }
+    It 'does not write a drop-in for a preview with an authorized cache' {
+        $r = Set-PoolStorageSudoers -User fixture -NonInteractive -WhatIf
+        $r.Action | Should -Be 'whatif'
+        Should -Invoke Invoke-PoolStorageProcessResult -ModuleName Test.PoolStorage -Times 0 -Exactly -ParameterFilter {
+            $ArgumentList -contains 'install' -or $ArgumentList -contains 'visudo' -or $ArgumentList -contains 'rm'
+        }
+    }
+    It 'does not mistake a validated but overridden drop-in for working permission' {
+        $script:PoolSudoIneffective = $true
+        $r = Set-PoolStorageSudoers -User fixture -NonInteractive -Confirm:$false
+        $r.Action | Should -Be 'failed'
+        $r.Message | Should -Match 'NOPASSWD|passwordless'
+        Test-Path -LiteralPath $script:PoolSudoRuleSource | Should -BeFalse
+    }
+    It 'removes a drop-in that fails validation without prompting' {
+        $script:PoolSudoValidationExit = 2
+        $r = Set-PoolStorageSudoers -User fixture -NonInteractive -Confirm:$false
+        $r.Action | Should -Be 'failed'
+        Should -Invoke Invoke-PoolStorageProcessResult -ModuleName Test.PoolStorage -Times 1 -Exactly -ParameterFilter {
+            ($ArgumentList -join ' ') -eq '-n rm -f /etc/sudoers.d/yuruna-poolstorage'
+        }
+        Test-Path -LiteralPath $script:PoolSudoRuleSource | Should -BeFalse
+    }
+    It 'reports a write failure and removes its temporary rule source' {
+        $script:PoolSudoInstallExit = 1
+        $r = Set-PoolStorageSudoers -User fixture -NonInteractive -Confirm:$false
+        $r.Action | Should -Be 'failed'
+        Test-Path -LiteralPath $script:PoolSudoRuleSource | Should -BeFalse
+        Should -Invoke Invoke-PoolStorageProcessResult -ModuleName Test.PoolStorage -Times 0 -Exactly -ParameterFilter { $ArgumentList -contains 'visudo' }
+    }
+    It 'leaves existing durable permissions unchanged' {
+        $script:PoolSudoInstalled = $true
+        $r = Set-PoolStorageSudoers -User fixture -NonInteractive -Confirm:$false
+        $r.Action | Should -Be 'present'
+        Should -Invoke Invoke-PoolStorageProcessResult -ModuleName Test.PoolStorage -Times 0 -Exactly -ParameterFilter { $ArgumentList -notcontains '-k' }
+    }
+    It 'keeps interactive authentication on the terminal and verifies the installed rule' {
+        Mock sudo -ModuleName Test.PoolStorage {
+            if ($args[0] -eq 'tee') { $script:PoolSudoInstalled = $true }
+            $global:LASTEXITCODE = 0
+        }
+        $r = Set-PoolStorageSudoers -User fixture -Confirm:$false
+        $r.Action | Should -Be 'installed'
+        Should -Invoke sudo -ModuleName Test.PoolStorage -Times 3 -Exactly
+        Should -Invoke sudo -ModuleName Test.PoolStorage -Times 1 -Exactly -ParameterFilter {
+            ($args -join ' ') -eq 'tee /etc/sudoers.d/yuruna-poolstorage'
+        }
+        Should -Invoke Invoke-PoolStorageProcessResult -ModuleName Test.PoolStorage -Times 4 -Exactly -ParameterFilter { $ArgumentList -contains '-k' }
     }
 }
 

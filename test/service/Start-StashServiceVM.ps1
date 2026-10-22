@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.18.2
+.VERSION 2026.10.22
 .GUID 42d07272-8c12-4ba7-807e-c0b201076d87
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -38,7 +38,7 @@
 [CmdletBinding(SupportsShouldProcess)]
 param(
     [Parameter(Position = 0)]
-    [string]$VMName = "yuruna-stash-service",
+    [string]$VMName = 'yuruna-stash-service',
     [switch]$AllowMirrorSource,
     [switch]$AllowPseudoLocale
 )
@@ -51,6 +51,7 @@ $global:InformationPreference = "Continue"
 $global:ProgressPreference    = "SilentlyContinue"
 
 # --- REGION: Initialize service runtime
+# See https://yuruna.link/42fffc2c-000b
 # See https://yuruna.link/42162449-0004
 # After the preference assignments above on purpose: an explicit level is the
 # operator's choice and replaces this script's own default.
@@ -85,10 +86,6 @@ if ($IsWindows -and -not ([Security.Principal.WindowsPrincipal] [Security.Princi
 
 # --- REGION: Initialize host access
 # See https://yuruna.link/42e220c4-0008
-# Same module set as Start-CachingProxyServiceVM: Test.HostContract (for Get-HostType /
-# Initialize-YurunaHost), Test.VMUtility (host-agnostic helpers),
-# Test.CachingProxyService reuse not needed here (stash-service VM is independent of
-# the cache).
 Import-Module (Join-Path $ModulesDir 'Test.HostContract.psm1') -Global -Force
 Invoke-LibvirtGroupReExecIfNeeded -HostType (Get-HostType) -ScriptPath $PSCommandPath -BoundParameters $PSBoundParameters
 
@@ -211,9 +208,9 @@ if (-not (Assert-GuestFrameworkSource -RepoRoot $RepoRoot -StatusDecision $statu
 }
 
 # --- REGION: Create the VM
-# Each New-VM already runs Get-Image auto-fetch when the base image is missing,
-# tears down any prior VM, creates the new one, and (Hyper-V + KVM) starts it.
-# UTM only builds the bundle; Invoke-YurunaServiceVmBuild registers and starts it.
+# Each New-VM runs Get-Image auto-fetch when the base image is missing, tears
+# down any prior VM, creates the new one, and (Hyper-V + KVM) starts it. UTM only
+# builds the bundle; Invoke-YurunaServiceVmBuild registers and starts it.
 Write-Verbose ""
 Write-Output "== Bringing up '$VMName' on $HostType =="
 $build = Invoke-YurunaServiceVmBuild -BuilderPath $newVm -HostType $HostType -VMName $VMName -OperationContext $serviceOp -AllowPseudoLocale:$AllowPseudoLocale -Confirm:$false
@@ -279,7 +276,6 @@ if ($stashEndpoint.ExtendedSeconds -gt 0) {
 
 # --- REGION: Recover the VM address
 # See https://yuruna.link/4220a755-0046
-# See https://yuruna.link/42f52e37-0020
 $stashRecovery = $null
 if ((Get-ServiceVmReadinessVerdict -Endpoint $stashEndpoint).IsFailure) {
     Write-Output "  The wait ended without the daemon answering -- looking for the guest by a route the wait could not use..."
@@ -305,9 +301,10 @@ if ((Get-ServiceVmReadinessVerdict -Endpoint $stashEndpoint).IsFailure) {
 
 # --- REGION: Evaluate service readiness
 # See https://yuruna.link/42e220c4-0008
-# The script routes on that decision instead of each site judging for itself. A
-# readiness timeout is a FAILURE: a run that records PASS for a daemon that
-# never started sends the operator looking for the fault in whatever breaks next.
+# Every downstream branch routes on this one verdict instead of judging for
+# itself. A readiness timeout is a FAILURE: a run that records PASS for a daemon
+# that never started sends the operator looking for the fault in whatever
+# breaks next.
 $stashVerdict = Get-ServiceVmReadinessVerdict -Endpoint $stashEndpoint
 switch ($stashVerdict.Outcome) {
     'Ready' {
@@ -382,10 +379,9 @@ if ($stashVerdict.IsFailure) {
     Write-Warning ("The stash-service daemon did not come up on :80 after $stashWaitedMinutes min -- " +
                    "$($stashVerdict.Summary). Observed: $stashObserved.")
 
-    # The address to dial for the in-guest capture below: whatever the wait
-    # settled on, or -- when it never resolved one -- whatever the recovery step
-    # above located. Reused rather than looked up again; that lookup costs an
-    # ICMP sweep per candidate subnet and its answer has not changed since.
+    # The MAC-match sweep above already ran on this path; reusing its answer
+    # keeps a second ICMP sweep out of a script that has already made the
+    # operator wait.
     $stashDiagIp = if ($stashEndpoint) { [string]$stashEndpoint.Address } else { '' }
     if (-not $stashDiagIp -and $stashRecovery) { $stashDiagIp = [string]$stashRecovery.Address }
 

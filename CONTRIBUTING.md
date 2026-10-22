@@ -328,6 +328,10 @@ workarounds collected during development live in [Yuruna Workarounds](docs/worka
   and stages their runtime SHA-256 pins. It refuses unstaged edits to those
   inputs or entrypoints and a partial commit that needs regeneration. Python 3
   is required for this pass, including on hosts without PowerShell.
+  In a checkout that carries `dev-only/`, the hook also warns, without blocking,
+  when a staged file would publish the private repository's name outside the
+  curated list the release publisher accepts
+  (`dev-only/tools/Test-PrivateNameLeak.ps1`); the publisher refuses such a file.
   When the caching-proxy seed or its zot qualification record is staged, the
   hook checks that the pinned zot release, its configuration and the probe
   list still match the last live sync on record. Most seed edits settle that
@@ -456,6 +460,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.18.1
+Last review: 2026.10.22
 
 Back to [Yuruna](README.md)

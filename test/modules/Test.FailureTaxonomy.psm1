@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.18.2
+.VERSION 2026.10.22
 .GUID 42a11720-948f-47cf-8739-5beedf5f7176
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -31,7 +31,7 @@ $script:FailureClassEnum = @(
     'bootstrap_sync', 'plan_invalid', 'elevation_required', 'project_access_denied',
     'host_network_degraded', 'ip_not_discovered', 'payload_unavailable',
     'pool_storage_full', 'dhcp_identity_unbounded', 'lab_dependency_down', 'input_lost',
-    'hypervisor_unresponsive',
+    'hypervisor_unresponsive', 'source_integrity',
     'unknown'
 )
 $script:SeverityEnum = @('hard', 'soft', 'unknown')
@@ -56,6 +56,16 @@ function Get-SeverityEnum {
     [OutputType([string[]], [object[]])]
     param()
     return @($script:SeverityEnum)
+}
+
+function Test-TransientNetworkFailureClass {
+    <# .SYNOPSIS
+        Identify transport-only refusals without treating authentication or integrity as network recovery.
+    #>
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param([AllowNull()][AllowEmptyString()][string]$FailureClass)
+    return $FailureClass -cin @('network_timeout', 'host_network_degraded')
 }
 
 function Assert-FailureTaxonomyInSync {
@@ -88,4 +98,4 @@ function Assert-FailureTaxonomyInSync {
     return $ok
 }
 
-Export-ModuleMember -Function Get-FailureClassEnum, Get-SeverityEnum, Assert-FailureTaxonomyInSync
+Export-ModuleMember -Function Get-FailureClassEnum, Get-SeverityEnum, Test-TransientNetworkFailureClass, Assert-FailureTaxonomyInSync

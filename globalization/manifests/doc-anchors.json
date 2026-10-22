@@ -337,6 +337,11 @@
           "slug": "sync--upstream-lines-no-http-request-attached"
         },
         {
+          "id": "4227a895-0016",
+          "heading": "Apt index pairs out of step",
+          "slug": "apt-index-pairs-out-of-step"
+        },
+        {
           "id": "4227a895-000e",
           "heading": "Caching-proxy dashboard (web path)",
           "slug": "caching-proxy-dashboard-web-path"
@@ -490,6 +495,11 @@
           "slug": "offline_mode"
         },
         {
+          "id": "42f6b05f-0057",
+          "heading": "Apt metadata under offline_mode",
+          "slug": "apt-metadata-under-offline_mode"
+        },
+        {
           "id": "42f6b05f-0016",
           "heading": "no-upstream mode",
           "slug": "no-upstream-mode"
@@ -553,6 +563,11 @@
           "id": "42f6b05f-0056",
           "heading": "When a zot release cannot sync the lab's images",
           "slug": "when-a-zot-release-cannot-sync-the-labs-images"
+        },
+        {
+          "id": "42f6b05f-005b",
+          "heading": "Apt index pairs self-test",
+          "slug": "apt-index-pairs-self-test"
         },
         {
           "id": "42f6b05f-0021",
@@ -813,6 +828,21 @@
           "id": "42f6b05f-0054",
           "heading": "Troubleshooting",
           "slug": "troubleshooting"
+        },
+        {
+          "id": "42f6b05f-0058",
+          "heading": "Git mirror",
+          "slug": "git-mirror"
+        },
+        {
+          "id": "42f6b05f-0059",
+          "heading": "Upgrade and enrollment",
+          "slug": "upgrade-and-enrollment"
+        },
+        {
+          "id": "42f6b05f-005a",
+          "heading": "Outage behavior and diagnostics",
+          "slug": "outage-behavior-and-diagnostics"
         }
       ]
     },
@@ -5967,6 +5997,11 @@
           "slug": "bounding-apt-get-update-without-bounding-dpkg"
         },
         {
+          "id": "4220a755-005e",
+          "heading": "Healing an apt index the caching proxy holds out of step",
+          "slug": "healing-an-apt-index-the-caching-proxy-holds-out-of-step"
+        },
+        {
           "id": "4220a755-0007",
           "heading": "Guest dependency version pins",
           "slug": "guest-dependency-version-pins"
@@ -6489,6 +6524,11 @@
           "id": "425aed30-0004",
           "heading": "Yuruna ontology",
           "slug": "yuruna-ontology"
+        },
+        {
+          "id": "425aed30-0005",
+          "heading": "Diagrams",
+          "slug": "diagrams"
         }
       ],
       "retiredAnchorIds": [
@@ -8805,6 +8845,11 @@
           "id": "42b11c32-0001",
           "heading": "test.config.yml -- runner configuration reference",
           "slug": "testconfigyml----runner-configuration-reference"
+        },
+        {
+          "id": "42b11c32-0013",
+          "heading": "Git mirror",
+          "slug": "git-mirror"
         },
         {
           "id": "42b11c32-0002",

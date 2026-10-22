@@ -705,6 +705,16 @@ const DataenUSremediation = `{
       "trust": "internal"
     },
     "       # stops it the way it was started"
+  ],
+  "remediation.source_integrity_action_evidence": "Inspect sourceSelections in the configuration-gate diagnostics and the mirror status; keep signature and commit verification enabled.",
+  "remediation.source_integrity_action_identity": "Compare enrolled key IDs with the proxy owner's exported identity and inspect the signed receipt and selected SHA.",
+  "remediation.source_integrity_rationale": [
+    "source_integrity: source verification failed. Keep the installed checkout and inspect the evidence before retrying. ",
+    {
+      "arg": "detail",
+      "type": "detail",
+      "trust": "external"
+    }
   ]
 }
 `

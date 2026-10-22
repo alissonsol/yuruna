@@ -21,7 +21,7 @@
       "source": "docs/failure-schema.md",
       "locale": "pt-BR",
       "translated": "docs/pt-BR/failure-schema.md",
-      "sourceHash": "401dfed444533dfc8851af2639b4bff4e99a0090d7cd65d7c145cf318463828b",
+      "sourceHash": "e73aa65e123f554ec0cf832f12c27494091e0e5583e4aa8428b1c99add51025c",
       "origin": "machine"
     },
     {
@@ -77,7 +77,7 @@
       "source": "docs/pool-admin.md",
       "locale": "pt-BR",
       "translated": "docs/pt-BR/pool-admin.md",
-      "sourceHash": "278ba3d2b1c95537ceefa37bf501282c005a6bf1300052242155c3ebc24062f2",
+      "sourceHash": "0ad3e8d912a0880d21e500e458852fc5f65e39f2826f980acc636f911f571a55",
       "origin": "machine"
     },
     {
@@ -93,7 +93,7 @@
       "source": "docs/test-harness.md",
       "locale": "pt-BR",
       "translated": "docs/pt-BR/test-harness.md",
-      "sourceHash": "546889d6482ab5e25fa60b11732af4ed7b4d8a8cbe38d5e9a13170ec91b48f89",
+      "sourceHash": "d818ea23fa483c902fbfbc3eca83f3d02786f96a87a0787fa3951994ce6f329c",
       "origin": "machine"
     },
     {
@@ -101,7 +101,7 @@
       "source": "docs/vmconfig.md",
       "locale": "pt-BR",
       "translated": "docs/pt-BR/vmconfig.md",
-      "sourceHash": "dc7834a843f7a57c9aa9e21722fb0d3d76939e45928fcb33d50864f90f37e86a",
+      "sourceHash": "6da369580e7552f9b22edf2226260deda6aa9c8399b08c386eb07b50a7c170bb",
       "origin": "machine"
     },
     {
@@ -117,7 +117,7 @@
       "source": "install/README.md",
       "locale": "pt-BR",
       "translated": "docs/pt-BR/install/README.md",
-      "sourceHash": "930859a2614b31e6feee3960cc66f944de480645c6d5e1e8055a384b76845ebf",
+      "sourceHash": "330e1286ac8777c6ef494de21cac9d93e9619ec4c7f94191ecb60e683d71271e",
       "origin": "machine"
     },
     {

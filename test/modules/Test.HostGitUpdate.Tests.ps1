@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.18.2
+.VERSION 2026.10.22
 .GUID 421e5032-3844-4d14-b69c-9033a127d516
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -101,6 +101,27 @@ BeforeAll {
 }
 
 Describe 'A framework checkout follows an upstream snapshot independently of ancestry' {
+    It 'installs the selected snapshot when the upstream advances after selection' {
+        $f = New-UpdateFixture
+        $selected = Add-FixtureRelease $f
+        $context = @{ mode = 'off' }
+        $selection = Resolve-GitSourceSelection -RepositoryUrl $f.Url -Ref refs/heads/main -SourceContext $context -Operation Framework
+        $selection.success | Should -BeTrue -Because $selection.detail
+        $selection.selectedSha | Should -BeExactly $selected
+        Set-FixtureFile -Root $f.Remote -Name 'later.txt' -Text 'next generation'
+        $null = Invoke-FixtureGit $f.Remote @('add', '.')
+        $null = Invoke-FixtureGit $f.Remote @('commit', '--quiet', '-m', 'later release')
+        $later = Invoke-FixtureGit $f.Remote @('rev-parse', 'HEAD')
+        $result = Invoke-GitRepositoryUpdate -RepoRoot $f.Local -SourceContext $context -SourceSelection $selection -Confirm:$false
+        $result.Success | Should -BeTrue -Because $result.ErrorMessage
+        $result.Revision | Should -BeExactly $selected
+        $result.Revision | Should -Not -Be $later
+        Invoke-FixtureGit $f.Local @('rev-parse', 'HEAD') | Should -BeExactly $selected
+        Invoke-FixtureGit $f.Local @('remote', 'get-url', 'origin') | Should -BeExactly $f.Url
+        Invoke-FixtureGit $f.Local @('for-each-ref', '--format=%(refname)', 'refs/yuruna/source-candidates') | Should -BeNullOrEmpty
+        $result.SourceSelection.selectedSha | Should -BeExactly $selected
+    }
+
     It 'installs the exact <History> snapshot from a <Clone> clone and preserves operator state' -TestCases @(
         @{ History = 'ordinary'; Clone = 'full'; Unrelated = $false; Shallow = $false }
         @{ History = 'unrelated'; Clone = 'full'; Unrelated = $true; Shallow = $false }

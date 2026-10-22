@@ -362,6 +362,8 @@ crash.log
 test/test-config.json
 test/test.config.yml
 test/test.config.yml.backup
+# Guided NAS repair preserves the operator's previous configuration here.
+test/test.config.yml.setup-storage.backup
 # Migration backup: Update-TestConfigNaming.ps1 copies the live config here
 # before rewriting it, so it holds the same real credentials the live file does.
 test/test.config.yml.pre-renaming

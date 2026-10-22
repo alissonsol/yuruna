@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.18.2
+.VERSION 2026.10.22
 .GUID 42523d00-1e52-4f07-92e7-2f54c6fa62da
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -261,6 +261,7 @@ function Merge-ConfigSyncReferenceConfig {
         }
     }
 
+    $merged = Merge-ConfigMirrorSetting -Current $Local -Proposed $merged
     return @{ Config = $merged; Warnings = [string[]]@($warnings) }
 }
 
@@ -1447,7 +1448,8 @@ function Sync-HostConfiguration {
         # Copy from a reference host whose config is behind this host's schema
         # without asking. For scripted syncs that have already accepted the drift.
         [switch]$AllowStaleReference,
-        [switch]$RequireReferenceCredential
+        [switch]$RequireReferenceCredential,
+        [switch]$AcceptMirrorKey
     )
     if (-not $RepoRoot) {
         $RepoRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
@@ -1519,6 +1521,14 @@ function Sync-HostConfiguration {
 
     $merge = Merge-ConfigSyncReferenceConfig -Reference $reference -Local $local -HostType $hostType -NoPool:$NoPool
     foreach ($w in $merge.Warnings) { Write-Warning $w }
+    $mirrorChanges = @(Get-ConfigMirrorChange -Current $local -Proposed $merge.Config)
+    $enrollment = @($mirrorChanges | Where-Object Path -EQ 'repositories.mirror.verificationPublicKeys')
+    if ($enrollment.Count -gt 0 -and -not $AcceptMirrorKey) {
+        $change = $enrollment[0]
+        $detail = "$($change.Path): $($change.Previous) -> $($change.Current)"
+        if ($NonInteractive) { throw "mirror-key-confirmation-required: $detail; -AcceptMirrorKey" }
+        if (-not $PSCmdlet.ShouldContinue($detail, (Format-YurunaOperatorMessage -Key 'configsync.mirror_key_confirmation'))) { throw 'mirror-key-enrollment-declined' }
+    }
 
     $canonical = ConvertTo-SortedConfig $merge.Config
     # Render through the documented writer so a synced config arrives carrying the
@@ -1534,6 +1544,9 @@ function Sync-HostConfiguration {
     if ([string]::Equals($yaml, $currentYaml, [StringComparison]::Ordinal)) {
         Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_8611bc4c42a9779a') -InformationAction Continue
     } elseif ($PSCmdlet.ShouldProcess($configPath, (Format-YurunaOperatorMessage -Key 'runner.operator_26170942123e2fb5' -Arguments @{ referenceHost = "$ReferenceHost" }))) {
+        foreach ($change in $mirrorChanges) {
+            Write-Information "$($change.Path): $($change.Previous) -> $($change.Current) (backup: $configPath.backup)" -InformationAction Continue
+        }
         if ($local) {
             # Same recoverability convention as the template reconcile: the
             # pre-sync file is always one copy away.

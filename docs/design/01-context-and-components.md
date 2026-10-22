@@ -74,6 +74,13 @@ The runner obtains project data from `repositories.projectUrl`, including
 pool repository assignments, through
 [Test.RunnerInnerLoop](../../test/modules/Test.RunnerInnerLoop.psm1); its runtime
 project checkout is input to the harness and deploy engine.
+[Test.SourceSelection](../../test/modules/Test.SourceSelection.psm1) resolves the
+framework and project revisions once per cycle gate. Under `repositories.mirror`
+it tries an enrolled Git mirror on the caching proxy before GitHub (`prefer`),
+after GitHub (`fallback`), or not at all (`off`); a host with no verification
+keys uses no mirror. The mirror runs inside the
+[caching-proxy extension](../../test/extension/caching-proxy-service/), so it
+adds no boundary and no external edge.
 
 Related module and extension families remain named aggregates to keep this view
 at seven boxes. Host refresh is implemented by

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.18.2
+.VERSION 2026.10.22
 .GUID 42c7f1a9-3e60-4b2d-9a55-1f0c8b6d24ae
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -36,10 +36,9 @@
     elevated host-setup path, where a metrics endpoint that could not be
     brought up must not stop the settings that make unattended testing
     possible, and from the unattended cycle path, where it must not become a
-    new reason for a host to stop testing. The cycle path stops at a service
-    lookup on any host that already has the exporter, which is why re-deriving
-    the whole configuration every cycle is still not done -- see
-    Set-YurunaHostMetricsExporter for why the scrape itself is the watchdog.
+    new reason for a host to stop testing. Each cycle checks existing services
+    too: package upgrades and firewall changes can strand an exporter that
+    still answers locally. The cycle's convergence runs in a bounded process.
 
     Acquisition is part of the job, not a prerequisite left to whoever set the
     host up: a host with no exporter package records nothing at all, and the
@@ -55,6 +54,7 @@
 # scrape side has to name the same number, and a per-host port that the
 # monitoring host cannot discover is a target that silently never scrapes.
 Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
+Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Common.psm1') -DisableNameChecking
 # Get-YurunaRulePortFilter: the firewall-rule port read the status rule uses too.
 Import-Module (Join-Path $PSScriptRoot 'Test.StatusFirewall.psm1') -DisableNameChecking
 $script:HostMetricsPort = 9182
@@ -260,8 +260,8 @@ function Resolve-YurunaHostMetricsCommandLine {
 
         Equivalence is semantic, not textual: collectors are compared as a set
         so a reordered list is not a reason to rewrite and restart a healthy
-        service, and a listen address is compared on its port so the wildcard
-        and the explicit-any forms agree. Every other flag already on the line
+        service, and wildcard listen forms agree while specific-interface
+        bindings require repair. Every other flag already on the line
         (event-log routing, a configuration file) is preserved in place --
         this owns two flags and inherits the rest.
     .PARAMETER CurrentCommandLine
@@ -365,10 +365,9 @@ function Resolve-YurunaHostMetricsCommandLine {
     $hyperVAgrees = (-not $ownHyperV) -or (
         ($haveHyperVSet.Count -eq $wantHyperV.Count) -and
         (-not (Compare-Object -ReferenceObject $wantHyperV -DifferenceObject $haveHyperVSet -SyncWindow 0)))
-    # ':9182', '0.0.0.0:9182' and '[::]:9182' all bind every interface on this
-    # port; only the port is load-bearing, so only the port is compared.
-    $listenPort = if ("$haveListen" -match ':(\d+)$') { [int]$Matches[1] } else { 0 }
-    $listenAgrees = ($listenPort -eq $Port)
+    # A loopback listener answers the local probe but can never be scraped
+    # from the monitoring host. Require a wildcard as well as the right port.
+    $listenAgrees = "$haveListen" -in @("`:$Port", "0.0.0.0:$Port", "[::]:$Port")
 
     if ($collectorsAgree -and $hyperVAgrees -and $listenAgrees) {
         $result.Matches = $true
@@ -441,7 +440,7 @@ function Get-YurunaHostMetricsRetentionRegex {
     [CmdletBinding()]
     [OutputType([string])]
     param()
-    return 'up|scrape_.*|windows_memory_.*|windows_cpu_time_total|windows_logical_disk_.*|windows_net_.*|windows_os_(info|hostname)|windows_exporter_(build_info|collector_success|collector_duration_seconds|scrape_collector_success|scrape_duration_seconds)|windows_hyperv_hypervisor_(logical_processor_(time_total|total_run_time_total|context_switches_total)|root_virtual(_processor)?_(time_total|cpu_wait_time_per_dispatch_total)|virtual_processor_((mode_)?time_total|(total_)?run_time_total|cpu_wait_time_per_dispatch_total))|windows_hyperv_virtual_network_adapter_.*|windows_hyperv_virtual_switch_.*'
+    return 'up|scrape_.*|yuruna_host_memory_.*|windows_memory_.*|windows_cpu_time_total|windows_logical_disk_.*|windows_net_.*|windows_os_(info|hostname)|windows_exporter_(build_info|collector_success|collector_duration_seconds|scrape_collector_success|scrape_duration_seconds)|windows_hyperv_hypervisor_(logical_processor_(time_total|total_run_time_total|context_switches_total)|root_virtual(_processor)?_(time_total|cpu_wait_time_per_dispatch_total)|virtual_processor_((mode_)?time_total|(total_)?run_time_total|cpu_wait_time_per_dispatch_total))|windows_hyperv_virtual_network_adapter_.*|windows_hyperv_virtual_switch_.*'
 }
 
 function Get-YurunaHostMetricsCapability {
@@ -582,8 +581,11 @@ function Set-YurunaHostMetricsFirewallRule {
         $liveScope = @(if ($address) { @($address.RemoteAddress) } else { @() })
         $scopeCorrect = ($liveScope.Count -eq $scope.Count) -and
             (-not (Compare-Object -ReferenceObject $scope -DifferenceObject $liveScope -SyncWindow 0))
+        $profiles = @("$($existing.Profile)" -split '\s*,\s*' | Where-Object { $_ })
+        $profilesCorrect = ($profiles.Count -eq 1 -and $profiles[0] -eq 'Any') -or
+            ($profiles.Count -eq 3 -and -not (Compare-Object -ReferenceObject @('Domain','Private','Public') -DifferenceObject $profiles))
         $shapeCorrect = $filter -and ($filter.Protocol -eq 'TCP') -and ($filter.LocalPort -eq "$Port") -and
-            ($existing.Direction -eq 'Inbound') -and ($existing.Action -eq 'Allow') -and $scopeCorrect
+            ($existing.Direction -eq 'Inbound') -and ($existing.Action -eq 'Allow') -and $scopeCorrect -and $profilesCorrect
         if ($shapeCorrect -and $existing.Enabled -eq 'True') {
             $result.Ensured = $true
             $result.Message = (Format-YurunaOperatorMessage -Key 'runner.operator_4b197f8c514511bb' -Arguments @{ ruleName = "$ruleName" })
@@ -1199,15 +1201,10 @@ function Set-YurunaHostMetricsExporter {
         machine that runs its guests perfectly, teaches operators to ignore the
         degraded state that matters.
 
-        Not called per cycle. Initialize-WindowsHostMetricsExporter is what the
-        cycle path calls, and it reaches this function only on the one cycle
-        that installed the service. After that the exporter is a service: once
-        it is running with the right flags it stays that way across reboots,
-        and the
-        scrape is its own watchdog -- a stopped exporter shows as a target
-        down in the monitoring stack within one interval, which is a better
-        signal than a per-cycle check that costs every cycle a service query
-        and reports to a log nobody reads.
+        Initialize-WindowsHostMetricsExporter checks both new and existing
+        installs every cycle. It supplies TimeoutSec so service-manager or
+        firewall operations cannot hold the runner indefinitely. A converged
+        service is read and probed without rewriting or restarting it.
 
         The command-line rewrite reverts itself. A flag this release of the
         exporter does not understand makes the service fail to start, which
@@ -1226,6 +1223,9 @@ function Set-YurunaHostMetricsExporter {
         is for the caller that wants a reading of the host rather than a change
         to it, and for the caller that has just installed the exporter itself
         and is now only configuring it.
+    .PARAMETER TimeoutSec
+        Bound the whole convergence in a separate process. Zero retains the
+        direct setup path; unattended callers supply a positive limit.
     .OUTPUTS
         [pscustomobject] Installed, Running, Ensured, Changed, Message.
     .EXAMPLE
@@ -1236,7 +1236,8 @@ function Set-YurunaHostMetricsExporter {
     param(
         [string]$ConfigIp,
         [string]$EnvIp,
-        [switch]$SkipInstall
+        [switch]$SkipInstall,
+        [ValidateRange(0, 300)][int]$TimeoutSec = 0
     )
     $result = [pscustomobject]@{ Installed = $false; Running = $false; Ensured = $false; Changed = $false; Message = '' }
     if (-not $IsWindows) {
@@ -1246,6 +1247,43 @@ function Set-YurunaHostMetricsExporter {
     $serviceName = Get-YurunaHostMetricsServiceName
     $port = Get-YurunaHostMetricsPort
     try {
+        if ($TimeoutSec -gt 0) {
+            if (-not $PSCmdlet.ShouldProcess($serviceName, (Format-YurunaOperatorMessage -Key 'runner.operator_8182f7798d10a687'))) { return $result }
+            # Keep service-control calls off the runner thread. Information
+            # records are forwarded separately so a previous -> new report
+            # emitted before a write remains recoverable even after a timeout.
+            $command = @'
+$ErrorActionPreference = 'Stop'
+[Console]::OutputEncoding = [Text.UTF8Encoding]::new($false)
+Import-Module $env:YURUNA_METRICS_MODULE -DisableNameChecking -WarningAction SilentlyContinue
+$reply = Set-YurunaHostMetricsExporter -ConfigIp $env:YURUNA_METRICS_CONFIG_IP -EnvIp $env:YURUNA_METRICS_ENV_IP -SkipInstall:([bool]::Parse($env:YURUNA_METRICS_SKIP_INSTALL)) -Confirm:$false -InformationAction Continue -WarningAction SilentlyContinue 6>&1 | ForEach-Object {
+    if ($_ -is [Management.Automation.InformationRecord]) { [Console]::Error.WriteLine([string]$_.MessageData) }
+    else { $_ }
+}
+$reply | ConvertTo-Json -Depth 4 -Compress
+'@
+            $run = Invoke-BoundedNativeCommand -FilePath (Get-PwshApplicationPath) `
+                -ArgumentList @('-NoLogo','-NoProfile','-NonInteractive','-Command',$command) -TimeoutSeconds $TimeoutSec -MaxCapturedChars 65536 `
+                -StreamEncoding ([Text.UTF8Encoding]::new($false)) `
+                -Environment @{ YURUNA_METRICS_MODULE=(Join-Path $PSScriptRoot 'Test.HostMetricsExporter.psm1'); YURUNA_METRICS_CONFIG_IP=$ConfigIp;
+                    YURUNA_METRICS_ENV_IP=$EnvIp; YURUNA_METRICS_SKIP_INSTALL=$SkipInstall.IsPresent.ToString() }
+            foreach ($line in ([string]$run.StdErr -split '\r?\n' | Where-Object { $_ })) { Write-Information $line -InformationAction Continue }
+            if (-not (Test-BoundedNativeResultComplete -Result $run) -or $run.ExitCode -ne 0) {
+                $result.Message = "host-metrics-convergence-incomplete: timeoutSeconds=$TimeoutSec exitCode=$($run.ExitCode)"
+                return $result
+            }
+            try {
+                $reply = $run.StdOut | ConvertFrom-Json -ErrorAction Stop
+                foreach ($name in @('Installed','Running','Ensured','Changed')) {
+                    if ($reply.$name -isnot [bool]) { throw 'Invalid convergence result.' }
+                }
+                if ($reply.Message -isnot [string]) { throw 'Invalid convergence result.' }
+                return $reply
+            } catch {
+                $result.Message = 'host-metrics-convergence-invalid-result'
+                return $result
+            }
+        }
         $service = Get-Service -Name $serviceName -ErrorAction SilentlyContinue
         $acquisition = ''
         if (-not $service -and -not $SkipInstall) {
@@ -1283,8 +1321,9 @@ function Set-YurunaHostMetricsExporter {
         }
         $plan = Resolve-YurunaHostMetricsCommandLine -CurrentCommandLine $current `
             -Collector (Get-YurunaHostMetricsCollector) -Port $port -HyperVCollector $hyperVCollector
+        $configurationMatches = $plan.Matches
         if (-not $plan.Matches -and $plan.Executable) {
-            Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_26ae0718f0a53461' -Arguments @{ reason = "$($plan.Reason)" })
+            Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_26ae0718f0a53461' -Arguments @{ reason = "command line: $current -> $($plan.Desired)" }) -InformationAction Continue
             if ($PSCmdlet.ShouldProcess($serviceName, (Format-YurunaOperatorMessage -Key 'runner.operator_8182f7798d10a687'))) {
                 $code = Set-YurunaHostMetricsServiceCommandLine -ServiceName $serviceName -CommandLine $plan.Desired
                 if ($code -ne 0) {
@@ -1298,7 +1337,7 @@ function Set-YurunaHostMetricsExporter {
                         Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_29b6cf97cccf9b49' -Arguments @{ serviceName = "$serviceName" })
                         $null = Set-YurunaHostMetricsServiceCommandLine -ServiceName $serviceName -CommandLine $current
                         Restart-Service -Name $serviceName -ErrorAction SilentlyContinue
-                    }
+                    } else { $configurationMatches = $true }
                 }
             }
         }
@@ -1321,12 +1360,18 @@ function Set-YurunaHostMetricsExporter {
         # service state are what was asked for, not what arrived.
         $payload = Invoke-YurunaHostMetricsProbe -Port $port
         $check = Test-YurunaHostMetricsPayload -Payload $payload
-        if ($check.Ok) {
+        if ($check.Ok -and $firewall.Ensured -and $configurationMatches -and $result.Running) {
             $result.Ensured = $true
             $result.Message = (Format-YurunaOperatorMessage -Key 'runner.operator_ed79aa221ffe2e37' -Arguments @{ port = "$port"; join = "$((Get-YurunaHostMetricsCollector) -join ', ')"; join2 = "$($scope -join ', ')" })
             Write-Information $result.Message
         } elseif (-not $payload) {
             $result.Message = (Format-YurunaOperatorMessage -Key 'runner.operator_fc858bf92dc49506' -Arguments @{ serviceName = "$serviceName"; port = "$port" })
+            Write-Warning $result.Message
+        } elseif (-not $firewall.Ensured) {
+            $result.Message = "host-metrics-firewall-unavailable: $($firewall.Message)"
+            Write-Warning $result.Message
+        } elseif (-not $configurationMatches -or -not $result.Running) {
+            $result.Message = 'host-metrics-configuration-not-applied'
             Write-Warning $result.Message
         } else {
             $result.Message = (Format-YurunaOperatorMessage -Key 'runner.operator_d5c597bca4182525' -Arguments @{ port = "$port"; join = "$($check.Missing -join ', ')" })

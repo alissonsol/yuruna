@@ -26,12 +26,12 @@ func promTargetsFor(t *testing.T, s *poolState) []promTargetGroup {
 	return got
 }
 
-// TestPrometheusTargetsListsOnlyScrapableWindowsHosts: this document decides
+// TestPrometheusTargetsListsOnlyScrapableHosts: this document decides
 // what the collector tries to reach, so what it must NOT contain is the part
-// worth asserting -- a host of a type that runs no Windows exporter, and a host
+// worth asserting -- a host of a type that runs no supported exporter, and a host
 // that is currently off. Either one, listed, is a target that is down for as
 // long as it stays listed.
-func TestPrometheusTargetsListsOnlyScrapableWindowsHosts(t *testing.T) {
+func TestPrometheusTargetsListsOnlyScrapableHosts(t *testing.T) {
 	s := newPoolState("default", defaultStatusPort)
 	s.hosts["42aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"] = &hostView{
 		HostId: "42aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", CurrentIP: "10.0.0.5", Reachable: true,
@@ -39,7 +39,7 @@ func TestPrometheusTargetsListsOnlyScrapableWindowsHosts(t *testing.T) {
 	}
 	s.hosts["42bbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"] = &hostView{
 		HostId: "42bbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", CurrentIP: "10.0.0.6", Reachable: true,
-		Status: &hostStatus{Host: "host.ubuntu.kvm"},
+		Status: &hostStatus{Host: "host.unsupported.vm"},
 	}
 	s.hosts["42cccccccccccccccccccccccccccccc"] = &hostView{
 		HostId: "42cccccccccccccccccccccccccccccc", CurrentIP: "10.0.0.7", Reachable: false,
@@ -68,6 +68,38 @@ func TestPrometheusTargetsListsOnlyScrapableWindowsHosts(t *testing.T) {
 	// every other per-host series is deliberately free of.
 	if _, bad := got[0].Labels["hostname"]; bad {
 		t.Errorf("scrape document carries a hostname label: %v", got[0].Labels)
+	}
+}
+
+// Unix memory metrics share the status listener, including a port learned
+// through announce, rather than the Windows exporter port.
+func TestPrometheusTargetsUnixUsesConfirmedStatusEndpoint(t *testing.T) {
+	s := newPoolState("default", 18080)
+	s.hostMetricsPort = 19182
+	for _, hostType := range []string{"host.ubuntu.kvm", "host.macos.utm"} {
+		t.Run(hostType, func(t *testing.T) {
+			hv := &hostView{
+				HostId: "42aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", CurrentIP: "10.0.0.6", Reachable: true,
+				BaseURL: "http://10.0.0.6:28080", Status: &hostStatus{Host: hostType},
+			}
+			s.hosts[hv.HostId] = hv
+			got := promTargetsFor(t, s)
+			if len(got) != 1 || len(got[0].Targets) != 1 || got[0].Targets[0] != "10.0.0.6:28080" {
+				t.Fatalf("target groups %+v, want the confirmed Unix status endpoint", got)
+			}
+			if got[0].Labels["hostId"] != hv.HostId || got[0].Labels["hostType"] != hostType {
+				t.Fatalf("labels %v do not preserve the host identity and platform", got[0].Labels)
+			}
+			hv.CurrentIP, hv.BaseURL = "10.0.0.9", "http://10.0.0.9:38080"
+			got = promTargetsFor(t, s)
+			if got[0].Targets[0] != "10.0.0.9:38080" || got[0].Labels["hostId"] != hv.HostId {
+				t.Fatalf("target groups %+v do not follow the Unix endpoint with stable identity", got)
+			}
+			hv.Reachable = false
+			if got := promTargetsFor(t, s); len(got) != 0 {
+				t.Fatalf("unreachable Unix host was published: %+v", got)
+			}
+		})
 	}
 }
 

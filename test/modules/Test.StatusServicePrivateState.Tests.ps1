@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.18.2
+.VERSION 2026.10.22
 .GUID 42caaabc-fe31-4614-8998-b7a6aed945ce
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -16,6 +16,40 @@ BeforeAll {
     $block = [regex]::Match($source, '(?ms)^\$startLockInfo = \$null\r?\n.*?(?=^function Save-StatusServiceErrorLog \{)')
     if (-not $block.Success) { throw 'Status startup serialization block was not found.' }
     $script:SerializationBlock = [scriptblock]::Create($block.Value)
+    $startupAst = [Management.Automation.Language.Parser]::ParseFile($path, [ref]$null, [ref]$null)
+    $releaseHelper = @($startupAst.FindAll({
+        param($node)
+        $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq 'Exit-StatusServiceStartupLock'
+    }, $false))[0].Extent.Text
+    $startupTrap = @($startupAst.EndBlock.Traps)[0].Extent.Text
+    $acquisition = @($startupAst.FindAll({
+        param($node)
+        $node -is [Management.Automation.Language.AssignmentStatementAst] -and $node.Left.Extent.Text -eq '$startLockInfo'
+    }, $false))[0]
+    $lifecycle = $acquisition.Parent
+    while ($lifecycle -and $lifecycle -isnot [Management.Automation.Language.TryStatementAst]) { $lifecycle = $lifecycle.Parent }
+    $startupBody = if ($lifecycle) { $lifecycle.Extent.Text } else { $source.Substring($acquisition.Extent.StartOffset) }
+    $script:StartupLifecycle = $releaseHelper + "`n" + $startupTrap + "`n" + $startupBody
+    $script:LockModulePath = Join-Path $PSScriptRoot 'Test.SingleFlightLock.psm1'
+
+    function Get-StartupLockContender {
+        [CmdletBinding()]
+        param([Parameter(Mandatory)][string]$Path)
+        $contender = [powershell]::Create()
+        try {
+            $null = $contender.AddScript({
+                param($ModulePath, $LockPath)
+                Import-Module $ModulePath -Global -DisableNameChecking
+                $lock = Enter-YurunaSingleFlightLock -Path $LockPath -WaitMilliseconds 100
+                try { [pscustomobject]@{ Held = $lock.Held; Reason = $lock.Reason } }
+                finally { Exit-YurunaSingleFlightLock -Lock $lock }
+            }).AddArgument($script:LockModulePath).AddArgument($Path)
+            $result = @($contender.Invoke())
+            if ($contender.HadErrors) { throw $contender.Streams.Error[0] }
+            if ($result.Count -ne 1) { throw "Unexpected lock contender result count: $($result.Count)" }
+            return $result[0]
+        } finally { $contender.Dispose() }
+    }
 
     # Only the serialization statements execute; service launch and real locks
     # must remain unreachable even if a mock is accidentally omitted.
@@ -184,7 +218,7 @@ Describe 'Status service startup private-state recovery' {
     It 'does not treat a lock held by another process as a permissions problem' {
         $script:LockAnswers.Clear()
         $script:LockAnswers.Enqueue([pscustomobject]@{ Held = $false; Reason = 'held-elsewhere' })
-        { Invoke-StatusStartupSerialization } | Should -Throw '*lock cannot be acquired (held-elsewhere)*'
+        { Invoke-StatusStartupSerialization } | Should -Throw "*lock cannot be acquired (held-elsewhere)*$($script:FixtureLockPath)*"
         Should -Invoke Repair-YurunaStartupPrivateState -Times 0 -Exactly
         Should -Invoke Enter-YurunaSingleFlightLock -Times 1 -Exactly
     }
@@ -217,5 +251,79 @@ Describe 'Status service startup private-state recovery' {
         Should -Invoke Enter-YurunaSingleFlightLock -Times 1 -Exactly -ParameterFilter { $WaitMilliseconds -eq 5000 }
         Should -Invoke Repair-YurunaStartupPrivateState -Times 0 -Exactly
         Should -Invoke Complete-RefreshSafeStart -Times 0 -Exactly
+    }
+}
+
+Describe 'Status service startup lock lifetime' {
+    It 'releases the actual lock after <Mode> while preserving live contention' -ForEach @(
+        @{ Mode = 'cancellation' }
+        @{ Mode = 'failure' }
+    ) {
+        $lockPath = Join-Path $TestDrive "startup-$Mode.lock"
+        $state = [hashtable]::Synchronized(@{ ReachedBody = $false; Mode = $Mode })
+        $startup = [powershell]::Create()
+        try {
+            # Execute the launcher's actual lock lifetime, helper and trap. Stop
+            # at the first post-acquisition path lookup, before any host action.
+            $fixture = @'
+param($State, $ModulePath, $LockPath, $Lifecycle)
+$ErrorActionPreference = 'Stop'
+Import-Module $ModulePath -Global -DisableNameChecking
+$RuntimeDir = [IO.Path]::GetDirectoryName($LockPath)
+$Port = 8080
+$RefreshSafe = $false
+$Restart = $false
+$PidFile = [IO.Path]::Combine($RuntimeDir, 'server.pid')
+$ServedRootSet = @($RuntimeDir)
+$script:StatusStartupLock = $null
+function Get-YurunaPrivateStatePath {
+    param($Name, $ServedRoot)
+    if (-not $Name -or -not $ServedRoot) { throw 'Missing private-path fixture inputs.' }
+    [pscustomobject]@{ Resolved = $true; Path = $LockPath; Reason = 'ok' }
+}
+function Get-StatusRuntimeKey {
+    param($RuntimeDir)
+    if (-not $RuntimeDir) { throw 'Missing runtime fixture input.' }
+    'fixture-runtime'
+}
+function Join-Path {
+    param($Path, $ChildPath)
+    if ($ChildPath -eq 'server.sha') {
+        $State.ReachedBody = $true
+        if ($State.Mode -eq 'failure') { throw 'startup-fixture-failure' }
+        Start-Sleep -Seconds 30
+        throw 'Startup cancellation did not arrive.'
+    }
+    Microsoft.PowerShell.Management\Join-Path -Path $Path -ChildPath $ChildPath
+}
+. ([scriptblock]::Create($Lifecycle))
+'@
+            $null = $startup.AddScript($fixture).AddArgument($state).AddArgument($script:LockModulePath).
+                AddArgument($lockPath).AddArgument($script:StartupLifecycle)
+            $pending = $startup.BeginInvoke()
+            $deadline = [Environment]::TickCount64 + 10000
+            while (-not $state.ReachedBody -and -not $pending.IsCompleted -and [Environment]::TickCount64 -lt $deadline) {
+                Start-Sleep -Milliseconds 10
+            }
+            $state.ReachedBody | Should -BeTrue -Because 'the fixture must reach the real acquired-lock body'
+            if ($Mode -eq 'cancellation') {
+                $held = Get-StartupLockContender -Path $lockPath
+                $held.Held | Should -BeFalse
+                $held.Reason | Should -Be 'held-elsewhere'
+                $startup.Stop()
+            }
+            $startupFailure = $null
+            try { $null = $startup.EndInvoke($pending) } catch { $startupFailure = $_ }
+            $startupFailure | Should -Not -BeNullOrEmpty
+            if ($Mode -eq 'failure') { $startupFailure.Exception.ToString() | Should -Match 'startup-fixture-failure' }
+            # Keep the owner's runspace alive: disposing it would hide a leaked
+            # handle, which otherwise survives in an interactive session.
+            $after = Get-StartupLockContender -Path $lockPath
+            $after.Held | Should -BeTrue -Because 'the completed startup must release its held-open file handle'
+            $after.Reason | Should -Be 'acquired'
+        } finally {
+            $startup.Stop()
+            $startup.Dispose()
+        }
     }
 }

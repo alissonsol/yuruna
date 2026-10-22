@@ -44,6 +44,9 @@ type activeHost struct {
 	CurrentStart time.Time
 	// CurrentStatus is that cycle's overallStatus right now.
 	CurrentStatus string
+	// History contains completed verdicts already present in the collector's
+	// snapshot, so recent timeline recovery need not wait for host file reads.
+	History []cycleVerdict
 }
 
 // poolStatusDoc is the subset of /api/v1/pool-status the backfill reads.
@@ -102,7 +105,7 @@ func parsePoolStatus(body []byte) ([]activeHost, error) {
 		if pool == "" {
 			pool = fallbackPool
 		}
-		ah := activeHost{HostID: id, BaseURL: base, Pool: pool, HostType: h.Status.Host, CurrentStatus: h.Status.OverallStatus}
+		ah := activeHost{HostID: id, BaseURL: base, Pool: pool, HostType: h.Status.Host, CurrentStatus: h.Status.OverallStatus, History: h.Status.History}
 		if t, ok := parseUTC(h.Status.CycleStartUtc); ok {
 			ah.CurrentStart = t
 		}
@@ -199,28 +202,38 @@ func mergeFolder(into map[string]cycleFolder, cf cycleFolder) {
 
 // archiveFolders lists the committed copies of a host's cycles on the pool share:
 // <root>/<hostId>/test-cycles/<identity>/ with the .yuruna-complete sentinel the
-// archiver writes last. A folder without it may still be copying.
-func archiveFolders(root, hostID string) map[string]string {
+// archiver writes last. A folder without it may still be copying. The boolean
+// reports whether the archive directory and its completion markers could be
+// checked, so an I/O or permission failure preserves the host's merged listing.
+func archiveFolders(root, hostID string) (map[string]string, bool) {
 	out := map[string]string{}
 	if root == "" || !hostIDRe.MatchString(hostID) {
-		return out
+		return out, false
 	}
 	dir := filepath.Join(root, hostID, "test-cycles")
 	entries, err := os.ReadDir(dir)
 	if err != nil {
-		return out
+		return out, false
 	}
+	readable := true
 	for _, e := range entries {
 		name := e.Name()
 		if !e.IsDir() || !archiveCycleRe.MatchString(name) || !strings.HasSuffix(name, "."+hostID) {
 			continue
 		}
 		full := filepath.Join(dir, name)
-		if st, err := os.Stat(filepath.Join(full, ".yuruna-complete")); err == nil && !st.IsDir() {
+		st, err := os.Stat(filepath.Join(full, ".yuruna-complete"))
+		if err != nil {
+			if !os.IsNotExist(err) {
+				readable = false
+			}
+			continue
+		}
+		if !st.IsDir() {
 			out[name] = full
 		}
 	}
-	return out
+	return out, readable
 }
 
 // pacer spaces the requests one host receives. Its status service is a single

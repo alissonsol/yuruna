@@ -1310,6 +1310,28 @@
         }
       },
       "lifecycle": "active"
+    },
+    "remediation.source_integrity_rationale": {
+      "message": "source_integrity: source verification failed. Keep the installed checkout and inspect the evidence before retrying. {detail}",
+      "description": "Source verification recovery guidance. Keep stable codes, sourceSelections, key IDs and SHA unchanged.",
+      "lifecycle": "active",
+      "placeholders": {
+        "detail": {
+          "type": "detail",
+          "trust": "external",
+          "example": "Signed receipt rejected"
+        }
+      }
+    },
+    "remediation.source_integrity_action_identity": {
+      "message": "Compare enrolled key IDs with the proxy owner's exported identity and inspect the signed receipt and selected SHA.",
+      "description": "Source verification recovery guidance. Keep stable codes, sourceSelections, key IDs and SHA unchanged.",
+      "lifecycle": "active"
+    },
+    "remediation.source_integrity_action_evidence": {
+      "message": "Inspect sourceSelections in the configuration-gate diagnostics and the mirror status; keep signature and commit verification enabled.",
+      "description": "Source verification recovery guidance. Keep stable codes, sourceSelections, key IDs and SHA unchanged.",
+      "lifecycle": "active"
     }
   }
 }

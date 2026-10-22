@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.18.2
+.VERSION 2026.10.22
 .GUID 425762d1-bc4e-40e3-b368-b17d66f8461a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -65,6 +65,7 @@ param(
 Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
 $ErrorActionPreference = 'Stop'
 
+# --- REGION: Platform guard
 if (-not $IsLinux) {
     Write-Error (Format-YurunaOperatorMessage -Key 'runner.operator_35395d2bfd4fe058')
     exit 1

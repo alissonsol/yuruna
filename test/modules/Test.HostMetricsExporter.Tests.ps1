@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.18.2
+.VERSION 2026.10.22
 .GUID 42b0e5d4-7c31-4e9a-8f06-3ad2716be5c1
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -123,6 +123,18 @@ Describe 'Resolve-YurunaHostMetricsCommandLine' {
             -CurrentCommandLine "$script:Exe --collectors.enabled=cpu --web.listen-address=0.0.0.0:9182" `
             -Collector @('cpu') -Port 9182
         Assert-True $plan.Matches '0.0.0.0:9182 and :9182 bind the same socket'
+    }
+    It 'repairs a listener bound to <Address> instead of every interface' -ForEach @(
+        @{Address='127.0.0.1:9182'}, @{Address='[::1]:9182'}, @{Address='localhost:9182'}, @{Address='192.0.2.163:9182'}
+    ) {
+        $plan = Resolve-YurunaHostMetricsCommandLine -CurrentCommandLine "$script:Exe --collectors.enabled=cpu --web.listen-address=$Address" `
+            -Collector @('cpu') -Port 9182
+        $plan.Matches | Should -BeFalse
+        $plan.Desired | Should -Match '--web.listen-address=:9182$'
+    }
+    It 'accepts the IPv6 wildcard listener without rewriting it' {
+        (Resolve-YurunaHostMetricsCommandLine -CurrentCommandLine "$script:Exe --collectors.enabled=cpu --web.listen-address=[::]:9182" `
+            -Collector @('cpu') -Port 9182).Matches | Should -BeTrue
     }
     It 'rewrites when the service listens on another port' {
         $plan = Resolve-YurunaHostMetricsCommandLine `
@@ -271,6 +283,16 @@ Describe 'Get-YurunaHostMetricsRetentionRegex' {
         # inside a name is not a match there and must not be one here.
         $script:keep = "^($(Get-YurunaHostMetricsRetentionRegex))$"
     }
+    It 'retains native Unix memory readings in both live sync and the proxy seed' {
+        $repoRoot = Split-Path -Parent (Split-Path -Parent $here)
+        $seed = [IO.File]::ReadAllText((Join-Path $repoRoot 'host/vmconfig/caching-proxy-service.base.user-data'))
+        $seedFilter = [regex]::Match($seed, "(?m)^\s+regex: '(up\|scrape_\.\*\|[^']+)'")
+        Assert-True $seedFilter.Success 'the proxy seed must have a host metric allowlist'
+        foreach ($name in 'yuruna_host_memory_available_bytes', 'yuruna_host_memory_commit_limit_bytes', 'yuruna_host_memory_committed_bytes', 'yuruna_host_memory_collection_success') {
+            Assert-True ($name -match $script:keep) "$name must survive live metric sync"
+            Assert-True ($name -match "^($($seedFilter.Groups[1].Value))$") "$name must survive a proxy rebuild"
+        }
+    }
     It 'keeps the host adapter counters, so a host uplink fault leaves a metric trace' {
         foreach ($name in 'windows_net_bytes_received_total', 'windows_net_packets_received_errors_total', 'windows_net_current_bandwidth_bytes') {
             Assert-True ($name -match $script:keep) "$name must survive the receiver's filter"
@@ -407,7 +429,7 @@ if ($IsWindows) {
                 -ParameterFilter { $RemoteAddress -contains '192.0.2.42' -and $LocalPort -eq 9182 }
         }
         It 'leaves a correct, scoped, enabled rule alone' {
-            Mock Get-NetFirewallRule -ModuleName Test.HostMetricsExporter { [pscustomobject]@{ Enabled = 'True'; Direction = 'Inbound'; Action = 'Allow' } }
+            Mock Get-NetFirewallRule -ModuleName Test.HostMetricsExporter { [pscustomobject]@{ Enabled = 'True'; Direction = 'Inbound'; Action = 'Allow'; Profile = 'Any' } }
             Mock Get-YurunaRulePortFilter -ModuleName Test.HostMetricsExporter { [pscustomobject]@{ Protocol = 'TCP'; LocalPort = '9182' } }
             Mock Get-YurunaMetricsRuleAddressFilter -ModuleName Test.HostMetricsExporter { [pscustomobject]@{ RemoteAddress = @('192.0.2.42') } }
             Mock New-NetFirewallRule -ModuleName Test.HostMetricsExporter { }
@@ -418,7 +440,7 @@ if ($IsWindows) {
             Should -Invoke -CommandName New-NetFirewallRule -ModuleName Test.HostMetricsExporter -Times 0 -Exactly -Scope It
         }
         It 'rebuilds a rule that has drifted to a wider scope' {
-            Mock Get-NetFirewallRule -ModuleName Test.HostMetricsExporter { [pscustomobject]@{ Enabled = 'True'; Direction = 'Inbound'; Action = 'Allow' } }
+            Mock Get-NetFirewallRule -ModuleName Test.HostMetricsExporter { [pscustomobject]@{ Enabled = 'True'; Direction = 'Inbound'; Action = 'Allow'; Profile = 'Any' } }
             Mock Get-YurunaRulePortFilter -ModuleName Test.HostMetricsExporter { [pscustomobject]@{ Protocol = 'TCP'; LocalPort = '9182' } }
             Mock Get-YurunaMetricsRuleAddressFilter -ModuleName Test.HostMetricsExporter { [pscustomobject]@{ RemoteAddress = @('Any') } }
             Mock New-NetFirewallRule -ModuleName Test.HostMetricsExporter { }
@@ -428,6 +450,184 @@ if ($IsWindows) {
             Should -Invoke -CommandName Remove-NetFirewallRule -ModuleName Test.HostMetricsExporter -Times 1 -Exactly -Scope It
             Should -Invoke -CommandName New-NetFirewallRule -ModuleName Test.HostMetricsExporter -Times 1 -Exactly -Scope It
         }
+    }
+}
+
+Describe 'existing Windows exporter recovery with portable operating-system boundaries' {
+    BeforeAll {
+        Import-Module (Join-Path $here '../../automation/Yuruna.Common.psm1') -Global -DisableNameChecking
+        Import-Module (Join-Path $here 'Test.HostMetricsExporter.psm1') -Global -DisableNameChecking
+        Import-Module (Join-Path $here 'Test.HostCondition.Windows.psm1') -Global -DisableNameChecking
+        # Shadow only the platform guard. Missing Windows commands become
+        # throwing boundaries, and every service/firewall operation is mocked.
+        $script:MetricsBoundaryNames = & (Get-Module Test.HostMetricsExporter) {
+            $added = @()
+            foreach ($name in @('Get-Service','Set-Service','Start-Service','Restart-Service','Get-NetFirewallRule','New-NetFirewallRule','Remove-NetFirewallRule')) {
+                if (Get-Command $name -ErrorAction SilentlyContinue) { continue }
+                Set-Item -Path "Function:script:$name" -Value {
+                    [CmdletBinding()]
+                    param($Name, $StartupType, $DisplayName, $Description, $Direction, $Action, $Protocol, $LocalPort, $RemoteAddress,
+                        [Alias('Profile')]$FirewallProfile)
+                    $null = @($Name, $StartupType, $DisplayName, $Description, $Direction, $Action, $Protocol, $LocalPort, $RemoteAddress, $FirewallProfile)
+                    throw 'A Windows service or firewall operation escaped its mock.'
+                }
+                $added += $name
+            }
+            Set-Variable -Name IsWindows -Value $true -Scope Script
+            return ,$added
+        }
+        InModuleScope Test.HostCondition.Windows { Set-Variable -Name IsWindows -Value $true -Scope Script }
+        $script:MetricsFirewallImplementation = & (Get-Module Test.HostMetricsExporter) { Get-Command Set-YurunaHostMetricsFirewallRule }
+    }
+    AfterAll {
+        & (Get-Module Test.HostMetricsExporter) {
+            param($Names)
+            foreach ($name in $Names) { Remove-Item -Path "Function:script:$name" -ErrorAction SilentlyContinue }
+            Remove-Variable -Name IsWindows -Scope Script -ErrorAction SilentlyContinue
+        } $script:MetricsBoundaryNames
+        InModuleScope Test.HostCondition.Windows { Remove-Variable -Name IsWindows -Scope Script -ErrorAction SilentlyContinue }
+    }
+    BeforeEach {
+        Mock Get-Service -ModuleName Test.HostMetricsExporter { [pscustomobject]@{Status='Running';StartType='Automatic'} }
+        Mock Get-YurunaHostMetricsServiceCommandLine -ModuleName Test.HostMetricsExporter {
+            '"C:\w\windows_exporter.exe" --collectors.enabled=cpu,hyperv,logical_disk,memory,net,os --web.listen-address=:9182'
+        }
+        Mock Get-YurunaHostMetricsExporterVersion -ModuleName Test.HostMetricsExporter { $null }
+        Mock Set-YurunaHostMetricsServiceCommandLine -ModuleName Test.HostMetricsExporter { 0 }
+        Mock Restart-Service -ModuleName Test.HostMetricsExporter {}
+        Mock Start-Service -ModuleName Test.HostMetricsExporter {}
+        Mock Set-Service -ModuleName Test.HostMetricsExporter {}
+        Mock Test-YurunaHostMetricsAnswering -ModuleName Test.HostMetricsExporter { $true }
+        Mock Invoke-YurunaHostMetricsProbe -ModuleName Test.HostMetricsExporter {
+            "windows_memory_commit_limit 1`nwindows_memory_committed_bytes 1`nwindows_cpu_time_total 1`nwindows_logical_disk_free_bytes 1`nwindows_os_info 1`nwindows_hyperv_health_ok 1"
+        }
+        Mock Set-YurunaHostMetricsFirewallRule -ModuleName Test.HostMetricsExporter { [pscustomobject]@{Ensured=$true;Changed=$false;Message=''} }
+        Mock Get-NetFirewallRule -ModuleName Test.HostMetricsExporter { [pscustomobject]@{Enabled='True';Direction='Inbound';Action='Allow';Profile='Private'} }
+        Mock Get-YurunaRulePortFilter -ModuleName Test.HostMetricsExporter { [pscustomobject]@{Protocol='TCP';LocalPort='9182'} }
+        Mock Get-YurunaMetricsRuleAddressFilter -ModuleName Test.HostMetricsExporter { [pscustomobject]@{RemoteAddress=@('192.0.2.42')} }
+        Mock New-NetFirewallRule -ModuleName Test.HostMetricsExporter {}
+        Mock Remove-NetFirewallRule -ModuleName Test.HostMetricsExporter {}
+        Mock Install-YurunaHostMetricsExporter -ModuleName Test.HostCondition.Windows {
+            [pscustomobject]@{Installed=$true;Changed=$false;Outcome='already-present';Reason='already registered'}
+        }
+        Mock Set-YurunaHostMetricsExporter -ModuleName Test.HostCondition.Windows { [pscustomobject]@{Ensured=$true;Message='ready'} }
+    }
+    It 'converges a preexisting service under a bound instead of treating registration as readiness' {
+        $records = @(Initialize-WindowsHostMetricsExporter -ConfigPath (Join-Path $TestDrive 'absent.yml'))
+        $records.Count | Should -Be 1
+        $records[0].Status | Should -BeExactly Present
+        Should -Invoke Set-YurunaHostMetricsExporter -ModuleName Test.HostCondition.Windows -Times 1 -Exactly -ParameterFilter {
+            $SkipInstall -and $TimeoutSec -ge 30 -and $TimeoutSec -le 90
+        }
+    }
+    It 'reports failed convergence of an existing service without failing the cycle' {
+        Mock Set-YurunaHostMetricsExporter -ModuleName Test.HostCondition.Windows { [pscustomobject]@{Ensured=$false;Message='firewall unavailable'} }
+        $result = Initialize-WindowsHostMetricsExporter -ConfigPath (Join-Path $TestDrive 'absent.yml')
+        $result.Status | Should -BeExactly Failed
+        $result.Reason | Should -Match 'firewall unavailable'
+    }
+    It 'does not call a healthy local payload ensured when its firewall could not be established' {
+        Mock Set-YurunaHostMetricsFirewallRule -ModuleName Test.HostMetricsExporter { [pscustomobject]@{Ensured=$false;Changed=$false;Message='firewall unavailable'} }
+        $result = Set-YurunaHostMetricsExporter -SkipInstall 3>$null 6>$null
+        $result.Ensured | Should -BeFalse
+        $result.Message | Should -Match 'firewall unavailable'
+    }
+    It 'rebuilds a correctly scoped rule that omits other firewall profiles' {
+        $result = & $script:MetricsFirewallImplementation -Port 9182 -RemoteAddress @('192.0.2.42') 6>$null
+        $result.Changed | Should -BeTrue
+        Should -Invoke New-NetFirewallRule -ModuleName Test.HostMetricsExporter -Times 1 -Exactly -ParameterFilter {
+            ($Profile -eq 'Any' -or $FirewallProfile -eq 'Any') -and @($RemoteAddress).Count -eq 1 -and $RemoteAddress[0] -eq '192.0.2.42'
+        }
+    }
+    It 'keeps an existing rule covering <Profiles> untouched' -ForEach @(
+        @{Profiles='Any'}, @{Profiles='Domain, Private, Public'}
+    ) {
+        Mock Get-NetFirewallRule -ModuleName Test.HostMetricsExporter {
+            [pscustomobject]@{Enabled='True';Direction='Inbound';Action='Allow';Profile=$Profiles}
+        }.GetNewClosure()
+        $result = & $script:MetricsFirewallImplementation -Port 9182 -RemoteAddress @('192.0.2.42') 6>$null
+        $result.Ensured | Should -BeTrue
+        $result.Changed | Should -BeFalse
+        Should -Invoke New-NetFirewallRule -ModuleName Test.HostMetricsExporter -Times 0 -Exactly
+    }
+    It 'preserves a converged service and firewall without a restart or rewrite' {
+        $result = Set-YurunaHostMetricsExporter -SkipInstall 3>$null 6>$null
+        $result.Ensured | Should -BeTrue
+        $result.Changed | Should -BeFalse
+        Should -Invoke Restart-Service -ModuleName Test.HostMetricsExporter -Times 0 -Exactly
+        Should -Invoke Set-YurunaHostMetricsServiceCommandLine -ModuleName Test.HostMetricsExporter -Times 0 -Exactly
+    }
+    It 'keeps custom configuration and unrelated flags while reporting the old command before replacing it' {
+        $script:MetricsMutationOrder = [Collections.Generic.List[string]]::new()
+        $script:PreviousMetricsCommand = '"C:\w\windows_exporter.exe" --config.file="D:\operator config\custom.yml" --log.level=debug --collectors.enabled=cpu --web.listen-address=127.0.0.1:9182'
+        Mock Get-YurunaHostMetricsServiceCommandLine -ModuleName Test.HostMetricsExporter { $script:PreviousMetricsCommand }
+        Mock Write-Information -ModuleName Test.HostMetricsExporter { $script:MetricsMutationOrder.Add([string]$MessageData) }
+        Mock Set-YurunaHostMetricsServiceCommandLine -ModuleName Test.HostMetricsExporter {
+            $script:MetricsMutationOrder.Add('write')
+            $CommandLine | Should -Match ([regex]::Escape('--config.file="D:\operator config\custom.yml"'))
+            $CommandLine | Should -Match '--log.level=debug'
+            $CommandLine | Should -Match '--web.listen-address=:9182'
+            0
+        }
+        $result = Set-YurunaHostMetricsExporter -SkipInstall 3>$null 6>$null
+        $result.Ensured | Should -BeTrue
+        $writeIndex = $script:MetricsMutationOrder.IndexOf('write')
+        $writeIndex | Should -BeGreaterThan 0
+        $script:MetricsMutationOrder[$writeIndex-1] | Should -Match ([regex]::Escape("command line: $script:PreviousMetricsCommand -> "))
+    }
+    It 'restores the complete operator command line when the replacement does not answer' {
+        $previous = '"C:\w\windows_exporter.exe" --config.file="D:\operator config\custom.yml" --log.level=debug --collectors.enabled=cpu'
+        Mock Get-YurunaHostMetricsServiceCommandLine -ModuleName Test.HostMetricsExporter { $previous }.GetNewClosure()
+        Mock Test-YurunaHostMetricsAnswering -ModuleName Test.HostMetricsExporter { $false }
+        $script:MetricsWrittenCommands = [Collections.Generic.List[string]]::new()
+        Mock Set-YurunaHostMetricsServiceCommandLine -ModuleName Test.HostMetricsExporter { $script:MetricsWrittenCommands.Add($CommandLine); 0 }
+        $result = Set-YurunaHostMetricsExporter -SkipInstall 3>$null 6>$null
+        $script:MetricsWrittenCommands.Count | Should -Be 2
+        $script:MetricsWrittenCommands[1] | Should -BeExactly $previous
+        $result.Ensured | Should -BeFalse
+    }
+    It 'runs convergence under the requested process bound and forwards its configuration report' {
+        Mock Invoke-BoundedNativeCommand -ModuleName Test.HostMetricsExporter {
+            @{Started=$true;ExitCode=0;StdOut='{"Installed":true,"Running":true,"Ensured":true,"Changed":true,"Message":"ready"}';StdErr='command line: previous -> desired'}
+        }
+        $script:MetricsForwardedInformation = @()
+        Mock Write-Information -ModuleName Test.HostMetricsExporter { $script:MetricsForwardedInformation += [string]$MessageData }
+        $records = @(Set-YurunaHostMetricsExporter -ConfigIp '192.0.2.42' -EnvIp '192.0.2.43' -SkipInstall -TimeoutSec 42 -Confirm:$false)
+        $records.Count | Should -Be 1
+        $records[0].Ensured | Should -BeTrue
+        $script:MetricsForwardedInformation | Should -Contain 'command line: previous -> desired'
+        Should -Invoke Invoke-BoundedNativeCommand -ModuleName Test.HostMetricsExporter -Times 1 -Exactly -ParameterFilter {
+            $TimeoutSeconds -eq 42 -and $Environment.YURUNA_METRICS_CONFIG_IP -eq '192.0.2.42' -and
+                $Environment.YURUNA_METRICS_ENV_IP -eq '192.0.2.43' -and $Environment.YURUNA_METRICS_SKIP_INSTALL -eq 'True' -and
+                $ArgumentList[-1] -match 'Set-YurunaHostMetricsExporter' -and $ArgumentList[-1] -notmatch '-TimeoutSec'
+        }
+    }
+    It 'does not trust a successful-looking but incomplete worker result (<Flag>)' -ForEach @(
+        @{Flag='TimedOut'}, @{Flag='OutputTruncated'}, @{Flag='DrainTimedOut'}, @{Flag='KillFailed'}, @{Flag='DeadlineExhausted'}
+    ) {
+        $script:MetricsIncompleteResult = @{Started=$true;ExitCode=0;StdOut='{"Installed":true,"Running":true,"Ensured":true,"Changed":false,"Message":"ready"}';StdErr=''}
+        $script:MetricsIncompleteResult[$Flag] = $true
+        Mock Invoke-BoundedNativeCommand -ModuleName Test.HostMetricsExporter { $script:MetricsIncompleteResult }
+        $result = Set-YurunaHostMetricsExporter -SkipInstall -TimeoutSec 42 -Confirm:$false
+        $result.Ensured | Should -BeFalse
+        $result.Message | Should -Match 'host-metrics-convergence-incomplete.*timeoutSeconds=42'
+    }
+    It 'rejects a completed worker with an invalid or multiple result (<Payload>)' -ForEach @(
+        @{Payload='not JSON'}, @{Payload='{"Ensured":true}'}, @{Payload='[]'},
+        @{Payload='[{"Installed":true,"Running":true,"Ensured":true,"Changed":false,"Message":"one"},{"Installed":true,"Running":true,"Ensured":true,"Changed":false,"Message":"two"}]'}
+    ) {
+        Mock Invoke-BoundedNativeCommand -ModuleName Test.HostMetricsExporter {
+            @{Started=$true;ExitCode=0;StdOut=$Payload;StdErr=''}
+        }.GetNewClosure()
+        $result = Set-YurunaHostMetricsExporter -SkipInstall -TimeoutSec 42 -Confirm:$false
+        $result.Ensured | Should -BeFalse
+        $result.Message | Should -BeExactly host-metrics-convergence-invalid-result
+    }
+    It 'does not launch a convergence worker during a preview' {
+        Mock Invoke-BoundedNativeCommand -ModuleName Test.HostMetricsExporter { throw 'A preview launched a worker.' }
+        $result = Set-YurunaHostMetricsExporter -SkipInstall -TimeoutSec 42 -WhatIf 6>$null
+        $result.Changed | Should -BeFalse
+        Should -Invoke Invoke-BoundedNativeCommand -ModuleName Test.HostMetricsExporter -Times 0 -Exactly
     }
 }
 
@@ -758,6 +958,9 @@ if ($IsWindows) {
         BeforeAll {
             Import-Module (Join-Path (Split-Path -Parent $PSCommandPath) 'Test.HostCondition.psm1') -Force -DisableNameChecking
         }
+        BeforeEach {
+            Mock Set-YurunaHostMetricsExporter -ModuleName Test.HostCondition.Windows { [pscustomobject]@{ Ensured = $true } }
+        }
         It 'returns exactly one record, so the dispatcher can read it' {
             Mock Install-YurunaHostMetricsExporter -ModuleName Test.HostCondition.Windows {
                 [pscustomobject]@{ Installed = $true; Changed = $false; Outcome = 'already-present'; Reason = 'already registered'; ExitCode = $null }
@@ -785,13 +988,14 @@ if ($IsWindows) {
                 Assert-Match 'reason for' $r.Reason "the '$outcome' outcome carries its reason forward"
             }
         }
-        It 'configures the exporter only on the cycle that installed it' {
+        It 'also converges an exporter that was already installed' {
             Mock Install-YurunaHostMetricsExporter -ModuleName Test.HostCondition.Windows {
                 [pscustomobject]@{ Installed = $true; Changed = $false; Outcome = 'already-present'; Reason = 'already registered'; ExitCode = $null }
             }
             Mock Set-YurunaHostMetricsExporter -ModuleName Test.HostCondition.Windows { [pscustomobject]@{ Ensured = $true } }
             $null = Initialize-WindowsHostMetricsExporter
-            Should -Invoke -CommandName Set-YurunaHostMetricsExporter -ModuleName Test.HostCondition.Windows -Times 0 -Exactly -Scope It
+            Should -Invoke -CommandName Set-YurunaHostMetricsExporter -ModuleName Test.HostCondition.Windows -Times 1 -Exactly -Scope It `
+                -ParameterFilter { $SkipInstall -and $TimeoutSec -eq 60 }
         }
         It 'does configure the one it just installed' {
             Mock Install-YurunaHostMetricsExporter -ModuleName Test.HostCondition.Windows {

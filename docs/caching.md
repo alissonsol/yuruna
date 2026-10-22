@@ -2,7 +2,7 @@
 
 # Caching
 
-Two independent layers that compose: keeping `YurunaCacheContent` unset
+Three layers that compose: keeping `YurunaCacheContent` unset
 lets the Squid VM serve cached copies of install scripts.
 
 1. **[`YurunaCacheContent`](#the-yurunacachecontent-cache-buster)** --
@@ -10,6 +10,8 @@ lets the Squid VM serve cached copies of install scripts.
 2. **[Squid cache VM](#squid-cache-vm)** -- optional VM that caches
    HTTP/HTTPS for test VMs. First install populates; subsequent installs
    pull from LAN.
+3. **[Git mirror](#git-mirror)** -- the same VM checks GitHub refs and serves
+   immutable framework and project commits over LAN HTTP.
 
 <a id="42f6b05f-0002"></a>
 
@@ -292,8 +294,9 @@ list; New-VM merges them via
 - Aggressive `refresh_pattern` for content-addressable files
   (`.deb .udeb .tar.xz .tar.gz .tar.bz2 .iso`):
   `override-expire override-lastmod ignore-reload ignore-no-store
-  ignore-private`. Apt metadata uses a shorter
-  TTL so apt still sees fresh package lists.
+  ignore-private`. Apt metadata is never served from the cache while
+  upstream is allowed, so apt still sees fresh package lists (see
+  [Apt metadata under offline_mode](#42f6b05f-0057)).
 
 <a id="42f6b05f-0013"></a>
 
@@ -385,6 +388,52 @@ upstreams, which is why the flip happens after prewarm rather than
 before: it costs nothing on a warm cache and saves a conditional request
 per object.
 
+<a id="42f6b05f-0057"></a>
+
+### Apt metadata under offline_mode
+
+`offline_mode` also overrides the short apt-metadata `refresh_pattern`
+lines, and a client's `Cache-Control: no-cache` does not get past it
+either: every stored `InRelease`, `Release` and `Packages` index would
+be served as first fetched. Those URLs are rewritten in place on each
+publish, and apt rejects an index whose size or hash differs from what
+its `InRelease` lists. A repository without `Acquire-By-Hash` therefore
+breaks one architecture for good when its `InRelease` and that
+architecture's index are first fetched across a publish: Docker's
+`noble` `InRelease` was stored with the amd64 index, the arm64 index
+came hours and one publish later, and every arm64 guest then failed
+`apt-get update` with `File has unexpected size` while amd64 guests
+passed.
+
+So `yuruna.conf` never answers mutable apt metadata from the cache:
+
+```
+acl yuruna_apt_index urlpath_regex -i /dists/ /(InRelease|Release|Release\.gpg)$ /(Packages|Sources)(\.gz|\.xz|\.bz2|\.lz4|\.zst)?$
+acl yuruna_apt_by_hash urlpath_regex -i /by-hash/
+acl yuruna_no_upstream src 255.255.255.255/32
+send_hit deny yuruna_apt_index !yuruna_apt_by_hash !yuruna_no_upstream
+```
+
+- Each request goes to the origin, which answers apt's
+  `If-Modified-Since` with a small `304` when nothing changed, and the
+  answer is still stored. `/dists/` covers every index of a suite;
+  `/by-hash/` URLs name their content, so they stay cached.
+- [no-upstream mode](#no-upstream-mode) adds the client ranges the cache
+  serves (RFC1918 and loopback) to `yuruna_no_upstream`, so the stored
+  copies are served while misses are refused. The never-matching value
+  above shares no range with them: squid drops an address that overlaps
+  another in the same list, and which one it drops depends on the order
+  it reads `conf.d`.
+- The cost is that an origin outage now fails `apt-get update` for that
+  repository instead of being covered by the stored copy; `apt_retry`
+  rides out a short one.
+
+Guests on a cache built before this rule heal a stored pair by purging
+it (see the network notes on
+[healing an apt index](network.md#4220a755-005e)),
+and the [apt index pairs self-test](#42f6b05f-005b) reports
+any pair the cache still serves out of step.
+
 <a id="42f6b05f-0016"></a>
 
 ### no-upstream mode
@@ -398,7 +447,10 @@ sudo yuruna-no-upstream status
 ```
 
 `on` writes `/etc/squid/conf.d/yuruna-no-upstream.conf`
-(`miss_access deny all`), validates it with `squid -k parse` **before**
+(`miss_access deny all`, plus the client ranges that let stored apt
+metadata be served again -- see
+[Apt metadata under offline_mode](#42f6b05f-0057)),
+validates it with `squid -k parse` **before**
 letting it take effect -- a squid that FATALs on a drop-in does not fall
 back to the previous config; it fails to start and takes the lab's proxy
 with it -- then reloads.
@@ -1103,6 +1155,42 @@ qualification that cannot run. The release gate's `zot-qualification` row runs
 fingerprint without network or Python, so a pin committed past the hook still
 cannot ship.
 
+<a id="42f6b05f-005b"></a>
+
+### Apt index pairs self-test
+
+`yuruna-apt-index-selftest.py` reads apt metadata through the local squid the
+way a guest does. It reads the `InRelease` of each repository in
+`/etc/squid/yuruna-apt-index-probes.list`, then each listed architecture's
+index, and compares that index's size and SHA-256 with what the `InRelease`
+lists. The probes are the repositories the guests use that publish without
+`Acquire-By-Hash`: Docker's `noble` and `resolute` suites for amd64 and arm64,
+and the Kubernetes repository of the minor the warm run resolved. A pair that
+disagrees is read again after 30 seconds, so an origin caught mid-publish is not
+reported. It runs 10 minutes after boot and every 30 minutes
+(`yuruna-apt-index-selftest.timer`), and on demand with
+`sudo /usr/local/bin/yuruna-apt-index-selftest.py`.
+
+| Verdict | Meaning |
+|---|---|
+| `OK` | Every pair that could be read matched its `InRelease`. |
+| `MISMATCH` | The cache serves an index that disagrees with its `InRelease`. Every guest of that architecture fails `apt-get update` on it. |
+| `NO VERDICT` | No pair could be read: squid or every origin did not answer. |
+
+A pair that could not be read is listed as `unverified` with its reason. The
+verdict is the `apt index pairs` line on `/cache-health`, the
+`yuruna_apt_index_*` series in `/squid-meta`, and the "Apt index pairs" panel
+of the cache-health dashboard.
+
+A `MISMATCH` that survives the re-read means one of three things:
+
+- the origin itself published that pair, so wait for its next publish;
+- no-upstream mode is serving a stored pair, so turn the switch off;
+- the cache predates the [apt metadata rule](#42f6b05f-0057).
+  On such a cache, purge both URLs the line names, for example
+  `curl -x http://127.0.0.1:3129 -X PURGE <url>` on the VM, or let a guest's
+  `apt_retry` purge them.
+
 <a id="42f6b05f-0021"></a>
 
 ### Keeping tag resolution off a metered upstream
@@ -1560,6 +1648,20 @@ console fallback via `vmconnect` is the normal path during that window.
 The cache VM is independent of the test harness -- **not** created or
 destroyed by [Start-TestRunner.ps1](../test/Start-TestRunner.ps1).
 
+The bring-up script starts the host status service before creating the guest.
+Status startup holds an exclusive file handle and releases it in `finally`,
+including when the operation is canceled. A `held-elsewhere` startup error
+means that handle is still held; the lock file's existence alone does not
+prevent startup. Use the reported lock path with `lslocks` or `lsof` on Linux
+to identify the holder, and let an active startup finish. Do not delete a held
+lock file: recreating it can allow two launchers to run concurrently.
+
+An older launcher interrupted in an interactive PowerShell session can leave
+its handle open until that session exits. A module reload can also make a
+lock held by that same process appear to be held elsewhere. After confirming
+that no startup is still active in that session, exit it normally and retry
+from a fresh PowerShell session.
+
 <a id="42f6b05f-0032"></a>
 
 ### Windows Hyper-V
@@ -1657,9 +1759,9 @@ Public cert published at `http://<cache-vm-ip>/yuruna-squid-ca.crt`.
 ### Guest trust flow
 
 All three hosts pre-fetch the cache CA and embed it in the seed. UTM Shared
-NAT differs only in routing: a guest is given the vmnet gateway URL
-(`192.168.64.1`) and reaches the cache through the host's forwarder; bridged
-guests use the cache address.
+NAT differs only in addressing: a guest is given the cache VM's recorded
+`192.168.64.x` address and reaches it directly on the vmnet bridge (the host
+forwarder serves only remote LAN hosts); bridged guests use the cache address.
 
 **Host pre-fetch + base64 in seed:** each Ubuntu Server builder derives the
 cache host from the resolved proxy URL and calls the shared CA helper. It
@@ -1672,8 +1774,8 @@ splices it into the seed as `CA_CERT_BASE64_PLACEHOLDER`. Guest
 1. `printf '%s' "<base64>" | base64 -d > /target/.../yuruna-squid-ca.crt`
 2. `curtin in-target -- update-ca-certificates`
 3. Append the HTTPS apt proxy at the resolved proxy host's `:3129`. On UTM
-   Shared NAT, `Acquire::https::Proxy "http://192.168.64.1:3129";` uses the
-   gateway's host-side forwarder rather than a direct cache-VM route.
+   Shared NAT that host is the cache VM's own `192.168.64.x` address, reached
+   directly rather than through the gateway's host-side forwarder.
 
 An empty CA placeholder omits the explicit HTTPS apt stanza, but the seed
 still sets the HTTPS proxy environment to `:3129`. Missing trust can therefore
@@ -2633,11 +2735,152 @@ Re-running `-End` is safe: already-done parts are skipped with a note.
 
 ---
 
+<a id="42f6b05f-0058"></a>
+
+## Git mirror
+
+The caching-proxy VM exposes Git smart HTTP at `/git/<owner>/<repo>.git`,
+resolution at `/git-mirror/v1/resolve`, and health at
+`/git-mirror/status.json` on port 80. Package caching remains independent.
+Existing proxy VMs keep working as package caches until rebuilt with the new
+seed. Hosts can update before that rebuild: without an enrolled mirror key,
+they make no mirror request and use their normal GitHub credentials. An older
+proxy that lacks these routes, or a mirror that cannot answer, also falls back
+to GitHub. Mirror fallback shares the operation's deadline and retains the
+normal final Git attempt through the machine's credential manager or SSH agent.
+
+Hosts default to `repositories.mirror.mode: prefer`. With an enrolled key they
+ask the mirror first; the worker checks the requested GitHub ref and fetches
+objects only when needed. Hosts verify its signed receipt, fetch the exact
+commit, and retain that selection through configuration validation and project
+checkout. A healthy mirror selection needs no direct host GitHub probe. A
+successful GitHub ref query also satisfies connectivity validation; a separate
+TCP failure cannot veto that observed result. SSH GitHub remotes use the same
+selection policy. Other repository types keep their existing transport.
+
+Guests use host-served code first, then the mirror, then GitHub. Fallback uses
+the host-selected full commit ID; it cannot silently choose a newer branch.
+Raw script downloads keep their host-supplied digest check. Legacy manual
+updater calls without immutable source metadata retain their existing behavior.
+See [mirror configuration](test-config.md#git-mirror) for modes, age limits,
+endpoint precedence, and key encoding.
+
+<a id="42f6b05f-0059"></a>
+
+### Upgrade and enrollment
+
+1. Upgrade the proxy-owning host through its normal updater or standalone
+   installer, then rebuild the caching-proxy VM using its platform's existing
+   `New-VM.ps1`. The seed takes its source repository and full commit from that
+   checkout. It reuses the vault's `github-mirror-signing-key`; a failed vault
+   read never rotates or replaces the key. The optional `github-mirror-token`
+   is read only when configured and present; public repositories need no PAT.
+2. Run setup on the owning host. It enrolls the exported public identity for
+   its own proxy, including a host whose proxy IP was already configured.
+   Setup preserves a different operator-selected endpoint. Seed source and
+   ISO files contain secrets; keep the seed media protected and use the builder's
+   cleanup path. Never copy a signing key into a served directory.
+3. Join other hosts with their existing `Sync-HostConfiguration.ps1`, naming
+   the reference host explicitly. Accept the displayed old/new key fingerprints
+   interactively, or supply `-AcceptMirrorKey` after verifying them for an
+   unattended run. Config changes are backed up and reported before writing.
+   The control-proof configuration editor and a hand edit are also valid
+   enrollment paths. Mirror and pool responses cannot enroll trust.
+4. Relaunch an already resident runner to activate its new pause policy. Use
+   `test/lab/Invoke-HostRefresh.ps1 -Force -MaxRung reclaim` locally when an
+   otherwise healthy runner must be replaced. HTTP control does not accept
+   `-Force`. The clean-exit guard still applies; an installer-captured launch
+   can be resumed explicitly with `test/lab/Start-RecordedTestRunner.ps1`.
+   macOS launch requires the user's Aqua session.
+
+To configure the optional GitHub personal access token (PAT), run
+`test/service/Start-CachingProxyServiceVM.ps1` interactively on the proxy-owning
+host. Its optional GitHub token prompt hides the input and automatically stores
+the token in that host's vault, preserving an existing custom vault-key mapping. Use a
+read-only Contents token limited to the GitHub repositories the mirror needs.
+Press Enter to retain the stored token, or anonymous access when none is stored;
+this preserves the normal reuse of a healthy proxy VM.
+
+Entering a token requests a full proxy VM rebuild to apply it, even if the same
+value is already stored on the host: the running VM may hold a different value.
+The prompt explains the rebuild before accepting input. Allow about 15 minutes
+and a cold proxy cache, and retain your usual MAC address and other startup
+options. The token never appears in command-line arguments or logs.
+
+Setup, other automation, captured input/output and PowerShell `-NonInteractive`
+skip this optional prompt. For unattended provisioning, populate the owner's
+`github-mirror-token` vault entry and its nonempty `vaultKey` mapping beforehand,
+then pass `-ForceRebuild` to apply a changed token to an existing VM.
+`repositories.ghToken` is separate: it supplies direct and guest GitHub fallback
+credentials, not the mirror worker's token.
+
+For signing-key rotation, keep both verified public keys enrolled during the
+transition, provision the new private key deliberately, confirm new receipt key
+IDs, then remove the retired public key. Rebuilding a proxy ordinarily reuses
+its existing identity. Missing trust causes origin fallback without a mirror
+request; malformed trust is a configuration failure and is left unchanged.
+
+<a id="42f6b05f-005a"></a>
+
+### Outage behavior and diagnostics
+
+`mirror.origin`, `mirror.stale`, `remote.origin`, and `not.applicable` appear
+with commit provenance in host status and the pool. `mirror.origin` means the
+host accepted the mirror's signed confirmation of the selected upstream commit;
+`remote.origin` means the host successfully checked the ref directly with GitHub,
+including when the mirror was unavailable. `not.applicable` means mirroring is
+disabled or the repository is outside its supported scope. The labels describe
+verification; even a `remote.origin` selection can fetch matching objects from
+the mirror. Legacy freshness wording is displayed as `mirror.fresh`. The
+[dashboard Commit column guide](pool-dashboard.md#422226cb-0006) explains each
+label, its saved protocol value, and where to find the fallback reason.
+
+A stale selection is permitted only after a bounded
+direct origin attempt fails with a transport error, within the configured age,
+and without replacing a newer or unknown installed snapshot. Authentication,
+missing refs, invalid signatures, and mismatched objects never authorize stale
+content. Integrity failures retain their diagnostic even when verified origin
+fallback succeeds. Setting the stale age to zero disables stale use.
+
+A configuration refusal caused only by network failures retries after a bounded
+120-to-900-second hold. Recovery polling checks required refs every 30 seconds
+and can resume after connectivity recovers without a new commit. Configuration,
+authentication, and integrity failures keep the ordinary failure policy.
+
+The panel's short commit hashes are display values; source provenance is
+checked against the full commit IDs installed in each checkout. An unexpected
+cycle exception before its transcript opens is retained with a redacted stack
+in `runtime/outer.log` on the host.
+
+On the VM, inspect `/cache-health`, `/git-mirror/status.json`,
+`journalctl -u git-mirror-worker -u git-mirror-reader`, and the mirror metrics
+collected by Prometheus. Check repository registration, pending population,
+last origin confirmation, queue/capacity failures, and free-space status before
+rebuilding. A first population can run in the background while hosts use
+GitHub. Worker failure preserves published content and an interrupted mutation
+must pass recovery checks before it is served again. Do not remove repository
+locks, maintenance barriers, or confirmation state to force a refresh.
+
+The mirror's Prometheus endpoint is `/git-mirror/metrics`. Outcome names in
+status responses remain `local-error` and `auth-denied`; their metric-name
+components use underscores, such as
+`yuruna_git_mirror_checks_local_error_total`, to keep the exposition valid.
+An unavailable mirror metric does not establish that host Git fallback failed.
+
+Repository status and worker failure logs include a sanitized diagnostic:
+`phase`, Git `operation`, `exitCode`, `outputLimit`, and `failure`. Use these
+to distinguish a failed origin check, fetch, local repository check, or
+publication step before changing credentials or rebuilding. `outputLimit`
+identifies a bounded stdout or stderr capture that filled; raw command
+arguments, Git stderr, and tokens are not exposed in this diagnostic. Save
+the status document and the corresponding worker journal entry before
+restarting or rebuilding the proxy.
+
 LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.18.1
+Last review: 2026.10.22
 
 Back to [Yuruna](../README.md)
 

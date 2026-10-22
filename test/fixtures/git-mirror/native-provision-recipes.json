@@ -1,0 +1,202 @@
+{
+  "schema": "yuruna.git-mirror.native-recipes/v1",
+  "recipes": [
+    {
+      "id": "GM-PROXY-OWNER-FIRST",
+      "platform": "*",
+      "commands": [
+        {
+          "source": "candidate",
+          "path": "tools/Invoke-GitMirrorNativeProvision.ps1",
+          "arguments": [
+            "-Scenario",
+            "GM-PROXY-OWNER-FIRST",
+            "-TargetRoot",
+            "${TargetRoot}",
+            "-OldRoot",
+            "${OldRoot}",
+            "-UpstreamsPath",
+            "${UpstreamsPath}",
+            "-CandidateTree",
+            "${CandidateTree}",
+            "-ProfilePath",
+            "${ProvisionProfilePath}",
+            "-OutputPath",
+            "${ProvisionEvidencePath}",
+            "-DisposableTarget"
+          ],
+          "timeoutSeconds": 7200
+        }
+      ],
+      "observations": [
+        {
+          "name": "provisionedCompatibility",
+          "kind": "json",
+          "path": "${ProvisionEvidencePath}",
+          "property": "passed",
+          "expected": true,
+          "before": false,
+          "retain": true
+        }
+      ]
+    },
+    {
+      "id": "GM-PROXY-OLD-CHECKOUT",
+      "platform": "*",
+      "commands": [
+        {
+          "source": "candidate",
+          "path": "tools/Invoke-GitMirrorNativeProvision.ps1",
+          "arguments": [
+            "-Scenario",
+            "GM-PROXY-OLD-CHECKOUT",
+            "-TargetRoot",
+            "${TargetRoot}",
+            "-OldRoot",
+            "${OldRoot}",
+            "-UpstreamsPath",
+            "${UpstreamsPath}",
+            "-CandidateTree",
+            "${CandidateTree}",
+            "-ProfilePath",
+            "${ProvisionProfilePath}",
+            "-OutputPath",
+            "${ProvisionEvidencePath}",
+            "-DisposableTarget"
+          ],
+          "timeoutSeconds": 7200
+        }
+      ],
+      "observations": [
+        {
+          "name": "provisionedCompatibility",
+          "kind": "json",
+          "path": "${ProvisionEvidencePath}",
+          "property": "passed",
+          "expected": true,
+          "before": false,
+          "retain": true
+        }
+      ]
+    },
+    {
+      "id": "GM-PROXY-NO-STATUS-SERVICE",
+      "platform": "*",
+      "commands": [
+        {
+          "source": "candidate",
+          "path": "tools/Invoke-GitMirrorNativeProvision.ps1",
+          "arguments": [
+            "-Scenario",
+            "GM-PROXY-NO-STATUS-SERVICE",
+            "-TargetRoot",
+            "${TargetRoot}",
+            "-OldRoot",
+            "${OldRoot}",
+            "-UpstreamsPath",
+            "${UpstreamsPath}",
+            "-CandidateTree",
+            "${CandidateTree}",
+            "-ProfilePath",
+            "${ProvisionProfilePath}",
+            "-OutputPath",
+            "${ProvisionEvidencePath}",
+            "-DisposableTarget"
+          ],
+          "timeoutSeconds": 7200
+        }
+      ],
+      "observations": [
+        {
+          "name": "provisionedCompatibility",
+          "kind": "json",
+          "path": "${ProvisionEvidencePath}",
+          "property": "passed",
+          "expected": true,
+          "before": false,
+          "retain": true
+        }
+      ]
+    },
+    {
+      "id": "GM-FRESH-LAB-JOIN",
+      "platform": "*",
+      "commands": [
+        {
+          "source": "candidate",
+          "path": "tools/Invoke-GitMirrorNativeProvision.ps1",
+          "arguments": [
+            "-Scenario",
+            "GM-FRESH-LAB-JOIN",
+            "-TargetRoot",
+            "${TargetRoot}",
+            "-OldRoot",
+            "${OldRoot}",
+            "-UpstreamsPath",
+            "${UpstreamsPath}",
+            "-CandidateTree",
+            "${CandidateTree}",
+            "-ProfilePath",
+            "${ProvisionProfilePath}",
+            "-OutputPath",
+            "${ProvisionEvidencePath}",
+            "-DisposableTarget"
+          ],
+          "timeoutSeconds": 7200
+        }
+      ],
+      "observations": [
+        {
+          "name": "provisionedCompatibility",
+          "kind": "json",
+          "path": "${ProvisionEvidencePath}",
+          "property": "passed",
+          "expected": true,
+          "before": false,
+          "retain": true
+        }
+      ],
+      "prepareOrigins": true
+    },
+    {
+      "id": "GM-ROTATE-KEY",
+      "platform": "*",
+      "commands": [
+        {
+          "source": "candidate",
+          "path": "tools/Invoke-GitMirrorNativeProvision.ps1",
+          "arguments": [
+            "-Scenario",
+            "GM-ROTATE-KEY",
+            "-TargetRoot",
+            "${TargetRoot}",
+            "-OldRoot",
+            "${OldRoot}",
+            "-UpstreamsPath",
+            "${UpstreamsPath}",
+            "-CandidateTree",
+            "${CandidateTree}",
+            "-ProfilePath",
+            "${ProvisionProfilePath}",
+            "-OutputPath",
+            "${ProvisionEvidencePath}",
+            "-DisposableTarget"
+          ],
+          "timeoutSeconds": 7200
+        }
+      ],
+      "observations": [
+        {
+          "name": "provisionedCompatibility",
+          "kind": "json",
+          "path": "${ProvisionEvidencePath}",
+          "property": "passed",
+          "expected": true,
+          "before": false,
+          "retain": true
+        }
+      ],
+      "prepareOrigins": true
+    }
+  ]
+}

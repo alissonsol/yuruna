@@ -1,7 +1,7 @@
 /*
   LICENSEURI https://yuruna.link/license
   Copyright (c) 2019-2026 by Alisson Sol et al.
-  Version: 2026.10.18.2
+  Version: 2026.10.22
 
   Framework-free checks for test/status/yuruna.common.js. Run: node yuruna.common.test.js
   (exit 0 = pass). No package.json / test runner in the repo, so this uses the Node
@@ -404,5 +404,47 @@ var logSource = src.match(/function logFileUrl\(cycleStartUtc, hostKey, gitCommi
 var logFile = new Function(logSource + '\nreturn logFileUrl;')();
 assert.strictEqual(logFile('', '', '', 'log/000001.date.host.incomplete/'), 'log/000001.date.host.incomplete/000001.date.host.html');
 assert.strictEqual(logFile('2026-09-18T12:00:00Z', 'host', 'abc', ''), 'log/2026-09-18T12-00-00Z.host.abc.html');
+
+var commitSource = src.match(/function renderCommitLinks\(commits\)[\s\S]*?\n    \}/)[0];
+var sourceTranslations = JSON.parse(fs.readFileSync(path.join(__dirname, '../../globalization/catalogs/en-US/status.json'), 'utf8')).messages;
+var sourceTranslationCalls = [];
+var commitsForTest = new Function('escHtml', 'window', commitSource + '\nreturn renderCommitLinks;')(
+  function(value) { return String(value).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;'); },
+  {YurunaI18n:{t:function(key) {
+    sourceTranslationCalls.push(key);
+    return sourceTranslations[key] ? sourceTranslations[key].message : key;
+  }}});
+var legacyCommit = commitsForTest([{sha:'abcd1234'}]);
+assert.strictEqual(legacyCommit, 'abcd1234', 'legacy commit records keep rendering');
+[
+  {verification:'mirror-fresh', key:'status.git_source_mirror_fresh', label:'mirror.fresh'},
+  {verification:'origin-direct', key:'status.git_source_origin_direct', label:'remote.origin'},
+  {verification:'mirror-confirmed', key:'status.git_source_mirror_confirmed', label:'mirror.origin'},
+  {verification:'mirror-stale', key:'status.git_source_mirror_stale', label:'mirror.stale'},
+  {verification:'not-applicable', key:'status.git_source_not_applicable', label:'not.applicable'}
+].forEach(function (expected) {
+  var record = {sha:'abcd1234ef567890', repoUrl:'https://github.com/example/project', verification:expected.verification,
+    source:'mirror', repository:'example/project', ref:'main', selectedSha:'abcd1234ef567890'};
+  var stored = JSON.stringify(record);
+  sourceTranslationCalls = [];
+  var rendered = commitsForTest([record]);
+  assert.ok(rendered.indexOf('>' + expected.label + '</small>') >= 0, expected.verification + ' displays its current source name');
+  assert.deepStrictEqual(sourceTranslationCalls, [expected.key], 'display names come from the stable localization key');
+  assert.ok(rendered.indexOf('verification=' + expected.verification) >= 0, 'diagnostics retain the stored verification code');
+  assert.ok(rendered.indexOf('href="https://github.com/example/project/commit/abcd1234ef567890"') >= 0, 'source labels preserve commit links');
+  assert.ok(rendered.indexOf('color:' + (expected.verification === 'mirror-stale' ? '#b45309' : '#6b7280')) >= 0, 'stale verification retains its distinct color');
+  assert.strictEqual(JSON.stringify(record), stored, 'presentation never rewrites retained commit records');
+});
+sourceTranslationCalls = [];
+var unclassified = [{sha:'abcd1234'}, {sha:'ef567890', verification:'future-source'}, {sha:'12345678', verification:''}];
+var unclassifiedStored = JSON.stringify(unclassified);
+assert.strictEqual(commitsForTest(unclassified), 'abcd1234, ef567890, 12345678', 'plain and unknown verification records retain their existing display');
+assert.deepStrictEqual(sourceTranslationCalls, [], 'unknown source codes are not presented as a known verification state');
+assert.strictEqual(JSON.stringify(unclassified), unclassifiedStored, 'unclassified input remains unchanged');
+var staleCommit = commitsForTest([{sha:'abcd1234',verification:'mirror-stale',source:'mirror',originCheckedAt:'2026-10-20T00:00:00Z',keyId:'<untrusted>',fallbackReason:'mirror-upstream-unreachable'}]);
+assert.ok(staleCommit.indexOf('>mirror.stale</small>') >= 0, 'stale source is visibly distinguished');
+assert.ok(staleCommit.indexOf('fallbackReason=mirror-upstream-unreachable') >= 0, 'fallback reason is available in the source detail');
+assert.ok(staleCommit.indexOf('&lt;untrusted>') >= 0, 'source metadata is escaped');
+assert.ok(staleCommit.indexOf('keyId=<untrusted>') < 0, 'untrusted metadata cannot become markup');
 
 console.log('PASS: yuruna.common.js');

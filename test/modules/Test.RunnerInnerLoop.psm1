@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.18.2
+.VERSION 2026.10.22
 .GUID 42479415-ffbe-4fef-9daa-15edda547208
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -42,6 +42,7 @@ Import-Module (Join-Path $PSScriptRoot 'Test.SequenceResolve.psm1') -DisableName
 # preflight inner uses; imported here so no inner can run without them.
 Import-Module (Join-Path $PSScriptRoot 'Test.SingleInstance.psm1') -DisableNameChecking
 Import-Module (Join-Path $PSScriptRoot 'Test.DiagnosticPreservation.psm1') -DisableNameChecking
+Import-Module (Join-Path $PSScriptRoot 'Test.SourceSelection.psm1') -DisableNameChecking
 function Get-StableCycleBaseName {
     [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidGlobalVars', '',
         Justification = '$global:__YurunaCycleFolder is the cross-module per-cycle folder handle the inner runner threads through its helpers; reading it derives the cycle''s rename-stable identity for the URLs/log lines built mid-cycle.')]
@@ -891,27 +892,49 @@ function New-CycleGitCommitList {
         key, and the framework SHA is what Start-LogFile used to name the per-cycle
         log file, so the framework entry must lead. A project entry is appended only
         when this cycle produced a clone (both ProjectGitCommit and ProjectUrl set);
-        the in-tree fallback path yields a one-element array.
+        the in-tree fallback path yields a one-element array. With RepoRoot, source
+        selections attest full installed revisions while display hashes stay short.
     .OUTPUTS
         [object[]] one or two ordered dicts, framework-first.
     #>
     [CmdletBinding()]
     [OutputType([object[]])]
     [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
-        Justification = 'Builds and returns an in-memory ordered-dict array; changes no system state, so ShouldProcess would not fit.')]
+        Justification = 'Builds an in-memory array and reads Git metadata; changes no system state, so ShouldProcess would not fit.')]
     param(
         # Untyped (not [string]) so a $null sha/url passes through as $null rather
         # than an empty string, matching what the raw config values stored inline.
         [AllowNull()]$GitCommit,
         [AllowNull()]$FrameworkUrl,
         [AllowNull()]$ProjectGitCommit,
-        [AllowNull()]$ProjectUrl
+        [AllowNull()]$ProjectUrl,
+        [System.Collections.IDictionary]$FrameworkSelection,
+        [System.Collections.IDictionary]$ProjectSelection,
+        [string]$RepoRoot
     )
     $GitCommitsList = @(
-        [ordered]@{ sha = $GitCommit; repoUrl = $FrameworkUrl }
+        [ordered]@{ sha = $GitCommit; repoUrl = (ConvertTo-GitSourceSafeUrl $FrameworkUrl) }
     )
     if ($ProjectGitCommit -and $ProjectUrl) {
-        $GitCommitsList += [ordered]@{ sha = $ProjectGitCommit; repoUrl = $ProjectUrl }
+        $GitCommitsList += [ordered]@{ sha = $ProjectGitCommit; repoUrl = (ConvertTo-GitSourceSafeUrl $ProjectUrl) }
+    }
+    foreach ($pair in @(@{index=0;selection=$FrameworkSelection}, @{index=1;selection=$ProjectSelection})) {
+        if (-not $pair.selection -or $pair.index -ge $GitCommitsList.Count) { continue }
+        $entry = $GitCommitsList[$pair.index]
+        $installedSha = [string]$entry.sha
+        if ($RepoRoot) {
+            $checkout = if ($pair.index -eq 0) { $RepoRoot } else { Join-Path $RepoRoot 'project' }
+            # Display hashes are abbreviated. Bind attestation to this checkout's
+            # full HEAD and refuse Git's upward search when project metadata is absent.
+            if (-not (Test-Path -LiteralPath (Join-Path $checkout '.git'))) { throw 'source-provenance-head-mismatch' }
+            $installedSha = [string](& git -C $checkout --git-dir=.git rev-parse --verify 'HEAD^{commit}' 2>$null)
+            if ($LASTEXITCODE -ne 0) { throw 'source-provenance-head-mismatch' }
+            $installedSha = $installedSha.Trim()
+        }
+        if ($installedSha -cne $pair.selection.selectedSha) { throw 'source-provenance-head-mismatch' }
+        foreach ($name in @('source','verification','repository','ref','selectedSha','fetchRef','originCheckedAt','refreshAgeSeconds','mirrorVersion','keyId','fallbackReason','failureClass')) {
+            $entry[$name] = if ($name -eq 'repository') { ConvertTo-GitSourceSafeUrl $pair.selection[$name] } else { $pair.selection[$name] }
+        }
     }
     # Unary comma keeps a one-element list from unrolling to a bare dict on return,
     # so the caller always receives an array to hand to -GitCommits.
@@ -1655,8 +1678,9 @@ function Get-GitHubConnectivityDiagnostic {
         where DNS resolves but HTTPS does not). The caller emits a network-specific
         operator message and suppresses the divergence/auth causes when either
         probe fails, and classifies the infra failure as network_timeout vs
-        bootstrap_sync off the two flags. Reads only the fixed host/port and never
-        throws (both probes are try-guarded).
+        bootstrap_sync off the two flags. YURUNA_GITHUB_PROBE_ENDPOINT redirects
+        the diagnostic for controlled outage qualification; the chosen endpoint
+        is returned with the evidence. Both probes are try-guarded.
     .OUTPUTS
         [hashtable] with DnsOk, TcpOk (both [bool]) and Message ([string], '' when
         both probes pass).
@@ -1665,21 +1689,35 @@ function Get-GitHubConnectivityDiagnostic {
     [OutputType([hashtable])]
     param()
     $dnsOk = $false; $tcpOk = $false; $msg = ''
-    try { [void][System.Net.Dns]::GetHostAddresses('github.com'); $dnsOk = $true } catch {
-        $msg = "DNS resolution of github.com failed: $($_.Exception.Message)"
+    $probeHost = 'github.com'; $probePort = 443
+    try {
+        if ($env:YURUNA_GITHUB_PROBE_ENDPOINT) {
+            $endpoint = $null
+            if (-not [uri]::TryCreate($env:YURUNA_GITHUB_PROBE_ENDPOINT, [UriKind]::Absolute, [ref]$endpoint) -or
+                $endpoint.Scheme -notin @('http', 'https') -or -not $endpoint.Host) {
+                throw [FormatException]::new('Invalid YURUNA_GITHUB_PROBE_ENDPOINT.')
+            }
+            $probeHost = $endpoint.Host; $probePort = $endpoint.Port
+        }
+        [void][System.Net.Dns]::GetHostAddresses($probeHost)
+        $dnsOk = $true
+    } catch {
+        $msg = "DNS resolution of $probeHost failed: $($_.Exception.Message)"
     }
     if ($dnsOk) {
         try {
             $tcp = New-Object System.Net.Sockets.TcpClient
-            $async = $tcp.BeginConnect('github.com', 443, $null, $null)
+            $async = $tcp.BeginConnect($probeHost, $probePort, $null, $null)
             $tcpOk = $async.AsyncWaitHandle.WaitOne(3000) -and $tcp.Connected
             $tcp.Close()
-            if (-not $tcpOk) { $msg = 'TCP connect to github.com:443 timed out (DNS resolved but HTTPS unreachable)' }
+            if (-not $tcpOk) { $msg = "TCP connect to ${probeHost}:$probePort did not connect (DNS resolved but HTTPS unreachable)" }
         } catch {
-            $msg = "TCP connect to github.com:443 threw: $($_.Exception.Message)"
+            $msg = "TCP connect to ${probeHost}:$probePort threw: $($_.Exception.Message)"
+        } finally {
+            if ($tcp) { $tcp.Dispose() }
         }
     }
-    return @{ DnsOk = $dnsOk; TcpOk = $tcpOk; Message = $msg }
+    return @{ DnsOk = $dnsOk; TcpOk = $tcpOk; Message = $msg; HostName = $probeHost; Port = $probePort; EndpointOverride = [bool]$env:YURUNA_GITHUB_PROBE_ENDPOINT }
 }
 
 function Write-GitPullFailureBanner {
@@ -2352,6 +2390,10 @@ function Invoke-RunnerInnerCycle {
     # re-reads the mirrored locals after each sync.
     $cfg                  = $State.RunnerCfgState
     $Config               = $State.Config
+    $sourceHandoff = if ($State.ContainsKey('SourceHandoff')) { $State.SourceHandoff } else { $null }
+    $sourceContext = if ($sourceHandoff) { (Get-GitSourceConfiguration -ConfigPath $ConfigPath).context } else { $null }
+    $installedSources = if ($sourceHandoff) { Read-InstalledGitSource -RepoRoot $RepoRoot } else { @{} }
+    $projectSourceSelection = if ($sourceHandoff) { $sourceHandoff.project } else { $null }
     $StopOnFailure        = $cfg.StopOnFailure
     $GetImageRefreshSeconds = $cfg.GetImageRefreshSeconds
     $CycleDelaySeconds           = $cfg.CycleDelaySeconds
@@ -2484,7 +2526,7 @@ do {
     # Resolve the configured upstream on every cycle so a host that returns
     # online adopts its current snapshot even when the remote rewrote history.
     # The shared updater preserves pins, local edits and operator state.
-    if (-not $NoGitPull) {
+    if (-not $NoGitPull -and -not $sourceHandoff) {
         if (-not (Invoke-GitPull -RepoRoot $RepoRoot)) {
             # The updater reports the operation that actually failed. Probing
             # GitHub here could misclassify a local edit or a file:// source.
@@ -2538,12 +2580,18 @@ do {
     # See https://yuruna.link/4213a0b3-00f3
     if ($script:PoolAssignedProjectUrl -and -not $NoProjectClone) {
         $accessMarker = Join-Path $env:YURUNA_RUNTIME_DIR 'project.access.json'
-        $probe = Invoke-GitNetworkCommand -GitArgs @('ls-remote', '--exit-code', '--quiet', $script:PoolAssignedProjectUrl, 'HEAD') -TimeoutSeconds 30
+        if ($projectSourceSelection) {
+            $probe = @{ ExitCode = $(if ($projectSourceSelection.success) { 0 } else { 1 }); Output = [string]$projectSourceSelection.detail }
+        } elseif ($sourceContext -and $script:PoolAssignedProjectUrl -and (Get-GitMirrorRepository -Url $script:PoolAssignedProjectUrl)) {
+            $projectSourceSelection = Resolve-GitSourceSelection -RepositoryUrl $script:PoolAssignedProjectUrl -Ref HEAD -SourceContext $sourceContext -Operation Gate
+            $probe = @{ ExitCode = $(if ($projectSourceSelection.success) { 0 } else { 1 }); Output = [string]$projectSourceSelection.detail }
+        } else { $probe = Invoke-GitNetworkCommand -GitArgs @('ls-remote', '--exit-code', '--quiet', $script:PoolAssignedProjectUrl, 'HEAD') -TimeoutSeconds 30 }
         # The auth/network split is load-bearing. An auth refusal is permanent
         # and needs a human; a timeout is transient and the existing backoff is
         # the right response. Conflating them would either page someone for a
         # blip or burn remediation attempts on a permission problem.
         $accessStatus = if ($probe.ExitCode -eq 0) { 'ok' }
+                        elseif ($projectSourceSelection -and $projectSourceSelection.failureClass -eq 'project_access_denied') { 'denied' }
                         elseif (Test-GitRemoteAuthFailure -Output $probe.Output) { 'denied' }
                         else { 'unreachable' }
         $accessRecord = [ordered]@{
@@ -2603,6 +2651,7 @@ do {
         $Config.repositories.Contains('projectUrl')) {
         $projUrl = [string]$Config.repositories.projectUrl
     }
+    $cloneStep = $null
     if ($NoProjectClone) {
         # Invoke-TestProject.ps1 spawn path: the wipe + clone happened in the
         # parent before we were invoked. Trust the on-disk state; just
@@ -2618,16 +2667,26 @@ do {
             $cloneRes = @{ success = $true; skipped = $false; errorMessage = $null }
         }
     } else {
-        $cloneStep = Invoke-CycleCheckoutStep -RepoRoot $RepoRoot -ProjectUrl $projUrl
+        $sourceArguments = @{}
+        if ($sourceContext) { $sourceArguments.SourceContext = $sourceContext }
+        if ($installedSources.project) { $sourceArguments.InstalledProvenance = $installedSources.project }
+        if ($projectSourceSelection) {
+            $sourceArguments.SourceSelection = $projectSourceSelection
+            if ($sourceHandoff.projectAcceptedAt) { $sourceArguments.SelectionAcceptedAt = [DateTimeOffset]$sourceHandoff.projectAcceptedAt }
+        }
+        $cloneStep = Invoke-CycleCheckoutStep -RepoRoot $RepoRoot -ProjectUrl $projUrl @sourceArguments
+        $projectSourceSelection = $cloneStep.SourceSelection
+        if ($cloneStep.Ok -and $projectSourceSelection -and -not (Write-InstalledGitSource -RepoRoot $RepoRoot -Kind project -Selection $projectSourceSelection -Confirm:$false)) { throw 'source-provenance-write-failed' }
         $cloneRes = @{ success = $cloneStep.Ok; skipped = $cloneStep.Skipped; errorMessage = $cloneStep.ErrorMessage; revision = $cloneStep.Revision }
     }
     if (-not $cloneRes.success) {
+        $cloneClass = if ($cloneStep -and $cloneStep.FailureClass) { [string]$cloneStep.FailureClass } else { 'bootstrap_sync' }
         Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_58ce825c6c8abbad' -Arguments @{ errorMessage = "$($cloneRes.errorMessage)" })
         # Bootstrap-stage failure -- no cycle folder yet, so the helper builds a
         # minimal payload from these scalars. The infra record above already wrote
         # the canonical 'bootstrap_sync' / 'hard'; pass the same so extensions
         # route on failureClass instead of free-text grep.
-        Write-CycleInfraFailure -Stage 'ProjectClone' -FailureClass 'bootstrap_sync' -GuestKey '(bootstrap)' -ErrorMessage $cloneRes.errorMessage -HostType $HostType
+        Write-CycleInfraFailure -Stage 'ProjectClone' -FailureClass $cloneClass -GuestKey '(bootstrap)' -ErrorMessage $cloneRes.errorMessage -HostType $HostType
         # Route through the shared consecutive-failure notification gating (see
         # Invoke-RunnerBootstrapFailureGate). break + $OverallPassed=$false carry the
         # counters across the single-cycle respawn and exit non-zero into the outer
@@ -2637,7 +2696,7 @@ do {
         Sync-RunnerBootstrapGateCounter -State $gatingState -Failures $ConsecutiveFailures -Successes $ConsecutiveSuccesses -Armed $AlertArmed
         $bootstrapGate = $gatingState
         Invoke-RunnerBootstrapFailureGate -GatingState $bootstrapGate -Stage 'ProjectClone' `
-            -ErrorMessage $cloneRes.errorMessage -GitCommit $GitCommit -FailureClass 'bootstrap_sync' -HostType $HostType
+            -ErrorMessage $cloneRes.errorMessage -GitCommit $GitCommit -FailureClass $cloneClass -HostType $HostType
         $ConsecutiveFailures  = $bootstrapGate.ConsecutiveFailures
         $ConsecutiveSuccesses = $bootstrapGate.ConsecutiveSuccesses
         $AlertArmed           = $bootstrapGate.AlertArmed
@@ -2896,7 +2955,8 @@ do {
     } else {
         $GitCommitsList = New-CycleGitCommitList -GitCommit $GitCommit `
             -FrameworkUrl $Config.repositories.frameworkUrl `
-            -ProjectGitCommit $ProjectGitCommit -ProjectUrl $projLinkUrl
+            -ProjectGitCommit $ProjectGitCommit -ProjectUrl $projLinkUrl `
+            -FrameworkSelection $(if ($sourceHandoff) { $sourceHandoff.framework } else { $null }) -ProjectSelection $projectSourceSelection -RepoRoot $RepoRoot
         $CycleStartUtc = Initialize-StatusDocument `
             -StatusFilePath $StatusFile `
             -HostType       $HostType `
@@ -3309,6 +3369,10 @@ do {
     # --- REGION: Unhandled exception in cycle -- emergency cleanup
     $OverallPassed = $false
     $ConsecutiveCrashes++
+    # Bootstrap failures can precede the cycle transcript; retain their origin
+    # in the served runtime log without persisting credentials from an exception.
+    $crashDetail = ConvertTo-RecoverySafeText -Text "$($_.Exception.Message); stack: $($_.ScriptStackTrace)" -MaxLength 4000
+    Write-InnerLog "[cycle $CycleCount] unhandled error: $crashDetail"
     Write-Output ""
     Write-Output "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"
     Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_922e4c17711e9b26' -Arguments @{ cycleCount = "$CycleCount" })

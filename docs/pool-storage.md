@@ -394,16 +394,33 @@ the mount). Example drop-in (adjust binary paths to your distro):
 test ALL=(root) NOPASSWD: /usr/bin/mkdir, /usr/bin/mount, /usr/bin/umount
 ```
 
-**`Sync-HostConfiguration` installs this for you.** The unattended runner cannot
-self-elevate, but the config sync is an interactive operator session, so it
-offers to install the drop-in once -- resolving the account and the real
-`mkdir`/`mount`/`umount` paths, writing the rule via `sudo tee` (one password
-prompt), and validating it with `visudo -cf` (removing it again if it does not
-validate). It is idempotent (a no-op when passwordless sudo is already in effect,
-detected via `sudo -n -l`), Linux-only (macOS mounts via `mount_smbfs -N` and
-Windows via SMB mappings need no sudo), and skipped under `-NonInteractive` (which
-falls back to printing the drop-in to install by hand). The same step is available
-directly as `Set-PoolStorageSudoers`.
+**`Sync-HostConfiguration` and guided setup install this for you.** The
+unattended runner cannot self-elevate, but an interactive config sync can obtain
+sudo authorization once. The installer resolves the account and the real
+`mkdir`/`mount`/`umount` paths, writes the rule and validates it with `visudo -cf`,
+removing an invalid rule. The same step is available directly as
+`Set-PoolStorageSudoers`.
+
+Readiness executes each command's harmless `--version` through `sudo -n -k`.
+This proves `NOPASSWD` works without consulting or clearing the operator's cached
+authorization. `sudo -n -l` only proves the command is permitted and can succeed
+with an ordinary password-protected rule while the cache is warm. The installer
+repeats the uncached probes before reporting success, so an overriding sudoers
+rule is detected. It is a no-op when these permissions already work and applies
+only on Linux; macOS and Windows mounts need no sudo.
+
+Under `-NonInteractive`, an already-authorized sudo cache allows installation
+through bounded `sudo -n` commands. A cold cache returns the manual installation
+instructions without prompting. [Guided setup](../install/README.md#guided-setup)
+takes sudo authorization before the no-prompt phase and repairs both pool and
+stash NAS mounts. Its hidden SMB password questions are separate from the sudo
+login password; Enter retains a stored SMB credential. Existing storage
+coordinates and local mount paths are retained unless the operator chooses
+replacements. Answer files use `storage.networkPath` / `storage.networkUser`
+for the pool and `storage.stashNetworkPath` / `storage.stashNetworkUser` for the
+stash, with existing config values filling omissions. Unattended runs require
+the real SMB credentials in the vault beforehand; passwords never belong in an
+answer file.
 
 <a id="428405a0-000b"></a>
 
@@ -711,8 +728,9 @@ Common findings:
   authentication is required` on sudo-rs, which is Ubuntu's default sudo from
   25.10 on), then `mount` never ran, the NAS was never contacted, and the
   credential cannot be the cause: fix the drop-in, not the password. Confirm in
-  one command -- `sudo -n -l /usr/bin/mount` exits 0 when the `NOPASSWD` rule is
-  in effect. Check it *while the failure is happening*: sudo-rs writes **no**
+  one harmless command -- `sudo -n -k /usr/bin/mount --version` exits 0 when the
+  `NOPASSWD` rule is in effect, even without a cached login credential. Check it
+  *while the failure is happening*: sudo-rs writes **no**
   log entry for a refused `sudo -n`, so nothing on the host records the moment
   afterward. If the rule answers but the mount was still refused, look for
   another `/etc/sudoers.d` file sorting **after** the poolStorage drop-in -- the
@@ -810,6 +828,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.18.1
+Last review: 2026.10.22
 
 Back to [Yuruna](../README.md)

@@ -23,6 +23,16 @@ Run `windows.11.update.ps1` first. After the initial update the
 is installed -- open a new elevated console to guarantee compatibility
 before running other workloads.
 
+Framework materialization first tries the host archive. If that is unavailable,
+the updater uses the full commit in `E_FB_REPO`/`E_FB_REF`, or the repository and
+commit recorded on the trusted VM seed, through the LAN mirror and then GitHub.
+Both routes must produce that exact commit; an existing framework directory is
+preserved. Trusted launchers should set both `E_FB_*` fields for each invocation
+when reusing a VM after the host has updated. The current Windows workload
+sequence is a placeholder and does not provide invocation metadata automatically.
+Without either immutable identity, the existing configured clone URL remains the
+explicit legacy fallback.
+
 ### Available workloads
 
 | Script | Workload |
@@ -46,6 +56,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.18.1
+Last review: 2026.10.22
 
 Back to [Yuruna](../../README.md)

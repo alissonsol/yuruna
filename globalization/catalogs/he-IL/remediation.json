@@ -842,6 +842,21 @@
       "sourceHash": "a0b153ba81d5e39ad1edf6b83e5055b55997ea899c746373607b95405d75aa9e",
       "origin": "machine",
       "message": "חדשו את פעולת המריץ ברגע שפועל מחזור חיים חוזר לענות; המחזור הבא בודק את ערוץ הבקרה לפני שהוא בונה דבר"
+    },
+    "remediation.source_integrity_rationale": {
+      "sourceHash": "45447a5b7c3491544e1cc8846e649d814321c90d08a3278c630ae2d7c9ded6e0",
+      "origin": "machine",
+      "message": "source_integrity: אימות המקור נכשל. יש לשמור את העותק המותקן ולבדוק את הראיות לפני ניסיון נוסף. {detail}"
+    },
+    "remediation.source_integrity_action_identity": {
+      "sourceHash": "a859a21e2a027affa037fa212acfca323bdeb51a40d91d59afbaad79fb816fc8",
+      "origin": "machine",
+      "message": "יש להשוות את מזהי המפתחות הרשומים לזהות שייצא בעל שרת הפרוקסי, ולבדוק את האישור החתום ואת ה-SHA שנבחר."
+    },
+    "remediation.source_integrity_action_evidence": {
+      "sourceHash": "1119e7416a9854e3111c91005788de244fc41633b6b681615c1f0ee0f61fb1cc",
+      "origin": "machine",
+      "message": "יש לבדוק את sourceSelections באבחון אימות התצורה ואת מצב המראה; יש להשאיר את אימות החתימה והקומיט פעיל."
     }
   }
 }

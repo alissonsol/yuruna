@@ -14672,6 +14672,41 @@
       "sourceHash": "de8bb1cd8c3782c6541cc40b17ea18cce988b08c975f74f0da56be69685895ad",
       "message": "אבחון רשת: {diagnostics}",
       "origin": "machine"
+    },
+    "runner.git_mirror_token_invalid": {
+      "sourceHash": "af2683cfac73ce062661f8383e7b0f03ba78abde097f2d616f298e14f55663c8",
+      "origin": "machine",
+      "message": "אסימון GitHub מכיל תווים שאינם נתמכים. לא נשמר דבר. הריצו שוב והדביקו רק את האסימון, או לחצו על Enter כדי לשמור את האימות הנוכחי."
+    },
+    "runner.git_mirror_token_notice": {
+      "sourceHash": "29b86d452ba586ff0cd92a651846a6e1f0b5d359ab607b8443c73cf57b6ba57c",
+      "origin": "machine",
+      "message": "אסימון GitHub הוא אופציונלי. לחצו על Enter כדי לשמור את האימות הנוכחי. אספקת אסימון בונה מחדש את מתווך המטמון כדי להחיל אותו, גם אם המארח הזה כבר שומר את אותו אסימון. הבנייה מחדש נמשכת כ-15 דקות ומוחקת את המטמון שכבר התחמם. הקלט מוסתר."
+    },
+    "runner.git_mirror_token_prepare": {
+      "sourceHash": "ea0e687dc9337dcbdb629fd04e62f8ad6c7b82ab3970cd95d8f1fb37102f269e",
+      "origin": "machine",
+      "message": "לבקש אסימון GitHub אופציונלי ולשמור ערך שסופק במפורש"
+    },
+    "runner.git_mirror_token_prompt": {
+      "sourceHash": "691c66cb33171dd8b6ef936a441ec1cb869a740861fea20286cf4896cab95915",
+      "origin": "machine",
+      "message": "אסימון GitHub אופציונלי (Enter שומר את האימות הנוכחי)"
+    },
+    "runner.git_mirror_token_provider_failed": {
+      "sourceHash": "ffdfb8c314233e2d9838679aa064b7c1442cb94c218ef3cc2f89ec5709b6f11b",
+      "origin": "machine",
+      "message": "לא ניתן להשלים את התצורה של אסימון GitHub האופציונלי. בדקו את ספק האימות ואת הרשאות הכספת, ואז הריצו שוב. אין לבנות מחדש את המתווך עד להשלמת התצורה של האסימון בהצלחה."
+    },
+    "runner.git_mirror_token_replace_stored": {
+      "sourceHash": "6157930bb05ba4656a11c91bbcacd3d1bb7ced254ac76218d3918eed487d3bf3",
+      "origin": "machine",
+      "message": "github-mirror-token ({vaultKey}): (אסימון שמור) -> (אסימון שסופק על ידי המפעיל). ניתן לשחזר את הערך הקודם מהשדה previousPassword בכספת."
+    },
+    "runner.git_mirror_token_store_new": {
+      "sourceHash": "1d24a4894abc4d52bf6bd71fd2194fecca373fde4a7cfac2660f8aad84c5edac",
+      "origin": "machine",
+      "message": "github-mirror-token ({vaultKey}): (אין אסימון שמור) -> (אסימון שסופק על ידי המפעיל)."
     }
   }
 }

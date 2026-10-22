@@ -2171,6 +2171,31 @@
       "sourceHash": "61a96ef0db4d80c0ca0b694f9bf762a6598f04c8222b89230edd167fa839b0c2",
       "message": "运行器尝试历史记录不可用。",
       "origin": "machine"
+    },
+    "status.git_source_mirror_confirmed": {
+      "sourceHash": "fac6f4fe1d5880d4888ea1d9d2c093b70f8b6bf838abd976521f56f96bf9f8e2",
+      "origin": "machine",
+      "message": "mirror.origin"
+    },
+    "status.git_source_mirror_stale": {
+      "sourceHash": "edc9ae7cd03e6100d6d0ef6a68713ddf85efd2823b663d74df8f6131b4a7091e",
+      "origin": "machine",
+      "message": "mirror.stale"
+    },
+    "status.git_source_origin_direct": {
+      "sourceHash": "465d52d0a2dc68d6c416899ca29f6dbab5eeec1ce42958a8d67cd1136467fc03",
+      "origin": "machine",
+      "message": "remote.origin"
+    },
+    "status.git_source_not_applicable": {
+      "sourceHash": "e12c116f88d0f81329f9d9846b12041b478402c2ffabe8d49f8194dd0cf733f3",
+      "origin": "machine",
+      "message": "not.applicable"
+    },
+    "status.git_source_mirror_fresh": {
+      "sourceHash": "2e62b6db2caa115b2d04e6793e072b9e3b1f18aea522e01483293bd438ca33fe",
+      "origin": "machine",
+      "message": "mirror.fresh"
     }
   }
 }

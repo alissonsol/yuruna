@@ -279,6 +279,10 @@
     "configsync.operator_fe98a0adcdbd07b3": {
       "sourceHash": "70034910062dc14f43f4c1399ef3548ec528a7b1e08c3a36a47c0456d4615b2a",
       "message": "O token Lab não foi aceito pelo {aggregatorUrl} -- ele gira a cada minuto, então leia o código CURRENT fora do painel de máquinas Yuruna e re-run imediatamente."
+    },
+    "configsync.mirror_key_confirmation": {
+      "sourceHash": "00c259008f7594804128c237d3890d5b0463718c6f5dbc8968d5d15b68fe816b",
+      "message": "Aceitar o cadastro das chaves de verificação do espelho?"
     }
   }
 }

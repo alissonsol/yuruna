@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.18.2
+.VERSION 2026.10.22
 .GUID 42566df9-1f3e-a604-b789-3ec5dfc0e347
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -717,5 +717,15 @@
             'trust' = 'internal'
         }
         '       # stops it the way it was started'
+    )
+    'remediation.source_integrity_action_evidence' = 'Inspect sourceSelections in the configuration-gate diagnostics and the mirror status; keep signature and commit verification enabled.'
+    'remediation.source_integrity_action_identity' = 'Compare enrolled key IDs with the proxy owner''s exported identity and inspect the signed receipt and selected SHA.'
+    'remediation.source_integrity_rationale' = @(
+        'source_integrity: source verification failed. Keep the installed checkout and inspect the evidence before retrying. '
+        @{
+            'arg' = 'detail'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
     )
 }

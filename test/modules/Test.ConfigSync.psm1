@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.18.2
+.VERSION 2026.10.22
 .GUID 4250f9af-bcc6-41b0-85fb-2c2f4e968e7d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -47,6 +47,122 @@
 Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
 Import-Module (Join-Path $PSScriptRoot 'Test.StateFile.psm1') -Global -Force -DisableNameChecking
 Import-Module (Join-Path $PSScriptRoot 'Test.ConfigNaming.psm1') -DisableNameChecking
+
+function Get-ConfigMirrorKeyId {
+    <# .SYNOPSIS
+        Validate enrolled SPKI values and return their stable public fingerprints.
+    #>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param([Parameter()][AllowNull()]$Value)
+    if ($null -eq $Value) { return }
+    foreach ($key in @($Value)) {
+        if ($key -isnot [string] -or $key.Length -gt 1368 -or $key -match '\s|-----') {
+            throw 'mirror-key-invalid: expected single-line base64 DER SubjectPublicKeyInfo'
+        }
+        $rsa = [Security.Cryptography.RSA]::Create()
+        try {
+            $der = [Convert]::FromBase64String($key)
+            if ($der.Length -gt 1024 -or [Convert]::ToBase64String($der) -cne $key) { throw 'noncanonical or oversized DER' }
+            $read = 0
+            $rsa.ImportSubjectPublicKeyInfo($der, [ref]$read)
+            if ($read -ne $der.Length -or $rsa.KeySize -lt 3072) { throw 'RSA key must be at least 3072 bits' }
+            [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($der)).ToLowerInvariant()
+        } catch { throw "mirror-key-invalid: $($_.Exception.Message)" }
+        finally { $rsa.Dispose() }
+    }
+}
+
+function Test-ConfigMirrorSetting {
+    <# .SYNOPSIS
+        Return typed configuration failures without making network requests.
+    #>
+    [CmdletBinding()]
+    [OutputType([pscustomobject])]
+    param([Parameter(Mandatory)]$Config)
+    $lookup = Get-ConfigValueAtPath -Config $Config -Path 'repositories.mirror'
+    if ($lookup.Found) {
+        $mirror = $lookup.Value
+        if ($mirror -isnot [System.Collections.IDictionary]) {
+            [pscustomobject]@{ Path = 'repositories.mirror'; Cause = 'mirror-config-invalid' }
+            return
+        }
+        if ($mirror.Contains('mode') -and $mirror.mode -cnotin @('prefer', 'fallback', 'off')) {
+            [pscustomobject]@{ Path = 'repositories.mirror.mode'; Cause = 'mirror-mode-invalid' }
+        }
+        if ($mirror.Contains('url') -and -not [string]::IsNullOrWhiteSpace([string]$mirror.url)) {
+            $uri = $null
+            if (-not [uri]::TryCreate([string]$mirror.url, [UriKind]::Absolute, [ref]$uri) -or
+                $uri.Scheme -notin @('http', 'https') -or $uri.UserInfo -or $uri.Query -or $uri.Fragment -or
+                $uri.AbsolutePath -ne '/' -or [string]$mirror.url -match '[\s\\]') {
+                [pscustomobject]@{ Path = 'repositories.mirror.url'; Cause = 'mirror-url-invalid' }
+            }
+        }
+        if ($mirror.Contains('mirrorOnlyMaxAgeSeconds') -and
+            ([string]$mirror.mirrorOnlyMaxAgeSeconds -notmatch '^\d{1,7}$' -or
+                [decimal]$mirror.mirrorOnlyMaxAgeSeconds -gt 1209600)) {
+            [pscustomobject]@{ Path = 'repositories.mirror.mirrorOnlyMaxAgeSeconds'; Cause = 'mirror-age-invalid' }
+        }
+        if ($mirror.Contains('verificationPublicKeys')) {
+            try {
+                if ($mirror.verificationPublicKeys -is [string] -or
+                    $mirror.verificationPublicKeys -isnot [System.Collections.IEnumerable]) { throw 'expected list' }
+                $null = @(Get-ConfigMirrorKeyId -Value $mirror.verificationPublicKeys)
+            } catch { [pscustomobject]@{ Path = 'repositories.mirror.verificationPublicKeys'; Cause = 'mirror-key-invalid' } }
+        }
+    }
+    $refresh = Get-ConfigValueAtPath -Config $Config -Path 'vmStart.cachingProxyGitMirrorRefreshSeconds'
+    if ($refresh.Found -and ([string]$refresh.Value -notmatch '^\d{1,4}$' -or
+            [decimal]$refresh.Value -lt 10 -or [decimal]$refresh.Value -gt 3600)) {
+        [pscustomobject]@{ Path = 'vmStart.cachingProxyGitMirrorRefreshSeconds'; Cause = 'mirror-refresh-interval-invalid' }
+    }
+}
+
+function Get-ConfigMirrorChange {
+    <# .SYNOPSIS
+        Compare mirror values for operator reports, using key IDs instead of keys.
+    #>
+    [CmdletBinding()]
+    [OutputType([pscustomobject])]
+    param([AllowNull()]$Current, [Parameter(Mandatory)]$Proposed)
+    if ($null -eq $Current) { $Current = @{} }
+    foreach ($path in @('repositories.mirror.mode', 'repositories.mirror.url',
+            'repositories.mirror.mirrorOnlyMaxAgeSeconds', 'repositories.mirror.verificationPublicKeys',
+            'vmStart.cachingProxyGitMirrorRefreshSeconds')) {
+        $old = Get-ConfigValueAtPath -Config $Current -Path $path
+        $new = Get-ConfigValueAtPath -Config $Proposed -Path $path
+        if (-not $new.Found) { continue }
+        if ($path.EndsWith('.verificationPublicKeys')) {
+            $previous = (@(Get-ConfigMirrorKeyId -Value $old.Value) | Sort-Object) -join ','
+            $next = (@(Get-ConfigMirrorKeyId -Value $new.Value) | Sort-Object) -join ','
+        } else { $previous = [string]$old.Value; $next = [string]$new.Value }
+        if ($previous -cne $next) { [pscustomobject]@{ Path = $path; Previous = $previous; Current = $next } }
+    }
+}
+
+function Merge-ConfigMirrorSetting {
+    <# .SYNOPSIS
+        Preserve trust and mirror settings an older configuration writer omitted.
+    #>
+    [CmdletBinding()]
+    [OutputType([System.Collections.IDictionary])]
+    param([AllowNull()]$Current, [Parameter(Mandatory)]$Proposed)
+    if ($Current -is [System.Collections.IDictionary]) {
+        $old = Get-ConfigValueAtPath -Config $Current -Path 'repositories.mirror'
+        if ($old.Found -and $old.Value -is [System.Collections.IDictionary]) {
+            if (-not $Proposed.Contains('repositories')) { $Proposed['repositories'] = [ordered]@{} }
+            if ($Proposed.repositories -isnot [System.Collections.IDictionary]) { throw 'mirror-config-invalid: repositories' }
+            if (-not $Proposed.repositories.Contains('mirror')) { $Proposed.repositories['mirror'] = [ordered]@{} }
+            if ($Proposed.repositories.mirror -isnot [System.Collections.IDictionary]) { throw 'mirror-config-invalid: repositories.mirror' }
+            foreach ($key in $old.Value.Keys) {
+                if (-not $Proposed.repositories.mirror.Contains($key)) { $Proposed.repositories.mirror[$key] = $old.Value[$key] }
+            }
+        }
+    }
+    $failures = @(Test-ConfigMirrorSetting -Config $Proposed)
+    if ($failures.Count -gt 0) { throw "$($failures[0].Cause): $($failures[0].Path)" }
+    return $Proposed
+}
 
 <#
 .SYNOPSIS
@@ -306,15 +422,19 @@ function Update-TestConfigFromTemplate {
         Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_bd2bb274eb562e76' -Arguments @{ templatePath = "$TemplatePath" })
         return (Get-Content -Raw $ConfigPath | ConvertFrom-Yaml -Ordered)
     }
+    $template = Get-Content -Raw $TemplatePath | ConvertFrom-Yaml -Ordered
+    $mirrorFailures = @(Test-ConfigMirrorSetting -Config $template)
+    if ($mirrorFailures.Count -gt 0) { throw "$($mirrorFailures[0].Cause): $($mirrorFailures[0].Path)" }
     if (-not (Test-Path $ConfigPath)) {
         Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_ed3fe1ac669aaff0' -Arguments @{ configPath = "$ConfigPath" }) -InformationAction Continue
         Copy-Item -Path $TemplatePath -Destination $ConfigPath
         return (Get-Content -Raw $ConfigPath | ConvertFrom-Yaml -Ordered)
     }
 
-    $template = Get-Content -Raw $TemplatePath | ConvertFrom-Yaml -Ordered
     $existingText = [string](Get-Content -Raw -LiteralPath $ConfigPath)
     $current = ConvertFrom-Yaml -Yaml $existingText -Ordered
+    $mirrorFailures = @(Test-ConfigMirrorSetting -Config $current)
+    if ($mirrorFailures.Count -gt 0) { throw "$($mirrorFailures[0].Cause): $($mirrorFailures[0].Path)" }
     $migration = ConvertTo-ConfigNamingMigration -Config $current -ObsoleteEntry (Get-ObsoleteConfigEntry -Text $existingText)
     $current = $migration.Config
 
@@ -462,6 +582,12 @@ function Format-YamlScalarValue {
     if ($Value -is [bool]) { if ($Value) { return 'true' } else { return 'false' } }
     if ($Value -is [int] -or $Value -is [long] -or $Value -is [double] -or $Value -is [decimal]) {
         return [string]$Value
+    }
+    # Parked entries occupy one comment line; JSON flow sequences are also YAML
+    # and keep a removed list recoverable without folding its values into text.
+    if ($Value -is [System.Collections.IEnumerable] -and $Value -isnot [string] -and
+        $Value -isnot [System.Collections.IDictionary]) {
+        return ConvertTo-Json -InputObject @($Value) -Compress -Depth 20
     }
     $s = [string]$Value
     if ($s.Length -eq 0) { return '""' }
@@ -666,6 +792,8 @@ function Write-DocumentedTestConfig {
         [Parameter(Mandatory)]$Config,
         [string]$TemplatePath
     )
+    $mirrorFailures = @(Test-ConfigMirrorSetting -Config $Config)
+    if ($mirrorFailures.Count -gt 0) { throw "$($mirrorFailures[0].Cause): $($mirrorFailures[0].Path)" }
     if (-not $PSCmdlet.ShouldProcess($ConfigPath, 'Write documented configuration')) { return $false }
     if (-not $TemplatePath) { $TemplatePath = "$ConfigPath.template" }
     if (-not (Test-Path -LiteralPath $TemplatePath)) { $TemplatePath = Join-Path $PSScriptRoot '../test.config.yml.template' }
@@ -729,6 +857,8 @@ function Sync-TestConfigToTemplate {
         [Parameter()] [string]$TemplatePath
     )
 
+    $mirrorFailures = @(Test-ConfigMirrorSetting -Config $Current) + @(Test-ConfigMirrorSetting -Config $Template)
+    if ($mirrorFailures.Count -gt 0) { throw "$($mirrorFailures[0].Cause): $($mirrorFailures[0].Path)" }
     $existingText = if (Test-Path -LiteralPath $ConfigPath) { [string](Get-Content -Raw -LiteralPath $ConfigPath) } else { '' }
     $originalCurrent = $Current
     $migration = ConvertTo-ConfigNamingMigration -Config $Current -ObsoleteEntry (Get-ObsoleteConfigEntry -Text $existingText)
@@ -839,6 +969,7 @@ function Hide-SecretsInConfig {
 }
 
 Export-ModuleMember -Function `
+    Get-ConfigMirrorKeyId, Test-ConfigMirrorSetting, Get-ConfigMirrorChange, Merge-ConfigMirrorSetting, `
     ConvertTo-MergedHashtable, ConvertTo-SortedConfig, `
     Copy-HashtableWithoutSecretNode, `
     Test-ConfigMatchesTemplateShape, Get-ConfigLeafValue, Get-DroppedConfigField, Get-ConfigLeafChange, `

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.18.2
+.VERSION 2026.10.22
 .GUID 42fba995-7607-4a66-acfd-0149a2a9f06a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -213,6 +213,10 @@ if ($Port -le 0) {
     if ($Port -le 0) { $Port = 8080 }
 }
 
+# A stopped pipeline can enter the trap without allowing its Get-Command
+# guard to run. Finally must release the handle even when startup is canceled
+# in a long-lived interactive session.
+try {
 $startLockInfo = $null
 $privateStateRepair = $null
 try {
@@ -243,7 +247,7 @@ if ($startLockInfo -and $startLockInfo.Resolved) {
         Complete-RefreshSafeStart -Outcome 'admission-busy' -Reason ([string]$startLock.Reason)
     } else {
         $lockFailureReason = if ($privateStateRepair -and -not $privateStateRepair.Resolved) { $privateStateRepair.Reason } else { $startLock.Reason }
-        throw [IO.IOException]::new("Status service startup is already in progress or its lock cannot be acquired ($lockFailureReason); refusing a concurrent start.")
+        throw [IO.IOException]::new("Status service startup is already in progress or its lock cannot be acquired ($lockFailureReason) at '$($startLockInfo.Path)'; refusing a concurrent start.")
     }
 } elseif ($RefreshSafe) {
     $lockReason = if ($startLockInfo) { [string]$startLockInfo.Reason } else { 'resolve-failed' }
@@ -652,9 +656,8 @@ try {
         # would then fail to resolve.
         Import-Module (Join-Path $ModulesDir 'Test.HostContract.psm1') -Force -Global
         [void](Initialize-YurunaHost -RepoRoot (Split-Path -Parent $TestRoot) -HostType $detectedHost)
-        # Mandatory after Initialize-YurunaHost even though the StatusService
-        # module set at file top already imported Test.CachingProxyService once:
-        # docs/workarounds.md#nested-non-global-import-evicts-a-callers-view-of-a-module
+        # Re-import: Initialize-YurunaHost evicts this script's view of Test.CachingProxyService.
+        # See https://yuruna.link/42aaf735-0006
         Import-Module (Join-Path $ModulesDir 'Test.CachingProxyService.psm1') -Global -Force -DisableNameChecking -Verbose:$false
         # The port-map block below writes the same host-wide netsh/forwarder
         # state the runner and a caching-proxy-service bring-up write, so it
@@ -808,7 +811,8 @@ try {
     # Best-effort: leave a previous file intact if there was one.
 }
 
-# --- REGION: Host guest-network state (served here, written elsewhere)
+# Host guest-network state (runtime/host-network.*) is served here and written
+# only by the runner's cycle-start gate.
 # See https://yuruna.link/42e5cdfd-0044
 
 # --- REGION: Launch the server as a detached process
@@ -841,6 +845,7 @@ Import-Module (Join-Path `$repoRoot 'test/modules/Test.CachingProxyService.psm1'
 # operator edit to test.config.yml is observed on the very next handler
 # call without restarting the server.
 Import-Module (Join-Path `$repoRoot 'test/modules/Test.Config.psm1')      -Force -DisableNameChecking -Verbose:`$false -ErrorAction SilentlyContinue
+Import-Module (Join-Path `$repoRoot 'test/modules/Test.ConfigSync.psm1') -Force -DisableNameChecking -Verbose:`$false -ErrorAction Stop
 Import-Module (Join-Path `$repoRoot 'test/modules/Test.PerfAggregate.psm1') -Force -DisableNameChecking -Verbose:`$false -ErrorAction Stop
 # Status negotiation uses the same canonical-tag, alias, qvalue and
 # provenance implementation as every command/service boundary. The page then
@@ -872,6 +877,9 @@ Import-Module (Join-Path `$repoRoot 'test/modules/Test.SingleInstance.psm1') -Fo
 # pool, permanent devices only -- is platform-specific enough to be worth
 # testing directly, which a handler body baked into this here-string is not.
 Import-Module (Join-Path `$repoRoot 'test/modules/Test.HostFacts.psm1') -Force -DisableNameChecking -Verbose:`$false -ErrorAction SilentlyContinue
+# Unix hosts expose native memory gauges on this listener, using bounded
+# reads instead of requiring a second daemon and firewall port.
+Import-Module (Join-Path `$repoRoot 'test/modules/Test.HostMemoryMetrics.psm1') -Force -DisableNameChecking -Verbose:`$false -ErrorAction SilentlyContinue
 # See https://yuruna.link/42e5cdfd-0045
 Import-Module (Join-Path `$repoRoot 'test/modules/Test.StateFile.psm1')          -Force -DisableNameChecking -Verbose:`$false -ErrorAction SilentlyContinue
 Import-Module (Join-Path `$repoRoot 'test/modules/Test.SingleFlightLock.psm1')   -Force -DisableNameChecking -Verbose:`$false -ErrorAction SilentlyContinue
@@ -1736,7 +1744,6 @@ function Send-GitArchive {
         if (`$sidecarDir) { Remove-Item -LiteralPath `$sidecarDir.FullName -Recurse -Force -ErrorAction SilentlyContinue }
     }
 }
-# See https://yuruna.link/42185271-000b
 # --- REGION: Archived cycle results (poolStorage move mode)
 # See https://yuruna.link/42e5cdfd-0045
 `$script:ArchiveHostId = `$null
@@ -1834,6 +1841,8 @@ function Get-ArchivedCycleName {
     return @(Get-ArchivedCycleEntry | ForEach-Object { `$_.Name })
 }
 
+# Runner liveness for /control/runner-status.
+# See https://yuruna.link/42185271-000b
 function Test-RunnerAlive {
     param([switch]`$QuietErrors)
     `$runnerPidFile   = Join-Path `$runtimeDir 'runner.pid'
@@ -1917,6 +1926,31 @@ try {
             `$path = `$req.Url.LocalPath.TrimStart('/')
             if (`$path -eq '' -or `$path -eq 'status/' -or `$path -eq 'status') { `$path = 'index.html' }
             `$path = `$path -replace '^status[/\\]', ''
+
+            if (`$path -eq 'metrics') {
+                if (`$req.HttpMethod -notin @('GET', 'HEAD')) {
+                    `$res.StatusCode = 405
+                    `$res.Headers.Set('Allow', 'GET, HEAD')
+                    `$res.ContentLength64 = 0
+                    `$res.OutputStream.Close()
+                    continue
+                }
+                `$memorySuccess = `$false
+                `$memoryBody = "# TYPE yuruna_host_memory_collection_success gauge``nyuruna_host_memory_collection_success 0``n"
+                try {
+                    `$memoryReply = Get-YurunaHostMemoryMetricPayload
+                    `$memorySuccess = `$memoryReply.Success
+                    `$memoryBody = `$memoryReply.Body
+                } catch { Write-ServerErr "memory metrics: `$(`$_.Exception.Message)" }
+                `$memoryBytes = [Text.Encoding]::UTF8.GetBytes(`$memoryBody)
+                `$res.StatusCode = if (`$memorySuccess) { 200 } else { 503 }
+                `$res.ContentType = 'text/plain; version=0.0.4; charset=utf-8'
+                `$res.Headers.Set('Cache-Control', 'no-store')
+                `$res.ContentLength64 = `$memoryBytes.Length
+                if (`$req.HttpMethod -ne 'HEAD') { `$res.OutputStream.Write(`$memoryBytes, 0, `$memoryBytes.Length) }
+                `$res.OutputStream.Close()
+                continue
+            }
 
             # --- REGION: Control request authorization
             # See https://yuruna.link/42185271-0002
@@ -2098,6 +2132,7 @@ try {
                     # Re-merge the on-disk secrets node: the GET above serves it redacted
                     # and the UI round-trips the whole document, so a save would otherwise
                     # overwrite the stored secrets with the empty node.
+                    `$diskDoc = `$null
                     try {
                         if ((`$parsedDoc -is [System.Collections.IDictionary]) -and (Test-Path -LiteralPath `$testConfigFile)) {
                             `$diskDoc = Read-TestConfig -Path `$testConfigFile -NoCache -ThrowOnError
@@ -2122,6 +2157,17 @@ try {
                     `$tmp = "`$testConfigFile.`$PID-`$([guid]::NewGuid().ToString('N')).tmp"
                     `$writeOk = `$false
                     try {
+                        # Older editors omit mirror fields. Omission is not an
+                        # operator request to remove enrolled trust.
+                        if (-not `$diskDoc) { `$diskDoc = [ordered]@{} }
+                        `$parsedDoc = Merge-ConfigMirrorSetting -Current `$diskDoc -Proposed `$parsedDoc
+                        `$mirrorChanges = @(Get-ConfigMirrorChange -Current `$diskDoc -Proposed `$parsedDoc)
+                        if (`$mirrorChanges.Count -gt 0 -and (Test-Path -LiteralPath `$testConfigFile)) {
+                            Copy-Item -LiteralPath `$testConfigFile -Destination "`$testConfigFile.backup" -Force
+                        }
+                        foreach (`$change in `$mirrorChanges) {
+                            Write-ServerErr "`$(`$change.Path): `$(`$change.Previous) -> `$(`$change.Current) (backup: `$testConfigFile.backup)"
+                        }
                         # See https://yuruna.link/42e5cdfd-0045
                         `$yamlOut = `$parsedDoc | ConvertTo-Yaml
                         Set-Content -LiteralPath `$tmp -Value `$yamlOut -Encoding utf8 -NoNewline
@@ -3638,10 +3684,13 @@ try {
                     Sort-Object @{Expression = { -not `$_.PSIsContainer }}, Name)
                 # See https://yuruna.link/42e5cdfd-0045
                 if (`$path -eq 'log' -or `$path -eq 'log/') {
+                    # Backfill can read the pool archive directly. Its local-only
+                    # listing must not occupy this listener checking NAS sentinels.
+                    `$archiveEntries = if (`$req.QueryString['localOnly'] -eq 'true') { @() } else { @(Get-ArchivedCycleEntry) }
                     `$localNames = @{}
                     foreach (`$e in `$entries) { `$localNames[`$e.Name] = `$true }
                     `$extra = [System.Collections.Generic.List[object]]::new()
-                    foreach (`$archived in @(Get-ArchivedCycleEntry)) {
+                    foreach (`$archived in `$archiveEntries) {
                         if (-not `$localNames.ContainsKey(`$archived.Name)) { `$extra.Add(`$archived) }
                     }
                     if (`$extra.Count -gt 0) {
@@ -4054,3 +4103,6 @@ if ($RefreshSafe) {
     Complete-RefreshSafeStart -Outcome 'started' -ProcessId $startedPid -StartTimeUnixMs $startedAt -Sha ([string]$launchSha) -ShaMatches $true
 }
 Exit-StatusServiceStartupLock
+} finally {
+    Exit-StatusServiceStartupLock
+}

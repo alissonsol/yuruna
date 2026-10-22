@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.18.2
+.VERSION 2026.10.22
 .GUID 42008bcd-66da-4584-84a4-c4454a7f8958
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -43,6 +43,7 @@ $global:InformationPreference = "Continue"
 $global:ProgressPreference    = "SilentlyContinue"
 
 # --- REGION: Initialize service runtime
+# See https://yuruna.link/42fffc2c-000b
 # See https://yuruna.link/42162449-0004
 # After the preference assignments above on purpose: an explicit level is the
 # operator's choice and replaces this script's own default.
@@ -54,9 +55,10 @@ if ($VMName -notmatch '^[a-zA-Z0-9._-]+$') {
     exit 1
 }
 
+# --- REGION: Initialize host access
 # Canonical path bundle + CachingProxyService module kind (Test.VMUtility,
-# Test.CachingProxyService, Test.HostContract) -- one helper call loads the inline
-# Test.HostContract import this script needs.
+# Test.CachingProxyService, Test.HostContract -- the union every caching-proxy-service
+# entry-point script needs).
 Import-Module (Join-Path $PSScriptRoot '../modules/Test.Prelude.psm1') -Global -Force
 $paths      = Initialize-YurunaEntryPoint -ScriptRoot $PSScriptRoot -InsideSubfolder
 $ModulesDir = $paths.ModulesDir

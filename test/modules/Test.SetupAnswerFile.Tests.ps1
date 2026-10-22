@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.18.2
+.VERSION 2026.10.22
 .GUID 427bf883-f57a-449e-98af-a9cec3b9704c
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -138,7 +138,8 @@ Describe 'the answer document the writer emits' {
     It 'carries exactly the keys the reader asks the file for' {
         $doc = New-SetupAnswerDocument -SetupType 'lab' -RunTests $true -ProjectUrl 'https://example.invalid/p' `
             -StorageKind 'nas' -LocalRoot '/srv/yuruna' -NetworkPath '//ypool-nas/work/yuruna.pool' `
-            -NetworkUser 'yuruna-pool' -OnFailure 'local' -LabName 'workshop'
+            -NetworkUser 'yuruna-pool' -StashNetworkPath '//ystash-nas/work/yuruna.stash' `
+            -StashNetworkUser 'yuruna-stash' -OnFailure 'local' -LabName 'workshop'
         $written = @(Get-DocumentKeyPath -Document $doc) | Sort-Object
         $read    = @(Get-ReaderKeyPath -Ast $setupAst | Where-Object { $_ -notin $script:obsoleteReaderKey }) | Sort-Object
         Assert-Equal -Expected ($read -join ', ') -Actual ($written -join ', ') -Because 'the writer and the reader must agree on the key set'
@@ -147,6 +148,16 @@ Describe 'the answer document the writer emits' {
         $doc = New-SetupAnswerDocument -SetupType 'standalone' -RunTests $false -StorageKind 'local' `
             -LocalRoot '/srv/yuruna' -OnFailure 'stop'
         Assert-True (-not $doc.Contains('lab')) 'a standalone answer file has no lab section'
+    }
+    It 'round-trips distinct pool and stash NAS coordinates without carrying credentials' {
+        $doc = New-SetupAnswerDocument -SetupType 'standalone' -RunTests $false -StorageKind 'nas' `
+            -NetworkPath '//pool.example/custom-pool' -NetworkUser 'operator-pool' `
+            -StashNetworkPath '//stash.example/archive' -StashNetworkUser 'operator-stash' -OnFailure 'stop'
+        Assert-StringEqual '//pool.example/custom-pool' $doc.storage.networkPath 'pool coordinates survive'
+        Assert-StringEqual 'operator-pool' $doc.storage.networkUser 'pool account survives'
+        Assert-StringEqual '//stash.example/archive' $doc.storage.stashNetworkPath 'stash coordinates survive independently'
+        Assert-StringEqual 'operator-stash' $doc.storage.stashNetworkUser 'stash account survives independently'
+        Assert-Equal 0 @((Get-DocumentKeyPath -Document $doc) | Where-Object { $_ -match '(?i)password|credential|secret' }).Count 'answer files contain no credentials'
     }
 }
 
@@ -166,10 +177,12 @@ Describe 'a document the writer emits is one the validator accepts' {
         foreach ($case in $roundTripCase) {
             $doc = New-SetupAnswerDocument -SetupType $case.Type -RunTests $true -ProjectUrl '' `
                 -StorageKind $case.Kind -LocalRoot $case.Root -NetworkPath $case.Path `
-                -NetworkUser $case.User -OnFailure $case.OnFailure -LabName $case.Lab
+                -NetworkUser $case.User -StashNetworkPath $(if ($case.Kind -eq 'nas') { '//ystash-nas/work/yuruna.stash' } else { '' }) `
+                -StashNetworkUser $(if ($case.Kind -eq 'nas') { 'yuruna-stash' } else { '' }) -OnFailure $case.OnFailure -LabName $case.Lab
             $problems = @(Test-SetupAnswerSet -SetupType $doc.setup.type -StorageKind $doc.storage.kind `
                 -LocalRoot $doc.storage.localRoot -NetworkPath $doc.storage.networkPath `
                 -NetworkUser $doc.storage.networkUser -OnFailure $doc.storage.onFailure `
+                -StashNetworkPath $doc.storage.stashNetworkPath -StashNetworkUser $doc.storage.stashNetworkUser `
                 -LabName $(if ($doc.Contains('lab')) { $doc.lab.name } else { '' }))
             Assert-Equal -Expected 0 -Actual $problems.Count -Because ("the writer emitted a document its own reader rejects for " +
                 "$($case.Type)/$($case.Kind)/onFailure $($case.OnFailure): $($problems -join '; ')")
@@ -201,7 +214,8 @@ Describe 'the validator refuses what an unattended run cannot finish' {
     }
     It 'rejects nas with a missing account' {
         $problems = @(Test-SetupAnswerSet -SetupType 'standalone' -StorageKind 'nas' `
-            -NetworkPath '//ypool-nas/work/yuruna.pool' -NetworkUser '' -OnFailure 'stop')
+            -NetworkPath '//ypool-nas/work/yuruna.pool' -NetworkUser '' `
+            -StashNetworkPath '//ystash-nas/work/yuruna.stash' -StashNetworkUser 'yuruna-stash' -OnFailure 'stop')
         Assert-True (@($problems | Where-Object { $_ -like '*networkUser*' }).Count -eq 1) 'a NAS needs both keys'
     }
     It 'rejects unknown kind and onFailure values, naming each key' {
@@ -214,8 +228,16 @@ Describe 'the validator refuses what an unattended run cannot finish' {
         # A NAS that mounts never needs the key, so requiring it up front would
         # refuse a run that was going to be fine.
         $problems = @(Test-SetupAnswerSet -SetupType 'standalone' -StorageKind 'nas' `
-            -NetworkPath '//ypool-nas/work/yuruna.pool' -NetworkUser 'yuruna-pool' -OnFailure 'local')
+            -NetworkPath '//ypool-nas/work/yuruna.pool' -NetworkUser 'yuruna-pool' `
+            -StashNetworkPath '//ystash-nas/work/yuruna.stash' -StashNetworkUser 'yuruna-stash' -OnFailure 'local')
         Assert-Equal -Expected 0 -Actual $problems.Count -Because 'the fallback carries its own check at the point it is reached'
+    }
+    It 'rejects incomplete resolved stash coordinates before a NAS run changes the machine' {
+        $problems = @(Test-SetupAnswerSet -SetupType 'standalone' -StorageKind 'nas' `
+            -NetworkPath '//ypool-nas/work/yuruna.pool' -NetworkUser 'yuruna-pool' `
+            -StashNetworkPath '//ystash-nas/work/yuruna.stash' -StashNetworkUser '' -OnFailure 'stop')
+        Assert-Equal 1 $problems.Count 'the unresolved stash account is the only problem'
+        Assert-True ($problems[0] -match 'storage.stashNetworkUser') 'the error names the missing stash answer'
     }
 }
 

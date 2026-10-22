@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.18.2
+.VERSION 2026.10.22
 .GUID 42904a4e-7e96-4d32-883d-8326239ad090
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -46,6 +46,7 @@
 Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
 Import-Module (Join-Path $PSScriptRoot 'Test.OuterLog.psm1') -DisableNameChecking
 Import-Module (Join-Path $PSScriptRoot 'Test.HostGit.psm1') -DisableNameChecking
+Import-Module (Join-Path $PSScriptRoot 'Test.SourceSelection.psm1') -DisableNameChecking
 # The refresh gate, the cycle record and the handoff helpers the loop consults
 # before every spawn live in Test.SingleInstance. Imported here as well as by the
 # Outer module set so the gate is never absent from a process that can spawn.
@@ -95,7 +96,8 @@ function Invoke-OuterNetworkGit {
     [OutputType([hashtable])]
     param(
         [Parameter(Mandatory)][string[]]$ArgumentList,
-        [Parameter()][int]$TimeoutSeconds = 30
+        [Parameter()][int]$TimeoutSeconds = 30,
+        [datetime]$DeadlineUtc = [datetime]::MaxValue
     )
     # Classifier captured as CommandInfo once, so the foreign-module call works
     # regardless of import scope.
@@ -105,15 +107,19 @@ function Invoke-OuterNetworkGit {
         $attempts = @(Get-YurunaGitAuthAttemptList)
     }
     foreach ($attempt in $attempts) {
+        $remaining = [int][math]::Min([double]$TimeoutSeconds, [math]::Floor(($DeadlineUtc - [datetime]::UtcNow).TotalSeconds))
+        if ($remaining -lt 1) { return @{ ExitCode = 124; StdOut = ''; StdErr = ''; Output = 'Repository probe deadline expired.' } }
         # The -c credential args are git GLOBAL options -- they precede the caller's args.
-        $r   = Invoke-PoolSyncGitCapture -ArgumentList (@($attempt.Args) + @($ArgumentList)) -TimeoutSeconds $TimeoutSeconds
+        $r   = Invoke-PoolSyncGitCapture -ArgumentList (@($attempt.Args) + @($ArgumentList)) -TimeoutSeconds $remaining
         $out = ((@($r.StdOut, $r.StdErr) | Where-Object { $_ }) -join "`n").Trim()
         $hit = @{ ExitCode = [int]$r.ExitCode; StdOut = [string]$r.StdOut; StdErr = [string]$r.StdErr; Output = $out }
         if ($hit.ExitCode -eq 0) { return $hit }
         if (-not ($classifier -and (& $classifier -Output $out))) { return $hit }
         Write-Verbose "Invoke-OuterNetworkGit: the $($attempt.Source) attempt was rejected as unauthorized; trying the next credential source."
     }
-    $r = Invoke-PoolSyncGitCapture -ArgumentList $ArgumentList -TimeoutSeconds $TimeoutSeconds
+    $remaining = [int][math]::Min([double]$TimeoutSeconds, [math]::Floor(($DeadlineUtc - [datetime]::UtcNow).TotalSeconds))
+    if ($remaining -lt 1) { return @{ ExitCode = 124; StdOut = ''; StdErr = ''; Output = 'Repository probe deadline expired.' } }
+    $r = Invoke-PoolSyncGitCapture -ArgumentList $ArgumentList -TimeoutSeconds $remaining
     return @{
         ExitCode = [int]$r.ExitCode
         StdOut   = [string]$r.StdOut
@@ -133,10 +139,68 @@ function Test-OuterNewCommitsAvailable {
     [OutputType([bool])]
     param(
         [Parameter(Mandatory)][string]$RepoRoot,
-        [Parameter(Mandatory)][string]$BaselineSha
+        [Parameter(Mandatory)][string]$BaselineSha,
+        [string]$ConfigPath,
+        [datetime]$DeadlineUtc = [datetime]::UtcNow.AddSeconds(30)
     )
-    $target = Get-GitRepositoryUpdateTarget -RepoRoot $RepoRoot
+    if (-not $ConfigPath) { $ConfigPath = Join-Path $RepoRoot 'test/test.config.yml' }
+    $snapshot = Get-GitSourceConfiguration -ConfigPath $ConfigPath
+    $target = Get-GitRepositoryUpdateTarget -RepoRoot $RepoRoot -NoFetch -Operation Poll -SourceContext $snapshot.context -DeadlineUtc $DeadlineUtc
     return [bool]($target.Success -and -not $target.Skipped -and $target.Revision -ne $BaselineSha)
+}
+
+function Test-RunnerConfigGateNetworkOnly {
+    <#
+    .SYNOPSIS
+        Classify structured gate failures without interpreting operator messages.
+    #>
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param([AllowNull()]$Gate)
+    if (-not $Gate -or -not $Gate.failures) { return $false }
+    foreach ($failure in @($Gate.failures)) {
+        if (-not $failure -or -not (Test-TransientNetworkFailureClass -FailureClass ([string]$failure.class))) {
+            return $false
+        }
+    }
+    return $true
+}
+
+function Test-OuterRepositoryAccess {
+    <#
+    .SYNOPSIS
+        Check source access within one deadline, without fetching or requiring a new SHA.
+    .DESCRIPTION
+        The framework uses its configured upstream; a detached release needs no
+        framework update. Every required source must answer before recovery is
+        reported. Local project sources keep their existing Git transport.
+    #>
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param(
+        [Parameter(Mandatory)][string]$RepoRoot,
+        [Parameter(Mandatory)][string]$ConfigPath,
+        [Parameter(Mandatory)][datetime]$DeadlineUtc,
+        [switch]$NoGitPull
+    )
+    if ($DeadlineUtc -le [datetime]::UtcNow) { return $false }
+    try {
+        $snapshot = Get-GitSourceConfiguration -ConfigPath $ConfigPath
+        $prior = Read-InstalledGitSource -RepoRoot $RepoRoot
+        $required = 0
+        if (-not $NoGitPull) {
+            $target = Get-GitRepositoryUpdateTarget -RepoRoot $RepoRoot -NoFetch -Operation Poll -SourceContext $snapshot.context -InstalledProvenance $prior.framework -DeadlineUtc $DeadlineUtc
+            if (-not $target.Success) { return $false }
+            if (-not $target.Skipped) { $required++ }
+        }
+        if ($snapshot.projectUrl) {
+            $selected = Resolve-GitSourceSelection -RepositoryUrl $snapshot.projectUrl -Ref HEAD -SourceContext $snapshot.context -Operation Poll -InstalledProvenance $prior.project -DeadlineUtc $DeadlineUtc
+            if (-not $selected.success) { return $false }
+            $required++
+        }
+        return $required -gt 0
+    } catch { Write-Verbose "Repository recovery probe failed: $($_.Exception.Message)"; return $false }
+
 }
 
 function Invoke-OuterGitPull {
@@ -147,15 +211,35 @@ function Invoke-OuterGitPull {
     #>
     [CmdletBinding()]
     [OutputType([bool])]
-    param([Parameter(Mandatory)][string]$RepoRoot)
+    param([Parameter(Mandatory)][string]$RepoRoot, [string]$ConfigPath)
     $script:LastOuterPullFailure = ''
-    $result = Invoke-GitRepositoryUpdate -RepoRoot $RepoRoot -Confirm:$false
+    $script:LastOuterPullFailureClass = 'bootstrap_sync'
+    $script:LastOuterSourceSelection = $null
+    if (-not $ConfigPath) { $ConfigPath = Join-Path $RepoRoot 'test/test.config.yml' }
+    try {
+        $snapshot = Get-GitSourceConfiguration -ConfigPath $ConfigPath
+        $prior = Read-InstalledGitSource -RepoRoot $RepoRoot
+        $result = Invoke-GitRepositoryUpdate -RepoRoot $RepoRoot -SourceContext $snapshot.context -InstalledProvenance $prior.framework -DeadlineUtc ([datetime]::UtcNow.AddSeconds(280)) -Confirm:$false
+    } catch { $result = @{ Success = $false; ErrorMessage = $_.Exception.Message } }
     if (-not $result.Success) {
+        if ($result.FailureClass -and (Test-RecoveryFailureClass -FailureClass $result.FailureClass)) { $script:LastOuterPullFailureClass = [string]$result.FailureClass }
         $script:LastOuterPullFailure = ConvertTo-RecoverySafeText -Text ([string]$result.ErrorMessage)
         if ($script:LastOuterPullFailure) { Write-Information $script:LastOuterPullFailure -InformationAction Continue }
         return $false
     }
+    $script:LastOuterSourceSelection = $result.SourceSelection
+    if ($result.SourceSelection -and -not (Write-InstalledGitSource -RepoRoot $RepoRoot -Kind framework -Selection $result.SourceSelection -Confirm:$false)) { throw 'source-provenance-write-failed' }
     return $true
+}
+
+function Get-OuterSourceSelection {
+    <# .SYNOPSIS
+        Return evidence retained separately from the legacy Boolean update API.
+    #>
+    [CmdletBinding()]
+    [OutputType([System.Collections.IDictionary])]
+    param()
+    return $script:LastOuterSourceSelection
 }
 
 function Get-OuterRemoteSha {
@@ -168,15 +252,15 @@ function Get-OuterRemoteSha {
     #>
     [CmdletBinding()]
     [OutputType([string])]
-    param([Parameter(Mandatory)][AllowEmptyString()][string]$RemoteUrl)
+    param([Parameter(Mandatory)][AllowEmptyString()][string]$RemoteUrl,
+        [string]$ConfigPath,
+        [datetime]$DeadlineUtc = [datetime]::UtcNow.AddSeconds(30))
     if ([string]::IsNullOrWhiteSpace($RemoteUrl)) { return $null }
-    # Bounded + credential-prompt-proof + credential-chained: ls-remote reaches
-    # an arbitrary remote that may hang or prompt; it must not block the pause loop.
-    $ls = Invoke-OuterNetworkGit -ArgumentList @('ls-remote', $RemoteUrl, 'HEAD') -TimeoutSeconds 30
-    if ($ls.ExitCode -ne 0) { return $null }
-    $line = ($ls.StdOut -split "`r?`n" | Where-Object { $_ }) | Select-Object -First 1
-    if ([string]::IsNullOrWhiteSpace($line)) { return $null }
-    return ([string]$line).Split("`t")[0].Trim()
+    if (-not $ConfigPath) { $ConfigPath = Join-Path (Split-Path -Parent $PSScriptRoot) 'test.config.yml' }
+    $snapshot = Get-GitSourceConfiguration -ConfigPath $ConfigPath
+    $selection = Resolve-GitSourceSelection -RepositoryUrl $RemoteUrl -Ref HEAD -SourceContext $snapshot.context -Operation Poll -DeadlineUtc $DeadlineUtc
+    if (-not $selection.success) { return $null }
+    return [string]$selection.selectedSha
 }
 
 function Get-OuterConfigMtime {
@@ -609,6 +693,7 @@ $script:LastOuterCycleResult = $null
 
 # Why the latest framework pull failed (see Get-LastOuterPullFailure).
 $script:LastOuterPullFailure = ''
+$script:LastOuterPullFailureClass = 'bootstrap_sync'
 
 # Below this, a non-zero cycle child that reported no outcome is treated as having
 # aborted on the way in rather than as a failed cycle. Sized well under anything a
@@ -1808,12 +1893,22 @@ function Invoke-RunnerOuterCycle {
         if (-not $State.NoGitPull -and -not $preflight) {
             Write-Output ""
             Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_3cdf142915062e6a' -Arguments @{ cycle = "$cycle" })
-            if (-not (Invoke-OuterGitPull -RepoRoot $State.RepoRoot)) {
+            if (-not (Invoke-OuterGitPull -RepoRoot $State.RepoRoot -ConfigPath $State.ConfigPath)) {
                 Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_ddebd33ca8159d3f' -Arguments @{ cycle = "$cycle" })
                 # The retry pause is the CALLER's, deliberately: sleeping here would
                 # block inside the per-cycle child, where the outer's Ctrl+C flag is
                 # not observable and the wait could not be cut short.
-                return ($script:LastOuterCycleResult = [pscustomobject]@{ Outcome = 'pull-error'; ExitCode = 0; FailureClass = 'bootstrap_sync'; Detail = (Get-LastOuterPullFailure) })
+                return ($script:LastOuterCycleResult = [pscustomobject]@{ Outcome = 'pull-error'; ExitCode = 0; FailureClass = $script:LastOuterPullFailureClass; Detail = (Get-LastOuterPullFailure) })
+            }
+        }
+
+        # The inner and its gate consume this installed selection. A second
+        # moving-tip update would make a cycle's preflight describe other code.
+        if ($cycleGeneration -and -not $preflight) {
+            $installed = Get-OuterSourceSelection
+            if ($State.NoGitPull -or -not $installed) { $installed = Get-InstalledGitSourceSelection -RepoRoot $State.RepoRoot }
+            if (-not (Write-GitSourceHandoff -CycleGeneration $cycleGeneration -RepoRoot $State.RepoRoot -ConfigPath $State.ConfigPath -Framework $installed -Confirm:$false)) {
+                throw 'source-handoff-write-failed'
             }
         }
 
@@ -2837,6 +2932,7 @@ function Invoke-OuterCycleDispatch {
         if (-not $inProcessResult) { return [pscustomobject]@{ Outcome = 'spawn-failed'; ExitCode = 1 } }
         return [pscustomobject]@{
             Outcome = $inProcessResult.Outcome; ExitCode = $inProcessResult.ExitCode; CycleGeneration = $cycleGeneration
+            RecordFailureClass = $inProcessResult.FailureClass; RecordDetail = $inProcessResult.Detail
             Refresh = $dispatch.Mode; Cycle = $null; Gate = $null; Handoff = $validated
         }
     }
@@ -3043,6 +3139,10 @@ function Invoke-RunnerOuterLoop {
         $State['RunnerInstanceId'] = [guid]::NewGuid().ToString('N')
     }
     $gateHoldSeconds = if ($State.ContainsKey('RefreshGateHoldSeconds') -and [int]$State['RefreshGateHoldSeconds'] -gt 0) { [int]$State['RefreshGateHoldSeconds'] } else { 15 }
+    $networkRetryBase = if ($State.ContainsKey('OuterNetworkGateRetrySeconds') -and [int]$State.OuterNetworkGateRetrySeconds -gt 0) { [int]$State.OuterNetworkGateRetrySeconds } else { 120 }
+    $networkRetryCap = if ($State.ContainsKey('OuterNetworkGateRetryMaxSeconds') -and [int]$State.OuterNetworkGateRetryMaxSeconds -gt 0) { [int]$State.OuterNetworkGateRetryMaxSeconds } else { 900 }
+    $networkPollSeconds = if ($State.ContainsKey('OuterNetworkGateRecoveryPollSeconds') -and [int]$State.OuterNetworkGateRecoveryPollSeconds -gt 0) { [math]::Min(30, [int]$State.OuterNetworkGateRecoveryPollSeconds) } else { 30 }
+    $networkRetrySeconds = 0
     # Wraps each automatic-refresh call: a trigger failure is logged, and the
     # loop carries on exactly as if the trigger were absent.
     $invokeTrigger = {
@@ -3152,15 +3252,16 @@ function Invoke-RunnerOuterLoop {
         if ($outcome -in @('pull-error','paused','spawn-failed','cycle-aborted')) {
             if ($outcome -eq 'pull-error' -and $env:YURUNA_RUNTIME_DIR) {
                 $updateReason = if ($recoveryResult -and $recoveryResult.reason) { [string]$recoveryResult.reason } else { Get-LastOuterPullFailure }
+                $updateClass = if ($recoveryResult -and $recoveryResult.failureClass) { [string]$recoveryResult.failureClass } else { 'bootstrap_sync' }
                 $updateEvidence = @{
                     stage = 'FrameworkPull'
                     description = $updateReason
                     frameworkCommitSha = Get-OuterCommitSha -RepoRoot $State.RepoRoot
                 }
                 $null = Update-RunnerFaultStatus -RuntimeDir $env:YURUNA_RUNTIME_DIR -RunnerState 'paused' `
-                    -FailureClass 'bootstrap_sync' -Reason $updateReason -AttemptEvidence $updateEvidence `
+                    -FailureClass $updateClass -Reason $updateReason -AttemptEvidence $updateEvidence `
                     -AttemptGeneration ([string]$State['CycleGeneration']) -SpawnedAtUtc $cycleSpawnedAtUtc -ExitCode 1 -Confirm:$false
-                Write-OuterLog "[FrameworkPull] bootstrap_sync: $updateReason"
+                Write-OuterLog "[FrameworkPull] $updateClass`: $updateReason"
                 if (Get-Command Set-RunnerState -ErrorAction SilentlyContinue) {
                     $null = Set-RunnerState -To 'paused' -Reason 'framework update failed; waiting to retry' -Confirm:$false
                 }
@@ -3197,6 +3298,10 @@ function Invoke-RunnerOuterLoop {
             }
         }
         if ($exitCode -eq 0) {
+            $networkRetrySeconds = 0
+            if ($outcome -eq 'completed' -and $env:YURUNA_RUNTIME_DIR) {
+                $null = Get-RunnerPreambleStallStreak -RuntimeDir $env:YURUNA_RUNTIME_DIR -StalledPhase '' -Confirm:$false
+            }
             # 3a. Success -- next iteration pulls and respawns
             # immediately. State machine: in-cycle -> cycle-end ->
             # idle. Both transitions are emitted so a streaming
@@ -3386,7 +3491,9 @@ function Invoke-RunnerOuterLoop {
             if ($LASTEXITCODE -eq 0 -and $trackingSha) { $baselineSha = ([string]$trackingSha).Trim() }
         }
         $baselineProjectUrl  = Get-OuterProjectUrl -ConfigPath $State.ConfigPath
-        $baselineProjectSha  = if ($baselineProjectUrl) { Get-OuterRemoteSha -RemoteUrl $baselineProjectUrl } else { $null }
+        $networkGateOnly = $faultClass -eq 'config_gate_failed' -and
+            (Test-RunnerConfigGateNetworkOnly -Gate $attemptFault.Evidence.structuredResult)
+        $baselineProjectSha  = if ($baselineProjectUrl -and -not $networkGateOnly) { Get-OuterRemoteSha -RemoteUrl $baselineProjectUrl -ConfigPath $State.ConfigPath } else { $null }
         $baselineConfigMtime = Get-OuterConfigMtime -ConfigPath $State.ConfigPath
         $pauseStart  = Get-Date
         # A repeated stall in the same preamble phase widens the pause. The
@@ -3396,6 +3503,13 @@ function Invoke-RunnerOuterLoop {
         # ten-minute kill on the hour, every hour, with no one watching.
         $pauseSeconds = [int]$State.FailurePauseMaxSeconds
         if ($pauseMultiplier -gt 1) { $pauseSeconds = $pauseSeconds * $pauseMultiplier }
+        if ($networkGateOnly) {
+            $networkRetrySeconds = [int][math]::Min($networkRetryCap, $(if ($networkRetrySeconds -gt 0) { 2L * $networkRetrySeconds } else { $networkRetryBase }))
+            $pauseSeconds = $networkRetrySeconds
+        }
+        $pollSeconds = if ($networkGateOnly) { $networkPollSeconds } else { $State.FailureCommitPollSeconds }
+        $nextNetworkPoll = $pauseStart.AddSeconds($pollSeconds)
+        $nextSourcePoll = $pauseStart.AddSeconds($pollSeconds)
         $deadline    = $pauseStart.AddSeconds($pauseSeconds)
         $projectWatchMsg = if ($baselineProjectUrl) { "framework + project ($baselineProjectUrl) + local config" } else { "framework + local config (no repositories.projectUrl)" }
         $stallNote = if ($stalledPhase -and $stallStreak -gt 1) {
@@ -3428,9 +3542,12 @@ function Invoke-RunnerOuterLoop {
         }
         try {
             while ((Get-Date) -lt $deadline -and -not $State.ShutdownState['Requested']) {
-                $remainingPoll = $State.FailureCommitPollSeconds
+                $remainingPoll = if ($networkGateOnly) {
+                    [int][math]::Max(0, [math]::Ceiling(($nextNetworkPoll - (Get-Date)).TotalSeconds))
+                } else { [int][math]::Max(0, [math]::Ceiling(($nextSourcePoll - (Get-Date)).TotalSeconds)) }
                 while ($remainingPoll -gt 0 -and -not $State.ShutdownState['Requested']) {
-                    $slice = [math]::Min(5, $remainingPoll)
+                    $slice = [math]::Min(5, [math]::Min($remainingPoll, [math]::Max(0, [math]::Ceiling(($deadline - (Get-Date)).TotalSeconds))))
+                    if ($slice -le 0) { break }
                     Start-Sleep -Seconds $slice
                     $remainingPoll -= $slice
                     $remainingSeconds = [math]::Max(0, [int]($deadline - (Get-Date)).TotalSeconds)
@@ -3454,8 +3571,20 @@ function Invoke-RunnerOuterLoop {
                     } catch { $null = $_ }
                 }
                 if ($State.ShutdownState['Requested']) { break }
+                if ($networkGateOnly -and (Get-Date) -lt $deadline) {
+                    $probeStart = Get-Date
+                    $nextNetworkPoll = $probeStart.AddSeconds($pollSeconds)
+                    $probeDeadline = if ($nextNetworkPoll -lt $deadline) { $nextNetworkPoll } else { $deadline }
+                    if (Test-OuterRepositoryAccess -RepoRoot $State.RepoRoot -ConfigPath $State.ConfigPath -DeadlineUtc $probeDeadline.ToUniversalTime() -NoGitPull:([bool]$State.NoGitPull)) {
+                        $networkRetrySeconds = 0
+                        Write-Verbose 'Repository access recovered; ending the transient network hold.'
+                        break
+                    }
+                }
+                $sourcePollDeadline = [datetime]::UtcNow.AddSeconds(30)
+                $nextSourcePoll = (Get-Date).AddSeconds($pollSeconds)
                 # Trigger 1: framework repo new commit.
-                if (-not $State.NoGitPull -and $baselineSha -and (Test-OuterNewCommitsAvailable -RepoRoot $State.RepoRoot -BaselineSha $baselineSha)) {
+                if (-not $networkGateOnly -and -not $State.NoGitPull -and $baselineSha -and (Test-OuterNewCommitsAvailable -RepoRoot $State.RepoRoot -BaselineSha $baselineSha -ConfigPath $State.ConfigPath -DeadlineUtc $sourcePollDeadline)) {
                     Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_c35b2e556a3ef075' -Arguments @{ cycle = "$cycle" })
                     Write-OuterLog (Format-YurunaOperatorMessage -Key 'runner.operator_0211ffdf400b40cc' -Arguments @{ cycle = "$cycle" })
                     break
@@ -3466,8 +3595,8 @@ function Invoke-RunnerOuterLoop {
                 # either side doesn't fire spuriously, and don't fire
                 # when repositories.projectUrl wasn't set in the first
                 # place.
-                if ($baselineProjectUrl) {
-                    $currentProjectSha = Get-OuterRemoteSha -RemoteUrl $baselineProjectUrl
+                if ($baselineProjectUrl -and -not $networkGateOnly) {
+                    $currentProjectSha = Get-OuterRemoteSha -RemoteUrl $baselineProjectUrl -ConfigPath $State.ConfigPath -DeadlineUtc $sourcePollDeadline
                     if ($currentProjectSha -and $baselineProjectSha -and ($currentProjectSha -ne $baselineProjectSha)) {
                         Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_f36d5a5f1ae6cebb' -Arguments @{ cycle = "$cycle"; baselineProjectUrl = "$baselineProjectUrl" })
                         Write-OuterLog (Format-YurunaOperatorMessage -Key 'runner.operator_3fa87fe4f05bcb17' -Arguments @{ cycle = "$cycle"; baselineProjectUrl = "$baselineProjectUrl"; baselineProjectSha = "$baselineProjectSha"; currentProjectSha = "$currentProjectSha" })
@@ -3543,7 +3672,7 @@ function Invoke-RunnerOuterLoop {
     }
 }
 Export-ModuleMember -Function Test-YurunaCycleAborted, `
-    Get-OuterCommitSha, Test-OuterNewCommitsAvailable, Invoke-OuterGitPull, Invoke-OuterNetworkGit, `
+    Get-OuterCommitSha, Test-OuterNewCommitsAvailable, Invoke-OuterGitPull, Get-OuterSourceSelection, Invoke-OuterNetworkGit, `
     Get-OuterRemoteSha, Get-OuterConfigMtime, Get-OuterStepTimeoutSeconds, Get-OuterPreambleTimeoutSeconds, Get-OuterProjectUrl, `
     Get-OuterPoolTestCycleOverride, Get-OuterAutoRemediation, Test-OuterNoStatusServiceForwarded, `
     Get-OuterStatusBaseUrl, Get-OuterCycleSummaryLine, `
@@ -3556,7 +3685,7 @@ Export-ModuleMember -Function Test-YurunaCycleAborted, `
     Write-PoolStorageSpaceFailureRecord, Send-PoolStorageSpaceNotification, `
     Clear-PoolStorageSpaceNotification, Write-PoolStorageSpaceFailure, `
     Read-RunnerAttemptEvidence, Get-RunnerAttemptFault, Get-RunnerStalledPreamblePhase, Update-RunnerCrashGating, Update-RunnerFaultStatus, Get-RunnerFaultCause, `
-    Get-RunnerPreambleStallStreak, `
+    Get-RunnerPreambleStallStreak, Test-RunnerConfigGateNetworkOnly, Test-OuterRepositoryAccess, `
     Get-LastOuterPullFailure, Publish-OuterRecoveryResult, Invoke-OuterRecovery, Set-OuterRecoveryDecision, Write-OuterRecoveryApplied, `
     Import-OuterPoolStorageModuleSet, `
     Get-OuterRefreshCycleMode, Resolve-OuterRefreshDispatch, ConvertTo-OuterRefreshHandoff

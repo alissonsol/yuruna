@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.18.2
+.VERSION 2026.10.22
 .GUID 426e3d50-a78a-fde7-c84b-6d57314622dd
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -127,6 +127,7 @@
             )
         }
     }
+    'configsync.mirror_key_confirmation' = '[Áççéƥţ ɱířřóř ṽéříƒíçáţíóñ ķéý éñřóļļɱéñţ? ~~~~~~~~~~~~~~~~~]'
     'configsync.operator_03e72c207d4307ef' = @(
         '[  Ķéýš ţħíš ħóšţ''š šçħéɱá ďéƒíñéš ţħáţ '
         @{

@@ -455,12 +455,23 @@ backfill wrote for it). It remembers what it wrote rather than asking Loki again
 Loki answers for a line stamped days in the past only once it has filed it away; the
 timeline and the incident replay are built from the index for the same reason.
 
+Completed verdicts retained in the collector's `status.history` also restore known
+timeline intervals when cycle files cannot be read. These summaries supply neither
+event lines nor cycle counts, and do not extend a final verdict beyond its known
+finish. Existing live samples and the more detailed Loki/index outcomes take
+precedence. Recent summary coverage is checked each sweep even while the full
+derived-history refresh is cached.
+
 A host's log listing is the one expensive request: the status service is a single
 PowerShell listener, and a guest waits behind whatever it is serving. So a host is
 listed once and then at most hourly; the passes between work from the folders the index
-recorded and from the pool share. A listing request slower than 10 seconds, or one that
+recorded and from the pool share. If the proxy can read that host's archive directory,
+it requests `/log/?localOnly=true` to avoid making the host enumerate the same archive
+over the network. Otherwise it retains the merged listing so archives reachable only
+through the host remain discoverable. A listing request slower than 10 seconds, or one that
 timed out, sets `listingDeferredUntil` in the host's state file, and for the next 24 hours
-the host is sent no request at all while its pool-share copies are still restored. A
+the host is sent no request at all while its pool-share copies and retained timeline
+summaries are still restored. A
 listing that fails does not end the host's pass either. Both are logged with the time the
 host is asked again.
 
@@ -486,7 +497,7 @@ the leaf is absent.
 | `/healthz` | GET | none | `ok` liveness |
 | `/metrics` | GET | none | Prometheus text (`yuruna_pool_*`) -- scraped by the local Prometheus |
 | `/api/v1/pool-status` | GET | none | JSON snapshot of every discovered host's last poll |
-| `/api/v1/prometheus-targets` | GET | none | the pool's Windows hosts as a Prometheus HTTP service-discovery document -- `[{"targets":["<ip>:<port>"],"labels":{"pool","hostId","hostIdDashed","hostType"}}]` -- so the local Prometheus scrapes each host's machine-metrics exporter without holding a single host address of its own. Only hosts this service currently REACHES are listed, and only types that run the exporter: a host that is switched off leaves the scrape pool within one refresh instead of failing in it for as long as it stays off. The port is `-host-metrics-port`. Open, like `pool-status` -- it re-shapes addresses that endpoint already serves, and the labels match the ones `/metrics` exports so the two join on `hostId` |
+| `/api/v1/prometheus-targets` | GET | none | the pool's Windows, Ubuntu, and macOS hosts as a Prometheus HTTP service-discovery document -- `[{"targets":["<ip>:<port>"],"labels":{"pool","hostId","hostIdDashed","hostType"}}]` -- so the local Prometheus scrapes each host's machine-metrics exporter without holding a single host address of its own. Only hosts this service currently REACHES are listed, and only types that run the exporter: a host that is switched off leaves the scrape pool within one refresh instead of failing in it for as long as it stays off. Windows uses `-host-metrics-port`; Ubuntu and macOS serve native memory metrics at `/metrics` on their confirmed status endpoint, including an announced custom port. Open, like `pool-status` -- it re-shapes addresses that endpoint already serves, and the labels match the ones `/metrics` exports so the two join on `hostId` |
 | `/api/v1/extension-hosts[?area=<slug>]` | GET | none | where the pool currently sees each extension area served. With `?area=` one entry (`area`, `host`, `target`, `hostId`, `source`, `lastSeenUnixMs`, plus the health fields) and **404** when no live host serves it; without it every area (`areas`) plus every known registration (`services`), including the ones the pool refuses. Only addresses the aggregator has itself reached are answered (point 5c-ii); usable first, then live announce over registration over rehydrated announce, then freshest, then lowest hostId; a TTL-expired announce is skipped at read time. The lookup a host uses to find the stash / pool-control service knowing only the caching-proxy-service address |
 | `/go/cycle?host=<hostId>&t=<epochMs>` | GET | none | explicit cycle link -> 302 to that cycle's results. **Archive-first**: once the cycle is committed on the pool share the redirect goes to this service's own `/archive/...` copy, which answers from local disk and keeps working when the host is off or reimaged; otherwise it goes to the host, resolving its **current** IP from the live view (so the link survives a host IP change). The cycle covering `t` is resolved from the history backfill's cycle index, else the archive listing, else the host's `/log/` listing -- which follows the rotated `history.<date>/` buckets newest first -- else the Loki transition feed (current cycle in-memory short-circuits all four); degrades to the host's status root when the folder can't be resolved |
 | `/go/host-event?host=<hostId>&t=<epochMs>&status=<code>` | GET | none | dashboard host-state click -> retained runner-attempt diagnostics for a preflight/runner fault, otherwise the existing cycle resolver. Yellow status 9 always falls back to the host's runner-attempt history when diagnostics are unavailable; it never opens a previous cycle. The observed numeric status comes from the clicked sample |
@@ -669,6 +680,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.07.27
+Last review: 2026.10.22
 
 Back to [Yuruna](../../../README.md)

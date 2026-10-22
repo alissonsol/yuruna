@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.18.2
+.VERSION 2026.10.22
 .GUID 42fceff5-e96e-4072-9219-6ca416d6489c
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -26,6 +26,7 @@ BeforeAll {
     $script:wrapper = Get-Content (Join-Path $script:repo 'automation/fetch-and-execute.sh') -Raw
     $script:snapshot = Join-Path $script:repo 'automation/guest-performance-snapshot.sh'
     $script:snapshotText = Get-Content $script:snapshot -Raw
+    $script:clockModule = Import-Module (Join-Path $PSScriptRoot 'Test.Diagnostic.psm1') -Force -PassThru
     $begin = $script:wrapper.IndexOf('fae_recorder_redact()')
     $end = $script:wrapper.IndexOf("fae_recorder_folder=''")
     $script:recorderFunctions = $script:wrapper.Substring($begin, $end-$begin)
@@ -231,6 +232,56 @@ bash '__WRAPPER__' guest/test.sh
 }
 
 Describe 'Clock and memory sample capture' {
+    It 'retains parseable CPU and interrupt evidence when <Blocker> cannot complete' -Skip:(-not $IsLinux) -ForEach @(
+        @{ Blocker = 'sudo' }
+        @{ Blocker = 'python' }
+    ) {
+        $probe = Join-Path $TestDrive "clock-before-$Blocker.sh"
+        $stub = @'
+export E_CLOCK_ONLY=1
+id() { printf '1002\n'; }
+sudo() { __SUDO__; }
+python3() { sleep 20; }
+'@.Replace('__SUDO__', $(if ($Blocker -eq 'sudo') { 'sleep 20' } else { 'return 1' }))
+        $source = $script:snapshotText.Replace('export LC_ALL=C', "export LC_ALL=C`n$stub")
+        foreach ($name in 'interrupts','softirqs') {
+            $path = Join-Path $TestDrive "$Blocker-$name"
+            $content = if ($name -eq 'interrupts') { "10: 100 200 arch_timer`n" } else { "TIMER: 10 20`n" }
+            [IO.File]::WriteAllText($path,$content)
+            $source = $source.Replace("/proc/$name",$path)
+        }
+        [IO.File]::WriteAllText($probe,$source)
+        $output = (& timeout --signal=TERM --kill-after=1 2 bash $probe 2>&1) -join "`n"
+        $LASTEXITCODE | Should -Be 124
+        $output | Should -Match '(?m)^cpu0\s+\d+'
+        $output | Should -Match '(?m)^10: 100 200 arch_timer$'
+        $output | Should -Match '(?m)^TIMER: 10 20$'
+        $output | Should -Match 'guestClockSampleStartedUtc=\d{4}-\d{2}-\d{2}T'
+        $output | Should -Not -Match 'snapshotCompleteUtc='
+        $samples = & $script:clockModule { param($text) ConvertFrom-GuestClockEvidence -Text $text } $output
+        $samples.Count | Should -Be 1
+        $samples[0].valid | Should -BeTrue -Because ($samples[0].problems -join ', ')
+    }
+
+    It 'reads a bounded readable prefix without privilege and retains fallback after a read error' -Skip:(-not $IsLinux) {
+        $fixtureHome = Get-GuestFixtureHome
+        [IO.File]::WriteAllText((Join-Path $fixtureHome 'readable.txt'),'123456789')
+        $functions = $script:snapshotText.Substring(0,$script:snapshotText.IndexOf('# --- REGION: guest_evidence_clock'))
+        $fixture = @'
+snapshot_priv=(sudo -n)
+snapshot_priv_initialized=1
+sudo() { printf 'privilege-fallback\n'; shift; "$@"; }
+snapshot_read "$HOME/readable.txt" 4
+'@
+        $output = Invoke-GuestMetadataFixture -Functions $functions -Fixture $fixture -FixtureHome $fixtureHome
+        $output | Should -Match '(?m)^1234$'
+        $output | Should -Not -Match '12345|privilege-fallback'
+        $output = Invoke-GuestMetadataFixture -Functions $functions -Fixture ("head() { return 1; }`n"+$fixture) -FixtureHome $fixtureHome
+        $output | Should -Match '(?m)^privilege-fallback$'
+        $output | Should -Match '(?m)^1234$'
+        $output | Should -Not -Match '12345'
+    }
+
     It 'keeps both clock samples when optional boot metadata cannot complete' -Skip:(-not $IsLinux) {
         $probe = Join-Path $TestDrive 'clock-before-metadata.sh'
         $source = $script:snapshotText.Replace('# --- REGION: Clock correlation', @'
@@ -311,6 +362,41 @@ __READ__() {
         $output | Should -Match 'MemTotal:'
         $output | Should -Match 'pgfault '
         if (Test-Path '/sys/fs/cgroup/memory.events') { $output | Should -Match '/sys/fs/cgroup/memory.events' }
+        $output | Should -Match 'sampleCompleteUtc='
+    }
+
+    It 'retains bounded passive TCP state and retransmit counters in the recorder' -Skip:(-not $IsLinux) {
+        $fixtureHome = Get-GuestFixtureHome
+        $net = Join-Path $fixtureHome 'proc/net'
+        [void][IO.Directory]::CreateDirectory($net)
+        $tables = @{
+            tcp = '0: 0100007F:C000 2A07A8C0:0C38 02 00000000:00000000 01:00000064 00000003'
+            tcp6 = '0: 00000000000000000000000001000000:C001 00000000000000000000000001000000:0C38 02 00000000:00000000 01:00000064 00000002'
+            sockstat = 'TCP: inuse 2 orphan 0 tw 0 alloc 3 mem 1'
+            snmp = "Tcp: ActiveOpens AttemptFails RetransSegs`nTcp: 14 2 7"
+        }
+        foreach ($name in $tables.Keys) {
+            [IO.File]::WriteAllText((Join-Path $net $name),$tables[$name]+"`n"+('x'*8192)+"`nNETWORK-OVER-CAP`n")
+        }
+        $fixture = @'
+id() { printf '0\n'; }
+head() {
+    case "${!#}" in
+        /proc/net/tcp|/proc/net/tcp6|/proc/net/sockstat|/proc/net/snmp)
+            command head -c "$2" -- "$HOME${!#}";;
+        *) command head "$@";;
+    esac
+}
+ps() { :; }
+journalctl() { :; }
+fae_recorder_collect
+'@
+        $output = Invoke-GuestMetadataFixture -Functions $script:recorderFunctions -Fixture $fixture -FixtureHome $fixtureHome
+        foreach ($name in $tables.Keys) {
+            $output | Should -Match ([regex]::Escape("--- /proc/net/$name ---"))
+            $output | Should -Match ([regex]::Escape($tables[$name]))
+        }
+        $output | Should -Not -Match 'NETWORK-OVER-CAP'
         $output | Should -Match 'sampleCompleteUtc='
     }
 }

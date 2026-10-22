@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.18.2
+.VERSION 2026.10.22
 .GUID 42a369ad-01e2-44e3-b547-f5faae54a6ba
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -82,8 +82,8 @@ $ModulesDir = $paths.ModulesDir
 Initialize-YurunaEntryPointModuleSet -For CachingProxyService -ModulesDir $ModulesDir
 
 [void](Initialize-YurunaHost -RepoRoot $RepoRoot)
-# Must come AFTER Initialize-YurunaHost so Save-/Read-CachingProxyServiceState survive:
-# docs/workarounds.md#nested-non-global-import-evicts-a-callers-view-of-a-module
+# Must come AFTER Initialize-YurunaHost so Save-/Read-CachingProxyServiceState survive.
+# See https://yuruna.link/42aaf735-0006
 Import-Module (Join-Path $ModulesDir 'Test.CachingProxyService.psm1') -Global -Force -Verbose:$false
 
 $StateFile = Get-CachingProxyServiceStatePath

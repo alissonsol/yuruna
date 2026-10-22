@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.18.2
+.VERSION 2026.10.22
 .GUID 4241b748-d045-41cb-81f6-f42876137267
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -32,7 +32,12 @@ BeforeAll {
     $definition = $ast.Find({ param($node) $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq 'Get-VMScreenshot' }, $true)
     if (-not $definition) { throw 'Get-VMScreenshot is absent.' }
     . ([scriptblock]::Create($definition.Extent.Text))
+    $consoleDefinition = $ast.Find({ param($node) $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq 'Restart-VMConsole' }, $true)
+    . ([scriptblock]::Create($consoleDefinition.Extent.Text))
     function Invoke-Virsh { param([string[]]$VirshArgs) $null = $VirshArgs }
+    function bash { }
+    function pkill { }
+    function Test-VMConsoleOpen { param($VMName) $null = $VMName; return $false }
     function convert { }
     function pamtopng { }
     function Format-YurunaOperatorMessage { param($Key, $Arguments) $null = $Arguments; return $Key }
@@ -50,6 +55,48 @@ BeforeAll {
         }
     }
     $script:PpmBytes = [Text.Encoding]::ASCII.GetBytes("P3`n3 2`n255`n255 0 0 0 255 0 0 0 255`n16 32 64 128 192 255 255 255 255`n")
+}
+
+Describe 'KVM console recovery launch result' {
+    BeforeEach {
+        Mock Get-Command { [pscustomobject]@{ Name = 'virt-viewer' } } -ParameterFilter { $Name -eq 'virt-viewer' }
+        Mock pkill { $global:LASTEXITCODE = 1 }
+        Mock bash { $global:LASTEXITCODE = $script:ViewerExit }
+        Mock Start-Sleep { }
+        Mock Test-VMConsoleOpen { $true }
+    }
+    It 'reports launcher exit <ExitCode> as <Expected>' -TestCases @(
+        @{ ExitCode = 0; Expected = $true }
+        @{ ExitCode = 1; Expected = $false }
+    ) {
+        param($ExitCode, $Expected)
+        $script:ViewerExit = $ExitCode
+        Restart-VMConsole -VMName 'test-guest.ubuntu.server.26-01' -Confirm:$false | Should -Be $Expected
+        Should -Invoke bash -Times 1 -Exactly
+    }
+    It 'refuses a missing viewer without attempting a launch' {
+        Mock Get-Command { $null } -ParameterFilter { $Name -eq 'virt-viewer' }
+        Restart-VMConsole -VMName 'vm' -Confirm:$false | Should -BeFalse
+        Should -Invoke bash -Times 0
+    }
+    It 'refuses a detached launcher whose viewer never appears' {
+        $script:ViewerExit = 0
+        Mock Test-VMConsoleOpen { $false }
+        Restart-VMConsole -VMName 'vm' -Confirm:$false | Should -BeFalse
+        Should -Invoke Test-VMConsoleOpen -Times 20 -Exactly
+    }
+    It 'waits for the detached viewer to appear within its polling budget' {
+        $script:ViewerExit = 0
+        $script:ViewerProbe = 0
+        Mock Test-VMConsoleOpen { $script:ViewerProbe++; return ($script:ViewerProbe -ge 3) }
+        Restart-VMConsole -VMName 'vm' -Confirm:$false | Should -BeTrue
+        Should -Invoke Test-VMConsoleOpen -Times 3 -Exactly
+    }
+    It 'preserves WhatIf without touching the viewer' {
+        Restart-VMConsole -VMName 'vm' -WhatIf | Should -BeFalse
+        Should -Invoke pkill -Times 0
+        Should -Invoke bash -Times 0
+    }
 }
 
 Describe 'KVM screenshot fallback behavior' {

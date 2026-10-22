@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.18.2
+.VERSION 2026.10.22
 .GUID 42b8e14c-5d27-4a93-8c60-71fe2a0db339
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -122,6 +122,17 @@ Describe 'the tracked suite baseline protects what actually runs' {
         @{ Kind = 'platform floor that is not an object'; Field = @{ platformTotal = 6 }; Finding = 'platformTotal is not an object' }
         @{ Kind = 'suite timeout given as text'; Field = @{ timeoutSeconds = 'soon' }; Finding = 'timeoutSeconds is not a positive whole number' }
         @{ Kind = 'suite timeout of zero'; Field = @{ timeoutSeconds = 0 }; Finding = 'timeoutSeconds is not a positive whole number' }
+        @{ Kind = 'skip allowance for an unknown platform'; Field = @{ platformSkipped = @{ solaris = 0 } }; Finding = "platformSkipped names an unknown platform 'solaris'" }
+        @{ Kind = 'skip allowance with a differently cased platform'; Field = @{ platformSkipped = @{ Windows = 0 } }; Finding = "platformSkipped names an unknown platform 'Windows'" }
+        @{ Kind = 'skip allowance that is not an object'; Field = @{ platformSkipped = 0 }; Finding = 'platformSkipped is not an object' }
+        @{ Kind = 'skip allowance that is null'; Field = @{ platformSkipped = $null }; Finding = 'platformSkipped is not an object' }
+        @{ Kind = 'skip allowance that is an array'; Field = @{ platformSkipped = @(0, 1) }; Finding = 'platformSkipped is not an object' }
+        @{ Kind = 'negative skip allowance'; Field = @{ platformSkipped = @{ linux = -1 } }; Finding = 'platformSkipped.linux is not a nonnegative whole number' }
+        @{ Kind = 'skip allowance given as text'; Field = @{ platformSkipped = @{ linux = '0' } }; Finding = 'platformSkipped.linux is not a nonnegative whole number' }
+        @{ Kind = 'fractional skip allowance'; Field = @{ platformSkipped = @{ linux = 0.5 } }; Finding = 'platformSkipped.linux is not a nonnegative whole number' }
+        @{ Kind = 'Boolean skip allowance'; Field = @{ platformSkipped = @{ linux = $false } }; Finding = 'platformSkipped.linux is not a nonnegative whole number' }
+        @{ Kind = 'skip allowance over the platform floor'; Field = @{ platformTotal = @{ macos = 6 }; platformSkipped = @{ macos = 7 } }; Finding = 'platformSkipped.macos exceeds its effective test total of 6' }
+        @{ Kind = 'skip allowance over the row total'; Field = @{ platformSkipped = @{ linux = [long]::MaxValue } }; Finding = 'platformSkipped.linux exceeds its effective test total' }
     ) {
         param($Kind, $Field, $Finding)
         Assert-True ($Field.Count -gt 0) 'each case must edit at least one field'
@@ -148,6 +159,22 @@ Describe 'the tracked suite baseline protects what actually runs' {
         }
         $run = Invoke-BaselineGate -BaselinePath $fixture
         Assert-True ($run.Output -notmatch 'platformTotal|timeoutSeconds') "no finding is expected about a well-formed field: $($run.Output)"
+    }
+
+    It 'accepts zero skips and the exact effective platform or row total' {
+        $suite = 'test/modules/Test.StatusFirewall.Tests.ps1'
+        $fixture = New-BaselineFixture -Edit {
+            param($r)
+            $r.suites[$suite].platformTotal = @{ macos = 6; windows = [long]$r.suites[$suite].total + 3 }
+            $r.suites[$suite].platformSkipped = @{
+                macos = 0
+                linux = [long]$r.suites[$suite].total
+                windows = [long]$r.suites[$suite].total + 3
+            }
+            return $r
+        }
+        $run = Invoke-BaselineGate -BaselinePath $fixture
+        Assert-True ($run.Output -notmatch 'platformSkipped|platformTotal') "valid skip bounds must not produce a finding: $($run.Output)"
     }
 
     It 'refuses a baseline recorded over a failing run' {

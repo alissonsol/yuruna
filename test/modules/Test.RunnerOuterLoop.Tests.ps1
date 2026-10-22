@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.18.2
+.VERSION 2026.10.22
 .GUID 42305b75-dbdd-448e-8c59-ffaf93235629
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -82,17 +82,21 @@ Describe 'Test-OuterNoStatusServiceForwarded (embedded -NoStatusService detectio
     }
 }
 
-Describe 'Get-OuterRemoteSha (bounded ls-remote parsing)' {
-    It 'parses the SHA from the ls-remote line returned by the bounded runner' {
-        Mock -ModuleName Test.RunnerOuterLoop Invoke-PoolSyncGitCapture { @{ ExitCode = 0; StdOut = "abc123def4567890`tHEAD`n"; StdErr = '' } }
-        Assert-Equal 'abc123def4567890' (Get-OuterRemoteSha -RemoteUrl 'https://example/repo.git')
+Describe 'Get-OuterRemoteSha (bounded source resolution)' {
+    BeforeEach {
+        Mock -ModuleName Test.RunnerOuterLoop Get-GitSourceConfiguration { @{context=@{mode='prefer'}} }
+    }
+    It 'returns the immutable SHA selected through the shared resolver' {
+        Mock -ModuleName Test.RunnerOuterLoop Resolve-GitSourceSelection { @{success=$true;selectedSha=('a'*40)} }
+        Assert-Equal ('a'*40) (Get-OuterRemoteSha -RemoteUrl 'https://example/repo.git')
+        Should -Invoke -ModuleName Test.RunnerOuterLoop Resolve-GitSourceSelection -Times 1 -Exactly -ParameterFilter { $Operation -eq 'Poll' -and $SourceContext.mode -eq 'prefer' }
     }
     It 'returns $null on a non-zero exit (timeout/failure/no-git)' {
-        Mock -ModuleName Test.RunnerOuterLoop Invoke-PoolSyncGitCapture { @{ ExitCode = 124; StdOut = ''; StdErr = '' } }
+        Mock -ModuleName Test.RunnerOuterLoop Resolve-GitSourceSelection { @{success=$false;failureClass='network_timeout'} }
         Assert-Equal $null (Get-OuterRemoteSha -RemoteUrl 'https://example/repo.git')
     }
     It 'returns $null for an empty remote URL without invoking git' {
-        Mock -ModuleName Test.RunnerOuterLoop Invoke-PoolSyncGitCapture { throw 'ls-remote must not run for an empty URL' }
+        Mock -ModuleName Test.RunnerOuterLoop Resolve-GitSourceSelection { throw 'resolution must not run for an empty URL' }
         Assert-Equal $null (Get-OuterRemoteSha -RemoteUrl '')
     }
 }
@@ -348,6 +352,165 @@ Describe 'Invoke-RunnerOuterLoop failure pause (auto-remediation trigger is reac
     }
 }
 
+Describe 'Typed configuration failures and network recovery holds' {
+    BeforeAll {
+        function Invoke-NetworkPauseFixture {
+            param([object[]]$Failures, [int]$RecoverOnPoll = 0, [int]$BaseSeconds = 1)
+            $control = @{
+                Requested = $false; Clock = [datetime]'2026-10-20T12:00:00Z'
+                Holds = [System.Collections.Generic.List[int]]::new()
+                CycleIndex = 0; Slept = 0; Polls = 0; RecoverOnPoll = $RecoverOnPoll
+                Failures = $Failures
+            }
+            $state = @{
+                RepoRoot = $here; ConfigPath = 'unused'; InnerScript = 'unused'; PwshExe = 'pwsh'
+                ArgList = @(); ForwardEnvSnapshot = @{}; ShutdownState = $control; NoGitPull = $true
+                FailurePauseMaxSeconds = 10; FailureCommitPollSeconds = 1
+                OuterPullErrorSleepSeconds = 1; InnerSpawnErrorSleepSeconds = 1
+                StepTimeoutSecondsDefault = 1; WatchdogPollSeconds = 1
+                OuterNetworkGateRetrySeconds = $BaseSeconds; OuterNetworkGateRetryMaxSeconds = 4
+                OuterNetworkGateRecoveryPollSeconds = 1
+            }
+            $null = Invoke-RunnerOuterLoop -State $state 3>$null
+            return $control
+        }
+    }
+    BeforeEach {
+        $script:NetworkPriorRuntime = $env:YURUNA_RUNTIME_DIR
+        $env:YURUNA_RUNTIME_DIR = Join-Path $TestDrive 'network-pause'
+        $null = New-Item -ItemType Directory -Force $env:YURUNA_RUNTIME_DIR
+        Mock -ModuleName Test.RunnerOuterLoop Import-OuterRefreshTriggerModule { $false }
+        Mock -ModuleName Test.RunnerOuterLoop Wait-DiagnosticVmPreservation { '' }
+        Mock -ModuleName Test.RunnerOuterLoop Publish-OuterRecoveryResult { $null }
+        Mock -ModuleName Test.RunnerOuterLoop Get-OuterCycleSummaryLine { '' }
+        Mock -ModuleName Test.RunnerOuterLoop Write-OuterLog {}
+        Mock -ModuleName Test.RunnerOuterLoop Update-RunnerCrashGating { @{ Updated = $false } }
+        Mock -ModuleName Test.RunnerOuterLoop Update-RunnerFaultStatus { $true }
+        Mock -ModuleName Test.RunnerOuterLoop Test-OuterNoStatusServiceForwarded { $true }
+        Mock -ModuleName Test.RunnerOuterLoop Get-OuterCommitSha { 'unchanged' }
+        Mock -ModuleName Test.RunnerOuterLoop Get-OuterProjectUrl { '' }
+        Mock -ModuleName Test.RunnerOuterLoop Get-OuterConfigMtime { $null }
+        Mock -ModuleName Test.RunnerOuterLoop Test-OuterNewCommitsAvailable { $false }
+        Mock -ModuleName Test.RunnerOuterLoop Get-Date { $State.ShutdownState.Clock }
+        Mock -ModuleName Test.RunnerOuterLoop Test-OuterRepositoryAccess {
+            $State.ShutdownState.Polls++
+            return $State.ShutdownState.RecoverOnPoll -eq $State.ShutdownState.Polls
+        }
+        Mock -ModuleName Test.RunnerOuterLoop Start-Sleep {
+            $State.ShutdownState.Clock = $State.ShutdownState.Clock.AddSeconds($Seconds)
+            $State.ShutdownState.Slept += $Seconds
+            if ($State.ShutdownState.Slept -gt 20) { $State.ShutdownState.Requested = $true }
+        }
+        Mock -ModuleName Test.RunnerOuterLoop Invoke-OuterCycleDispatch {
+            $control = $State.ShutdownState
+            if ($control.CycleIndex -gt 0) { $control.Holds.Add($control.Slept) }
+            $control.Slept = 0
+            if ($control.CycleIndex -eq $control.Failures.Count) {
+                $control.Requested = $true
+                return [pscustomobject]@{ Outcome = 'completed'; ExitCode = 0 }
+            }
+            $control.CycleIndex++
+            return [pscustomobject]@{ Outcome = 'config-gate-failed'; ExitCode = 78 }
+        }
+        Mock -ModuleName Test.RunnerOuterLoop Get-RunnerAttemptFault {
+            $rows = $State.ShutdownState.Failures[$State.ShutdownState.CycleIndex - 1]
+            return @{
+                FailureClass = 'config_gate_failed'; StalledPhase = ''; IsCrash = $false
+                Evidence = @{ structuredResult = @{ failures = @($rows) } }
+            }
+        }
+    }
+    AfterEach { $env:YURUNA_RUNTIME_DIR = $script:NetworkPriorRuntime }
+
+    It 'classifies failures after importing only the outer module in a fresh process' {
+        $modulePath = (Join-Path $PSScriptRoot 'Test.RunnerOuterLoop.psm1').Replace("'", "''")
+        $command = @'
+$ErrorActionPreference = 'Stop'
+Import-Module '__MODULE__' -DisableNameChecking
+[ordered]@{
+    network = Test-RunnerConfigGateNetworkOnly -Gate @{ failures = @(@{ class = 'network_timeout' }) }
+    authentication = Test-RunnerConfigGateNetworkOnly -Gate @{ failures = @(@{ class = 'project_access_denied' }) }
+} | ConvertTo-Json -Compress
+'@.Replace('__MODULE__', $modulePath)
+        $encoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($command))
+        $output = @(& (Get-PwshExePath) -NoProfile -NonInteractive -EncodedCommand $encoded 2>&1)
+        $LASTEXITCODE | Should -Be 0 -Because ($output -join "`n")
+        $record = ($output -join "`n") | ConvertFrom-Json
+        $record.network | Should -BeTrue
+        $record.authentication | Should -BeFalse
+    }
+
+    It 'requires nonempty failure data and every explicit class to be network transient' {
+        Test-RunnerConfigGateNetworkOnly -Gate @{ failures = @(@{ class = 'network_timeout' }, @{ class = 'host_network_degraded' }) } | Should -BeTrue
+        foreach ($gate in @(
+            $null, @{ failures = @() }, @{ failures = @(@{ message = 'network timed out' }) },
+            @{ failures = @(@{ class = 'network_timeout' }, @{ class = 'project_access_denied' }) },
+            @{ failures = @(@{ class = 'network_timeout' }, @{ message = 'missing class' }) }
+        )) { Test-RunnerConfigGateNetworkOnly -Gate $gate | Should -BeFalse }
+    }
+
+    It 'doubles network-only holds to the cap without requiring a new commit' {
+        $rows = @(@{ class = 'network_timeout' })
+        $control = Invoke-NetworkPauseFixture -Failures @($rows, $rows, $rows, $rows)
+        @($control.Holds) | Should -Be @(1, 2, 4, 4)
+    }
+
+    It 'preserves the ordinary hold for mixed and legacy failures' {
+        $control = Invoke-NetworkPauseFixture -Failures @(
+            @(@{ class = 'network_timeout' }, @{ class = 'bootstrap_sync' }),
+            @(@{ message = 'connection timed out' })
+        )
+        @($control.Holds) | Should -Be @(10, 10)
+    }
+
+    It 'ends the hold on unchanged-source recovery and resets the next backoff' {
+        $rows = @(@{ class = 'network_timeout' })
+        $control = Invoke-NetworkPauseFixture -Failures @($rows, $rows) -RecoverOnPoll 1 -BaseSeconds 2
+        @($control.Holds) | Should -Be @(1, 2)
+        Should -Invoke -ModuleName Test.RunnerOuterLoop Test-OuterNewCommitsAvailable -Times 0 -Exactly
+    }
+
+    It 'clears a prior preamble stall after a passing cycle' {
+        $streakPath = Join-Path $env:YURUNA_RUNTIME_DIR 'runner.preambleStall.json'
+        [IO.File]::WriteAllText($streakPath, '{"phase":"host-detect","streak":3}')
+        $null = Invoke-NetworkPauseFixture -Failures @()
+        Test-Path -LiteralPath $streakPath | Should -BeFalse
+        $next = Get-RunnerPreambleStallStreak -RuntimeDir $env:YURUNA_RUNTIME_DIR -StalledPhase 'host-detect' -Confirm:$false
+        $next.Streak | Should -Be 1
+    }
+}
+
+Describe 'Bounded repository recovery without a new commit' {
+    BeforeEach {
+        Mock -ModuleName Test.RunnerOuterLoop Get-GitSourceConfiguration { @{context=@{mode='prefer';url='http://192.168.50.1'};projectUrl='file:///operator/project'} }
+        Mock -ModuleName Test.RunnerOuterLoop Read-InstalledGitSource { @{} }
+        Mock -ModuleName Test.RunnerOuterLoop Get-GitRepositoryUpdateTarget { @{Success=$true;Skipped=$false;Revision=('a'*40)} }
+        Mock -ModuleName Test.RunnerOuterLoop Resolve-GitSourceSelection { @{success=$true;selectedSha=('a'*40)} }
+    }
+    It 'accepts unchanged refs using the configured upstream and project URL without fetching' {
+        Test-OuterRepositoryAccess -RepoRoot $TestDrive -ConfigPath 'unused' -DeadlineUtc ([datetime]::UtcNow.AddSeconds(20)) | Should -BeTrue
+        Should -Invoke -ModuleName Test.RunnerOuterLoop Get-GitRepositoryUpdateTarget -Times 1 -Exactly -ParameterFilter {
+            $NoFetch -and $Operation -eq 'Poll' -and $SourceContext.mode -eq 'prefer' -and $DeadlineUtc -gt [datetime]::UtcNow
+        }
+        Should -Invoke -ModuleName Test.RunnerOuterLoop Resolve-GitSourceSelection -Times 1 -Exactly -ParameterFilter {
+            $RepositoryUrl -eq 'file:///operator/project' -and $Operation -eq 'Poll'
+        }
+    }
+    It 'does not report recovery when any required repository remains inaccessible' {
+        Mock -ModuleName Test.RunnerOuterLoop Resolve-GitSourceSelection { @{success=$false;failureClass='network_timeout'} }
+        Test-OuterRepositoryAccess -RepoRoot $TestDrive -ConfigPath 'unused' -DeadlineUtc ([datetime]::UtcNow.AddSeconds(20)) | Should -BeFalse
+    }
+    It 'does not begin a command after the shared deadline' {
+        Test-OuterRepositoryAccess -RepoRoot $TestDrive -ConfigPath 'unused' -DeadlineUtc ([datetime]::UtcNow.AddSeconds(-1)) | Should -BeFalse
+        Should -Invoke -ModuleName Test.RunnerOuterLoop Get-GitRepositoryUpdateTarget -Times 0 -Exactly
+        Should -Invoke -ModuleName Test.RunnerOuterLoop Resolve-GitSourceSelection -Times 0 -Exactly
+    }
+    It 'keeps the hold when a repository probe throws' {
+        Mock -ModuleName Test.RunnerOuterLoop Resolve-GitSourceSelection { throw 'source unavailable' }
+        Test-OuterRepositoryAccess -RepoRoot $TestDrive -ConfigPath 'unused' -DeadlineUtc ([datetime]::UtcNow.AddSeconds(20)) | Should -BeFalse
+    }
+}
+
 Describe 'Get-OuterStepTimeoutSeconds (pool override WINS over config > default)' {
     BeforeAll {
         $script:CfgTimeout     = New-TempConfig "testCycle:`n  stepTimeoutSeconds: 20`n"
@@ -481,6 +644,8 @@ Describe 'Invoke-RunnerOuterCycle at its refresh sites (in-process, stand-in inn
         Mock -ModuleName Test.RunnerOuterLoop Start-Watchdog { [pscustomobject]@{ State = 'Running' } }
         Mock -ModuleName Test.RunnerOuterLoop Stop-Watchdog { }
         Mock -ModuleName Test.RunnerOuterLoop Invoke-OuterGitPull { $true }
+        Mock -ModuleName Test.RunnerOuterLoop Get-InstalledGitSourceSelection { @{success=$true;selectedSha=('a'*40);verification='not-applicable'} }
+        Mock -ModuleName Test.RunnerOuterLoop Write-GitSourceHandoff { $true }
         Mock -ModuleName Test.RunnerOuterLoop Write-OuterLog { }
     }
     AfterEach {

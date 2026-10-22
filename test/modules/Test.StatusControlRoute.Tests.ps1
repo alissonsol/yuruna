@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.18.2
+.VERSION 2026.10.22
 .GUID 42798304-85e4-4102-8026-ce168ff64fd3
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -1419,5 +1419,39 @@ $($script:ArchiveIndexText)
         $calls = @($merge.FindAll({ param($n) $n -is [System.Management.Automation.Language.CommandAst] }, $true) | ForEach-Object { $_.GetCommandName() })
         Assert-True ($calls -contains 'Get-ArchivedCycleEntry') 'the merge must take the folder objects from Get-ArchivedCycleEntry'
         Assert-True ($calls -notcontains 'Get-Item') 'the merge must not look an archived name up again'
+    }
+
+    It 'honors the local-only listing without reading the archive (<Mode>)' -TestCases @(
+        @{ Mode = 'local only'; Query = 'true'; ArchiveCalls = 0; Names = 'local-cycle' }
+        @{ Mode = 'default'; Query = $null; ArchiveCalls = 1; Names = 'archived-cycle,local-cycle' }
+        @{ Mode = 'explicit merged'; Query = 'false'; ArchiveCalls = 1; Names = 'archived-cycle,local-cycle' }
+    ) {
+        param($Query, $ArchiveCalls, $Names)
+        $merge = $script:ServerAst.FindAll({
+                param($n)
+                $n -is [System.Management.Automation.Language.IfStatementAst] -and
+                $n.Clauses[0].Item1.Extent.Text -eq '$path -eq ''log'' -or $path -eq ''log/'''
+            }, $true) | Select-Object -First 1
+        $module = New-Module -ScriptBlock {
+            $script:ArchiveCalls = 0
+            function Get-ArchivedCycleEntry {
+                $script:ArchiveCalls++
+                [pscustomobject]@{ Name = 'archived-cycle'; PSIsContainer = $true }
+                [pscustomobject]@{ Name = 'local-cycle'; PSIsContainer = $true }
+            }
+        }
+        try {
+            $result = & $module {
+                param($MergeText, $LocalOnly)
+                $path = 'log/'
+                $req = [pscustomobject]@{ QueryString = @{ localOnly = $LocalOnly } }
+                $entries = @([pscustomobject]@{ Name = 'local-cycle'; PSIsContainer = $true })
+                $null = $path, $req # Read by the lifted handler in this scope.
+                . ([scriptblock]::Create($MergeText))
+                [pscustomobject]@{ Calls = $script:ArchiveCalls; Names = ($entries.Name -join ',') }
+            } $merge.Extent.Text $Query
+            Assert-Equal $ArchiveCalls $result.Calls 'local-only backfill discovery must never enumerate the network archive'
+            Assert-StringEqual $Names $result.Names 'the regular index still merges and deduplicates archive folders'
+        } finally { Remove-Module $module -ErrorAction SilentlyContinue }
     }
 }

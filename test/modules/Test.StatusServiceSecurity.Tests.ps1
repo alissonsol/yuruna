@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.18.2
+.VERSION 2026.10.22
 .GUID 427642c0-6914-46fa-a327-c4a7e4ddc547
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -26,6 +26,7 @@ BeforeAll {
     $here = Split-Path -Parent $PSCommandPath
     Import-Module (Join-Path $here 'Test.Assert.psm1') -Force -Global -DisableNameChecking
     Import-Module (Join-Path $here 'Test.Config.psm1') -Force -DisableNameChecking
+    Import-Module (Join-Path $here 'Test.ConfigSync.psm1') -Force -DisableNameChecking
     $repo = Get-YurunaTestRepoRoot -SuiteDirectory $here
     $source = [IO.File]::ReadAllText((Join-Path $repo 'test/service/Start-StatusService.ps1'))
     $template = [regex]::Match($source, '(?ms)^\$serverScript = @"\r?\n(.*?)^"@')
@@ -104,6 +105,29 @@ $res.OutputStream.Dispose()
     Assert-True ($mergeStart -ge 0 -and $mergeEnd -gt $mergeStart) 'the config save re-merge must exist'
     $script:MergeView = [scriptblock]::Create('param([string]$testConfigFile, [System.Collections.IDictionary]$parsedDoc)' + "`n" +
         $script:ServerText.Substring($mergeStart, $mergeEnd - $mergeStart) + "`nreturn ,`$parsedDoc")
+    $writeEnd = $script:ServerText.IndexOf('                    $body = [System.Text.Encoding]::UTF8.GetBytes', $mergeEnd, [StringComparison]::Ordinal)
+    Assert-True ($writeEnd -gt $mergeEnd) 'the configuration writer must exist'
+    $script:WriteView = [scriptblock]::Create(@'
+param([string]$testConfigFile, [System.Collections.IDictionary]$parsedDoc)
+$reports = [Collections.Generic.List[object]]::new()
+$res = [pscustomobject]@{StatusCode=200}; $req = $null
+function Write-ServerErr {
+    param([string]$Message)
+    $reports.Add(@{text=$Message;disk=[IO.File]::ReadAllText($testConfigFile)})
+}
+function Send-JsonError {
+    param($Response, $StatusCode, $Request, $Key, $Arguments)
+    $Response.StatusCode = $StatusCode
+}
+function ConvertTo-JsonEscapedString { param($Value) return [string]$Value }
+foreach ($request in 1) {
+'@ + "`n" + $script:ServerText.Substring($mergeStart, $writeEnd - $mergeStart) + @'
+}
+return [pscustomobject]@{Status=$res.StatusCode;Reports=$reports.ToArray()}
+'@)
+    $rsa = [Security.Cryptography.RSA]::Create(3072)
+    try { $script:MirrorKey = [Convert]::ToBase64String($rsa.ExportSubjectPublicKeyInfo()) }
+    finally { $rsa.Dispose() }
 }
 
 AfterAll {
@@ -253,5 +277,46 @@ Describe 'configuration redaction preserves the cached and on-disk secrets' {
         $cached.secrets.Clear()
         $merged = & $script:MergeView $config ([ordered]@{ secrets = [ordered]@{} })
         Assert-StringEqual 'disk-token' $merged.secrets.token
+    }
+}
+
+Describe 'control configuration writer preserves and validates mirror enrollment' {
+    BeforeEach {
+        $script:MirrorConfig = Join-Path $script:Work 'mirror-config.yml'
+        $script:MirrorDoc = @{repositories=@{projectUrl='file:///operator/project.git';mirror=@{mode='prefer';url='http://192.0.2.8';verificationPublicKeys=@($script:MirrorKey)}};secrets=@{token='fixture-token'}}
+        $script:MirrorDoc | ConvertTo-Yaml | Set-Content $script:MirrorConfig
+    }
+
+    It 'keeps omitted trust from an older editor and preserves custom repositories on disk' {
+        $posted = @{repositories=@{projectUrl='file:///operator/project.git'};secrets=@{}}
+        $result = & $script:WriteView $script:MirrorConfig $posted
+        $result.Status | Should -Be 200
+        $disk = Read-TestConfig -Path $script:MirrorConfig -NoCache -ThrowOnError
+        @($disk.repositories.mirror.verificationPublicKeys) | Should -BeExactly @($script:MirrorKey)
+        $disk.repositories.mirror.url | Should -BeExactly 'http://192.0.2.8'
+        $disk.repositories.projectUrl | Should -BeExactly 'file:///operator/project.git'
+        $disk.secrets.token | Should -BeExactly 'fixture-token'
+    }
+
+    It 'backs up and reports previous and new policy before replacing the file' {
+        $before = [IO.File]::ReadAllText($script:MirrorConfig)
+        $script:MirrorDoc.repositories.mirror.mode = 'off'
+        $result = & $script:WriteView $script:MirrorConfig $script:MirrorDoc
+        $result.Status | Should -Be 200
+        [IO.File]::ReadAllText($script:MirrorConfig+'.backup') | Should -BeExactly $before
+        $report = @($result.Reports | Where-Object text -Like 'repositories.mirror.mode:*')
+        $report.Count | Should -Be 1
+        $report[0].text | Should -Match 'prefer -> off'
+        $report[0].disk | Should -BeExactly $before
+        (Read-TestConfig -Path $script:MirrorConfig -NoCache -ThrowOnError).repositories.mirror.mode | Should -BeExactly 'off'
+    }
+
+    It 'leaves the file unchanged when a posted key is malformed' {
+        $before = [IO.File]::ReadAllBytes($script:MirrorConfig)
+        $script:MirrorDoc.repositories.mirror.verificationPublicKeys = @('invalid-key')
+        $result = & $script:WriteView $script:MirrorConfig $script:MirrorDoc
+        $result.Status | Should -Be 500
+        [IO.File]::ReadAllBytes($script:MirrorConfig) | Should -BeExactly $before
+        @($result.Reports | Where-Object text -Like '*mirror-key-invalid*').Count | Should -Be 1
     }
 }

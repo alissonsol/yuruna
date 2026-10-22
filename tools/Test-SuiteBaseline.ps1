@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.18.2
+.VERSION 2026.10.22
 .GUID 42f0b9d3-7c48-4a21-b5e6-08c9d13f7a25
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -38,7 +38,8 @@
     report quotes, so a totals line that does not equal the sum of the per-suite
     entries is a report that says something the evidence does not. Optional
     platformTotal floors and timeoutSeconds values must be positive whole
-    numbers; platform names must be known.
+    numbers; platform names must be known. Optional platformSkipped allowances
+    must be nonnegative whole numbers within the corresponding test total.
 
     This gate DISCOVERS; it does not run the tests. Discovery is the runner's
     own `-ListOnly` path, so there is one definition of what a suite is rather
@@ -172,9 +173,9 @@ if ($baseline.totals) {
     $findings.Add('the baseline records no totals, so a release report has nothing to quote')
 }
 
-# Two optional row fields are edited by hand and read by every run of the runner: a
-# per-platform test-count floor and a per-suite timeout. A malformed one has to fail
-# here, not as a runner crash on a host nobody was watching.
+# Optional row fields are edited by hand and read by every run of the runner:
+# per-platform test-count floors and skip allowances, and a per-suite timeout.
+# A malformed one has to fail here, not as a runner crash on an unattended host.
 function Test-PositiveCount {
     param($Value)
     return (($Value -is [int] -or $Value -is [long]) -and $Value -ge 1)
@@ -196,6 +197,31 @@ foreach ($property in $baseline.suites.PSObject.Properties) {
     }
     if ($row.PSObject.Properties['timeoutSeconds'] -and -not (Test-PositiveCount $row.timeoutSeconds)) {
         $findings.Add("$($property.Name): timeoutSeconds is not a positive whole number")
+    }
+    if ($row.PSObject.Properties['platformSkipped']) {
+        if ($row.platformSkipped -isnot [Management.Automation.PSCustomObject]) {
+            $findings.Add("$($property.Name): platformSkipped is not an object of per-platform skip allowances")
+        } else {
+            foreach ($allowance in $row.platformSkipped.PSObject.Properties) {
+                if ($allowance.Name -cnotin @('windows', 'linux', 'macos')) {
+                    $findings.Add("$($property.Name): platformSkipped names an unknown platform '$($allowance.Name)' (windows, linux or macos)")
+                } elseif (($allowance.Value -isnot [int] -and $allowance.Value -isnot [long]) -or $allowance.Value -lt 0) {
+                    $findings.Add("$($property.Name): platformSkipped.$($allowance.Name) is not a nonnegative whole number")
+                } else {
+                    $effectiveTotal = $row.total
+                    $floors = $row.PSObject.Properties['platformTotal']
+                    if ($floors -and $floors.Value -is [Management.Automation.PSCustomObject]) {
+                        $floor = $floors.Value.PSObject.Properties[$allowance.Name]
+                        if ($floor -and $floor.Name -ceq $allowance.Name -and (Test-PositiveCount $floor.Value)) {
+                            $effectiveTotal = $floor.Value
+                        }
+                    }
+                    if ($allowance.Value -gt $effectiveTotal) {
+                        $findings.Add("$($property.Name): platformSkipped.$($allowance.Name) exceeds its effective test total of $effectiveTotal")
+                    }
+                }
+            }
+        }
     }
 }
 

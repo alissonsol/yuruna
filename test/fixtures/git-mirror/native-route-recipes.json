@@ -1,0 +1,531 @@
+{
+  "schema": "yuruna.git-mirror.native-recipes/v1",
+  "recipes": [
+    {
+      "id": "GM-MIRROR-FIRST-HOST-OFFLINE",
+      "platform": "*",
+      "commands": [
+        {
+          "source": "candidate",
+          "path": "tools/Invoke-GitMirrorNativeRoute.ps1",
+          "arguments": [
+            "-Scenario",
+            "GM-MIRROR-FIRST-HOST-OFFLINE",
+            "-ConfigPath",
+            "${ConfigPath}",
+            "-UpstreamsPath",
+            "${UpstreamsPath}",
+            "-FrameworkTree",
+            "${CandidateTree}",
+            "-OutputPath",
+            "${RouteEvidenceRoot}/GM-MIRROR-FIRST-HOST-OFFLINE.json",
+            "-DisposableTarget"
+          ],
+          "timeoutSeconds": 900
+        }
+      ],
+      "observations": [
+        {
+          "name": "measuredRoute",
+          "kind": "json",
+          "path": "${RouteEvidenceRoot}/GM-MIRROR-FIRST-HOST-OFFLINE.json",
+          "property": "passed",
+          "expected": true,
+          "before": false,
+          "retain": true
+        },
+        {
+          "name": "operatorConfigPreserved",
+          "kind": "json",
+          "path": "${RouteEvidenceRoot}/GM-MIRROR-FIRST-HOST-OFFLINE.json",
+          "property": "configPreserved",
+          "expected": true,
+          "before": false
+        }
+      ],
+      "prepareOrigins": true
+    },
+    {
+      "id": "GM-WORKER-OFFLINE",
+      "platform": "*",
+      "commands": [
+        {
+          "source": "candidate",
+          "path": "tools/Invoke-GitMirrorNativeRoute.ps1",
+          "arguments": [
+            "-Scenario",
+            "GM-WORKER-OFFLINE",
+            "-ConfigPath",
+            "${ConfigPath}",
+            "-UpstreamsPath",
+            "${UpstreamsPath}",
+            "-FrameworkTree",
+            "${CandidateTree}",
+            "-OutputPath",
+            "${RouteEvidenceRoot}/GM-WORKER-OFFLINE.json",
+            "-DisposableTarget",
+            "-ProxyHost",
+            "${ProxyHost}",
+            "-SshKeyPath",
+            "${ProxySshKeyPath}"
+          ],
+          "timeoutSeconds": 900
+        }
+      ],
+      "observations": [
+        {
+          "name": "measuredRoute",
+          "kind": "json",
+          "path": "${RouteEvidenceRoot}/GM-WORKER-OFFLINE.json",
+          "property": "passed",
+          "expected": true,
+          "before": false,
+          "retain": true
+        },
+        {
+          "name": "operatorConfigPreserved",
+          "kind": "json",
+          "path": "${RouteEvidenceRoot}/GM-WORKER-OFFLINE.json",
+          "property": "configPreserved",
+          "expected": true,
+          "before": false
+        }
+      ],
+      "prepareOrigins": true
+    },
+    {
+      "id": "GM-BOTH-ROUTES-OFFLINE",
+      "platform": "*",
+      "commands": [
+        {
+          "source": "candidate",
+          "path": "tools/Invoke-GitMirrorNativeRoute.ps1",
+          "arguments": [
+            "-Scenario",
+            "GM-BOTH-ROUTES-OFFLINE",
+            "-ConfigPath",
+            "${ConfigPath}",
+            "-UpstreamsPath",
+            "${UpstreamsPath}",
+            "-FrameworkTree",
+            "${CandidateTree}",
+            "-OutputPath",
+            "${RouteEvidenceRoot}/GM-BOTH-ROUTES-OFFLINE.json",
+            "-DisposableTarget",
+            "-ProxyHost",
+            "${ProxyHost}",
+            "-SshKeyPath",
+            "${ProxySshKeyPath}"
+          ],
+          "timeoutSeconds": 900
+        }
+      ],
+      "observations": [
+        {
+          "name": "measuredRoute",
+          "kind": "json",
+          "path": "${RouteEvidenceRoot}/GM-BOTH-ROUTES-OFFLINE.json",
+          "property": "passed",
+          "expected": true,
+          "before": false,
+          "retain": true
+        },
+        {
+          "name": "operatorConfigPreserved",
+          "kind": "json",
+          "path": "${RouteEvidenceRoot}/GM-BOTH-ROUTES-OFFLINE.json",
+          "property": "configPreserved",
+          "expected": true,
+          "before": false
+        }
+      ],
+      "prepareOrigins": true
+    },
+    {
+      "id": "GM-MIRROR-RECOVERY",
+      "platform": "*",
+      "commands": [
+        {
+          "source": "candidate",
+          "path": "tools/Invoke-GitMirrorNativeRoute.ps1",
+          "arguments": [
+            "-Scenario",
+            "GM-MIRROR-RECOVERY",
+            "-ConfigPath",
+            "${ConfigPath}",
+            "-UpstreamsPath",
+            "${UpstreamsPath}",
+            "-FrameworkTree",
+            "${CandidateTree}",
+            "-OutputPath",
+            "${RouteEvidenceRoot}/GM-MIRROR-RECOVERY.json",
+            "-DisposableTarget",
+            "-ProxyHost",
+            "${ProxyHost}",
+            "-SshKeyPath",
+            "${ProxySshKeyPath}"
+          ],
+          "timeoutSeconds": 900
+        }
+      ],
+      "observations": [
+        {
+          "name": "measuredRoute",
+          "kind": "json",
+          "path": "${RouteEvidenceRoot}/GM-MIRROR-RECOVERY.json",
+          "property": "passed",
+          "expected": true,
+          "before": false,
+          "retain": true
+        },
+        {
+          "name": "operatorConfigPreserved",
+          "kind": "json",
+          "path": "${RouteEvidenceRoot}/GM-MIRROR-RECOVERY.json",
+          "property": "configPreserved",
+          "expected": true,
+          "before": false
+        }
+      ],
+      "prepareOrigins": true
+    },
+    {
+      "id": "GM-MISSING-TRUST",
+      "platform": "*",
+      "commands": [
+        {
+          "source": "candidate",
+          "path": "tools/Invoke-GitMirrorNativeRoute.ps1",
+          "arguments": [
+            "-Scenario",
+            "GM-MISSING-TRUST",
+            "-ConfigPath",
+            "${ConfigPath}",
+            "-UpstreamsPath",
+            "${UpstreamsPath}",
+            "-FrameworkTree",
+            "${CandidateTree}",
+            "-OutputPath",
+            "${RouteEvidenceRoot}/GM-MISSING-TRUST.json",
+            "-DisposableTarget"
+          ],
+          "timeoutSeconds": 900
+        }
+      ],
+      "observations": [
+        {
+          "name": "measuredRoute",
+          "kind": "json",
+          "path": "${RouteEvidenceRoot}/GM-MISSING-TRUST.json",
+          "property": "passed",
+          "expected": true,
+          "before": false,
+          "retain": true
+        },
+        {
+          "name": "operatorConfigPreserved",
+          "kind": "json",
+          "path": "${RouteEvidenceRoot}/GM-MISSING-TRUST.json",
+          "property": "configPreserved",
+          "expected": true,
+          "before": false
+        }
+      ]
+    },
+    {
+      "id": "GM-AUTH-DENIED",
+      "platform": "*",
+      "commands": [
+        {
+          "source": "candidate",
+          "path": "tools/Invoke-GitMirrorNativeRoute.ps1",
+          "arguments": [
+            "-Scenario",
+            "GM-AUTH-DENIED",
+            "-ConfigPath",
+            "${ConfigPath}",
+            "-UpstreamsPath",
+            "${UpstreamsPath}",
+            "-FrameworkTree",
+            "${CandidateTree}",
+            "-OutputPath",
+            "${RouteEvidenceRoot}/GM-AUTH-DENIED.json",
+            "-DisposableTarget",
+            "-ProxyHost",
+            "${ProxyHost}",
+            "-SshKeyPath",
+            "${ProxySshKeyPath}"
+          ],
+          "timeoutSeconds": 900
+        }
+      ],
+      "observations": [
+        {
+          "name": "measuredRoute",
+          "kind": "json",
+          "path": "${RouteEvidenceRoot}/GM-AUTH-DENIED.json",
+          "property": "passed",
+          "expected": true,
+          "before": false,
+          "retain": true
+        },
+        {
+          "name": "operatorConfigPreserved",
+          "kind": "json",
+          "path": "${RouteEvidenceRoot}/GM-AUTH-DENIED.json",
+          "property": "configPreserved",
+          "expected": true,
+          "before": false
+        }
+      ],
+      "prepareOrigins": true
+    },
+    {
+      "id": "GM-GUEST-RAW-FALLBACK",
+      "platform": "*",
+      "commands": [
+        {
+          "source": "candidate",
+          "path": "tools/Invoke-GitMirrorNativeGuest.ps1",
+          "arguments": [
+            "-Scenario",
+            "GM-GUEST-RAW-FALLBACK",
+            "-UpstreamsPath",
+            "${UpstreamsPath}",
+            "-FrameworkTree",
+            "${CandidateTree}",
+            "-MirrorAddress",
+            "${MirrorAddress}",
+            "-GuestHost",
+            "${UnixGuestHost}",
+            "-SshKeyPath",
+            "${GuestSshKeyPath}",
+            "-OutputPath",
+            "${RouteEvidenceRoot}/GM-GUEST-RAW-FALLBACK.json",
+            "-DisposableTarget"
+          ],
+          "timeoutSeconds": 700
+        }
+      ],
+      "observations": [
+        {
+          "name": "measuredGuest",
+          "kind": "json",
+          "path": "${RouteEvidenceRoot}/GM-GUEST-RAW-FALLBACK.json",
+          "property": "passed",
+          "expected": true,
+          "before": false,
+          "retain": true
+        },
+        {
+          "name": "guestSource",
+          "kind": "json",
+          "path": "${RouteEvidenceRoot}/GM-GUEST-RAW-FALLBACK.json",
+          "property": "source",
+          "expected": "mirror",
+          "before": false
+        }
+      ],
+      "prepareOrigins": true
+    },
+    {
+      "id": "GM-GUEST-TREE-FALLBACK",
+      "platform": "*",
+      "commands": [
+        {
+          "source": "candidate",
+          "path": "tools/Invoke-GitMirrorNativeGuest.ps1",
+          "arguments": [
+            "-Scenario",
+            "GM-GUEST-TREE-FALLBACK",
+            "-UpstreamsPath",
+            "${UpstreamsPath}",
+            "-FrameworkTree",
+            "${CandidateTree}",
+            "-MirrorAddress",
+            "${MirrorAddress}",
+            "-GuestHost",
+            "${UnixGuestHost}",
+            "-SshKeyPath",
+            "${GuestSshKeyPath}",
+            "-OutputPath",
+            "${RouteEvidenceRoot}/GM-GUEST-TREE-FALLBACK.json",
+            "-DisposableTarget"
+          ],
+          "timeoutSeconds": 700
+        }
+      ],
+      "observations": [
+        {
+          "name": "measuredGuest",
+          "kind": "json",
+          "path": "${RouteEvidenceRoot}/GM-GUEST-TREE-FALLBACK.json",
+          "property": "passed",
+          "expected": true,
+          "before": false,
+          "retain": true
+        },
+        {
+          "name": "guestSource",
+          "kind": "json",
+          "path": "${RouteEvidenceRoot}/GM-GUEST-TREE-FALLBACK.json",
+          "property": "source",
+          "expected": "lan-mirror",
+          "before": false
+        }
+      ],
+      "prepareOrigins": true
+    },
+    {
+      "id": "GM-WIN-GUEST-OLD-SEED",
+      "platform": "*",
+      "commands": [
+        {
+          "source": "candidate",
+          "path": "tools/Invoke-GitMirrorNativeGuest.ps1",
+          "arguments": [
+            "-Scenario",
+            "GM-WIN-GUEST-OLD-SEED",
+            "-UpstreamsPath",
+            "${UpstreamsPath}",
+            "-FrameworkTree",
+            "${CandidateTree}",
+            "-MirrorAddress",
+            "${MirrorAddress}",
+            "-GuestHost",
+            "${WindowsGuestHost}",
+            "-SshKeyPath",
+            "${GuestSshKeyPath}",
+            "-OutputPath",
+            "${RouteEvidenceRoot}/GM-WIN-GUEST-OLD-SEED.json",
+            "-DisposableTarget",
+            "-OldRoot",
+            "${OldRoot}"
+          ],
+          "timeoutSeconds": 700
+        }
+      ],
+      "observations": [
+        {
+          "name": "measuredGuest",
+          "kind": "json",
+          "path": "${RouteEvidenceRoot}/GM-WIN-GUEST-OLD-SEED.json",
+          "property": "passed",
+          "expected": true,
+          "before": false,
+          "retain": true
+        },
+        {
+          "name": "guestSource",
+          "kind": "json",
+          "path": "${RouteEvidenceRoot}/GM-WIN-GUEST-OLD-SEED.json",
+          "property": "source",
+          "expected": "legacy-clone",
+          "before": false
+        }
+      ],
+      "prepareOrigins": true
+    },
+    {
+      "id": "GM-WIN-GUEST-NEW-SEED",
+      "platform": "*",
+      "commands": [
+        {
+          "source": "candidate",
+          "path": "tools/Invoke-GitMirrorNativeGuest.ps1",
+          "arguments": [
+            "-Scenario",
+            "GM-WIN-GUEST-NEW-SEED",
+            "-UpstreamsPath",
+            "${UpstreamsPath}",
+            "-FrameworkTree",
+            "${CandidateTree}",
+            "-MirrorAddress",
+            "${MirrorAddress}",
+            "-GuestHost",
+            "${WindowsGuestHost}",
+            "-SshKeyPath",
+            "${GuestSshKeyPath}",
+            "-OutputPath",
+            "${RouteEvidenceRoot}/GM-WIN-GUEST-NEW-SEED.json",
+            "-DisposableTarget",
+            "-OldRoot",
+            "${OldRoot}"
+          ],
+          "timeoutSeconds": 700
+        }
+      ],
+      "observations": [
+        {
+          "name": "measuredGuest",
+          "kind": "json",
+          "path": "${RouteEvidenceRoot}/GM-WIN-GUEST-NEW-SEED.json",
+          "property": "passed",
+          "expected": true,
+          "before": false,
+          "retain": true
+        },
+        {
+          "name": "guestSource",
+          "kind": "json",
+          "path": "${RouteEvidenceRoot}/GM-WIN-GUEST-NEW-SEED.json",
+          "property": "source",
+          "expected": "lan-mirror",
+          "before": false
+        }
+      ],
+      "prepareOrigins": true
+    },
+    {
+      "id": "GM-OUTAGE-6MIN-NO-CONTENT",
+      "platform": "*",
+      "commands": [
+        {
+          "source": "candidate",
+          "path": "tools/Invoke-GitMirrorNativeOutage.ps1",
+          "arguments": [
+            "-TargetRoot",
+            "${TargetRoot}",
+            "-ConfigPath",
+            "${ConfigPath}",
+            "-UpstreamsPath",
+            "${UpstreamsPath}",
+            "-FrameworkTree",
+            "${CandidateTree}",
+            "-OutputPath",
+            "${RouteEvidenceRoot}/GM-OUTAGE-6MIN-NO-CONTENT.json",
+            "-DisposableTarget"
+          ],
+          "timeoutSeconds": 1000
+        }
+      ],
+      "observations": [
+        {
+          "name": "measuredRunnerRecovery",
+          "kind": "json",
+          "path": "${RouteEvidenceRoot}/GM-OUTAGE-6MIN-NO-CONTENT.json",
+          "property": "passed",
+          "expected": true,
+          "before": false,
+          "retain": true
+        },
+        {
+          "name": "noNewContent",
+          "kind": "json",
+          "path": "${RouteEvidenceRoot}/GM-OUTAGE-6MIN-NO-CONTENT.json",
+          "property": "refsUnchanged",
+          "expected": true,
+          "before": false
+        },
+        {
+          "name": "operatorConfigPreserved",
+          "kind": "json",
+          "path": "${RouteEvidenceRoot}/GM-OUTAGE-6MIN-NO-CONTENT.json",
+          "property": "configPreserved",
+          "expected": true,
+          "before": false
+        }
+      ]
+    }
+  ]
+}

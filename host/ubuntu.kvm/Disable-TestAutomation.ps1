@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.18.2
+.VERSION 2026.10.22
 .GUID 427d85b1-fda1-4ae0-9a2f-5a950d4da265
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -111,14 +111,6 @@ foreach ($t in (Get-LinuxAutomationGsetting)) {
     }.GetNewClosure()
 }
 
-# --- REGION: Host clock
-Restore-Knob -Name 'timedatectl/ntp' -Description 'timedatectl NTP' -Apply {
-    param($v)
-    $onOff = if ("$v" -match '^(yes|active|true)$') { 'true' } else { 'false' }
-    $r = Invoke-YurunaSudo -Argument @('timedatectl', 'set-ntp', $onOff) -TolerateBlocked
-    if ($r.ExitCode -ne 0) { throw (Format-YurunaOperatorMessage -Key 'exceptions.host_b1cc462acbad03b8' -Arguments @{ onOff = "$onOff"; output = "$($r.Output)" }) }
-}
-
 # --- REGION: libvirt services
 # Only ever acted on with a capture in hand: see the header.
 foreach ($unit in @('libvirtd', 'virtlogd')) {
@@ -201,6 +193,14 @@ if (-not $ufwCmd) {
         if ($r.ExitCode -eq 0) { $restored.Add("ufw rule removed: allow $statusPort/tcp") }
         else { $skipped.Add("ufw allow $statusPort/tcp (delete failed: $($r.Output))") }
     }
+}
+
+# --- REGION: Host clock
+Restore-Knob -Name 'timedatectl/ntp' -Description 'timedatectl NTP' -Apply {
+    param($v)
+    $onOff = if ("$v" -match '^(yes|active|true)$') { 'true' } else { 'false' }
+    $r = Invoke-YurunaSudo -Argument @('timedatectl', 'set-ntp', $onOff) -TolerateBlocked
+    if ($r.ExitCode -ne 0) { throw (Format-YurunaOperatorMessage -Key 'exceptions.host_b1cc462acbad03b8' -Arguments @{ onOff = "$onOff"; output = "$($r.Output)" }) }
 }
 
 # --- REGION: Services (opt-in)

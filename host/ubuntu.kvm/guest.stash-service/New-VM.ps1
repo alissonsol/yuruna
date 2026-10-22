@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.18.2
+.VERSION 2026.10.22
 .GUID 428fd107-ddcf-4d18-a2a8-6763e5534b41
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -64,7 +64,8 @@ $ErrorActionPreference = 'Stop'
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 
 # --- REGION: libvirt-qemu search ACL on $HOME
-# Self-heal libvirt-qemu's search ACL on $HOME (Ubuntu 24.04+ default 0750).
+# See https://yuruna.link/42e220c4-0004
+# Grant libvirt-qemu traverse-only access to the VM storage below this home directory.
 if (Get-Command -Name 'setfacl' -ErrorAction SilentlyContinue) {
     & getent passwd libvirt-qemu *>$null
     if ($LASTEXITCODE -eq 0) {
@@ -126,12 +127,16 @@ if (Test-Path -LiteralPath $seedDir) { Remove-Item -LiteralPath $seedDir -Recurs
 New-Item -ItemType Directory -Force -Path $seedDir | Out-Null
 
 # --- REGION: Yuruna harness SSH key
+# See https://yuruna.link/42e220c4-0004
+# Seed the shared harness key so guest provisioning and failure diagnostics agree.
 Import-Module (Join-Path $repoRoot 'test/modules/Test.Ssh.psm1')       -Force -DisableNameChecking
 Import-Module (Join-Path $repoRoot 'test/modules/Test.Extension.psm1') -Global -Force -Verbose:$false
 $SshAuthorizedKey = Get-YurunaSshPublicKey
 if (-not $SshAuthorizedKey) { Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_24e40b06bcf4c618'); exit 1 }
 
 # --- REGION: Vault admin password
+# Each service family has its own admin account: a shared name would map several
+# VMs to one vault entry, and the last build would invalidate the others' credential.
 $_authActiveName = @(Import-Extension -Area 'authentication' -RequireSingle)[0]
 $AdminPassword = Get-Password -Username 'stash-admin'
 if (-not $AdminPassword) { Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_5f54f73b7b1051eb'); exit 1 }
@@ -183,19 +188,15 @@ if ($networkName -eq 'default') {
     }
 }
 
-# --- REGION: https://yuruna.link/4220a755-001b
-# Host coordinates (status service, for the in-VM source fetch) + stash storage
-# coordinates (the share), baked into the seed. The host address came from the
-# same binding as the network above ($env:YURUNA_GUEST_REACHABLE_HOST_IP wins
-# there); empty means the guest falls back to the public github mirror.
+# --- REGION: Yuruna host coordinates
+# See https://yuruna.link/4220a755-001b
+# Bake the status-service address and storage coordinates for the selected network.
 Import-Module (Join-Path $repoRoot 'test/modules/Test.PoolStorage.psm1')  -Global -Force
 Import-Module (Join-Path $repoRoot 'test/modules/Test.YurunaDir.psm1')    -Global -Force
 Import-Module (Join-Path $repoRoot 'test/modules/Test.Config.psm1')       -Global -Force
 Import-Module (Join-Path $repoRoot 'test/modules/Test.Locale.psm1') -Global -Force
 Import-Module (Join-Path $repoRoot 'test/modules/Test.CachingProxyService.psm1') -Global -Force
 $YurunaHostIp = $guestBinding.HostIp
-# --- REGION: Yuruna host coordinates
-# See https://yuruna.link/4220a755-001b
 $_statusSeed = Get-YurunaStatusServiceSeed -RepoRoot $repoRoot
 $YurunaHostPort = $_statusSeed.Port
 $tc = $_statusSeed.Config

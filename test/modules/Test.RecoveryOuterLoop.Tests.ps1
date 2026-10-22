@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.18.2
+.VERSION 2026.10.22
 .GUID 4277cde3-5e56-4d5e-beb5-7bed391f35c5
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -199,9 +199,22 @@ Describe 'Why a framework pull failed' {
         Invoke-OuterGitPull -RepoRoot 'R' 6>$null | Should -BeFalse
         Get-LastOuterPullFailure | Should -Match 'conflict markers or unmerged'
     }
-    It 'is what the pull-error outcome reports to the runner' {
-        $text = Get-Content -LiteralPath (Join-Path $here 'Test.RunnerOuterLoop.psm1') -Raw
-        $text | Should -Match "Outcome = 'pull-error'; ExitCode = 0; FailureClass = 'bootstrap_sync'; Detail = \(Get-LastOuterPullFailure\)"
+    It 'reports the source failure class and redacted reason in the actual cycle outcome' -ForEach @(
+        @{Class='source_integrity'}, @{Class='network_timeout'}, @{Class='project_access_denied'}
+    ) {
+        $script:Pull.ErrorMessage = 'fixture source rejected'
+        $script:Pull.FailureClass = $Class
+        $state = @{
+            RepoRoot=$TestDrive;ConfigPath=(Join-Path $TestDrive 'absent.yml');InnerScript='x';PwshExe='pwsh'
+            ArgList=@();ForwardEnvSnapshot=@{};ShutdownState=@{Requested=$false};NoGitPull=$false
+            FailurePauseMaxSeconds=1;FailureCommitPollSeconds=1;OuterPullErrorSleepSeconds=1;InnerSpawnErrorSleepSeconds=1
+            StepTimeoutSecondsDefault=1;WatchdogPollSeconds=1
+        }
+        $returned = Invoke-RunnerOuterCycle -State $state -Cycle 1 3>$null 6>$null
+        $returned.Outcome | Should -Be 'pull-error'
+        $returned.FailureClass | Should -BeExactly $Class
+        $returned.Detail | Should -BeExactly (Get-LastOuterPullFailure)
+        $returned.Detail | Should -Match 'fixture source rejected'
     }
 }
 
@@ -311,5 +324,24 @@ Describe 'A framework pull that fails on a stale git lock' {
         $script:ObservedBeforeWait.history[0].cycleNumber | Should -Be 42
         $script:Waits.Count | Should -Be 1
         Should -Invoke -ModuleName Test.RunnerOuterLoop Update-RunnerCrashGating -Exactly -Times 0
+    }
+    It 'keeps a typed source failure in the runner fault and recovery record' -ForEach @(
+        @{Class='source_integrity'}, @{Class='network_timeout'}, @{Class='project_access_denied'}
+    ) {
+        $script:SourceClass = $Class
+        $script:Config = New-LoopConfig -Enabled $false
+        Mock -ModuleName Test.RunnerOuterLoop Invoke-OuterCycleDispatch {
+            $next = $script:Script.Dequeue()
+            if ($next -eq 'pull-error') { return [pscustomobject]@{Outcome='pull-error';ExitCode=0;RecordFailureClass=$script:SourceClass;RecordDetail='fixture source rejected'} }
+            $State.ShutdownState['Requested']=$true
+            return [pscustomobject]@{Outcome='drain';ExitCode=0}
+        }
+        Mock -ModuleName Test.RunnerOuterLoop Wait-OuterInterruptible {
+            $script:ObservedSourceFault = Get-Content -LiteralPath (Join-Path $script:Runtime 'status.json') -Raw | ConvertFrom-Json
+            return $true
+        }
+        $null = Invoke-FakeLoop -ConfigPath $script:Config -Cycle @('pull-error','stop') -RepoRoot $script:Repo
+        $script:ObservedSourceFault.runnerFault.failureClass | Should -BeExactly $Class
+        (Read-RecoveryResult -RuntimeDir $script:Runtime).failureClass | Should -BeExactly $Class
     }
 }

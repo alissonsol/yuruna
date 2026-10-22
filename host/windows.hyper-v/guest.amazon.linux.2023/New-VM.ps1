@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.18.2
+.VERSION 2026.10.22
 .GUID 4209caff-b7ce-46f6-896a-1d6710c120e8
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -99,6 +99,7 @@ Import-Module (Join-Path (Split-Path -Parent (Split-Path -Parent (Split-Path -Pa
 Write-BaseImageProvenance -BaseImagePath $baseImageFile
 
 # --- REGION: Remove existing VM
+# See https://yuruna.link/42e220c4-0004
 # Runs AFTER the base image is confirmed so a failed image fetch never
 # destroys a working VM.
 Remove-HyperVGuestDefinition -VMName $VMName -Confirm:$false
@@ -146,7 +147,8 @@ try {
     Set-Content -Path "$SeedDir/meta-data" -Value $MetaData -NoNewline
 
     # --- REGION: Yuruna harness SSH key
-    # Use the shared key for post-boot harness access.
+    # See https://yuruna.link/42e220c4-0004
+    # Seed the shared harness key so guest provisioning and failure diagnostics agree.
     $TestSshModule = Join-Path (Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSScriptRoot))) "test/modules/Test.Ssh.psm1"
     Import-Module $TestSshModule -Force
     $SshAuthorizedKey = Get-YurunaSshPublicKey

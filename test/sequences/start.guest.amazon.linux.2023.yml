@@ -41,7 +41,9 @@ component:
           - "Authentication token manipulation error"
         description: "OCR: login:"
 
-  # Password mutation must never replay after PAM accepts a new password.
+  # Password mutation is intentionally outside the retry above. Once PAM has
+  # accepted either new-password prompt, neither a VM restart nor a replay with
+  # the old password has a well-defined result.
   # See https://yuruna.link/42e220c4-0007
   - action: passwdPrompt
     pattern: "login:"
@@ -83,6 +85,7 @@ component:
     seconds: 3
     description: "Let the login shell finish drawing before typing at it"
 
+  # A leading space absorbs a dropped first keystroke on ARM64 Hyper-V.
   - action: inputTextAndEnter
     text: " echo yuruna_$(seq -s '' 1 9)_ok"
     description: "Ask the shell to expand a token agetty cannot"

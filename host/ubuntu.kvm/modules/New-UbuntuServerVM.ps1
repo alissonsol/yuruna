@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.18.2
+.VERSION 2026.10.22
 .GUID 42ada8e8-3ff4-49bc-88b3-4e1d20a217de
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -89,16 +89,19 @@ switch ($arch) {
 }
 
 # --- REGION: Seek the base image
+# See https://yuruna.link/42e220c4-0003
+# Fetch missing media once; fail if manual-download requirements remain unmet.
 $downloadDir   = "$HOME/yuruna/image/ubuntu.env"
 $baseImageName = "host.ubuntu.kvm.guest.ubuntu.server.$Release"
 $baseImageFile = Join-Path $downloadDir "$baseImageName.iso"
 Import-Module -Name (Join-Path (Split-Path -Parent (Split-Path -Parent $GuestScriptRoot)) 'modules/Yuruna.Image.psm1') -Force
 if (-not (Assert-YurunaBaseImage -BaseImageFile $baseImageFile -GuestFolder $GuestScriptRoot)) { exit 1 }
 
-# --- REGION: Autoinstall password hash
+# --- REGION: Vault user password
 # See https://yuruna.link/42e220c4-0004
 # KVM retains its documented ad hoc environment override before using the vault.
 $repoRoot = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $ScriptDir))
+# The hash below needs openssl; check it before any credential is read.
 if (-not (Get-Command openssl -ErrorAction SilentlyContinue)) {
     Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_356561278d80158b')
     exit 1
@@ -114,6 +117,10 @@ if (-not $Password) {
 } else {
     Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_ada79849fa8dc53a')
 }
+
+# --- REGION: Autoinstall password hash
+# See https://yuruna.link/429f3d06-0017
+# Keep the shared hash helper: its -- separator protects leading-dash passwords.
 Import-Module (Join-Path $repoRoot 'automation/Yuruna.Common.psm1') -Force -DisableNameChecking
 try {
     $PasswordHash = ConvertTo-Sha512CryptHash -Plaintext $Password
@@ -132,7 +139,8 @@ Import-Module (Join-Path (Split-Path -Parent $ScriptDir) 'modules/Yuruna.Host.ps
 
 # --- REGION: Remove existing VM
 # See https://yuruna.link/42e220c4-0004
-Import-Module (Join-Path $PSScriptRoot '../modules/Yuruna.Host.psm1') -DisableNameChecking -Verbose:$false
+# Runs AFTER the base image is confirmed so a failed image fetch never
+# destroys a working VM.
 $virshUri = 'qemu:///system'
 Remove-KvmDomainDefinition -VMName $VMName -Confirm:$false
 
@@ -144,7 +152,7 @@ New-Item -ItemType Directory -Force -Path $vmDir | Out-Null
 
 # --- REGION: Yuruna harness SSH key
 # See https://yuruna.link/42e220c4-0004
-# Use the shared harness key so test execution and failure diagnostics authenticate identically.
+# Seed the shared harness key so guest provisioning and failure diagnostics agree.
 $TestSshModule = Join-Path $repoRoot 'test/modules/Test.Ssh.psm1'
 Import-Module $TestSshModule -Force -DisableNameChecking
 $sshPub = Get-YurunaSshPublicKey
@@ -169,12 +177,14 @@ Import-Module (Join-Path $repoRoot 'automation/Yuruna.GuestSeed.psm1') -Force
 $AptProxyBlock = New-AptProxyBlock -PrimaryUri $primaryUri -CachingProxyServiceUrl $CachingProxyServiceUrl
 
 # --- REGION: Select the guest network
-# Resolve the network and its reachable host address atomically so they cannot drift.
+# See https://yuruna.link/42e220c4-0004
+# Resolve the network and reachable host address together before rendering the seed.
 $guestBinding = Resolve-GuestHostBinding
 $networkName  = $guestBinding.NetworkName
 
 # --- REGION: Yuruna host coordinates
-# See https://yuruna.link/42e220c4-0004
+# See https://yuruna.link/4220a755-001b
+# Bake the status-service address reachable through the selected guest network.
 $hostIp = $guestBinding.HostIp
 Import-Module (Join-Path $repoRoot 'test/modules/Test.Config.psm1') -Global -Force
 $_statusSeed = Get-YurunaStatusServiceSeed -RepoRoot $repoRoot
@@ -184,8 +194,6 @@ $hostPort = $_statusSeed.Port
 # Embedded in the seed as base64.
 # See https://yuruna.link/4220a755-0015
 # An empty $CaCertBase64 is NOT a harmless no-op (curl rc=60 SSL-bump gate).
-# Without the embedded CA, a guest using the SSL-bump proxy fails curl
-# certificate verification (rc=60) before it can run its setup scripts.
 $CaCertBase64 = ""
 if ($CachingProxyServiceUrl) {
     Import-Module -Name (Join-Path $GuestScriptRoot '../../../test/modules/Test.CachingProxyService.psm1') -Force -DisableNameChecking
@@ -255,7 +263,9 @@ if ($LASTEXITCODE -ne 0) {
 # --- REGION: Create empty install target
 # See https://yuruna.link/42e220c4-0004
 # Delay destructive replacement until the seed preflight succeeds.
-# Fresh 64 G qcow2; subiquity partitions and installs onto it.
+# The 64 GB sparse disk fits the k8s and .NET build workloads and is the uniform
+# cap across hosts; sizing-policy: all in host/vmconfig/ubuntu.server.base.user-data
+# lets the root LV consume the whole PV.
 if (Test-Path -LiteralPath $diskImg) { Remove-Item -Force -LiteralPath $diskImg }
 & qemu-img create -f qcow2 $diskImg 64G | Out-Null
 if ($LASTEXITCODE -ne 0) { Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_919e5b9a9a611298'); exit 1 }

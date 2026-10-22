@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.18.2
+.VERSION 2026.10.22
 .GUID 42aee21f-6c39-49b6-e04d-daf28d2639f1
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -310,6 +310,29 @@
             'type' = 'detail'
             'trust' = 'external'
         }
+    )
+    'runner.git_mirror_token_invalid' = 'The GitHub token contains unsupported characters. Nothing was stored. Run again and paste only the token, or press Enter to keep the current authentication.'
+    'runner.git_mirror_token_notice' = 'A GitHub token is optional. Press Enter to keep the current authentication. Supplying a token rebuilds the caching proxy to apply it, even if this host already stores the same token. Rebuilding takes about 15 minutes and discards the warm cache. Input is hidden.'
+    'runner.git_mirror_token_prepare' = 'Ask for an optional GitHub token and store an explicitly supplied value'
+    'runner.git_mirror_token_prompt' = 'Optional GitHub token (Enter keeps current authentication)'
+    'runner.git_mirror_token_provider_failed' = 'Could not configure the optional GitHub token. Check the authentication provider and vault permissions, then run again. The proxy must not be rebuilt until token configuration succeeds.'
+    'runner.git_mirror_token_replace_stored' = @(
+        'github-mirror-token ('
+        @{
+            'arg' = 'vaultKey'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        '): (stored token) -> (operator-supplied token). The previous value remains recoverable in the vault''s previousPassword field.'
+    )
+    'runner.git_mirror_token_store_new' = @(
+        'github-mirror-token ('
+        @{
+            'arg' = 'vaultKey'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        '): (no stored token) -> (operator-supplied token).'
     )
     'runner.git_recovery_command' = @(
         '  Recover with: git -C '''

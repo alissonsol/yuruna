@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.18.2
+.VERSION 2026.10.22
 .GUID 4210d385-d4df-4f13-9344-d649676c6dc4
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -285,12 +285,8 @@ try {
 }
 
 # --- REGION: Section 2a: Config schema vs template
-# The template is the schema source of truth: Sync-TestConfigToTemplate fully
-# reconciles the live test.config.yml to it (add missing fields, remove
-# dropped keys with a .backup, rewrite alphabetically); at cycle start the
-# runner does the same via Update-TestConfigFromTemplate.
-# See docs/test-config.md (Template reconciliation).
-
+# The template is the schema source of truth for this section.
+# See https://yuruna.link/42b11c32-0003
 Write-Section (Format-YurunaOperatorMessage -Key 'runner.operator_0cbff397669c09e4')
 
 $configSyncMod = Join-Path $script:ModulesDir 'Test.ConfigSync.psm1'
@@ -384,7 +380,6 @@ if (-not (Test-Path $configNamingMod)) {
 
 # --- REGION: Section 3: Host requirements (quick)
 # See https://yuruna.link/42010605-0002
-
 Write-Section (Format-YurunaOperatorMessage -Key 'runner.operator_0eaac625cae7caa8')
 
 $ModulesDir  = Join-Path $TestRoot "modules"
@@ -481,7 +476,6 @@ if (-not $HostType) {
 
 # --- REGION: Section 3c: Host setup freshness
 # See https://yuruna.link/42010605-0002
-
 Write-Section (Format-YurunaOperatorMessage -Key 'runner.operator_6b34b3231afbc220')
 
 $hostStateMod = Join-Path $script:ModulesDir 'Test.HostAutomationState.psm1'
@@ -641,7 +635,6 @@ switch ($HostType) {
 
 # --- REGION: Section 5a: macOS permissions only a person can give
 # See https://yuruna.link/42010605-0002
-
 if ($HostType -eq 'host.macos.utm' -and (Get-Command Get-MacOperatorGrantState -ErrorAction SilentlyContinue)) {
     Write-Section (Format-YurunaOperatorMessage -Key 'runner.operator_6bcdcf9aad9c55be')
 
@@ -684,7 +677,6 @@ if ($HostType -eq 'host.macos.utm' -and (Get-Command Get-MacOperatorGrantState -
 
 # --- REGION: Section 5a2: macOS screen lock / display sleep
 # See https://yuruna.link/42010605-0002
-
 if ($HostType -eq 'host.macos.utm' -and (Get-Command Get-MacScreenLockIssue -ErrorAction SilentlyContinue)) {
     Write-Section (Format-YurunaOperatorMessage -Key 'runner.operator_ff747670f88f9812')
 
@@ -703,7 +695,6 @@ if ($HostType -eq 'host.macos.utm' -and (Get-Command Get-MacScreenLockIssue -Err
 
 # --- REGION: Section 5a3: UTM app lifetime
 # See https://yuruna.link/42010605-0002
-
 if ($HostType -eq 'host.macos.utm' -and (Get-Command Get-MacUtmLifetimeIssue -ErrorAction SilentlyContinue)) {
     Write-Section (Format-YurunaOperatorMessage -Key 'runner.operator_9849668785458289')
 
@@ -725,7 +716,6 @@ if ($HostType -eq 'host.macos.utm' -and (Get-Command Get-MacUtmLifetimeIssue -Er
 
 # --- REGION: Section 5b: Host address stability
 # See https://yuruna.link/42010605-0002
-
 Write-Section (Format-YurunaOperatorMessage -Key 'runner.operator_31308c32d6152537')
 
 $beaconMod = Join-Path $script:ModulesDir 'Test.HostAddressBeacon.psm1'
@@ -762,7 +752,6 @@ if (-not (Test-Path -LiteralPath $beaconMod)) {
 
 # --- REGION: Section 5c: Display scaling (OCR)
 # See https://yuruna.link/42010605-0002
-
 Write-Section (Format-YurunaOperatorMessage -Key 'runner.operator_c4c48bd5e5d1638b')
 
 $scaleReport = $null
@@ -800,7 +789,6 @@ if (-not $HostType) {
 
 # --- REGION: Section 5d: Storage filter stack (guest throughput)
 # See https://yuruna.link/42010605-0002
-
 Write-Section (Format-YurunaOperatorMessage -Key 'runner.operator_e2f867223580bc4d')
 
 if (-not $HostType) {
@@ -832,7 +820,36 @@ Write-Section (Format-YurunaOperatorMessage -Key 'runner.operator_b1165d97883755
 
 $RepoRoot = Split-Path -Parent $TestRoot
 
-Test-RepoFreshness -Label "framework ($RepoRoot)" -Path $RepoRoot
+Import-Module (Join-Path $ModulesDir 'Test.SourceSelection.psm1') -Global -Force -DisableNameChecking
+Import-Module (Join-Path $ModulesDir 'Test.FailureTaxonomy.psm1') -Global -Force -DisableNameChecking
+$gitSourceGate = $null
+try {
+    $gitSourceGate = Invoke-GitSourceGate -RepoRoot $RepoRoot -ConfigPath $ConfigPath -CycleGeneration ([string]$env:YURUNA_CYCLE_GENERATION)
+    $sourceEvidence = [ordered]@{}
+    foreach ($label in @('framework', 'project')) {
+        $selection = $gitSourceGate[$label]
+        if (-not $selection) { continue }
+        $entry = [ordered]@{}
+        foreach ($name in @('source','verification','repository','ref','selectedSha','fetchRef','originCheckedAt','refreshAgeSeconds','mirrorVersion','keyId','fallbackReason','failureClass')) {
+            $entry[$name] = if ($name -eq 'repository') { ConvertTo-GitSourceSafeUrl $selection[$name] } else { $selection[$name] }
+        }
+        $sourceEvidence[$label] = $entry
+        $detail = "$label`: source=$($selection.source) verification=$($selection.verification) selectedSha=$($selection.selectedSha) fallbackReason=$($selection.fallbackReason) keyId=$($selection.keyId) refreshAgeSeconds=$($selection.refreshAgeSeconds)"
+        if (-not $selection.success) {
+            $class = if ($selection.failureClass) { [string]$selection.failureClass } else { 'bootstrap_sync' }
+            $cause = if (Test-TransientNetworkFailureClass -FailureClass $class) { 'git-transport-failed' }
+                     elseif ($class -eq 'project_access_denied') { 'git-access-denied' }
+                     elseif ($selection.fallbackReason) { [string]$selection.fallbackReason } else { 'git-command-failed' }
+            Write-Fail "$detail $($selection.detail)" -FullPath $ConfigPath -Cause $cause -Class $class
+        } elseif ($selection.verification -eq 'mirror-stale' -or $selection.failureClass -eq 'source_integrity') { Write-Warn $detail }
+        else { Write-Pass $detail }
+    }
+    Write-OutputDiagnostic -Name 'sourceSelections' -Data $sourceEvidence
+} catch { Write-Fail "git-source: $($_.Exception.Message)" -FullPath $ConfigPath -Cause 'source-config-invalid' -Class 'bootstrap_sync' }
+if ($gitSourceGate -and -not $gitSourceGate.frameworkSkipped -and
+    (-not $gitSourceGate.frameworkUrl -or -not (Get-GitMirrorRepository -Url $gitSourceGate.frameworkUrl))) {
+    Test-RepoFreshness -Label "framework ($RepoRoot)" -Path $RepoRoot
+}
 
 # projectUrl is needed to classify the <RepoRoot>/project/ state below
 # (empty dir + projectUrl set = post-failure leftover from a prior cycle;
@@ -842,10 +859,11 @@ $projectUrlConfigured = $null
 if ($Config.repositories -is [System.Collections.IDictionary] -and $Config.repositories.Contains('projectUrl')) {
     $projectUrlConfigured = [string]$Config.repositories.projectUrl
 }
+if ($gitSourceGate) { $projectUrlConfigured = [string]$gitSourceGate.projectUrl }
 
 $projectClone = Join-Path $RepoRoot 'project'
 if (Test-Path (Join-Path $projectClone '.git')) {
-    Test-RepoFreshness -Label "project ($projectClone)" -Path $projectClone
+    if (-not $projectUrlConfigured -or -not (Get-GitMirrorRepository -Url $projectUrlConfigured)) { Test-RepoFreshness -Label "project ($projectClone)" -Path $projectClone }
 } elseif (Test-Path $projectClone) {
     # See https://yuruna.link/42010605-0002
     $entries = (Get-ChildItem -LiteralPath $projectClone -Force -ErrorAction SilentlyContinue | Measure-Object).Count
@@ -873,15 +891,21 @@ if (Test-Path (Join-Path $projectClone '.git')) {
 #   * file:// URL pointing at a non-existent or non-git path -> Test-Path
 #   * file:// URL semantics: host-only, guest fallback structurally broken
 if (Test-IsSet $projectUrlConfigured) {
-    if ($projectUrlConfigured -match '^(?i)file://') {
+    if (Get-GitMirrorRepository -Url $projectUrlConfigured) {
+        # The shared source gate already selected this exact commit and saved
+        # it for the project clone; another tip query could choose other code.
+        if (-not $gitSourceGate -or -not $gitSourceGate.project) {
+            Write-Fail 'project-source-selection-missing' -FullPath $ConfigPath -Cause 'source-selection-missing' -Class 'bootstrap_sync'
+        }
+    } elseif ($projectUrlConfigured -match '^(?i)file://') {
         $localPath = $null
         try { $localPath = ([System.Uri]::new($projectUrlConfigured)).LocalPath } catch { $localPath = $null }
         if (-not $localPath) {
             Write-Fail (Format-YurunaOperatorMessage -Key 'runner.operator_862ae0516e939949' -Arguments @{ projectUrlConfigured = "$projectUrlConfigured" }) -FullPath $ConfigPath
         } elseif (-not (Test-Path -LiteralPath $localPath)) {
-            Write-Fail (Format-YurunaOperatorMessage -Key 'runner.operator_17689903bb502dcb' -Arguments @{ projectUrlConfigured = "$projectUrlConfigured"; localPath = "$localPath" }) -FullPath $ConfigPath
+            Write-Fail (Format-YurunaOperatorMessage -Key 'runner.operator_17689903bb502dcb' -Arguments @{ projectUrlConfigured = "$projectUrlConfigured"; localPath = "$localPath" }) -FullPath $ConfigPath -Cause 'project-config-invalid' -Class 'bootstrap_sync'
         } elseif (-not (Test-Path -LiteralPath (Join-Path $localPath '.git'))) {
-            Write-Fail (Format-YurunaOperatorMessage -Key 'runner.operator_5886f5f135754edf' -Arguments @{ projectUrlConfigured = "$projectUrlConfigured"; localPath = "$localPath" }) -FullPath $localPath
+            Write-Fail (Format-YurunaOperatorMessage -Key 'runner.operator_5886f5f135754edf' -Arguments @{ projectUrlConfigured = "$projectUrlConfigured"; localPath = "$localPath" }) -FullPath $localPath -Cause 'project-config-invalid' -Class 'bootstrap_sync'
         } else {
             Write-Pass (Format-YurunaOperatorMessage -Key 'runner.operator_cfcc5664cd584b70' -Arguments @{ localPath = "$localPath" })
         }
@@ -899,12 +923,18 @@ if (Test-IsSet $projectUrlConfigured) {
             } elseif (Test-GitRemoteAuthFailure -Output $ls.Output) {
                 # See https://yuruna.link/42010605-0002
                 $remedy = (@(Get-GitAuthRefreshRemedy) -join '; ')
-                Write-Fail (Format-YurunaOperatorMessage -Key 'runner.operator_53eb2318a1df9482' -Arguments @{ projectUrlConfigured = "$projectUrlConfigured"; exitCode = "$($ls.ExitCode)"; remedy = "$remedy"; output = "$($ls.Output)" }) -FullPath $ConfigPath
+                Write-Fail (Format-YurunaOperatorMessage -Key 'runner.operator_53eb2318a1df9482' -Arguments @{ projectUrlConfigured = "$projectUrlConfigured"; exitCode = "$($ls.ExitCode)"; remedy = "$remedy"; output = "$($ls.Output)" }) -FullPath $ConfigPath -Cause 'git-access-denied' -Class 'project_access_denied'
             } else {
-                Write-Fail (Format-YurunaOperatorMessage -Key 'runner.operator_8f1650c0562eb4a1' -Arguments @{ projectUrlConfigured = "$projectUrlConfigured"; exitCode = "$($ls.ExitCode)"; output = "$($ls.Output)" }) -FullPath $ConfigPath
+                # Git runs in the C locale. Only recognized transport failures
+                # get the short retry; malformed config, TLS trust and local
+                # command failures require the ordinary operator-facing pause.
+                $transportFailure = $ls.ExitCode -eq 124 -or $ls.Output -match '(?i)could not resolve (host|hostname|proxy)|failed to connect|could not connect|connection (timed out|refused|reset)|network is unreachable|no route to host|operation timed out|operation too slow|empty reply from server'
+                $cause = if ($transportFailure) { 'git-transport-failed' } else { 'git-command-failed' }
+                $failureClass = if ($transportFailure) { 'network_timeout' } else { 'bootstrap_sync' }
+                Write-Fail (Format-YurunaOperatorMessage -Key 'runner.operator_8f1650c0562eb4a1' -Arguments @{ projectUrlConfigured = "$projectUrlConfigured"; exitCode = "$($ls.ExitCode)"; output = "$($ls.Output)" }) -FullPath $ConfigPath -Cause $cause -Class $failureClass
             }
         } catch {
-            Write-Fail (Format-YurunaOperatorMessage -Key 'runner.operator_f4cd25b85f333709' -Arguments @{ projectUrlConfigured = "$projectUrlConfigured"; message = "$($_.Exception.Message)" }) -FullPath $ConfigPath
+            Write-Fail (Format-YurunaOperatorMessage -Key 'runner.operator_f4cd25b85f333709' -Arguments @{ projectUrlConfigured = "$projectUrlConfigured"; message = "$($_.Exception.Message)" }) -FullPath $ConfigPath -Cause 'git-command-failed' -Class 'bootstrap_sync'
         }
     } else {
         # No scheme -- accept a bare local path (rare, but git clone
@@ -913,11 +943,11 @@ if (Test-IsSet $projectUrlConfigured) {
             if (Test-Path -LiteralPath (Join-Path $projectUrlConfigured '.git')) {
                 Write-Pass (Format-YurunaOperatorMessage -Key 'runner.operator_09fdc948e3ecea79' -Arguments @{ projectUrlConfigured = "$projectUrlConfigured" })
             } else {
-                Write-Fail (Format-YurunaOperatorMessage -Key 'runner.operator_d7415f48e6da1668' -Arguments @{ projectUrlConfigured = "$projectUrlConfigured" }) -FullPath $projectUrlConfigured
+                Write-Fail (Format-YurunaOperatorMessage -Key 'runner.operator_d7415f48e6da1668' -Arguments @{ projectUrlConfigured = "$projectUrlConfigured" }) -FullPath $projectUrlConfigured -Cause 'project-config-invalid' -Class 'bootstrap_sync'
             }
             Write-Warn (Format-YurunaOperatorMessage -Key 'runner.operator_aeb2c450546713d2')
         } else {
-            Write-Fail (Format-YurunaOperatorMessage -Key 'runner.operator_90e84c1a4288e408' -Arguments @{ projectUrlConfigured = "$projectUrlConfigured" }) -FullPath $ConfigPath
+            Write-Fail (Format-YurunaOperatorMessage -Key 'runner.operator_90e84c1a4288e408' -Arguments @{ projectUrlConfigured = "$projectUrlConfigured" }) -FullPath $ConfigPath -Cause 'project-config-invalid' -Class 'bootstrap_sync'
         }
     }
 }
@@ -928,6 +958,9 @@ if (Test-IsSet $projectUrlConfigured) {
 
 Write-Section (Format-YurunaOperatorMessage -Key 'runner.operator_3c765aa340080677')
 
+if ($gitSourceGate -and $gitSourceGate.skipGitHubProbe) {
+    Write-Info 'github-connectivity: required-source-selection-complete; direct-probes=0'
+} else {
 $githubDiagnostics = @{
     hostName = 'github.com'
     port = 443
@@ -935,10 +968,19 @@ $githubDiagnostics = @{
     dns = @{ outcome = 'pending'; addresses = @(); detail = '' }
     attempts = @()
     reachable = $false
+    endpointOverride = [bool]$env:YURUNA_GITHUB_PROBE_ENDPOINT
 }
 $dnsWatch = [Diagnostics.Stopwatch]::StartNew()
 try {
-    $resolved = [System.Net.Dns]::GetHostAddresses("github.com")
+    if ($env:YURUNA_GITHUB_PROBE_ENDPOINT) {
+        $endpoint = Get-ConfigProxyEndpoint -Value $env:YURUNA_GITHUB_PROBE_ENDPOINT
+        if (-not $endpoint.validEndpoint -or $endpoint.scheme -notin @('http', 'https')) {
+            throw [FormatException]::new('Invalid YURUNA_GITHUB_PROBE_ENDPOINT.')
+        }
+        $githubDiagnostics.hostName = $endpoint.host
+        $githubDiagnostics.port = $endpoint.port
+    }
+    $resolved = [System.Net.Dns]::GetHostAddresses($githubDiagnostics.hostName)
     $dnsWatch.Stop()
     $githubDiagnostics.dns = @{
         outcome = 'resolved'
@@ -948,25 +990,28 @@ try {
     }
     Write-Pass (Format-YurunaOperatorMessage -Key 'runner.operator_48b1d6d4d9dcda06' -Arguments @{ iPAddressToString = "$($resolved[0].IPAddressToString)" })
     try {
-        $githubProbe = Test-TcpReachable -HostName 'github.com' -Port 443 -TimeoutMs 5000 -MaxAttempts 3 -PassThru
+        $githubProbe = Test-TcpReachable -HostName $githubDiagnostics.hostName -Port $githubDiagnostics.port -TimeoutMs 5000 -MaxAttempts 3 -PassThru
         $githubDiagnostics.attempts = $githubProbe.Attempts
         $githubDiagnostics.reachable = $githubProbe.Reachable
         if ($githubProbe.Reachable) {
             Write-Pass (Format-YurunaOperatorMessage -Key 'runner.operator_3640b6d07a2b9f5c')
         } else {
-            Write-Fail (Format-YurunaOperatorMessage -Key 'runner.preflight_tcp_failed' -Arguments @{ hostName = 'github.com'; port = '443'; attemptCount = "$($githubProbe.Attempts.Count)"; outcome = "$($githubProbe.Outcome)" })
+            $failureClass = if ($githubProbe.Outcome -in @('timeout', 'refused', 'unreachable')) { 'network_timeout' } else { 'bootstrap_sync' }
+            Write-Fail (Format-YurunaOperatorMessage -Key 'runner.preflight_tcp_failed' -Arguments @{ hostName = $githubDiagnostics.hostName; port = "$($githubDiagnostics.port)"; attemptCount = "$($githubProbe.Attempts.Count)"; outcome = "$($githubProbe.Outcome)" }) -Cause 'github-tcp-failed' -Class $failureClass
         }
     } catch {
         $githubDiagnostics.probeError = $_.Exception.Message
-        Write-Fail (Format-YurunaOperatorMessage -Key 'runner.operator_11876ad9b473f46f' -Arguments @{ message = "$($_.Exception.Message)" })
+        Write-Fail (Format-YurunaOperatorMessage -Key 'runner.operator_11876ad9b473f46f' -Arguments @{ message = "$($_.Exception.Message)" }) -Cause 'github-probe-error' -Class 'bootstrap_sync'
     }
 } catch {
     $dnsWatch.Stop()
     $githubDiagnostics.dns = @{ outcome = 'error'; elapsedMs = $dnsWatch.ElapsedMilliseconds; addresses = @(); detail = $_.Exception.Message }
-    Write-Fail (Format-YurunaOperatorMessage -Key 'runner.operator_88fcb4dc7bd3cb87' -Arguments @{ message = "$($_.Exception.Message)" })
+    $failureClass = if ($_.Exception.GetBaseException() -is [Net.Sockets.SocketException]) { 'network_timeout' } else { 'bootstrap_sync' }
+    Write-Fail (Format-YurunaOperatorMessage -Key 'runner.operator_88fcb4dc7bd3cb87' -Arguments @{ message = "$($_.Exception.Message)" }) -Cause 'github-dns-failed' -Class $failureClass
 }
 Write-OutputDiagnostic -Name 'githubConnectivity' -Data $githubDiagnostics
 Write-Info (Format-YurunaOperatorMessage -Key 'runner.preflight_network_diagnostics' -Arguments @{ diagnostics = (ConvertTo-Json -InputObject $githubDiagnostics -Depth 10 -Compress) })
+}
 
 # --- REGION: Section 8: Top-level fields
 Write-Section (Format-YurunaOperatorMessage -Key 'runner.operator_33144fc4aa1c041f')
@@ -1117,9 +1162,8 @@ if (Test-Path $VaultPath) {
 }
 
 # --- REGION: Section 9b: Authentication users mapping (users.yml)
-# users.yml model + strict-mode rules:
-# docs/test-config.md#usersyml--authentication-users-mapping
-
+# users.yml model and strict-mode rules.
+# See https://yuruna.link/42b11c32-0010
 Write-Section (Format-YurunaOperatorMessage -Key 'runner.operator_fc89ba8b6dd7e701')
 
 $UsersTemplate = Join-Path $ExtensionRoot      "authentication/users.yml.template"
@@ -1281,7 +1325,6 @@ if (Test-Path $UsersPath) {
 
 # --- REGION: Section 9b2: Sequence files (parse + snippet expansion)
 # See https://yuruna.link/42010605-0002
-
 Write-Section (Format-YurunaOperatorMessage -Key 'runner.operator_6f57742886048a0c')
 
 $seqResolveMod = Join-Path $ModulesDir 'Test.SequenceResolve.psm1'
@@ -1528,7 +1571,6 @@ function Show-NetworkStorageFieldSwapWarning {
 
 # --- REGION: Section 9c: networkStorage pool (ypool-nas) archiving
 # See https://yuruna.link/42010605-0002
-
 Write-Section "networkStorage: pool (ypool-nas) archiving"
 
 $poolMod = Join-Path $ModulesDir 'Test.PoolStorage.psm1'
@@ -1774,7 +1816,6 @@ if (-not (Test-Path $poolMod)) {
 
 # --- REGION: Section 9c2: Extension services registered with the pool
 # See https://yuruna.link/42010605-0002
-
 Write-Section (Format-YurunaOperatorMessage -Key 'runner.operator_396ff2b33b372c04')
 
 $aggregatorMod = Join-Path $ExtensionRoot 'pool-aggregator-service/default.psm1'
@@ -1882,7 +1923,6 @@ if (-not (Test-Path $aggregatorMod)) {
 
 # --- REGION: Section 9d: Pool (intent sync)
 # See https://yuruna.link/42010605-0002
-
 Write-Section (Format-YurunaOperatorMessage -Key 'runner.operator_cd4a2a8be6258515')
 
 $poolSyncMod = Join-Path $ModulesDir 'Test.PoolSync.psm1'
@@ -2038,7 +2078,6 @@ Sent: $((Get-Date).ToUniversalTime().ToString("yyyy-MM-dd HH:mm:ss", [Globalizat
 
 # --- REGION: Section 13: Bootstrap script encoding (ASCII, no BOM)
 # See https://yuruna.link/42010605-0002
-
 Write-Section (Format-YurunaOperatorMessage -Key 'runner.operator_2d5e1292ca5d9fc6')
 
 $asciiGate = Join-Path $RepoRoot "tools/Test-AsciiNoBom.ps1"
@@ -2058,5 +2097,4 @@ if (-not (Test-Path -LiteralPath $asciiGate)) {
 
 # --- REGION: Summary
 # See https://yuruna.link/42010605-0002
-
 Exit-WithSummary -Code ((Get-OutputState).FailCount -gt 0 ? 1 : 0)

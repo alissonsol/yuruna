@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.18.2
+.VERSION 2026.10.22
 .GUID 42483736-4c90-4f3e-b602-9b7c1511b13e
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -30,7 +30,7 @@
     that operator, and it can do exactly what they can already do by typing the
     same command. Adding a credential here would protect nothing and imply a
     boundary that does not exist. It is why this file must never grow a
-    -Listen parameter -- see "Why stdio, and only stdio" below.
+    -Listen parameter -- see https://yuruna.link/42fffc2c-0011.
 
     Each tool shells out to the entry point rather than dot-sourcing it. That is
     deliberate: these scripts set preferences, write transcripts and call exit,

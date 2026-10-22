@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.18.2
+.VERSION 2026.10.22
 .GUID 423d3dd4-8e4d-441b-9914-81735aaf24c6
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -115,6 +115,7 @@ $InformationPreference = $global:InformationPreference
 
 $elapsed = [System.Diagnostics.Stopwatch]::StartNew()
 
+# --- REGION: Modules
 # See https://yuruna.link/42010605-0004
 $PreviousWhatIf = $WhatIfPreference
 try {
@@ -147,6 +148,7 @@ try {
 # every VM 'unknown' and making the teardown plan guess.
 Invoke-LibvirtGroupReExecIfNeeded -HostType (Get-HostType) -ScriptPath $PSCommandPath -BoundParameters $PSBoundParameters
 
+# --- REGION: Elevation check
 # See https://yuruna.link/42010605-0004
 if ($IsWindows -and -not $WhatIfPreference -and -not (Test-IsAdministrator)) {
     Write-Error ((Format-YurunaOperatorMessage -Key 'runner.operator_b42ca86b5468a010'))

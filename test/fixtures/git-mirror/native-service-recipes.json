@@ -1,0 +1,21 @@
+{
+  "schema": "yuruna.git-mirror.native-recipes/v1",
+  "recipes": [
+    {
+      "id": "GM-APACHE-SANDBOX",
+      "platform": "linux-x64",
+      "prepareOrigins": true,
+      "commands": [
+        {
+          "source": "candidate",
+          "path": "tools/Test-GitMirrorNativeService.ps1",
+          "arguments": ["-Repository", "${MirrorRepository}", "-OutputPath", "${ServiceEvidencePath}", "-DisposableTarget"],
+          "timeoutSeconds": 240
+        }
+      ],
+      "observations": [
+        {"name": "serviceIsolation", "kind": "json", "path": "${ServiceEvidencePath}", "property": "passed", "expected": true, "before": false, "retain": true}
+      ]
+    }
+  ]
+}

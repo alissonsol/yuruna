@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.18.2
+.VERSION 2026.10.22
 .GUID 4267ee73-f58a-4dfa-94f2-3b782d20040d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -18,9 +18,9 @@
 
 # Host-side cross-check of the two ends a failed cycle gets blamed on: the
 # caching proxy and the guest. A guest that loses its address mid-cycle and a
-# proxy that stops answering leave the same console behind, and the console is
-# often the only evidence that survives; which of the two the HOST can still
-# reach at that moment is the one reading that tells them apart. Leaf module:
+# proxy that stops answering can leave the same console behind; recording
+# which endpoints the HOST can still reach narrows the investigation without
+# claiming that the guest's egress path was tested. Leaf module:
 # it imports nothing. The proven-address memo, the host driver and the event
 # writer are resolved at call time and Get-Command-guarded, so the check runs
 # on every host type and inside a session that loaded none of them, and it
@@ -39,6 +39,26 @@ function Resolve-GuestNetworkCrossCheckCacheHost {
     param([string]$CacheHost)
     $candidate = if (-not [string]::IsNullOrWhiteSpace($CacheHost)) { $CacheHost } else { [string]$env:YURUNA_CACHING_PROXY_SERVICE_IP }
     return ([string]$candidate).Trim()
+}
+
+function Resolve-GuestNetworkCrossCheckProxyPort {
+    <#
+    .SYNOPSIS
+        Resolve a proxy listener through the loaded shared helper, retaining
+        the environment override and defaults when this leaf runs alone.
+    #>
+    [CmdletBinding()]
+    [OutputType([int])]
+    param([ValidateSet('http', 'https')][string]$Scheme)
+    if (Get-Command Get-CachingProxyServicePort -ErrorAction SilentlyContinue) {
+        try { return Get-CachingProxyServicePort -Scheme $Scheme }
+        catch { Write-Verbose "shared proxy port lookup unavailable: $($_.Exception.Message)" }
+    }
+    $value = [Environment]::GetEnvironmentVariable("YURUNA_CACHING_PROXY_SERVICE_$($Scheme.ToUpperInvariant())_PORT")
+    $port = 0
+    if ([int]::TryParse($value, [ref]$port) -and $port -gt 0 -and $port -lt 65536) { return $port }
+    if ($Scheme -eq 'https') { return 3129 }
+    return 3128
 }
 
 function Resolve-GuestNetworkCrossCheckGuestAddress {
@@ -227,6 +247,13 @@ function Format-GuestNetworkCrossCheckText {
     $lines.Add("verdict:     $($Result.verdict)")
     if ($Result.cacheHost) {
         $lines.Add("cacheHost:   $($Result.cacheHost)")
+        foreach ($name in 'cacheHttpTcp', 'cacheHttpsTcp') {
+            $probe = $Result[$name]
+            if (-not $probe) { continue }
+            $detail = "open=$($probe.open) ms=$($probe.ms)"
+            if ($probe.error) { $detail += " error=$($probe.error)" }
+            $lines.Add("${name}: $($probe.address):$($probe.port) $detail")
+        }
         foreach ($name in 'cacheV2', 'cacheHealth') {
             $probe = $Result[$name]
             if (-not $probe) { continue }
@@ -250,13 +277,12 @@ function Format-GuestNetworkCrossCheckText {
         $lines.Add('guest:       (no address: none passed, none proven by SSH this cycle, none reported by the host driver)')
     }
     if ($Result.error) { $lines.Add("error:       $($Result.error)") }
-    $lines.Add('reading:     proxy-reachable-guest-unreachable means the host still reached the caching')
-    $lines.Add('             proxy while the guest answered neither TCP 22 nor ICMP: the failure sits')
-    $lines.Add('             in the guest or on its link, not in the proxy. proxy-unreachable-guest-')
-    $lines.Add('             reachable points the other way. both-unreachable makes the host''s own')
-    $lines.Add('             network the suspect, and both-reachable says reachability was not the')
-    $lines.Add('             problem at the moment of capture. An -unknown side had no address to')
-    $lines.Add('             probe; it is not a silent machine.')
+    $lines.Add('reading:     the verdict combines cacheV2/cacheHealth HTTP responses with guest')
+    $lines.Add('             TCP 22/ICMP replies, all observed from the host at capture time.')
+    $lines.Add('             cacheHttpTcp/cacheHttpsTcp separately record proxy listener access;')
+    $lines.Add('             they do not change the verdict. An open TCP port does not prove TLS')
+    $lines.Add('             or upstream service health. both-reachable does not establish guest egress')
+    $lines.Add('             or rule out an earlier transient failure. An -unknown side had no address.')
     return $lines.ToArray()
 }
 
@@ -275,6 +301,10 @@ function Invoke-GuestNetworkCrossCheck {
         reader who asks the second question. The guest is probed on TCP 22 and
         ICMP, and the host's neighbor cache is read for its address, so a guest
         that answers ARP but not SSH is distinguishable from one that is gone.
+        Separate two-second TCP probes record the HTTP and HTTPS proxy
+        listeners before the HTTP requests can consume their timeout budgets.
+        These use the configured proxy ports (defaults 3128/3129) and do not
+        alter the existing host-reachability verdict or test guest egress.
     .PARAMETER TcpProbe
         Test seam: a scriptblock taking (address, port) that returns the TCP
         probe record, in place of the built-in connect.
@@ -301,6 +331,8 @@ function Invoke-GuestNetworkCrossCheck {
         cacheHost = ''
         cacheV2 = $null
         cacheHealth = $null
+        cacheHttpTcp = $null
+        cacheHttpsTcp = $null
         proxyReachable = $false
         guestAddress = ''
         guestAddressSource = 'none'
@@ -317,6 +349,17 @@ function Invoke-GuestNetworkCrossCheck {
         # that could not be taken is recorded as unknown, never as a silence,
         # and never stops the probes that follow it.
         if ($cache) {
+            foreach ($listener in @(
+                    @{ key = 'cacheHttpTcp'; scheme = 'http' }
+                    @{ key = 'cacheHttpsTcp'; scheme = 'https' })) {
+                $port = $null
+                try {
+                    $port = Resolve-GuestNetworkCrossCheckProxyPort -Scheme $listener.scheme
+                    $result[$listener.key] = if ($TcpProbe) { & $TcpProbe $cache $port } else { Test-GuestNetworkCrossCheckTcpPort -Address $cache -Port $port -TimeoutMs 2000 }
+                } catch {
+                    $result[$listener.key] = [ordered]@{ address = $cache; port = $port; open = $false; ms = $null; error = $_.Exception.Message }
+                }
+            }
             foreach ($endpoint in @(
                     @{ key = 'cacheV2'; uri = "http://${cache}:$($script:GuestNetworkCrossCheckCachePort)/v2/" }
                     @{ key = 'cacheHealth'; uri = "http://${cache}/cache-health" })) {
@@ -367,6 +410,8 @@ function Invoke-GuestNetworkCrossCheck {
                 cacheV2Status = $(if ($result.cacheV2) { $result.cacheV2.status } else { $null })
                 cacheV2Ms     = $(if ($result.cacheV2) { $result.cacheV2.ms } else { $null })
                 cacheHealthOk = [bool]($result.cacheHealth -and $result.cacheHealth.ok)
+                cacheHttpTcp  = $result.cacheHttpTcp
+                cacheHttpsTcp = $result.cacheHttpsTcp
                 guestAddress  = [string]$result.guestAddress
                 guestTcp22Ok  = [bool]($result.guestTcp22 -and $result.guestTcp22.open)
                 guestPingOk   = $result.guestPingOk

@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.10.18.2
+# Version: 2026.10.22
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 
@@ -8,8 +8,9 @@
 
 # --- REGION: https://yuruna.link/42fa6f45-0003
 # Prefer the host, then the same repository at the trusted commit pin.
-FETCH_SOURCE=''   # 'host' | 'base' | 'github'
+FETCH_SOURCE=''   # 'host' | 'base' | 'mirror' | 'github'
 HOST_BASE=''      # http://<ip>:<port>/yuruna-repo/  (host), or the EXEC_BASE_URL override
+MIRROR_BASE=''
 GH_REPO=''        # owner/repo
 GH_REF=''         # exact commit sha
 
@@ -133,9 +134,20 @@ resolve_fetch_source() {
             >&2 echo "!!            unless the directory itself is stale or unreachable."
         fi
         if [ -n "$GH_REPO" ] && [ -n "$GH_REF" ]; then
-            >&2 echo "!!   action:  falling back to GitHub -- ${GH_REPO} at ${GH_REF}"
+            >&2 echo "!!   action:  checking pinned fallback sources -- ${GH_REPO} at ${GH_REF}"
         fi
         >&2 echo ""
+    fi
+    # A legacy proxy can answer ordinary HTTP without serving Git content.
+    # Probe this capability only after host discovery fails, never with a token.
+    if [[ "${YURUNA_CACHING_PROXY_SERVICE_IP:-}" =~ ^[A-Za-z0-9.-]+$ ]] \
+       && [[ "$GH_REPO" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]] \
+       && [[ "$GH_REF" =~ ^[[:xdigit:]]{40}$ ]] \
+       && timeout --kill-after=1 2 wget --no-config --no-proxy --max-redirect=0 --timeout=2 --tries=1 \
+            -qO /dev/null "http://${YURUNA_CACHING_PROXY_SERVICE_IP}/git-mirror/status.json" 2>/dev/null; then
+        FETCH_SOURCE='mirror'
+        MIRROR_BASE="http://${YURUNA_CACHING_PROXY_SERVICE_IP}"
+        return
     fi
     FETCH_SOURCE='github'
 }
@@ -182,9 +194,12 @@ build_fetch_url() {
             done
             printf '%s' "$_bu_url"
             ;;
-        github)
+        mirror|github)
             github_fetch_coordinates "$_bu_path" || return $?
-            if [ -n "${GH_TOKEN:-}" ]; then
+            if [ "$FETCH_SOURCE" = mirror ]; then
+                [[ "$GITHUB_FETCH_REF" =~ ^[[:xdigit:]]{40}$ ]] || return 2
+                printf '%s/git-raw/%s/%s/%s' "$MIRROR_BASE" "$GITHUB_FETCH_REPO" "$GITHUB_FETCH_REF" "$GITHUB_FETCH_PATH"
+            elif [ -n "${GH_TOKEN:-}" ]; then
                 printf 'https://api.github.com/repos/%s/contents/%s?ref=%s' "$GITHUB_FETCH_REPO" "$GITHUB_FETCH_PATH" "$GITHUB_FETCH_REF"
             else
                 printf 'https://raw.githubusercontent.com/%s/%s/%s' "$GITHUB_FETCH_REPO" "$GITHUB_FETCH_REF" "$GITHUB_FETCH_PATH"
@@ -201,6 +216,10 @@ WGET_FETCH_FLAGS=()
 
 wget_flags_for_source() {
     WGET_FETCH_FLAGS=()
+    if [ "$FETCH_SOURCE" = 'mirror' ]; then
+        WGET_FETCH_FLAGS=(--no-config --no-proxy --max-redirect=0)
+        return
+    fi
     if [ "$FETCH_SOURCE" = 'host' ]; then
         WGET_FETCH_FLAGS=(--no-proxy)
         return
@@ -382,13 +401,46 @@ fae_download() {
     fae_note phase downloading
     fae_note url "$(fae_safe_url "$url")"
     headers=$(mktemp /tmp/yuruna-fae-response.XXXXXX 2>/dev/null) || return 3
-    wget --timeout=20 --tries=2 --server-response "${WGET_FETCH_FLAGS[@]}" -qO "$destination" "$url" 2>"$headers"
+    if [ "$FETCH_SOURCE" = mirror ]; then
+        # Linux Bash expresses this file limit in KiB. Enforce the raw-object
+        # ceiling locally even if a peer streams bytes without Content-Length.
+        ( ulimit -f 16384 || exit 3
+          timeout --kill-after=2 120 wget --timeout=20 --tries=1 --server-response \
+              "${WGET_FETCH_FLAGS[@]}" -qO "$destination" "$url" ) 2>"$headers"
+    else
+        wget --timeout=20 --tries=2 --server-response "${WGET_FETCH_FLAGS[@]}" -qO "$destination" "$url" 2>"$headers"
+    fi
     download_rc=$?
     fae_http_status=$(awk '/^[[:space:]]*HTTP\/[0-9.]+[[:space:]]+[0-9][0-9][0-9]/ { code=$2 } END { print code }' "$headers")
     rm -f "$headers" 2>/dev/null || true
     fae_note http-status "${fae_http_status:-unavailable}"
     fae_note wget-exit "$download_rc"
     return "$download_rc"
+}
+
+# Only an absent immutable object permits another source. A digest refusal
+# retries the same URL directly and therefore never enters this fallback.
+fae_download_path() {
+    local destination="$1" request="$2" evidence_key="${3:-source}" result=0
+    FULL_URL="$(build_fetch_url "$request")" || return 2
+    fae_download "$destination" "$FULL_URL" || result=$?
+    if [ "$FETCH_SOURCE" = mirror ] && [ "$fae_http_status" = 404 ]; then
+        FETCH_SOURCE=github
+        BASE_SOURCE=github
+        wget_flags_for_source || return 2
+        FULL_URL="$(build_fetch_url "$request")" || return 2
+        fae_note "$evidence_key" github
+        fae_download "$destination" "$FULL_URL" || return $?
+        return 0
+    fi
+    return "$result"
+}
+
+fae_download_library() {
+    # A library-only fallback must not relabel the already verified payload.
+    local FETCH_SOURCE="$FETCH_SOURCE" BASE_SOURCE="$BASE_SOURCE" FULL_URL=''
+    local WGET_FETCH_FLAGS=("${WGET_FETCH_FLAGS[@]}")
+    fae_download_path "$1" 'automation/yuruna-retry.sh' library-source
 }
 
 QUERY_PARAMS="${EXEC_QUERY_PARAMS:-${YurunaCacheContent:+?nocache=${YurunaCacheContent}}}"
@@ -501,12 +553,12 @@ fae_await_ipv4
 resolve_fetch_source
 # See https://yuruna.link/42fa6f45-0003
 # Only a verified host source can receive local performance checkpoints.
-if [ "$FETCH_SOURCE" = 'host' ]; then BASE_SOURCE='host'; else BASE_SOURCE='github'; fi
+case "$FETCH_SOURCE" in host|mirror) BASE_SOURCE="$FETCH_SOURCE" ;; *) BASE_SOURCE='github' ;; esac
 fae_note source "$FETCH_SOURCE"
 
 # See https://yuruna.link/42fa6f45-0003
 # No reachable host and no repository pin means no valid fetch source.
-if [ "$FETCH_SOURCE" = 'github' ] && ! github_fetch_coordinates "$FILE_PATH"; then
+if { [ "$FETCH_SOURCE" = 'github' ] || [ "$FETCH_SOURCE" = 'mirror' ]; } && ! github_fetch_coordinates "$FILE_PATH"; then
     fae_note phase source-unavailable
     case "$FILE_PATH" in
         project/*)
@@ -527,7 +579,7 @@ if [ "$FETCH_SOURCE" = 'github' ] && ! github_fetch_coordinates "$FILE_PATH"; th
     fae_note reason 'no pinned framework fetch source'
     exit 2
 fi
-if [ "$FETCH_SOURCE" = 'github' ]; then
+if [ "$FETCH_SOURCE" = 'github' ] || [ "$FETCH_SOURCE" = 'mirror' ]; then
     fae_note repository "$GITHUB_FETCH_REPO"
     fae_note revision "$GITHUB_FETCH_REF"
 fi
@@ -575,8 +627,9 @@ if [ -z "$fetch_tmp" ]; then
 fi
 # See https://yuruna.link/42fa6f45-0008
 # Bound half-open downloads before they consume the entire step budget.
-fae_download "$fetch_tmp" "$FULL_URL"
+fae_download_path "$fetch_tmp" "$FETCH_REQUEST_PATH"
 wget_rc=$?
+fae_display_url="$(fae_safe_url "$FULL_URL")"
 byte_count=$(wc -c < "$fetch_tmp" 2>/dev/null | tr -d '[:space:]')
 [ -z "$byte_count" ] && byte_count=0
 
@@ -701,8 +754,7 @@ if [ ! -r "$YURUNA_RETRY_LIB" ]; then
     # Hash exact downloaded bytes; command substitution strips trailing newlines.
     lib_tmp="$(mktemp /tmp/yuruna-fae-retrylib.XXXXXX 2>/dev/null)"
     if [ -n "$lib_tmp" ] \
-         && lib_url="$(build_fetch_url 'automation/yuruna-retry.sh')" \
-         && fae_download "$lib_tmp" "$lib_url" \
+         && fae_download_library "$lib_tmp" \
          && [ -s "$lib_tmp" ] \
          && verify_sha256 "$lib_tmp" "${E_RETRY_SHA:-${EXEC_RETRY_SHA256:-}}" "automation/yuruna-retry.sh" E_RETRY_SHA; then
         sudo mkdir -p "$YURUNA_LIB_DIR" 2>/dev/null
@@ -1066,6 +1118,11 @@ fae_recorder_collect() {
     done
     printf 'interfaceSamples=%s cap=16\n' "$count"
     fae_recorder_read /proc/net/dev 8192
+    # Retain passive connection state and retransmits before upload probes
+    # can succeed again and hide a transient guest or NAT failure.
+    for path in /proc/net/{tcp,tcp6,sockstat,snmp}; do
+        fae_recorder_read "$path" 8192
+    done
     count=0
     for path in /sys/fs/cgroup/{memory.events,memory.events.local,memory.current,memory.max,memory.high,memory.swap.current,memory.swap.max,memory.stat,memory.pressure} /sys/fs/cgroup/memory/{memory.failcnt,memory.usage_in_bytes,memory.limit_in_bytes,memory.oom_control}; do
         [ -e "$path" ] && fae_recorder_read "$path" 4096

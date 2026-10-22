@@ -1,0 +1,727 @@
+{
+  "schema": "yuruna.git-mirror.native-recipes/v1",
+  "recipes": [
+    {
+      "id": "GM-UPG-PUBLIC-MAIN",
+      "platform": "linux-x64",
+      "commands": [
+        {"source": "candidate", "path": "tools/Initialize-GitMirrorNativeInstall.ps1", "arguments": ["-Action", "Prepare", "-TargetRoot", "${TargetRoot}", "-OldRoot", "${OldRoot}", "-StatePath", "${StatePath}", "-RuntimeDir", "${RuntimeDir}", "-ConfigPath", "${ConfigPath}", "-ConfigSourcePath", "${ConfigSourcePath}", "-SnapshotPath", "${SnapshotPath}", "-DisposableTarget", "-Mode", "Main", "-AutomaticOrigin"], "timeoutSeconds": 180, "stage": "setup"},
+        {"stage": "setup", "source": "target", "path": "test/Start-TestRunner.ps1", "arguments": ["-ConfigPath", "${ConfigPath}", "-NoStatusService", "-CycleDelaySeconds", "73", "-logLevel", "Warning"], "environment": {"YURUNA_RUNTIME_DIR": "${RuntimeDir}", "YURUNA_CONFIG_PATH": "${ConfigPath}"}, "timeoutSeconds": 1800, "background": true, "frameworkOriginPath": "${StatePath}/adoption-origin.git"},
+        {"source": "candidate", "path": "tools/Initialize-GitMirrorNativeInstall.ps1", "arguments": ["-Action", "Capture", "-TargetRoot", "${TargetRoot}", "-OldRoot", "${OldRoot}", "-StatePath", "${StatePath}", "-RuntimeDir", "${RuntimeDir}", "-ConfigPath", "${ConfigPath}", "-ConfigSourcePath", "${ConfigSourcePath}", "-SnapshotPath", "${SnapshotPath}", "-DisposableTarget"], "timeoutSeconds": 180, "stage": "setup"},
+        {"source": "candidate", "path": "tools/Initialize-GitMirrorNativeInstall.ps1", "arguments": ["-Action", "AdvanceOrigin", "-TargetRoot", "${TargetRoot}", "-OldRoot", "${OldRoot}", "-StatePath", "${StatePath}", "-RuntimeDir", "${RuntimeDir}", "-ConfigPath", "${ConfigPath}", "-ConfigSourcePath", "${ConfigSourcePath}", "-SnapshotPath", "${SnapshotPath}", "-DisposableTarget", "-CandidateTree", "${CandidateTree}"], "timeoutSeconds": 180},
+        {"source": "candidate", "path": "tools/Initialize-GitMirrorNativeInstall.ps1", "arguments": ["-Action", "WaitAdoption", "-TargetRoot", "${TargetRoot}", "-OldRoot", "${OldRoot}", "-StatePath", "${StatePath}", "-RuntimeDir", "${RuntimeDir}", "-ConfigPath", "${ConfigPath}", "-ConfigSourcePath", "${ConfigSourcePath}", "-SnapshotPath", "${SnapshotPath}", "-DisposableTarget", "-CandidateTree", "${CandidateTree}"], "timeoutSeconds": 1900},
+        {"source": "target", "path": "test/lab/Invoke-HostRefresh.ps1", "arguments": ["-Tier", "restart", "-Force", "-ConfigPath", "${ConfigPath}", "-MaxRung", "reclaim"], "environment": {"YURUNA_RUNTIME_DIR": "${RuntimeDir}"}, "timeoutSeconds": 1800},
+        {"source": "candidate", "path": "tools/Initialize-GitMirrorNativeInstall.ps1", "arguments": ["-Action", "Observe", "-TargetRoot", "${TargetRoot}", "-OldRoot", "${OldRoot}", "-StatePath", "${StatePath}", "-RuntimeDir", "${RuntimeDir}", "-ConfigPath", "${ConfigPath}", "-ConfigSourcePath", "${ConfigSourcePath}", "-SnapshotPath", "${SnapshotPath}", "-DisposableTarget", "-RequireRunner"], "timeoutSeconds": 180},
+        {"source": "candidate", "path": "tools/Initialize-GitMirrorNativeInstall.ps1", "arguments": ["-Action", "Enroll", "-TargetRoot", "${TargetRoot}", "-OldRoot", "${OldRoot}", "-StatePath", "${StatePath}", "-RuntimeDir", "${RuntimeDir}", "-ConfigPath", "${ConfigPath}", "-ConfigSourcePath", "${ConfigSourcePath}", "-SnapshotPath", "${SnapshotPath}", "-DisposableTarget", "-MirrorKeyExportPath", "${MirrorKeyExportPath}", "-MirrorUrl", "${MirrorUrl}"], "timeoutSeconds": 180},
+        {"source": "candidate", "path": "tools/Initialize-GitMirrorNativeInstall.ps1", "arguments": ["-Action", "WaitMirrorCycle", "-TargetRoot", "${TargetRoot}", "-OldRoot", "${OldRoot}", "-StatePath", "${StatePath}", "-RuntimeDir", "${RuntimeDir}", "-ConfigPath", "${ConfigPath}", "-ConfigSourcePath", "${ConfigSourcePath}", "-SnapshotPath", "${SnapshotPath}", "-DisposableTarget"], "timeoutSeconds": 1900}
+      ],
+      "observations": [
+        {"name": "framework", "kind": "git", "path": "${TargetRoot}", "expected": "candidate", "before": true, "waitSeconds": 120},
+        {"name": "operatorProjectPreserved", "kind": "json", "path": "${StatePath}/observed.json", "expected": true, "before": true, "waitSeconds": 120, "property": "projectUrlPreserved", "retain": true},
+        {"name": "residentGeneration", "kind": "process-replaced", "path": "${StatePath}/observed.json", "expected": "candidate", "before": true, "waitSeconds": 120, "retain": true},
+        {"name": "launchOptionsPreserved", "kind": "json", "path": "${StatePath}/observed.json", "expected": true, "before": true, "waitSeconds": 120, "property": "launchOptionsPreserved", "retain": true},
+        {"name": "launchEnvironmentPreserved", "kind": "json", "path": "${StatePath}/observed.json", "expected": true, "before": true, "waitSeconds": 120, "property": "launchEnvironmentPreserved", "retain": true},
+        {"name": "newCycleBound", "kind": "json", "path": "${StatePath}/adoption.json", "property": "newCycleBound", "expected": true, "before": false, "waitSeconds": 120, "retain": true},
+        {"name": "templateKeysPresent", "kind": "json", "path": "${StatePath}/adoption.json", "property": "templateKeysPresent", "expected": true, "before": false, "waitSeconds": 120, "retain": true},
+        {"name": "oldOuterRetained", "kind": "json", "path": "${StatePath}/adoption.json", "property": "oldOuterRetained", "expected": true, "before": false, "waitSeconds": 120, "retain": true},
+        {"name": "keyEnrolled", "kind": "json", "path": "${StatePath}/enrollment.json", "property": "keyEnrolled", "expected": true, "before": false, "retain": true},
+        {"name": "operatorValuesPreserved", "kind": "json", "path": "${StatePath}/enrollment.json", "property": "operatorValuesPreserved", "expected": true, "before": false, "retain": true},
+        {"name": "verification", "kind": "json", "path": "${StatePath}/mirror-cycle.json", "property": "verification", "expected": "mirror-confirmed", "before": false, "retain": true},
+        {"name": "sameResident", "kind": "json", "path": "${StatePath}/mirror-cycle.json", "property": "sameResident", "expected": true, "before": false, "retain": true}
+      ],
+      "cleanupCommands": [
+        {"source": "candidate", "path": "tools/Initialize-GitMirrorNativeInstall.ps1", "arguments": ["-Action", "StopFixture", "-TargetRoot", "${TargetRoot}", "-OldRoot", "${OldRoot}", "-StatePath", "${StatePath}", "-RuntimeDir", "${RuntimeDir}", "-ConfigPath", "${ConfigPath}", "-ConfigSourcePath", "${ConfigSourcePath}", "-SnapshotPath", "${SnapshotPath}", "-DisposableTarget"], "timeoutSeconds": 180}
+      ],
+      "prepareOrigins": true
+    },
+    {
+      "id": "GM-UPG-PUBLIC-PIN",
+      "platform": "linux-x64",
+      "commands": [
+        {"source": "candidate", "path": "tools/Initialize-GitMirrorNativeInstall.ps1", "arguments": ["-Action", "Prepare", "-TargetRoot", "${TargetRoot}", "-OldRoot", "${OldRoot}", "-StatePath", "${StatePath}", "-RuntimeDir", "${RuntimeDir}", "-ConfigPath", "${ConfigPath}", "-ConfigSourcePath", "${ConfigSourcePath}", "-SnapshotPath", "${SnapshotPath}", "-DisposableTarget", "-Mode", "Pin"], "timeoutSeconds": 180, "stage": "setup"},
+        {"stage": "setup", "source": "target", "path": "test/Start-TestRunner.ps1", "arguments": ["-ConfigPath", "${ConfigPath}", "-NoGitPull", "-NoStatusService", "-CycleDelaySeconds", "73", "-logLevel", "Warning"], "environment": {"YURUNA_RUNTIME_DIR": "${RuntimeDir}", "YURUNA_CONFIG_PATH": "${ConfigPath}"}, "timeoutSeconds": 1800, "background": true},
+        {"source": "candidate", "path": "tools/Initialize-GitMirrorNativeInstall.ps1", "arguments": ["-Action", "Capture", "-TargetRoot", "${TargetRoot}", "-OldRoot", "${OldRoot}", "-StatePath", "${StatePath}", "-RuntimeDir", "${RuntimeDir}", "-ConfigPath", "${ConfigPath}", "-ConfigSourcePath", "${ConfigSourcePath}", "-SnapshotPath", "${SnapshotPath}", "-DisposableTarget"], "timeoutSeconds": 180, "stage": "setup"},
+        {"source": "candidate", "path": "tools/Initialize-GitMirrorNativeInstall.ps1", "arguments": ["-Action", "UpdateLegacy", "-TargetRoot", "${TargetRoot}", "-OldRoot", "${OldRoot}", "-StatePath", "${StatePath}", "-RuntimeDir", "${RuntimeDir}", "-ConfigPath", "${ConfigPath}", "-ConfigSourcePath", "${ConfigSourcePath}", "-SnapshotPath", "${SnapshotPath}", "-DisposableTarget"], "timeoutSeconds": 180},
+        {"source": "installer", "path": "ubuntu.kvm.sh", "arguments": [], "environment": {"YURUNA_DIR": "${TargetRoot}", "YURUNA_BRANCH": "${CandidateTag}", "YURUNA_RUNTIME_DIR": "${RuntimeDir}"}, "timeoutSeconds": 7200},
+        {"source": "target", "path": "test/lab/Start-RecordedTestRunner.ps1", "arguments": ["-SnapshotPath", "${SnapshotPath}", "-TimeoutSeconds", "120"], "timeoutSeconds": 180},
+        {"source": "candidate", "path": "tools/Initialize-GitMirrorNativeInstall.ps1", "arguments": ["-Action", "Observe", "-TargetRoot", "${TargetRoot}", "-OldRoot", "${OldRoot}", "-StatePath", "${StatePath}", "-RuntimeDir", "${RuntimeDir}", "-ConfigPath", "${ConfigPath}", "-ConfigSourcePath", "${ConfigSourcePath}", "-SnapshotPath", "${SnapshotPath}", "-DisposableTarget", "-RequireRunner"], "timeoutSeconds": 180}
+      ],
+      "observations": [
+        {"name": "framework", "kind": "git", "path": "${TargetRoot}", "expected": "candidate", "before": true, "waitSeconds": 120},
+        {"name": "operatorProjectPreserved", "kind": "json", "path": "${StatePath}/observed.json", "expected": true, "before": true, "waitSeconds": 120, "property": "projectUrlPreserved", "retain": true},
+        {"name": "residentGeneration", "kind": "process-replaced", "path": "${StatePath}/observed.json", "expected": "candidate", "before": true, "waitSeconds": 120, "retain": true},
+        {"name": "launchOptionsPreserved", "kind": "json", "path": "${StatePath}/observed.json", "expected": true, "before": true, "waitSeconds": 120, "property": "launchOptionsPreserved", "retain": true},
+        {"name": "launchEnvironmentPreserved", "kind": "json", "path": "${StatePath}/observed.json", "expected": true, "before": true, "waitSeconds": 120, "property": "launchEnvironmentPreserved", "retain": true},
+        {"name": "repositoryIdentityPreserved", "kind": "json", "path": "${StatePath}/observed.json", "property": "repositoryIdentityPreserved", "expected": true, "before": false, "retain": true},
+        {"name": "configurationValuesPreserved", "kind": "json", "path": "${StatePath}/observed.json", "property": "configurationValuesPreserved", "expected": true, "before": false, "retain": true},
+        {"name": "noRecoveryCheckout", "kind": "json", "path": "${StatePath}/observed.json", "property": "noRecoveryCheckout", "expected": true, "before": false, "retain": true}
+      ],
+      "cleanupCommands": [
+        {"source": "candidate", "path": "tools/Initialize-GitMirrorNativeInstall.ps1", "arguments": ["-Action", "StopFixture", "-TargetRoot", "${TargetRoot}", "-OldRoot", "${OldRoot}", "-StatePath", "${StatePath}", "-RuntimeDir", "${RuntimeDir}", "-ConfigPath", "${ConfigPath}", "-ConfigSourcePath", "${ConfigSourcePath}", "-SnapshotPath", "${SnapshotPath}", "-DisposableTarget"], "timeoutSeconds": 180}
+      ]
+    },
+    {
+      "id": "GM-UPG-RECLONE-PRESERVE",
+      "platform": "linux-x64",
+      "commands": [
+        {"source": "candidate", "path": "tools/Initialize-GitMirrorNativeInstall.ps1", "arguments": ["-Action", "Prepare", "-TargetRoot", "${TargetRoot}", "-OldRoot", "${OldRoot}", "-StatePath", "${StatePath}", "-RuntimeDir", "${RuntimeDir}", "-ConfigPath", "${ConfigPath}", "-ConfigSourcePath", "${ConfigSourcePath}", "-SnapshotPath", "${SnapshotPath}", "-DisposableTarget", "-Mode", "Main"], "timeoutSeconds": 180, "stage": "setup"},
+        {"stage": "setup", "source": "target", "path": "test/Start-TestRunner.ps1", "arguments": ["-ConfigPath", "${ConfigPath}", "-NoGitPull", "-NoStatusService", "-CycleDelaySeconds", "73", "-logLevel", "Warning"], "environment": {"YURUNA_RUNTIME_DIR": "${RuntimeDir}", "YURUNA_CONFIG_PATH": "${ConfigPath}"}, "timeoutSeconds": 1800, "background": true},
+        {"source": "candidate", "path": "tools/Initialize-GitMirrorNativeInstall.ps1", "arguments": ["-Action", "Capture", "-TargetRoot", "${TargetRoot}", "-OldRoot", "${OldRoot}", "-StatePath", "${StatePath}", "-RuntimeDir", "${RuntimeDir}", "-ConfigPath", "${ConfigPath}", "-ConfigSourcePath", "${ConfigSourcePath}", "-SnapshotPath", "${SnapshotPath}", "-DisposableTarget"], "timeoutSeconds": 180, "stage": "setup"},
+        {"source": "candidate", "path": "tools/Initialize-GitMirrorNativeInstall.ps1", "arguments": ["-Action", "Diverge", "-TargetRoot", "${TargetRoot}", "-OldRoot", "${OldRoot}", "-StatePath", "${StatePath}", "-RuntimeDir", "${RuntimeDir}", "-ConfigPath", "${ConfigPath}", "-ConfigSourcePath", "${ConfigSourcePath}", "-SnapshotPath", "${SnapshotPath}", "-DisposableTarget"], "timeoutSeconds": 180},
+        {"source": "installer", "path": "ubuntu.kvm.sh", "arguments": [], "environment": {"YURUNA_DIR": "${TargetRoot}", "YURUNA_BRANCH": "main", "YURUNA_RUNTIME_DIR": "${RuntimeDir}"}, "timeoutSeconds": 7200},
+        {"source": "target", "path": "test/lab/Start-RecordedTestRunner.ps1", "arguments": ["-SnapshotPath", "${SnapshotPath}", "-TimeoutSeconds", "120"], "timeoutSeconds": 180},
+        {"source": "candidate", "path": "tools/Initialize-GitMirrorNativeInstall.ps1", "arguments": ["-Action", "Observe", "-TargetRoot", "${TargetRoot}", "-OldRoot", "${OldRoot}", "-StatePath", "${StatePath}", "-RuntimeDir", "${RuntimeDir}", "-ConfigPath", "${ConfigPath}", "-ConfigSourcePath", "${ConfigSourcePath}", "-SnapshotPath", "${SnapshotPath}", "-DisposableTarget", "-RequireRunner"], "timeoutSeconds": 180}
+      ],
+      "observations": [
+        {"name": "framework", "kind": "git", "path": "${TargetRoot}", "expected": "candidate", "before": true, "waitSeconds": 120},
+        {"name": "operatorProjectPreserved", "kind": "json", "path": "${StatePath}/observed.json", "expected": true, "before": true, "waitSeconds": 120, "property": "projectUrlPreserved", "retain": true},
+        {"name": "residentGeneration", "kind": "process-replaced", "path": "${StatePath}/observed.json", "expected": "candidate", "before": true, "waitSeconds": 120, "retain": true},
+        {"name": "launchOptionsPreserved", "kind": "json", "path": "${StatePath}/observed.json", "expected": true, "before": true, "waitSeconds": 120, "property": "launchOptionsPreserved", "retain": true},
+        {"name": "launchEnvironmentPreserved", "kind": "json", "path": "${StatePath}/observed.json", "expected": true, "before": true, "waitSeconds": 120, "property": "launchEnvironmentPreserved", "retain": true},
+        {"name": "recloneRemovedDivergence", "kind": "file-absent", "path": "${TargetRoot}/qualification-local-change.txt", "expected": false, "before": false, "waitSeconds": 120},
+        {"name": "repositoryIdentityPreserved", "kind": "json", "path": "${StatePath}/observed.json", "property": "repositoryIdentityPreserved", "expected": true, "before": false, "retain": true},
+        {"name": "configurationValuesPreserved", "kind": "json", "path": "${StatePath}/observed.json", "property": "configurationValuesPreserved", "expected": true, "before": false, "retain": true}
+      ],
+      "cleanupCommands": [
+        {"source": "candidate", "path": "tools/Initialize-GitMirrorNativeInstall.ps1", "arguments": ["-Action", "StopFixture", "-TargetRoot", "${TargetRoot}", "-OldRoot", "${OldRoot}", "-StatePath", "${StatePath}", "-RuntimeDir", "${RuntimeDir}", "-ConfigPath", "${ConfigPath}", "-ConfigSourcePath", "${ConfigSourcePath}", "-SnapshotPath", "${SnapshotPath}", "-DisposableTarget"], "timeoutSeconds": 180}
+      ],
+      "coverage": "diagnostic-only",
+      "remaining": "Measure enrolled mode/key/custom-origin preservation and retained backup before setup; inject restoration failure and prove no runner starts."
+    },
+    {
+      "id": "GM-UPG-STOPPED-RUNNER",
+      "platform": "linux-x64",
+      "commands": [
+        {"source": "candidate", "path": "tools/Initialize-GitMirrorNativeInstall.ps1", "arguments": ["-Action", "Prepare", "-TargetRoot", "${TargetRoot}", "-OldRoot", "${OldRoot}", "-StatePath", "${StatePath}", "-RuntimeDir", "${RuntimeDir}", "-ConfigPath", "${ConfigPath}", "-ConfigSourcePath", "${ConfigSourcePath}", "-SnapshotPath", "${SnapshotPath}", "-DisposableTarget", "-Mode", "Main"], "timeoutSeconds": 180, "stage": "setup"},
+        {"stage": "setup", "source": "target", "path": "test/Start-TestRunner.ps1", "arguments": ["-ConfigPath", "${ConfigPath}", "-NoGitPull", "-NoStatusService", "-CycleDelaySeconds", "73", "-logLevel", "Warning"], "environment": {"YURUNA_RUNTIME_DIR": "${RuntimeDir}", "YURUNA_CONFIG_PATH": "${ConfigPath}"}, "timeoutSeconds": 1800, "background": true},
+        {"source": "candidate", "path": "tools/Initialize-GitMirrorNativeInstall.ps1", "arguments": ["-Action", "Capture", "-TargetRoot", "${TargetRoot}", "-OldRoot", "${OldRoot}", "-StatePath", "${StatePath}", "-RuntimeDir", "${RuntimeDir}", "-ConfigPath", "${ConfigPath}", "-ConfigSourcePath", "${ConfigSourcePath}", "-SnapshotPath", "${SnapshotPath}", "-DisposableTarget"], "timeoutSeconds": 180, "stage": "setup"},
+        {"source": "installer", "path": "ubuntu.kvm.sh", "arguments": [], "environment": {"YURUNA_DIR": "${TargetRoot}", "YURUNA_BRANCH": "main", "YURUNA_RUNTIME_DIR": "${RuntimeDir}"}, "timeoutSeconds": 7200},
+        {"source": "candidate", "path": "tools/Initialize-GitMirrorNativeInstall.ps1", "arguments": ["-Action", "Observe", "-TargetRoot", "${TargetRoot}", "-OldRoot", "${OldRoot}", "-StatePath", "${StatePath}", "-RuntimeDir", "${RuntimeDir}", "-ConfigPath", "${ConfigPath}", "-ConfigSourcePath", "${ConfigSourcePath}", "-SnapshotPath", "${SnapshotPath}", "-DisposableTarget", "-ExpectStopped"], "timeoutSeconds": 180},
+        {"source": "target", "path": "test/lab/Start-RecordedTestRunner.ps1", "arguments": ["-SnapshotPath", "${SnapshotPath}", "-TimeoutSeconds", "120"], "timeoutSeconds": 180},
+        {"source": "candidate", "path": "tools/Initialize-GitMirrorNativeInstall.ps1", "arguments": ["-Action", "Observe", "-TargetRoot", "${TargetRoot}", "-OldRoot", "${OldRoot}", "-StatePath", "${StatePath}", "-RuntimeDir", "${RuntimeDir}", "-ConfigPath", "${ConfigPath}", "-ConfigSourcePath", "${ConfigSourcePath}", "-SnapshotPath", "${SnapshotPath}", "-DisposableTarget", "-RequireRunner"], "timeoutSeconds": 180},
+        {"source": "candidate", "path": "tools/Initialize-GitMirrorNativeInstall.ps1", "arguments": ["-Action", "Drain", "-TargetRoot", "${TargetRoot}", "-OldRoot", "${OldRoot}", "-StatePath", "${StatePath}", "-RuntimeDir", "${RuntimeDir}", "-ConfigPath", "${ConfigPath}", "-ConfigSourcePath", "${ConfigSourcePath}", "-SnapshotPath", "${StatePath}/clean-state/state.json", "-DisposableTarget"], "timeoutSeconds": 1900},
+        {"source": "target", "path": "test/lab/Invoke-HostRefresh.ps1", "arguments": ["-Tier", "restart", "-Force", "-ConfigPath", "${ConfigPath}", "-MaxRung", "reclaim"], "environment": {"YURUNA_RUNTIME_DIR": "${RuntimeDir}"}, "timeoutSeconds": 1800},
+        {"source": "candidate", "path": "tools/Initialize-GitMirrorNativeInstall.ps1", "arguments": ["-Action", "VerifyCleanStop", "-TargetRoot", "${TargetRoot}", "-OldRoot", "${OldRoot}", "-StatePath", "${StatePath}", "-RuntimeDir", "${RuntimeDir}", "-ConfigPath", "${ConfigPath}", "-ConfigSourcePath", "${ConfigSourcePath}", "-SnapshotPath", "${StatePath}/clean-state/state.json", "-DisposableTarget"], "timeoutSeconds": 180},
+        {"source": "target", "path": "test/lab/Start-RecordedTestRunner.ps1", "arguments": ["-SnapshotPath", "${StatePath}/clean-state/state.json", "-TimeoutSeconds", "120"], "timeoutSeconds": 180},
+        {"source": "candidate", "path": "tools/Initialize-GitMirrorNativeInstall.ps1", "arguments": ["-Action", "Observe", "-TargetRoot", "${TargetRoot}", "-OldRoot", "${OldRoot}", "-StatePath", "${StatePath}", "-RuntimeDir", "${RuntimeDir}", "-ConfigPath", "${ConfigPath}", "-ConfigSourcePath", "${ConfigSourcePath}", "-SnapshotPath", "${SnapshotPath}", "-DisposableTarget", "-RequireRunner"], "timeoutSeconds": 180}
+      ],
+      "observations": [
+        {"name": "framework", "kind": "git", "path": "${TargetRoot}", "expected": "candidate", "before": true, "waitSeconds": 120},
+        {"name": "operatorProjectPreserved", "kind": "json", "path": "${StatePath}/observed.json", "expected": true, "before": true, "waitSeconds": 120, "property": "projectUrlPreserved", "retain": true},
+        {"name": "residentGeneration", "kind": "process-replaced", "path": "${StatePath}/observed.json", "expected": "candidate", "before": true, "waitSeconds": 120, "retain": true},
+        {"name": "launchOptionsPreserved", "kind": "json", "path": "${StatePath}/observed.json", "expected": true, "before": true, "waitSeconds": 120, "property": "launchOptionsPreserved", "retain": true},
+        {"name": "launchEnvironmentPreserved", "kind": "json", "path": "${StatePath}/observed.json", "expected": true, "before": true, "waitSeconds": 120, "property": "launchEnvironmentPreserved", "retain": true},
+        {"name": "installerStoppedRunner", "kind": "json", "path": "${StatePath}/stopped.json", "expected": false, "before": false, "waitSeconds": 120, "property": "runnerAlive", "retain": true},
+        {"name": "repositoryIdentityPreserved", "kind": "json", "path": "${StatePath}/observed.json", "property": "repositoryIdentityPreserved", "expected": true, "before": false, "retain": true},
+        {"name": "configurationValuesPreserved", "kind": "json", "path": "${StatePath}/observed.json", "property": "configurationValuesPreserved", "expected": true, "before": false, "retain": true},
+        {"name": "cleanExitPreserved", "kind": "json", "path": "${StatePath}/clean-stop.json", "property": "cleanExitPreserved", "expected": true, "before": false, "retain": true}
+      ],
+      "cleanupCommands": [
+        {"source": "candidate", "path": "tools/Initialize-GitMirrorNativeInstall.ps1", "arguments": ["-Action", "StopFixture", "-TargetRoot", "${TargetRoot}", "-OldRoot", "${OldRoot}", "-StatePath", "${StatePath}", "-RuntimeDir", "${RuntimeDir}", "-ConfigPath", "${ConfigPath}", "-ConfigSourcePath", "${ConfigSourcePath}", "-SnapshotPath", "${SnapshotPath}", "-DisposableTarget"], "timeoutSeconds": 180}
+      ]
+    },
+    {
+      "id": "GM-ROLLBACK",
+      "platform": "linux-x64",
+      "commands": [
+        {"source": "candidate", "path": "tools/Initialize-GitMirrorNativeInstall.ps1", "arguments": ["-Action", "Prepare", "-TargetRoot", "${TargetRoot}", "-OldRoot", "${OldRoot}", "-StatePath", "${StatePath}", "-RuntimeDir", "${RuntimeDir}", "-ConfigPath", "${ConfigPath}", "-ConfigSourcePath", "${ConfigSourcePath}", "-SnapshotPath", "${SnapshotPath}", "-DisposableTarget", "-Mode", "Main"], "timeoutSeconds": 180, "stage": "setup"},
+        {"stage": "setup", "source": "target", "path": "test/Start-TestRunner.ps1", "arguments": ["-ConfigPath", "${ConfigPath}", "-NoGitPull", "-NoStatusService", "-CycleDelaySeconds", "73", "-logLevel", "Warning"], "environment": {"YURUNA_RUNTIME_DIR": "${RuntimeDir}", "YURUNA_CONFIG_PATH": "${ConfigPath}"}, "timeoutSeconds": 1800, "background": true},
+        {"source": "candidate", "path": "tools/Initialize-GitMirrorNativeInstall.ps1", "arguments": ["-Action", "Capture", "-TargetRoot", "${TargetRoot}", "-OldRoot", "${OldRoot}", "-StatePath", "${StatePath}", "-RuntimeDir", "${RuntimeDir}", "-ConfigPath", "${ConfigPath}", "-ConfigSourcePath", "${ConfigSourcePath}", "-SnapshotPath", "${SnapshotPath}", "-DisposableTarget"], "timeoutSeconds": 180, "stage": "setup"},
+        {"source": "installer", "path": "ubuntu.kvm.sh", "arguments": [], "environment": {"YURUNA_DIR": "${TargetRoot}", "YURUNA_BRANCH": "${CandidateTag}", "YURUNA_RUNTIME_DIR": "${RuntimeDir}"}, "timeoutSeconds": 7200},
+        {"source": "target", "path": "test/lab/Start-RecordedTestRunner.ps1", "arguments": ["-SnapshotPath", "${SnapshotPath}", "-TimeoutSeconds", "120"], "timeoutSeconds": 180},
+        {"source": "candidate", "path": "tools/Initialize-GitMirrorNativeInstall.ps1", "arguments": ["-Action", "Enroll", "-TargetRoot", "${TargetRoot}", "-OldRoot", "${OldRoot}", "-StatePath", "${StatePath}", "-RuntimeDir", "${RuntimeDir}", "-ConfigPath", "${ConfigPath}", "-ConfigSourcePath", "${ConfigSourcePath}", "-SnapshotPath", "${SnapshotPath}", "-DisposableTarget", "-MirrorKeyExportPath", "${MirrorKeyExportPath}", "-MirrorUrl", "${MirrorUrl}", "-MirrorMode", "fallback"], "timeoutSeconds": 180},
+        {"source": "candidate", "path": "tools/Initialize-GitMirrorNativeInstall.ps1", "arguments": ["-Action", "StopFixture", "-TargetRoot", "${TargetRoot}", "-OldRoot", "${OldRoot}", "-StatePath", "${StatePath}", "-RuntimeDir", "${RuntimeDir}", "-ConfigPath", "${ConfigPath}", "-ConfigSourcePath", "${ConfigSourcePath}", "-SnapshotPath", "${SnapshotPath}", "-DisposableTarget"], "timeoutSeconds": 180},
+        {"source": "installer", "path": "ubuntu.kvm.sh", "arguments": [], "environment": {"YURUNA_DIR": "${TargetRoot}", "YURUNA_BRANCH": "${OldRelease}", "YURUNA_RUNTIME_DIR": "${RuntimeDir}"}, "timeoutSeconds": 7200},
+        {"source": "candidate", "path": "tools/Initialize-GitMirrorNativeInstall.ps1", "arguments": ["-Action", "RunGate", "-TargetRoot", "${TargetRoot}", "-OldRoot", "${OldRoot}", "-StatePath", "${StatePath}", "-RuntimeDir", "${RuntimeDir}", "-ConfigPath", "${ConfigPath}", "-ConfigSourcePath", "${ConfigSourcePath}", "-SnapshotPath", "${SnapshotPath}", "-DisposableTarget", "-GateExpectation", "OldRollback"], "timeoutSeconds": 1300},
+        {"source": "installer", "path": "ubuntu.kvm.sh", "arguments": [], "environment": {"YURUNA_DIR": "${TargetRoot}", "YURUNA_BRANCH": "${CandidateTag}", "YURUNA_RUNTIME_DIR": "${RuntimeDir}"}, "timeoutSeconds": 7200},
+        {"source": "candidate", "path": "tools/Initialize-GitMirrorNativeInstall.ps1", "arguments": ["-Action", "RunGate", "-TargetRoot", "${TargetRoot}", "-OldRoot", "${OldRoot}", "-StatePath", "${StatePath}", "-RuntimeDir", "${RuntimeDir}", "-ConfigPath", "${ConfigPath}", "-ConfigSourcePath", "${ConfigSourcePath}", "-SnapshotPath", "${SnapshotPath}", "-DisposableTarget", "-GateExpectation", "NewRollback", "-MirrorUrl", "${MirrorUrl}"], "timeoutSeconds": 1300},
+        {"source": "candidate", "path": "tools/Initialize-GitMirrorNativeInstall.ps1", "arguments": ["-Action", "Enroll", "-TargetRoot", "${TargetRoot}", "-OldRoot", "${OldRoot}", "-StatePath", "${StatePath}", "-RuntimeDir", "${RuntimeDir}", "-ConfigPath", "${ConfigPath}", "-ConfigSourcePath", "${ConfigSourcePath}", "-SnapshotPath", "${SnapshotPath}", "-DisposableTarget", "-MirrorKeyExportPath", "${MirrorKeyExportPath}", "-MirrorUrl", "${MirrorUrl}"], "timeoutSeconds": 180},
+        {"source": "target", "path": "test/lab/Start-RecordedTestRunner.ps1", "arguments": ["-SnapshotPath", "${SnapshotPath}", "-TimeoutSeconds", "120"], "timeoutSeconds": 180},
+        {"source": "candidate", "path": "tools/Initialize-GitMirrorNativeInstall.ps1", "arguments": ["-Action", "Observe", "-TargetRoot", "${TargetRoot}", "-OldRoot", "${OldRoot}", "-StatePath", "${StatePath}", "-RuntimeDir", "${RuntimeDir}", "-ConfigPath", "${ConfigPath}", "-ConfigSourcePath", "${ConfigSourcePath}", "-SnapshotPath", "${SnapshotPath}", "-DisposableTarget", "-RequireRunner"], "timeoutSeconds": 180}
+      ],
+      "observations": [
+        {"name": "framework", "kind": "git", "path": "${TargetRoot}", "expected": "candidate", "before": true, "waitSeconds": 120},
+        {"name": "operatorProjectPreserved", "kind": "json", "path": "${StatePath}/observed.json", "expected": true, "before": true, "waitSeconds": 120, "property": "projectUrlPreserved", "retain": true},
+        {"name": "residentGeneration", "kind": "process-replaced", "path": "${StatePath}/observed.json", "expected": "candidate", "before": true, "waitSeconds": 120, "retain": true},
+        {"name": "launchOptionsPreserved", "kind": "json", "path": "${StatePath}/observed.json", "expected": true, "before": true, "waitSeconds": 120, "property": "launchOptionsPreserved", "retain": true},
+        {"name": "launchEnvironmentPreserved", "kind": "json", "path": "${StatePath}/observed.json", "expected": true, "before": true, "waitSeconds": 120, "property": "launchEnvironmentPreserved", "retain": true},
+        {"name": "parked", "kind": "json", "path": "${StatePath}/gate-OldRollback.json", "property": "parked", "expected": true, "before": false, "retain": true},
+        {"name": "backupVerified", "kind": "json", "path": "${StatePath}/gate-OldRollback.json", "property": "backupVerified", "expected": true, "before": false, "retain": true},
+        {"name": "warningObserved", "kind": "json", "path": "${StatePath}/gate-OldRollback.json", "property": "warningObserved", "expected": true, "before": false, "retain": true},
+        {"name": "defaultsRestored", "kind": "json", "path": "${StatePath}/gate-NewRollback.json", "property": "defaultsRestored", "expected": true, "before": false, "retain": true},
+        {"name": "fallbackReason", "kind": "json", "path": "${StatePath}/gate-NewRollback.json", "property": "fallbackReason", "expected": "mirror-untrusted", "before": false, "retain": true},
+        {"name": "keyEnrolled", "kind": "json", "path": "${StatePath}/enrollment.json", "property": "keyEnrolled", "expected": true, "before": false, "retain": true}
+      ],
+      "cleanupCommands": [
+        {"source": "candidate", "path": "tools/Initialize-GitMirrorNativeInstall.ps1", "arguments": ["-Action", "StopFixture", "-TargetRoot", "${TargetRoot}", "-OldRoot", "${OldRoot}", "-StatePath", "${StatePath}", "-RuntimeDir", "${RuntimeDir}", "-ConfigPath", "${ConfigPath}", "-ConfigSourcePath", "${ConfigSourcePath}", "-SnapshotPath", "${SnapshotPath}", "-DisposableTarget"], "timeoutSeconds": 180}
+      ]
+    },
+    {
+      "id": "GM-FRESH-SETUP-LINUX-X64",
+      "platform": "linux-x64",
+      "commands": [
+        {"source": "candidate", "path": "tools/Initialize-GitMirrorNativeInstall.ps1", "arguments": ["-Action", "Prepare", "-TargetRoot", "${TargetRoot}", "-OldRoot", "${OldRoot}", "-StatePath", "${StatePath}", "-RuntimeDir", "${RuntimeDir}", "-ConfigPath", "${ConfigPath}", "-ConfigSourcePath", "${ConfigSourcePath}", "-SnapshotPath", "${SnapshotPath}", "-DisposableTarget", "-Mode", "Fresh"], "timeoutSeconds": 180, "stage": "setup"},
+        {"source": "installer", "path": "ubuntu.kvm.sh", "arguments": [], "environment": {"YURUNA_DIR": "${TargetRoot}", "YURUNA_BRANCH": "${CandidateTag}", "YURUNA_RUNTIME_DIR": "${RuntimeDir}"}, "timeoutSeconds": 7200},
+        {"source": "target", "path": "install/setup.ps1", "arguments": ["-AnswerFile", "${AnswerFilePath}"], "timeoutSeconds": 7200},
+        {"source": "candidate", "path": "tools/Initialize-GitMirrorNativeInstall.ps1", "arguments": ["-Action", "Observe", "-TargetRoot", "${TargetRoot}", "-OldRoot", "${OldRoot}", "-StatePath", "${StatePath}", "-RuntimeDir", "${RuntimeDir}", "-ConfigPath", "${ConfigPath}", "-ConfigSourcePath", "${ConfigSourcePath}", "-SnapshotPath", "${SnapshotPath}", "-DisposableTarget"], "timeoutSeconds": 180}
+      ],
+      "observations": [
+        {"name": "framework", "kind": "git", "path": "${TargetRoot}", "expected": "candidate", "before": false, "waitSeconds": 120},
+        {"name": "operatorProjectPreserved", "kind": "json", "path": "${StatePath}/observed.json", "expected": true, "before": false, "waitSeconds": 120, "property": "projectUrlPreserved", "retain": true}
+      ],
+      "cleanupCommands": [
+        {"source": "candidate", "path": "tools/Initialize-GitMirrorNativeInstall.ps1", "arguments": ["-Action", "StopFixture", "-TargetRoot", "${TargetRoot}", "-OldRoot", "${OldRoot}", "-StatePath", "${StatePath}", "-RuntimeDir", "${RuntimeDir}", "-ConfigPath", "${ConfigPath}", "-ConfigSourcePath", "${ConfigSourcePath}", "-SnapshotPath", "${SnapshotPath}", "-DisposableTarget"], "timeoutSeconds": 180}
+      ],
+      "coverage": "diagnostic-only",
+      "remaining": "Measure key-export enrollment/reporting and populating origin fallback followed by mirror-confirmed cycle without restart."
+    },
+    {
+      "id": "GM-UPG-PUBLIC-MAIN",
+      "platform": "windows-x64",
+      "commands": [
+        {"source": "candidate", "path": "tools/Initialize-GitMirrorNativeInstall.ps1", "arguments": ["-Action", "Prepare", "-TargetRoot", "${TargetRoot}", "-OldRoot", "${OldRoot}", "-StatePath", "${StatePath}", "-RuntimeDir", "${RuntimeDir}", "-ConfigPath", "${ConfigPath}", "-ConfigSourcePath", "${ConfigSourcePath}", "-SnapshotPath", "${SnapshotPath}", "-DisposableTarget", "-Mode", "Main", "-AutomaticOrigin"], "timeoutSeconds": 180, "stage": "setup"},
+        {"stage": "setup", "source": "target", "path": "test/Start-TestRunner.ps1", "arguments": ["-ConfigPath", "${ConfigPath}", "-NoStatusService", "-CycleDelaySeconds", "73", "-logLevel", "Warning"], "environment": {"YURUNA_RUNTIME_DIR": "${RuntimeDir}", "YURUNA_CONFIG_PATH": "${ConfigPath}"}, "timeoutSeconds": 1800, "background": true, "frameworkOriginPath": "${StatePath}/adoption-origin.git"},
+        {"source": "candidate", "path": "tools/Initialize-GitMirrorNativeInstall.ps1", "arguments": ["-Action", "Capture", "-TargetRoot", "${TargetRoot}", "-OldRoot", "${OldRoot}", "-StatePath", "${StatePath}", "-RuntimeDir", "${RuntimeDir}", "-ConfigPath", "${ConfigPath}", "-ConfigSourcePath", "${ConfigSourcePath}", "-SnapshotPath", "${SnapshotPath}", "-DisposableTarget"], "timeoutSeconds": 180, "stage": "setup"},
+        {"source": "candidate", "path": "tools/Initialize-GitMirrorNativeInstall.ps1", "arguments": ["-Action", "AdvanceOrigin", "-TargetRoot", "${TargetRoot}", "-OldRoot", "${OldRoot}", "-StatePath", "${StatePath}", "-RuntimeDir", "${RuntimeDir}", "-ConfigPath", "${ConfigPath}", "-ConfigSourcePath", "${ConfigSourcePath}", "-SnapshotPath", "${SnapshotPath}", "-DisposableTarget", "-CandidateTree", "${CandidateTree}"], "timeoutSeconds": 180},
+        {"source": "candidate", "path": "tools/Initialize-GitMirrorNativeInstall.ps1", "arguments": ["-Action", "WaitAdoption", "-TargetRoot", "${TargetRoot}", "-OldRoot", "${OldRoot}", "-StatePath", "${StatePath}", "-RuntimeDir", "${RuntimeDir}", "-ConfigPath", "${ConfigPath}", "-ConfigSourcePath", "${ConfigSourcePath}", "-SnapshotPath", "${SnapshotPath}", "-DisposableTarget", "-CandidateTree", "${CandidateTree}"], "timeoutSeconds": 1900},
+        {"source": "target", "path": "test/lab/Invoke-HostRefresh.ps1", "arguments": ["-Tier", "restart", "-Force", "-ConfigPath", "${ConfigPath}", "-MaxRung", "reclaim"], "environment": {"YURUNA_RUNTIME_DIR": "${RuntimeDir}"}, "timeoutSeconds": 1800},
+        {"source": "candidate", "path": "tools/Initialize-GitMirrorNativeInstall.ps1", "arguments": ["-Action", "Observe", "-TargetRoot", "${TargetRoot}", "-OldRoot", "${OldRoot}", "-StatePath", "${StatePath}", "-RuntimeDir", "${RuntimeDir}", "-ConfigPath", "${ConfigPath}", "-ConfigSourcePath", "${ConfigSourcePath}", "-SnapshotPath", "${SnapshotPath}", "-DisposableTarget", "-RequireRunner"], "timeoutSeconds": 180},
+        {"source": "candidate", "path": "tools/Initialize-GitMirrorNativeInstall.ps1", "arguments": ["-Action", "Enroll", "-TargetRoot", "${TargetRoot}", "-OldRoot", "${OldRoot}", "-StatePath", "${StatePath}", "-RuntimeDir", "${RuntimeDir}", "-ConfigPath", "${ConfigPath}", "-ConfigSourcePath", "${ConfigSourcePath}", "-SnapshotPath", "${SnapshotPath}", "-DisposableTarget", "-MirrorKeyExportPath", "${MirrorKeyExportPath}", "-MirrorUrl", "${MirrorUrl}"], "timeoutSeconds": 180},
+        {"source": "candidate", "path": "tools/Initialize-GitMirrorNativeInstall.ps1", "arguments": ["-Action", "WaitMirrorCycle", "-TargetRoot", "${TargetRoot}", "-OldRoot", "${OldRoot}", "-StatePath", "${StatePath}", "-RuntimeDir", "${RuntimeDir}", "-ConfigPath", "${ConfigPath}", "-ConfigSourcePath", "${ConfigSourcePath}", "-SnapshotPath", "${SnapshotPath}", "-DisposableTarget"], "timeoutSeconds": 1900}
+      ],
+      "observations": [
+        {"name": "framework", "kind": "git", "path": "${TargetRoot}", "expected": "candidate", "before": true, "waitSeconds": 120},
+        {"name": "operatorProjectPreserved", "kind": "json", "path": "${StatePath}/observed.json", "expected": true, "before": true, "waitSeconds": 120, "property": "projectUrlPreserved", "retain": true},
+        {"name": "residentGeneration", "kind": "process-replaced", "path": "${StatePath}/observed.json", "expected": "candidate", "before": true, "waitSeconds": 120, "retain": true},
+        {"name": "launchOptionsPreserved", "kind": "json", "path": "${StatePath}/observed.json", "expected": true, "before": true, "waitSeconds": 120, "property": "launchOptionsPreserved", "retain": true},
+        {"name": "launchEnvironmentPreserved", "kind": "json", "path": "${StatePath}/observed.json", "expected": true, "before": true, "waitSeconds": 120, "property": "launchEnvironmentPreserved", "retain": true},
+        {"name": "newCycleBound", "kind": "json", "path": "${StatePath}/adoption.json", "property": "newCycleBound", "expected": true, "before": false, "waitSeconds": 120, "retain": true},
+        {"name": "templateKeysPresent", "kind": "json", "path": "${StatePath}/adoption.json", "property": "templateKeysPresent", "expected": true, "before": false, "waitSeconds": 120, "retain": true},
+        {"name": "oldOuterRetained", "kind": "json", "path": "${StatePath}/adoption.json", "property": "oldOuterRetained", "expected": true, "before": false, "waitSeconds": 120, "retain": true},
+        {"name": "keyEnrolled", "kind": "json", "path": "${StatePath}/enrollment.json", "property": "keyEnrolled", "expected": true, "before": false, "retain": true},
+        {"name": "operatorValuesPreserved", "kind": "json", "path": "${StatePath}/enrollment.json", "property": "operatorValuesPreserved", "expected": true, "before": false, "retain": true},
+        {"name": "verification", "kind": "json", "path": "${StatePath}/mirror-cycle.json", "property": "verification", "expected": "mirror-confirmed", "before": false, "retain": true},
+        {"name": "sameResident", "kind": "json", "path": "${StatePath}/mirror-cycle.json", "property": "sameResident", "expected": true, "before": false, "retain": true}
+      ],
+      "cleanupCommands": [
+        {"source": "candidate", "path": "tools/Initialize-GitMirrorNativeInstall.ps1", "arguments": ["-Action", "StopFixture", "-TargetRoot", "${TargetRoot}", "-OldRoot", "${OldRoot}", "-StatePath", "${StatePath}", "-RuntimeDir", "${RuntimeDir}", "-ConfigPath", "${ConfigPath}", "-ConfigSourcePath", "${ConfigSourcePath}", "-SnapshotPath", "${SnapshotPath}", "-DisposableTarget"], "timeoutSeconds": 180}
+      ],
+      "prepareOrigins": true
+    },
+    {
+      "id": "GM-UPG-PUBLIC-PIN",
+      "platform": "windows-x64",
+      "commands": [
+        {"source": "candidate", "path": "tools/Initialize-GitMirrorNativeInstall.ps1", "arguments": ["-Action", "Prepare", "-TargetRoot", "${TargetRoot}", "-OldRoot", "${OldRoot}", "-StatePath", "${StatePath}", "-RuntimeDir", "${RuntimeDir}", "-ConfigPath", "${ConfigPath}", "-ConfigSourcePath", "${ConfigSourcePath}", "-SnapshotPath", "${SnapshotPath}", "-DisposableTarget", "-Mode", "Pin"], "timeoutSeconds": 180, "stage": "setup"},
+        {"stage": "setup", "source": "target", "path": "test/Start-TestRunner.ps1", "arguments": ["-ConfigPath", "${ConfigPath}", "-NoGitPull", "-NoStatusService", "-CycleDelaySeconds", "73", "-logLevel", "Warning"], "environment": {"YURUNA_RUNTIME_DIR": "${RuntimeDir}", "YURUNA_CONFIG_PATH": "${ConfigPath}"}, "timeoutSeconds": 1800, "background": true},
+        {"source": "candidate", "path": "tools/Initialize-GitMirrorNativeInstall.ps1", "arguments": ["-Action", "Capture", "-TargetRoot", "${TargetRoot}", "-OldRoot", "${OldRoot}", "-StatePath", "${StatePath}", "-RuntimeDir", "${RuntimeDir}", "-ConfigPath", "${ConfigPath}", "-ConfigSourcePath", "${ConfigSourcePath}", "-SnapshotPath", "${SnapshotPath}", "-DisposableTarget"], "timeoutSeconds": 180, "stage": "setup"},
+        {"source": "candidate", "path": "tools/Initialize-GitMirrorNativeInstall.ps1", "arguments": ["-Action", "UpdateLegacy", "-TargetRoot", "${TargetRoot}", "-OldRoot", "${OldRoot}", "-StatePath", "${StatePath}", "-RuntimeDir", "${RuntimeDir}", "-ConfigPath", "${ConfigPath}", "-ConfigSourcePath", "${ConfigSourcePath}", "-SnapshotPath", "${SnapshotPath}", "-DisposableTarget"], "timeoutSeconds": 180},
+        {"source": "installer", "path": "windows.hyper-v.ps1", "arguments": ["-YurunaDir", "${TargetRoot}", "-YurunaBranch", "${CandidateTag}"], "environment": {"YURUNA_DIR": "${TargetRoot}", "YURUNA_BRANCH": "${CandidateTag}", "YURUNA_RUNTIME_DIR": "${RuntimeDir}"}, "timeoutSeconds": 7200},
+        {"source": "target", "path": "test/lab/Start-RecordedTestRunner.ps1", "arguments": ["-SnapshotPath", "${SnapshotPath}", "-TimeoutSeconds", "120"], "timeoutSeconds": 180},
+        {"source": "candidate", "path": "tools/Initialize-GitMirrorNativeInstall.ps1", "arguments": ["-Action", "Observe", "-TargetRoot", "${TargetRoot}", "-OldRoot", "${OldRoot}", "-StatePath", "${StatePath}", "-RuntimeDir", "${RuntimeDir}", "-ConfigPath", "${ConfigPath}", "-ConfigSourcePath", "${ConfigSourcePath}", "-SnapshotPath", "${SnapshotPath}", "-DisposableTarget", "-RequireRunner"], "timeoutSeconds": 180}
+      ],
+      "observations": [
+        {"name": "framework", "kind": "git", "path": "${TargetRoot}", "expected": "candidate", "before": true, "waitSeconds": 120},
+        {"name": "operatorProjectPreserved", "kind": "json", "path": "${StatePath}/observed.json", "expected": true, "before": true, "waitSeconds": 120, "property": "projectUrlPreserved", "retain": true},
+        {"name": "residentGeneration", "kind": "process-replaced", "path": "${StatePath}/observed.json", "expected": "candidate", "before": true, "waitSeconds": 120, "retain": true},
+        {"name": "launchOptionsPreserved", "kind": "json", "path": "${StatePath}/observed.json", "expected": true, "before": true, "waitSeconds": 120, "property": "launchOptionsPreserved", "retain": true},
+        {"name": "launchEnvironmentPreserved", "kind": "json", "path": "${StatePath}/observed.json", "expected": true, "before": true, "waitSeconds": 120, "property": "launchEnvironmentPreserved", "retain": true},
+        {"name": "repositoryIdentityPreserved", "kind": "json", "path": "${StatePath}/observed.json", "property": "repositoryIdentityPreserved", "expected": true, "before": false, "retain": true},
+        {"name": "configurationValuesPreserved", "kind": "json", "path": "${StatePath}/observed.json", "property": "configurationValuesPreserved", "expected": true, "before": false, "retain": true},
+        {"name": "noRecoveryCheckout", "kind": "json", "path": "${StatePath}/observed.json", "property": "noRecoveryCheckout", "expected": true, "before": false, "retain": true}
+      ],
+      "cleanupCommands": [
+        {"source": "candidate", "path": "tools/Initialize-GitMirrorNativeInstall.ps1", "arguments": ["-Action", "StopFixture", "-TargetRoot", "${TargetRoot}", "-OldRoot", "${OldRoot}", "-StatePath", "${StatePath}", "-RuntimeDir", "${RuntimeDir}", "-ConfigPath", "${ConfigPath}", "-ConfigSourcePath", "${ConfigSourcePath}", "-SnapshotPath", "${SnapshotPath}", "-DisposableTarget"], "timeoutSeconds": 180}
+      ]
+    },
+    {
+      "id": "GM-UPG-RECLONE-PRESERVE",
+      "platform": "windows-x64",
+      "commands": [
+        {"source": "candidate", "path": "tools/Initialize-GitMirrorNativeInstall.ps1", "arguments": ["-Action", "Prepare", "-TargetRoot", "${TargetRoot}", "-OldRoot", "${OldRoot}", "-StatePath", "${StatePath}", "-RuntimeDir", "${RuntimeDir}", "-ConfigPath", "${ConfigPath}", "-ConfigSourcePath", "${ConfigSourcePath}", "-SnapshotPath", "${SnapshotPath}", "-DisposableTarget", "-Mode", "Main"], "timeoutSeconds": 180, "stage": "setup"},
+        {"stage": "setup", "source": "target", "path": "test/Start-TestRunner.ps1", "arguments": ["-ConfigPath", "${ConfigPath}", "-NoGitPull", "-NoStatusService", "-CycleDelaySeconds", "73", "-logLevel", "Warning"], "environment": {"YURUNA_RUNTIME_DIR": "${RuntimeDir}", "YURUNA_CONFIG_PATH": "${ConfigPath}"}, "timeoutSeconds": 1800, "background": true},
+        {"source": "candidate", "path": "tools/Initialize-GitMirrorNativeInstall.ps1", "arguments": ["-Action", "Capture", "-TargetRoot", "${TargetRoot}", "-OldRoot", "${OldRoot}", "-StatePath", "${StatePath}", "-RuntimeDir", "${RuntimeDir}", "-ConfigPath", "${ConfigPath}", "-ConfigSourcePath", "${ConfigSourcePath}", "-SnapshotPath", "${SnapshotPath}", "-DisposableTarget"], "timeoutSeconds": 180, "stage": "setup"},
+        {"source": "candidate", "path": "tools/Initialize-GitMirrorNativeInstall.ps1", "arguments": ["-Action", "Diverge", "-TargetRoot", "${TargetRoot}", "-OldRoot", "${OldRoot}", "-StatePath", "${StatePath}", "-RuntimeDir", "${RuntimeDir}", "-ConfigPath", "${ConfigPath}", "-ConfigSourcePath", "${ConfigSourcePath}", "-SnapshotPath", "${SnapshotPath}", "-DisposableTarget"], "timeoutSeconds": 180},
+        {"source": "installer", "path": "windows.hyper-v.ps1", "arguments": ["-YurunaDir", "${TargetRoot}", "-YurunaBranch", "main"], "environment": {"YURUNA_DIR": "${TargetRoot}", "YURUNA_BRANCH": "main", "YURUNA_RUNTIME_DIR": "${RuntimeDir}"}, "timeoutSeconds": 7200},
+        {"source": "target", "path": "test/lab/Start-RecordedTestRunner.ps1", "arguments": ["-SnapshotPath", "${SnapshotPath}", "-TimeoutSeconds", "120"], "timeoutSeconds": 180},
+        {"source": "candidate", "path": "tools/Initialize-GitMirrorNativeInstall.ps1", "arguments": ["-Action", "Observe", "-TargetRoot", "${TargetRoot}", "-OldRoot", "${OldRoot}", "-StatePath", "${StatePath}", "-RuntimeDir", "${RuntimeDir}", "-ConfigPath", "${ConfigPath}", "-ConfigSourcePath", "${ConfigSourcePath}", "-SnapshotPath", "${SnapshotPath}", "-DisposableTarget", "-RequireRunner"], "timeoutSeconds": 180}
+      ],
+      "observations": [
+        {"name": "framework", "kind": "git", "path": "${TargetRoot}", "expected": "candidate", "before": true, "waitSeconds": 120},
+        {"name": "operatorProjectPreserved", "kind": "json", "path": "${StatePath}/observed.json", "expected": true, "before": true, "waitSeconds": 120, "property": "projectUrlPreserved", "retain": true},
+        {"name": "residentGeneration", "kind": "process-replaced", "path": "${StatePath}/observed.json", "expected": "candidate", "before": true, "waitSeconds": 120, "retain": true},
+        {"name": "launchOptionsPreserved", "kind": "json", "path": "${StatePath}/observed.json", "expected": true, "before": true, "waitSeconds": 120, "property": "launchOptionsPreserved", "retain": true},
+        {"name": "launchEnvironmentPreserved", "kind": "json", "path": "${StatePath}/observed.json", "expected": true, "before": true, "waitSeconds": 120, "property": "launchEnvironmentPreserved", "retain": true},
+        {"name": "recloneRemovedDivergence", "kind": "file-absent", "path": "${TargetRoot}/qualification-local-change.txt", "expected": false, "before": false, "waitSeconds": 120},
+        {"name": "repositoryIdentityPreserved", "kind": "json", "path": "${StatePath}/observed.json", "property": "repositoryIdentityPreserved", "expected": true, "before": false, "retain": true},
+        {"name": "configurationValuesPreserved", "kind": "json", "path": "${StatePath}/observed.json", "property": "configurationValuesPreserved", "expected": true, "before": false, "retain": true}
+      ],
+      "cleanupCommands": [
+        {"source": "candidate", "path": "tools/Initialize-GitMirrorNativeInstall.ps1", "arguments": ["-Action", "StopFixture", "-TargetRoot", "${TargetRoot}", "-OldRoot", "${OldRoot}", "-StatePath", "${StatePath}", "-RuntimeDir", "${RuntimeDir}", "-ConfigPath", "${ConfigPath}", "-ConfigSourcePath", "${ConfigSourcePath}", "-SnapshotPath", "${SnapshotPath}", "-DisposableTarget"], "timeoutSeconds": 180}
+      ],
+      "coverage": "diagnostic-only",
+      "remaining": "Measure enrolled mode/key/custom-origin preservation and retained backup before setup; inject restoration failure and prove no runner starts."
+    },
+    {
+      "id": "GM-UPG-STOPPED-RUNNER",
+      "platform": "windows-x64",
+      "commands": [
+        {"source": "candidate", "path": "tools/Initialize-GitMirrorNativeInstall.ps1", "arguments": ["-Action", "Prepare", "-TargetRoot", "${TargetRoot}", "-OldRoot", "${OldRoot}", "-StatePath", "${StatePath}", "-RuntimeDir", "${RuntimeDir}", "-ConfigPath", "${ConfigPath}", "-ConfigSourcePath", "${ConfigSourcePath}", "-SnapshotPath", "${SnapshotPath}", "-DisposableTarget", "-Mode", "Main"], "timeoutSeconds": 180, "stage": "setup"},
+        {"stage": "setup", "source": "target", "path": "test/Start-TestRunner.ps1", "arguments": ["-ConfigPath", "${ConfigPath}", "-NoGitPull", "-NoStatusService", "-CycleDelaySeconds", "73", "-logLevel", "Warning"], "environment": {"YURUNA_RUNTIME_DIR": "${RuntimeDir}", "YURUNA_CONFIG_PATH": "${ConfigPath}"}, "timeoutSeconds": 1800, "background": true},
+        {"source": "candidate", "path": "tools/Initialize-GitMirrorNativeInstall.ps1", "arguments": ["-Action", "Capture", "-TargetRoot", "${TargetRoot}", "-OldRoot", "${OldRoot}", "-StatePath", "${StatePath}", "-RuntimeDir", "${RuntimeDir}", "-ConfigPath", "${ConfigPath}", "-ConfigSourcePath", "${ConfigSourcePath}", "-SnapshotPath", "${SnapshotPath}", "-DisposableTarget"], "timeoutSeconds": 180, "stage": "setup"},
+        {"source": "installer", "path": "windows.hyper-v.ps1", "arguments": ["-YurunaDir", "${TargetRoot}", "-YurunaBranch", "main"], "environment": {"YURUNA_DIR": "${TargetRoot}", "YURUNA_BRANCH": "main", "YURUNA_RUNTIME_DIR": "${RuntimeDir}"}, "timeoutSeconds": 7200},
+        {"source": "candidate", "path": "tools/Initialize-GitMirrorNativeInstall.ps1", "arguments": ["-Action", "Observe", "-TargetRoot", "${TargetRoot}", "-OldRoot", "${OldRoot}", "-StatePath", "${StatePath}", "-RuntimeDir", "${RuntimeDir}", "-ConfigPath", "${ConfigPath}", "-ConfigSourcePath", "${ConfigSourcePath}", "-SnapshotPath", "${SnapshotPath}", "-DisposableTarget", "-ExpectStopped"], "timeoutSeconds": 180},
+        {"source": "target", "path": "test/lab/Start-RecordedTestRunner.ps1", "arguments": ["-SnapshotPath", "${SnapshotPath}", "-TimeoutSeconds", "120"], "timeoutSeconds": 180},
+        {"source": "candidate", "path": "tools/Initialize-GitMirrorNativeInstall.ps1", "arguments": ["-Action", "Observe", "-TargetRoot", "${TargetRoot}", "-OldRoot", "${OldRoot}", "-StatePath", "${StatePath}", "-RuntimeDir", "${RuntimeDir}", "-ConfigPath", "${ConfigPath}", "-ConfigSourcePath", "${ConfigSourcePath}", "-SnapshotPath", "${SnapshotPath}", "-DisposableTarget", "-RequireRunner"], "timeoutSeconds": 180},
+        {"source": "candidate", "path": "tools/Initialize-GitMirrorNativeInstall.ps1", "arguments": ["-Action", "Drain", "-TargetRoot", "${TargetRoot}", "-OldRoot", "${OldRoot}", "-StatePath", "${StatePath}", "-RuntimeDir", "${RuntimeDir}", "-ConfigPath", "${ConfigPath}", "-ConfigSourcePath", "${ConfigSourcePath}", "-SnapshotPath", "${StatePath}/clean-state/state.json", "-DisposableTarget"], "timeoutSeconds": 1900},
+        {"source": "target", "path": "test/lab/Invoke-HostRefresh.ps1", "arguments": ["-Tier", "restart", "-Force", "-ConfigPath", "${ConfigPath}", "-MaxRung", "reclaim"], "environment": {"YURUNA_RUNTIME_DIR": "${RuntimeDir}"}, "timeoutSeconds": 1800},
+        {"source": "candidate", "path": "tools/Initialize-GitMirrorNativeInstall.ps1", "arguments": ["-Action", "VerifyCleanStop", "-TargetRoot", "${TargetRoot}", "-OldRoot", "${OldRoot}", "-StatePath", "${StatePath}", "-RuntimeDir", "${RuntimeDir}", "-ConfigPath", "${ConfigPath}", "-ConfigSourcePath", "${ConfigSourcePath}", "-SnapshotPath", "${StatePath}/clean-state/state.json", "-DisposableTarget"], "timeoutSeconds": 180},
+        {"source": "target", "path": "test/lab/Start-RecordedTestRunner.ps1", "arguments": ["-SnapshotPath", "${StatePath}/clean-state/state.json", "-TimeoutSeconds", "120"], "timeoutSeconds": 180},
+        {"source": "candidate", "path": "tools/Initialize-GitMirrorNativeInstall.ps1", "arguments": ["-Action", "Observe", "-TargetRoot", "${TargetRoot}", "-OldRoot", "${OldRoot}", "-StatePath", "${StatePath}", "-RuntimeDir", "${RuntimeDir}", "-ConfigPath", "${ConfigPath}", "-ConfigSourcePath", "${ConfigSourcePath}", "-SnapshotPath", "${SnapshotPath}", "-DisposableTarget", "-RequireRunner"], "timeoutSeconds": 180}
+      ],
+      "observations": [
+        {"name": "framework", "kind": "git", "path": "${TargetRoot}", "expected": "candidate", "before": true, "waitSeconds": 120},
+        {"name": "operatorProjectPreserved", "kind": "json", "path": "${StatePath}/observed.json", "expected": true, "before": true, "waitSeconds": 120, "property": "projectUrlPreserved", "retain": true},
+        {"name": "residentGeneration", "kind": "process-replaced", "path": "${StatePath}/observed.json", "expected": "candidate", "before": true, "waitSeconds": 120, "retain": true},
+        {"name": "launchOptionsPreserved", "kind": "json", "path": "${StatePath}/observed.json", "expected": true, "before": true, "waitSeconds": 120, "property": "launchOptionsPreserved", "retain": true},
+        {"name": "launchEnvironmentPreserved", "kind": "json", "path": "${StatePath}/observed.json", "expected": true, "before": true, "waitSeconds": 120, "property": "launchEnvironmentPreserved", "retain": true},
+        {"name": "installerStoppedRunner", "kind": "json", "path": "${StatePath}/stopped.json", "expected": false, "before": false, "waitSeconds": 120, "property": "runnerAlive", "retain": true},
+        {"name": "repositoryIdentityPreserved", "kind": "json", "path": "${StatePath}/observed.json", "property": "repositoryIdentityPreserved", "expected": true, "before": false, "retain": true},
+        {"name": "configurationValuesPreserved", "kind": "json", "path": "${StatePath}/observed.json", "property": "configurationValuesPreserved", "expected": true, "before": false, "retain": true},
+        {"name": "cleanExitPreserved", "kind": "json", "path": "${StatePath}/clean-stop.json", "property": "cleanExitPreserved", "expected": true, "before": false, "retain": true}
+      ],
+      "cleanupCommands": [
+        {"source": "candidate", "path": "tools/Initialize-GitMirrorNativeInstall.ps1", "arguments": ["-Action", "StopFixture", "-TargetRoot", "${TargetRoot}", "-OldRoot", "${OldRoot}", "-StatePath", "${StatePath}", "-RuntimeDir", "${RuntimeDir}", "-ConfigPath", "${ConfigPath}", "-ConfigSourcePath", "${ConfigSourcePath}", "-SnapshotPath", "${SnapshotPath}", "-DisposableTarget"], "timeoutSeconds": 180}
+      ]
+    },
+    {
+      "id": "GM-ROLLBACK",
+      "platform": "windows-x64",
+      "commands": [
+        {"source": "candidate", "path": "tools/Initialize-GitMirrorNativeInstall.ps1", "arguments": ["-Action", "Prepare", "-TargetRoot", "${TargetRoot}", "-OldRoot", "${OldRoot}", "-StatePath", "${StatePath}", "-RuntimeDir", "${RuntimeDir}", "-ConfigPath", "${ConfigPath}", "-ConfigSourcePath", "${ConfigSourcePath}", "-SnapshotPath", "${SnapshotPath}", "-DisposableTarget", "-Mode", "Main"], "timeoutSeconds": 180, "stage": "setup"},
+        {"stage": "setup", "source": "target", "path": "test/Start-TestRunner.ps1", "arguments": ["-ConfigPath", "${ConfigPath}", "-NoGitPull", "-NoStatusService", "-CycleDelaySeconds", "73", "-logLevel", "Warning"], "environment": {"YURUNA_RUNTIME_DIR": "${RuntimeDir}", "YURUNA_CONFIG_PATH": "${ConfigPath}"}, "timeoutSeconds": 1800, "background": true},
+        {"source": "candidate", "path": "tools/Initialize-GitMirrorNativeInstall.ps1", "arguments": ["-Action", "Capture", "-TargetRoot", "${TargetRoot}", "-OldRoot", "${OldRoot}", "-StatePath", "${StatePath}", "-RuntimeDir", "${RuntimeDir}", "-ConfigPath", "${ConfigPath}", "-ConfigSourcePath", "${ConfigSourcePath}", "-SnapshotPath", "${SnapshotPath}", "-DisposableTarget"], "timeoutSeconds": 180, "stage": "setup"},
+        {"source": "installer", "path": "windows.hyper-v.ps1", "arguments": ["-YurunaDir", "${TargetRoot}", "-YurunaBranch", "${CandidateTag}"], "environment": {"YURUNA_DIR": "${TargetRoot}", "YURUNA_BRANCH": "${CandidateTag}", "YURUNA_RUNTIME_DIR": "${RuntimeDir}"}, "timeoutSeconds": 7200},
+        {"source": "target", "path": "test/lab/Start-RecordedTestRunner.ps1", "arguments": ["-SnapshotPath", "${SnapshotPath}", "-TimeoutSeconds", "120"], "timeoutSeconds": 180},
+        {"source": "candidate", "path": "tools/Initialize-GitMirrorNativeInstall.ps1", "arguments": ["-Action", "Enroll", "-TargetRoot", "${TargetRoot}", "-OldRoot", "${OldRoot}", "-StatePath", "${StatePath}", "-RuntimeDir", "${RuntimeDir}", "-ConfigPath", "${ConfigPath}", "-ConfigSourcePath", "${ConfigSourcePath}", "-SnapshotPath", "${SnapshotPath}", "-DisposableTarget", "-MirrorKeyExportPath", "${MirrorKeyExportPath}", "-MirrorUrl", "${MirrorUrl}", "-MirrorMode", "fallback"], "timeoutSeconds": 180},
+        {"source": "candidate", "path": "tools/Initialize-GitMirrorNativeInstall.ps1", "arguments": ["-Action", "StopFixture", "-TargetRoot", "${TargetRoot}", "-OldRoot", "${OldRoot}", "-StatePath", "${StatePath}", "-RuntimeDir", "${RuntimeDir}", "-ConfigPath", "${ConfigPath}", "-ConfigSourcePath", "${ConfigSourcePath}", "-SnapshotPath", "${SnapshotPath}", "-DisposableTarget"], "timeoutSeconds": 180},
+        {"source": "installer", "path": "windows.hyper-v.ps1", "arguments": ["-YurunaDir", "${TargetRoot}", "-YurunaBranch", "${OldRelease}"], "environment": {"YURUNA_DIR": "${TargetRoot}", "YURUNA_BRANCH": "${OldRelease}", "YURUNA_RUNTIME_DIR": "${RuntimeDir}"}, "timeoutSeconds": 7200},
+        {"source": "candidate", "path": "tools/Initialize-GitMirrorNativeInstall.ps1", "arguments": ["-Action", "RunGate", "-TargetRoot", "${TargetRoot}", "-OldRoot", "${OldRoot}", "-StatePath", "${StatePath}", "-RuntimeDir", "${RuntimeDir}", "-ConfigPath", "${ConfigPath}", "-ConfigSourcePath", "${ConfigSourcePath}", "-SnapshotPath", "${SnapshotPath}", "-DisposableTarget", "-GateExpectation", "OldRollback"], "timeoutSeconds": 1300},
+        {"source": "installer", "path": "windows.hyper-v.ps1", "arguments": ["-YurunaDir", "${TargetRoot}", "-YurunaBranch", "${CandidateTag}"], "environment": {"YURUNA_DIR": "${TargetRoot}", "YURUNA_BRANCH": "${CandidateTag}", "YURUNA_RUNTIME_DIR": "${RuntimeDir}"}, "timeoutSeconds": 7200},
+        {"source": "candidate", "path": "tools/Initialize-GitMirrorNativeInstall.ps1", "arguments": ["-Action", "RunGate", "-TargetRoot", "${TargetRoot}", "-OldRoot", "${OldRoot}", "-StatePath", "${StatePath}", "-RuntimeDir", "${RuntimeDir}", "-ConfigPath", "${ConfigPath}", "-ConfigSourcePath", "${ConfigSourcePath}", "-SnapshotPath", "${SnapshotPath}", "-DisposableTarget", "-GateExpectation", "NewRollback", "-MirrorUrl", "${MirrorUrl}"], "timeoutSeconds": 1300},
+        {"source": "candidate", "path": "tools/Initialize-GitMirrorNativeInstall.ps1", "arguments": ["-Action", "Enroll", "-TargetRoot", "${TargetRoot}", "-OldRoot", "${OldRoot}", "-StatePath", "${StatePath}", "-RuntimeDir", "${RuntimeDir}", "-ConfigPath", "${ConfigPath}", "-ConfigSourcePath", "${ConfigSourcePath}", "-SnapshotPath", "${SnapshotPath}", "-DisposableTarget", "-MirrorKeyExportPath", "${MirrorKeyExportPath}", "-MirrorUrl", "${MirrorUrl}"], "timeoutSeconds": 180},
+        {"source": "target", "path": "test/lab/Start-RecordedTestRunner.ps1", "arguments": ["-SnapshotPath", "${SnapshotPath}", "-TimeoutSeconds", "120"], "timeoutSeconds": 180},
+        {"source": "candidate", "path": "tools/Initialize-GitMirrorNativeInstall.ps1", "arguments": ["-Action", "Observe", "-TargetRoot", "${TargetRoot}", "-OldRoot", "${OldRoot}", "-StatePath", "${StatePath}", "-RuntimeDir", "${RuntimeDir}", "-ConfigPath", "${ConfigPath}", "-ConfigSourcePath", "${ConfigSourcePath}", "-SnapshotPath", "${SnapshotPath}", "-DisposableTarget", "-RequireRunner"], "timeoutSeconds": 180}
+      ],
+      "observations": [
+        {"name": "framework", "kind": "git", "path": "${TargetRoot}", "expected": "candidate", "before": true, "waitSeconds": 120},
+        {"name": "operatorProjectPreserved", "kind": "json", "path": "${StatePath}/observed.json", "expected": true, "before": true, "waitSeconds": 120, "property": "projectUrlPreserved", "retain": true},
+        {"name": "residentGeneration", "kind": "process-replaced", "path": "${StatePath}/observed.json", "expected": "candidate", "before": true, "waitSeconds": 120, "retain": true},
+        {"name": "launchOptionsPreserved", "kind": "json", "path": "${StatePath}/observed.json", "expected": true, "before": true, "waitSeconds": 120, "property": "launchOptionsPreserved", "retain": true},
+        {"name": "launchEnvironmentPreserved", "kind": "json", "path": "${StatePath}/observed.json", "expected": true, "before": true, "waitSeconds": 120, "property": "launchEnvironmentPreserved", "retain": true},
+        {"name": "parked", "kind": "json", "path": "${StatePath}/gate-OldRollback.json", "property": "parked", "expected": true, "before": false, "retain": true},
+        {"name": "backupVerified", "kind": "json", "path": "${StatePath}/gate-OldRollback.json", "property": "backupVerified", "expected": true, "before": false, "retain": true},
+        {"name": "warningObserved", "kind": "json", "path": "${StatePath}/gate-OldRollback.json", "property": "warningObserved", "expected": true, "before": false, "retain": true},
+        {"name": "defaultsRestored", "kind": "json", "path": "${StatePath}/gate-NewRollback.json", "property": "defaultsRestored", "expected": true, "before": false, "retain": true},
+        {"name": "fallbackReason", "kind": "json", "path": "${StatePath}/gate-NewRollback.json", "property": "fallbackReason", "expected": "mirror-untrusted", "before": false, "retain": true},
+        {"name": "keyEnrolled", "kind": "json", "path": "${StatePath}/enrollment.json", "property": "keyEnrolled", "expected": true, "before": false, "retain": true}
+      ],
+      "cleanupCommands": [
+        {"source": "candidate", "path": "tools/Initialize-GitMirrorNativeInstall.ps1", "arguments": ["-Action", "StopFixture", "-TargetRoot", "${TargetRoot}", "-OldRoot", "${OldRoot}", "-StatePath", "${StatePath}", "-RuntimeDir", "${RuntimeDir}", "-ConfigPath", "${ConfigPath}", "-ConfigSourcePath", "${ConfigSourcePath}", "-SnapshotPath", "${SnapshotPath}", "-DisposableTarget"], "timeoutSeconds": 180}
+      ]
+    },
+    {
+      "id": "GM-FRESH-SETUP-WINDOWS-X64",
+      "platform": "windows-x64",
+      "commands": [
+        {"source": "candidate", "path": "tools/Initialize-GitMirrorNativeInstall.ps1", "arguments": ["-Action", "Prepare", "-TargetRoot", "${TargetRoot}", "-OldRoot", "${OldRoot}", "-StatePath", "${StatePath}", "-RuntimeDir", "${RuntimeDir}", "-ConfigPath", "${ConfigPath}", "-ConfigSourcePath", "${ConfigSourcePath}", "-SnapshotPath", "${SnapshotPath}", "-DisposableTarget", "-Mode", "Fresh"], "timeoutSeconds": 180, "stage": "setup"},
+        {"source": "installer", "path": "windows.hyper-v.ps1", "arguments": ["-YurunaDir", "${TargetRoot}", "-YurunaBranch", "${CandidateTag}"], "environment": {"YURUNA_DIR": "${TargetRoot}", "YURUNA_BRANCH": "${CandidateTag}", "YURUNA_RUNTIME_DIR": "${RuntimeDir}"}, "timeoutSeconds": 7200},
+        {"source": "target", "path": "install/setup.ps1", "arguments": ["-AnswerFile", "${AnswerFilePath}"], "timeoutSeconds": 7200},
+        {"source": "candidate", "path": "tools/Initialize-GitMirrorNativeInstall.ps1", "arguments": ["-Action", "Observe", "-TargetRoot", "${TargetRoot}", "-OldRoot", "${OldRoot}", "-StatePath", "${StatePath}", "-RuntimeDir", "${RuntimeDir}", "-ConfigPath", "${ConfigPath}", "-ConfigSourcePath", "${ConfigSourcePath}", "-SnapshotPath", "${SnapshotPath}", "-DisposableTarget"], "timeoutSeconds": 180}
+      ],
+      "observations": [
+        {"name": "framework", "kind": "git", "path": "${TargetRoot}", "expected": "candidate", "before": false, "waitSeconds": 120},
+        {"name": "operatorProjectPreserved", "kind": "json", "path": "${StatePath}/observed.json", "expected": true, "before": false, "waitSeconds": 120, "property": "projectUrlPreserved", "retain": true}
+      ],
+      "cleanupCommands": [
+        {"source": "candidate", "path": "tools/Initialize-GitMirrorNativeInstall.ps1", "arguments": ["-Action", "StopFixture", "-TargetRoot", "${TargetRoot}", "-OldRoot", "${OldRoot}", "-StatePath", "${StatePath}", "-RuntimeDir", "${RuntimeDir}", "-ConfigPath", "${ConfigPath}", "-ConfigSourcePath", "${ConfigSourcePath}", "-SnapshotPath", "${SnapshotPath}", "-DisposableTarget"], "timeoutSeconds": 180}
+      ],
+      "coverage": "diagnostic-only",
+      "remaining": "Measure key-export enrollment/reporting and populating origin fallback followed by mirror-confirmed cycle without restart."
+    },
+    {
+      "id": "GM-UPG-PUBLIC-MAIN",
+      "platform": "windows-arm64",
+      "commands": [
+        {"source": "candidate", "path": "tools/Initialize-GitMirrorNativeInstall.ps1", "arguments": ["-Action", "Prepare", "-TargetRoot", "${TargetRoot}", "-OldRoot", "${OldRoot}", "-StatePath", "${StatePath}", "-RuntimeDir", "${RuntimeDir}", "-ConfigPath", "${ConfigPath}", "-ConfigSourcePath", "${ConfigSourcePath}", "-SnapshotPath", "${SnapshotPath}", "-DisposableTarget", "-Mode", "Main", "-AutomaticOrigin"], "timeoutSeconds": 180, "stage": "setup"},
+        {"stage": "setup", "source": "target", "path": "test/Start-TestRunner.ps1", "arguments": ["-ConfigPath", "${ConfigPath}", "-NoStatusService", "-CycleDelaySeconds", "73", "-logLevel", "Warning"], "environment": {"YURUNA_RUNTIME_DIR": "${RuntimeDir}", "YURUNA_CONFIG_PATH": "${ConfigPath}"}, "timeoutSeconds": 1800, "background": true, "frameworkOriginPath": "${StatePath}/adoption-origin.git"},
+        {"source": "candidate", "path": "tools/Initialize-GitMirrorNativeInstall.ps1", "arguments": ["-Action", "Capture", "-TargetRoot", "${TargetRoot}", "-OldRoot", "${OldRoot}", "-StatePath", "${StatePath}", "-RuntimeDir", "${RuntimeDir}", "-ConfigPath", "${ConfigPath}", "-ConfigSourcePath", "${ConfigSourcePath}", "-SnapshotPath", "${SnapshotPath}", "-DisposableTarget"], "timeoutSeconds": 180, "stage": "setup"},
+        {"source": "candidate", "path": "tools/Initialize-GitMirrorNativeInstall.ps1", "arguments": ["-Action", "AdvanceOrigin", "-TargetRoot", "${TargetRoot}", "-OldRoot", "${OldRoot}", "-StatePath", "${StatePath}", "-RuntimeDir", "${RuntimeDir}", "-ConfigPath", "${ConfigPath}", "-ConfigSourcePath", "${ConfigSourcePath}", "-SnapshotPath", "${SnapshotPath}", "-DisposableTarget", "-CandidateTree", "${CandidateTree}"], "timeoutSeconds": 180},
+        {"source": "candidate", "path": "tools/Initialize-GitMirrorNativeInstall.ps1", "arguments": ["-Action", "WaitAdoption", "-TargetRoot", "${TargetRoot}", "-OldRoot", "${OldRoot}", "-StatePath", "${StatePath}", "-RuntimeDir", "${RuntimeDir}", "-ConfigPath", "${ConfigPath}", "-ConfigSourcePath", "${ConfigSourcePath}", "-SnapshotPath", "${SnapshotPath}", "-DisposableTarget", "-CandidateTree", "${CandidateTree}"], "timeoutSeconds": 1900},
+        {"source": "target", "path": "test/lab/Invoke-HostRefresh.ps1", "arguments": ["-Tier", "restart", "-Force", "-ConfigPath", "${ConfigPath}", "-MaxRung", "reclaim"], "environment": {"YURUNA_RUNTIME_DIR": "${RuntimeDir}"}, "timeoutSeconds": 1800},
+        {"source": "candidate", "path": "tools/Initialize-GitMirrorNativeInstall.ps1", "arguments": ["-Action", "Observe", "-TargetRoot", "${TargetRoot}", "-OldRoot", "${OldRoot}", "-StatePath", "${StatePath}", "-RuntimeDir", "${RuntimeDir}", "-ConfigPath", "${ConfigPath}", "-ConfigSourcePath", "${ConfigSourcePath}", "-SnapshotPath", "${SnapshotPath}", "-DisposableTarget", "-RequireRunner"], "timeoutSeconds": 180},
+        {"source": "candidate", "path": "tools/Initialize-GitMirrorNativeInstall.ps1", "arguments": ["-Action", "Enroll", "-TargetRoot", "${TargetRoot}", "-OldRoot", "${OldRoot}", "-StatePath", "${StatePath}", "-RuntimeDir", "${RuntimeDir}", "-ConfigPath", "${ConfigPath}", "-ConfigSourcePath", "${ConfigSourcePath}", "-SnapshotPath", "${SnapshotPath}", "-DisposableTarget", "-MirrorKeyExportPath", "${MirrorKeyExportPath}", "-MirrorUrl", "${MirrorUrl}"], "timeoutSeconds": 180},
+        {"source": "candidate", "path": "tools/Initialize-GitMirrorNativeInstall.ps1", "arguments": ["-Action", "WaitMirrorCycle", "-TargetRoot", "${TargetRoot}", "-OldRoot", "${OldRoot}", "-StatePath", "${StatePath}", "-RuntimeDir", "${RuntimeDir}", "-ConfigPath", "${ConfigPath}", "-ConfigSourcePath", "${ConfigSourcePath}", "-SnapshotPath", "${SnapshotPath}", "-DisposableTarget"], "timeoutSeconds": 1900}
+      ],
+      "observations": [
+        {"name": "framework", "kind": "git", "path": "${TargetRoot}", "expected": "candidate", "before": true, "waitSeconds": 120},
+        {"name": "operatorProjectPreserved", "kind": "json", "path": "${StatePath}/observed.json", "expected": true, "before": true, "waitSeconds": 120, "property": "projectUrlPreserved", "retain": true},
+        {"name": "residentGeneration", "kind": "process-replaced", "path": "${StatePath}/observed.json", "expected": "candidate", "before": true, "waitSeconds": 120, "retain": true},
+        {"name": "launchOptionsPreserved", "kind": "json", "path": "${StatePath}/observed.json", "expected": true, "before": true, "waitSeconds": 120, "property": "launchOptionsPreserved", "retain": true},
+        {"name": "launchEnvironmentPreserved", "kind": "json", "path": "${StatePath}/observed.json", "expected": true, "before": true, "waitSeconds": 120, "property": "launchEnvironmentPreserved", "retain": true},
+        {"name": "newCycleBound", "kind": "json", "path": "${StatePath}/adoption.json", "property": "newCycleBound", "expected": true, "before": false, "waitSeconds": 120, "retain": true},
+        {"name": "templateKeysPresent", "kind": "json", "path": "${StatePath}/adoption.json", "property": "templateKeysPresent", "expected": true, "before": false, "waitSeconds": 120, "retain": true},
+        {"name": "oldOuterRetained", "kind": "json", "path": "${StatePath}/adoption.json", "property": "oldOuterRetained", "expected": true, "before": false, "waitSeconds": 120, "retain": true},
+        {"name": "keyEnrolled", "kind": "json", "path": "${StatePath}/enrollment.json", "property": "keyEnrolled", "expected": true, "before": false, "retain": true},
+        {"name": "operatorValuesPreserved", "kind": "json", "path": "${StatePath}/enrollment.json", "property": "operatorValuesPreserved", "expected": true, "before": false, "retain": true},
+        {"name": "verification", "kind": "json", "path": "${StatePath}/mirror-cycle.json", "property": "verification", "expected": "mirror-confirmed", "before": false, "retain": true},
+        {"name": "sameResident", "kind": "json", "path": "${StatePath}/mirror-cycle.json", "property": "sameResident", "expected": true, "before": false, "retain": true}
+      ],
+      "cleanupCommands": [
+        {"source": "candidate", "path": "tools/Initialize-GitMirrorNativeInstall.ps1", "arguments": ["-Action", "StopFixture", "-TargetRoot", "${TargetRoot}", "-OldRoot", "${OldRoot}", "-StatePath", "${StatePath}", "-RuntimeDir", "${RuntimeDir}", "-ConfigPath", "${ConfigPath}", "-ConfigSourcePath", "${ConfigSourcePath}", "-SnapshotPath", "${SnapshotPath}", "-DisposableTarget"], "timeoutSeconds": 180}
+      ],
+      "prepareOrigins": true
+    },
+    {
+      "id": "GM-UPG-PUBLIC-PIN",
+      "platform": "windows-arm64",
+      "commands": [
+        {"source": "candidate", "path": "tools/Initialize-GitMirrorNativeInstall.ps1", "arguments": ["-Action", "Prepare", "-TargetRoot", "${TargetRoot}", "-OldRoot", "${OldRoot}", "-StatePath", "${StatePath}", "-RuntimeDir", "${RuntimeDir}", "-ConfigPath", "${ConfigPath}", "-ConfigSourcePath", "${ConfigSourcePath}", "-SnapshotPath", "${SnapshotPath}", "-DisposableTarget", "-Mode", "Pin"], "timeoutSeconds": 180, "stage": "setup"},
+        {"stage": "setup", "source": "target", "path": "test/Start-TestRunner.ps1", "arguments": ["-ConfigPath", "${ConfigPath}", "-NoGitPull", "-NoStatusService", "-CycleDelaySeconds", "73", "-logLevel", "Warning"], "environment": {"YURUNA_RUNTIME_DIR": "${RuntimeDir}", "YURUNA_CONFIG_PATH": "${ConfigPath}"}, "timeoutSeconds": 1800, "background": true},
+        {"source": "candidate", "path": "tools/Initialize-GitMirrorNativeInstall.ps1", "arguments": ["-Action", "Capture", "-TargetRoot", "${TargetRoot}", "-OldRoot", "${OldRoot}", "-StatePath", "${StatePath}", "-RuntimeDir", "${RuntimeDir}", "-ConfigPath", "${ConfigPath}", "-ConfigSourcePath", "${ConfigSourcePath}", "-SnapshotPath", "${SnapshotPath}", "-DisposableTarget"], "timeoutSeconds": 180, "stage": "setup"},
+        {"source": "candidate", "path": "tools/Initialize-GitMirrorNativeInstall.ps1", "arguments": ["-Action", "UpdateLegacy", "-TargetRoot", "${TargetRoot}", "-OldRoot", "${OldRoot}", "-StatePath", "${StatePath}", "-RuntimeDir", "${RuntimeDir}", "-ConfigPath", "${ConfigPath}", "-ConfigSourcePath", "${ConfigSourcePath}", "-SnapshotPath", "${SnapshotPath}", "-DisposableTarget"], "timeoutSeconds": 180},
+        {"source": "installer", "path": "windows.hyper-v.ps1", "arguments": ["-YurunaDir", "${TargetRoot}", "-YurunaBranch", "${CandidateTag}"], "environment": {"YURUNA_DIR": "${TargetRoot}", "YURUNA_BRANCH": "${CandidateTag}", "YURUNA_RUNTIME_DIR": "${RuntimeDir}"}, "timeoutSeconds": 7200},
+        {"source": "target", "path": "test/lab/Start-RecordedTestRunner.ps1", "arguments": ["-SnapshotPath", "${SnapshotPath}", "-TimeoutSeconds", "120"], "timeoutSeconds": 180},
+        {"source": "candidate", "path": "tools/Initialize-GitMirrorNativeInstall.ps1", "arguments": ["-Action", "Observe", "-TargetRoot", "${TargetRoot}", "-OldRoot", "${OldRoot}", "-StatePath", "${StatePath}", "-RuntimeDir", "${RuntimeDir}", "-ConfigPath", "${ConfigPath}", "-ConfigSourcePath", "${ConfigSourcePath}", "-SnapshotPath", "${SnapshotPath}", "-DisposableTarget", "-RequireRunner"], "timeoutSeconds": 180}
+      ],
+      "observations": [
+        {"name": "framework", "kind": "git", "path": "${TargetRoot}", "expected": "candidate", "before": true, "waitSeconds": 120},
+        {"name": "operatorProjectPreserved", "kind": "json", "path": "${StatePath}/observed.json", "expected": true, "before": true, "waitSeconds": 120, "property": "projectUrlPreserved", "retain": true},
+        {"name": "residentGeneration", "kind": "process-replaced", "path": "${StatePath}/observed.json", "expected": "candidate", "before": true, "waitSeconds": 120, "retain": true},
+        {"name": "launchOptionsPreserved", "kind": "json", "path": "${StatePath}/observed.json", "expected": true, "before": true, "waitSeconds": 120, "property": "launchOptionsPreserved", "retain": true},
+        {"name": "launchEnvironmentPreserved", "kind": "json", "path": "${StatePath}/observed.json", "expected": true, "before": true, "waitSeconds": 120, "property": "launchEnvironmentPreserved", "retain": true},
+        {"name": "repositoryIdentityPreserved", "kind": "json", "path": "${StatePath}/observed.json", "property": "repositoryIdentityPreserved", "expected": true, "before": false, "retain": true},
+        {"name": "configurationValuesPreserved", "kind": "json", "path": "${StatePath}/observed.json", "property": "configurationValuesPreserved", "expected": true, "before": false, "retain": true},
+        {"name": "noRecoveryCheckout", "kind": "json", "path": "${StatePath}/observed.json", "property": "noRecoveryCheckout", "expected": true, "before": false, "retain": true}
+      ],
+      "cleanupCommands": [
+        {"source": "candidate", "path": "tools/Initialize-GitMirrorNativeInstall.ps1", "arguments": ["-Action", "StopFixture", "-TargetRoot", "${TargetRoot}", "-OldRoot", "${OldRoot}", "-StatePath", "${StatePath}", "-RuntimeDir", "${RuntimeDir}", "-ConfigPath", "${ConfigPath}", "-ConfigSourcePath", "${ConfigSourcePath}", "-SnapshotPath", "${SnapshotPath}", "-DisposableTarget"], "timeoutSeconds": 180}
+      ]
+    },
+    {
+      "id": "GM-UPG-RECLONE-PRESERVE",
+      "platform": "windows-arm64",
+      "commands": [
+        {"source": "candidate", "path": "tools/Initialize-GitMirrorNativeInstall.ps1", "arguments": ["-Action", "Prepare", "-TargetRoot", "${TargetRoot}", "-OldRoot", "${OldRoot}", "-StatePath", "${StatePath}", "-RuntimeDir", "${RuntimeDir}", "-ConfigPath", "${ConfigPath}", "-ConfigSourcePath", "${ConfigSourcePath}", "-SnapshotPath", "${SnapshotPath}", "-DisposableTarget", "-Mode", "Main"], "timeoutSeconds": 180, "stage": "setup"},
+        {"stage": "setup", "source": "target", "path": "test/Start-TestRunner.ps1", "arguments": ["-ConfigPath", "${ConfigPath}", "-NoGitPull", "-NoStatusService", "-CycleDelaySeconds", "73", "-logLevel", "Warning"], "environment": {"YURUNA_RUNTIME_DIR": "${RuntimeDir}", "YURUNA_CONFIG_PATH": "${ConfigPath}"}, "timeoutSeconds": 1800, "background": true},
+        {"source": "candidate", "path": "tools/Initialize-GitMirrorNativeInstall.ps1", "arguments": ["-Action", "Capture", "-TargetRoot", "${TargetRoot}", "-OldRoot", "${OldRoot}", "-StatePath", "${StatePath}", "-RuntimeDir", "${RuntimeDir}", "-ConfigPath", "${ConfigPath}", "-ConfigSourcePath", "${ConfigSourcePath}", "-SnapshotPath", "${SnapshotPath}", "-DisposableTarget"], "timeoutSeconds": 180, "stage": "setup"},
+        {"source": "candidate", "path": "tools/Initialize-GitMirrorNativeInstall.ps1", "arguments": ["-Action", "Diverge", "-TargetRoot", "${TargetRoot}", "-OldRoot", "${OldRoot}", "-StatePath", "${StatePath}", "-RuntimeDir", "${RuntimeDir}", "-ConfigPath", "${ConfigPath}", "-ConfigSourcePath", "${ConfigSourcePath}", "-SnapshotPath", "${SnapshotPath}", "-DisposableTarget"], "timeoutSeconds": 180},
+        {"source": "installer", "path": "windows.hyper-v.ps1", "arguments": ["-YurunaDir", "${TargetRoot}", "-YurunaBranch", "main"], "environment": {"YURUNA_DIR": "${TargetRoot}", "YURUNA_BRANCH": "main", "YURUNA_RUNTIME_DIR": "${RuntimeDir}"}, "timeoutSeconds": 7200},
+        {"source": "target", "path": "test/lab/Start-RecordedTestRunner.ps1", "arguments": ["-SnapshotPath", "${SnapshotPath}", "-TimeoutSeconds", "120"], "timeoutSeconds": 180},
+        {"source": "candidate", "path": "tools/Initialize-GitMirrorNativeInstall.ps1", "arguments": ["-Action", "Observe", "-TargetRoot", "${TargetRoot}", "-OldRoot", "${OldRoot}", "-StatePath", "${StatePath}", "-RuntimeDir", "${RuntimeDir}", "-ConfigPath", "${ConfigPath}", "-ConfigSourcePath", "${ConfigSourcePath}", "-SnapshotPath", "${SnapshotPath}", "-DisposableTarget", "-RequireRunner"], "timeoutSeconds": 180}
+      ],
+      "observations": [
+        {"name": "framework", "kind": "git", "path": "${TargetRoot}", "expected": "candidate", "before": true, "waitSeconds": 120},
+        {"name": "operatorProjectPreserved", "kind": "json", "path": "${StatePath}/observed.json", "expected": true, "before": true, "waitSeconds": 120, "property": "projectUrlPreserved", "retain": true},
+        {"name": "residentGeneration", "kind": "process-replaced", "path": "${StatePath}/observed.json", "expected": "candidate", "before": true, "waitSeconds": 120, "retain": true},
+        {"name": "launchOptionsPreserved", "kind": "json", "path": "${StatePath}/observed.json", "expected": true, "before": true, "waitSeconds": 120, "property": "launchOptionsPreserved", "retain": true},
+        {"name": "launchEnvironmentPreserved", "kind": "json", "path": "${StatePath}/observed.json", "expected": true, "before": true, "waitSeconds": 120, "property": "launchEnvironmentPreserved", "retain": true},
+        {"name": "recloneRemovedDivergence", "kind": "file-absent", "path": "${TargetRoot}/qualification-local-change.txt", "expected": false, "before": false, "waitSeconds": 120},
+        {"name": "repositoryIdentityPreserved", "kind": "json", "path": "${StatePath}/observed.json", "property": "repositoryIdentityPreserved", "expected": true, "before": false, "retain": true},
+        {"name": "configurationValuesPreserved", "kind": "json", "path": "${StatePath}/observed.json", "property": "configurationValuesPreserved", "expected": true, "before": false, "retain": true}
+      ],
+      "cleanupCommands": [
+        {"source": "candidate", "path": "tools/Initialize-GitMirrorNativeInstall.ps1", "arguments": ["-Action", "StopFixture", "-TargetRoot", "${TargetRoot}", "-OldRoot", "${OldRoot}", "-StatePath", "${StatePath}", "-RuntimeDir", "${RuntimeDir}", "-ConfigPath", "${ConfigPath}", "-ConfigSourcePath", "${ConfigSourcePath}", "-SnapshotPath", "${SnapshotPath}", "-DisposableTarget"], "timeoutSeconds": 180}
+      ],
+      "coverage": "diagnostic-only",
+      "remaining": "Measure enrolled mode/key/custom-origin preservation and retained backup before setup; inject restoration failure and prove no runner starts."
+    },
+    {
+      "id": "GM-UPG-STOPPED-RUNNER",
+      "platform": "windows-arm64",
+      "commands": [
+        {"source": "candidate", "path": "tools/Initialize-GitMirrorNativeInstall.ps1", "arguments": ["-Action", "Prepare", "-TargetRoot", "${TargetRoot}", "-OldRoot", "${OldRoot}", "-StatePath", "${StatePath}", "-RuntimeDir", "${RuntimeDir}", "-ConfigPath", "${ConfigPath}", "-ConfigSourcePath", "${ConfigSourcePath}", "-SnapshotPath", "${SnapshotPath}", "-DisposableTarget", "-Mode", "Main"], "timeoutSeconds": 180, "stage": "setup"},
+        {"stage": "setup", "source": "target", "path": "test/Start-TestRunner.ps1", "arguments": ["-ConfigPath", "${ConfigPath}", "-NoGitPull", "-NoStatusService", "-CycleDelaySeconds", "73", "-logLevel", "Warning"], "environment": {"YURUNA_RUNTIME_DIR": "${RuntimeDir}", "YURUNA_CONFIG_PATH": "${ConfigPath}"}, "timeoutSeconds": 1800, "background": true},
+        {"source": "candidate", "path": "tools/Initialize-GitMirrorNativeInstall.ps1", "arguments": ["-Action", "Capture", "-TargetRoot", "${TargetRoot}", "-OldRoot", "${OldRoot}", "-StatePath", "${StatePath}", "-RuntimeDir", "${RuntimeDir}", "-ConfigPath", "${ConfigPath}", "-ConfigSourcePath", "${ConfigSourcePath}", "-SnapshotPath", "${SnapshotPath}", "-DisposableTarget"], "timeoutSeconds": 180, "stage": "setup"},
+        {"source": "installer", "path": "windows.hyper-v.ps1", "arguments": ["-YurunaDir", "${TargetRoot}", "-YurunaBranch", "main"], "environment": {"YURUNA_DIR": "${TargetRoot}", "YURUNA_BRANCH": "main", "YURUNA_RUNTIME_DIR": "${RuntimeDir}"}, "timeoutSeconds": 7200},
+        {"source": "candidate", "path": "tools/Initialize-GitMirrorNativeInstall.ps1", "arguments": ["-Action", "Observe", "-TargetRoot", "${TargetRoot}", "-OldRoot", "${OldRoot}", "-StatePath", "${StatePath}", "-RuntimeDir", "${RuntimeDir}", "-ConfigPath", "${ConfigPath}", "-ConfigSourcePath", "${ConfigSourcePath}", "-SnapshotPath", "${SnapshotPath}", "-DisposableTarget", "-ExpectStopped"], "timeoutSeconds": 180},
+        {"source": "target", "path": "test/lab/Start-RecordedTestRunner.ps1", "arguments": ["-SnapshotPath", "${SnapshotPath}", "-TimeoutSeconds", "120"], "timeoutSeconds": 180},
+        {"source": "candidate", "path": "tools/Initialize-GitMirrorNativeInstall.ps1", "arguments": ["-Action", "Observe", "-TargetRoot", "${TargetRoot}", "-OldRoot", "${OldRoot}", "-StatePath", "${StatePath}", "-RuntimeDir", "${RuntimeDir}", "-ConfigPath", "${ConfigPath}", "-ConfigSourcePath", "${ConfigSourcePath}", "-SnapshotPath", "${SnapshotPath}", "-DisposableTarget", "-RequireRunner"], "timeoutSeconds": 180},
+        {"source": "candidate", "path": "tools/Initialize-GitMirrorNativeInstall.ps1", "arguments": ["-Action", "Drain", "-TargetRoot", "${TargetRoot}", "-OldRoot", "${OldRoot}", "-StatePath", "${StatePath}", "-RuntimeDir", "${RuntimeDir}", "-ConfigPath", "${ConfigPath}", "-ConfigSourcePath", "${ConfigSourcePath}", "-SnapshotPath", "${StatePath}/clean-state/state.json", "-DisposableTarget"], "timeoutSeconds": 1900},
+        {"source": "target", "path": "test/lab/Invoke-HostRefresh.ps1", "arguments": ["-Tier", "restart", "-Force", "-ConfigPath", "${ConfigPath}", "-MaxRung", "reclaim"], "environment": {"YURUNA_RUNTIME_DIR": "${RuntimeDir}"}, "timeoutSeconds": 1800},
+        {"source": "candidate", "path": "tools/Initialize-GitMirrorNativeInstall.ps1", "arguments": ["-Action", "VerifyCleanStop", "-TargetRoot", "${TargetRoot}", "-OldRoot", "${OldRoot}", "-StatePath", "${StatePath}", "-RuntimeDir", "${RuntimeDir}", "-ConfigPath", "${ConfigPath}", "-ConfigSourcePath", "${ConfigSourcePath}", "-SnapshotPath", "${StatePath}/clean-state/state.json", "-DisposableTarget"], "timeoutSeconds": 180},
+        {"source": "target", "path": "test/lab/Start-RecordedTestRunner.ps1", "arguments": ["-SnapshotPath", "${StatePath}/clean-state/state.json", "-TimeoutSeconds", "120"], "timeoutSeconds": 180},
+        {"source": "candidate", "path": "tools/Initialize-GitMirrorNativeInstall.ps1", "arguments": ["-Action", "Observe", "-TargetRoot", "${TargetRoot}", "-OldRoot", "${OldRoot}", "-StatePath", "${StatePath}", "-RuntimeDir", "${RuntimeDir}", "-ConfigPath", "${ConfigPath}", "-ConfigSourcePath", "${ConfigSourcePath}", "-SnapshotPath", "${SnapshotPath}", "-DisposableTarget", "-RequireRunner"], "timeoutSeconds": 180}
+      ],
+      "observations": [
+        {"name": "framework", "kind": "git", "path": "${TargetRoot}", "expected": "candidate", "before": true, "waitSeconds": 120},
+        {"name": "operatorProjectPreserved", "kind": "json", "path": "${StatePath}/observed.json", "expected": true, "before": true, "waitSeconds": 120, "property": "projectUrlPreserved", "retain": true},
+        {"name": "residentGeneration", "kind": "process-replaced", "path": "${StatePath}/observed.json", "expected": "candidate", "before": true, "waitSeconds": 120, "retain": true},
+        {"name": "launchOptionsPreserved", "kind": "json", "path": "${StatePath}/observed.json", "expected": true, "before": true, "waitSeconds": 120, "property": "launchOptionsPreserved", "retain": true},
+        {"name": "launchEnvironmentPreserved", "kind": "json", "path": "${StatePath}/observed.json", "expected": true, "before": true, "waitSeconds": 120, "property": "launchEnvironmentPreserved", "retain": true},
+        {"name": "installerStoppedRunner", "kind": "json", "path": "${StatePath}/stopped.json", "expected": false, "before": false, "waitSeconds": 120, "property": "runnerAlive", "retain": true},
+        {"name": "repositoryIdentityPreserved", "kind": "json", "path": "${StatePath}/observed.json", "property": "repositoryIdentityPreserved", "expected": true, "before": false, "retain": true},
+        {"name": "configurationValuesPreserved", "kind": "json", "path": "${StatePath}/observed.json", "property": "configurationValuesPreserved", "expected": true, "before": false, "retain": true},
+        {"name": "cleanExitPreserved", "kind": "json", "path": "${StatePath}/clean-stop.json", "property": "cleanExitPreserved", "expected": true, "before": false, "retain": true}
+      ],
+      "cleanupCommands": [
+        {"source": "candidate", "path": "tools/Initialize-GitMirrorNativeInstall.ps1", "arguments": ["-Action", "StopFixture", "-TargetRoot", "${TargetRoot}", "-OldRoot", "${OldRoot}", "-StatePath", "${StatePath}", "-RuntimeDir", "${RuntimeDir}", "-ConfigPath", "${ConfigPath}", "-ConfigSourcePath", "${ConfigSourcePath}", "-SnapshotPath", "${SnapshotPath}", "-DisposableTarget"], "timeoutSeconds": 180}
+      ]
+    },
+    {
+      "id": "GM-ROLLBACK",
+      "platform": "windows-arm64",
+      "commands": [
+        {"source": "candidate", "path": "tools/Initialize-GitMirrorNativeInstall.ps1", "arguments": ["-Action", "Prepare", "-TargetRoot", "${TargetRoot}", "-OldRoot", "${OldRoot}", "-StatePath", "${StatePath}", "-RuntimeDir", "${RuntimeDir}", "-ConfigPath", "${ConfigPath}", "-ConfigSourcePath", "${ConfigSourcePath}", "-SnapshotPath", "${SnapshotPath}", "-DisposableTarget", "-Mode", "Main"], "timeoutSeconds": 180, "stage": "setup"},
+        {"stage": "setup", "source": "target", "path": "test/Start-TestRunner.ps1", "arguments": ["-ConfigPath", "${ConfigPath}", "-NoGitPull", "-NoStatusService", "-CycleDelaySeconds", "73", "-logLevel", "Warning"], "environment": {"YURUNA_RUNTIME_DIR": "${RuntimeDir}", "YURUNA_CONFIG_PATH": "${ConfigPath}"}, "timeoutSeconds": 1800, "background": true},
+        {"source": "candidate", "path": "tools/Initialize-GitMirrorNativeInstall.ps1", "arguments": ["-Action", "Capture", "-TargetRoot", "${TargetRoot}", "-OldRoot", "${OldRoot}", "-StatePath", "${StatePath}", "-RuntimeDir", "${RuntimeDir}", "-ConfigPath", "${ConfigPath}", "-ConfigSourcePath", "${ConfigSourcePath}", "-SnapshotPath", "${SnapshotPath}", "-DisposableTarget"], "timeoutSeconds": 180, "stage": "setup"},
+        {"source": "installer", "path": "windows.hyper-v.ps1", "arguments": ["-YurunaDir", "${TargetRoot}", "-YurunaBranch", "${CandidateTag}"], "environment": {"YURUNA_DIR": "${TargetRoot}", "YURUNA_BRANCH": "${CandidateTag}", "YURUNA_RUNTIME_DIR": "${RuntimeDir}"}, "timeoutSeconds": 7200},
+        {"source": "target", "path": "test/lab/Start-RecordedTestRunner.ps1", "arguments": ["-SnapshotPath", "${SnapshotPath}", "-TimeoutSeconds", "120"], "timeoutSeconds": 180},
+        {"source": "candidate", "path": "tools/Initialize-GitMirrorNativeInstall.ps1", "arguments": ["-Action", "Enroll", "-TargetRoot", "${TargetRoot}", "-OldRoot", "${OldRoot}", "-StatePath", "${StatePath}", "-RuntimeDir", "${RuntimeDir}", "-ConfigPath", "${ConfigPath}", "-ConfigSourcePath", "${ConfigSourcePath}", "-SnapshotPath", "${SnapshotPath}", "-DisposableTarget", "-MirrorKeyExportPath", "${MirrorKeyExportPath}", "-MirrorUrl", "${MirrorUrl}", "-MirrorMode", "fallback"], "timeoutSeconds": 180},
+        {"source": "candidate", "path": "tools/Initialize-GitMirrorNativeInstall.ps1", "arguments": ["-Action", "StopFixture", "-TargetRoot", "${TargetRoot}", "-OldRoot", "${OldRoot}", "-StatePath", "${StatePath}", "-RuntimeDir", "${RuntimeDir}", "-ConfigPath", "${ConfigPath}", "-ConfigSourcePath", "${ConfigSourcePath}", "-SnapshotPath", "${SnapshotPath}", "-DisposableTarget"], "timeoutSeconds": 180},
+        {"source": "installer", "path": "windows.hyper-v.ps1", "arguments": ["-YurunaDir", "${TargetRoot}", "-YurunaBranch", "${OldRelease}"], "environment": {"YURUNA_DIR": "${TargetRoot}", "YURUNA_BRANCH": "${OldRelease}", "YURUNA_RUNTIME_DIR": "${RuntimeDir}"}, "timeoutSeconds": 7200},
+        {"source": "candidate", "path": "tools/Initialize-GitMirrorNativeInstall.ps1", "arguments": ["-Action", "RunGate", "-TargetRoot", "${TargetRoot}", "-OldRoot", "${OldRoot}", "-StatePath", "${StatePath}", "-RuntimeDir", "${RuntimeDir}", "-ConfigPath", "${ConfigPath}", "-ConfigSourcePath", "${ConfigSourcePath}", "-SnapshotPath", "${SnapshotPath}", "-DisposableTarget", "-GateExpectation", "OldRollback"], "timeoutSeconds": 1300},
+        {"source": "installer", "path": "windows.hyper-v.ps1", "arguments": ["-YurunaDir", "${TargetRoot}", "-YurunaBranch", "${CandidateTag}"], "environment": {"YURUNA_DIR": "${TargetRoot}", "YURUNA_BRANCH": "${CandidateTag}", "YURUNA_RUNTIME_DIR": "${RuntimeDir}"}, "timeoutSeconds": 7200},
+        {"source": "candidate", "path": "tools/Initialize-GitMirrorNativeInstall.ps1", "arguments": ["-Action", "RunGate", "-TargetRoot", "${TargetRoot}", "-OldRoot", "${OldRoot}", "-StatePath", "${StatePath}", "-RuntimeDir", "${RuntimeDir}", "-ConfigPath", "${ConfigPath}", "-ConfigSourcePath", "${ConfigSourcePath}", "-SnapshotPath", "${SnapshotPath}", "-DisposableTarget", "-GateExpectation", "NewRollback", "-MirrorUrl", "${MirrorUrl}"], "timeoutSeconds": 1300},
+        {"source": "candidate", "path": "tools/Initialize-GitMirrorNativeInstall.ps1", "arguments": ["-Action", "Enroll", "-TargetRoot", "${TargetRoot}", "-OldRoot", "${OldRoot}", "-StatePath", "${StatePath}", "-RuntimeDir", "${RuntimeDir}", "-ConfigPath", "${ConfigPath}", "-ConfigSourcePath", "${ConfigSourcePath}", "-SnapshotPath", "${SnapshotPath}", "-DisposableTarget", "-MirrorKeyExportPath", "${MirrorKeyExportPath}", "-MirrorUrl", "${MirrorUrl}"], "timeoutSeconds": 180},
+        {"source": "target", "path": "test/lab/Start-RecordedTestRunner.ps1", "arguments": ["-SnapshotPath", "${SnapshotPath}", "-TimeoutSeconds", "120"], "timeoutSeconds": 180},
+        {"source": "candidate", "path": "tools/Initialize-GitMirrorNativeInstall.ps1", "arguments": ["-Action", "Observe", "-TargetRoot", "${TargetRoot}", "-OldRoot", "${OldRoot}", "-StatePath", "${StatePath}", "-RuntimeDir", "${RuntimeDir}", "-ConfigPath", "${ConfigPath}", "-ConfigSourcePath", "${ConfigSourcePath}", "-SnapshotPath", "${SnapshotPath}", "-DisposableTarget", "-RequireRunner"], "timeoutSeconds": 180}
+      ],
+      "observations": [
+        {"name": "framework", "kind": "git", "path": "${TargetRoot}", "expected": "candidate", "before": true, "waitSeconds": 120},
+        {"name": "operatorProjectPreserved", "kind": "json", "path": "${StatePath}/observed.json", "expected": true, "before": true, "waitSeconds": 120, "property": "projectUrlPreserved", "retain": true},
+        {"name": "residentGeneration", "kind": "process-replaced", "path": "${StatePath}/observed.json", "expected": "candidate", "before": true, "waitSeconds": 120, "retain": true},
+        {"name": "launchOptionsPreserved", "kind": "json", "path": "${StatePath}/observed.json", "expected": true, "before": true, "waitSeconds": 120, "property": "launchOptionsPreserved", "retain": true},
+        {"name": "launchEnvironmentPreserved", "kind": "json", "path": "${StatePath}/observed.json", "expected": true, "before": true, "waitSeconds": 120, "property": "launchEnvironmentPreserved", "retain": true},
+        {"name": "parked", "kind": "json", "path": "${StatePath}/gate-OldRollback.json", "property": "parked", "expected": true, "before": false, "retain": true},
+        {"name": "backupVerified", "kind": "json", "path": "${StatePath}/gate-OldRollback.json", "property": "backupVerified", "expected": true, "before": false, "retain": true},
+        {"name": "warningObserved", "kind": "json", "path": "${StatePath}/gate-OldRollback.json", "property": "warningObserved", "expected": true, "before": false, "retain": true},
+        {"name": "defaultsRestored", "kind": "json", "path": "${StatePath}/gate-NewRollback.json", "property": "defaultsRestored", "expected": true, "before": false, "retain": true},
+        {"name": "fallbackReason", "kind": "json", "path": "${StatePath}/gate-NewRollback.json", "property": "fallbackReason", "expected": "mirror-untrusted", "before": false, "retain": true},
+        {"name": "keyEnrolled", "kind": "json", "path": "${StatePath}/enrollment.json", "property": "keyEnrolled", "expected": true, "before": false, "retain": true}
+      ],
+      "cleanupCommands": [
+        {"source": "candidate", "path": "tools/Initialize-GitMirrorNativeInstall.ps1", "arguments": ["-Action", "StopFixture", "-TargetRoot", "${TargetRoot}", "-OldRoot", "${OldRoot}", "-StatePath", "${StatePath}", "-RuntimeDir", "${RuntimeDir}", "-ConfigPath", "${ConfigPath}", "-ConfigSourcePath", "${ConfigSourcePath}", "-SnapshotPath", "${SnapshotPath}", "-DisposableTarget"], "timeoutSeconds": 180}
+      ]
+    },
+    {
+      "id": "GM-FRESH-SETUP-WINDOWS-ARM64",
+      "platform": "windows-arm64",
+      "commands": [
+        {"source": "candidate", "path": "tools/Initialize-GitMirrorNativeInstall.ps1", "arguments": ["-Action", "Prepare", "-TargetRoot", "${TargetRoot}", "-OldRoot", "${OldRoot}", "-StatePath", "${StatePath}", "-RuntimeDir", "${RuntimeDir}", "-ConfigPath", "${ConfigPath}", "-ConfigSourcePath", "${ConfigSourcePath}", "-SnapshotPath", "${SnapshotPath}", "-DisposableTarget", "-Mode", "Fresh"], "timeoutSeconds": 180, "stage": "setup"},
+        {"source": "installer", "path": "windows.hyper-v.ps1", "arguments": ["-YurunaDir", "${TargetRoot}", "-YurunaBranch", "${CandidateTag}"], "environment": {"YURUNA_DIR": "${TargetRoot}", "YURUNA_BRANCH": "${CandidateTag}", "YURUNA_RUNTIME_DIR": "${RuntimeDir}"}, "timeoutSeconds": 7200},
+        {"source": "target", "path": "install/setup.ps1", "arguments": ["-AnswerFile", "${AnswerFilePath}"], "timeoutSeconds": 7200},
+        {"source": "candidate", "path": "tools/Initialize-GitMirrorNativeInstall.ps1", "arguments": ["-Action", "Observe", "-TargetRoot", "${TargetRoot}", "-OldRoot", "${OldRoot}", "-StatePath", "${StatePath}", "-RuntimeDir", "${RuntimeDir}", "-ConfigPath", "${ConfigPath}", "-ConfigSourcePath", "${ConfigSourcePath}", "-SnapshotPath", "${SnapshotPath}", "-DisposableTarget"], "timeoutSeconds": 180}
+      ],
+      "observations": [
+        {"name": "framework", "kind": "git", "path": "${TargetRoot}", "expected": "candidate", "before": false, "waitSeconds": 120},
+        {"name": "operatorProjectPreserved", "kind": "json", "path": "${StatePath}/observed.json", "expected": true, "before": false, "waitSeconds": 120, "property": "projectUrlPreserved", "retain": true}
+      ],
+      "cleanupCommands": [
+        {"source": "candidate", "path": "tools/Initialize-GitMirrorNativeInstall.ps1", "arguments": ["-Action", "StopFixture", "-TargetRoot", "${TargetRoot}", "-OldRoot", "${OldRoot}", "-StatePath", "${StatePath}", "-RuntimeDir", "${RuntimeDir}", "-ConfigPath", "${ConfigPath}", "-ConfigSourcePath", "${ConfigSourcePath}", "-SnapshotPath", "${SnapshotPath}", "-DisposableTarget"], "timeoutSeconds": 180}
+      ],
+      "coverage": "diagnostic-only",
+      "remaining": "Measure key-export enrollment/reporting and populating origin fallback followed by mirror-confirmed cycle without restart."
+    },
+    {
+      "id": "GM-UPG-PUBLIC-MAIN",
+      "platform": "macos-arm64",
+      "commands": [
+        {"source": "candidate", "path": "tools/Initialize-GitMirrorNativeInstall.ps1", "arguments": ["-Action", "Prepare", "-TargetRoot", "${TargetRoot}", "-OldRoot", "${OldRoot}", "-StatePath", "${StatePath}", "-RuntimeDir", "${RuntimeDir}", "-ConfigPath", "${ConfigPath}", "-ConfigSourcePath", "${ConfigSourcePath}", "-SnapshotPath", "${SnapshotPath}", "-DisposableTarget", "-Mode", "Main", "-AutomaticOrigin"], "timeoutSeconds": 180, "stage": "setup"},
+        {"stage": "setup", "source": "target", "path": "test/Start-TestRunner.ps1", "arguments": ["-ConfigPath", "${ConfigPath}", "-NoStatusService", "-CycleDelaySeconds", "73", "-logLevel", "Warning"], "environment": {"YURUNA_RUNTIME_DIR": "${RuntimeDir}", "YURUNA_CONFIG_PATH": "${ConfigPath}"}, "timeoutSeconds": 1800, "background": true, "frameworkOriginPath": "${StatePath}/adoption-origin.git"},
+        {"source": "candidate", "path": "tools/Initialize-GitMirrorNativeInstall.ps1", "arguments": ["-Action", "Capture", "-TargetRoot", "${TargetRoot}", "-OldRoot", "${OldRoot}", "-StatePath", "${StatePath}", "-RuntimeDir", "${RuntimeDir}", "-ConfigPath", "${ConfigPath}", "-ConfigSourcePath", "${ConfigSourcePath}", "-SnapshotPath", "${SnapshotPath}", "-DisposableTarget"], "timeoutSeconds": 180, "stage": "setup"},
+        {"source": "candidate", "path": "tools/Initialize-GitMirrorNativeInstall.ps1", "arguments": ["-Action", "AdvanceOrigin", "-TargetRoot", "${TargetRoot}", "-OldRoot", "${OldRoot}", "-StatePath", "${StatePath}", "-RuntimeDir", "${RuntimeDir}", "-ConfigPath", "${ConfigPath}", "-ConfigSourcePath", "${ConfigSourcePath}", "-SnapshotPath", "${SnapshotPath}", "-DisposableTarget", "-CandidateTree", "${CandidateTree}"], "timeoutSeconds": 180},
+        {"source": "candidate", "path": "tools/Initialize-GitMirrorNativeInstall.ps1", "arguments": ["-Action", "WaitAdoption", "-TargetRoot", "${TargetRoot}", "-OldRoot", "${OldRoot}", "-StatePath", "${StatePath}", "-RuntimeDir", "${RuntimeDir}", "-ConfigPath", "${ConfigPath}", "-ConfigSourcePath", "${ConfigSourcePath}", "-SnapshotPath", "${SnapshotPath}", "-DisposableTarget", "-CandidateTree", "${CandidateTree}"], "timeoutSeconds": 1900},
+        {"source": "target", "path": "test/lab/Invoke-HostRefresh.ps1", "arguments": ["-Tier", "restart", "-Force", "-ConfigPath", "${ConfigPath}", "-MaxRung", "reclaim"], "environment": {"YURUNA_RUNTIME_DIR": "${RuntimeDir}"}, "timeoutSeconds": 1800},
+        {"source": "candidate", "path": "tools/Initialize-GitMirrorNativeInstall.ps1", "arguments": ["-Action", "Observe", "-TargetRoot", "${TargetRoot}", "-OldRoot", "${OldRoot}", "-StatePath", "${StatePath}", "-RuntimeDir", "${RuntimeDir}", "-ConfigPath", "${ConfigPath}", "-ConfigSourcePath", "${ConfigSourcePath}", "-SnapshotPath", "${SnapshotPath}", "-DisposableTarget", "-RequireRunner"], "timeoutSeconds": 180},
+        {"source": "candidate", "path": "tools/Initialize-GitMirrorNativeInstall.ps1", "arguments": ["-Action", "Enroll", "-TargetRoot", "${TargetRoot}", "-OldRoot", "${OldRoot}", "-StatePath", "${StatePath}", "-RuntimeDir", "${RuntimeDir}", "-ConfigPath", "${ConfigPath}", "-ConfigSourcePath", "${ConfigSourcePath}", "-SnapshotPath", "${SnapshotPath}", "-DisposableTarget", "-MirrorKeyExportPath", "${MirrorKeyExportPath}", "-MirrorUrl", "${MirrorUrl}"], "timeoutSeconds": 180},
+        {"source": "candidate", "path": "tools/Initialize-GitMirrorNativeInstall.ps1", "arguments": ["-Action", "WaitMirrorCycle", "-TargetRoot", "${TargetRoot}", "-OldRoot", "${OldRoot}", "-StatePath", "${StatePath}", "-RuntimeDir", "${RuntimeDir}", "-ConfigPath", "${ConfigPath}", "-ConfigSourcePath", "${ConfigSourcePath}", "-SnapshotPath", "${SnapshotPath}", "-DisposableTarget"], "timeoutSeconds": 1900}
+      ],
+      "observations": [
+        {"name": "framework", "kind": "git", "path": "${TargetRoot}", "expected": "candidate", "before": true, "waitSeconds": 120},
+        {"name": "operatorProjectPreserved", "kind": "json", "path": "${StatePath}/observed.json", "expected": true, "before": true, "waitSeconds": 120, "property": "projectUrlPreserved", "retain": true},
+        {"name": "residentGeneration", "kind": "process-replaced", "path": "${StatePath}/observed.json", "expected": "candidate", "before": true, "waitSeconds": 120, "retain": true},
+        {"name": "launchOptionsPreserved", "kind": "json", "path": "${StatePath}/observed.json", "expected": true, "before": true, "waitSeconds": 120, "property": "launchOptionsPreserved", "retain": true},
+        {"name": "launchEnvironmentPreserved", "kind": "json", "path": "${StatePath}/observed.json", "expected": true, "before": true, "waitSeconds": 120, "property": "launchEnvironmentPreserved", "retain": true},
+        {"name": "newCycleBound", "kind": "json", "path": "${StatePath}/adoption.json", "property": "newCycleBound", "expected": true, "before": false, "waitSeconds": 120, "retain": true},
+        {"name": "templateKeysPresent", "kind": "json", "path": "${StatePath}/adoption.json", "property": "templateKeysPresent", "expected": true, "before": false, "waitSeconds": 120, "retain": true},
+        {"name": "oldOuterRetained", "kind": "json", "path": "${StatePath}/adoption.json", "property": "oldOuterRetained", "expected": true, "before": false, "waitSeconds": 120, "retain": true},
+        {"name": "keyEnrolled", "kind": "json", "path": "${StatePath}/enrollment.json", "property": "keyEnrolled", "expected": true, "before": false, "retain": true},
+        {"name": "operatorValuesPreserved", "kind": "json", "path": "${StatePath}/enrollment.json", "property": "operatorValuesPreserved", "expected": true, "before": false, "retain": true},
+        {"name": "verification", "kind": "json", "path": "${StatePath}/mirror-cycle.json", "property": "verification", "expected": "mirror-confirmed", "before": false, "retain": true},
+        {"name": "sameResident", "kind": "json", "path": "${StatePath}/mirror-cycle.json", "property": "sameResident", "expected": true, "before": false, "retain": true}
+      ],
+      "cleanupCommands": [
+        {"source": "candidate", "path": "tools/Initialize-GitMirrorNativeInstall.ps1", "arguments": ["-Action", "StopFixture", "-TargetRoot", "${TargetRoot}", "-OldRoot", "${OldRoot}", "-StatePath", "${StatePath}", "-RuntimeDir", "${RuntimeDir}", "-ConfigPath", "${ConfigPath}", "-ConfigSourcePath", "${ConfigSourcePath}", "-SnapshotPath", "${SnapshotPath}", "-DisposableTarget"], "timeoutSeconds": 180}
+      ],
+      "prepareOrigins": true
+    },
+    {
+      "id": "GM-UPG-PUBLIC-PIN",
+      "platform": "macos-arm64",
+      "commands": [
+        {"source": "candidate", "path": "tools/Initialize-GitMirrorNativeInstall.ps1", "arguments": ["-Action", "Prepare", "-TargetRoot", "${TargetRoot}", "-OldRoot", "${OldRoot}", "-StatePath", "${StatePath}", "-RuntimeDir", "${RuntimeDir}", "-ConfigPath", "${ConfigPath}", "-ConfigSourcePath", "${ConfigSourcePath}", "-SnapshotPath", "${SnapshotPath}", "-DisposableTarget", "-Mode", "Pin"], "timeoutSeconds": 180, "stage": "setup"},
+        {"stage": "setup", "source": "target", "path": "test/Start-TestRunner.ps1", "arguments": ["-ConfigPath", "${ConfigPath}", "-NoGitPull", "-NoStatusService", "-CycleDelaySeconds", "73", "-logLevel", "Warning"], "environment": {"YURUNA_RUNTIME_DIR": "${RuntimeDir}", "YURUNA_CONFIG_PATH": "${ConfigPath}"}, "timeoutSeconds": 1800, "background": true},
+        {"source": "candidate", "path": "tools/Initialize-GitMirrorNativeInstall.ps1", "arguments": ["-Action", "Capture", "-TargetRoot", "${TargetRoot}", "-OldRoot", "${OldRoot}", "-StatePath", "${StatePath}", "-RuntimeDir", "${RuntimeDir}", "-ConfigPath", "${ConfigPath}", "-ConfigSourcePath", "${ConfigSourcePath}", "-SnapshotPath", "${SnapshotPath}", "-DisposableTarget"], "timeoutSeconds": 180, "stage": "setup"},
+        {"source": "candidate", "path": "tools/Initialize-GitMirrorNativeInstall.ps1", "arguments": ["-Action", "UpdateLegacy", "-TargetRoot", "${TargetRoot}", "-OldRoot", "${OldRoot}", "-StatePath", "${StatePath}", "-RuntimeDir", "${RuntimeDir}", "-ConfigPath", "${ConfigPath}", "-ConfigSourcePath", "${ConfigSourcePath}", "-SnapshotPath", "${SnapshotPath}", "-DisposableTarget"], "timeoutSeconds": 180},
+        {"source": "installer", "path": "macos.utm.sh", "arguments": [], "environment": {"YURUNA_DIR": "${TargetRoot}", "YURUNA_BRANCH": "${CandidateTag}", "YURUNA_RUNTIME_DIR": "${RuntimeDir}"}, "timeoutSeconds": 7200},
+        {"source": "target", "path": "test/lab/Start-RecordedTestRunner.ps1", "arguments": ["-SnapshotPath", "${SnapshotPath}", "-TimeoutSeconds", "120"], "timeoutSeconds": 180},
+        {"source": "candidate", "path": "tools/Initialize-GitMirrorNativeInstall.ps1", "arguments": ["-Action", "Observe", "-TargetRoot", "${TargetRoot}", "-OldRoot", "${OldRoot}", "-StatePath", "${StatePath}", "-RuntimeDir", "${RuntimeDir}", "-ConfigPath", "${ConfigPath}", "-ConfigSourcePath", "${ConfigSourcePath}", "-SnapshotPath", "${SnapshotPath}", "-DisposableTarget", "-RequireRunner"], "timeoutSeconds": 180}
+      ],
+      "observations": [
+        {"name": "framework", "kind": "git", "path": "${TargetRoot}", "expected": "candidate", "before": true, "waitSeconds": 120},
+        {"name": "operatorProjectPreserved", "kind": "json", "path": "${StatePath}/observed.json", "expected": true, "before": true, "waitSeconds": 120, "property": "projectUrlPreserved", "retain": true},
+        {"name": "residentGeneration", "kind": "process-replaced", "path": "${StatePath}/observed.json", "expected": "candidate", "before": true, "waitSeconds": 120, "retain": true},
+        {"name": "launchOptionsPreserved", "kind": "json", "path": "${StatePath}/observed.json", "expected": true, "before": true, "waitSeconds": 120, "property": "launchOptionsPreserved", "retain": true},
+        {"name": "launchEnvironmentPreserved", "kind": "json", "path": "${StatePath}/observed.json", "expected": true, "before": true, "waitSeconds": 120, "property": "launchEnvironmentPreserved", "retain": true},
+        {"name": "repositoryIdentityPreserved", "kind": "json", "path": "${StatePath}/observed.json", "property": "repositoryIdentityPreserved", "expected": true, "before": false, "retain": true},
+        {"name": "configurationValuesPreserved", "kind": "json", "path": "${StatePath}/observed.json", "property": "configurationValuesPreserved", "expected": true, "before": false, "retain": true},
+        {"name": "noRecoveryCheckout", "kind": "json", "path": "${StatePath}/observed.json", "property": "noRecoveryCheckout", "expected": true, "before": false, "retain": true}
+      ],
+      "cleanupCommands": [
+        {"source": "candidate", "path": "tools/Initialize-GitMirrorNativeInstall.ps1", "arguments": ["-Action", "StopFixture", "-TargetRoot", "${TargetRoot}", "-OldRoot", "${OldRoot}", "-StatePath", "${StatePath}", "-RuntimeDir", "${RuntimeDir}", "-ConfigPath", "${ConfigPath}", "-ConfigSourcePath", "${ConfigSourcePath}", "-SnapshotPath", "${SnapshotPath}", "-DisposableTarget"], "timeoutSeconds": 180}
+      ]
+    },
+    {
+      "id": "GM-UPG-RECLONE-PRESERVE",
+      "platform": "macos-arm64",
+      "commands": [
+        {"source": "candidate", "path": "tools/Initialize-GitMirrorNativeInstall.ps1", "arguments": ["-Action", "Prepare", "-TargetRoot", "${TargetRoot}", "-OldRoot", "${OldRoot}", "-StatePath", "${StatePath}", "-RuntimeDir", "${RuntimeDir}", "-ConfigPath", "${ConfigPath}", "-ConfigSourcePath", "${ConfigSourcePath}", "-SnapshotPath", "${SnapshotPath}", "-DisposableTarget", "-Mode", "Main"], "timeoutSeconds": 180, "stage": "setup"},
+        {"stage": "setup", "source": "target", "path": "test/Start-TestRunner.ps1", "arguments": ["-ConfigPath", "${ConfigPath}", "-NoGitPull", "-NoStatusService", "-CycleDelaySeconds", "73", "-logLevel", "Warning"], "environment": {"YURUNA_RUNTIME_DIR": "${RuntimeDir}", "YURUNA_CONFIG_PATH": "${ConfigPath}"}, "timeoutSeconds": 1800, "background": true},
+        {"source": "candidate", "path": "tools/Initialize-GitMirrorNativeInstall.ps1", "arguments": ["-Action", "Capture", "-TargetRoot", "${TargetRoot}", "-OldRoot", "${OldRoot}", "-StatePath", "${StatePath}", "-RuntimeDir", "${RuntimeDir}", "-ConfigPath", "${ConfigPath}", "-ConfigSourcePath", "${ConfigSourcePath}", "-SnapshotPath", "${SnapshotPath}", "-DisposableTarget"], "timeoutSeconds": 180, "stage": "setup"},
+        {"source": "candidate", "path": "tools/Initialize-GitMirrorNativeInstall.ps1", "arguments": ["-Action", "Diverge", "-TargetRoot", "${TargetRoot}", "-OldRoot", "${OldRoot}", "-StatePath", "${StatePath}", "-RuntimeDir", "${RuntimeDir}", "-ConfigPath", "${ConfigPath}", "-ConfigSourcePath", "${ConfigSourcePath}", "-SnapshotPath", "${SnapshotPath}", "-DisposableTarget"], "timeoutSeconds": 180},
+        {"source": "installer", "path": "macos.utm.sh", "arguments": [], "environment": {"YURUNA_DIR": "${TargetRoot}", "YURUNA_BRANCH": "main", "YURUNA_RUNTIME_DIR": "${RuntimeDir}"}, "timeoutSeconds": 7200},
+        {"source": "target", "path": "test/lab/Start-RecordedTestRunner.ps1", "arguments": ["-SnapshotPath", "${SnapshotPath}", "-TimeoutSeconds", "120"], "timeoutSeconds": 180},
+        {"source": "candidate", "path": "tools/Initialize-GitMirrorNativeInstall.ps1", "arguments": ["-Action", "Observe", "-TargetRoot", "${TargetRoot}", "-OldRoot", "${OldRoot}", "-StatePath", "${StatePath}", "-RuntimeDir", "${RuntimeDir}", "-ConfigPath", "${ConfigPath}", "-ConfigSourcePath", "${ConfigSourcePath}", "-SnapshotPath", "${SnapshotPath}", "-DisposableTarget", "-RequireRunner"], "timeoutSeconds": 180}
+      ],
+      "observations": [
+        {"name": "framework", "kind": "git", "path": "${TargetRoot}", "expected": "candidate", "before": true, "waitSeconds": 120},
+        {"name": "operatorProjectPreserved", "kind": "json", "path": "${StatePath}/observed.json", "expected": true, "before": true, "waitSeconds": 120, "property": "projectUrlPreserved", "retain": true},
+        {"name": "residentGeneration", "kind": "process-replaced", "path": "${StatePath}/observed.json", "expected": "candidate", "before": true, "waitSeconds": 120, "retain": true},
+        {"name": "launchOptionsPreserved", "kind": "json", "path": "${StatePath}/observed.json", "expected": true, "before": true, "waitSeconds": 120, "property": "launchOptionsPreserved", "retain": true},
+        {"name": "launchEnvironmentPreserved", "kind": "json", "path": "${StatePath}/observed.json", "expected": true, "before": true, "waitSeconds": 120, "property": "launchEnvironmentPreserved", "retain": true},
+        {"name": "recloneRemovedDivergence", "kind": "file-absent", "path": "${TargetRoot}/qualification-local-change.txt", "expected": false, "before": false, "waitSeconds": 120},
+        {"name": "repositoryIdentityPreserved", "kind": "json", "path": "${StatePath}/observed.json", "property": "repositoryIdentityPreserved", "expected": true, "before": false, "retain": true},
+        {"name": "configurationValuesPreserved", "kind": "json", "path": "${StatePath}/observed.json", "property": "configurationValuesPreserved", "expected": true, "before": false, "retain": true}
+      ],
+      "cleanupCommands": [
+        {"source": "candidate", "path": "tools/Initialize-GitMirrorNativeInstall.ps1", "arguments": ["-Action", "StopFixture", "-TargetRoot", "${TargetRoot}", "-OldRoot", "${OldRoot}", "-StatePath", "${StatePath}", "-RuntimeDir", "${RuntimeDir}", "-ConfigPath", "${ConfigPath}", "-ConfigSourcePath", "${ConfigSourcePath}", "-SnapshotPath", "${SnapshotPath}", "-DisposableTarget"], "timeoutSeconds": 180}
+      ],
+      "coverage": "diagnostic-only",
+      "remaining": "Measure enrolled mode/key/custom-origin preservation and retained backup before setup; inject restoration failure and prove no runner starts."
+    },
+    {
+      "id": "GM-UPG-STOPPED-RUNNER",
+      "platform": "macos-arm64",
+      "commands": [
+        {"source": "candidate", "path": "tools/Initialize-GitMirrorNativeInstall.ps1", "arguments": ["-Action", "Prepare", "-TargetRoot", "${TargetRoot}", "-OldRoot", "${OldRoot}", "-StatePath", "${StatePath}", "-RuntimeDir", "${RuntimeDir}", "-ConfigPath", "${ConfigPath}", "-ConfigSourcePath", "${ConfigSourcePath}", "-SnapshotPath", "${SnapshotPath}", "-DisposableTarget", "-Mode", "Main"], "timeoutSeconds": 180, "stage": "setup"},
+        {"stage": "setup", "source": "target", "path": "test/Start-TestRunner.ps1", "arguments": ["-ConfigPath", "${ConfigPath}", "-NoGitPull", "-NoStatusService", "-CycleDelaySeconds", "73", "-logLevel", "Warning"], "environment": {"YURUNA_RUNTIME_DIR": "${RuntimeDir}", "YURUNA_CONFIG_PATH": "${ConfigPath}"}, "timeoutSeconds": 1800, "background": true},
+        {"source": "candidate", "path": "tools/Initialize-GitMirrorNativeInstall.ps1", "arguments": ["-Action", "Capture", "-TargetRoot", "${TargetRoot}", "-OldRoot", "${OldRoot}", "-StatePath", "${StatePath}", "-RuntimeDir", "${RuntimeDir}", "-ConfigPath", "${ConfigPath}", "-ConfigSourcePath", "${ConfigSourcePath}", "-SnapshotPath", "${SnapshotPath}", "-DisposableTarget"], "timeoutSeconds": 180, "stage": "setup"},
+        {"source": "installer", "path": "macos.utm.sh", "arguments": [], "environment": {"YURUNA_DIR": "${TargetRoot}", "YURUNA_BRANCH": "main", "YURUNA_RUNTIME_DIR": "${RuntimeDir}"}, "timeoutSeconds": 7200},
+        {"source": "candidate", "path": "tools/Initialize-GitMirrorNativeInstall.ps1", "arguments": ["-Action", "Observe", "-TargetRoot", "${TargetRoot}", "-OldRoot", "${OldRoot}", "-StatePath", "${StatePath}", "-RuntimeDir", "${RuntimeDir}", "-ConfigPath", "${ConfigPath}", "-ConfigSourcePath", "${ConfigSourcePath}", "-SnapshotPath", "${SnapshotPath}", "-DisposableTarget", "-ExpectStopped"], "timeoutSeconds": 180},
+        {"source": "target", "path": "test/lab/Start-RecordedTestRunner.ps1", "arguments": ["-SnapshotPath", "${SnapshotPath}", "-TimeoutSeconds", "120"], "timeoutSeconds": 180},
+        {"source": "candidate", "path": "tools/Initialize-GitMirrorNativeInstall.ps1", "arguments": ["-Action", "Observe", "-TargetRoot", "${TargetRoot}", "-OldRoot", "${OldRoot}", "-StatePath", "${StatePath}", "-RuntimeDir", "${RuntimeDir}", "-ConfigPath", "${ConfigPath}", "-ConfigSourcePath", "${ConfigSourcePath}", "-SnapshotPath", "${SnapshotPath}", "-DisposableTarget", "-RequireRunner"], "timeoutSeconds": 180},
+        {"source": "candidate", "path": "tools/Initialize-GitMirrorNativeInstall.ps1", "arguments": ["-Action", "Drain", "-TargetRoot", "${TargetRoot}", "-OldRoot", "${OldRoot}", "-StatePath", "${StatePath}", "-RuntimeDir", "${RuntimeDir}", "-ConfigPath", "${ConfigPath}", "-ConfigSourcePath", "${ConfigSourcePath}", "-SnapshotPath", "${StatePath}/clean-state/state.json", "-DisposableTarget"], "timeoutSeconds": 1900},
+        {"source": "target", "path": "test/lab/Invoke-HostRefresh.ps1", "arguments": ["-Tier", "restart", "-Force", "-ConfigPath", "${ConfigPath}", "-MaxRung", "reclaim"], "environment": {"YURUNA_RUNTIME_DIR": "${RuntimeDir}"}, "timeoutSeconds": 1800},
+        {"source": "candidate", "path": "tools/Initialize-GitMirrorNativeInstall.ps1", "arguments": ["-Action", "VerifyCleanStop", "-TargetRoot", "${TargetRoot}", "-OldRoot", "${OldRoot}", "-StatePath", "${StatePath}", "-RuntimeDir", "${RuntimeDir}", "-ConfigPath", "${ConfigPath}", "-ConfigSourcePath", "${ConfigSourcePath}", "-SnapshotPath", "${StatePath}/clean-state/state.json", "-DisposableTarget"], "timeoutSeconds": 180},
+        {"source": "target", "path": "test/lab/Start-RecordedTestRunner.ps1", "arguments": ["-SnapshotPath", "${StatePath}/clean-state/state.json", "-TimeoutSeconds", "120"], "timeoutSeconds": 180},
+        {"source": "candidate", "path": "tools/Initialize-GitMirrorNativeInstall.ps1", "arguments": ["-Action", "Observe", "-TargetRoot", "${TargetRoot}", "-OldRoot", "${OldRoot}", "-StatePath", "${StatePath}", "-RuntimeDir", "${RuntimeDir}", "-ConfigPath", "${ConfigPath}", "-ConfigSourcePath", "${ConfigSourcePath}", "-SnapshotPath", "${SnapshotPath}", "-DisposableTarget", "-RequireRunner"], "timeoutSeconds": 180}
+      ],
+      "observations": [
+        {"name": "framework", "kind": "git", "path": "${TargetRoot}", "expected": "candidate", "before": true, "waitSeconds": 120},
+        {"name": "operatorProjectPreserved", "kind": "json", "path": "${StatePath}/observed.json", "expected": true, "before": true, "waitSeconds": 120, "property": "projectUrlPreserved", "retain": true},
+        {"name": "residentGeneration", "kind": "process-replaced", "path": "${StatePath}/observed.json", "expected": "candidate", "before": true, "waitSeconds": 120, "retain": true},
+        {"name": "launchOptionsPreserved", "kind": "json", "path": "${StatePath}/observed.json", "expected": true, "before": true, "waitSeconds": 120, "property": "launchOptionsPreserved", "retain": true},
+        {"name": "launchEnvironmentPreserved", "kind": "json", "path": "${StatePath}/observed.json", "expected": true, "before": true, "waitSeconds": 120, "property": "launchEnvironmentPreserved", "retain": true},
+        {"name": "installerStoppedRunner", "kind": "json", "path": "${StatePath}/stopped.json", "expected": false, "before": false, "waitSeconds": 120, "property": "runnerAlive", "retain": true},
+        {"name": "repositoryIdentityPreserved", "kind": "json", "path": "${StatePath}/observed.json", "property": "repositoryIdentityPreserved", "expected": true, "before": false, "retain": true},
+        {"name": "configurationValuesPreserved", "kind": "json", "path": "${StatePath}/observed.json", "property": "configurationValuesPreserved", "expected": true, "before": false, "retain": true},
+        {"name": "cleanExitPreserved", "kind": "json", "path": "${StatePath}/clean-stop.json", "property": "cleanExitPreserved", "expected": true, "before": false, "retain": true}
+      ],
+      "cleanupCommands": [
+        {"source": "candidate", "path": "tools/Initialize-GitMirrorNativeInstall.ps1", "arguments": ["-Action", "StopFixture", "-TargetRoot", "${TargetRoot}", "-OldRoot", "${OldRoot}", "-StatePath", "${StatePath}", "-RuntimeDir", "${RuntimeDir}", "-ConfigPath", "${ConfigPath}", "-ConfigSourcePath", "${ConfigSourcePath}", "-SnapshotPath", "${SnapshotPath}", "-DisposableTarget"], "timeoutSeconds": 180}
+      ]
+    },
+    {
+      "id": "GM-ROLLBACK",
+      "platform": "macos-arm64",
+      "commands": [
+        {"source": "candidate", "path": "tools/Initialize-GitMirrorNativeInstall.ps1", "arguments": ["-Action", "Prepare", "-TargetRoot", "${TargetRoot}", "-OldRoot", "${OldRoot}", "-StatePath", "${StatePath}", "-RuntimeDir", "${RuntimeDir}", "-ConfigPath", "${ConfigPath}", "-ConfigSourcePath", "${ConfigSourcePath}", "-SnapshotPath", "${SnapshotPath}", "-DisposableTarget", "-Mode", "Main"], "timeoutSeconds": 180, "stage": "setup"},
+        {"stage": "setup", "source": "target", "path": "test/Start-TestRunner.ps1", "arguments": ["-ConfigPath", "${ConfigPath}", "-NoGitPull", "-NoStatusService", "-CycleDelaySeconds", "73", "-logLevel", "Warning"], "environment": {"YURUNA_RUNTIME_DIR": "${RuntimeDir}", "YURUNA_CONFIG_PATH": "${ConfigPath}"}, "timeoutSeconds": 1800, "background": true},
+        {"source": "candidate", "path": "tools/Initialize-GitMirrorNativeInstall.ps1", "arguments": ["-Action", "Capture", "-TargetRoot", "${TargetRoot}", "-OldRoot", "${OldRoot}", "-StatePath", "${StatePath}", "-RuntimeDir", "${RuntimeDir}", "-ConfigPath", "${ConfigPath}", "-ConfigSourcePath", "${ConfigSourcePath}", "-SnapshotPath", "${SnapshotPath}", "-DisposableTarget"], "timeoutSeconds": 180, "stage": "setup"},
+        {"source": "installer", "path": "macos.utm.sh", "arguments": [], "environment": {"YURUNA_DIR": "${TargetRoot}", "YURUNA_BRANCH": "${CandidateTag}", "YURUNA_RUNTIME_DIR": "${RuntimeDir}"}, "timeoutSeconds": 7200},
+        {"source": "target", "path": "test/lab/Start-RecordedTestRunner.ps1", "arguments": ["-SnapshotPath", "${SnapshotPath}", "-TimeoutSeconds", "120"], "timeoutSeconds": 180},
+        {"source": "candidate", "path": "tools/Initialize-GitMirrorNativeInstall.ps1", "arguments": ["-Action", "Enroll", "-TargetRoot", "${TargetRoot}", "-OldRoot", "${OldRoot}", "-StatePath", "${StatePath}", "-RuntimeDir", "${RuntimeDir}", "-ConfigPath", "${ConfigPath}", "-ConfigSourcePath", "${ConfigSourcePath}", "-SnapshotPath", "${SnapshotPath}", "-DisposableTarget", "-MirrorKeyExportPath", "${MirrorKeyExportPath}", "-MirrorUrl", "${MirrorUrl}", "-MirrorMode", "fallback"], "timeoutSeconds": 180},
+        {"source": "candidate", "path": "tools/Initialize-GitMirrorNativeInstall.ps1", "arguments": ["-Action", "StopFixture", "-TargetRoot", "${TargetRoot}", "-OldRoot", "${OldRoot}", "-StatePath", "${StatePath}", "-RuntimeDir", "${RuntimeDir}", "-ConfigPath", "${ConfigPath}", "-ConfigSourcePath", "${ConfigSourcePath}", "-SnapshotPath", "${SnapshotPath}", "-DisposableTarget"], "timeoutSeconds": 180},
+        {"source": "installer", "path": "macos.utm.sh", "arguments": [], "environment": {"YURUNA_DIR": "${TargetRoot}", "YURUNA_BRANCH": "${OldRelease}", "YURUNA_RUNTIME_DIR": "${RuntimeDir}"}, "timeoutSeconds": 7200},
+        {"source": "candidate", "path": "tools/Initialize-GitMirrorNativeInstall.ps1", "arguments": ["-Action", "RunGate", "-TargetRoot", "${TargetRoot}", "-OldRoot", "${OldRoot}", "-StatePath", "${StatePath}", "-RuntimeDir", "${RuntimeDir}", "-ConfigPath", "${ConfigPath}", "-ConfigSourcePath", "${ConfigSourcePath}", "-SnapshotPath", "${SnapshotPath}", "-DisposableTarget", "-GateExpectation", "OldRollback"], "timeoutSeconds": 1300},
+        {"source": "installer", "path": "macos.utm.sh", "arguments": [], "environment": {"YURUNA_DIR": "${TargetRoot}", "YURUNA_BRANCH": "${CandidateTag}", "YURUNA_RUNTIME_DIR": "${RuntimeDir}"}, "timeoutSeconds": 7200},
+        {"source": "candidate", "path": "tools/Initialize-GitMirrorNativeInstall.ps1", "arguments": ["-Action", "RunGate", "-TargetRoot", "${TargetRoot}", "-OldRoot", "${OldRoot}", "-StatePath", "${StatePath}", "-RuntimeDir", "${RuntimeDir}", "-ConfigPath", "${ConfigPath}", "-ConfigSourcePath", "${ConfigSourcePath}", "-SnapshotPath", "${SnapshotPath}", "-DisposableTarget", "-GateExpectation", "NewRollback", "-MirrorUrl", "${MirrorUrl}"], "timeoutSeconds": 1300},
+        {"source": "candidate", "path": "tools/Initialize-GitMirrorNativeInstall.ps1", "arguments": ["-Action", "Enroll", "-TargetRoot", "${TargetRoot}", "-OldRoot", "${OldRoot}", "-StatePath", "${StatePath}", "-RuntimeDir", "${RuntimeDir}", "-ConfigPath", "${ConfigPath}", "-ConfigSourcePath", "${ConfigSourcePath}", "-SnapshotPath", "${SnapshotPath}", "-DisposableTarget", "-MirrorKeyExportPath", "${MirrorKeyExportPath}", "-MirrorUrl", "${MirrorUrl}"], "timeoutSeconds": 180},
+        {"source": "target", "path": "test/lab/Start-RecordedTestRunner.ps1", "arguments": ["-SnapshotPath", "${SnapshotPath}", "-TimeoutSeconds", "120"], "timeoutSeconds": 180},
+        {"source": "candidate", "path": "tools/Initialize-GitMirrorNativeInstall.ps1", "arguments": ["-Action", "Observe", "-TargetRoot", "${TargetRoot}", "-OldRoot", "${OldRoot}", "-StatePath", "${StatePath}", "-RuntimeDir", "${RuntimeDir}", "-ConfigPath", "${ConfigPath}", "-ConfigSourcePath", "${ConfigSourcePath}", "-SnapshotPath", "${SnapshotPath}", "-DisposableTarget", "-RequireRunner"], "timeoutSeconds": 180}
+      ],
+      "observations": [
+        {"name": "framework", "kind": "git", "path": "${TargetRoot}", "expected": "candidate", "before": true, "waitSeconds": 120},
+        {"name": "operatorProjectPreserved", "kind": "json", "path": "${StatePath}/observed.json", "expected": true, "before": true, "waitSeconds": 120, "property": "projectUrlPreserved", "retain": true},
+        {"name": "residentGeneration", "kind": "process-replaced", "path": "${StatePath}/observed.json", "expected": "candidate", "before": true, "waitSeconds": 120, "retain": true},
+        {"name": "launchOptionsPreserved", "kind": "json", "path": "${StatePath}/observed.json", "expected": true, "before": true, "waitSeconds": 120, "property": "launchOptionsPreserved", "retain": true},
+        {"name": "launchEnvironmentPreserved", "kind": "json", "path": "${StatePath}/observed.json", "expected": true, "before": true, "waitSeconds": 120, "property": "launchEnvironmentPreserved", "retain": true},
+        {"name": "parked", "kind": "json", "path": "${StatePath}/gate-OldRollback.json", "property": "parked", "expected": true, "before": false, "retain": true},
+        {"name": "backupVerified", "kind": "json", "path": "${StatePath}/gate-OldRollback.json", "property": "backupVerified", "expected": true, "before": false, "retain": true},
+        {"name": "warningObserved", "kind": "json", "path": "${StatePath}/gate-OldRollback.json", "property": "warningObserved", "expected": true, "before": false, "retain": true},
+        {"name": "defaultsRestored", "kind": "json", "path": "${StatePath}/gate-NewRollback.json", "property": "defaultsRestored", "expected": true, "before": false, "retain": true},
+        {"name": "fallbackReason", "kind": "json", "path": "${StatePath}/gate-NewRollback.json", "property": "fallbackReason", "expected": "mirror-untrusted", "before": false, "retain": true},
+        {"name": "keyEnrolled", "kind": "json", "path": "${StatePath}/enrollment.json", "property": "keyEnrolled", "expected": true, "before": false, "retain": true}
+      ],
+      "cleanupCommands": [
+        {"source": "candidate", "path": "tools/Initialize-GitMirrorNativeInstall.ps1", "arguments": ["-Action", "StopFixture", "-TargetRoot", "${TargetRoot}", "-OldRoot", "${OldRoot}", "-StatePath", "${StatePath}", "-RuntimeDir", "${RuntimeDir}", "-ConfigPath", "${ConfigPath}", "-ConfigSourcePath", "${ConfigSourcePath}", "-SnapshotPath", "${SnapshotPath}", "-DisposableTarget"], "timeoutSeconds": 180}
+      ]
+    },
+    {
+      "id": "GM-FRESH-SETUP-MACOS-ARM64",
+      "platform": "macos-arm64",
+      "commands": [
+        {"source": "candidate", "path": "tools/Initialize-GitMirrorNativeInstall.ps1", "arguments": ["-Action", "Prepare", "-TargetRoot", "${TargetRoot}", "-OldRoot", "${OldRoot}", "-StatePath", "${StatePath}", "-RuntimeDir", "${RuntimeDir}", "-ConfigPath", "${ConfigPath}", "-ConfigSourcePath", "${ConfigSourcePath}", "-SnapshotPath", "${SnapshotPath}", "-DisposableTarget", "-Mode", "Fresh"], "timeoutSeconds": 180, "stage": "setup"},
+        {"source": "installer", "path": "macos.utm.sh", "arguments": [], "environment": {"YURUNA_DIR": "${TargetRoot}", "YURUNA_BRANCH": "${CandidateTag}", "YURUNA_RUNTIME_DIR": "${RuntimeDir}"}, "timeoutSeconds": 7200},
+        {"source": "target", "path": "install/setup.ps1", "arguments": ["-AnswerFile", "${AnswerFilePath}"], "timeoutSeconds": 7200},
+        {"source": "candidate", "path": "tools/Initialize-GitMirrorNativeInstall.ps1", "arguments": ["-Action", "Observe", "-TargetRoot", "${TargetRoot}", "-OldRoot", "${OldRoot}", "-StatePath", "${StatePath}", "-RuntimeDir", "${RuntimeDir}", "-ConfigPath", "${ConfigPath}", "-ConfigSourcePath", "${ConfigSourcePath}", "-SnapshotPath", "${SnapshotPath}", "-DisposableTarget"], "timeoutSeconds": 180}
+      ],
+      "observations": [
+        {"name": "framework", "kind": "git", "path": "${TargetRoot}", "expected": "candidate", "before": false, "waitSeconds": 120},
+        {"name": "operatorProjectPreserved", "kind": "json", "path": "${StatePath}/observed.json", "expected": true, "before": false, "waitSeconds": 120, "property": "projectUrlPreserved", "retain": true}
+      ],
+      "cleanupCommands": [
+        {"source": "candidate", "path": "tools/Initialize-GitMirrorNativeInstall.ps1", "arguments": ["-Action", "StopFixture", "-TargetRoot", "${TargetRoot}", "-OldRoot", "${OldRoot}", "-StatePath", "${StatePath}", "-RuntimeDir", "${RuntimeDir}", "-ConfigPath", "${ConfigPath}", "-ConfigSourcePath", "${ConfigSourcePath}", "-SnapshotPath", "${SnapshotPath}", "-DisposableTarget"], "timeoutSeconds": 180}
+      ],
+      "coverage": "diagnostic-only",
+      "remaining": "Measure key-export enrollment/reporting and populating origin fallback followed by mirror-confirmed cycle without restart."
+    },
+    {
+      "id": "GM-UTM-AQUA",
+      "platform": "macos-arm64",
+      "commands": [
+        {"source": "candidate", "path": "tools/Initialize-GitMirrorNativeInstall.ps1", "arguments": ["-Action", "Prepare", "-TargetRoot", "${TargetRoot}", "-OldRoot", "${OldRoot}", "-StatePath", "${StatePath}", "-RuntimeDir", "${RuntimeDir}", "-ConfigPath", "${ConfigPath}", "-ConfigSourcePath", "${ConfigSourcePath}", "-SnapshotPath", "${SnapshotPath}", "-DisposableTarget", "-Mode", "Main"], "timeoutSeconds": 180, "stage": "setup"},
+        {"stage": "setup", "source": "target", "path": "test/Start-TestRunner.ps1", "arguments": ["-ConfigPath", "${ConfigPath}", "-NoGitPull", "-NoStatusService", "-CycleDelaySeconds", "73", "-logLevel", "Warning"], "environment": {"YURUNA_RUNTIME_DIR": "${RuntimeDir}", "YURUNA_CONFIG_PATH": "${ConfigPath}"}, "timeoutSeconds": 1800, "background": true},
+        {"source": "candidate", "path": "tools/Initialize-GitMirrorNativeInstall.ps1", "arguments": ["-Action", "Capture", "-TargetRoot", "${TargetRoot}", "-OldRoot", "${OldRoot}", "-StatePath", "${StatePath}", "-RuntimeDir", "${RuntimeDir}", "-ConfigPath", "${ConfigPath}", "-ConfigSourcePath", "${ConfigSourcePath}", "-SnapshotPath", "${SnapshotPath}", "-DisposableTarget"], "timeoutSeconds": 180, "stage": "setup"},
+        {"source": "candidate", "path": "tools/Initialize-GitMirrorNativeInstall.ps1", "arguments": ["-Action", "UpdateLegacy", "-TargetRoot", "${TargetRoot}", "-OldRoot", "${OldRoot}", "-StatePath", "${StatePath}", "-RuntimeDir", "${RuntimeDir}", "-ConfigPath", "${ConfigPath}", "-ConfigSourcePath", "${ConfigSourcePath}", "-SnapshotPath", "${SnapshotPath}", "-DisposableTarget"], "timeoutSeconds": 180},
+        {"source": "target", "path": "test/lab/Invoke-HostRefresh.ps1", "arguments": ["-Tier", "restart", "-Force", "-ConfigPath", "${ConfigPath}", "-MaxRung", "reclaim"], "environment": {"YURUNA_RUNTIME_DIR": "${RuntimeDir}"}, "timeoutSeconds": 1800},
+        {"source": "candidate", "path": "tools/Initialize-GitMirrorNativeInstall.ps1", "arguments": ["-Action", "Observe", "-TargetRoot", "${TargetRoot}", "-OldRoot", "${OldRoot}", "-StatePath", "${StatePath}", "-RuntimeDir", "${RuntimeDir}", "-ConfigPath", "${ConfigPath}", "-ConfigSourcePath", "${ConfigSourcePath}", "-SnapshotPath", "${SnapshotPath}", "-DisposableTarget", "-RequireRunner"], "timeoutSeconds": 180}
+      ],
+      "observations": [
+        {"name": "framework", "kind": "git", "path": "${TargetRoot}", "expected": "candidate", "before": true, "waitSeconds": 120},
+        {"name": "operatorProjectPreserved", "kind": "json", "path": "${StatePath}/observed.json", "expected": true, "before": true, "waitSeconds": 120, "property": "projectUrlPreserved", "retain": true},
+        {"name": "residentGeneration", "kind": "process-replaced", "path": "${StatePath}/observed.json", "expected": "candidate", "before": true, "waitSeconds": 120, "retain": true},
+        {"name": "launchOptionsPreserved", "kind": "json", "path": "${StatePath}/observed.json", "expected": true, "before": true, "waitSeconds": 120, "property": "launchOptionsPreserved", "retain": true},
+        {"name": "launchEnvironmentPreserved", "kind": "json", "path": "${StatePath}/observed.json", "expected": true, "before": true, "waitSeconds": 120, "property": "launchEnvironmentPreserved", "retain": true},
+        {"name": "sessionKind", "kind": "json", "path": "${StatePath}/observed.json", "expected": "Aqua", "before": true, "waitSeconds": 120, "property": "sessionKind", "retain": true},
+        {"name": "refreshVerdict", "kind": "json", "path": "${StatePath}/observed.json", "expected": "repaired", "before": false, "waitSeconds": 120, "property": "refreshVerdict", "retain": true},
+        {"name": "repositoryIdentityPreserved", "kind": "json", "path": "${StatePath}/observed.json", "property": "repositoryIdentityPreserved", "expected": true, "before": false, "retain": true},
+        {"name": "configurationValuesPreserved", "kind": "json", "path": "${StatePath}/observed.json", "property": "configurationValuesPreserved", "expected": true, "before": false, "retain": true}
+      ],
+      "cleanupCommands": [
+        {"source": "candidate", "path": "tools/Initialize-GitMirrorNativeInstall.ps1", "arguments": ["-Action", "StopFixture", "-TargetRoot", "${TargetRoot}", "-OldRoot", "${OldRoot}", "-StatePath", "${StatePath}", "-RuntimeDir", "${RuntimeDir}", "-ConfigPath", "${ConfigPath}", "-ConfigSourcePath", "${ConfigSourcePath}", "-SnapshotPath", "${SnapshotPath}", "-DisposableTarget"], "timeoutSeconds": 180}
+      ]
+    }
+  ]
+}

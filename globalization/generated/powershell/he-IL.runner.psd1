@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.18.2
+.VERSION 2026.10.22
 .GUID 42a07001-0b1b-e8af-74b4-0c25e481f7c5
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -310,6 +310,29 @@
             'type' = 'detail'
             'trust' = 'external'
         }
+    )
+    'runner.git_mirror_token_invalid' = 'אסימון GitHub מכיל תווים שאינם נתמכים. לא נשמר דבר. הריצו שוב והדביקו רק את האסימון, או לחצו על Enter כדי לשמור את האימות הנוכחי.'
+    'runner.git_mirror_token_notice' = 'אסימון GitHub הוא אופציונלי. לחצו על Enter כדי לשמור את האימות הנוכחי. אספקת אסימון בונה מחדש את מתווך המטמון כדי להחיל אותו, גם אם המארח הזה כבר שומר את אותו אסימון. הבנייה מחדש נמשכת כ-15 דקות ומוחקת את המטמון שכבר התחמם. הקלט מוסתר.'
+    'runner.git_mirror_token_prepare' = 'לבקש אסימון GitHub אופציונלי ולשמור ערך שסופק במפורש'
+    'runner.git_mirror_token_prompt' = 'אסימון GitHub אופציונלי (Enter שומר את האימות הנוכחי)'
+    'runner.git_mirror_token_provider_failed' = 'לא ניתן להשלים את התצורה של אסימון GitHub האופציונלי. בדקו את ספק האימות ואת הרשאות הכספת, ואז הריצו שוב. אין לבנות מחדש את המתווך עד להשלמת התצורה של האסימון בהצלחה.'
+    'runner.git_mirror_token_replace_stored' = @(
+        'github-mirror-token ('
+        @{
+            'arg' = 'vaultKey'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        '): (אסימון שמור) -> (אסימון שסופק על ידי המפעיל). ניתן לשחזר את הערך הקודם מהשדה previousPassword בכספת.'
+    )
+    'runner.git_mirror_token_store_new' = @(
+        'github-mirror-token ('
+        @{
+            'arg' = 'vaultKey'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        '): (אין אסימון שמור) -> (אסימון שסופק על ידי המפעיל).'
     )
     'runner.git_recovery_command' = @(
         '  שחזרו באמצעות: git -C '''

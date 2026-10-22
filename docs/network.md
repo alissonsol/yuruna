@@ -64,7 +64,9 @@ script failed even though the network was healthy seconds later.
 
 The same pattern applies to apt: transient mirror flakes, DNS bounces
 on first-boot DHCP, `Hash Sum mismatch` from a half-refreshed mirror
-(transient, handled by `apt_retry`).
+(transient, handled by `apt_retry`). A mismatch the caching proxy keeps
+serving is not transient; `apt_retry` purges it (see
+[Healing an apt index the caching proxy holds out of step](#4220a755-005e)).
 
 **Library.** All five retry wrappers live in
 [automation/yuruna-retry.sh](../automation/yuruna-retry.sh) -- single
@@ -126,6 +128,8 @@ a failed attempt and the resulting retry or final exit code.
    retry-everything; `apt_retry`/`dnf_retry` keep retry-everything (they
    funnel every failure into one generic exit code, so a package-not-
    found gate would need stderr classification -- not implemented).
+   `apt_retry` reads the stderr of `apt-get update` only to heal an index
+   that disagrees with its `InRelease`, never to stop the ladder.
 7. **Structured attempt record.** Each failed attempt emits a
    machine-readable `YURUNA_RETRY {...}` line to stderr (`stack`, `label`,
    `attempt`, `maxAttempts`, `rc`, `permanent`). On the SSH verbs the
@@ -293,6 +297,48 @@ outage the next cycle should retry rather than something to keep hammering here.
 
 Both settings are handed back to their defaults immediately afterward, because
 everything below that point runs real dpkg transactions.
+
+<a id="4220a755-005e"></a>
+
+### Healing an apt index the caching proxy holds out of step
+
+apt checks every index it downloads against the size and hash its `InRelease`
+lists. When they disagree, `apt-get update` fails with
+`File has unexpected size (A != B). Mirror sync in progress?` or
+`Hash Sum mismatch`, and `[IP: <address> <port>]` names the caching proxy when
+the fetch went through it.
+
+From a mirror that is a moment's race. Through the caching proxy it can last
+until the cache is rebuilt: squid runs with `offline_mode on`, which serves a
+stored object without asking the origin whether it changed, and a client's
+`Cache-Control: no-cache` does not override it. Each index URL is frozen at its
+first fetch, so a repository without `Acquire-By-Hash` -- Docker rewrites its
+indexes in place several times a day -- can leave the cache holding an
+`InRelease` from one publish beside one architecture's `Packages` from a later
+one. Every retry then reads the same pair, and only the guests of that
+architecture fail. The cache now sends that metadata to the origin (see
+[Apt metadata under offline_mode](caching.md#42f6b05f-0057)),
+which leaves this heal for caches built before that change.
+
+For `apt-get update`, `apt_retry` keeps each attempt's stderr in a temporary
+file and replays it at once. When it shows one of those lines and apt has a
+proxy for the URL's scheme (`Acquire::http::Proxy` or `Acquire::https::Proxy`
+from `apt-config`, else `http_proxy` or `https_proxy`), it:
+
+1. prints that proxy's headers (`Age`, `Last-Modified`, `Content-Length`,
+   `X-Cache`) for the failing index and for its `InRelease`, at
+   `dists/<suite>/InRelease` or beside `Packages` in a flat repository, so the
+   log shows how old the stored copy is;
+2. sends `PURGE` for both through that proxy, which allows `PURGE` from RFC1918
+   clients, so the next attempt reads a pair the origin published together.
+
+Without a proxy for the scheme the origin itself is mid-publish, and only the
+retry helps. Purging an `InRelease` also strands every other architecture's
+stored index from the older publish; the first update of that architecture
+fails the same way and purges its own index. The heal never stops the ladder
+and writes no `YURUNA_RETRY` record. When the step still fails, the host reads
+the apt line and these reports into `causeDetail.aptIndexMismatch` (see
+[failure-schema.md](failure-schema.md)).
 
 ---
 
@@ -1077,8 +1123,9 @@ https://yuruna.link/4220a755-001a
 
 ## Cache-VM seed host binding
 
-The caching-proxy-service `New-VM.ps1` scripts on all three drivers
-bake the Yuruna host's (status service) IP and port into the seed so
+Linux `New-VM.ps1` builders on all three drivers bake the Yuruna host's
+(status service) IP and port into the seed, in their `Yuruna host
+coordinates` phase. The caching-proxy-service builders use them so
 the cache VM's cloud-init build block fetches collector/parser source
 from the LOCAL host working tree (`/yuruna-repo/`) instead of public
 GitHub -- a rebuild never waits on the private->public mirror.
@@ -2773,6 +2820,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.09.04
+Last review: 2026.10.22
 
 Back to [Yuruna](../README.md)

@@ -3237,6 +3237,31 @@
       "message": "Runner attempt history is unavailable.",
       "description": "Host page state when the attempt history endpoint cannot be read.",
       "lifecycle": "active"
+    },
+    "status.git_source_mirror_confirmed": {
+      "message": "mirror.origin",
+      "description": "Git provenance display identifier beside a cycle commit. Keep mirror.origin exactly in every locale; the underlying protocol value remains mirror-confirmed.",
+      "lifecycle": "active"
+    },
+    "status.git_source_mirror_fresh": {
+      "message": "mirror.fresh",
+      "description": "Legacy Git provenance display identifier. Keep mirror.fresh exactly in every locale; the underlying legacy protocol value remains mirror-fresh.",
+      "lifecycle": "active"
+    },
+    "status.git_source_mirror_stale": {
+      "message": "mirror.stale",
+      "description": "Git provenance display identifier beside a cycle commit. Keep mirror.stale exactly in every locale; the underlying protocol value remains mirror-stale. Freshness is unconfirmed, so the code does not necessarily differ from GitHub.",
+      "lifecycle": "active"
+    },
+    "status.git_source_origin_direct": {
+      "message": "remote.origin",
+      "description": "Git provenance display identifier beside a cycle commit. Keep remote.origin exactly in every locale; the underlying protocol value remains origin-direct.",
+      "lifecycle": "active"
+    },
+    "status.git_source_not_applicable": {
+      "message": "not.applicable",
+      "description": "Git provenance display identifier beside a cycle commit. Keep not.applicable exactly in every locale; the underlying protocol value remains not-applicable.",
+      "lifecycle": "active"
     }
   }
 }

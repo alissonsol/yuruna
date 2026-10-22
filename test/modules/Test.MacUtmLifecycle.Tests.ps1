@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.18.2
+.VERSION 2026.10.22
 .GUID 421bcd14-05b3-497a-86ea-db4eb3a90148
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -32,6 +32,7 @@
 BeforeAll {
     $script:RepoRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
     $script:DriverPath = Join-Path $script:RepoRoot 'host/macos.utm/modules/Yuruna.Host.psm1'
+    Import-Module (Join-Path $script:RepoRoot 'automation/Yuruna.Globalization.psm1') -Global -DisableNameChecking
     Get-Module -Name 'Yuruna.Host', 'default' -All | Remove-Module -Force -ErrorAction SilentlyContinue
     Import-Module (Join-Path $PSScriptRoot 'Test.Assert.psm1') -Force -Global -DisableNameChecking
     Import-Module $script:DriverPath -Force -DisableNameChecking -Global -WarningAction SilentlyContinue
@@ -83,6 +84,40 @@ BeforeAll {
 
 AfterAll {
     if ($script:Fake) { Remove-MacUtmFakeHost -FakeHost $script:Fake }
+}
+
+Describe 'UTM console activation result' {
+    It 'reports <Case> accurately without treating a failed activation as a repaired console' -TestCases @(
+        @{ Case = 'success'; Started = $true; TimedOut = $false; ExitCode = 0; OutputTruncated = $false; Expected = $true }
+        @{ Case = 'launch failure'; Started = $false; TimedOut = $false; ExitCode = -1; OutputTruncated = $false; Expected = $false }
+        @{ Case = 'timeout'; Started = $true; TimedOut = $true; ExitCode = -1; OutputTruncated = $false; Expected = $false }
+        @{ Case = 'Apple Event rejection'; Started = $true; TimedOut = $false; ExitCode = 1; OutputTruncated = $false; Expected = $false }
+        @{ Case = 'incomplete output'; Started = $true; TimedOut = $false; ExitCode = 0; OutputTruncated = $true; Expected = $false }
+    ) {
+        param($Case, $Started, $TimedOut, $ExitCode, $OutputTruncated, $Expected)
+        $errors = $null
+        $ast = [Management.Automation.Language.Parser]::ParseFile($script:DriverPath, [ref]$null, [ref]$errors)
+        $functionAst = $ast.Find({ param($node) $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq 'Restart-UtmConsole' }, $true)
+        $reading = @{ Started = $Started; TimedOut = $TimedOut; ExitCode = $ExitCode; OutputTruncated = $OutputTruncated; DrainTimedOut = $false; KillFailed = $false }
+        $result = & {
+            param($Source, $Reading)
+            $activationReading = $Reading
+            function Invoke-UtmHostTool {
+                param($Tool, $ArgumentList, $TimeoutSeconds)
+                Assert-StringEqual 'osascript' $Tool
+                Assert-Equal 10 $TimeoutSeconds
+                Assert-True ($ArgumentList[-1] -eq 'tell application "UTM" to activate') 'only the UTM repaint operation is requested'
+                return $activationReading
+            }
+            function Test-UtmBoundedResultComplete {
+                param($Result)
+                return (Test-BoundedNativeResultComplete -Result $Result)
+            }
+            . ([scriptblock]::Create($Source))
+            Restart-UtmConsole -VMName 'test-guest.ubuntu.server.26-01' -Confirm:$false
+        } $functionAst.Extent.Text $reading
+        Assert-Equal $Expected $result -Because $Case
+    }
 }
 
 Describe 'UTM application primitives (host.macos.utm)' {
@@ -511,6 +546,36 @@ Describe 'Save-UtmControlSnapshot (host.macos.utm)' {
             Assert-StringEqual 'failed' $failedRecord.screenshot.outcome
             Assert-True ([bool](@($failedRecord.problems) -match 'screenshot')) 'the failure is in the record'
             Assert-True $failed.Written 'the snapshot is still written'
+        } finally {
+            Invoke-InDriver { param($f) Set-Item -Path 'function:script:Get-VMScreenshot' -Value $f } @($original)
+        }
+    }
+    It 'omits the screenshot when a shared startup diagnostic budget must stay bounded' {
+        if (-not $script:CanShim) { Set-ItResult -Skipped -Because $script:Skip; return }
+        Add-MacUtmFakeProcess -FakeHost $script:Fake -ProcessId 600 -Name 'UTM'
+        $original = Invoke-InDriver { ${function:Get-VMScreenshot} }
+        try {
+            Invoke-InDriver {
+                $script:SkippedSnapshotCalls = 0
+                Set-Item -Path 'function:script:Get-VMScreenshot' -Value {
+                    param([string]$VMName, [string]$Source = 'frame', [string]$OutFile)
+                    $null = @($VMName, $Source, $OutFile)
+                    $script:SkippedSnapshotCalls++
+                    throw 'the unbounded screenshot path must never be called'
+                }
+            }
+            $r = Invoke-InDriver {
+                param($d)
+                Save-UtmControlSnapshot -OutputDirectory $d -Trigger 'startup-timeout' -VMName 'amisad-edge-a' `
+                    -SkipScreenshot -Deadline (New-YurunaDeadline -TotalMilliseconds 30000) -Confirm:$false
+            } @($script:SnapshotDir)
+            Assert-True $r.Written 'the other diagnostic evidence is still retained'
+            $record = Get-Content -Raw -LiteralPath $r.Path | ConvertFrom-Json -AsHashtable
+            Assert-StringEqual 'skipped' $record.screenshot.outcome
+            Assert-StringEqual '' $record.screenshot.path
+            Assert-Equal 0 (Invoke-InDriver { $script:SkippedSnapshotCalls }) -Because 'the screenshot ignores the shared deadline'
+            Assert-True ($null -ne $record.listing) 'bounded VM listing is retained'
+            Assert-True ($null -ne $record.unifiedLog) 'bounded native log evidence is retained'
         } finally {
             Invoke-InDriver { param($f) Set-Item -Path 'function:script:Get-VMScreenshot' -Value $f } @($original)
         }

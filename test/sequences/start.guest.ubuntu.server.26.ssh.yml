@@ -66,7 +66,8 @@ workload:
     phase: before-cpu-restart
     description: "Capture clocks and CPU accounting before the processor restart"
 
-  # Requested and observed through the host driver; see the console variant.
+  # Force off a guest that ignores the request so the processor change below still happens.
+  # See https://yuruna.link/428e4df6-003b
   - action: stopVm
     timeoutSeconds: 120
     forceOnTimeout: true

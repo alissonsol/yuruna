@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.18.2
+.VERSION 2026.10.22
 .GUID 42c1aae0-6851-429a-a359-f13d409e76c0
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -65,7 +65,7 @@ function Invoke-SecondOpinionCase {
         Justification = 'Get-Process is shadowed on purpose and only for the length of this call, so the emulator CPU samples are deterministic. The stub goes out of scope with the function and nothing else in the suite sees it.')]
     [CmdletBinding()]
     [OutputType([pscustomobject])]
-    param($FnText, $State, $QemuPid, $Frames, $Cpu, $VncOk)
+    param($FnText, $State, $QemuPid, $Frames, $Cpu, $VncOk, [switch]$FormatterFails)
     $seq = [pscustomobject]@{ FrameIdx = 0; CpuIdx = 0 }
     function Start-Sleep { [CmdletBinding(SupportsShouldProcess)] param([int]$Seconds) $null = $PSCmdlet.ShouldProcess("$Seconds seconds", 'Fixture delay') }
     function Get-VMState { param($VMName) $State }
@@ -84,6 +84,13 @@ function Invoke-SecondOpinionCase {
         $value = $Cpu[[math]::Min($seq.CpuIdx, $Cpu.Count - 1)]
         $seq.CpuIdx++
         return [pscustomobject]@{ CPU = $value }
+    }
+    if ($FormatterFails) {
+        function Format-YurunaOperatorMessage {
+            param($Key, $Arguments)
+            $null = @($Key, $Arguments)
+            throw 'fixture formatter unavailable'
+        }
     }
     . ([scriptblock]::Create($FnText))
     return (Get-VMConsoleSecondOpinion -VMName 'test-guest.ubuntu.server.24-01' -IntervalSeconds 1)
@@ -111,6 +118,45 @@ Describe 'Get-VMConsoleSecondOpinion (host.macos.utm)' {
         Assert-True $export.Success 'the driver must carry an Export-ModuleMember block'
         Assert-Match 'Get-VMConsoleSecondOpinion' $export.Groups['names'].Value `
             'an unexported function is invisible to the engine Get-Command probe, which then skips the second opinion in silence'
+    }
+
+    It 'retains the independent frame and VM process measurements behind its verdict' {
+        $r = Invoke-SecondOpinionCase -FnText $script:FnAst.Extent.Text -State 'running' -QemuPid 4242 -Frames @('A', 'A') -Cpu @(100.0, 107.82) -VncOk $true
+        $r.VMName | Should -Be 'test-guest.ubuntu.server.24-01'
+        $r.VMState | Should -Be 'running'
+        $r.QemuPid | Should -Be 4242
+        $r.VncPort | Should -Be 5961
+        $r.IntervalSeconds | Should -Be 1
+        $r.FirstFrameSha256 | Should -Be $r.SecondFrameSha256
+        $r.FirstFrameSha256 | Should -Match '^[A-F0-9]{64}$'
+        $r.FramesChanged | Should -BeFalse
+        $r.FirstCpuSeconds | Should -Be 100.0
+        $r.SecondCpuSeconds | Should -Be 107.82
+        $r.CpuPercent | Should -Be 782.0
+        $r.ObservedAtUtc | Should -Match '^\d{4}-\d{2}-\d{2}T.*Z$'
+    }
+    It 'does not invent CPU or frame readings when their sources are unavailable' {
+        $r = Invoke-SecondOpinionCase -FnText $script:FnAst.Extent.Text -State 'running' -QemuPid 0 -Frames @('A', 'A') -Cpu @(100.0, 102.0) -VncOk $false
+        $r.PSObject.Properties.Name | Should -Contain 'CpuPercent'
+        $r.PSObject.Properties.Name | Should -Contain 'FramesChanged'
+        $r.CpuPercent | Should -BeNullOrEmpty
+        $r.FirstCpuSeconds | Should -BeNullOrEmpty
+        $r.SecondCpuSeconds | Should -BeNullOrEmpty
+        $r.FramesChanged | Should -BeNullOrEmpty
+        $r.FirstFrameSha256 | Should -BeNullOrEmpty
+    }
+    It 'retains the state when a stopped VM cannot supply frame or CPU observations' {
+        $r = Invoke-SecondOpinionCase -FnText $script:FnAst.Extent.Text -State 'stopped' -QemuPid 4242 -Frames @('A', 'A') -Cpu @(100.0, 102.0) -VncOk $true
+        $r.VMState | Should -Be 'stopped'
+        $r.QemuPid | Should -BeNullOrEmpty
+        $r.CpuPercent | Should -BeNullOrEmpty
+        $r.FramesChanged | Should -BeNullOrEmpty
+    }
+    It 'reports unavailable if formatting fails after a provisional verdict was selected' {
+        $r = Invoke-SecondOpinionCase -FnText $script:FnAst.Extent.Text -State 'running' -QemuPid 4242 -Frames @('A', 'A') -Cpu @(100.0, 107.82) -VncOk $true -FormatterFails
+        $r.Verdict | Should -Be 'unavailable'
+        $r.Detail | Should -Be 'fixture formatter unavailable'
+        $r.CpuPercent | Should -Be 782.0 -Because 'the completed measurements remain useful despite the failed interpretation'
     }
 
     It 'names <name> as <expect>' -TestCases $script:VerdictCase {

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.18.2
+.VERSION 2026.10.22
 .GUID 42040d67-5b20-4d5c-a82c-4a95c2371f44
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -72,6 +72,7 @@ param(
     [switch]$SkipValidation,
     [switch]$NoPool,
     [switch]$AllowStaleReference,
+    [switch]$AcceptMirrorKey,
     [switch]$RequireReferenceCredential
 )
 
@@ -110,7 +111,7 @@ Import-Module (Join-Path $RepoRoot 'test/modules/Test.ConfigServiceSync.psm1') -
 
 Sync-HostConfiguration -ReferenceHost $ReferenceHost -StatusPort $StatusPort -RepoRoot $RepoRoot `
     -InternalAuthKey $InternalAuthKey -NonInteractive:$NonInteractive -SkipValidation:$SkipValidation -NoPool:$NoPool `
-    -AllowStaleReference:$AllowStaleReference -RequireReferenceCredential:$RequireReferenceCredential
+    -AllowStaleReference:$AllowStaleReference -AcceptMirrorKey:$AcceptMirrorKey -RequireReferenceCredential:$RequireReferenceCredential
 
 # --- REGION: Guest address-discovery readiness
 # See https://yuruna.link/42e5cdfd-0025

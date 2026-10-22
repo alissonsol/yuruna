@@ -434,8 +434,9 @@ func (b *backfiller) hostGet(ctx context.Context, p *pacer, u string, limit int6
 // asked again, with whatever was found; it ends the pass only when nothing was.
 func (b *backfiller) discover(ctx context.Context, h activeHost, hs *backfillHostState, p *pacer, from time.Time) (folders map[string]cycleFolder, fresh bool, err error) {
 	folders = map[string]cycleFolder{}
+	archived, archiveReadable := archiveFolders(b.cfg.archiveRoot, h.HostID)
 	if hs.listingDue(b.now()) {
-		slowest, lerr := b.listHost(ctx, h, hs, p, from, folders)
+		slowest, lerr := b.listHost(ctx, h, hs, p, from, folders, archiveReadable)
 		if lerr != nil && ctx.Err() != nil {
 			return nil, false, lerr
 		}
@@ -454,7 +455,7 @@ func (b *backfiller) discover(ctx context.Context, h activeHost, hs *backfillHos
 			folders[identity] = cf
 		}
 	}
-	for identity, dir := range archiveFolders(b.cfg.archiveRoot, h.HostID) {
+	for identity, dir := range archived {
 		cf := folders[identity]
 		if cf.Identity == "" {
 			start, ok := cycleStartFromFolder(identity)
@@ -477,7 +478,7 @@ func (b *backfiller) discover(ctx context.Context, h activeHost, hs *backfillHos
 // records the attempt in hs, defers the host when any request of it was slow or
 // timed out, and returns the slowest request's time. Only the live log directory
 // is required; a bucket that cannot be read is left for the next listing.
-func (b *backfiller) listHost(ctx context.Context, h activeHost, hs *backfillHostState, p *pacer, from time.Time, folders map[string]cycleFolder) (slowest time.Duration, err error) {
+func (b *backfiller) listHost(ctx context.Context, h activeHost, hs *backfillHostState, p *pacer, from time.Time, folders map[string]cycleFolder, archiveReadable bool) (slowest time.Duration, err error) {
 	started := b.now()
 	get := func(u string) ([]byte, error) {
 		body, took, err := b.hostGet(ctx, p, u, maxListingBytes)
@@ -494,7 +495,14 @@ func (b *backfiller) listHost(ctx context.Context, h activeHost, hs *backfillHos
 			hs.ListingDeferredUntil = b.now().Add(listingDeferral)
 		}
 	}()
-	body, err := get(h.BaseURL + "/log/")
+	listingURL := h.BaseURL + "/log/"
+	if archiveReadable {
+		// The proxy already read these archives. Asking the host to enumerate
+		// their completion sentinels again can block its single status listener.
+		// Keep the merged listing when only the host can reach the archive.
+		listingURL += "?localOnly=true"
+	}
+	body, err := get(listingURL)
 	if err != nil {
 		return slowest, err
 	}
@@ -579,12 +587,16 @@ func (b *backfiller) backfillHost(ctx context.Context, h activeHost, hs *backfil
 		until = h.CurrentStart
 	}
 	hostPacer := &pacer{interval: b.cfg.hostInterval, now: b.now, sleep: b.sleep}
+	history := timelineFromHistory(h.History, now)
 
 	// A listing that failed does not end the pass while anything else names the
 	// host's cycles; it is reported once the pass has written what it could.
 	folders, fresh, listErr := b.discover(ctx, h, hs, hostPacer, from)
 	if folders == nil {
-		return res, listErr
+		if ctx.Err() != nil || len(history) == 0 {
+			return res, listErr
+		}
+		folders = map[string]cycleFolder{}
 	}
 	hostUsable := !hs.hostDeferred(b.now())
 	outcomes := loadCycleOutcomes(b.cfg.stateDir, h.HostID)
@@ -616,22 +628,32 @@ func (b *backfiller) backfillHost(ctx context.Context, h activeHost, hs *backfil
 	if err != nil {
 		return res, err
 	}
-	// Incidents and the timeline are derived from the cycles, so they change only
-	// when cycles were written; once a day they are rebuilt regardless.
-	if !wrote && !hs.DerivedAt.IsZero() && now.Sub(hs.DerivedAt) < derivedRefreshInterval {
-		return res, listErr
+	// Full derived history changes when cycles are written and is also checked
+	// daily. The status snapshot can acquire recent verdicts while host reads
+	// remain deferred, so check that smaller interval on the intervening passes.
+	refreshDerived := wrote || hs.DerivedAt.IsZero() || now.Sub(hs.DerivedAt) >= derivedRefreshInterval
+	if refreshDerived {
+		n, err := b.replayIncidents(ctx, h, hs, from, now, outcomes)
+		res.Incidents += n
+		if err != nil {
+			return res, err
+		}
+	} else {
+		if len(history) == 0 {
+			return res, listErr
+		}
+		if history[0].Start.After(from) {
+			from = history[0].Start
+		}
 	}
-	n, err := b.replayIncidents(ctx, h, hs, from, now, outcomes)
-	res.Incidents += n
-	if err != nil {
-		return res, err
-	}
-	n, err = b.fillTimeline(ctx, h, from, now, outcomes)
+	n, err := b.fillTimeline(ctx, h, from, now, outcomes)
 	res.Samples += n
 	if err != nil {
 		return res, err
 	}
-	hs.DerivedAt = now
+	if refreshDerived {
+		hs.DerivedAt = now
+	}
 	return res, listErr
 }
 
@@ -812,7 +834,7 @@ func (b *backfiller) fillTimeline(ctx context.Context, h activeHost, from, now t
 	if err != nil {
 		return 0, err
 	}
-	cycles := mergeTimeline(timelineFromTransitions(entries), outcomes)
+	cycles := mergeTimelineHistory(mergeTimeline(timelineFromTransitions(entries), outcomes), h.History, now)
 	if h.CurrentStatus == "running" && !h.CurrentStart.IsZero() {
 		// The cycle under way has no final line yet. It has been running since its
 		// start, which matters when that start is earlier than the first live sample.

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.18.2
+.VERSION 2026.10.22
 .GUID 42bd6583-4d45-42df-b3b7-3411df4c5af9
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -809,6 +809,18 @@ function Register-BuiltinRecoveryHandler {
                 (Format-YurunaOperatorMessage -Key 'remediation.operator_d7f954ed2c939cf9'),
                 (Format-YurunaOperatorMessage -Key 'remediation.operator_6cf224bfd1008ecc'),
                 (Format-YurunaOperatorMessage -Key 'remediation.operator_2be2a7b55fde9058')
+            )
+        }
+    }
+
+    Register-RecoveryHandler -FailureClass 'source_integrity' -Handler {
+        param([hashtable]$c)
+        return @{
+            Recommendation = 'operator_intervention_required'
+            Rationale = (Format-YurunaOperatorMessage -Key 'remediation.source_integrity_rationale' -Arguments @{detail=[string]$c.Failure.description})
+            Actions = @(
+                (Format-YurunaOperatorMessage -Key 'remediation.source_integrity_action_identity'),
+                (Format-YurunaOperatorMessage -Key 'remediation.source_integrity_action_evidence')
             )
         }
     }

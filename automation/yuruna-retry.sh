@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.10.18.2
+# Version: 2026.10.22
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 #
@@ -75,11 +75,14 @@ _yuruna_retry() {
             echo ">> ${label}: attempt $attempt/$max_attempts for: $*" >&2
         fi
         rc=0
-        case "$bound_mode" in
-            sudo)   sudo timeout --foreground --kill-after=30 "$stall" "${@:2}" || rc=$? ;;
-            direct) timeout --foreground --kill-after=30 "$stall" "$@" || rc=$? ;;
-            *)      "$@" || rc=$? ;;
-        esac
+        # A classifier that reads the failure text gets this attempt's stderr in
+        # YURUNA_RETRY_STDERR_FILE; it is replayed at once so the log keeps it.
+        if [ -n "${YURUNA_RETRY_STDERR_FILE:-}" ]; then
+            _yuruna_retry_run "$bound_mode" "$stall" "$@" 2>"$YURUNA_RETRY_STDERR_FILE" || rc=$?
+            cat "$YURUNA_RETRY_STDERR_FILE" >&2 2>/dev/null || true
+        else
+            _yuruna_retry_run "$bound_mode" "$stall" "$@" || rc=$?
+        fi
         if [ "$rc" -eq 0 ]; then return 0; fi
         # timeout(1) exits 124 on TERM-expiry, 137 when the KILL backstop fired.
         if [ "$bound_mode" != "none" ] && { [ "$rc" -eq 124 ] || [ "$rc" -eq 137 ]; }; then
@@ -121,6 +124,16 @@ _yuruna_retry() {
     return "$rc"
 }
 
+# One attempt of _yuruna_retry, in the bound mode it chose.
+_yuruna_retry_run() {
+    local bound_mode="$1" stall="$2"; shift 2
+    case "$bound_mode" in
+        sudo)   sudo timeout --foreground --kill-after=30 "$stall" "${@:2}" ;;
+        direct) timeout --foreground --kill-after=30 "$stall" "$@" ;;
+        *)      "$@" ;;
+    esac
+}
+
 # See https://yuruna.link/4220a755-0005
 # Package transactions run unbounded; env inside sudo preserves noninteractive settings.
 # --- REGION: https://yuruna.link/4220a755-0005
@@ -130,9 +143,72 @@ apt_retry() {
         cmd+=("$1"); shift
     fi
     cmd+=(env DEBIAN_FRONTEND=noninteractive DEBIAN_PRIORITY=critical "$@")
+    # An index update keeps its stderr so a stale cached index can be named and purged.
+    local stderr_file="" rc=0
+    case " $* " in
+        *" apt-get update "*|*" apt update "*) stderr_file=$(mktemp 2>/dev/null) || stderr_file="" ;;
+    esac
+    YURUNA_RETRY_STDERR_FILE="$stderr_file" \
+    YURUNA_RETRY_CLASSIFY="${stderr_file:+_yuruna_classify_apt_update}" \
     YURUNA_RETRY_STALL_TIMEOUT_SECONDS="${YURUNA_APT_STALL_TIMEOUT_SECONDS:-0}" \
     YURUNA_RETRY_HEAL='sudo env DEBIAN_FRONTEND=noninteractive DEBIAN_PRIORITY=critical dpkg --configure -a' \
-        _yuruna_retry apt_retry "${cmd[@]}"
+        _yuruna_retry apt_retry "${cmd[@]}" || rc=$?
+    if [ -n "$stderr_file" ]; then rm -f "$stderr_file"; fi
+    return "$rc"
+}
+
+# See https://yuruna.link/4220a755-005e
+# Every failed update stays retryable; one whose index disagrees with its
+# InRelease is healed first, because a cache serving that pair serves it again.
+_yuruna_classify_apt_update() {
+    if grep -qE '^E: Failed to fetch .*(File has unexpected size|Hash Sum mismatch)' "${YURUNA_RETRY_STDERR_FILE:-/dev/null}" 2>/dev/null; then
+        _yuruna_apt_index_heal "$YURUNA_RETRY_STDERR_FILE" || true
+    fi
+    return 0
+}
+
+# See https://yuruna.link/4220a755-005e
+# Name the copy the caching proxy holds for each mismatched index and its
+# InRelease, then PURGE both through the proxy apt used, so the next attempt
+# reads a pair the origin published together. Without a proxy for that scheme
+# the origin itself is mid-publish and only the retry helps.
+_yuruna_apt_index_heal() {
+    local file="$1" line url suite scheme proxy inrelease target code headers
+    local p_http="" p_https=""
+    if command -v apt-config >/dev/null 2>&1; then
+        eval "$(apt-config shell p_http Acquire::http::Proxy p_https Acquire::https::Proxy 2>/dev/null)" || true
+    fi
+    [ -n "$p_http" ] || p_http="${http_proxy:-}"
+    [ -n "$p_https" ] || p_https="${https_proxy:-}"
+    grep -E '^E: Failed to fetch .*(File has unexpected size|Hash Sum mismatch)' "$file" 2>/dev/null | head -n 8 |
+    while IFS= read -r line; do
+        url="${line#E: Failed to fetch }"
+        url="${url%% *}"
+        scheme="${url%%://*}"
+        case "$scheme" in
+            https) proxy="$p_https" ;;
+            http)  proxy="$p_http" ;;
+            *)     continue ;;
+        esac
+        if [ -z "$proxy" ]; then
+            echo "!! apt_retry: index mismatch on $url with no caching proxy for $scheme; the origin is mid-publish, so only the retry can help" >&2
+            continue
+        fi
+        # A suite's InRelease sits at dists/<suite>/; a flat repository keeps
+        # it beside its Packages index.
+        case "$url" in
+            */dists/*/*) suite="${url#*/dists/}"; inrelease="${url%%/dists/*}/dists/${suite%%/*}/InRelease" ;;
+            *)           inrelease="${url%/*}/InRelease" ;;
+        esac
+        echo "!! apt_retry: the caching proxy ${proxy} served an index that disagrees with its InRelease: ${line#E: Failed to fetch }" >&2
+        for target in "$inrelease" "$url"; do
+            headers=$(curl -sS -I --max-time 10 --proxy "$proxy" "$target" 2>&1 | tr -d '\r' \
+                | grep -iE '^(HTTP/|date:|last-modified:|age:|content-length:|x-cache:)' | paste -sd ';' -)
+            echo "!! apt_retry: proxy copy of ${target}: ${headers:-no answer}" >&2
+            code=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 10 --proxy "$proxy" -X PURGE "$target" 2>/dev/null) || true
+            echo "!! apt_retry: asked the caching proxy to PURGE ${target}: HTTP ${code:-000}" >&2
+        done
+    done
 }
 # --- REGION: dnf_retry
 dnf_retry() {
@@ -362,6 +438,125 @@ yuruna_host_livecheck() {
     return 1
 }
 
+# --- REGION: yuruna_materialize_framework_pin
+# This complete helper is embedded in standalone updaters. Python's process
+# groups provide the same finite Git deadline on Linux and macOS.
+yuruna_materialize_framework_pin() {
+    local destination="$1" repository="$2" revision="$3" mirror_ip="${4:-}" mirror_url=''
+    [[ "$repository" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]] \
+        && [[ "$revision" =~ ^[[:xdigit:]]{40}$ ]] || return 1
+    command -v python3 >/dev/null 2>&1 || { echo 'yuruna: Python 3 is required for bounded pinned Git materialization' >&2; return 1; }
+    if [[ "$mirror_ip" =~ ^[A-Za-z0-9.-]+$ ]]; then
+        if command -v wget >/dev/null 2>&1 && command -v timeout >/dev/null 2>&1; then
+            if timeout --kill-after=1 2 wget --no-config --no-proxy --max-redirect=0 --tries=1 --timeout=2 -qO /dev/null \
+                "http://${mirror_ip}/git-mirror/status.json" 2>/dev/null; then mirror_url="http://${mirror_ip}/git/${repository}.git"; fi
+        elif curl -q --noproxy '*' --max-time 2 --max-redirs 0 -fsS -o /dev/null \
+            "http://${mirror_ip}/git-mirror/status.json" 2>/dev/null; then mirror_url="http://${mirror_ip}/git/${repository}.git"; fi
+    fi
+    python3 - "$destination" "$repository" "$revision" "$mirror_url" <<'YURUNA_PINNED_GIT'
+import os
+import pathlib
+import shutil
+import signal
+import subprocess
+import sys
+import tempfile
+import time
+
+destination, repository, revision, mirror = sys.argv[1:]
+revision = revision.lower()
+origin = "https://github.com/" + repository + ".git"
+if os.path.lexists(destination):
+    print("yuruna: pinned materialization refuses to replace existing content", file=sys.stderr)
+    sys.exit(1)
+sources = ([(mirror, "lan-mirror")] if mirror else []) + [(origin, "github")]
+
+def cancel(signum, _frame):
+    raise SystemExit(128 + signum)
+
+signal.signal(signal.SIGTERM, cancel)
+signal.signal(signal.SIGINT, cancel)
+for url, source in sources:
+    stage = tempfile.mkdtemp(prefix=".yuruna-pin.", dir=os.path.dirname(destination))
+    deadline = time.monotonic() + 120
+    environment = os.environ.copy()
+    environment["GIT_TERMINAL_PROMPT"] = "0"
+    if source == "lan-mirror":
+        # A LAN reader must never receive an inherited GitHub credential, proxy,
+        # URL rewrite, extra header, netrc or per-user Git configuration.
+        for key in list(environment):
+            if key.startswith("GIT_") or key in ("GH_TOKEN", "GITHUB_TOKEN", "SSH_ASKPASS") or key.lower().endswith("_proxy"):
+                environment.pop(key)
+        private_home = os.path.join(stage, ".empty-home")
+        os.mkdir(private_home)
+        environment.update(HOME=private_home, XDG_CONFIG_HOME=private_home,
+                           GIT_CONFIG_NOSYSTEM="1", GIT_CONFIG_GLOBAL="/dev/null",
+                           GIT_CONFIG_SYSTEM="/dev/null", GIT_TERMINAL_PROMPT="0")
+    options = ["git", "-c", "http.lowSpeedLimit=1024", "-c", "http.lowSpeedTime=60"]
+    if source == "lan-mirror":
+        options += ["-c", "http.proxy=", "-c", "http.extraHeader=", "-c", "credential.helper=",
+                    "-c", "core.askPass=", "-c", "http.followRedirects=false"]
+
+    def run(*arguments, capture=False):
+        process = subprocess.Popen(options + list(arguments), env=environment,
+                                   stdin=subprocess.DEVNULL, stdout=subprocess.PIPE if capture else subprocess.DEVNULL,
+                                   stderr=subprocess.DEVNULL, start_new_session=True)
+        try:
+            output, _ = process.communicate(timeout=max(0.01, deadline - time.monotonic()))
+        except BaseException:
+            try:
+                os.killpg(process.pid, signal.SIGTERM)
+            except ProcessLookupError:
+                pass
+            try:
+                process.communicate(timeout=2)
+            except subprocess.TimeoutExpired:
+                pass
+            # Git can exit on TERM while a credential or transport child
+            # ignores it. The group still needs its unconditional backstop.
+            try:
+                os.killpg(process.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+            process.communicate()
+            raise
+        if process.returncode:
+            raise RuntimeError("Git command failed")
+        return output.decode("ascii").strip() if capture else ""
+
+    try:
+        run("init", "-q", stage)
+        run("-C", stage, "fetch", "--no-tags", "--depth=1", url, revision)
+        run("-C", stage, "checkout", "--detach", "FETCH_HEAD")
+        if run("-C", stage, "rev-parse", "HEAD", capture=True) != revision:
+            raise RuntimeError("selected commit did not match HEAD")
+        version = pathlib.Path(stage, "VERSION")
+        if not version.is_file() or version.stat().st_size == 0:
+            raise RuntimeError("framework VERSION is absent or empty")
+        for name in (".git", ".empty-home", "dev-only", "docs"):
+            path = pathlib.Path(stage, name)
+            if path.is_dir() and not path.is_symlink():
+                shutil.rmtree(path)
+            elif path.exists() or path.is_symlink():
+                path.unlink()
+        pathlib.Path(stage, ".yuruna-revision").write_text(revision + "\n", encoding="ascii")
+        pathlib.Path(stage, ".yuruna-origin").write_text(origin + "\n", encoding="ascii")
+        # Another installer winning this destination is never permission to
+        # replace it. Rename only after all checks and exclusions have finished.
+        if os.path.lexists(destination):
+            raise RuntimeError("destination appeared during materialization")
+        os.rename(stage, destination)
+        print("yuruna: framework source=" + source + " commit=" + revision)
+        sys.exit(0)
+    except (OSError, RuntimeError, subprocess.TimeoutExpired) as error:
+        print("yuruna: pinned " + source + " materialization failed (" + str(error) + ")", file=sys.stderr)
+    finally:
+        if os.path.isdir(stage):
+            shutil.rmtree(stage)
+sys.exit(1)
+YURUNA_PINNED_GIT
+}
+
 # --- REGION: yuruna_materialize_repositories
 yuruna_materialize_repositories() {
     local REAL_HOME="$1" REAL_USER="$2" FRAMEWORK_URL="$3" PROJECT_URL="$4"
@@ -391,6 +586,15 @@ if [ ! -d "$REAL_HOME/yuruna" ]; then
     fi
   done
   if [ "$HOST_OK" = "false" ]; then
+    local framework_repository="${E_FB_REPO:-${EXEC_FALLBACK_REPO:-${YURUNA_GITHUB_REPO:-}}}"
+    local framework_revision="${E_FB_REF:-${EXEC_FALLBACK_REF:-${YURUNA_GITHUB_REF:-}}}"
+    if [ -n "$framework_repository" ] || [ -n "$framework_revision" ]; then
+      if ! yuruna_materialize_framework_pin "$REAL_HOME/yuruna" "$framework_repository" "$framework_revision" "${YURUNA_CACHING_PROXY_SERVICE_IP:-}"; then
+        echo 'yuruna: pinned framework unavailable; refusing an unpinned clone' >&2
+        exit 1
+      fi
+    else
+    echo 'yuruna: legacy framework fallback is unpinned (no immutable invocation identity)'
     if [ -z "$FRAMEWORK_URL" ]; then
       echo "yuruna: repositories.frameworkUrl missing from test.config.yml - cannot clone framework" >&2
       exit 1
@@ -404,6 +608,7 @@ if [ ! -d "$REAL_HOME/yuruna" ]; then
     if [ ! -f "$REAL_HOME/yuruna/VERSION" ] || [ ! -s "$REAL_HOME/yuruna/VERSION" ]; then
       echo "git clone failed after 3 attempts" >&2
       exit 1
+    fi
     fi
   fi
 fi
@@ -528,12 +733,13 @@ yuruna_install_pwsh_tarball() (
     sudo chmod +x /opt/microsoft/powershell/7/pwsh || return 1
     sudo ln -sf /opt/microsoft/powershell/7/pwsh /usr/bin/pwsh
 )
-export -f yuruna_host_env yuruna_host_relocate yuruna_materialize_repositories yuruna_wait_network _yuruna_verify_key_fpr yuruna_install_pwsh_tarball
+export -f yuruna_host_env yuruna_host_relocate yuruna_materialize_framework_pin yuruna_materialize_repositories yuruna_wait_network _yuruna_verify_key_fpr yuruna_install_pwsh_tarball
 
 # --- REGION: https://yuruna.link/4220a755-0003
 # Child Bash payloads need the wrappers and every helper they call.
-export -f _yuruna_retry _yuruna_retry_positive_integer _yuruna_retry_record \
-    apt_retry dnf_retry curl_retry wget_try pwsh_retry _yuruna_pwsh_attempt \
+export -f _yuruna_retry _yuruna_retry_positive_integer _yuruna_retry_record _yuruna_retry_run \
+    apt_retry _yuruna_classify_apt_update _yuruna_apt_index_heal \
+    dnf_retry curl_retry wget_try pwsh_retry _yuruna_pwsh_attempt \
     _yuruna_http_status_class _yuruna_classify_curl _yuruna_classify_wget \
     yuruna_ca_selfheal _yuruna_bump_trusted _yuruna_ca_trust
 

@@ -818,6 +818,11 @@
           "example": "$AggregatorUrl"
         }
       }
+    },
+    "configsync.mirror_key_confirmation": {
+      "message": "Accept mirror verification key enrollment?",
+      "description": "Confirmation shown with the previous and proposed public key fingerprints when copying configuration from an operator-named host.",
+      "lifecycle": "active"
     }
   }
 }

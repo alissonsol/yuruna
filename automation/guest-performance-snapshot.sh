@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.10.18.2
+# Version: 2026.10.22
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 #
@@ -9,14 +9,27 @@
 set -u
 export LC_ALL=C
 snapshot_priv=()
-if [ "$(id -u)" != 0 ] && command -v sudo >/dev/null 2>&1 && sudo -n true 2>/dev/null; then
-    snapshot_priv=(sudo -n)
-fi
+snapshot_priv_initialized=0
+
+# --- REGION: snapshot_initialize_privilege
+# Readable kernel counters must not wait for privilege setup on a stalled guest.
+snapshot_initialize_privilege() {
+    [ "$snapshot_priv_initialized" -eq 0 ] || return 0
+    snapshot_priv_initialized=1
+    if [ "$(id -u)" != 0 ] && command -v sudo >/dev/null 2>&1 && sudo -n true 2>/dev/null; then
+        snapshot_priv=(sudo -n)
+    fi
+}
 
 # --- REGION: snapshot_read
 snapshot_read() {
     local path=$1 limit=${2:-65536}
     printf '\n--- %s ---\n' "$path"
+    if [ -r "$path" ] && [ -f "$path" ]; then
+        printf 'state=read (bounded prefix)\n'
+        head -c "$limit" -- "$path" 2>&1 && return 0
+    fi
+    snapshot_initialize_privilege
     # The privileged child shell expands its own positional arguments.
     # shellcheck disable=SC2016
     "${snapshot_priv[@]}" sh -c '
@@ -148,12 +161,15 @@ guest_evidence_boot_metadata() {
 
 # --- REGION: Clock correlation
 if [ "${E_CLOCK_ONLY:-0}" = 1 ]; then
-    # Preserve the short observations even when optional metadata is slow.
+    # Preserve CPU and interrupt progress before optional Python or metadata.
     for snapshot_index in 1 2; do
         printf '\n--- YURUNA CLOCK SAMPLE ---\n'
-        guest_evidence_clock
+        printf 'guestClockSampleStartedUtc=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%S.%NZ)"
         snapshot_read /proc/uptime 128
         snapshot_read /proc/stat 65536
+        snapshot_read /proc/interrupts 8192
+        snapshot_read /proc/softirqs 8192
+        guest_evidence_clock
         [ "$snapshot_index" -eq 2 ] || sleep 1
     done
     guest_evidence_boot_metadata
@@ -218,6 +234,7 @@ done < <(ps -eLo pid=,lwp=,psr=,pcpu=,stat=,comm= 2>/dev/null | sort -k4,4nr)
 [ "$snapshot_count" -gt 0 ] || printf 'Thread stacks: no runnable or D-state thread in this sample\n'
 
 # --- REGION: Kernel and installer logs
+snapshot_initialize_privilege
 if command -v journalctl >/dev/null 2>&1; then
     "${snapshot_priv[@]}" journalctl -k -b --no-pager -n 60 -o short-monotonic 2>&1
 else

@@ -115,6 +115,7 @@ const DatazhCNconfigsync = `{
       ]
     }
   },
+  "configsync.mirror_key_confirmation": "是否接受镜像验证密钥注册？",
   "configsync.operator_03e72c207d4307ef": [
     "  此宿主机的架构定义中有而",
     {

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.18.2
+.VERSION 2026.10.22
 .GUID 42e7a0f2-fce5-47f4-aa02-059ecae18abf
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -44,8 +44,15 @@ Describe 'Test.FailureTaxonomy canonical arrays' {
         Assert-True ($fc -contains 'bootstrap_sync') 'has the infra bootstrap class'
         Assert-True ($fc -contains 'plan_invalid') 'has the infra plan class'
         Assert-True ($fc -contains 'hypervisor_unresponsive') 'has the hung hypervisor control-channel class'
+        Assert-True ($fc -contains 'source_integrity') 'has the authenticated source-integrity class'
         Assert-True ($fc[-1] -eq 'unknown') "'unknown' stays last as the catch-all"
         Assert-Equal -Expected 'hard|soft|unknown' -Actual ((Get-SeverityEnum) -join '|') -Because 'severity set'
+    }
+
+    It 'keeps the network-only refusal set distinct from authentication and integrity' {
+        foreach ($class in @((Get-FailureClassEnum)) + @('', 'future_failure')) {
+            Test-TransientNetworkFailureClass -FailureClass $class | Should -Be ($class -cin @('network_timeout','host_network_degraded'))
+        }
     }
 
     It 'documents every failure class at a unique dashboard-link destination' {

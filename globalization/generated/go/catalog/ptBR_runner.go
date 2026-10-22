@@ -299,6 +299,29 @@ const DataptBRrunner = `{
       "trust": "external"
     }
   ],
+  "runner.git_mirror_token_invalid": "O token do GitHub contém caracteres não suportados. Nada foi armazenado. Execute novamente e cole somente o token ou pressione Enter para manter a autenticação atual.",
+  "runner.git_mirror_token_notice": "O token do GitHub é opcional. Pressione Enter para manter a autenticação atual. Fornecer um token reconstrói o proxy de cache para aplicá-lo, mesmo que este hospedeiro já armazene o mesmo token. A reconstrução leva cerca de 15 minutos e descarta o cache aquecido. A entrada fica oculta.",
+  "runner.git_mirror_token_prepare": "Solicitar um token opcional do GitHub e armazenar um valor fornecido explicitamente",
+  "runner.git_mirror_token_prompt": "Token opcional do GitHub (Enter mantém a autenticação atual)",
+  "runner.git_mirror_token_provider_failed": "Não foi possível configurar o token opcional do GitHub. Verifique o provedor de autenticação e as permissões do cofre e execute novamente. O proxy não deve ser reconstruído até que a configuração do token seja concluída com sucesso.",
+  "runner.git_mirror_token_replace_stored": [
+    "github-mirror-token (",
+    {
+      "arg": "vaultKey",
+      "type": "identifier",
+      "trust": "external"
+    },
+    "): (token armazenado) -> (token fornecido pelo operador). O valor anterior continua recuperável no campo previousPassword do cofre."
+  ],
+  "runner.git_mirror_token_store_new": [
+    "github-mirror-token (",
+    {
+      "arg": "vaultKey",
+      "type": "identifier",
+      "trust": "external"
+    },
+    "): (nenhum token armazenado) -> (token fornecido pelo operador)."
+  ],
   "runner.git_recovery_command": [
     "Recuperar com: git -C '",
     {

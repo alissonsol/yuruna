@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.18.2
+.VERSION 2026.10.22
 .GUID 42bd906d-30b3-44f2-9020-fea9dbf0805f
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -1980,7 +1980,10 @@ function Restart-UtmConsole {
     if (-not $PSCmdlet.ShouldProcess($VMName, (Format-YurunaOperatorMessage -Key 'host.operator_5ca701631669fb6d'))) { return $false }
     # Bounded: the activate is an Apple Event, and a UTM that stopped
     # answering would otherwise hold the repaint nudge forever.
-    $null = Invoke-UtmHostTool -Tool 'osascript' -ArgumentList @('-e', 'tell application "UTM" to activate') -TimeoutSeconds 10
+    $activation = Invoke-UtmHostTool -Tool 'osascript' -ArgumentList @('-e', 'tell application "UTM" to activate') -TimeoutSeconds 10
+    # A failed Apple Event cannot establish that the display was refreshed.
+    # Recovery callers must retain that uncertainty rather than replay input.
+    if (-not (Test-UtmBoundedResultComplete -Result $activation) -or $activation.ExitCode -ne 0) { return $false }
     Start-Sleep -Seconds 1
     Write-Verbose "    Activated UTM window for '$VMName' (display repaint)"
     return $true
@@ -2776,6 +2779,10 @@ function Get-UtmEvidenceDirectory {
     Cap for the `log show` call, which can be slow on a loaded host.
 .PARAMETER Deadline
     Optional shared deadline (New-YurunaDeadline).
+.PARAMETER SkipScreenshot
+    Omit the screenshot for automatic startup evidence collection. The screenshot
+    contract does not consume the shared deadline; retained failure frames remain
+    available while the native control probes stay within their bounded budget.
 .OUTPUTS
     [pscustomobject] Written, Reason, Directory, Path, Record.
 #>
@@ -2788,7 +2795,8 @@ function Save-UtmControlSnapshot {
         [AllowEmptyString()][string]$VMName = '',
         [ValidateRange(1, 1440)][int]$LogWindowMinutes = 30,
         [ValidateRange(1, 600)][int]$LogTimeoutSeconds = 60,
-        $Deadline
+        $Deadline,
+        [switch]$SkipScreenshot
     )
     $stopwatch = [System.Diagnostics.Stopwatch]::StartNew()
     $result = [ordered]@{ Written = $false; Reason = ''; Directory = ''; Path = ''; Record = $null }
@@ -2900,10 +2908,14 @@ function Save-UtmControlSnapshot {
         if (-not [string]::IsNullOrWhiteSpace($VMName)) {
             $shotPath = Join-Path $directory "utm-control-snapshot.$Trigger.$VMName.png"
             $shot = [ordered]@{ vmName = $VMName; path = ''; outcome = 'not-attempted' }
-            try {
-                $null = Get-VMScreenshot -VMName $VMName -OutFile $shotPath -ErrorAction Stop
-                if (Test-Path -LiteralPath $shotPath -PathType Leaf) { $shot.path = $shotPath; $shot.outcome = 'captured' } else { $shot.outcome = 'not-captured' }
-            } catch { $shot.outcome = 'failed'; $problems.Add("screenshot: $($_.Exception.Message)") }
+            if ($SkipScreenshot) {
+                $shot.outcome = 'skipped'
+            } else {
+                try {
+                    $null = Get-VMScreenshot -VMName $VMName -OutFile $shotPath -ErrorAction Stop
+                    if (Test-Path -LiteralPath $shotPath -PathType Leaf) { $shot.path = $shotPath; $shot.outcome = 'captured' } else { $shot.outcome = 'not-captured' }
+                } catch { $shot.outcome = 'failed'; $problems.Add("screenshot: $($_.Exception.Message)") }
+            }
             $record.screenshot = $shot
         }
     } catch {
@@ -5378,21 +5390,34 @@ function Get-VMConsoleSecondOpinion {
     # as "still executing". An idle QEMU answering VNC polls sits in low
     # single digits; a guest spinning on a wedged boot holds a core or more,
     # so anything in between is read as executing rather than halted.
+    # Emulator CPU cannot distinguish guest work from a hypervisor spin, so this
+    # verdict alone never authorizes a reset. A login wait acts on it only after
+    # QEMU has reported no active display for the whole livelock window.
+    # See https://yuruna.link/428e4df6-001c
     $executingPercent = 25
+    $observation = [ordered]@{
+        Verdict = 'unavailable'; Detail = ''; ObservedAtUtc = [DateTime]::UtcNow.ToString('o')
+        VMName = $VMName; VMState = ''; QemuPid = $null; VncPort = $null
+        IntervalSeconds = $IntervalSeconds; FirstFrameSha256 = $null; SecondFrameSha256 = $null
+        FramesChanged = $null; FirstCpuSeconds = $null; SecondCpuSeconds = $null; CpuPercent = $null
+    }
     try {
         $state = Get-VMState -VMName $VMName
+        $observation.VMState = [string]$state
         if ($state -eq 'absent' -or $state -eq 'unknown') {
-            return [pscustomobject]@{ Verdict = 'unavailable'; Detail = (Format-YurunaOperatorMessage -Key 'host.operator_b7d0860a322acd62' -Arguments @{ state = "$state"; vMName = "$VMName" }) }
+            $observation.Detail = Format-YurunaOperatorMessage -Key 'host.operator_b7d0860a322acd62' -Arguments @{ state = "$state"; vMName = "$VMName" }
+            return [pscustomobject]$observation
         }
         if ($state -ne 'running') {
-            return [pscustomobject]@{
-                Verdict = 'guest-static'
-                Detail  = (Format-YurunaOperatorMessage -Key 'host.operator_9ea0a8c951ae7be7' -Arguments @{ state = "$state" })
-            }
+            $observation.Verdict = 'guest-static'
+            $observation.Detail = Format-YurunaOperatorMessage -Key 'host.operator_9ea0a8c951ae7be7' -Arguments @{ state = "$state" }
+            return [pscustomobject]$observation
         }
 
         $qemuPid = Get-UtmVMProcessId -VMName $VMName
         $port    = Get-VncPortForVm -VMName $VMName
+        if ($qemuPid -gt 0) { $observation.QemuPid = $qemuPid }
+        if ($port -gt 0) { $observation.VncPort = $port }
         $readFrame = {
             $tmp = Join-Path ([System.IO.Path]::GetTempPath()) "yrn-second-opinion-$PID-$([guid]::NewGuid().ToString('N')).png"
             try {
@@ -5419,6 +5444,11 @@ function Get-VMConsoleSecondOpinion {
         Start-Sleep -Seconds $IntervalSeconds
         $secondCpu   = & $readCpu
         $secondFrame = & $readFrame
+        $observation.FirstFrameSha256 = $firstFrame
+        $observation.SecondFrameSha256 = $secondFrame
+        if ($firstFrame -and $secondFrame) { $observation.FramesChanged = ($firstFrame -ne $secondFrame) }
+        $observation.FirstCpuSeconds = $firstCpu
+        $observation.SecondCpuSeconds = $secondCpu
 
         $cpuPercent = $null
         $cpuText    = 'the emulator CPU was unreadable'
@@ -5428,15 +5458,15 @@ function Get-VMConsoleSecondOpinion {
             $delta = $secondCpu - $firstCpu
             if ($delta -ge 0) {
                 $cpuPercent = [math]::Round(($delta / $IntervalSeconds) * 100, 1)
+                $observation.CpuPercent = $cpuPercent
                 $cpuText    = "the emulator burned ${cpuPercent}% of one core across the same window"
             }
         }
 
         if ($firstFrame -and $secondFrame -and $firstFrame -ne $secondFrame) {
-            return [pscustomobject]@{
-                Verdict = 'guest-live'
-                Detail  = (Format-YurunaOperatorMessage -Key 'host.operator_689d94eae42f4fe8' -Arguments @{ port = "$port"; intervalSeconds = "${IntervalSeconds}"; cpuText = "$cpuText" })
-            }
+            $observation.Verdict = 'guest-live'
+            $observation.Detail = Format-YurunaOperatorMessage -Key 'host.operator_689d94eae42f4fe8' -Arguments @{ port = "$port"; intervalSeconds = "${IntervalSeconds}"; cpuText = "$cpuText" }
+            return [pscustomobject]$observation
         }
         $frameText = if ($firstFrame -and $secondFrame) {
             "direct VNC reads on port $port ${IntervalSeconds}s apart are byte-identical"
@@ -5444,17 +5474,17 @@ function Get-VMConsoleSecondOpinion {
             "direct VNC reads on port $port were unavailable"
         }
         if ($null -ne $cpuPercent -and $cpuPercent -ge $executingPercent) {
-            return [pscustomobject]@{
-                Verdict = 'guest-wedged'
-                Detail  = (Format-YurunaOperatorMessage -Key 'host.operator_912d123572f4b9c5' -Arguments @{ frameText = "$frameText"; cpuText = "$cpuText" })
-            }
+            $observation.Verdict = 'guest-wedged'
+            $observation.Detail = Format-YurunaOperatorMessage -Key 'host.operator_912d123572f4b9c5' -Arguments @{ frameText = "$frameText"; cpuText = "$cpuText" }
+            return [pscustomobject]$observation
         }
-        return [pscustomobject]@{
-            Verdict = 'guest-static'
-            Detail  = (Format-YurunaOperatorMessage -Key 'host.operator_7b4448d951dc6b7c' -Arguments @{ frameText = "$frameText"; cpuText = "$cpuText" })
-        }
+        $observation.Verdict = 'guest-static'
+        $observation.Detail = Format-YurunaOperatorMessage -Key 'host.operator_7b4448d951dc6b7c' -Arguments @{ frameText = "$frameText"; cpuText = "$cpuText" }
+        return [pscustomobject]$observation
     } catch {
-        return [pscustomobject]@{ Verdict = 'unavailable'; Detail = $_.Exception.Message }
+        $observation.Verdict = 'unavailable'
+        $observation.Detail = $_.Exception.Message
+        return [pscustomobject]$observation
     }
 }
 
@@ -6840,7 +6870,7 @@ function Get-CachingProxyServiceVmIp {
     return $null
 }
 
-# --- REGION: Host config
+# --- REGION: Host configuration
 # --- REGION: Set-HostProxy
 function Set-HostProxy {
     <#

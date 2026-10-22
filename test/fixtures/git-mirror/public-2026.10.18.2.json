@@ -1,0 +1,39 @@
+{
+  "schema": "yuruna.git-mirror.public-fixture/v1",
+  "release": "2026.10.18.2",
+  "commit": "160bbb0855b3c304ad61ab45c02b7ef7c042721d",
+  "files": [
+    {
+      "path": "test/Start-TestRunner.ps1",
+      "sha256": "256bc3d3f9f711fd50f795d27531e5accf843caee2bfb7061f61f23d43b06e7b"
+    },
+    {
+      "path": "test/modules/Invoke-TestCycleRunner.ps1",
+      "sha256": "4665e4ab2a2806c4eb70db8b64ec7abb4ebca74d9cc0158bb8998adc9679d446"
+    },
+    {
+      "path": "test/modules/Test.RunnerOuterLoop.psm1",
+      "sha256": "322b1a583e28452807b29fb198a28728b582517304e201c3f528ef6c53ad6a31"
+    },
+    {
+      "path": "install/ubuntu.kvm.sh",
+      "sha256": "34b8e95797675971a73c5cadb70ffc3b4d7746666359b23babb09caca1d01783"
+    },
+    {
+      "path": "install/macos.utm.sh",
+      "sha256": "d611d1efcb24ea2e551bbdca386c710aaeab209d63d24c6406910de2af8fef5a"
+    },
+    {
+      "path": "install/windows.hyper-v.ps1",
+      "sha256": "d67b949cf481a3e9ebd2427c238c4c892c7ec666dbf01cfe7e44247b0c6be9b7"
+    },
+    {
+      "path": "install/setup.ps1",
+      "sha256": "fdcf3fb527f34910a7e4489d4cfb3d8e5224b5d4fe91d21da9203c3e375c00d2"
+    },
+    {
+      "path": "test/test.config.yml.template",
+      "sha256": "ce242a2034a98faf2a8ea080f298e6ec76bdd0336cf37f903a483315707fc1fd"
+    }
+  ]
+}

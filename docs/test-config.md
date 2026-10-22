@@ -32,6 +32,50 @@ as a yellow configuration preflight failure. Missing declarations are optional;
 unavailable measurements produce an explicit warning, not a fabricated zero
 or a passing measurement. These checks never rewrite operator configuration.
 
+<a id="42b11c32-0013"></a>
+
+## Git mirror
+
+`repositories.mirror.mode` defaults to `prefer`: an enrolled local mirror is
+tried before GitHub. `fallback` tries GitHub first; `off` uses the configured
+origin. File repositories and other non-GitHub remotes keep their existing path.
+An empty `repositories.mirror.url` derives the service base URL from the caching
+proxy address without rewriting the configuration. A populated URL must be an
+HTTP or HTTPS origin without credentials, a path, a query or a fragment.
+
+`repositories.mirror.verificationPublicKeys` is a list of single-line base64 DER
+SubjectPublicKeyInfo values for RSA keys of at least 3072 bits (at most 1 KiB of
+DER per key). It defaults to an empty list, which prevents mirror requests for
+host source updates. A mirror response and a pool overlay cannot enroll trust.
+Building this host's own proxy exports its public identity in
+`test/status/runtime/git-mirror-public-key.json` (or `YURUNA_RUNTIME_DIR`);
+setup enrolls that identity when binding the host to its own proxy. A lab join
+through `Sync-HostConfiguration.ps1` prints the previous and new fingerprints
+and requires confirmation; unattended joins pass `-AcceptMirrorKey` and
+`-NonInteractive`. The protected status editor and a local hand edit can also
+enroll keys. Rotation adds the new key, switches the proxy's vault signing key
+and rebuilds it, then removes the old enrolled key.
+
+`repositories.mirror.mirrorOnlyMaxAgeSeconds` defaults to 604800 (seven days),
+accepts 0 through 1209600, and bounds outage use from the last successful origin
+confirmation. Zero disables outage use. A signed immutable pin and the installed
+revision checks still apply; this setting does not authorize a rollback.
+
+`vmStart.cachingProxyGitMirrorRefreshSeconds` defaults to 60 and accepts integer
+values from 10 through 3600. It is a seed-time setting: rebuild the proxy to apply
+a change, and check the effective interval at `/git-mirror/status.json`. The
+optional `github-mirror-token` and dedicated `github-mirror-signing-key` live in
+the proxy owner's vault, never in this configuration. Missing optional tokens
+keep public mirroring anonymous. An interactive
+`test/service/Start-CachingProxyServiceVM.ps1` offers a hidden GitHub token prompt
+and handles the token's vault mapping automatically. Enter keeps the stored
+token or anonymous access; entering a token requests a rebuild so the VM uses
+it. Automation skips the prompt and can apply a prepopulated vault token with
+`-ForceRebuild`. See [Git mirror setup](caching.md#upgrade-and-enrollment).
+`repositories.ghToken` supplies separate direct and guest fallback credentials.
+A failed signing-key vault read never mints a
+replacement key. Keep seed media private because it contains the worker's key.
+
 <a id="42b11c32-0002"></a>
 
 ## Key names
@@ -667,6 +711,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.18.1
+Last review: 2026.10.22
 
 Back to [Yuruna](../README.md)

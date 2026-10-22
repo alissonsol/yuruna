@@ -92,6 +92,30 @@ pool-control service page (`http://<pool-control>/`) that makes the same change
 by running the same command; a change made there unlocks with the Lab token
 ([Unlocking the actions](#4207d71a-0012)) instead of taking `-ConfigurationGitUrl`.
 
+The caching proxy mounts pool storage with root write access and `www-data`
+group read access (`0640` files, `0750` directories). NAS credentials remain
+private. Apache serves static Git files, so runners use full clones and fetches;
+this transport does not support shallow operations. Rebuilds preserve an existing
+configuration repository and its Git settings. The
+`yuruna-pool-configuration.timer` retries setup every minute after a run finishes,
+including when the NAS becomes available after boot, and refreshes static Git
+metadata for stores whose push hooks cannot execute on CIFS.
+
+To diagnose access, read `http://<proxy>/pool-configuration-status` and
+`http://<proxy>/config-fetch-pool-status`. The first reports storage, repository,
+Apache read permissions, HTTP status, and a full HTTP clone check; its timestamp
+shows when it last ran. Detailed command errors are in
+`journalctl -u yuruna-pool-configuration.service` on the VM. The boot readiness
+summary includes this result. `Test-CachingProxyService.ps1` also checks Git
+`HEAD` and `info/refs` from the calling host, so an HTTP 403 or an HTML landing
+page cannot be mistaken for working pool access merely because port 80 answers.
+The runner retains its cached configuration when a fetch fails; without a cache,
+it runs standalone and cannot receive pool changes until access is restored.
+
+The serving regression tests run on a Linux development host with Apache 2,
+Git, PowerShell, Python 3, curl, and jq:
+`python3 -m unittest discover -s host/vmconfig/tests -p test_pool_configuration.py -v`.
+
 <a id="4207d71a-0004"></a>
 
 ## Step 1 -- Create the pool
@@ -310,18 +334,18 @@ ago, unless `-Force`. Run it on a host with the pool share mounted.
 
 A guest-side message that blames the caching proxy -- an image pull that could not
 reach the registry cache, a package fetch that timed out on the web cache -- has two
-causes that look identical from inside the guest: the proxy is down, or that one guest
-lost its path to the lab. Three checks, in this order, tell them apart. Stop at the
-first one that answers.
+causes that look identical from inside the guest: the proxy is unavailable, or that
+guest lost its path to it. Compare these three checks over the failing interval;
+successful probes afterward can miss a transient failure.
 
 1. **The Yuruna hosts dashboard, row *Drill-down: caching proxy*.** Set the time
    range around the failing minute; the *Step failures that name the caching proxy*
    panel in that row lists the event with its UTC time. Green liveness and pull-path
    tiles, every other guest's line still present in the per-client panels, and the
-   failing guest's line absent, is a guest that lost its own path -- the proxy is
-   cleared, continue with check 2. Red tiles, or every client line ending at once, is
-   the proxy: continue on the cache-health dashboard (the proxy VM's own board) and
-   leave the guest alone. What each tile and panel means is in
+   failing guest's line absent, points toward that guest's path; continue with
+   check 2. Red tiles, or every client line ending at once, point toward a shared
+   service or network failure: continue on the cache-health dashboard (the proxy
+   VM's own board). What each tile and panel means is in
    [pool-dashboard](https://yuruna.link/422226cb).
 2. **The failure folder on the host, beside `last_failure.json`.** The host writes two
    files there at failure time: `network-cross-check.json`, whose verdict records what
@@ -330,6 +354,10 @@ first one that answers.
    verdict first: a host that reached the proxy while its guest's adapter was
    disconnected, or sat on a switch with no uplink, names a host-side fault, and the
    state file says which; a host that reached nothing names its own uplink.
+   For web downloads, also read `cacheHttpTcp` and `cacheHttpsTcp`: the registry
+   and health page can answer while port 3128 or 3129 does not. These are
+   host-side observations at capture time; a recovered connection or a failure
+   confined to the guest's NAT path can leave every probe successful.
 3. **The proxy's logs for the guest's own address, in the failing minute.** In
    Grafana Explore against the Loki datasource, with the time range set to that minute
    and the guest's lab address in place of the example:
@@ -339,9 +367,10 @@ first one that answers.
    {job="zot"} | json | clientIP=~"192.0.2.57:.*"
    ```
 
-   Lines from other clients and none from this guest confirm it never reached the
-   proxy VM. Lines from this guest with a slow or failed status say it did, and move
-   the question back to the proxy.
+   Lines from other clients and none from this guest support a failure before the
+   proxy logged a request; they do not identify where a TCP connection stalled.
+   Lines from this guest with a slow or failed status show that its request reached
+   the proxy and provide the next evidence to inspect.
 
 <a id="4207d71a-000b"></a>
 
@@ -1176,6 +1205,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.18.1
+Last review: 2026.10.22
 
 Back to [Yuruna](../README.md)

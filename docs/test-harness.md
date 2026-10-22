@@ -508,12 +508,55 @@ Windows test-cycle host runs elevated as well. Git tools: several suites run
 `chmod` and `openssl` are not found at all; Git for Windows ships all three under
 `usr\bin`. The private suites under `dev-only/test` follow the same rule.
 
-**Plan for the time.** Up to eight suite processes run at once (`-ThrottleLimit`),
-and a full run of the tracked suites takes about 8 minutes on the Ubuntu KVM host
-the baseline is recorded on, about 7 minutes on macOS and 17 to 20 minutes on
-Windows. A suite runs beside seven others, so a timing bound inside a
-suite has to hold on a busy machine, and a test that needs a free port must not
-assume that a port it just released stays free.
+**Plan for the time.** Half the logical processors, at least 8 and at most 16,
+run suite processes at once (`-ThrottleLimit`). Past 16 the longest suite slows
+under the load faster than the extra workers finish the rest. A full run of the
+tracked suites takes about 8 minutes on the Ubuntu KVM host the baseline is
+recorded on, about 7 minutes on macOS and 17 to 20 minutes on Windows. A suite
+runs beside up to fifteen others, so a timing bound inside a suite has to hold
+on a busy machine, and a test that needs a free port must not assume that a port
+it just released stays free.
+
+**Recorded passes.** On Linux with `strace` and `python3`, `-Record` traces each
+suite the run executes (`tools/suite_impact.py`) and keeps, for each suite that
+passes, every path its process tree read, probed, listed or changed, with a
+fingerprint of each and the suite's NUnit result. A later run without `-All`
+counts that pass instead of running the suite again while the record holds:
+
+- Every recorded input is unchanged. Inside the workspace (this checkout and
+  each Git checkout beside it), a file is compared by content and mode, a
+  listed directory by its entry names, a probed path by what is there now,
+  absence included, and a Git index by what it stages. Outside the workspace, a
+  file the suite read is compared by size, modification time and mode, a listed
+  directory by its entry names, and a probed path by what is there, unless its
+  directory was listed.
+- The context is unchanged: the calendar day (UTC and local), the root, the
+  platform, the account, the PowerShell and Pester versions, the runner's own
+  files, and the environment. Variables that only name a process, session,
+  socket or token are left out of the environment.
+
+A suite is not recorded when an input changed while it ran, when it changed a
+path it had read, or when strace showed a relative path whose directory was not
+known. A traced suite that does not pass runs again untraced, and that run
+decides: ptrace changes how a traced process ends, so a test that bounds how
+long a process takes to die can fail only because it was traced. A suite that
+fails that way twice in a day runs untraced for the rest of it. A reused suite
+still meets all five conditions below, from its recorded NUnit file; the report
+marks it `reused`, and `suite-results.json` gives each suite's `impact`: why it
+ran, and whether it was recorded. Such a run is complete for a commit. A release
+runs every suite with `-All`, as `-UpdateBaseline` and `-RegisterNewSuites`
+always do. A traced suite runs up to three times slower when it probes many
+paths, so its cap is four times the untraced one. Records live under the clone's
+Git directory (`.git/yuruna/test-impact`); removing that folder only means the
+next run reuses nothing.
+
+`tools/Start-TestWatcher.ps1` keeps the records current. It fingerprints the
+workspace every few seconds and, once the workspace has been quiet for a while,
+runs the public and private suites with `-Background`: recording at idle
+priority, and launching no further suite while a foreground run is active on the
+clone. Start it from the same kind of shell that runs the gates, because the
+environment is part of every record's context. `-Once` records every suite that
+has no reusable pass, then exits.
 
 **The exit code of a single suite is not a pass/fail signal.** Pester's
 standalone path does not propagate a failing run through the call operator: a
@@ -1349,6 +1392,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.18.1
+Last review: 2026.10.22
 
 Back to [Yuruna](../README.md)

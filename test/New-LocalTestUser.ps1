@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.18.2
+.VERSION 2026.10.22
 .GUID 4271255a-d0dd-4c45-8932-15f35ae51cf4
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -839,7 +839,7 @@ function New-LinuxLocalUser {
     if ($Secret) {
         # chpasswd reads `user:password` from stdin, so the plaintext never
         # enters an argument vector and a leading '-' cannot be mistaken for
-        # an option. See docs/vmconfig.md for the trap class.
+        # an option. See https://yuruna.link/429f3d06-0017 for the trap class.
         $out = "${Name}:${Secret}" | & sudo chpasswd 2>&1
         if ($LASTEXITCODE -ne 0) {
             throw "chpasswd exited $LASTEXITCODE`: $out"
@@ -892,7 +892,6 @@ elseif ($IsLinux)   { New-LinuxLocalUser   @osArgs }
 
 # --- REGION: Let the new Windows account run scripts
 # See https://yuruna.link/42010605-0002
-
 # The read-back is the verdict: `exit 3` says the write did not land. The
 # closing `exit 0` is what keeps a successful run from reading as a failure
 # -- a PowerShell host returns 1 whenever anything reached the error stream,

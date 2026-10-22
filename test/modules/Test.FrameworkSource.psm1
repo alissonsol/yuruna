@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.18.2
+.VERSION 2026.10.22
 .GUID 42765a89-9026-4dfc-bda8-481ccd6555ce
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -58,11 +58,14 @@ function Get-FrameworkSourceSnapshot {
     } catch { Write-Verbose "framework VERSION read: $($_.Exception.Message)" }
 
     $revision = ''
+    $commit   = ''
     $dirty    = @()
     try {
         if (Get-Command git -CommandType Application -ErrorAction SilentlyContinue) {
             $revision = (& git -C $RepoRoot rev-parse --short HEAD 2>$null | Select-Object -First 1)
             if (-not $revision) { $revision = '' }
+            $commit = (& git -C $RepoRoot rev-parse HEAD 2>$null | Select-Object -First 1)
+            if ($commit -cnotmatch '^[0-9a-f]{40}$') { $commit = '' }
             # Porcelain v1 so the two-column status prefix stays parseable
             # across git versions; the paths are for a human to read, so the
             # rename arrow and quoting git applies are left as git wrote them.
@@ -73,6 +76,7 @@ function Get-FrameworkSourceSnapshot {
     return @{
         Version    = [string]$version
         Revision   = [string]$revision
+        Commit     = [string]$commit
         DirtyPaths = [string[]]$dirty
         IsDirty    = ([int]$dirty.Count -gt 0)
     }
@@ -538,6 +542,7 @@ function Test-ServiceVmFrameworkSource {
         Verified        = $false
         Matches         = $false
         Source          = ''
+        Commit          = ''
         Version         = ''
         ExpectedVersion = [string]$Expected.Version
         Summary         = ''
@@ -553,6 +558,7 @@ function Test-ServiceVmFrameworkSource {
                 foreach ($line in ([string]$ssh.output -split "`r?`n")) {
                     if ($line -match '^\s*source\s*=\s*(.+?)\s*$')  { $out.Source  = $Matches[1] }
                     if ($line -match '^\s*version\s*=\s*(.+?)\s*$') { $out.Version = $Matches[1] }
+                    if ($line -match '^\s*commit\s*=\s*([0-9a-f]{40})\s*$') { $out.Commit = $Matches[1] }
                 }
                 if ($out.Source) {
                     $out.Verified = $true
@@ -588,7 +594,10 @@ function Test-ServiceVmFrameworkSource {
         return $out
     }
 
-    $mirrorSourced  = ($out.Source -and $out.Source -ne 'host')
+    # A LAN transport is equivalent to the host only when it materialized the
+    # same full commit. A matching VERSION alone cannot establish source identity.
+    $exactLanPin = ($out.Source -eq 'lan-mirror' -and $out.Commit -and $Expected.ContainsKey('Commit') -and $out.Commit -ceq $Expected.Commit)
+    $mirrorSourced  = ($out.Source -and $out.Source -ne 'host' -and -not $exactLanPin)
     $versionMatches = ($out.Version -and $out.Version -eq [string]$Expected.Version)
     $out.Matches    = ($versionMatches -and -not $mirrorSourced)
     $out.Summary = if ($out.Matches) {

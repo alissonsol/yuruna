@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.18.2
+.VERSION 2026.10.22
 .GUID 420eae9d-b5a9-4ca6-af97-df678c83b820
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -125,7 +125,8 @@ $baseImageFile = Join-Path $downloadDir "$baseImageName.iso"
 Import-Module -Name (Join-Path (Split-Path -Parent (Split-Path -Parent $GuestScriptRoot)) 'modules/Yuruna.Image.psm1') -Force
 if (-not (Assert-YurunaBaseImage -BaseImageFile $baseImageFile -GuestFolder $GuestScriptRoot)) { exit 1 }
 
-# --- REGION: https://yuruna.link/42e220c4-0004
+# --- REGION: Vault user password
+# See https://yuruna.link/42e220c4-0004
 # Read the persistent authentication vault; a new cycle must not reset credentials.
 $_repoRootForExt = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $ScriptDir))
 Import-Module (Join-Path $_repoRootForExt 'test/modules/Test.Extension.psm1') -Global -Force -Verbose:$false
@@ -159,6 +160,9 @@ Write-BaseImageProvenance -BaseImagePath $baseImageFile
 Import-Module (Join-Path (Split-Path -Parent $ScriptDir) "modules/Yuruna.Host.psm1") -Force
 
 # --- REGION: Remove existing VM
+# See https://yuruna.link/42e220c4-0004
+# Runs AFTER the base image is confirmed so a failed image fetch never
+# destroys a working VM.
 if (-not (Remove-UtmTestVM -VMName $VMName -Confirm:$false)) {
     Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_7565389d0d010c89' -Arguments @{ utmDir = "$UtmDir" })
     exit 1
@@ -171,11 +175,9 @@ Copy-Item -Path $baseImageFile -Destination $DestIso
 Write-Verbose "Copied installer ISO as: $VMName.iso"
 
 # --- REGION: Create empty install target
-# Create blank disk for installation (64GB, qcow2 sparse -- grows on
-# demand inside the qcow2 container, so the host doesn't pre-reserve
-# the full nominal size). Uniform cap across hosts: ubuntu.kvm /
-# windows.hyper-v / macos.utm. Paired with sizing-policy: all in
-# host/vmconfig/ubuntu.server.base.user-data so the root LV consumes the whole PV.
+# The 64 GB sparse disk fits the k8s and .NET build workloads and is the uniform
+# cap across hosts; sizing-policy: all in host/vmconfig/ubuntu.server.base.user-data
+# lets the root LV consume the whole PV.
 $DiskImage = "$DataDir/disk.qcow2"
 Write-Verbose "Creating 64GB disk image (qcow2 format for QEMU backend)..."
 & qemu-img create -f qcow2 "$DiskImage" 64G 2>&1 | ForEach-Object { Write-Verbose $_ }
@@ -184,6 +186,7 @@ if ($LASTEXITCODE -ne 0) {
     exit 1
 }
 
+# --- REGION: Stage the cloud-init seed directory
 $SeedDir = Join-Path $downloadDir "seed_temp/$VMName"
 if (Test-Path -LiteralPath $SeedDir) { Remove-Item -LiteralPath $SeedDir -Recurse -Force }
 New-Item -ItemType Directory -Force -Path $SeedDir | Out-Null
@@ -203,7 +206,8 @@ Import-Module (Join-Path $RepoRoot 'automation/Yuruna.CloudInitTemplate.psm1') -
 Import-Module (Join-Path $RepoRoot 'automation/Yuruna.GuestSeed.psm1') -Force
 
 # --- REGION: Yuruna harness SSH key
-# Load the SSH public key used by the test harness to drive the VM over SSH.
+# See https://yuruna.link/42e220c4-0004
+# Seed the shared harness key so guest provisioning and failure diagnostics agree.
 $TestSshModule = Join-Path (Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $ScriptDir))) "test/modules/Test.Ssh.psm1"
 Import-Module $TestSshModule -Force
 $SshAuthorizedKey = Get-YurunaSshPublicKey
@@ -295,10 +299,8 @@ To intentionally skip the cache:
 $AptProxyBlock = New-AptProxyBlock -PrimaryUri 'http://ports.ubuntu.com/ubuntu-ports' -CachingProxyServiceUrl $CachingProxyServiceUrl
 
 # --- REGION: Yuruna host coordinates
-# Yuruna host (status service) IP+port baked into the seed for the dev
-# iteration loop. Guest scripts read /etc/yuruna/host.env (written by
-# the user-data late-commands) to resolve a local URL before falling
-# back to GitHub. See Test-YurunaHost.ps1 for the in-guest probe.
+# See https://yuruna.link/4220a755-001b
+# Bake the status-service address reachable through the selected guest network.
 $YurunaHostIp = Get-GuestReachableHostIp
 Import-Module (Join-Path (Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $ScriptDir))) 'test/modules/Test.Config.psm1') -Global -Force
 $_statusSeed = Get-YurunaStatusServiceSeed -RepoRoot (Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $ScriptDir)))
@@ -328,8 +330,7 @@ if ($CachingProxyServiceUrl -and $cacheVmIp) {
 
 # --- REGION: Render user-data / meta-data
 # See https://yuruna.link/4220a755-0003
-# Bake yuruna-retry.sh + fetch-and-execute.sh into the seed as base64-encoded
-# write_files entries so both files are on disk before any guest script runs.
+# Embed the guest libraries as base64 write_files entries so bootstrap needs no download.
 $null = New-CloudInitUserData `
     -BasePath    $BaseUserData `
     -OverlayPath $OverlayUserData `
@@ -364,7 +365,7 @@ if ($LASTEXITCODE -ne 0) {
     exit 1
 }
 
-# --- REGION: Create and configure the UTM bundle (config.plist, QEMU backend)
+# --- REGION: Create and configure the UTM bundle
 # Generate UTM config.plist from template (QEMU backend, with -vnc 127.0.0.1:N AdditionalArgument)
 $TemplatePath = Join-Path $ScriptDir "config.plist.template"
 if (-not (Test-Path $TemplatePath)) {

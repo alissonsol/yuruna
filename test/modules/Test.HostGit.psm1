@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.18.2
+.VERSION 2026.10.22
 .GUID 42bb2613-9d4e-4ac0-aeb2-0784a83e7a8a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -283,18 +283,25 @@ function Invoke-GitNetworkCommand {
     [OutputType([hashtable])]
     param(
         [Parameter(Mandatory)][string[]]$GitArgs,
-        [Parameter()][int]$TimeoutSeconds = 60
+        [Parameter()][int]$TimeoutSeconds = 60,
+        [DateTimeOffset]$DeadlineUtc = [DateTimeOffset]::MaxValue
     )
+    $bounded = $PSBoundParameters.ContainsKey('DeadlineUtc')
+    if ($bounded) { $DeadlineUtc = [DateTimeOffset]::new([Math]::Min($DeadlineUtc.UtcTicks, [DateTimeOffset]::UtcNow.AddSeconds($TimeoutSeconds).UtcTicks), [TimeSpan]::Zero) }
     foreach ($attempt in @(Get-YurunaGitAuthAttemptList)) {
+        $remaining = if ($bounded) { [int][Math]::Floor(($DeadlineUtc - [DateTimeOffset]::UtcNow).TotalSeconds) } else { $TimeoutSeconds }
+        if ($remaining -lt 1) { return @{ ExitCode = 124; Output = 'Git exceeded the enclosing deadline.' } }
         # The -c auth args are git GLOBAL options, so they must precede the
         # subcommand -- prepend them to whatever the caller passed (which starts
         # with a global like -C or the subcommand itself).
-        $r = Invoke-GitNetworkCommandOnce -GitArgs (@($attempt.Args) + @($GitArgs)) -TimeoutSeconds $TimeoutSeconds
+        $r = Invoke-GitNetworkCommandOnce -GitArgs (@($attempt.Args) + @($GitArgs)) -TimeoutSeconds $remaining
         if ($r.ExitCode -eq 0) { return $r }
         if (-not (Test-GitRemoteAuthFailure -Output $r.Output)) { return $r }
         Write-Verbose "Invoke-GitNetworkCommand: the $($attempt.Source) attempt was rejected as unauthorized; trying the next credential source."
     }
-    return Invoke-GitNetworkCommandOnce -GitArgs $GitArgs -TimeoutSeconds $TimeoutSeconds
+    $remaining = if ($bounded) { [int][Math]::Floor(($DeadlineUtc - [DateTimeOffset]::UtcNow).TotalSeconds) } else { $TimeoutSeconds }
+    if ($remaining -lt 1) { return @{ ExitCode = 124; Output = 'Git exceeded the enclosing deadline.' } }
+    return Invoke-GitNetworkCommandOnce -GitArgs $GitArgs -TimeoutSeconds $remaining
 }
 
 function Get-GitFirstOutputLine {
@@ -370,6 +377,584 @@ function Write-GitAuthRefreshBanner {
     Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_def404610b1df98a' -Arguments @{ remote = "$remote"; options = "$options"; said = "$said" })
 }
 
+function ConvertFrom-GitMirrorJson {
+    <# .SYNOPSIS
+        Decode a bounded protocol object without accepting duplicate keys.
+    #>
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param([Parameter(Mandatory)][byte[]]$Bytes, [int]$MaximumBytes = 65536)
+    if ($Bytes.Length -eq 0 -or $Bytes.Length -gt $MaximumBytes) { throw 'mirror-invalid-response' }
+    $text = [Text.UTF8Encoding]::new($false, $true).GetString($Bytes)
+    $options = [System.Text.Json.JsonDocumentOptions]::new()
+    $options.MaxDepth = 8
+    $document = [System.Text.Json.JsonDocument]::Parse($text, $options)
+    try {
+        if ($document.RootElement.ValueKind -ne [System.Text.Json.JsonValueKind]::Object) { throw 'mirror-invalid-response' }
+        $visit = {
+            param($Element)
+            if ($Element.ValueKind -eq [System.Text.Json.JsonValueKind]::Object) {
+                $names = [Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
+                foreach ($property in $Element.EnumerateObject()) {
+                    if (-not $names.Add($property.Name)) { throw 'mirror-invalid-response' }
+                    & $visit $property.Value
+                }
+            } elseif ($Element.ValueKind -eq [System.Text.Json.JsonValueKind]::Array) {
+                foreach ($item in $Element.EnumerateArray()) { & $visit $item }
+            }
+        }
+        & $visit $document.RootElement
+        $values = ConvertFrom-Json -InputObject $text -AsHashtable -Depth 8
+        # PowerShell versions differ in automatic ISO timestamp conversion.
+        # Protocol strings must retain their exact spelling on every host.
+        foreach ($property in $document.RootElement.EnumerateObject()) {
+            if ($property.Value.ValueKind -eq [System.Text.Json.JsonValueKind]::String) {
+                $values[$property.Name] = $property.Value.GetString()
+            }
+        }
+        return $values
+    } finally { $document.Dispose() }
+}
+
+function Get-GitMirrorVerificationKey {
+    <# .SYNOPSIS
+        Validate operator-enrolled SPKI keys before any mirror request.
+    #>
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param([AllowEmptyCollection()][object[]]$PublicKeys = @())
+    $keys = @{}
+    foreach ($encoded in $PublicKeys) {
+        if ($encoded -isnot [string] -or $encoded -cnotmatch '^[A-Za-z0-9+/]+={0,2}$') { throw 'Invalid mirror verification public key.' }
+        $bytes = [Convert]::FromBase64String($encoded)
+        if ($bytes.Length -gt 1024) { throw 'Invalid mirror verification public key size.' }
+        $rsa = [Security.Cryptography.RSA]::Create()
+        try {
+            $read = 0
+            $rsa.ImportSubjectPublicKeyInfo($bytes, [ref]$read)
+            if ($read -ne $bytes.Length -or $rsa.KeySize -lt 3072) { throw 'Invalid mirror verification public key strength.' }
+            $id = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($bytes)).ToLowerInvariant()
+            $keys[$id] = $bytes
+        } finally { $rsa.Dispose() }
+    }
+    return $keys
+}
+
+function Test-GitMirrorReceipt {
+    <# .SYNOPSIS
+        Authenticate exact payload bytes, then bind their repository, ref and nonce.
+    .DESCRIPTION
+        A receipt is authority only with a currently enrolled key. The outer
+        key ID selects a key; its untrusted fields never select source content.
+    #>
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param(
+        [Parameter(Mandatory)][byte[]]$Bytes,
+        [Parameter(Mandatory)][string]$Repository,
+        [Parameter(Mandatory)][string]$Ref,
+        [Parameter(Mandatory)][string]$Nonce,
+        [Parameter(Mandatory)][hashtable]$VerificationKeys,
+        [DateTimeOffset]$Now = [DateTimeOffset]::UtcNow
+    )
+    $result = @{ success = $false; reason = 'mirror-receipt-invalid'; payload = $null }
+    try {
+        $envelope = ConvertFrom-GitMirrorJson -Bytes $Bytes
+        if ($envelope.Count -ne 3 -or $envelope.keyId -isnot [string] -or $envelope.keyId -cnotmatch '^[0-9a-f]{64}$' -or
+            $envelope.payload -isnot [string] -or $envelope.signature -isnot [string]) { return $result }
+        if (-not $VerificationKeys.ContainsKey($envelope.keyId)) { $result.reason = 'mirror-key-not-enrolled'; return $result }
+        if ($envelope.payload -cnotmatch '^[A-Za-z0-9+/]+={0,2}$' -or $envelope.signature -cnotmatch '^[A-Za-z0-9+/]+={0,2}$') { return $result }
+        $payloadBytes = [Convert]::FromBase64String($envelope.payload)
+        $signature = [Convert]::FromBase64String($envelope.signature)
+        if ($payloadBytes.Length -gt 32768 -or $signature.Length -gt 1024) { return $result }
+        $rsa = [Security.Cryptography.RSA]::Create()
+        try {
+            $read = 0
+            $rsa.ImportSubjectPublicKeyInfo($VerificationKeys[$envelope.keyId], [ref]$read)
+            if (-not $rsa.VerifyData($payloadBytes, $signature, [Security.Cryptography.HashAlgorithmName]::SHA256,
+                    [Security.Cryptography.RSASignaturePadding]::Pkcs1)) {
+                return $result
+            }
+        } finally { $rsa.Dispose() }
+        $payload = ConvertFrom-GitMirrorJson -Bytes $payloadBytes -MaximumBytes 32768
+        $allowed = @('schemaVersion', 'keyId', 'nonce', 'repository', 'ref', 'resolvedDefaultBranch', 'selectedSha', 'fetchRef',
+            'objectReady', 'upstreamOutcome', 'originCheckedAt', 'issuedAt', 'expiresAt', 'status', 'reason', 'detail', 'operationId', 'operationExpiresAt')
+        foreach ($name in $payload.Keys) { if ($allowed -cnotcontains $name) { return $result } }
+        if ($payload.ContainsKey('detail') -and $payload.detail -isnot [string]) { return $result }
+        if ($payload.schemaVersion -isnot [long] -and $payload.schemaVersion -isnot [int]) { return $result }
+        if ($payload.schemaVersion -ne 1) { $result.reason = 'mirror-unsupported'; return $result }
+        foreach ($name in @('keyId', 'nonce', 'repository', 'ref', 'resolvedDefaultBranch', 'selectedSha', 'fetchRef',
+                'upstreamOutcome', 'originCheckedAt', 'issuedAt', 'expiresAt', 'status', 'reason')) {
+            if (-not $payload.ContainsKey($name) -or $payload[$name] -isnot [string]) { return $result }
+        }
+        if ($payload.objectReady -isnot [bool] -or $payload.keyId -cne $envelope.keyId -or
+            $payload.repository -cne $Repository -or $payload.ref -cne $Ref -or $payload.nonce -cne $Nonce) {
+            return $result
+        }
+        if ($payload.status -cnotin @('ready', 'stale', 'pending', 'error')) { return $result }
+        if ($payload.upstreamOutcome -cnotin @('confirmed', 'transport', 'auth-denied', 'ref-missing', 'not-checked') -and
+            -not ($payload.status -eq 'error' -and -not $payload.objectReady -and $payload.upstreamOutcome -cin @('capacity', 'local-error'))) { return $result }
+        $dates = @{}
+        foreach ($name in @('issuedAt', 'expiresAt', 'originCheckedAt')) {
+            if ($name -eq 'originCheckedAt' -and -not $payload[$name] -and -not $payload.objectReady) { continue }
+            if ($payload[$name] -cnotmatch '^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d{1,9})?Z$') { return $result }
+            $dates[$name] = [DateTimeOffset]::Parse($payload[$name], [Globalization.CultureInfo]::InvariantCulture)
+        }
+        if ($dates.issuedAt -gt $Now.AddSeconds(60) -or $dates.expiresAt -lt $Now.AddSeconds(-60) -or
+            $dates.expiresAt -le $dates.issuedAt -or ($dates.expiresAt - $dates.issuedAt).TotalSeconds -gt 300 -or
+            ($dates.ContainsKey('originCheckedAt') -and $dates.originCheckedAt -gt $dates.issuedAt.AddSeconds(60))) {
+            $result.reason = 'mirror-receipt-time-invalid'; return $result
+        }
+        if ($payload.objectReady) {
+            if ($payload.selectedSha -cnotmatch '^[0-9a-f]{40}$' -or $payload.fetchRef -cne "refs/yuruna/pins/$($payload.selectedSha)" -or
+                ($payload.resolvedDefaultBranch -and $payload.resolvedDefaultBranch -cnotmatch '^refs/heads/[^\s~^:?*\[\\]+$')) { return $result }
+        } elseif ($payload.selectedSha -or $payload.fetchRef) { return $result }
+        if (($payload.status -eq 'ready' -and ($payload.upstreamOutcome -ne 'confirmed' -or -not $payload.objectReady)) -or
+            ($payload.status -eq 'stale' -and ($payload.upstreamOutcome -ne 'transport' -or -not $payload.objectReady))) { return $result }
+        if ($payload.status -eq 'pending') {
+            if ($payload.operationId -isnot [string] -or $payload.operationId -cnotmatch '^[A-Za-z0-9_-]{1,128}$' -or
+                $payload.operationExpiresAt -isnot [string] -or $payload.operationExpiresAt -cnotmatch '^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d{1,9})?Z$') { return $result }
+            if ([DateTimeOffset]::Parse($payload.operationExpiresAt, [Globalization.CultureInfo]::InvariantCulture) -le $Now) {
+                $result.reason = 'mirror-budget-exhausted'; return $result
+            }
+        }
+        $result.success = $true; $result.reason = ''; $result.payload = $payload
+    } catch { Write-Verbose "Mirror receipt rejected: $($_.Exception.GetType().Name)" }
+    return $result
+}
+
+function Get-GitMirrorRepository {
+    <# .SYNOPSIS
+        Recognize canonical GitHub sources without changing other repository URLs.
+    #>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param([Parameter(Mandatory)][string]$Url)
+    $path = ''
+    if ($Url -cmatch '^git@github\.com:([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+?)(?:\.git)?$') { $path = $Matches[1] }
+    elseif ($Url -cmatch '^(?:https://github\.com/|ssh://git@github\.com/)([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+?)(?:\.git)?/?$') { $path = $Matches[1] }
+    if ($path -and @($path.Split('/') | Where-Object { $_ -in @('.', '..') }).Count -eq 0) { return $path.ToLowerInvariant() }
+    return ''
+}
+
+function Test-GitCredentialedUrl {
+    <# .SYNOPSIS
+        Keep legacy URLs with embedded HTTP credentials outside mirror provenance.
+    #>
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param([string]$Url)
+    $uri = $null
+    return [Uri]::TryCreate($Url, [UriKind]::Absolute, [ref]$uri) -and $uri.Scheme -in @('http', 'https') -and [bool]$uri.UserInfo
+}
+
+function Invoke-GitMirrorHttpRequest {
+    <# .SYNOPSIS
+        Read a small mirror response directly, without proxy credentials or redirects.
+    #>
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param([Parameter(Mandatory)][string]$Url, [string]$Body = '', [double]$TimeoutSeconds = 20)
+    $result = @{ success = $false; statusCode = 0; bytes = [byte[]]@(); reason = 'mirror-unavailable' }
+    if ($TimeoutSeconds -le 0) { $result.reason = 'mirror-budget-exhausted'; return $result }
+    $handler = [Net.Http.HttpClientHandler]::new()
+    $handler.UseProxy = $false; $handler.AllowAutoRedirect = $false; $handler.UseCookies = $false
+    $client = [Net.Http.HttpClient]::new($handler)
+    $cancel = [Threading.CancellationTokenSource]::new([TimeSpan]::FromSeconds($TimeoutSeconds))
+    $request = [Net.Http.HttpRequestMessage]::new($(if ($Body) { [Net.Http.HttpMethod]::Post } else { [Net.Http.HttpMethod]::Get }), $Url)
+    if ($Body) { $request.Content = [Net.Http.StringContent]::new($Body, [Text.Encoding]::UTF8, 'application/json') }
+    $response = $null; $stream = $null; $memory = [IO.MemoryStream]::new()
+    try {
+        $response = $client.SendAsync($request, [Net.Http.HttpCompletionOption]::ResponseHeadersRead, $cancel.Token).GetAwaiter().GetResult()
+        $result.statusCode = [int]$response.StatusCode
+        if ($response.Content.Headers.ContentLength -gt 65536) { $result.reason = 'mirror-receipt-invalid'; return $result }
+        $stream = $response.Content.ReadAsStreamAsync($cancel.Token).GetAwaiter().GetResult()
+        $buffer = [byte[]]::new(4096)
+        while (($count = $stream.ReadAsync($buffer, 0, $buffer.Length, $cancel.Token).GetAwaiter().GetResult()) -gt 0) {
+            if ($memory.Length + $count -gt 65536) { $result.reason = 'mirror-receipt-invalid'; return $result }
+            $memory.Write($buffer, 0, $count)
+        }
+        $result.bytes = $memory.ToArray()
+        $result.success = $response.IsSuccessStatusCode
+        if ($result.success) { $result.reason = '' }
+    } catch { if ($cancel.IsCancellationRequested) { $result.reason = 'mirror-budget-exhausted' } }
+    finally {
+        if ($stream) { $stream.Dispose() }; if ($response) { $response.Dispose() }
+        $memory.Dispose(); $request.Dispose(); $cancel.Dispose(); $client.Dispose()
+    }
+    return $result
+}
+
+function Resolve-GitOriginSelection {
+    <# .SYNOPSIS
+        Confirm a requested origin ref without guessing a branch or accepting another ref.
+    #>
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param([string]$RepositoryUrl, [string]$Ref, [DateTimeOffset]$DeadlineUtc, [scriptblock]$Clock = { [DateTimeOffset]::UtcNow })
+    $result = @{ success = $false; selectedSha = ''; resolvedDefaultBranch = ''; failureClass = 'bootstrap_sync'; reason = 'origin-error' }
+    $seconds = [Math]::Floor(($DeadlineUtc - [DateTimeOffset](& $Clock)).TotalSeconds)
+    if ($seconds -lt 1) { $result.failureClass = 'network_timeout'; $result.reason = 'origin-transport'; return $result }
+    $requested = @($Ref)
+    if ($Ref.StartsWith('refs/tags/', [StringComparison]::Ordinal)) { $requested += "$Ref^{}" }
+    $probe = Invoke-GitNetworkCommand -GitArgs (@('ls-remote', '--symref', '--exit-code', '--', $RepositoryUrl) + $requested) -TimeoutSeconds ([int][Math]::Min(30, $seconds)) -DeadlineUtc $DeadlineUtc
+    if ($probe.ExitCode -eq 0) {
+        foreach ($line in ([string]$probe.Output).Split("`n")) {
+            if ($line.TrimEnd("`r") -cmatch '^ref: (refs/heads/[^\s]+)\tHEAD$') { $result.resolvedDefaultBranch = $Matches[1] }
+            elseif ($line.TrimEnd("`r") -cmatch '^([0-9a-f]{40})\t(.+)$') {
+                if ($Matches[2] -ceq $Ref -or $Matches[2] -ceq "$Ref^{}") { $result.selectedSha = $Matches[1] }
+            }
+        }
+        if ($result.selectedSha) { $result.success = $true; $result.failureClass = ''; $result.reason = ''; return $result }
+    }
+    if ($probe.ExitCode -eq 2) { $result.failureClass = 'project_access_denied'; $result.reason = 'ref-missing-confirmed' }
+    elseif (Test-GitRemoteAuthFailure -Output $probe.Output) { $result.failureClass = 'project_access_denied'; $result.reason = 'mirror-auth-denied' }
+    elseif ($probe.ExitCode -eq 124 -or [string]$probe.Output -match '(?i)could not resolve|couldn.t resolve|failed to connect|connection (?:timed out|refused|reset)|network is unreachable|operation (?:timed out|too slow)|connection closed|temporary failure in name resolution|TLS connection was non-properly terminated|SSL_ERROR_SYSCALL|unexpected eof while reading|unexpected disconnect|remote end hung up') {
+        $result.failureClass = 'network_timeout'; $result.reason = 'origin-transport'
+    }
+    return $result
+}
+
+$script:GitMirrorCapabilityCache = @{}
+
+function Get-GitMirrorNonce {
+    <# .SYNOPSIS
+        Generate an independent challenge for each source-selection operation.
+    #>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param()
+    return [Convert]::ToBase64String([Security.Cryptography.RandomNumberGenerator]::GetBytes(16)).TrimEnd('=').Replace('+', '-').Replace('/', '_')
+}
+
+function Test-GitStaleReplacement {
+    <# .SYNOPSIS
+        Permit stale replacement only when installed provenance proves it is older.
+    #>
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param(
+        [System.Collections.IDictionary]$Selection,
+        [string]$InstalledRevision,
+        [System.Collections.IDictionary]$InstalledProvenance
+    )
+    if ($Selection.verification -ne 'mirror-stale' -or -not $InstalledRevision -or $InstalledRevision -ceq $Selection.selectedSha) { return $true }
+    if (-not $InstalledProvenance -or $InstalledProvenance.selectedSha -cne $InstalledRevision -or
+        $InstalledProvenance.repository -cne $Selection.repository -or $InstalledProvenance.ref -cne $Selection.ref -or
+        $InstalledProvenance.verification -cnotin @('mirror-confirmed', 'origin-direct') -or -not $InstalledProvenance.originCheckedAt) { return $false }
+    try {
+        return [DateTimeOffset]::Parse($InstalledProvenance.originCheckedAt, [Globalization.CultureInfo]::InvariantCulture) -lt
+            [DateTimeOffset]::Parse($Selection.originCheckedAt, [Globalization.CultureInfo]::InvariantCulture)
+    } catch { return $false }
+}
+
+function Resolve-GitSourceSelection {
+    <# .SYNOPSIS
+        Select an immutable source using enrolled mirror proofs and bounded origin fallback.
+    #>
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param(
+        [Parameter(Mandatory)][string]$RepositoryUrl,
+        [string]$Ref = 'HEAD',
+        [System.Collections.IDictionary]$SourceContext,
+        [DateTimeOffset]$DeadlineUtc = [DateTimeOffset]::UtcNow.AddSeconds(130),
+        [ValidateSet('Framework', 'Gate', 'Project', 'Poll')][string]$Operation = 'Gate',
+        [string]$InstalledRevision = '',
+        [System.Collections.IDictionary]$InstalledProvenance,
+        [scriptblock]$Clock = { [DateTimeOffset]::UtcNow }
+    )
+    $now = [DateTimeOffset](& $Clock)
+    $repository = Get-GitMirrorRepository -Url $RepositoryUrl
+    $mode = if ($SourceContext -and $SourceContext.mode) { [string]$SourceContext.mode } else { 'off' }
+    $result = @{ success = $false; repository = $(if ($repository) { $repository } else { $RepositoryUrl }); ref = $Ref;
+        selectedSha = ''; fetchRef = ''; fetchUrl = ''; source = ''; verification = ''; originCheckedAt = '';
+        refreshAgeSeconds = 0; mirrorVersion = ''; keyId = ''; fallbackReason = ''; failureClass = ''; detail = '';
+        resolvedDefaultBranch = ''; attempts = @(); proof = $null; acceptedAt = '' }
+    if ($Ref -cne 'HEAD' -and $Ref -cnotmatch '^refs/(heads|tags)/[^\s~^:?*\[\\]+$') {
+        $result.failureClass = 'bootstrap_sync'; $result.detail = 'Invalid requested Git ref.'; return $result
+    }
+    if ($mode -cnotin @('off', 'prefer', 'fallback')) {
+        $result.failureClass = 'bootstrap_sync'; $result.detail = 'Invalid mirror mode.'; return $result
+    }
+    if ($Operation -eq 'Poll') { $DeadlineUtc = [DateTimeOffset]::new([Math]::Min($DeadlineUtc.UtcTicks, $now.AddSeconds(30).UtcTicks), [TimeSpan]::Zero) }
+    $origin = $null; $receipt = $null; $receiptBytes = $null; $receiptAcceptedAt = $null; $nonce = ''; $keys = @{}; $base = ''
+    $enabled = $mode -ne 'off' -and [bool]$repository
+    if ($enabled) {
+        try { $keys = Get-GitMirrorVerificationKey -PublicKeys $(if ($SourceContext.verificationPublicKeys) { @($SourceContext.verificationPublicKeys) } else { @() }) }
+        catch { $result.failureClass = 'bootstrap_sync'; $result.detail = 'Invalid mirror verification public key configuration.'; return $result }
+        if ($keys.Count -eq 0) { $result.fallbackReason = 'mirror-untrusted'; $enabled = $false }
+        elseif (-not $SourceContext.url) { $result.fallbackReason = 'mirror-unavailable'; $enabled = $false }
+        else {
+            $uri = $null
+            if (-not [Uri]::TryCreate([string]$SourceContext.url, [UriKind]::Absolute, [ref]$uri) -or
+                $uri.Scheme -notin @('http', 'https') -or $uri.UserInfo -or $uri.Query -or $uri.Fragment -or $uri.AbsolutePath -ne '/') {
+                $result.failureClass = 'bootstrap_sync'; $result.detail = 'Invalid mirror endpoint configuration.'; return $result
+            }
+            $base = $uri.AbsoluteUri.TrimEnd('/')
+        }
+    }
+    if ($mode -eq 'fallback' -and $enabled) {
+        $origin = Resolve-GitOriginSelection -RepositoryUrl $RepositoryUrl -Ref $Ref -DeadlineUtc $DeadlineUtc -Clock $Clock
+        $result.attempts += @{ source = 'origin'; success = $origin.success; reason = $origin.reason }
+        if ($origin.success -or $origin.failureClass -ne 'network_timeout') { $enabled = $false }
+    }
+    if ($enabled -and [DateTimeOffset](& $Clock) -lt $DeadlineUtc) {
+        $mirrorStart = [DateTimeOffset](& $Clock)
+        $budget = switch ($Operation) { 'Gate' { 45 }; 'Poll' { 23 }; default { 43 } }
+        $mirrorDeadline = [DateTimeOffset]::new([Math]::Min($DeadlineUtc.UtcTicks, $mirrorStart.AddSeconds($budget).UtcTicks), [TimeSpan]::Zero)
+        $cacheKey = "$base|$mode|$($SourceContext.mirrorOnlyMaxAgeSeconds)|$(@($keys.Keys | Sort-Object) -join ',')"
+        $cached = $script:GitMirrorCapabilityCache[$cacheKey]
+        $capability = $null
+        if ($cached -and $cached.expires -gt $now) { $capability = $cached.value }
+        else {
+            $cap = Invoke-GitMirrorHttpRequest -Url "$base/git-mirror/status.json" -TimeoutSeconds ([Math]::Min(3.0, ($mirrorDeadline - [DateTimeOffset](& $Clock)).TotalSeconds))
+            if ($cap.success) {
+                try { $capability = ConvertFrom-GitMirrorJson -Bytes $cap.bytes } catch { $capability = $null }
+            }
+            $ttl = if ($capability -and $capability.apiVersion -eq 1 -and $capability.capabilities -ccontains 'resolve') { 30 } else { 5 }
+            if ($script:GitMirrorCapabilityCache.Count -gt 64) { $script:GitMirrorCapabilityCache.Clear() }
+            $script:GitMirrorCapabilityCache[$cacheKey] = @{ value = $capability; expires = $now.AddSeconds($ttl) }
+        }
+        if ($capability -and $capability.apiVersion -eq 1 -and $capability.capabilities -ccontains 'resolve') {
+            $result.mirrorVersion = [string]$capability.version
+            $nonce = Get-GitMirrorNonce
+            $request = @{ repository = $repository; ref = $Ref; nonce = $nonce }
+            do {
+                $http = Invoke-GitMirrorHttpRequest -Url "$base/git-mirror/v1/resolve" -Body (ConvertTo-Json $request -Compress) -TimeoutSeconds ([Math]::Min(20.0, ($mirrorDeadline - [DateTimeOffset](& $Clock)).TotalSeconds))
+                $result.fallbackReason = $http.reason
+                $receipt = $null
+                # Proxy errors and older services can return HTML here. Only a
+                # successful protocol response can carry authoritative receipts.
+                if (-not $http.success -or $http.bytes.Length -eq 0) { break }
+                $receiptAcceptedAt = [DateTimeOffset](& $Clock)
+                $verified = Test-GitMirrorReceipt -Bytes $http.bytes -Repository $repository -Ref $Ref -Nonce $nonce -VerificationKeys $keys -Now $receiptAcceptedAt
+                if (-not $verified.success) {
+                    $result.fallbackReason = $verified.reason
+                    if ($verified.reason -in @('mirror-receipt-invalid', 'mirror-receipt-time-invalid')) { $result.failureClass = 'source_integrity' }
+                    break
+                }
+                $receipt = $verified.payload; $receiptBytes = $http.bytes
+                if ($receipt.status -ne 'pending') { break }
+                $result.fallbackReason = 'mirror-populating'
+                if ($Operation -eq 'Poll') { break }
+                if ($Operation -eq 'Framework') {
+                    $mirrorDeadline = [DateTimeOffset]::new([Math]::Min($DeadlineUtc.UtcTicks, $mirrorStart.AddSeconds(130).UtcTicks), [TimeSpan]::Zero)
+                }
+                $jobDeadline = [DateTimeOffset]::Parse($receipt.operationExpiresAt, [Globalization.CultureInfo]::InvariantCulture)
+                if ($jobDeadline -lt $mirrorDeadline) { $mirrorDeadline = $jobDeadline }
+                $request.operationId = $receipt.operationId
+                $remaining = ($mirrorDeadline - [DateTimeOffset](& $Clock)).TotalMilliseconds
+                if ($remaining -gt 0) { Start-Sleep -Milliseconds ([int][Math]::Min(250, $remaining)) }
+            } while ([DateTimeOffset](& $Clock) -lt $mirrorDeadline)
+            if ($receipt -and $receipt.status -eq 'pending' -and $Operation -ne 'Poll' -and [DateTimeOffset](& $Clock) -ge $mirrorDeadline) {
+                $result.fallbackReason = 'mirror-budget-exhausted'
+            }
+        } else { $result.fallbackReason = if ($capability) { 'mirror-unsupported' } else { 'mirror-unavailable' } }
+        if ($receipt -and $receipt.status -eq 'ready') {
+            $result.success = $true; $result.source = 'mirror'; $result.verification = 'mirror-confirmed'; $result.fallbackReason = ''
+        } elseif ($receipt -and $receipt.upstreamOutcome -in @('auth-denied', 'ref-missing')) {
+            $result.failureClass = 'project_access_denied'
+            $result.fallbackReason = if ($receipt.upstreamOutcome -eq 'ref-missing') { 'ref-missing-confirmed' } else { 'mirror-auth-denied' }
+        } elseif ($receipt -and $receipt.status -eq 'stale') {
+            $result.fallbackReason = 'mirror-upstream-unreachable'
+        } elseif ($receipt -and $receipt.status -eq 'error') {
+            $result.fallbackReason = if ($receipt.reason -cin @('repository-not-registered', 'mirror-populating', 'mirror-budget-exhausted',
+                    'mirror-capacity-exhausted', 'mirror-unavailable', 'mirror-unsupported', 'mirror-stale-expired')) { $receipt.reason } else { 'mirror-unavailable' }
+        }
+        $result.attempts += @{ source = 'mirror'; success = [bool]($receipt -and $receipt.status -eq 'ready'); reason = $result.fallbackReason; failureClass = $result.failureClass }
+    }
+    if (-not $result.success -and -not $origin) {
+        $origin = Resolve-GitOriginSelection -RepositoryUrl $RepositoryUrl -Ref $Ref -DeadlineUtc $DeadlineUtc -Clock $Clock
+        $result.attempts += @{ source = 'origin'; success = $origin.success; reason = $origin.reason }
+    }
+    if (-not $result.success -and $origin.success) {
+        $result.success = $true; $result.source = 'origin'
+        $result.verification = if ($mode -eq 'off' -or -not $repository) { 'not-applicable' } else { 'origin-direct' }
+        $result.selectedSha = $origin.selectedSha; $result.fetchRef = $origin.selectedSha; $result.fetchUrl = $RepositoryUrl
+        $result.resolvedDefaultBranch = $origin.resolvedDefaultBranch; $result.originCheckedAt = ([DateTimeOffset](& $Clock)).ToUniversalTime().ToString('o')
+        $result.acceptedAt = $result.originCheckedAt
+        if ($receipt -and $receipt.objectReady -and $receipt.selectedSha -ceq $origin.selectedSha) { $result.source = 'mirror' }
+        if ($result.failureClass -ne 'source_integrity') { $result.failureClass = '' }
+    } elseif (-not $result.success -and -not $result.failureClass -and $receipt -and $receipt.status -eq 'stale' -and $origin.failureClass -eq 'network_timeout') {
+        $maximumAge = if ($SourceContext.Contains('mirrorOnlyMaxAgeSeconds')) { [double]$SourceContext.mirrorOnlyMaxAgeSeconds } else { 604800 }
+        $age = ($now - [DateTimeOffset]::Parse($receipt.originCheckedAt, [Globalization.CultureInfo]::InvariantCulture)).TotalSeconds
+        if ($maximumAge -gt 0 -and $maximumAge -le 1209600 -and $age -ge -60 -and $age -le $maximumAge) {
+            $candidate = @{ verification = 'mirror-stale'; selectedSha = $receipt.selectedSha; repository = $repository; ref = $Ref; originCheckedAt = $receipt.originCheckedAt }
+            if (-not (Test-GitStaleReplacement -Selection $candidate -InstalledRevision $InstalledRevision -InstalledProvenance $InstalledProvenance)) { $result.fallbackReason = 'mirror-stale-rollback-blocked' }
+            else { $result.success = $true; $result.source = 'mirror'; $result.verification = 'mirror-stale'; $result.fallbackReason = 'mirror-upstream-unreachable'; $result.failureClass = 'host_network_degraded' }
+        } else { $result.fallbackReason = 'mirror-stale-expired' }
+    }
+    if ($result.success -and $result.source -eq 'mirror') {
+        $result.selectedSha = $receipt.selectedSha; $result.fetchRef = $receipt.fetchRef; $result.fetchUrl = "$base/git/$repository.git"
+        $result.resolvedDefaultBranch = $receipt.resolvedDefaultBranch; $result.keyId = $receipt.keyId
+        if ($result.verification -ne 'origin-direct') { $result.originCheckedAt = $receipt.originCheckedAt }
+        $result.refreshAgeSeconds = [Math]::Max(0, [Math]::Floor((([DateTimeOffset](& $Clock)) - [DateTimeOffset]::Parse($result.originCheckedAt, [Globalization.CultureInfo]::InvariantCulture)).TotalSeconds))
+        $result.proof = @{ nonce = $nonce; receipt = [Convert]::ToBase64String($receiptBytes) }
+        $result.acceptedAt = $receiptAcceptedAt.ToUniversalTime().ToString('o')
+    } elseif (-not $result.success) {
+        if (-not $result.failureClass) { $result.failureClass = $origin.failureClass }
+        if ($origin.failureClass -eq 'project_access_denied') { $result.fallbackReason = $origin.reason }
+        elseif (-not $result.fallbackReason -and $origin.failureClass -eq 'network_timeout') { $result.fallbackReason = 'mirror-stale-expired' }
+        $result.detail = "Git source selection failed: $($result.fallbackReason)."
+    }
+    return $result
+}
+
+function Test-GitSourceSelection {
+    <# .SYNOPSIS
+        Revalidate a handed-off selection against current trust and its exact source.
+    #>
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param(
+        [Parameter(Mandatory)][System.Collections.IDictionary]$Selection,
+        [Parameter(Mandatory)][string]$RepositoryUrl,
+        [Parameter(Mandatory)][string]$Ref,
+        [System.Collections.IDictionary]$SourceContext,
+        [DateTimeOffset]$Now = [DateTimeOffset]::UtcNow,
+        [DateTimeOffset]$AcceptedAt = [DateTimeOffset]::MinValue
+    )
+    $result = @{ success = $false; reason = 'mirror-receipt-invalid'; failureClass = 'source_integrity' }
+    $allowedReasons = @('', 'mirror-upstream-unreachable', 'mirror-unavailable', 'mirror-unsupported',
+        'mirror-untrusted', 'mirror-key-not-enrolled', 'repository-not-registered', 'mirror-populating',
+        'mirror-budget-exhausted', 'mirror-capacity-exhausted', 'mirror-auth-denied', 'ref-missing-confirmed',
+        'mirror-stale-expired', 'mirror-stale-rollback-blocked', 'mirror-receipt-invalid',
+        'mirror-receipt-time-invalid', 'mirror-content-mismatch')
+    if ($Selection.Contains('fallbackReason') -and $Selection.fallbackReason -cnotin $allowedReasons) { return $result }
+    $repository = Get-GitMirrorRepository -Url $RepositoryUrl
+    $identity = if ($repository) { $repository } else { $RepositoryUrl }
+    if (-not $Selection.success -or $Selection.repository -cne $identity -or $Selection.ref -cne $Ref -or
+        $Selection.selectedSha -cnotmatch '^[0-9a-f]{40}$' -or $Selection.source -cnotin @('mirror', 'origin') -or
+        $Selection.verification -cnotin @('mirror-confirmed', 'mirror-stale', 'origin-direct', 'not-applicable')) { return $result }
+    if ($Selection.source -eq 'origin' -and ($Selection.fetchUrl -cne $RepositoryUrl -or $Selection.fetchRef -cne $Selection.selectedSha)) { return $result }
+    if ($Selection.source -eq 'mirror' -or $Selection.verification -in @('mirror-confirmed', 'mirror-stale')) {
+        if (-not $repository -or -not $SourceContext -or $SourceContext.mode -eq 'off' -or -not $Selection.proof) { return $result }
+        try {
+            $keys = Get-GitMirrorVerificationKey -PublicKeys @($SourceContext.verificationPublicKeys)
+            # Only the validated generation handoff may supply first acceptance.
+            # Direct callers must authenticate a receipt that is still current.
+            if ($AcceptedAt -gt $Now) { return $result }
+            $verificationTime = if ($AcceptedAt -eq [DateTimeOffset]::MinValue) { $Now } else { $AcceptedAt }
+            $receipt = Test-GitMirrorReceipt -Bytes ([Convert]::FromBase64String($Selection.proof.receipt)) -Repository $repository -Ref $Ref -Nonce $Selection.proof.nonce -VerificationKeys $keys -Now $verificationTime
+        } catch { return $result }
+        if (-not $receipt.success) { $result.reason = $receipt.reason; return $result }
+        $payload = $receipt.payload
+        if ($payload.selectedSha -cne $Selection.selectedSha -or $payload.keyId -cne $Selection.keyId -or
+            $payload.originCheckedAt -cne $Selection.originCheckedAt -and $Selection.verification -ne 'origin-direct' -or
+            $payload.resolvedDefaultBranch -cne $Selection.resolvedDefaultBranch) { return $result }
+        if ($Selection.source -eq 'mirror' -and ($Selection.fetchRef -cne $payload.fetchRef -or
+                $Selection.fetchUrl -cne "$(([string]$SourceContext.url).TrimEnd('/'))/git/$repository.git")) { return $result }
+        if ($Selection.verification -eq 'mirror-confirmed' -and $payload.status -ne 'ready') { return $result }
+        if ($Selection.verification -eq 'mirror-stale') {
+            $age = ($Now - [DateTimeOffset]::Parse($payload.originCheckedAt, [Globalization.CultureInfo]::InvariantCulture)).TotalSeconds
+            $maximum = if ($SourceContext.Contains('mirrorOnlyMaxAgeSeconds')) { [double]$SourceContext.mirrorOnlyMaxAgeSeconds } else { 604800 }
+            if ($payload.status -ne 'stale' -or $maximum -le 0 -or $maximum -gt 1209600 -or $age -gt $maximum -or $age -lt -60) {
+                $result.reason = 'mirror-stale-expired'; $result.failureClass = 'network_timeout'; return $result
+            }
+        }
+    }
+    $result.success = $true; $result.reason = ''; $result.failureClass = ''
+    return $result
+}
+
+function Invoke-GitMirrorNetworkCommand {
+    <# .SYNOPSIS
+        Fetch signed mirror pins without forwarding host credentials or using a proxy.
+    #>
+    [CmdletBinding()]
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseLiteralInitializerForHashtable', '',
+        Justification = 'Unix proxy environment names are case-sensitive; both uppercase and lowercase inherited values must be cleared.')]
+    [OutputType([hashtable])]
+    param([string[]]$GitArgs, [string]$Url, [int]$TimeoutSeconds)
+    $arguments = @('-c', 'credential.helper=', '-c', "credential.$Url.helper=", '-c', 'http.extraHeader=',
+        '-c', "http.$Url.extraHeader=", '-c', 'http.proxy=', '-c', "http.$Url.proxy=",
+        '-c', 'core.askPass=', '-c', 'http.followRedirects=false', '-c', "http.$Url.followRedirects=false") + $GitArgs
+    $environment = [hashtable]::new([StringComparer]::Ordinal)
+    $removeVariables = @([Environment]::GetEnvironmentVariables().Keys | Where-Object {
+        $_ -like 'GIT_*' -or $_ -like '*_PROXY' -or $_ -in @('GH_TOKEN', 'GITHUB_TOKEN', 'SSH_ASKPASS')
+    })
+    foreach ($entry in (@{ LC_ALL = 'C'; LANG = 'C'; LANGUAGE = 'C'; GIT_TERMINAL_PROMPT = '0';
+                GIT_ASKPASS = ''; SSH_ASKPASS = ''; GCM_INTERACTIVE = 'never' }).GetEnumerator()) { $environment[$entry.Key] = $entry.Value }
+    foreach ($name in @('HTTP_PROXY', 'HTTPS_PROXY', 'ALL_PROXY', 'http_proxy', 'https_proxy', 'all_proxy')) { $environment[$name] = '' }
+    $environment.NO_PROXY = '*'; $environment.no_proxy = '*'
+    # Git/curl may read netrc and URL rewrites without a credential helper.
+    # A private empty home keeps LAN object transport independent of both.
+    $privateHome = Join-Path ([IO.Path]::GetTempPath()) ('yuruna-mirror-git-' + [Guid]::NewGuid().ToString('N'))
+    [IO.Directory]::CreateDirectory($privateHome) | Out-Null
+    foreach ($name in @('HOME', 'USERPROFILE', 'XDG_CONFIG_HOME')) { $environment[$name] = $privateHome }
+    $environment.GIT_CONFIG_COUNT = '0'; $environment.GIT_CONFIG_NOSYSTEM = '1'
+    $environment.GIT_CONFIG_GLOBAL = '/dev/null'; $environment.GIT_CONFIG_SYSTEM = '/dev/null'
+    try {
+        $native = Invoke-BoundedNativeCommand -FilePath git -ArgumentList $arguments -TimeoutSeconds $TimeoutSeconds -Environment $environment `
+            -RemoveEnvironmentVariable $removeVariables -MaxCapturedChars 262144
+    } finally { Remove-Item -LiteralPath $privateHome -Recurse -Force -ErrorAction SilentlyContinue }
+    $code = if (-not $native.Started -or (Test-BoundedNativeResultComplete -Result $native)) { [int]$native.ExitCode } else { 124 }
+    return @{ ExitCode = $code; Output = "$($native.StdOut)`n$($native.StdErr)".Trim() }
+}
+
+function Invoke-GitSelectedFetch {
+    <# .SYNOPSIS
+        Fetch a frozen selection, checking its commit before exposing any tracking ref.
+    .DESCRIPTION
+        Origin fallback changes object transport only. It cannot resolve a newer
+        branch tip or convert an earlier signed observation into a new one.
+    #>
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param(
+        [Parameter(Mandatory)][string]$RepoRoot,
+        [Parameter(Mandatory)][string]$RepositoryUrl,
+        [Parameter(Mandatory)][System.Collections.IDictionary]$Selection,
+        [System.Collections.IDictionary]$SourceContext,
+        [Parameter(Mandatory)][string]$DestinationRef,
+        [DateTimeOffset]$DeadlineUtc = [DateTimeOffset]::UtcNow.AddSeconds(660),
+        [DateTimeOffset]$SelectionAcceptedAt = [DateTimeOffset]::MinValue,
+        [int]$TimeoutSeconds = 60,
+        [switch]$Shallow
+    )
+    $selected = @{}; foreach ($entry in $Selection.GetEnumerator()) { $selected[$entry.Key] = $entry.Value }
+    $result = @{ success = $false; errorMessage = ''; sourceSelection = $selected; revision = ''; failureClass = '' }
+    $valid = Test-GitSourceSelection -Selection $selected -RepositoryUrl $RepositoryUrl -Ref $selected.ref -SourceContext $SourceContext -AcceptedAt $SelectionAcceptedAt
+    if (-not $valid.success) {
+        $result.errorMessage = "Git selection rejected: $($valid.reason)."; $result.failureClass = $valid.failureClass
+        return $result
+    }
+    $transports = @($selected.source)
+    if ($selected.source -eq 'mirror') { $transports += 'origin' }
+    foreach ($transport in $transports) {
+        $seconds = [int][Math]::Min($TimeoutSeconds, [Math]::Floor(($DeadlineUtc - [DateTimeOffset]::UtcNow).TotalSeconds))
+        if ($seconds -lt 1) { $result.errorMessage = 'Git fetch exceeded the enclosing deadline.'; $result.failureClass = 'network_timeout'; break }
+        $url = if ($transport -eq 'mirror') { $selected.fetchUrl } else { $RepositoryUrl }
+        $ref = if ($transport -eq 'mirror') { $selected.fetchRef } else { $selected.selectedSha }
+        $arguments = @('-C', $RepoRoot, 'fetch', '--no-tags', '--no-recurse-submodules', '--refmap=')
+        if ($Shallow) { $arguments += @('--depth', '1') }
+        $arguments += @('--', $url, "+${ref}:${DestinationRef}")
+        $fetch = if ($transport -eq 'mirror') {
+            Invoke-GitMirrorNetworkCommand -GitArgs $arguments -Url $url -TimeoutSeconds $seconds
+        } else { Invoke-GitNetworkCommand -GitArgs $arguments -TimeoutSeconds $seconds -DeadlineUtc $DeadlineUtc }
+        if ($fetch.ExitCode -ne 0) {
+            $selected.attempts += @{ source = $transport; success = $false; reason = 'object-fetch-failed' }
+            $result.errorMessage = "Selected Git object fetch failed (exit $($fetch.ExitCode))."
+            $result.failureClass = if (Test-GitRemoteAuthFailure -Output $fetch.Output) { 'project_access_denied' } else { 'network_timeout' }
+            continue
+        }
+        $commit = Invoke-GitUpdateCommand -RepoRoot $RepoRoot -ArgumentList @('rev-parse', '--verify', "${DestinationRef}^{commit}")
+        if ($commit.ExitCode -ne 0 -or $commit.Output.Trim() -cne $selected.selectedSha) {
+            $selected.attempts += @{ source = $transport; success = $false; reason = 'mirror-content-mismatch' }
+            $selected.fallbackReason = 'mirror-content-mismatch'; $selected.failureClass = 'source_integrity'
+            $result.errorMessage = 'Fetched Git content does not match the selected commit.'; $result.failureClass = 'source_integrity'
+            continue
+        }
+        $selected.source = $transport; $selected.fetchUrl = $url; $selected.fetchRef = $ref
+        $selected.attempts += @{ source = $transport; success = $true; reason = 'object-fetched' }
+        $result.success = $true; $result.revision = $selected.selectedSha; $result.errorMessage = ''
+        $result.failureClass = $selected.failureClass
+        return $result
+    }
+    return $result
+}
+
 function Invoke-GitUpdateCommand {
     <#
     .SYNOPSIS
@@ -378,8 +963,14 @@ function Invoke-GitUpdateCommand {
     #>
     [CmdletBinding()]
     [OutputType([hashtable])]
-    param([Parameter(Mandatory)][string]$RepoRoot, [Parameter(Mandatory)][string[]]$ArgumentList)
-    $r = Invoke-BoundedNativeCommand -FilePath 'git' -ArgumentList (@('-C', $RepoRoot) + $ArgumentList) -TimeoutSeconds 60 -Environment @{ LC_ALL = 'C'; LANG = 'C'; LANGUAGE = 'C'; GIT_TERMINAL_PROMPT = '0' } -MaxCapturedChars 8388608
+    param(
+        [Parameter(Mandatory)][string]$RepoRoot,
+        [Parameter(Mandatory)][string[]]$ArgumentList,
+        [DateTimeOffset]$DeadlineUtc = [DateTimeOffset]::MaxValue
+    )
+    $seconds = [int][Math]::Min(60.0, [Math]::Floor(($DeadlineUtc - [DateTimeOffset]::UtcNow).TotalSeconds))
+    if ($seconds -lt 1) { return @{ ExitCode = 124; Output = ''; Error = 'Git exceeded the enclosing deadline.' } }
+    $r = Invoke-BoundedNativeCommand -FilePath 'git' -ArgumentList (@('-C', $RepoRoot) + $ArgumentList) -TimeoutSeconds $seconds -Environment @{ LC_ALL = 'C'; LANG = 'C'; LANGUAGE = 'C'; GIT_TERMINAL_PROMPT = '0' } -MaxCapturedChars 8388608
     $exitCode = if (-not $r.Started -or (Test-BoundedNativeResultComplete -Result $r)) { [int]$r.ExitCode } else { 124 }
     $detail = [string]$r.StdErr
     if (-not $detail -and $exitCode -eq -1) { $detail = "Git could not be started. $($r.StartError)".Trim() }
@@ -400,18 +991,27 @@ function Get-GitRepositoryUpdateTarget {
     #>
     [CmdletBinding()]
     [OutputType([hashtable])]
-    param([Parameter(Mandatory)][string]$RepoRoot)
-    $result = @{ Success = $false; Skipped = $false; PreviousRevision = ''; Revision = ''; ErrorMessage = ''; RemoteUrl = '' }
-    $head = Invoke-GitUpdateCommand -RepoRoot $RepoRoot -ArgumentList @('rev-parse', '--verify', 'HEAD^{commit}')
+    param(
+        [Parameter(Mandatory)][string]$RepoRoot,
+        [System.Collections.IDictionary]$SourceContext,
+        [System.Collections.IDictionary]$SourceSelection,
+        [System.Collections.IDictionary]$InstalledProvenance,
+        [DateTimeOffset]$DeadlineUtc = [DateTimeOffset]::UtcNow.AddSeconds(280),
+        [DateTimeOffset]$SelectionAcceptedAt = [DateTimeOffset]::MinValue,
+        [switch]$NoFetch,
+        [ValidateSet('Framework', 'Gate', 'Poll')][string]$Operation = 'Framework'
+    )
+    $result = @{ Success = $false; Skipped = $false; PreviousRevision = ''; Revision = ''; ErrorMessage = ''; RemoteUrl = ''; SourceSelection = $null; FailureClass = '' }
+    $head = Invoke-GitUpdateCommand -RepoRoot $RepoRoot -ArgumentList @('rev-parse', '--verify', 'HEAD^{commit}') -DeadlineUtc $DeadlineUtc
     if ($head.ExitCode -ne 0) { $result.ErrorMessage = "Cannot resolve the framework commit: $($head.Error)"; return $result }
     $result.PreviousRevision = $head.Output.Trim()
-    $branch = Invoke-GitUpdateCommand -RepoRoot $RepoRoot -ArgumentList @('symbolic-ref', '--quiet', 'HEAD')
+    $branch = Invoke-GitUpdateCommand -RepoRoot $RepoRoot -ArgumentList @('symbolic-ref', '--quiet', 'HEAD') -DeadlineUtc $DeadlineUtc
     if ($branch.ExitCode -eq 1) {
         $result.Success = $true; $result.Skipped = $true; $result.Revision = $result.PreviousRevision
         return $result
     }
     if ($branch.ExitCode -ne 0) { $result.ErrorMessage = "Cannot resolve the framework branch: $($branch.Error)"; return $result }
-    $tracking = Invoke-GitUpdateCommand -RepoRoot $RepoRoot -ArgumentList @('for-each-ref', '--format=%(upstream:remotename)%09%(upstream:remoteref)%09%(upstream)', $branch.Output.Trim())
+    $tracking = Invoke-GitUpdateCommand -RepoRoot $RepoRoot -ArgumentList @('for-each-ref', '--format=%(upstream:remotename)%09%(upstream:remoteref)%09%(upstream)', $branch.Output.Trim()) -DeadlineUtc $DeadlineUtc
     $parts = $tracking.Output.TrimEnd("`r", "`n").Split("`t")
     if ($tracking.ExitCode -ne 0 -or $parts.Count -ne 3 -or -not $parts[0] -or $parts[0] -eq '.' -or
         -not $parts[1].StartsWith('refs/heads/', [StringComparison]::Ordinal) -or
@@ -420,9 +1020,40 @@ function Get-GitRepositoryUpdateTarget {
         return $result
     }
     $remote = $parts[0]; $remoteRef = $parts[1]; $trackingRef = $parts[2]
-    $url = Invoke-GitUpdateCommand -RepoRoot $RepoRoot -ArgumentList @('remote', 'get-url', $remote)
+    $url = Invoke-GitUpdateCommand -RepoRoot $RepoRoot -ArgumentList @('remote', 'get-url', $remote) -DeadlineUtc $DeadlineUtc
     if ($url.ExitCode -ne 0) { $result.ErrorMessage = "Cannot read the configured framework remote: $($url.Error)"; return $result }
     $result.RemoteUrl = $url.Output.Trim()
+    $credentialed = Test-GitCredentialedUrl -Url $result.RemoteUrl
+    if ($NoFetch -and $credentialed) {
+        $result.Success = $true; $result.Skipped = $true; $result.Revision = $result.PreviousRevision
+        return $result
+    }
+    if (($SourceContext -or $SourceSelection -or $NoFetch) -and -not $credentialed) {
+        if (-not $PSBoundParameters.ContainsKey('Operation') -and $NoFetch) { $Operation = 'Gate' }
+        $selection = if ($SourceSelection) { $SourceSelection } else {
+            Resolve-GitSourceSelection -RepositoryUrl $result.RemoteUrl -Ref $remoteRef -SourceContext $SourceContext -Operation $Operation -DeadlineUtc $DeadlineUtc -InstalledRevision $result.PreviousRevision -InstalledProvenance $InstalledProvenance
+        }
+        $result.SourceSelection = $selection; $result.FailureClass = $selection.failureClass
+        if (-not $selection.success) { $result.ErrorMessage = $selection.detail; return $result }
+        $valid = Test-GitSourceSelection -Selection $selection -RepositoryUrl $result.RemoteUrl -Ref $remoteRef -SourceContext $SourceContext -AcceptedAt $SelectionAcceptedAt
+        if (-not $valid.success) { $result.ErrorMessage = "Framework selection rejected: $($valid.reason)."; $result.FailureClass = $valid.failureClass; return $result }
+        if (-not (Test-GitStaleReplacement -Selection $selection -InstalledRevision $result.PreviousRevision -InstalledProvenance $InstalledProvenance)) {
+            $result.ErrorMessage = 'Framework selection rejected: mirror-stale-rollback-blocked.'; $result.FailureClass = 'network_timeout'; return $result
+        }
+        if ($NoFetch) { $result.Success = $true; $result.Revision = $selection.selectedSha; return $result }
+        $candidate = 'refs/yuruna/source-candidates/' + [Guid]::NewGuid().ToString('N')
+        try {
+            $fetch = Invoke-GitSelectedFetch -RepoRoot $RepoRoot -RepositoryUrl $result.RemoteUrl -Selection $selection -SourceContext $SourceContext -DestinationRef $candidate -DeadlineUtc $DeadlineUtc -SelectionAcceptedAt $SelectionAcceptedAt
+            $result.SourceSelection = $fetch.sourceSelection; $result.FailureClass = $fetch.failureClass
+            if (-not $fetch.success) { $result.ErrorMessage = $fetch.errorMessage; return $result }
+            $track = Invoke-GitUpdateCommand -RepoRoot $RepoRoot -ArgumentList @('update-ref', $trackingRef, $fetch.revision)
+            if ($track.ExitCode -ne 0) { $result.ErrorMessage = "Cannot retain the selected framework commit: $($track.Error)"; return $result }
+            $result.Revision = $fetch.revision; $result.Success = $true
+            return $result
+        } finally {
+            $null = Invoke-GitUpdateCommand -RepoRoot $RepoRoot -ArgumentList @('update-ref', '-d', $candidate)
+        }
+    }
     $fetch = Invoke-GitNetworkCommand -GitArgs @('-C', $RepoRoot, 'fetch', '--no-tags', '--no-recurse-submodules', '--refmap=', '--', $remote, "+${remoteRef}:${trackingRef}") -TimeoutSeconds 60
     if ($fetch.ExitCode -ne 0) {
         $result.ErrorMessage = "Framework fetch failed (exit $($fetch.ExitCode)): $($fetch.Output)"
@@ -456,8 +1087,15 @@ function Invoke-GitRepositoryUpdate {
     #>
     [CmdletBinding(SupportsShouldProcess)]
     [OutputType([hashtable])]
-    param([Parameter(Mandatory)][string]$RepoRoot)
-    $result = @{ Success = $false; Skipped = $false; Changed = $false; PreviousRevision = ''; Revision = ''; BackupRef = ''; ErrorMessage = '' }
+    param(
+        [Parameter(Mandatory)][string]$RepoRoot,
+        [System.Collections.IDictionary]$SourceContext,
+        [System.Collections.IDictionary]$SourceSelection,
+        [System.Collections.IDictionary]$InstalledProvenance,
+        [DateTimeOffset]$DeadlineUtc = [DateTimeOffset]::UtcNow.AddSeconds(280),
+        [DateTimeOffset]$SelectionAcceptedAt = [DateTimeOffset]::MinValue
+    )
+    $result = @{ Success = $false; Skipped = $false; Changed = $false; PreviousRevision = ''; Revision = ''; BackupRef = ''; ErrorMessage = ''; SourceSelection = $null; FailureClass = '' }
     if (-not $PSCmdlet.ShouldProcess($RepoRoot, 'Update clean framework sources to the configured upstream snapshot')) {
         $result.Success = $true; $result.Skipped = $true
         return $result
@@ -490,7 +1128,12 @@ function Invoke-GitRepositoryUpdate {
             if ($entry -cmatch '^[a-zS] ') { throw 'Sparse or assume-unchanged framework files require an operator decision; their local contents cannot be proven clean.' }
             $null = $trackedPaths.Add($entry.Substring(2))
         }
-        $target = Get-GitRepositoryUpdateTarget -RepoRoot $RepoRoot
+        $selectionArguments = @{}
+        foreach ($name in @('SourceContext', 'SourceSelection', 'InstalledProvenance', 'DeadlineUtc', 'SelectionAcceptedAt')) {
+            if ($PSBoundParameters.ContainsKey($name)) { $selectionArguments[$name] = $PSBoundParameters[$name] }
+        }
+        $target = Get-GitRepositoryUpdateTarget -RepoRoot $RepoRoot @selectionArguments
+        if ($target.ContainsKey('SourceSelection')) { $result.SourceSelection = $target.SourceSelection; $result.FailureClass = $target.FailureClass }
         $result.PreviousRevision = $target.PreviousRevision; $result.Revision = $target.Revision
         if (-not $target.Success) { throw $target.ErrorMessage }
         if ($target.Skipped -or $target.Revision -eq $target.PreviousRevision) {
@@ -577,8 +1220,15 @@ function Invoke-GitPull {
     #>
     [CmdletBinding()]
     [OutputType([bool])]
-    param([Parameter(Mandatory)][string]$RepoRoot)
-    $result = Invoke-GitRepositoryUpdate -RepoRoot $RepoRoot -Confirm:$false
+    param(
+        [Parameter(Mandatory)][string]$RepoRoot,
+        [System.Collections.IDictionary]$SourceContext,
+        [System.Collections.IDictionary]$SourceSelection,
+        [System.Collections.IDictionary]$InstalledProvenance,
+        [DateTimeOffset]$DeadlineUtc = [DateTimeOffset]::UtcNow.AddSeconds(280),
+        [DateTimeOffset]$SelectionAcceptedAt = [DateTimeOffset]::MinValue
+    )
+    $result = Invoke-GitRepositoryUpdate @PSBoundParameters -Confirm:$false
     $script:LastGitUpdateFailure = [string]$result.ErrorMessage
     # The caller publishes this detail through its redacted failure banner and
     # recovery record. Keeping it off this pipeline also preserves one boolean.
@@ -1112,7 +1762,12 @@ function Update-ProjectClone {
     [OutputType([hashtable])]
     param(
         [Parameter(Mandatory)][string]$RepoRoot,
-        [string]$ProjectUrl
+        [string]$ProjectUrl,
+        [System.Collections.IDictionary]$SourceContext,
+        [System.Collections.IDictionary]$SourceSelection,
+        [System.Collections.IDictionary]$InstalledProvenance,
+        [DateTimeOffset]$DeadlineUtc = [DateTimeOffset]::UtcNow.AddSeconds(700),
+        [DateTimeOffset]$SelectionAcceptedAt = [DateTimeOffset]::MinValue
     )
     if ([string]::IsNullOrWhiteSpace($ProjectUrl)) {
         Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_eae57e0cb1c43db1') -InformationAction Continue
@@ -1131,19 +1786,45 @@ function Update-ProjectClone {
     $incomingDir = Join-Path $resolvedRoot 'project.incoming'
     $previousDir = Join-Path $resolvedRoot 'project.previous'
 
-    $revision = $null
+    $revision = $null; $selection = $null; $fetched = $null
     if ($PSCmdlet.ShouldProcess($projectDir, (Format-YurunaOperatorMessage -Key 'runner.operator_f2604472b39532f2' -Arguments @{ projectUrl = "$ProjectUrl" }))) {
-        # Preflight the project remote BEFORE touching the checkout: a private
-        # projectUrl with a stale/expired GitHub credential would otherwise block
-        # the clone on an interactive username prompt (an uncatchable runner hang).
-        # ls-remote is credential-prompt-proof + bounded; only an auth signature
-        # short-circuits (a network blip / non-git path falls through to the
-        # clone, which reports it). Leave the existing clone in place and fail
-        # fast with clear guidance.
-        $pre = Invoke-GitNetworkCommand -GitArgs @('ls-remote', '--exit-code', '--quiet', $ProjectUrl, 'HEAD') -TimeoutSeconds 30
-        if ($pre.ExitCode -ne 0 -and (Test-GitRemoteAuthFailure -Output $pre.Output)) {
-            Write-GitAuthRefreshBanner -RemoteUrl $ProjectUrl -GitOutput $pre.Output
-            return @{ success = $false; skipped = $false; errorMessage = (Format-YurunaOperatorMessage -Key 'runner.operator_a090efbddc458c44' -Arguments @{ projectUrl = "$ProjectUrl"; output = "$($pre.Output)" }); revision = $null }
+        if (($SourceContext -or $SourceSelection) -and -not (Test-GitCredentialedUrl -Url $ProjectUrl)) {
+            # Recovery may reveal a newer protected checkout in project.previous.
+            # Restore it before deciding whether a stale pin can replace it.
+            foreach ($action in @(Restore-ProjectCloneSwap -RepoRoot $resolvedRoot -Confirm:$false)) {
+                Write-Information (Format-YurunaOperatorMessage -Key 'runner.project_swap_recovered' -Arguments @{ action = "$action"; repoRoot = "$resolvedRoot" }) -InformationAction Continue
+            }
+            $installed = ''
+            if (Test-Path -LiteralPath (Join-Path $projectDir '.git')) {
+                $current = Invoke-GitUpdateCommand -RepoRoot $projectDir -ArgumentList @('rev-parse', '--verify', 'HEAD^{commit}')
+                if ($current.ExitCode -eq 0) { $installed = $current.Output.Trim() }
+            }
+            $selection = if ($SourceSelection) { $SourceSelection } else {
+                Resolve-GitSourceSelection -RepositoryUrl $ProjectUrl -Ref HEAD -SourceContext $SourceContext -Operation Project -DeadlineUtc $DeadlineUtc -InstalledRevision $installed -InstalledProvenance $InstalledProvenance
+            }
+            if (-not $selection.success) {
+                return @{ success = $false; skipped = $false; errorMessage = $selection.detail; revision = $null; sourceSelection = $selection; failureClass = $selection.failureClass }
+            }
+            $valid = Test-GitSourceSelection -Selection $selection -RepositoryUrl $ProjectUrl -Ref HEAD -SourceContext $SourceContext -AcceptedAt $SelectionAcceptedAt
+            if (-not $valid.success) {
+                return @{ success = $false; skipped = $false; errorMessage = "Project selection rejected: $($valid.reason)."; revision = $null; sourceSelection = $selection; failureClass = $valid.failureClass }
+            }
+            if (-not (Test-GitStaleReplacement -Selection $selection -InstalledRevision $installed -InstalledProvenance $InstalledProvenance)) {
+                return @{ success = $false; skipped = $false; errorMessage = 'Project selection rejected: mirror-stale-rollback-blocked.'; revision = $null; sourceSelection = $selection; failureClass = 'network_timeout' }
+            }
+        } else {
+            # Preflight the project remote BEFORE touching the checkout: a private
+            # projectUrl with a stale/expired GitHub credential would otherwise block
+            # the clone on an interactive username prompt (an uncatchable runner hang).
+            # ls-remote is credential-prompt-proof + bounded; only an auth signature
+            # short-circuits (a network blip / non-git path falls through to the
+            # clone, which reports it). Leave the existing clone in place and fail
+            # fast with clear guidance.
+            $pre = Invoke-GitNetworkCommand -GitArgs @('ls-remote', '--exit-code', '--quiet', $ProjectUrl, 'HEAD') -TimeoutSeconds 30
+            if ($pre.ExitCode -ne 0 -and (Test-GitRemoteAuthFailure -Output $pre.Output)) {
+                Write-GitAuthRefreshBanner -RemoteUrl $ProjectUrl -GitOutput $pre.Output
+                return @{ success = $false; skipped = $false; errorMessage = (Format-YurunaOperatorMessage -Key 'runner.operator_a090efbddc458c44' -Arguments @{ projectUrl = "$ProjectUrl"; output = "$($pre.Output)" }); revision = $null }
+            }
         }
 
         # A refresh that died mid-swap leaves project/ missing or a copy beside
@@ -1155,13 +1836,39 @@ function Update-ProjectClone {
         Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_9b1d71aa576b45f6' -Arguments @{ projectUrl = "$ProjectUrl"; projectDir = "$incomingDir" }) -InformationAction Continue
         # Prompt-proof (and bounded, when the pool-sync runner is loaded) so a
         # credential that expired between the preflight and here can't hang the clone.
-        $clone = Invoke-GitNetworkCommand -GitArgs @('clone', '--depth', '1', $ProjectUrl, $incomingDir) -TimeoutSeconds 600
+        $clone = if ($selection) {
+            $prepared = Invoke-GitUpdateCommand -RepoRoot $resolvedRoot -ArgumentList @('init', '--quiet', '--', $incomingDir)
+            if ($prepared.ExitCode -ne 0) { @{ ExitCode = $prepared.ExitCode; Output = $prepared.Error } }
+            else {
+                $candidate = 'refs/yuruna/source-candidates/' + [Guid]::NewGuid().ToString('N')
+                $fetched = Invoke-GitSelectedFetch -RepoRoot $incomingDir -RepositoryUrl $ProjectUrl -Selection $selection -SourceContext $SourceContext -DestinationRef $candidate -DeadlineUtc $DeadlineUtc -SelectionAcceptedAt $SelectionAcceptedAt -TimeoutSeconds 600 -Shallow
+                $selection = $fetched.sourceSelection
+                if (-not $fetched.success) { @{ ExitCode = 1; Output = $fetched.errorMessage } }
+                else {
+                    $commands = ,@('remote', 'add', 'origin', $ProjectUrl)
+                    if ($selection.resolvedDefaultBranch) {
+                        $branchName = $selection.resolvedDefaultBranch.Substring(11)
+                        $commands += ,@('checkout', '--quiet', '-b', $branchName, $selection.selectedSha)
+                        $commands += ,@('update-ref', "refs/remotes/origin/$branchName", $selection.selectedSha)
+                        $commands += ,@('config', "branch.$branchName.remote", 'origin')
+                        $commands += ,@('config', "branch.$branchName.merge", $selection.resolvedDefaultBranch)
+                    } else { $commands += ,@('checkout', '--quiet', '--detach', $selection.selectedSha) }
+                    $commands += ,@('update-ref', '-d', $candidate)
+                    $installedClone = @{ ExitCode = 0; Output = '' }
+                    foreach ($arguments in $commands) {
+                        $command = Invoke-GitUpdateCommand -RepoRoot $incomingDir -ArgumentList $arguments
+                        if ($command.ExitCode -ne 0) { $installedClone = @{ ExitCode = $command.ExitCode; Output = $command.Error }; break }
+                    }
+                    $installedClone
+                }
+            }
+        } else { Invoke-GitNetworkCommand -GitArgs @('clone', '--depth', '1', $ProjectUrl, $incomingDir) -TimeoutSeconds 600 }
         if ($clone.ExitCode -ne 0) {
             $null = Remove-ProjectCloneDirectory -Path $incomingDir -Confirm:$false
             if (Test-GitRemoteAuthFailure -Output $clone.Output) {
                 Write-GitAuthRefreshBanner -RemoteUrl $ProjectUrl -GitOutput $clone.Output
             }
-            return @{ success = $false; skipped = $false; errorMessage = "git clone failed (exit $($clone.ExitCode)): $($clone.Output)"; revision = $null }
+            return @{ success = $false; skipped = $false; errorMessage = "git clone failed (exit $($clone.ExitCode)): $($clone.Output)"; revision = $null; sourceSelection = $selection; failureClass = $(if ($fetched) { $fetched.failureClass } else { 'bootstrap_sync' }) }
         }
         $health = Test-ProjectCloneHealth -Path $incomingDir
         if (-not $health.Healthy) {
@@ -1244,7 +1951,7 @@ function Update-ProjectClone {
         }
         Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_99afc5f5196cb53c') -InformationAction Continue
     }
-    return @{ success = $true; skipped = $false; errorMessage = $null; revision = $revision }
+    return @{ success = $true; skipped = $false; errorMessage = $null; revision = $revision; sourceSelection = $selection; failureClass = $(if ($selection) { $selection.failureClass } else { '' }) }
 }
 
 function Resolve-GitRemoteLink {
@@ -1481,10 +2188,26 @@ function Test-GitRemoteAccess {
     [OutputType([pscustomobject])]
     param(
         [Parameter(Mandatory)][AllowEmptyString()][string]$Url,
-        [Parameter()][int]$TimeoutSeconds = 20
+        [Parameter()][int]$TimeoutSeconds = 20,
+        [System.Collections.IDictionary]$SourceContext,
+        [System.Collections.IDictionary]$SourceSelection,
+        [DateTimeOffset]$DeadlineUtc = [DateTimeOffset]::UtcNow.AddSeconds(45),
+        [DateTimeOffset]$SelectionAcceptedAt = [DateTimeOffset]::MinValue
     )
     if ([string]::IsNullOrWhiteSpace($Url)) {
         return [pscustomobject]@{ Reachable = $false; Reason = 'unreachable'; Detail = (Format-YurunaOperatorMessage -Key 'runner.operator_6bd2246f82ada32b') }
+    }
+    if ($SourceContext -or $SourceSelection) {
+        $selection = if ($SourceSelection) { $SourceSelection } else {
+            Resolve-GitSourceSelection -RepositoryUrl $Url -Ref HEAD -SourceContext $SourceContext -Operation Gate -DeadlineUtc $DeadlineUtc
+        }
+        if ($selection.success) {
+            $valid = Test-GitSourceSelection -Selection $selection -RepositoryUrl $Url -Ref HEAD -SourceContext $SourceContext -AcceptedAt $SelectionAcceptedAt
+            if ($valid.success) { return [pscustomobject]@{ Reachable = $true; Reason = 'ok'; Detail = ''; SourceSelection = $selection } }
+            return [pscustomobject]@{ Reachable = $false; Reason = 'denied'; Detail = $valid.reason; SourceSelection = $selection }
+        }
+        $reason = if ($selection.failureClass -in @('project_access_denied', 'source_integrity', 'bootstrap_sync')) { 'denied' } else { 'unreachable' }
+        return [pscustomobject]@{ Reachable = $false; Reason = $reason; Detail = $selection.detail; SourceSelection = $selection }
     }
     $probe = Invoke-GitNetworkCommand -GitArgs @('ls-remote', '--exit-code', '--quiet', $Url.Trim(), 'HEAD') -TimeoutSeconds $TimeoutSeconds
     if ($probe.ExitCode -eq 0) {
@@ -1542,7 +2265,11 @@ function Get-HostRepositoryAccess {
         [Parameter()][AllowNull()][AllowEmptyString()][string]$RepoDir,
         [Parameter()][AllowNull()][AllowEmptyString()][string]$ConfiguredUrl,
         [Parameter()][switch]$Probe,
-        [Parameter()][int]$TimeoutSeconds = 20
+        [Parameter()][int]$TimeoutSeconds = 20,
+        [System.Collections.IDictionary]$SourceContext,
+        [System.Collections.IDictionary]$SourceSelection,
+        [DateTimeOffset]$DeadlineUtc = [DateTimeOffset]::UtcNow.AddSeconds(45),
+        [DateTimeOffset]$SelectionAcceptedAt = [DateTimeOffset]::MinValue
     )
     $originUrl = ''
     if (-not [string]::IsNullOrWhiteSpace($RepoDir) -and (Test-Path -LiteralPath (Join-Path $RepoDir '.git'))) {
@@ -1564,7 +2291,11 @@ function Get-HostRepositoryAccess {
     if (-not $Probe) { return [pscustomobject]@{ Access = ''; AccessState = 'unprobed'; Source = 'unprobed'; Url = '' } }
 
     $link = (Resolve-GitRemoteLink -Url $url).Url
-    $result = Test-GitRemoteAccess -Url $url -TimeoutSeconds $TimeoutSeconds
+    $selectionArguments = @{}
+    foreach ($parameterName in @('SourceContext', 'SourceSelection', 'DeadlineUtc', 'SelectionAcceptedAt')) {
+        if ($PSBoundParameters.ContainsKey($parameterName)) { $selectionArguments[$parameterName] = $PSBoundParameters[$parameterName] }
+    }
+    $result = Test-GitRemoteAccess -Url $url -TimeoutSeconds $TimeoutSeconds @selectionArguments
     if ($result.Reachable) {
         # Reachable but not cloned: the configured URL names the repository this
         # host is about to hold, and it is the same name the clone will report.
@@ -1659,4 +2390,4 @@ function Install-PSScriptAnalyzerIfMissing {
     return Install-YurunaGalleryModuleIfMissing -Name 'PSScriptAnalyzer' @PSBoundParameters
 }
 
-Export-ModuleMember -Function Invoke-GitPull, Invoke-GitRepositoryUpdate, Get-GitRepositoryUpdateTarget, Get-LastGitUpdateFailure, Get-GitUpstreamStatus, Get-GitUnmergedPath, Test-GitWorktreeMerged, Get-CurrentGitCommit, Get-FileLockingProcess, Update-ProjectClone, Restore-ProjectCloneSwap, Test-ProjectCloneHealth, Remove-ProjectCloneDirectory, Resolve-GitRepositoryWebUrl, Resolve-GitRemoteLink, Get-ProjectGitCommitReference, Get-GitRepositoryName, Test-GitRemoteAccess, Get-HostRepositoryAccess, Install-PowerShellYamlIfMissing, Install-PSScriptAnalyzerIfMissing, Test-GitRemoteAuthFailure, Get-GitFirstOutputLine, Get-GitAuthRefreshRemedy, Write-GitAuthRefreshBanner, Invoke-GitNetworkCommand, Get-YurunaGitCredentialArg, Get-YurunaGhCliCredentialArg, Get-YurunaGitAuthAttemptList
+Export-ModuleMember -Function Get-GitMirrorRepository, Resolve-GitSourceSelection, Test-GitSourceSelection, Test-GitMirrorReceipt, Invoke-GitPull, Invoke-GitRepositoryUpdate, Get-GitRepositoryUpdateTarget, Get-LastGitUpdateFailure, Get-GitUpstreamStatus, Get-GitUnmergedPath, Test-GitWorktreeMerged, Get-CurrentGitCommit, Get-FileLockingProcess, Update-ProjectClone, Restore-ProjectCloneSwap, Test-ProjectCloneHealth, Remove-ProjectCloneDirectory, Resolve-GitRepositoryWebUrl, Resolve-GitRemoteLink, Get-ProjectGitCommitReference, Get-GitRepositoryName, Test-GitRemoteAccess, Get-HostRepositoryAccess, Install-PowerShellYamlIfMissing, Install-PSScriptAnalyzerIfMissing, Test-GitRemoteAuthFailure, Get-GitFirstOutputLine, Get-GitAuthRefreshRemedy, Write-GitAuthRefreshBanner, Invoke-GitNetworkCommand, Get-YurunaGitCredentialArg, Get-YurunaGhCliCredentialArg, Get-YurunaGitAuthAttemptList

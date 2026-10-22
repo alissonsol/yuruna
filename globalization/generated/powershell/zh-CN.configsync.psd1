@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.18.2
+.VERSION 2026.10.22
 .GUID 4298f408-0d55-233d-18ab-45d061f819d2
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -127,6 +127,7 @@
             )
         }
     }
+    'configsync.mirror_key_confirmation' = '是否接受镜像验证密钥注册？'
     'configsync.operator_03e72c207d4307ef' = @(
         '  此宿主机的架构定义中有而'
         @{

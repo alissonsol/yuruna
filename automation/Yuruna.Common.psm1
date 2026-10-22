@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.18.2
+.VERSION 2026.10.22
 .GUID 42fcd8c5-0a6a-4e17-b89b-9c4d030faa8e
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -2551,6 +2551,9 @@ function Invoke-BoundedNativeCommand {
     second cap whose milliseconds fit a bounded Task.Wait call.
 .PARAMETER Environment
     Extra environment variables for the child only.
+.PARAMETER RemoveEnvironmentVariable
+    Inherited variable names to remove from the child before applying Environment.
+    The parent environment is unchanged; an explicit Environment value wins.
 .PARAMETER WorkingDirectory
     Optional working directory for the child process.
 .PARAMETER OutputHandler
@@ -2603,7 +2606,8 @@ function Invoke-BoundedNativeCommand {
         [scriptblock]$OutputHandler,
         [ValidateRange(4096, 67108864)][int]$MaxCapturedChars = 262144,
         [System.Text.Encoding]$StreamEncoding,
-        [ValidateNotNull()][psobject]$Deadline
+        [ValidateNotNull()][psobject]$Deadline,
+        [string[]]$RemoveEnvironmentVariable = @()
     )
     $result = @{
         ExitCode = -1; StdOut = ''; StdErr = ''; TimedOut = $false; Started = $false
@@ -2649,6 +2653,7 @@ function Invoke-BoundedNativeCommand {
         $psi.StandardOutputEncoding = $StreamEncoding
         $psi.StandardErrorEncoding = $StreamEncoding
     }
+    foreach ($name in $RemoveEnvironmentVariable) { [void]$psi.Environment.Remove($name) }
     if ($Environment) {
         foreach ($key in $Environment.Keys) { $psi.Environment["$key"] = [string]$Environment[$key] }
     }

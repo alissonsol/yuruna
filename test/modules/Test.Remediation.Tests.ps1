@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.18.2
+.VERSION 2026.10.22
 .GUID 42430431-3a59-45e7-9caa-8e653f023904
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -212,6 +212,14 @@ Describe 'Invoke-Remediation routes the infra-stage failure classes' {
         Assert-Match 'first seen on amisad-edge-b' $r.Rationale 'the record description is quoted'
         Assert-True (@($r.Actions).Count -ge 3) 'restart, evidence and resume steps are named'
         Assert-True ([bool](@($r.Actions) -match 'utm-control-snapshot')) 'the reader is sent to the control snapshot'
+    }
+    It 'requires source integrity inspection and never applies a repair automatically' {
+        $r = Invoke-Remediation -FailureRecord @{failureClass='source_integrity';severity='hard';description='fixture receipt rejected'}
+        $r.Recommendation | Should -BeExactly 'operator_intervention_required'
+        $r.AutoApply | Should -BeFalse
+        $r.Rationale | Should -Match 'fixture receipt rejected'
+        ($r.Actions -join ' ') | Should -Match 'key IDs|receipt|selected SHA'
+        Test-AutoRemediationAllowed -FailureClass 'source_integrity' | Should -BeFalse
     }
     It 'has a registered handler for every canonical FailureClass (no unrouted class)' {
         $enum = @(Get-FailureClassEnum)

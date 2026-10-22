@@ -38,6 +38,8 @@ stop and unregister the test VMs *and* sweep, use
 
 | Script | Purpose |
 |---|---|
+| `Start-Syzygy.ps1` | start the caching proxy, stash, pool control, and download agent service VMs in that order, with pseudo locales enabled; the caching proxy uses MAC address `42:42:42:42:42:42` |
+| `Stop-Syzygy.ps1` | run the service VM stop scripts in reverse order: download agent, pool control, stash, caching proxy |
 | `New-Lab.ps1` | create a lab: its storage layout, config and identity |
 | `New-LocalLabStorage.ps1` | publish this machine's own pool/stash SMB shares and the accounts scoped to them |
 | `Clear-LocalLabStorage.ps1` | withdraw those shares and accounts (leaves the data) |
@@ -54,6 +56,10 @@ pwsh test/lab/Set-LabToken.ps1 -LabToken <code from the dashboard's Lab token ti
 is itself invoked by `install/setup.ps1`. `Clear-LocalLabStorage.ps1` is
 run for you by [`../pool/Convert-ToPoolWorker.ps1`](../pool/Convert-ToPoolWorker.ps1)
 when a standalone machine joins a lab.
+
+The Syzygy scripts resolve their sibling `../service` directory from their own
+location, so an absolute invocation works from any working directory. Common
+parameters such as `-WhatIf` and `-Confirm` are passed to each service script.
 
 Walk-through: [Lab operator](../../docs/lab-operator.md).
 

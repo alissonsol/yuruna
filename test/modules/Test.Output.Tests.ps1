@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.18.2
+.VERSION 2026.10.22
 .GUID 42cf1e3a-80ad-4ced-a52c-2fdc80833d43
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -123,6 +123,19 @@ Describe 'Preflight sidecar diagnostic evidence' {
         $record.diagnostics.githubConnectivity.attempts[0].outcome | Should -Be 'timeout'
         $record.diagnostics.githubConnectivity.attempts[1].elapsedMs | Should -Be 17
         $record.diagnostics.githubConnectivity.dns.addresses[0].address | Should -Be '192.0.2.1'
+    }
+
+    It 'preserves typed causes without changing legacy failure records' {
+        $null = Write-Section 'repository'
+        $null = Write-Fail 'connection refused' -Cause 'git-transport-failed' -Class 'network_timeout'
+        $null = Write-Fail 'operator configuration is missing'
+        Write-FailureSidecar
+        $record = Get-Content -LiteralPath $env:YURUNA_FAILURE_SIDECAR -Raw | ConvertFrom-Json
+        $record.schema | Should -Be 'yuruna.preflight-failures/v1'
+        $record.failures[0].cause | Should -Be 'git-transport-failed'
+        $record.failures[0].class | Should -Be 'network_timeout'
+        $record.failures[1].class | Should -BeNullOrEmpty
+        $record.failCount | Should -Be 2
     }
 
     It 'clears prior diagnostics when the output state is initialized again' {

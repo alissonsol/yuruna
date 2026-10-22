@@ -533,12 +533,61 @@ hospedeiro de ciclos de teste Windows também executa elevado. Ferramentas Git: 
 `chmod` e `openssl` não são encontrados; o Git for Windows inclui os três em
 `usr\bin`. As suítes privadas em `dev-only/test` seguem a mesma regra.
 
-**Planeje o tempo.** Até oito processos de suíte executam ao mesmo tempo (`-ThrottleLimit`),
-e uma execução completa das suítes versionadas leva cerca de 8 minutos no hospedeiro Ubuntu KVM
-em que o baseline é registrado, cerca de 7 minutos no macOS e de 17 a 20 minutos no
-Windows. Uma suíte executa ao lado de outras sete, portanto um limite de tempo dentro de uma
-suíte precisa ser atendido em uma máquina ocupada, e um teste que precisa de uma porta livre não deve
-presumir que uma porta que acabou de liberar continuará livre.
+**Planeje o tempo.** Metade dos processadores lógicos, no mínimo 8 e no máximo 16,
+executa processos de suíte ao mesmo tempo (`-ThrottleLimit`). Acima de 16, a suíte
+mais longa fica mais lenta sob a carga mais depressa do que os trabalhadores extras
+terminam as demais. Uma execução completa das suítes versionadas leva cerca de 8
+minutos no hospedeiro Ubuntu KVM em que o baseline é registrado, cerca de 7 minutos
+no macOS e de 17 a 20 minutos no Windows. Uma suíte executa ao lado de até quinze
+outras, portanto um limite de tempo dentro de uma suíte precisa ser atendido em uma
+máquina ocupada, e um teste que precisa de uma porta livre não deve presumir que uma
+porta que acabou de liberar continuará livre.
+
+**Aprovações registradas.** No Linux, com `strace` e `python3`, `-Record` rastreia
+cada suíte que a execução roda (`tools/suite_impact.py`) e guarda, para cada suíte
+aprovada, todo caminho que sua árvore de processos leu, sondou, listou ou alterou,
+com uma impressão digital de cada um e o resultado NUnit da suíte. Uma execução
+posterior sem `-All` conta essa aprovação em vez de rodar a suíte de novo enquanto o
+registro valer:
+
+- Toda entrada registrada está inalterada. Dentro do espaço de trabalho (este
+  checkout e cada checkout Git ao lado dele), um arquivo é comparado pelo conteúdo e
+  pelo modo, um diretório listado pelos nomes das entradas, um caminho sondado pelo
+  que existe nele agora, inclusive a ausência, e um índice Git pelo que ele prepara
+  para o commit. Fora do espaço de trabalho, um arquivo que a suíte leu é comparado
+  por tamanho, hora de modificação e modo, um diretório listado pelos nomes das
+  entradas, e um caminho sondado pelo que existe nele, a menos que seu diretório
+  tenha sido listado.
+- O contexto está inalterado: o dia do calendário (UTC e local), a raiz, a
+  plataforma, a conta, as versões do PowerShell e do Pester, os próprios arquivos do
+  executor e o ambiente. Variáveis que apenas identificam um processo, sessão,
+  socket ou token ficam fora do ambiente.
+
+Uma suíte não é registrada quando uma entrada mudou enquanto ela executava,
+quando ela alterou um caminho que tinha lido, ou quando o strace mostrou um
+caminho relativo cujo diretório não era conhecido. Uma suíte rastreada que não é
+aprovada executa de novo sem rastreamento, e essa execução decide: o ptrace muda
+a forma como um processo rastreado termina, então um teste que limita quanto
+tempo um processo leva para terminar pode falhar só por estar rastreado. Uma
+suíte que falha assim duas vezes no mesmo dia executa sem rastreamento pelo
+resto dele. Uma suíte reutilizada ainda atende às cinco condições abaixo, a
+partir do seu arquivo NUnit registrado; o relatório a marca como `reused`, e
+`suite-results.json` informa o `impact` de cada suíte: por que ela executou e se
+foi registrada. Uma execução assim é completa para um commit. Uma release
+executa todas as suítes com `-All`, como `-UpdateBaseline` e
+`-RegisterNewSuites` sempre fazem. Uma suíte rastreada executa até três vezes
+mais devagar quando sonda muitos caminhos, por isso seu limite é quatro vezes o
+da execução sem rastreamento. Os registros ficam no diretório Git do clone
+(`.git/yuruna/test-impact`); remover essa pasta só faz a próxima execução não
+reutilizar nada.
+
+`tools/Start-TestWatcher.ps1` mantém os registros atualizados. Ele calcula a
+impressão digital do espaço de trabalho a cada poucos segundos e, quando o espaço de
+trabalho fica sem mudanças por um tempo, executa as suítes públicas e privadas com
+`-Background`: registrando em prioridade ociosa e sem iniciar outra suíte enquanto
+uma execução em primeiro plano estiver ativa no clone. Inicie-o no mesmo tipo de
+shell que executa os gates, porque o ambiente faz parte do contexto de cada
+registro. `-Once` registra cada suíte que não tem aprovação reutilizável e termina.
 
 **O código de saída de uma suíte isolada não indica aprovação/falha.** O caminho
 independente do Pester não propaga uma execução com falha pelo operador de chamada: uma
@@ -1440,6 +1489,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.18.1
+Last review: 2026.10.22
 
 Voltar para [Yuruna](../../README.md)

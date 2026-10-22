@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.18.2
+.VERSION 2026.10.22
 .GUID 4224d5e4-9d07-4231-afd5-1a7a005a431d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -133,6 +133,7 @@ if (-not (Test-Path $spiceImageFile)) {
 }
 
 # --- REGION: Remove existing VM
+# See https://yuruna.link/42e220c4-0004
 # Runs AFTER the base image is confirmed so a failed image fetch never
 # destroys a working VM.
 if (-not (Remove-UtmTestVM -VMName $VMName -Confirm:$false)) {
@@ -203,7 +204,8 @@ if ($LASTEXITCODE -ne 0) {
     exit 1
 }
 
-# --- REGION: Create and configure the UTM bundle (config.plist, QEMU backend)
+# --- REGION: Create and configure the UTM bundle
+# config.plist selects the QEMU backend.
 $TemplatePath = Join-Path $ScriptDir "config.plist.template"
 if (-not (Test-Path $TemplatePath)) {
     Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_603b5ff75924a72c' -Arguments @{ templatePath = "$TemplatePath" })

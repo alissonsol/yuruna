@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.18.2
+.VERSION 2026.10.22
 .GUID 4277fa63-7e99-d75f-2e10-e83578213d12
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -123,6 +123,7 @@
             )
         }
     }
+    'configsync.mirror_key_confirmation' = 'Accept mirror verification key enrollment?'
     'configsync.operator_03e72c207d4307ef' = @(
         '  Keys this host''s schema defines that '
         @{

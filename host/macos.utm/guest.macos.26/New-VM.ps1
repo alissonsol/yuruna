@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.18.2
+.VERSION 2026.10.22
 .GUID 42f70b5c-df30-487c-a638-ea7b52866f97
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -181,6 +181,7 @@ Import-Module (Join-Path $RepoRoot 'test/modules/Test.Provenance.psm1') -Force
 Write-BaseImageProvenance -BaseImagePath $baseImageFile
 
 # --- REGION: Remove existing VM
+# See https://yuruna.link/42e220c4-0004
 # Runs AFTER the base image is confirmed so a failed image fetch never
 # destroys a working VM.
 Import-Module (Join-Path (Split-Path -Parent $ScriptDir) "modules/Yuruna.Host.psm1") -Force
@@ -402,7 +403,8 @@ Set-Content -Path $IdsOut -Value @(
     "machineIdentifier.base64=$MachineIdentifierB64"
 )
 
-# --- REGION: Create and configure the UTM bundle (config.plist, Apple Virtualization backend)
+# --- REGION: Create and configure the UTM bundle
+# config.plist selects the Apple Virtualization backend.
 $TemplatePath = Join-Path $ScriptDir "config.plist.template"
 if (-not (Test-Path $TemplatePath)) {
     Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_603b5ff75924a72c' -Arguments @{ templatePath = "$TemplatePath" })

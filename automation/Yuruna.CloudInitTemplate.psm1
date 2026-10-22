@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.18.2
+.VERSION 2026.10.22
 .GUID 4234ea6a-ddae-4da7-be02-26d47d418045
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -420,8 +420,8 @@ function New-CloudInitUserData {
     # here, from $RepoRoot, for the same reason the base64 script bodies are --
     # every New-VM.ps1 needs the identical answer, and a per-caller copy is a
     # per-caller chance to name a different repository than the one the runner
-    # types at fetch time. Templates that do not carry these placeholders (the
-    # caching-proxy-service and stash-service seeds) simply never consume them.
+    # types at fetch time. Service seeds also retain this immutable identity for
+    # mirror and GitHub fallback when the host status service is unavailable.
     $ghSource = Get-YurunaGitHubSource -RepoRoot $RepoRoot
     if (-not $fullReplacement.ContainsKey('YURUNA_GITHUB_REPO_PLACEHOLDER')) {
         $fullReplacement['YURUNA_GITHUB_REPO_PLACEHOLDER'] = $ghSource.Repo

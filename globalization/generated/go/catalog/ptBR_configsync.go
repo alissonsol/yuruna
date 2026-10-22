@@ -111,6 +111,7 @@ const DataptBRconfigsync = `{
       ]
     }
   },
+  "configsync.mirror_key_confirmation": "Aceitar o cadastro das chaves de verificação do espelho?",
   "configsync.operator_03e72c207d4307ef": [
     "Chaves do esquema desta máquina definem que o ",
     {

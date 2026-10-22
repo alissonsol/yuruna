@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.18.2
+.VERSION 2026.10.22
 .GUID 426aeda1-aa39-4af4-ab2d-2e9d00f2ca45
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -58,7 +58,11 @@ function Invoke-ConfigGate {
         knows this, so it is passed in rather than inferred.
     .OUTPUTS
         @{ passed = [bool]; exitCode = [int]; skipped = [bool]; lines = [string[]]
-           failureLines = [string[]] }
+           failureLines = [string[]]; structuredResult = <child sidecar> }
+
+        The sidecar is preserved verbatim, including optional per-failure cause
+        and class fields. Older children may omit them; callers must not infer a
+        transient classification from translated message text.
 
         `failureLines` is the FAILURES excerpt this function also writes to the
         console, empty on every passing or skipped path. It is returned as well

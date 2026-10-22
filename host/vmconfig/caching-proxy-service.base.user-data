@@ -94,6 +94,7 @@ packages:
   # --- REGION: https://yuruna.link/429f3d06-0039
   - acl
   - golang-go
+  - git
   # --- REGION: https://yuruna.link/429f3d06-003a
   # Network tools support console and SSH diagnostics.
   - net-tools       # ifconfig, netstat, route, arp
@@ -110,6 +111,59 @@ packages:
   # === YURUNA_OVERLAY_HOST_AGENT_PKG ===
 # --- REGION: write_files
 write_files:
+  # These inputs are seed secrets. Decoding happens without putting a secret
+  # in a command argument, and only the worker can read the resulting files.
+  - path: /etc/yuruna/git-mirror/signing-key.b64
+    permissions: '0600'
+    owner: root:root
+    content: "YURUNA_GIT_MIRROR_SIGNING_KEY_BASE64_PLACEHOLDER"
+  - path: /etc/yuruna/git-mirror/token.b64
+    permissions: '0600'
+    owner: root:root
+    content: "YURUNA_GIT_MIRROR_TOKEN_BASE64_PLACEHOLDER"
+  - path: /etc/yuruna/git-mirror/repositories.b64
+    permissions: '0600'
+    owner: root:root
+    content: "YURUNA_GIT_MIRROR_REPOSITORIES_BASE64_PLACEHOLDER"
+  - path: /etc/yuruna/git-mirror/seed.env
+    permissions: '0644'
+    owner: root:root
+    content: |
+      YURUNA_GIT_MIRROR_REFRESH_SECONDS=YURUNA_GIT_MIRROR_REFRESH_SECONDS_PLACEHOLDER
+      YURUNA_GIT_MIRROR_BUILD_REPOSITORY=YURUNA_GIT_MIRROR_BUILD_REPOSITORY_PLACEHOLDER
+      YURUNA_GIT_MIRROR_BUILD_COMMIT=YURUNA_GIT_MIRROR_BUILD_COMMIT_PLACEHOLDER
+  - path: /etc/apache2/conf-available/yuruna-git-mirror.conf
+    permissions: '0644'
+    owner: root:root
+    content: |
+      # Distinct backend paths prevent Apache worker sharing from replacing a
+      # long transfer's timeout with the landing page's five-second timeout.
+      RequestReadTimeout header=20-40,MinRate=500 body=20,MinRate=500
+      ProxyPass /git-mirror/v1/resolve http://127.0.0.1:9310/git-mirror/v1/resolve connectiontimeout=1 acquire=1000 timeout=20 retry=0
+      ProxyPass /api/git-mirror/repositories http://127.0.0.1:9310/api/git-mirror/repositories connectiontimeout=1 acquire=1000 timeout=20 retry=0
+      ProxyPass /git-mirror/ http://127.0.0.1:9310/git-mirror/ connectiontimeout=1 acquire=1000 timeout=20 retry=0
+      ProxyPass /git-raw/ http://127.0.0.1:9311/git-raw/ connectiontimeout=1 acquire=1000 timeout=125 retry=0
+      CGIDScriptTimeout 605
+      ScriptAlias /git/ /usr/local/libexec/yuruna/git-mirror-http-backend.sh/
+      SetEnv GIT_PROJECT_ROOT /var/lib/yuruna/git
+      SetEnv GIT_HTTP_EXPORT_ALL
+      SetEnvIf Git-Protocol "(.*)" GIT_PROTOCOL=$1
+      <Directory /usr/local/libexec/yuruna>
+          Options +ExecCGI
+          Require all granted
+      </Directory>
+      <LocationMatch "^/(git/|git-mirror/|git-raw/|api/git-mirror/)">
+          Require ip 127.0.0.1 ::1 10.0.0.0/8 172.16.0.0/12 192.168.0.0/16
+      </LocationMatch>
+      <LocationMatch "^/(git-mirror/v1/resolve|api/git-mirror/repositories)$">
+          LimitRequestBody 4096
+      </LocationMatch>
+      <LocationMatch "^/git/.*git-receive-pack$">
+          Require all denied
+      </LocationMatch>
+      <If "%{QUERY_STRING} =~ /(^|&)service=git-receive-pack(&|$)/">
+          Require all denied
+      </If>
   # --- REGION: https://yuruna.link/4220a755-004c
   - path: /etc/ssh/sshd_config.d/60-yuruna-keepalive.conf
     permissions: '0644'
@@ -252,6 +306,19 @@ write_files:
       # dep11 Components-<arch>.yml drifts faster than catch-all LM-factor on
       # dev pockets; mismatched InRelease vs dep11 -> "Hash Sum mismatch".
       refresh_pattern -i /dep11/.+\.yml(\.gz|\.xz)?$    0 0%  60
+      # See https://yuruna.link/42f6b05f-0057
+      # offline_mode overrides the lines above and serves a stored index as first
+      # fetched, which strands an InRelease beside an index from a later publish of
+      # a repository that rewrites its indexes in place. Answer that metadata from
+      # the origin and still store it; no-upstream mode widens yuruna_no_upstream so
+      # the stored copies are served while misses are refused.
+      acl yuruna_apt_index urlpath_regex -i /dists/ /(InRelease|Release|Release\.gpg)$ /(Packages|Sources)(\.gz|\.xz|\.bz2|\.lz4|\.zst)?$
+      acl yuruna_apt_by_hash urlpath_regex -i /by-hash/
+      # Never matches. It shares no range with what no-upstream mode adds, because
+      # squid drops one of two overlapping entries, and which one depends on the
+      # order it reads conf.d.
+      acl yuruna_no_upstream src 255.255.255.255/32
+      send_hit deny yuruna_apt_index !yuruna_apt_by_hash !yuruna_no_upstream
 
       # --- REGION: Container registry caching (OCI + Docker v2)
       # See https://yuruna.link/429f3d06-0042
@@ -394,6 +461,9 @@ write_files:
       miss_access deny all
       deny_info 503:ERR_YURUNA_NO_UPSTREAM all
       reply_header_add Retry-After 3600 yuruna_no_upstream_status
+      # Serve the stored apt metadata yuruna.conf otherwise sends to the origin:
+      # every client range the cache admits.
+      acl yuruna_no_upstream src 10.0.0.0/8 172.16.0.0/12 192.168.0.0/16 127.0.0.0/8 ::1
       EOF_NOUP
           install -m 0644 -o root -g root "$TMP" "$CONF"
           if ! squid -k parse >/dev/null 2>&1; then
@@ -452,6 +522,10 @@ write_files:
         - job_name: squid
           static_configs:
             - targets: ['localhost:9301']
+        - job_name: git-mirror
+          metrics_path: /git-mirror/metrics
+          static_configs:
+            - targets: ['localhost:9310']
         # zot OCI pull-through cache. Built-in /metrics endpoint on the
         # service port. See write_files /etc/zot/config.json below.
         - job_name: zot
@@ -492,7 +566,7 @@ write_files:
           metric_relabel_configs:
             # --- REGION: https://yuruna.link/429f3d06-0046
             - source_labels: [__name__]
-              regex: 'up|scrape_.*|windows_memory_.*|windows_cpu_time_total|windows_logical_disk_.*|windows_net_.*|windows_os_(info|hostname)|windows_exporter_(build_info|collector_success|collector_duration_seconds|scrape_collector_success|scrape_duration_seconds)|windows_hyperv_hypervisor_(logical_processor_(time_total|total_run_time_total|context_switches_total)|root_virtual(_processor)?_(time_total|cpu_wait_time_per_dispatch_total)|virtual_processor_((mode_)?time_total|(total_)?run_time_total|cpu_wait_time_per_dispatch_total))|windows_hyperv_virtual_network_adapter_.*|windows_hyperv_virtual_switch_.*'
+              regex: 'up|scrape_.*|yuruna_host_memory_.*|windows_memory_.*|windows_cpu_time_total|windows_logical_disk_.*|windows_net_.*|windows_os_(info|hostname)|windows_exporter_(build_info|collector_success|collector_duration_seconds|scrape_collector_success|scrape_duration_seconds)|windows_hyperv_hypervisor_(logical_processor_(time_total|total_run_time_total|context_switches_total)|root_virtual(_processor)?_(time_total|cpu_wait_time_per_dispatch_total)|virtual_processor_((mode_)?time_total|(total_)?run_time_total|cpu_wait_time_per_dispatch_total))|windows_hyperv_virtual_network_adapter_.*|windows_hyperv_virtual_switch_.*'
               action: keep
   # --- REGION: https://yuruna.link/429f3d06-0047
   - path: /etc/loki/config.yml
@@ -650,6 +724,13 @@ write_files:
           legacy_positions_file = "/var/lib/alloy/promtail-positions.yaml"
       }
 
+      loki.source.journal "git_mirror" {
+          matches = "_SYSTEMD_UNIT=git-mirror-worker.service"
+          max_age = "12h"
+          labels = { job = "git-mirror" }
+          forward_to = [loki.write.default.receiver]
+      }
+
       loki.write "default" {
           endpoint {
               url = "http://127.0.0.1:3100/loki/api/v1/push"
@@ -662,7 +743,7 @@ write_files:
     content: |
       # --- REGION: [Service]
       [Service]
-      SupplementaryGroups=proxy zot
+      SupplementaryGroups=proxy zot systemd-journal
       Environment="CUSTOM_ARGS=--server.http.listen-addr=127.0.0.1:9080 --disable-reporting"
   # --- REGION: https://yuruna.link/429f3d06-004a
   - path: /usr/local/bin/squid-meta-exporter.sh
@@ -705,6 +786,18 @@ write_files:
       squid_internet_reachable $INTERNET
       EOF_METRICS
 
+      # See https://yuruna.link/42f6b05f-005b
+      APT_SELFTEST_PROM=/var/lib/yuruna/apt-index-selftest.prom
+      if [ -r "$APT_SELFTEST_PROM" ]; then
+          cat "$APT_SELFTEST_PROM" >> "$TMP"
+      else
+          {
+              echo '# HELP yuruna_apt_index_selftest_available 1 when the apt index self-test has a result on this cache'
+              echo '# TYPE yuruna_apt_index_selftest_available gauge'
+              echo 'yuruna_apt_index_selftest_available 0'
+          } >> "$TMP"
+      fi
+
       install -m 0644 "$TMP" /var/www/html/squid-meta
   - path: /etc/systemd/system/squid-meta-exporter.service
     permissions: '0644'
@@ -731,6 +824,297 @@ write_files:
       OnUnitActiveSec=30s
       AccuracySec=5s
       Unit=squid-meta-exporter.service
+      # --- REGION: [Install]
+      [Install]
+      WantedBy=timers.target
+  # See https://yuruna.link/42f6b05f-005b
+  - path: /etc/squid/yuruna-apt-index-probes.list
+    permissions: '0644'
+    owner: root:root
+    content: |
+      # Apt repositories the guests read through this cache that rewrite their
+      # indexes in place (no Acquire-By-Hash); yuruna-apt-index-selftest.py checks each pair.
+      # <base-url>                                      <suite>   <component> <architecture>...
+      https://download.docker.com/linux/ubuntu           noble     stable      amd64 arm64
+      https://download.docker.com/linux/ubuntu           resolute  stable      amd64 arm64
+      # A flat repository: suite /, component -, one index for every architecture.
+      https://pkgs.k8s.io/core:/stable:/v{k8s_minor}/deb /         -           all
+  - path: /usr/local/bin/yuruna-apt-index-selftest.py
+    permissions: '0755'
+    owner: root:root
+    content: |
+      #!/usr/bin/env python3
+      """Read each probe repository's apt metadata through this cache and say whether it agrees.
+
+      apt rejects an index whose size or SHA-256 differs from what its InRelease
+      lists. squid's offline_mode serves a stored object without asking the origin,
+      so a cache can hold an InRelease beside an index from a later publish of a
+      repository that rewrites its indexes in place, and every guest of that
+      architecture then fails apt-get update. yuruna.conf answers that metadata from
+      the origin; this test reads each pair through the local squid the way a guest
+      does and reports any pair that still disagrees.
+
+      Writes apt-index-selftest.json, apt-index-selftest.prom and
+      apt-index-selftest.txt to --state-dir.
+
+      Exit status: 0 every pair read matched; 1 a pair disagreed; 2 no pair could be
+      read.
+      """
+      import argparse
+      import hashlib
+      import http.client
+      import json
+      import os
+      import ssl
+      import sys
+      import time
+      import urllib.request
+
+      LABEL = 'apt index pairs              : '
+      # A read that fails for any of these reasons leaves its pair unverified, with the reason.
+      READ_ERRORS = (OSError, http.client.HTTPException, ValueError)
+      # apt's order of preference among the compressed forms an InRelease lists.
+      COMPRESSIONS = ('.xz', '.bz2', '.gz', '')
+
+
+      def opener(proxy_http, proxy_https, cafile):
+          context = ssl.create_default_context(cafile=cafile) if cafile and os.path.exists(cafile) else ssl.create_default_context()
+          return urllib.request.build_opener(
+              urllib.request.ProxyHandler({'http': proxy_http, 'https': proxy_https}),
+              urllib.request.HTTPSHandler(context=context))
+
+
+      def fetch(open_url, url, timeout):
+          with open_url(url, timeout=timeout) as response:
+              return response.read()
+
+
+      def read_probes(path, k8s_minor):
+          """Each probe line is: <base-url> <suite> <component> <architecture>...
+
+          A flat repository has the suite `/` and the component `-`, and one index for
+          every architecture. {k8s_minor} is the minor the warm run resolved.
+          """
+          probes = []
+          with open(path, encoding='utf-8') as handle:
+              for line in handle:
+                  fields = line.split('#', 1)[0].split()
+                  if len(fields) < 3:
+                      continue
+                  base, suite, component, arches = fields[0].rstrip('/'), fields[1], fields[2], fields[3:]
+                  if '{k8s_minor}' in base:
+                      if not k8s_minor:
+                          probes.append({'base': base, 'suite': suite, 'component': component, 'arches': arches or ['all'],
+                                         'skip': 'no Kubernetes minor resolved yet'})
+                          continue
+                      base = base.replace('{k8s_minor}', k8s_minor)
+                  probes.append({'base': base, 'suite': suite, 'component': component, 'arches': arches or ['all']})
+          return probes
+
+
+      def read_k8s_minor(path):
+          try:
+              with open(path, encoding='utf-8') as handle:
+                  for line in handle:
+                      if line.startswith('YURUNA_PREWARM_K8S_MINOR='):
+                          value = line.split('=', 1)[1].strip().strip('"')
+                          if value.replace('.', '').isdigit():
+                              return value
+          except OSError:
+              pass
+          return ''
+
+
+      def listed_sha256(inrelease):
+          """The SHA256 section of an InRelease as {relative path: (size, hash)}."""
+          listed, inside = {}, False
+          for raw in inrelease.decode('utf-8', 'replace').splitlines():
+              if raw.startswith('SHA256:'):
+                  inside = True
+                  continue
+              if inside and raw.startswith(' '):
+                  parts = raw.split()
+                  if len(parts) == 3 and parts[1].isdigit():
+                      listed[parts[2]] = (int(parts[1]), parts[0].lower())
+                  continue
+              inside = False
+          return listed
+
+
+      def release_date(inrelease):
+          for raw in inrelease.decode('utf-8', 'replace').splitlines():
+              if raw.startswith('Date:'):
+                  return raw[5:].strip()
+          return ''
+
+
+      def check_pair(get, probe, arch):
+          """Read one InRelease and one index, and compare the index with its listing."""
+          flat = probe['suite'] == '/'
+          root = probe['base'] if flat else probe['base'] + '/dists/' + probe['suite']
+          result = {'repository': probe['base'].split('://', 1)[-1], 'suite': probe['suite'], 'architecture': arch}
+          try:
+              inrelease = get(root + '/InRelease')
+          except READ_ERRORS as error:
+              return dict(result, state='unverified', reason='InRelease unreadable: ' + str(error)[:160])
+          listed = listed_sha256(inrelease)
+          result['releaseDate'] = release_date(inrelease)
+          stem = 'Packages' if flat else '{0}/binary-{1}/Packages'.format(probe['component'], arch)
+          path = next((stem + ext for ext in COMPRESSIONS if stem + ext in listed), '')
+          if not path:
+              return dict(result, state='unverified', reason='InRelease lists no ' + stem)
+          size, digest = listed[path]
+          result.update(index=path, url=root + '/' + path, listedBytes=size)
+          try:
+              body = get(root + '/' + path)
+          except READ_ERRORS as error:
+              return dict(result, state='unverified', reason='index unreadable: ' + str(error)[:160])
+          result['servedBytes'] = len(body)
+          matched = len(body) == size and hashlib.sha256(body).hexdigest() == digest
+          return dict(result, state='consistent' if matched else 'mismatch')
+
+
+      def run(get, probes, settle, sleep=time.sleep):
+          results = []
+          for probe in probes:
+              for arch in probe['arches']:
+                  if probe.get('skip'):
+                      results.append({'repository': probe['base'].split('://', 1)[-1], 'suite': probe['suite'],
+                                      'architecture': arch, 'state': 'unverified', 'reason': probe['skip']})
+                      continue
+                  result = check_pair(get, probe, arch)
+                  if result['state'] == 'mismatch' and settle > 0:
+                      # An origin caught between writing its index and its InRelease
+                      # agrees again within seconds; only a pair that stays apart counts.
+                      sleep(settle)
+                      result = check_pair(get, probe, arch)
+                  results.append(result)
+          return results
+
+
+      def verdict_of(results):
+          states = [result['state'] for result in results]
+          if 'mismatch' in states:
+              return 'mismatch'
+          return 'ok' if 'consistent' in states else 'none'
+
+
+      def label_value(text):
+          return str(text).replace('\\', '\\\\').replace('"', '\\"').replace('\n', ' ')
+
+
+      def render_prom(state):
+          lines = [
+              '# HELP yuruna_apt_index_selftest_available 1 when the apt index self-test has a result on this cache',
+              '# TYPE yuruna_apt_index_selftest_available gauge',
+              'yuruna_apt_index_selftest_available 1',
+              '# HELP yuruna_apt_index_selftest_timestamp_seconds When the apt index self-test last ran',
+              '# TYPE yuruna_apt_index_selftest_timestamp_seconds gauge',
+              'yuruna_apt_index_selftest_timestamp_seconds {0}'.format(state['epoch']),
+              '# HELP yuruna_apt_index_consistent 1 when the index this cache serves matches its InRelease, 0 when it does not',
+              '# TYPE yuruna_apt_index_consistent gauge',
+          ]
+          unverified = []
+          for result in state['results']:
+              labels = 'repository="{0}",suite="{1}",architecture="{2}"'.format(
+                  label_value(result['repository']), label_value(result['suite']), label_value(result['architecture']))
+              if result['state'] == 'unverified':
+                  unverified.append('yuruna_apt_index_unverified{' + labels + '} 1')
+              else:
+                  lines.append('yuruna_apt_index_consistent{' + labels + '} ' + ('1' if result['state'] == 'consistent' else '0'))
+          lines += ['# HELP yuruna_apt_index_unverified 1 for a probe pair the apt index self-test could not read',
+                    '# TYPE yuruna_apt_index_unverified gauge'] + unverified
+          return '\n'.join(lines) + '\n'
+
+
+      def render_text(state):
+          results = state['results']
+          read = [result for result in results if result['state'] != 'unverified']
+          bad = [result for result in read if result['state'] == 'mismatch']
+          when = ' ({0})'.format(state['time'])
+          if state['verdict'] == 'mismatch':
+              lines = [LABEL + 'MISMATCH -- {0} of {1} disagree with their InRelease through this cache'.format(len(bad), len(read)) + when]
+              for result in bad:
+                  lines.append('  {0} {1} {2}: {3} is {4} bytes, its InRelease (Date: {5}) lists {6}; guests of this architecture fail apt-get update'.format(
+                      result['repository'], result['suite'], result['architecture'], result['index'], result['servedBytes'],
+                      result['releaseDate'] or 'not stated', result['listedBytes']))
+              lines.append('  fix: purge both through this cache, for example curl -x http://127.0.0.1:3129 -X PURGE <url> on the VM; see https://yuruna.link/42f6b05f-005b')
+          elif state['verdict'] == 'ok':
+              lines = [LABEL + 'OK -- {0} of {0} match their InRelease through this cache'.format(len(read)) + when]
+          else:
+              lines = [LABEL + 'NO VERDICT -- no probe pair could be read' + when]
+          for result in results:
+              if result['state'] == 'unverified':
+                  lines.append('  {0} {1} {2}: unverified -- {3}'.format(result['repository'], result['suite'], result['architecture'], result['reason']))
+          return '\n'.join(lines) + '\n'
+
+
+      def write_atomically(path, text):
+          staged = path + '.tmp'
+          with open(staged, 'w', encoding='utf-8') as handle:
+              handle.write(text)
+          os.chmod(staged, 0o644)
+          os.replace(staged, path)
+
+
+      def main(argv=None):
+          parser = argparse.ArgumentParser(description=__doc__.split('\n', 1)[0])
+          parser.add_argument('--probes', default='/etc/squid/yuruna-apt-index-probes.list')
+          parser.add_argument('--prewarm-meta', default='/var/lib/yuruna/prewarm-meta.env')
+          parser.add_argument('--proxy-http', default='http://127.0.0.1:3128')
+          parser.add_argument('--proxy-https', default='http://127.0.0.1:3129')
+          parser.add_argument('--cafile', default='/etc/squid/ssl_cert/ca.pem', help='the CA squid bumps HTTPS with')
+          parser.add_argument('--state-dir', default='/var/lib/yuruna')
+          parser.add_argument('--timeout', type=int, default=30, help='seconds one request may take')
+          parser.add_argument('--settle', type=int, default=30, help='seconds before a mismatched pair is read again')
+          parser.add_argument('--quiet', action='store_true')
+          args = parser.parse_args(argv)
+
+          open_url = opener(args.proxy_http, args.proxy_https, args.cafile).open
+          probes = read_probes(args.probes, read_k8s_minor(args.prewarm_meta))
+          state = {'results': run(lambda url: fetch(open_url, url, args.timeout), probes, args.settle)}
+          state['verdict'] = verdict_of(state['results'])
+          state['epoch'] = int(time.time())
+          state['time'] = time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime(state['epoch']))
+          text = render_text(state)
+          os.makedirs(args.state_dir, exist_ok=True)
+          write_atomically(os.path.join(args.state_dir, 'apt-index-selftest.json'), json.dumps(state, indent=2) + '\n')
+          write_atomically(os.path.join(args.state_dir, 'apt-index-selftest.prom'), render_prom(state))
+          write_atomically(os.path.join(args.state_dir, 'apt-index-selftest.txt'), text)
+          if not args.quiet:
+              sys.stdout.write(text)
+          return {'ok': 0, 'mismatch': 1}.get(state['verdict'], 2)
+
+
+      if __name__ == '__main__':
+          sys.exit(main())
+  - path: /etc/systemd/system/yuruna-apt-index-selftest.service
+    permissions: '0644'
+    owner: root:root
+    content: |
+      # --- REGION: [Unit]
+      [Unit]
+      Description=Yuruna apt index self-test (InRelease and index agree through this cache)
+      After=squid.service network-online.target
+      Wants=network-online.target
+      # --- REGION: [Service]
+      [Service]
+      Type=oneshot
+      ExecStart=/usr/local/bin/yuruna-apt-index-selftest.py --quiet
+      TimeoutStartSec=300
+  - path: /etc/systemd/system/yuruna-apt-index-selftest.timer
+    permissions: '0644'
+    owner: root:root
+    content: |
+      # --- REGION: [Unit]
+      [Unit]
+      Description=Run the apt index self-test every 30 minutes
+      # --- REGION: [Timer]
+      [Timer]
+      OnBootSec=10min
+      OnUnitActiveSec=30min
+      AccuracySec=1min
+      Unit=yuruna-apt-index-selftest.service
       # --- REGION: [Install]
       [Install]
       WantedBy=timers.target
@@ -1287,7 +1671,17 @@ write_files:
           echo "Upstream registries (GET /v2/, no pull budget spent):"
           cat "$TMP_UP_TXT"
           echo
+          # See https://yuruna.link/42f6b05f-005b
+          if [ -r /var/lib/yuruna/apt-index-selftest.txt ]; then
+              cat /var/lib/yuruna/apt-index-selftest.txt
+          else
+              echo "apt index pairs              : not run yet -- it runs 10 minutes after boot and every 30 minutes"
+          fi
+          echo
           echo "Free space: /var/lib/zot ${ZOT_FREE} bytes, squid cache ${SQUID_FREE} bytes"
+          echo
+          echo "Git mirror:"
+          curl --noproxy '*' --connect-timeout 1 --max-time 3 -fsS http://127.0.0.1:9310/git-mirror/status.json || echo "mirror-unavailable"
       } > "$TMP_TXT"
       install -m 0644 "$TMP_TXT" /var/www/html/cache-health
   - path: /etc/systemd/system/zot-meta-exporter.service
@@ -2406,6 +2800,8 @@ write_files:
       YURUNA_STATUS_SERVICE_IP=YURUNA_STATUS_SERVICE_IP_PLACEHOLDER
       YURUNA_STATUS_SERVICE_PORT=YURUNA_STATUS_SERVICE_PORT_PLACEHOLDER
       YURUNA_CACHING_PROXY_SERVICE_IP=127.0.0.1
+      YURUNA_GITHUB_REPO=YURUNA_GITHUB_REPO_PLACEHOLDER
+      YURUNA_GITHUB_REF=YURUNA_GITHUB_REF_PLACEHOLDER
   # --- REGION: https://yuruna.link/429f3d06-002a
   # See https://yuruna.link/429f3d06-0054
   # This VM is provisioned once and runs for weeks, so it accumulates host
@@ -2495,9 +2891,22 @@ write_files:
         pool)  MOUNT=/mnt/ypool-nas;  CRED=/etc/yuruna/ypool-nas.cifs.cred;          MODEOPT= ;;
         *)     MOUNT="/mnt/$NAME";     CRED="/etc/yuruna/host-config/$NAME.cifs.cred"; MODEOPT=,ro ;;
       esac
+      OWNEROPT=uid=0,gid=0
+      if [ "$NAME" = pool ]; then
+        # Apache reads the configuration repository as www-data. NAS ownership
+        # and modes must not turn a root-readable mount into HTTP 403. Keep
+        # writes root-only and credentials private; do not chmod/chown the NAS.
+        OWNEROPT="uid=0,gid=$(id -g www-data),forceuid,forcegid,nounix,file_mode=0640,dir_mode=0750"
+      fi
       # Breadcrumb so "configured but not mounting" is diagnosable without SSH.
       STATUS="/var/www/html/config-fetch-$NAME-status"
-      note() { printf 'last_attempt=%s name=%s mounted=%s detail=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$NAME" "$(mountpoint -q "$MOUNT" 2>/dev/null && echo 1 || echo 0)" "$1" > "$STATUS" 2>/dev/null || true; logger -t yuruna-config "$NAME: $1"; }
+      note() {
+        printf 'last_attempt=%s name=%s mounted=%s detail=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$NAME" "$(mountpoint -q "$MOUNT" 2>/dev/null && echo 1 || echo 0)" "$1" > "$STATUS" 2>/dev/null || true
+        # Later calls run under the credential-writing umask; the diagnostic
+        # contains no credentials and must remain readable through Apache.
+        chmod 0644 "$STATUS" 2>/dev/null || true
+        logger -t yuruna-config "$NAME: $1"
+      }
       [ -n "$HOST_IP" ] || { note "no-host-ip (seed lacks host coordinates)"; exit 0; }
       [ -s "$CDIR/client.crt" ] && [ -s "$CDIR/client.key" ] && [ -s "$CDIR/ca.crt" ] || { note "no-client-cert (mTLS materials absent)"; exit 0; }
       command -v curl >/dev/null 2>&1 || { note "curl-missing"; exit 0; }
@@ -2550,7 +2959,7 @@ write_files:
         # MODEOPT is ,ro for stash (read-only scan) and empty (read-write) for pool.
         # NO iocharset=utf8: nls_utf8 is absent on the minimal cloud kernel and the
         # mount fails with error(79); the on-disk names are ASCII.
-        timeout 60 mount -t cifs "$NETPATH" "$MOUNT" -o "credentials=$CRED,vers=3.0,uid=0,gid=0,nofail$MODEOPT$IPOPT" >/dev/null 2>&1 || true
+        timeout 60 mount -t cifs "$NETPATH" "$MOUNT" -o "credentials=$CRED,vers=3.0,$OWNEROPT,nofail$MODEOPT$IPOPT" >/dev/null 2>&1 || true
         printf '%s' "$VERSION" > "$VERF" 2>/dev/null || true
       fi
       if mountpoint -q "$MOUNT" 2>/dev/null; then note "mounted (credential current)"; else note "mount-failed (NAS unreachable or wrong credential)"; fi
@@ -2584,6 +2993,97 @@ write_files:
       AccuracySec=15s
       Unit=yuruna-config-fetch@%i.service
       # --- REGION: [Install]
+      [Install]
+      WantedBy=timers.target
+  - path: /usr/local/bin/yuruna-pool-configuration.sh
+    permissions: '0755'
+    owner: root:root
+    content: |
+      #!/bin/sh
+      # Retry after late NAS mounts and refresh static Git discovery metadata
+      # even for existing stores whose push hooks cannot execute on CIFS.
+      set -u
+      umask 022
+      MOUNT=/mnt/ypool-nas
+      STORE="$MOUNT/pool-configuration.git"
+      STATUS=/var/www/html/pool-configuration-status
+      exec 9>/run/yuruna-pool-configuration.lock
+      flock -n 9 || exit 0
+      TMP=''
+      trap '[ -z "$TMP" ] || rm -rf "$TMP"' EXIT
+      report() {
+        printf 'last_attempt=%s %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$1" > "$STATUS.tmp" &&
+          chmod 0644 "$STATUS.tmp" && mv -f "$STATUS.tmp" "$STATUS" || return 1
+        echo "pool configuration: $1"
+      }
+      fail() {
+        report "FAIL $1: $2; see journalctl -u yuruna-pool-configuration.service and /config-fetch-pool-status"
+        exit 1
+      }
+      report 'CHECKING: NAS repository and HTTP clone; a stale check indicates a stopped or timed-out service' || exit 1
+      mountpoint -q "$MOUNT" || fail storage 'pool NAS is not mounted; waiting for host config credentials and the share'
+      if [ ! -e "$STORE" ] && [ -d "$MOUNT/pool-intent.git/refs" ]; then
+        mv "$MOUNT/pool-intent.git" "$STORE" || fail repository 'cannot migrate the legacy store'
+      fi
+      if [ ! -e "$STORE" ]; then
+        # Publish a complete store with a same-share rename. An interrupted
+        # seed must not leave an empty canonical repository that cannot retry.
+        TMP=$(mktemp -d "$MOUNT/.pool-configuration.XXXXXX") || fail repository 'cannot create temporary NAS seed directory'
+        git init -q --bare --initial-branch=main "$TMP/store.git" || fail repository 'cannot create the NAS repository'
+        git -C "$TMP/store.git" config core.fileMode false || fail repository 'cannot configure the NAS repository'
+        git -C "$TMP/store.git" config receive.updateServerInfo true || fail repository 'cannot configure static HTTP metadata refresh'
+        git init -q --initial-branch=main "$TMP/seed" || fail repository 'cannot initialize the seed checkout'
+        printf 'schemaVersion: 4\npools: []\n' > "$TMP/seed/pools.yml"
+        git -C "$TMP/seed" add pools.yml || fail repository 'cannot stage seed configuration'
+        git -C "$TMP/seed" -c user.name=yuruna -c user.email=pool@yuruna.local commit -q -m 'seed pool configuration' || fail repository 'cannot commit seed configuration'
+        git -C "$TMP/seed" push -q "$TMP/store.git" HEAD:main || fail repository 'cannot publish seed configuration'
+        # A second VM may have seeded the same share while this one worked.
+        mv -T -n "$TMP/store.git" "$STORE" || fail repository 'cannot publish the NAS repository'
+        rm -rf "$TMP"
+        TMP=''
+      fi
+      [ "$(git -C "$STORE" rev-parse --is-bare-repository)" = true ] || fail repository 'store is not a readable bare repository'
+      git -C "$STORE" cat-file -e HEAD:pools.yml || fail repository 'HEAD does not contain pools.yml; repair the store without replacing its history'
+      git -C "$STORE" update-server-info || fail repository 'cannot refresh static HTTP discovery metadata'
+      for path in "$STORE/HEAD" "$STORE/info/refs"; do
+        runuser -u www-data -- test -r "$path" || fail apache-read 'www-data cannot traverse/read the NAS repository; inspect CIFS group and file/directory modes'
+      done
+      export GIT_TERMINAL_PROMPT=0 GIT_ASKPASS='' SSH_ASKPASS='' GCM_INTERACTIVE=never
+      for route in pool-configuration.git pool-intent.git; do
+        for file in HEAD info/refs; do
+          code=$(curl --noproxy '*' -sS --connect-timeout 3 --max-time 5 -o /dev/null -w '%{http_code}' "http://127.0.0.1/$route/$file") || true
+          [ "$code" = 200 ] || fail http "$route/$file returned HTTP $code; inspect Apache aliases, authorization, and NAS permissions"
+        done
+      done
+      TMP=$(mktemp -d) || fail clone 'cannot create temporary verification checkout'
+      # ls-remote alone does not prove that Apache can read objects or packs.
+      timeout 30 git -c credential.helper= clone -q http://127.0.0.1/pool-configuration.git "$TMP/clone" || fail clone 'HTTP Git clone failed; inspect Apache object/pack access and Git errors in the journal'
+      expected=$(git -C "$STORE" rev-parse HEAD) || fail repository 'cannot resolve store HEAD'
+      actual=$(git -C "$TMP/clone" rev-parse HEAD) || fail clone 'HTTP clone has no HEAD'
+      [ "$expected" = "$actual" ] && [ -r "$TMP/clone/pools.yml" ] || fail clone 'HTTP route serves a different or incomplete configuration store'
+      report 'OK: NAS repository readable by Apache; both HTTP aliases readable; full Git clone verified'
+  - path: /etc/systemd/system/yuruna-pool-configuration.service
+    permissions: '0644'
+    owner: root:root
+    content: |
+      [Unit]
+      Description=Prepare and verify read-only pool configuration Git access
+      After=network-online.target apache2.service yuruna-config-fetch@pool.service
+      [Service]
+      Type=oneshot
+      ExecStart=/usr/local/bin/yuruna-pool-configuration.sh
+      TimeoutStartSec=120
+      StandardOutput=journal
+      StandardError=journal
+  - path: /etc/systemd/system/yuruna-pool-configuration.timer
+    permissions: '0644'
+    owner: root:root
+    content: |
+      [Unit]
+      Description=Retry pool configuration setup and verify HTTP access
+      [Timer]
+      OnBootSec=60s
+      OnUnitInactiveSec=60s
       [Install]
       WantedBy=timers.target
   # --- REGION: https://yuruna.link/429f3d06-0055
@@ -3207,7 +3707,7 @@ write_files:
                 "id": 23,
                 "type": "table",
                 "title": "Available memory per host",
-                "description": "Physical memory available on each current pool host. Minimum and Latest summarize the selected window; the sparkline preserves its history. Every current host is listed. Only Windows hosts currently publish these metrics; n/a means no reading, not zero. Exporter reports scrape health at the window end: Up, Down, or Not scraped. A historical reading may remain when the exporter is now Down. Host ID opens the same full-ID and status-page menu as Pool hosts.",
+                "description": "Physical memory available on each current pool host: Windows available bytes, Ubuntu MemAvailable, and a macOS estimate of free plus inactive pages. Minimum and Latest summarize the selected window; the sparkline preserves its history. Every current host is listed; n/a means no reading, not zero. Exporter reports scrape health at the window end: Up, Down, or Not scraped. A historical reading may remain when the exporter is now Down. Host ID opens the same full-ID and status-page menu as Pool hosts.",
                 "gridPos": {"h": 15, "w": 12, "x": 0, "y": 28},
                 "datasource": {"type": "prometheus", "uid": "yuruna-prometheus"},
                 "targets": [
@@ -3218,10 +3718,10 @@ write_files:
                     "format": "table",
                     "datasource": {"type": "prometheus", "uid": "yuruna-prometheus"}
                   },
-                  {"refId": "B", "expr": "max by (hostId) (windows_memory_available_bytes{job=\"pool-host\",pool=~\"$pool\"})", "legendFormat": "{{hostId}}", "range": true, "datasource": {"type": "prometheus", "uid": "yuruna-prometheus"}},
+                  {"refId": "B", "expr": "max by (hostId) (windows_memory_available_bytes{job=\"pool-host\",pool=~\"$pool\"} or yuruna_host_memory_available_bytes{job=\"pool-host\",pool=~\"$pool\"})", "legendFormat": "{{hostId}}", "range": true, "datasource": {"type": "prometheus", "uid": "yuruna-prometheus"}},
                   {
                     "refId": "C",
-                    "expr": "min by (hostId) (min_over_time(windows_memory_available_bytes{job=\"pool-host\",pool=~\"$pool\"}[$__range]))",
+                    "expr": "min by (hostId) (min_over_time(windows_memory_available_bytes{job=\"pool-host\",pool=~\"$pool\"}[$__range]) or min_over_time(yuruna_host_memory_available_bytes{job=\"pool-host\",pool=~\"$pool\"}[$__range]))",
                     "instant": true,
                     "format": "table",
                     "datasource": {"type": "prometheus", "uid": "yuruna-prometheus"}
@@ -3293,27 +3793,27 @@ write_files:
                 "id": 24,
                 "type": "table",
                 "title": "Commit headroom per host",
-                "description": "Commit limit minus committed bytes: memory Windows can still promise before an allocation is refused. Minimum and Latest summarize the selected window; the sparkline preserves its history. Every current host is listed. Only Windows hosts currently publish these metrics; n/a means no reading, not zero. Exporter reports scrape health at the window end: Up, Down, or Not scraped. A historical reading may remain when the exporter is now Down. Host ID opens the same full-ID and status-page menu as Pool hosts.",
+                "description": "Commit limit minus committed bytes for Windows and Ubuntu. Windows measures memory it can still promise; Ubuntu reports CommitLimit minus Committed_AS, whose allocation meaning depends on the kernel overcommit policy and can be negative. Support identifies Windows and Ubuntu as Supported, macOS as Unsupported, and unrecognized platforms as Unknown. macOS has no equivalent commit counter, so its byte readings stay n/a even when Exporter is Up. Minimum and Latest summarize the selected window; the sparkline preserves its history. Every current host is listed; n/a means no reading, not zero; Support distinguishes an unsupported platform from a supported host with missing telemetry. Exporter reports scrape health at the window end: Up, Down, or Not scraped. A historical reading may remain when the exporter is now Down. Host ID opens the same full-ID and status-page menu as Pool hosts.",
                 "gridPos": {"h": 15, "w": 12, "x": 12, "y": 28},
                 "datasource": {"type": "prometheus", "uid": "yuruna-prometheus"},
                 "targets": [
                   {
                     "refId": "A",
-                    "expr": "topk(1, yuruna_pool_host_info{pool=~\"$pool\"}) by (hostId) unless on(hostId) yuruna_pool_host_retired",
+                    "expr": "label_replace(label_replace(label_replace(topk(1, yuruna_pool_host_info{pool=~\"$pool\"}) by (hostId) unless on(hostId) yuruna_pool_host_retired, \"headroomSupport\", \"Unknown\", \"hostType\", \".*\"), \"headroomSupport\", \"Supported\", \"hostType\", \"host[.](windows|ubuntu)[.].+\"), \"headroomSupport\", \"Unsupported\", \"hostType\", \"host[.]macos[.].+\")",
                     "instant": true,
                     "format": "table",
                     "datasource": {"type": "prometheus", "uid": "yuruna-prometheus"}
                   },
                   {
                     "refId": "B",
-                    "expr": "max by (hostId) ((windows_memory_commit_limit{job=\"pool-host\",pool=~\"$pool\"} - windows_memory_committed_bytes{job=\"pool-host\",pool=~\"$pool\"}))",
+                    "expr": "max by (hostId) ((windows_memory_commit_limit{job=\"pool-host\",pool=~\"$pool\"} - windows_memory_committed_bytes{job=\"pool-host\",pool=~\"$pool\"}) or (yuruna_host_memory_commit_limit_bytes{job=\"pool-host\",pool=~\"$pool\"} - yuruna_host_memory_committed_bytes{job=\"pool-host\",pool=~\"$pool\"}))",
                     "legendFormat": "{{hostId}}",
                     "range": true,
                     "datasource": {"type": "prometheus", "uid": "yuruna-prometheus"}
                   },
                   {
                     "refId": "C",
-                    "expr": "min by (hostId) (min_over_time((windows_memory_commit_limit{job=\"pool-host\",pool=~\"$pool\"} - windows_memory_committed_bytes{job=\"pool-host\",pool=~\"$pool\"})[$__range:15s]))",
+                    "expr": "min by (hostId) (min_over_time(((windows_memory_commit_limit{job=\"pool-host\",pool=~\"$pool\"} - windows_memory_committed_bytes{job=\"pool-host\",pool=~\"$pool\"}) or (yuruna_host_memory_commit_limit_bytes{job=\"pool-host\",pool=~\"$pool\"} - yuruna_host_memory_committed_bytes{job=\"pool-host\",pool=~\"$pool\"}))[$__range:15s]))",
                     "instant": true,
                     "format": "table",
                     "datasource": {"type": "prometheus", "uid": "yuruna-prometheus"}
@@ -3347,6 +3847,7 @@ write_files:
                         }
                       ]
                     },
+                    {"matcher": {"id": "byName", "options": "Support"}, "properties": [{"id": "unit", "value": "none"}, {"id": "noValue", "value": "Unknown"}, {"id": "custom.width", "value": 110}]},
                     {"matcher": {"id": "byName", "options": "Minimum"}, "properties": [{"id": "custom.width", "value": 100}]},
                     {
                       "matcher": {"id": "byName", "options": "Latest"},
@@ -3370,13 +3871,13 @@ write_files:
                   {"id": "timeSeriesTable", "options": {"B": {"stat": "lastNotNull"}}, "filter": {"id": "byRefId", "options": "B"}},
                   {"id": "joinByField", "options": {"byField": "hostId", "mode": "outerTabular"}},
                   {"id": "filterByValue", "options": {"filters": [{"config": {"id": "isNotNull", "options": {}}, "fieldName": "hostIdDashed"}], "match": "all", "type": "include"}},
-                  {"id": "filterFieldsByName", "options": {"include": {"names": ["hostId", "hostIdDashed", "hostType", "Trend #B", "Value #C", "Value #D"]}}},
+                  {"id": "filterFieldsByName", "options": {"include": {"names": ["hostId", "hostIdDashed", "hostType", "headroomSupport", "Trend #B", "Value #C", "Value #D"]}}},
                   {
                     "id": "organize",
                     "options": {
                       "excludeByName": {},
-                      "renameByName": {"hostId": "Host ID", "hostType": "Type", "Value #C": "Minimum", "Trend #B": "Latest", "Value #D": "Exporter"},
-                      "indexByName": {"hostId": 0, "hostType": 1, "Value #C": 2, "Trend #B": 3, "Value #D": 4, "hostIdDashed": 5}
+                      "renameByName": {"hostId": "Host ID", "hostType": "Type", "headroomSupport": "Support", "Value #C": "Minimum", "Trend #B": "Latest", "Value #D": "Exporter"},
+                      "indexByName": {"hostId": 0, "hostType": 1, "headroomSupport": 2, "Value #C": 3, "Trend #B": 4, "Value #D": 5, "hostIdDashed": 6}
                     }
                   }
                 ]
@@ -4175,6 +4676,37 @@ write_files:
             "targets": [
               {"expr": "{job=\"zot\"} != `HTTP API`", "refId": "A", "maxLines": 100}
             ]
+          },
+          {
+            "id": 12,
+            "type": "stat",
+            "title": "Apt index pairs out of step",
+            "description": "How many apt indexes this cache serves disagree with the InRelease that lists them, from the apt index self-test every 30 minutes. Green 'in step' at 0; red with the count otherwise -- every guest of that architecture fails apt-get update on such a pair until it is purged or the origin publishes again. 'Not run' until the first run; the apt index pairs line on /cache-health names each pair. Details: <a href=\"https://yuruna.link/4227a895-0016\" target=\"_blank\" rel=\"noopener\">Cache health dashboard</a> guide.",
+            "datasource": {"type": "prometheus", "uid": "yuruna-prometheus"},
+            "gridPos": {"x": 0, "y": 44, "w": 6, "h": 4},
+            "options": {
+              "colorMode": "background",
+              "graphMode": "none",
+              "textMode": "value",
+              "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}
+            },
+            "fieldConfig": {
+              "defaults": {
+                "mappings": [
+                  {"type": "value", "options": {"0": {"text": "in step", "color": "dark-green"}}}
+                ],
+                "thresholds": {
+                  "mode": "absolute",
+                  "steps": [
+                    {"color": "dark-green", "value": null},
+                    {"color": "dark-red", "value": 1}
+                  ]
+                },
+                "noValue": "Not run"
+              },
+              "overrides": []
+            },
+            "targets": [{"expr": "sum(1 - yuruna_apt_index_consistent)", "refId": "A", "instant": true}]
           }
         ]
       }
@@ -4929,10 +5461,13 @@ runcmd:
         echo "== YURUNA: squid-exporter build failed -- Grafana squid panels will stay empty until the binary is provided by hand =="
     fi
     # --- REGION: https://yuruna.link/429f3d06-0054
-    # Prefer the LOCAL host status service; fall back to github raw.
-    YR_BASE="https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/main/"
+    # The fallback uses the provisioning checkout's exact source identity. A
+    # public main branch can still be serving an older release during staging.
+    . /etc/yuruna/git-mirror/seed.env
+    YR_BASE="https://raw.githubusercontent.com/${YURUNA_GIT_MIRROR_BUILD_REPOSITORY}/${YURUNA_GIT_MIRROR_BUILD_COMMIT}/"
     YR_FLAGS=""
     YR_SRC="github"
+    YR_BUILD_SOURCE=github
     # Safe to source: host.env is host-baked IP/PORT only, never operator free-text -- so it cannot abort this runcmd phase.
     if [ -r /etc/yuruna/host.env ]; then
       . /etc/yuruna/host.env
@@ -4942,6 +5477,7 @@ runcmd:
         YR_BASE="http://${YR_HOST}:${YR_PORT}/yuruna-repo/"
         YR_FLAGS="--no-proxy"
         YR_SRC="local host status service (http://${YR_HOST}:${YR_PORT})"
+        YR_BUILD_SOURCE=host
         echo "yuruna: building monitoring services from LOCAL host repo ${YR_BASE} -- no github dependency"
       else
         echo "== YURUNA: host status service unreachable (host.env IP='${YR_HOST:-unset}' port='${YR_PORT:-unset}'); falling back to github. Ensure the status service runs on the deploying host (Start-CachingProxyServiceVM / Start-StatusService) so a rebuild fetches the local working tree. =="
@@ -4997,10 +5533,45 @@ runcmd:
         echo "== YURUNA: pool-aggregator-service build failed -- pool COLLECTOR unavailable (the Yuruna hosts dashboard still deploys; it shows 'No data' until the collector is up). Source attempted: ${YR_SRC}. =="
     fi
     # --- REGION: https://yuruna.link/429f3d06-0070
+    # Keep registration metadata writable only by management. Serving identities
+    # can read Git objects and create narrow sticky use records, never replace
+    # barriers, upstream configuration or signing material.
+    getent group yuruna-git-readers >/dev/null || groupadd --system yuruna-git-readers
+    id yuruna-git-worker >/dev/null 2>&1 || useradd --system --no-create-home --shell /usr/sbin/nologin --gid yuruna-git-readers yuruna-git-worker
+    id yuruna-git-reader >/dev/null 2>&1 || useradd --system --no-create-home --shell /usr/sbin/nologin --gid yuruna-git-readers yuruna-git-reader
+    usermod -a -G yuruna-git-readers www-data
+    install -d -o yuruna-git-worker -g yuruna-git-readers -m 0750 /var/lib/yuruna/git /var/lib/yuruna/git-mirror /var/lib/yuruna/git-mirror/state /var/lib/yuruna/git-mirror/staging
+    install -d -o root -g yuruna-git-readers -m 0750 /var/lib/yuruna/git-mirror/registrations
+    # Redirection must create secrets privately, before chown or chmod can run.
+    (
+    umask 077
+    chmod 0751 /etc/yuruna/git-mirror
+    base64 -d /etc/yuruna/git-mirror/repositories.b64 > /etc/yuruna/git-mirror/repositories.yml
+    chmod 0640 /etc/yuruna/git-mirror/repositories.yml
+    chown root:yuruna-git-readers /etc/yuruna/git-mirror/repositories.yml
+    if [ -s /etc/yuruna/git-mirror/signing-key.b64 ]; then
+      base64 -d /etc/yuruna/git-mirror/signing-key.b64 > /etc/yuruna/git-mirror/signing-key.pem
+      chown yuruna-git-worker:yuruna-git-readers /etc/yuruna/git-mirror/signing-key.pem
+      chmod 0600 /etc/yuruna/git-mirror/signing-key.pem
+    fi
+    if [ -s /etc/yuruna/git-mirror/token.b64 ]; then
+      base64 -d /etc/yuruna/git-mirror/token.b64 > /etc/yuruna/git-mirror/credentials
+      chown yuruna-git-worker:yuruna-git-readers /etc/yuruna/git-mirror/credentials
+      chmod 0600 /etc/yuruna/git-mirror/credentials
+    fi
+    rm -f /etc/yuruna/git-mirror/signing-key.b64 /etc/yuruna/git-mirror/token.b64 /etc/yuruna/git-mirror/repositories.b64
+    )
+    cat > /etc/yuruna/git-mirror/worker.env << EOF
+    CACHING_PROXY_MIRROR_REFRESH=${YURUNA_GIT_MIRROR_REFRESH_SECONDS}s
+    CACHING_PROXY_MIRROR_BUILD_SOURCE=$YR_BUILD_SOURCE
+    CACHING_PROXY_MIRROR_BUILD_REPOSITORY=$YURUNA_GIT_MIRROR_BUILD_REPOSITORY
+    CACHING_PROXY_MIRROR_BUILD_COMMIT=$YURUNA_GIT_MIRROR_BUILD_COMMIT
+    EOF
+    chmod 0644 /etc/yuruna/git-mirror/worker.env
     mkdir -p /opt/caching-proxy-service/internal/catalog
     cd /opt/caching-proxy-service
     CPS_OK=1
-    for f in go.mod main.go squid.go switches.go registry.go mcp.go ui.go requestadapter.go landing.go localization.go internal/catalog/registry.go caching-proxy-service.service; do
+    for f in go.mod main.go squid.go switches.go registry.go mcp.go ui.go requestadapter.go landing.go localization.go internal/catalog/registry.go gitmirror.go gitmirror_types.go gitmirror_receipt.go gitmirror_registry.go gitmirror_coordinator.go gitmirror_git.go gitmirror_stream.go gitmirror_platform_unix.go gitmirror_platform_windows.go git-mirror-worker.service git-mirror-reader.service git-mirror-http-backend.sh caching-proxy-service.service; do
       wget $YR_FLAGS --no-cache --timeout=15 --tries=3 -q -O "$f" "${YR_BASE}test/extension/caching-proxy-service/$f" || CPS_OK=0
       if [ ! -s "$f" ]; then CPS_OK=0; echo "== YURUNA: caching-proxy-service source '$f' empty/missing from ${YR_BASE}test/extension/caching-proxy-service/$f (source=${YR_SRC}) =="; fi
     done
@@ -5016,6 +5587,16 @@ runcmd:
     if [ "$CPS_OK" -eq 1 ] && /usr/bin/go build -ldflags "-X main.version=$CPS_VERSION" -o caching-proxy-service . ; then
         install -m 0755 caching-proxy-service /usr/local/bin/caching-proxy-service
         install -m 0644 caching-proxy-service.service /etc/systemd/system/caching-proxy-service.service
+        install -m 0644 git-mirror-worker.service git-mirror-reader.service /etc/systemd/system/
+        install -d -o root -g root -m 0755 /usr/local/libexec/yuruna
+        install -o root -g root -m 0755 git-mirror-http-backend.sh /usr/local/libexec/yuruna/
+        a2enmod cgid alias env setenvif reqtimeout
+        a2enconf yuruna-git-mirror
+        if ! apache2ctl configtest; then
+          a2disconf yuruna-git-mirror
+          echo "== YURUNA: git mirror Apache configuration rejected; existing package routes preserved =="
+        fi
+        systemctl restart apache2
         # --- REGION: https://yuruna.link/429f3d06-0073
         CPS_LAN_IP="$(hostname -I 2>/dev/null | awk '{print $1}')"
         CPS_AGG=""
@@ -5053,6 +5634,8 @@ runcmd:
   - systemctl enable --now squid-meta-exporter.timer
   # --- REGION: https://yuruna.link/429f3d06-0075
   - /usr/local/bin/squid-meta-exporter.sh || true
+  # See https://yuruna.link/42f6b05f-005b
+  - systemctl enable --now yuruna-apt-index-selftest.timer || true
   # --- REGION: https://yuruna.link/429f3d06-0076
   # Arm now and prime after zot activation, avoiding a false initial DOWN reading.
   - systemctl enable --now zot-meta-exporter.timer
@@ -5070,38 +5653,9 @@ runcmd:
   # `|| true` like its two neighbors: a management plane that fails to start
   # must not fail the boot of the VM whose traffic it does not carry.
   - systemctl enable --now caching-proxy-service.service || true
+  - systemctl enable --now git-mirror-worker.service git-mirror-reader.service || true
   # --- REGION: https://yuruna.link/429f3d06-0079
   - |
-    CONFIGURATION_GIT=/mnt/ypool-nas/pool-configuration.git
-    if mountpoint -q /mnt/ypool-nas 2>/dev/null && [ ! -e "$CONFIGURATION_GIT" ] && [ -d /mnt/ypool-nas/pool-intent.git/refs ]; then
-      mv /mnt/ypool-nas/pool-intent.git "$CONFIGURATION_GIT"
-    fi
-    if ! mountpoint -q /mnt/ypool-nas 2>/dev/null; then
-      echo "yuruna: /mnt/ypool-nas not mounted; skipping pool configuration seeding (the route 404s until it is)." >&2
-    elif [ ! -d "$CONFIGURATION_GIT/refs" ]; then
-      install -d -o www-data -g www-data /var/lib/yuruna || true
-      git init --bare --initial-branch=main "$CONFIGURATION_GIT" || true
-      # cifs maps every file's mode from the mount options, so git would see a
-      # permission change on each file it wrote back.
-      git -C "$CONFIGURATION_GIT" config core.fileMode false || true
-      # See https://yuruna.link/429f3d06-0079
-      # Use the built-in index refresh: CIFS mount modes prevent executable hooks.
-      git -C "$CONFIGURATION_GIT" config receive.updateServerInfo true || true
-      TMP_SEED=$(mktemp -d)
-      git -C "$TMP_SEED" init -q --initial-branch=main || true
-      # See https://yuruna.link/429f3d06-0079
-      # Seed the schema's current version; an old version fails the first admin write.
-      printf 'schemaVersion: 4\npools: []\n' > "$TMP_SEED/pools.yml"
-      git -C "$TMP_SEED" add -A || true
-      git -C "$TMP_SEED" -c user.name=yuruna -c user.email=pool@yuruna.local commit -q -m 'seed pool configuration' || true
-      git -C "$TMP_SEED" push -q "$CONFIGURATION_GIT" HEAD:main || true
-      rm -rf "$TMP_SEED"
-      git -C "$CONFIGURATION_GIT" update-server-info || true
-      # No chown: the cifs mount assigns ownership from its uid/gid options, so
-      # a chown here is at best a no-op and can re-impose an owner-only ACL that
-      # locks out the pool-control-service VM writing the same share.
-      echo "yuruna: pool configuration store seeded at $CONFIGURATION_GIT"
-    fi
     a2enconf yuruna-pool-configuration || true
     systemctl reload apache2 || systemctl restart apache2 || true
   - systemctl enable grafana-server.service
@@ -5185,12 +5739,18 @@ runcmd:
     else
       echo "yuruna ypool-nas: service replication disabled in seed (timer not enabled)"
     fi
+  - |
+    # Start after the initial mount attempt. The timer also handles credentials
+    # or a NAS that becomes available after cloud-init has completed.
+    systemctl enable --now yuruna-config-fetch@pool.timer || true
+    systemctl enable --now yuruna-pool-configuration.timer || true
+    systemctl start yuruna-pool-configuration.service || true
   # Extension discovery uses registration; this VM needs no stash mount or credentials.
   # --- REGION: https://yuruna.link/429f3d06-007f
   - |
     sleep 2
     alloy_groups=$(systemctl show -p SupplementaryGroups --value alloy.service)
-    for g in proxy zot; do
+    for g in proxy zot systemd-journal; do
       case " $alloy_groups " in
         *" $g "*) ;;
         *)
@@ -5381,6 +5941,11 @@ runcmd:
       sed 's/^/  /' /var/lib/yuruna/zot-selftest.txt
     else
       echo "  zot sync self-test           : DID NOT RUN -- see the zot install lines above"
+    fi
+    if [ -r /var/www/html/pool-configuration-status ]; then
+      sed 's/^/  pool configuration: /' /var/www/html/pool-configuration-status
+    else
+      echo "  pool configuration: DID NOT RUN -- inspect yuruna-pool-configuration.service"
     fi
     for hp in 3128 3129 80 3000 9090 3100 5000 9302 9400 9310; do
       if ss -ltn 2>/dev/null | grep -q ":$hp "; then st=listening; else st="NOT LISTENING"; fi

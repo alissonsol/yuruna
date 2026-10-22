@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.18.2
+.VERSION 2026.10.22
 .GUID 421a21ac-638b-4121-a908-7c26df6a9e86
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -80,6 +80,8 @@ $InformationPreference = 'Continue'
 # --- REGION: Initialize service runtime
 # See https://yuruna.link/42fffc2c-000b
 # See https://yuruna.link/42162449-0004
+# After the preference assignments above on purpose: an explicit level is the
+# operator's choice and replaces this script's own default.
 Import-Module (Join-Path $PSScriptRoot '../modules/Test.LogLevel.psm1') -Global -Force -DisableNameChecking
 Use-LogLevelFromEnv
 $InformationPreference = $global:InformationPreference
@@ -232,6 +234,9 @@ $remedy
     try {
         $statusScript = Join-Path $repoRoot 'test/service/Start-StatusService.ps1'
         if ($tc -and (Test-Path -LiteralPath $statusScript)) {
+            # Start-YurunaStatusServiceIfEnabled's own console output is intentionally
+            # not surfaced; keep only the {ShouldStart; Port} record, the last
+            # non-string object the gate returns.
             $statusResult = Start-YurunaStatusServiceIfEnabled -Config $tc -StartScript $statusScript
             $statusDecision = @($statusResult | Where-Object { $_ -is [System.Collections.IDictionary] }) | Select-Object -Last 1
         }
@@ -263,9 +268,9 @@ $remedy
     $vmIp = try { Wait-VMIp -VMName $VMName -TimeoutSeconds 120 } catch { Write-Verbose "Wait-VMIp: $($_.Exception.Message)"; $null }
     $ipWaitSeconds = [int]((Get-Date) - $ipWaitStart).TotalSeconds
 
-    $script:poolControlForwarded = $false
     # --- REGION: Configure Shared NAT forwarding
     # See https://yuruna.link/42e220c4-0008
+    $script:poolControlForwarded = $false
     if ($HostType -eq 'host.macos.utm') {
         $bundleMode = Get-UtmNetworkModeFromBundle -VMName $VMName
         $uplinkMode = Resolve-UtmNetworkMode
@@ -287,7 +292,6 @@ $remedy
             }
         }
     }
-
 
     # --- REGION: Probe service readiness
     # See https://yuruna.link/42e220c4-0008
@@ -336,10 +340,6 @@ $remedy
     } else {
         Write-Warning ("Could not resolve the VM's IP after waiting ${ipWaitSeconds}s (Wait-VMIp); the VM IS running, so this is " +
                        "address discovery, not a boot failure. Asking the guest itself whether the daemon is up.")
-        # Address discovery failing is not the same as the service failing, and
-        # the two must not share a verdict. SSH resolves the guest by NAME
-        # through its own path, so it can still get in where the lease lookup
-        # found nothing -- and the daemon's answer is the fact that matters.
         if (Get-Command Invoke-GuestSsh -ErrorAction SilentlyContinue) {
             $inGuest = $null
             try {
@@ -362,8 +362,6 @@ $remedy
 
     # --- REGION: Recover the VM address
     # See https://yuruna.link/4220a755-0046
-    # Spent here and nowhere else: the sweep costs about two minutes, and this
-    # is the one place where the alternative is calling a healthy daemon failed.
     $recoveredIp = ''
     if ((Get-ServiceVmReadinessVerdict -Endpoint $endpoint).IsFailure) {
         $recovery = Confirm-ServiceVmAtRecoveredAddress -VMName $VMName -Port 80 -KnownAddress ([string]$vmIp) -TimeoutSeconds $recoveryProbeSeconds
@@ -474,6 +472,8 @@ To hold this script longer next time:
     if ($daemonReady) {
         # --- REGION: Report the deployed source
         # See https://yuruna.link/42fffc2c-0013
+        # The daemon is serving, so this is the first point where the framework it
+        # was built from can be answered from evidence rather than prediction.
         if (-not (Assert-ServiceVmFrameworkSource -Address ([string]$vmIp) -Port 80 `
                     -GuestKey 'guest.pool-control-service' -User 'pool-control-service-admin' `
                     -Expected $frameworkExpected -ServiceLabel 'pool-control-service' `

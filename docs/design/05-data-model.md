@@ -57,10 +57,18 @@ variable maps.
 In the companion repository, `example/website/`, `example/text-to-sql/`, and
 `template/` are project roots. The template has its configuration directly under
 `template/config/`. Website supplies `localhost`, `aws`, and `azure`
-configurations; text-to-SQL and the template supply `localhost`. The current
-source has no GCP configuration or GCP resource-template directory.
+configurations; text-to-SQL and the template supply `localhost`. No companion
+project supplies a GCP configuration, and the framework has no GCP resource
+template.
+
+The automation entry points resolve the project root and the selected
+configuration folder before a phase starts, then export `project_root`,
+`config_root`, and `yuruna_root` to the environment. A configured command can
+therefore reach project files, as the website workloads do with
+`${env:project_root}/components/`.
 
 Sources: [configuration validation](../../automation/Yuruna.Validation.psm1),
+[root resolution](../../automation/Yuruna.LogLevel.psm1),
 [resource publisher](../../automation/Yuruna.Resource.psm1),
 [component publisher](../../automation/Yuruna.Component.psm1), and
 [workload publisher](../../automation/Yuruna.Workload.psm1). Companion data:
@@ -198,12 +206,18 @@ Sources: [output serialization and planning](../../automation/Yuruna.Resource.ps
 
 ```mermaid
 erDiagram
+    %% optional: an empty projectUrl skips the clone.
+    test-config-yml |o..o| yuruna-project : clones
     yuruna-project ||--o{ test-folder : contains
     yuruna-project ||--|| test-runner-yml : contains
     test-folder ||--o{ sequence-yml : supplies
     test-runner-yml }o..o{ sequence-yml : selects
     sequence-yml }o..o{ users-yml : names
     users-yml }o..o{ vault-yml : resolves
+    test-config-yml {
+        string projectUrl
+        map mirror
+    }
     yuruna-project {
         path repository_root
     }
@@ -238,12 +252,24 @@ erDiagram
     }
 ```
 
-The six entities separate the companion repository's runner selection and
-project sequences from the framework's runtime credentials. Dotted relations
-are name lookups. Each entity shows at most seven key fields; sequence variables,
-localized labels, and snapshot settings are described below. The `users-yml`
+The seven entities separate the host's project selection, the companion
+repository's runner selection and project sequences from the framework's
+runtime credentials. Dotted relations are name lookups or the optional clone.
+Each entity shows at most seven key fields; sequence variables,
+localized labels, and snapshot settings are described below. The
+`test-config-yml` fields belong to its `repositories` section. The `users-yml`
 fields after `users` belong to a logical-user
 entry; the `vault-yml` fields after `users` belong to a secret-key entry.
+
+`repositories.projectUrl` in `test/test.config.yml` names the project
+repository. Each cycle clones it beside the runner's `project/` checkout and
+swaps the clone in only after it verifies, so a failed refresh keeps the
+previous checkout. An empty value skips the clone. A pool manifest that assigns
+both `frameworkUrl` and `projectUrl` replaces the host values for the cycle.
+The pre-cycle check also accepts a `file://` URL or a bare local path that holds
+a Git checkout. A GitHub URL can be served by the caching-proxy Git mirror under
+the host's `repositories.mirror` policy, which a pool assignment never changes;
+[Git mirror](../test-config.md#git-mirror) describes those keys.
 
 The companion [test/test.runner.yml](https://github.com/alissonsol/yuruna-project/blob/main/test/test.runner.yml)
 lists top-level sequence names. The harness reads this file from its `project/`
@@ -293,6 +319,15 @@ absent. Credentials persist across successful and failed cycles until explicitly
 changed or removed; password updates retain the previous password and update
 `updatedUtc`.
 
+Besides guest login users, the template declares service-VM administrator
+accounts and entries that only name vault secrets: `internal-auth-key`,
+`github-mirror-token`, and `github-mirror-signing-key`. The caching-proxy seed
+reads the mirror token only when its `vaultKey` is nonempty and the entry
+exists, so an absent token stays anonymous and is never generated; storing a
+token through the proxy start also records that mapping. The signing key is
+created only when the vault holds no entry for it and is reused by later
+rebuilds; a failed vault read never replaces it.
+
 Sources: [runner selection](../../test/modules/Test.SequencePlanner.psm1),
 [sequence resolution](../../test/modules/Test.SequenceResolve.psm1),
 [guest schema](../../test/schemas/sequence.schema.yml),
@@ -300,8 +335,12 @@ Sources: [runner selection](../../test/modules/Test.SequencePlanner.psm1),
 [vault schema](../../test/schemas/vault.schema.yml),
 [identity template](../../test/extension/authentication/users.yml.template),
 [authentication implementation](../../test/extension/authentication/default.psm1),
-[pre-cycle validation](../../test/Test-Config.ps1), and
-[cycle initialization](../../test/modules/Test.RunnerInnerLoop.psm1).
+[pre-cycle validation](../../test/Test-Config.ps1),
+[cycle initialization](../../test/modules/Test.RunnerInnerLoop.psm1),
+[project clone](../../test/modules/Test.HostGit.psm1),
+[source selection](../../test/modules/Test.SourceSelection.psm1),
+[configuration template](../../test/test.config.yml.template), and
+[caching-proxy seed](../../test/modules/Test.CachingProxyService.psm1).
 
 Registry login uses [credential-provider dispatch](../../automation/Yuruna.Component.Registry.psm1)
 and [CLI or environment credentials](../../automation/Yuruna.CredentialProvider.psm1),

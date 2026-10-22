@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.18.2
+.VERSION 2026.10.22
 .GUID 42046a95-dbf3-4dd6-b06d-4ee539c58a98
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -37,10 +37,6 @@ $InformationPreference = 'Continue'
 
 # --- REGION: Initialize service runtime
 # See https://yuruna.link/42fffc2c-000b
-# Left at the inherited 'Continue' deliberately, and it must stay that way:
-# 'Stop' is not scoped to this script and would promote every host-contract
-# helper's non-terminating error. Hard stops here are explicit Write-Error + exit.
-
 # See https://yuruna.link/42162449-0004
 # After the preference assignments above on purpose: an explicit level is the
 # operator's choice and replaces this script's own default.
@@ -71,6 +67,7 @@ Write-Information "Host type: $HostType" -InformationAction Continue
 [void](Initialize-YurunaHost -RepoRoot $RepoRoot -HostType $HostType)
 
 # --- REGION: Record the stop intent
+# See https://yuruna.link/42e220c4-0008
 # The stop is on record, and this service's operation lock held, before the
 # first change: the reboot sweep and a host refresh then honor the request
 # instead of restarting the guest, and a concurrent Start cannot rebuild it
@@ -143,7 +140,6 @@ if ($m) {
         }
     }
 }
-
 
 if ($hostProcessLeftRunning -or $markerLeftPresent) {
     $serviceOpFinalState = if ($hostProcessLeftRunning) { 'host-process-running' } else { 'marker-present' }

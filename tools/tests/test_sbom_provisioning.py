@@ -11,6 +11,7 @@ import shlex
 import shutil
 import subprocess
 import tempfile
+import time
 import unittest
 
 MODULE_PATH = pathlib.Path(__file__).resolve().parents[1] / "sbom_provisioning.py"
@@ -27,6 +28,16 @@ class ProvisioningTests(unittest.TestCase):
     @staticmethod
     def names(result, bucket):
         return {record["name"] for record in result[bucket]}
+
+    def test_a_long_script_scans_in_linear_time(self):
+        # Whether a file is a cloud-config is decided once per file. Testing the
+        # whole text on every logical line made the 5,600-line caching-proxy
+        # seed alone cost most of a half-minute pre-commit SBOM refresh.
+        body = "".join("echo line %d\n" % number for number in range(30000))
+        started = time.monotonic()
+        result = self.collect(**{"automation/long.sh": body, "host/vmconfig/long.base.user-data": "#cloud-config\n" + body})
+        self.assertLess(time.monotonic() - started, 20)
+        self.assertIn("hosts", result)
 
     def test_host_requirements_preserve_decorated_floors_without_install_claims(self):
         result = self.collect(**{"automation/Yuruna.Requirement.yml": '''requirements:

@@ -1,0 +1,49 @@
+# LICENSEURI https://yuruna.link/license
+# Copyright (c) 2019-2026 by Alisson Sol et al.
+[Unit]
+Description=Yuruna Git mirror refresh and signing worker
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=yuruna-git-worker
+Group=yuruna-git-readers
+UMask=0027
+Environment=CACHING_PROXY_MIRROR_REFRESH=60s
+Environment=CACHING_PROXY_MIRROR_BUILD_SOURCE=host
+Environment=CACHING_PROXY_MIRROR_BUILD_REPOSITORY=
+Environment=CACHING_PROXY_MIRROR_BUILD_COMMIT=
+EnvironmentFile=-/etc/yuruna/git-mirror/worker.env
+ExecStart=/usr/local/bin/caching-proxy-service --mirror-role=worker \
+  --mirror-refresh-interval=${CACHING_PROXY_MIRROR_REFRESH} \
+  --mirror-build-source=${CACHING_PROXY_MIRROR_BUILD_SOURCE} \
+  --mirror-build-repository=${CACHING_PROXY_MIRROR_BUILD_REPOSITORY} \
+  --mirror-build-commit=${CACHING_PROXY_MIRROR_BUILD_COMMIT}
+Restart=on-failure
+RestartSec=5
+KillMode=control-group
+TimeoutStopSec=15
+RuntimeDirectory=yuruna/git-mirror yuruna/git-mirror-readers
+RuntimeDirectoryMode=0750
+# Apache readers can outlive a worker restart; preserve their lock inodes.
+RuntimeDirectoryPreserve=yes
+ProtectSystem=strict
+ReadWritePaths=/var/lib/yuruna/git /var/lib/yuruna/git-mirror/state /var/lib/yuruna/git-mirror/staging
+ReadWritePaths=/run/yuruna/git-mirror /run/yuruna/git-mirror-readers
+ReadOnlyPaths=/var/lib/yuruna/git-mirror/registrations /etc/yuruna/git-mirror /etc/squid/conf.d
+NoNewPrivileges=true
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+LockPersonality=true
+MemoryDenyWriteExecute=true
+RestrictRealtime=true
+SystemCallArchitectures=native
+
+[Install]
+WantedBy=multi-user.target

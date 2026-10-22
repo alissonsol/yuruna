@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.18.2
+.VERSION 2026.10.22
 .GUID 42c30a62-cbee-46de-84c0-e6f2b967b3ec
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -72,6 +72,20 @@ function Get-CachingProxyServiceInfo {
             'ui.go',
             'requestadapter.go',
             'landing.go',
+            'localization.go',
+            'internal/catalog/registry.go',
+            'gitmirror.go',
+            'gitmirror_types.go',
+            'gitmirror_receipt.go',
+            'gitmirror_registry.go',
+            'gitmirror_coordinator.go',
+            'gitmirror_git.go',
+            'gitmirror_stream.go',
+            'gitmirror_platform_unix.go',
+            'gitmirror_platform_windows.go',
+            'git-mirror-worker.service',
+            'git-mirror-reader.service',
+            'git-mirror-http-backend.sh',
             'caching-proxy-service.service'
         )
         ListenPort  = 9310
@@ -82,6 +96,7 @@ function Get-CachingProxyServiceInfo {
             Ui       = '/'
             Status   = '/api/status'
             Switches = '/api/switches'
+            GitMirror = '/git-mirror/status.json'
         }
         # Mutations. In remote mode both answer 501 with the
         # caching-proxy-remote-readonly reason: stock squid has no remote

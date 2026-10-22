@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.18.2
+.VERSION 2026.10.22
 .GUID 4264b221-526c-4487-9f9f-8d58b28b11dd
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -114,8 +114,8 @@ if (Test-Path -LiteralPath $seedDir) { Remove-Item -LiteralPath $seedDir -Recurs
 New-Item -ItemType Directory -Force -Path $seedDir | Out-Null
 
 # --- REGION: Yuruna harness SSH key
-# Single harness key shared with Test.Diagnostic; see the
-# guest.ubuntu.server.24/New-VM.ps1 sibling for the why.
+# See https://yuruna.link/42e220c4-0004
+# Seed the shared harness key so guest provisioning and failure diagnostics agree.
 $repoRoot      = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $ScriptDir))
 $TestSshModule = Join-Path $repoRoot 'test/modules/Test.Ssh.psm1'
 Import-Module $TestSshModule -Force -DisableNameChecking
@@ -147,12 +147,16 @@ if (-not $plaintextPassword) { Write-Error (Format-YurunaOperatorMessage -Key 'h
 Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_762658980a25b8fb' -Arguments @{ authActiveName = "$_authActiveName" })
 Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_c427eb2402415f42' -Arguments @{ authentication = "$(Resolve-ExtensionAreaDir -Area 'authentication')" })
 
-# --- REGION: Yuruna host coordinates
+# --- REGION: Select the guest network
 # See https://yuruna.link/42e220c4-0004
-# Resolve the guest network and its reachable host address as one pair.
+# Resolve the network and reachable host address together before rendering the seed.
 Import-Module (Join-Path (Split-Path -Parent $ScriptDir) 'modules/Yuruna.Host.psm1') -Force -DisableNameChecking
 $guestBinding = Resolve-GuestHostBinding
 $networkName  = $guestBinding.NetworkName
+
+# --- REGION: Yuruna host coordinates
+# See https://yuruna.link/4220a755-001b
+# Bake the status-service address reachable through the selected guest network.
 $hostIp       = $guestBinding.HostIp
 Import-Module (Join-Path $repoRoot 'test/modules/Test.Config.psm1') -Global -Force
 $_statusSeed = Get-YurunaStatusServiceSeed -RepoRoot $repoRoot

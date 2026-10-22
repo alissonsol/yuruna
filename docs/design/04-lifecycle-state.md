@@ -21,21 +21,21 @@ stateDiagram-v2
     idle --> fault: Diagnostic preservation
     cycle_start --> in_cycle: Spawn inner
     cycle_start --> fault: Archive space exhausted
-    cycle_start --> paused: Pool or refresh
+    cycle_start --> paused: Pool, refresh, or pull
     in_cycle --> cycle_end: Zero, preflight, or held
     in_cycle --> fault: Failure or watchdog
     cycle_end --> idle: Close cycle
     fault --> paused: Backoff or preservation
     fault --> idle: Repair or handoff
     paused --> idle: Release or trigger
-    paused --> cycle_start: Recheck pool configuration
+    paused --> cycle_start: Retry after hold
 ```
 
 The persistent outer starts a fresh [Invoke-TestCycleRunner.ps1](../../test/modules/Invoke-TestCycleRunner.ps1), which starts a fresh [Invoke-TestRunnerInnerLoop.ps1](../../test/modules/Invoke-TestRunnerInnerLoop.ps1). The cycle worker reloads cycle code and owns inner supervision and end hooks; the inner owns guest work, finalization, boundary cleanup, and configured cycle delay. `idle` means the supervisor is ready, rather than describing a VM.
 
 Startup with a different prior run ID and unfinished state emits a synthetic transition from that prior state to `fault`, followed by `idle`. The validator warns about unexpected transition pairs but still persists telemetry. A missing, malformed, or mismatched cycle-outcome record is reported separately from a completed test verdict; a zero process exit without its expected record is insufficient to declare success.
 
-Framework pull errors, process-creation failures, and very early unexplained cycle-worker aborts use short interruptible holds. These holds make no state transition, so the next dispatch records an undeclared `cycle-start` or `in-cycle` to `cycle-start` pair that the validator warns about. With automatic remediation enabled, a pull error from a stale Git lock is repaired and retried immediately. Pool `paused` rechecks configuration after a short hold; `drain` stops at dispatch. Move-mode archive-space exhaustion can fault before an inner starts or change a passing inner's cycle verdict afterward. `refresh-gated` short-holds without ordinary verdict accounting: a hold before the pull changes no state, a hold before the wipe moves `cycle-start` to `paused`, and a hold inside the inner closes through `cycle-end` to `idle` with a refresh reason.
+A framework pull error moves `cycle-start` to `paused` and publishes a `runnerFault` with stage `FrameworkPull` before a short interruptible hold; with automatic remediation enabled, a pull error from a stale Git lock is repaired and retried immediately. The pull selects its source through [Test.SourceSelection.psm1](../../test/modules/Test.SourceSelection.psm1) and [Test.HostGit.psm1](../../test/modules/Test.HostGit.psm1) within one deadline; an unavailable mirror, or a mirror reply that is not a successful protocol response, falls back to the origin instead of failing the update. Process-creation failures and very early unexplained cycle-worker aborts use the same short hold without a state transition, so the next dispatch records an undeclared `cycle-start` or `in-cycle` to `cycle-start` pair that the validator warns about. Pool `paused` rechecks configuration after a short hold; `drain` stops at dispatch. Move-mode archive-space exhaustion can fault before an inner starts or change a passing inner's cycle verdict afterward. `refresh-gated` short-holds without ordinary verdict accounting: a hold before the pull changes no state, a hold before the wipe moves `cycle-start` to `paused`, and a hold inside the inner closes through `cycle-end` to `idle` with a refresh reason.
 
 ## VM provisioning
 
@@ -76,6 +76,36 @@ recognized orphaned entries; housekeeping errors do not fail the cycle.
 Start sequences that power the guest off use the `stopVm` action in [Test.SequenceHandler.psm1](../../test/modules/Test.SequenceHandler.psm1): the driver's `Stop-VM -ShutdownTimeoutSeconds -NoForce` requests the shutdown, and the stopped state is observed through the host. A guest that ignores the request leaves console frames, OCR text, the observed state, the livelock verdict, and the first guest-silence marker, and `Start-GuestOS` fails as `wait_timeout`. With `forceOnTimeout`, the VM is turned off with a recorded `guest-shutdown` degradation and the sequence continues. `startVm` shares the same stopped-wait evidence.
 
 [Test.GuestQuarantine.psm1](../../test/modules/Test.GuestQuarantine.psm1) can skip repeatedly failing guests until their configured skip budget or a framework/project revision change releases them. Preflight and image failures can skip a guest before VM creation. These decisions do not create extra persisted lifecycle states.
+
+## Startup login retry
+
+The `retry` action in [Test.SequenceHandler.psm1](../../test/modules/Test.SequenceHandler.psm1) re-runs its inner steps. With `restartVmBeforeRetry: coldPowerCycle`, which the login waits of the [Ubuntu 24](../../test/sequences/start.guest.ubuntu.server.24.yml) and [Ubuntu 26](../../test/sequences/start.guest.ubuntu.server.26.yml) start sequences use, a failed attempt can cold-restart the guest before the next one. This runs inside `Start-GuestOS` and adds no runner state; the [retry reference](../test-sequences.md#428e4df6-001c) documents its parameters.
+
+```mermaid
+stateDiagram-v2
+    state "Check cold policy" as test_sequence_cold_power_cycle_policy
+    state "Run attempt" as invoke_step_block
+    state "Save attempt evidence" as save_step_failure_evidence
+    state "Cold power cycle" as invoke_sequence_cold_power_cycle
+    state "Boot recovery steps" as steps_after_vm_restart
+    [*] --> test_sequence_cold_power_cycle_policy
+    test_sequence_cold_power_cycle_policy --> invoke_step_block: Host and shape allowed
+    test_sequence_cold_power_cycle_policy --> [*]: Policy refused
+    invoke_step_block --> [*]: Attempt passed
+    invoke_step_block --> save_step_failure_evidence: Attempt failed
+    save_step_failure_evidence --> invoke_sequence_cold_power_cycle: Restartable login timeout
+    save_step_failure_evidence --> [*]: Suppressed or exhausted
+    invoke_sequence_cold_power_cycle --> steps_after_vm_restart: Running, console refreshed
+    invoke_sequence_cold_power_cycle --> [*]: Restart unconfirmed
+    steps_after_vm_restart --> invoke_step_block: Recovered or none
+    steps_after_vm_restart --> [*]: Recovery failed
+```
+
+The policy check admits only Windows Hyper-V, Ubuntu KVM, and macOS UTM hosts, and only a bounded, observation-only block: `Enter` redraw keys, waits of at most 60 seconds, one login wait, and declared installer-confirmation recovery steps, none of them sensitive. A refusal emits `retry_suppressed` before any attempt. The block is capped at three attempts, each attempt refreshes the step heartbeat, and the final attempt never restarts the guest.
+
+A failed hard-severity attempt saves its frames, the observed VM state, and the console second opinion before power is touched. A restart then requires that evidence, a login-wait OCR timeout without a matched failure pattern or console flood, and, when the OCR tail still shows the live installer, a driver that can put the installer media first; only the [Hyper-V driver](../../host/windows.hyper-v/modules/Yuruna.Host.psm1) implements that. Otherwise `retry_suppressed` ends the block without replaying input. `Invoke-SequenceColdPowerCycle` force-stops the VM, confirms that it stopped, optionally reselects installer media, starts it, confirms that it runs, and refreshes the console; any failed or ambiguous phase ends the block, and `retry_vm_restart` records the phase and outcome.
+
+The login waits inside such a block end early on a guest livelock instead of spending their whole budget. `Wait-ForText` in [Test.SequenceEngine.psm1](../../test/modules/Test.SequenceEngine.psm1) takes that verdict from the Hyper-V host recording or, where QEMU paints `Display output is not active`, from a 300-second run of such frames confirmed by a `guest-wedged` console second opinion, which only the [UTM driver](../../host/macos.utm/modules/Yuruna.Host.psm1) reports. Any frame with other content restarts that run. The `arm64HyperVColdPowerCycle` and `arm64HyperVInstallerBoot` modes keep their native ARM64 Hyper-V restriction, and a plain `retry` runs the same attempt loop without the policy check or restart.
 
 ## Validation and cleanup
 
@@ -171,9 +201,9 @@ stateDiagram-v2
     wait_cycle_pause_flag_after_delay --> [*]: Resume or shutdown
 ```
 
-The abort state groups best-effort active-VM removal and one-time finalization. Emergency removal and the normal boundary sweep respect diagnostic preservation. The ordinary path seals the run and attempts cleanup before boundary waits; `stopOnFailure` takes its earlier exit. An unhandled exception other than a restart increments the crash streak; at three consecutive crashes the inner exits, and otherwise it waits a jittered backoff (30 seconds doubling to a 300-second cap) that refreshes the step heartbeat before the boundary sweep.
+The abort state groups best-effort active-VM removal and one-time finalization. Emergency removal and the normal boundary sweep respect diagnostic preservation. The ordinary path seals the run and attempts cleanup before boundary waits; `stopOnFailure` takes its earlier exit. An unhandled exception other than a restart increments the crash streak; at three consecutive crashes the inner exits, and otherwise it waits a jittered backoff (30 seconds doubling to a 300-second cap) that refreshes the step heartbeat before the boundary sweep. Its redacted message and stack are first appended to `outer.log`, so a bootstrap failure that precedes the cycle transcript keeps its origin.
 
-Step pause refreshes the step heartbeat while waiting before another action. Cycle pause holds at a boundary. Clearing a pre-delay pause permits the configured countdown. A cycle pause armed during countdown is honored after the countdown ends; clearing it then returns without repeating the delay.
+Step pause refreshes the step heartbeat while waiting before another action. Cycle pause holds at a boundary. Clearing a pre-delay pause permits the configured countdown. A cycle pause armed during countdown is honored after the countdown ends; clearing it then returns without repeating the delay. Pool-wide host control in [hostcontrol.go](../../test/extension/pool-control-service/server/internal/httpsrv/hostcontrol.go) applies the same live pause switches to every pool member, and the [pool page](../../test/extension/pool-control-service/server/internal/httpsrv/web/assets/pools.js) blocks further pool interactions until that fan-out and its status readback finish. That wait adds no runner state, and host refresh is deliberately not one of its actions: [hostrefresh.go](../../test/extension/pool-control-service/server/internal/httpsrv/hostrefresh.go) authorizes each refresh per host.
 
 A sequence restart throws `YurunaCycleRestart`; the inner catches it, finalizes once, and follows its exit path. A restart marker during delay ends the wait; the inner verdict still controls subsequent outer failure handling. [Invoke-StartCycleWorker.ps1](../../test/modules/Invoke-StartCycleWorker.ps1) confirms the listener's start-cycle reservation under the lifetime repair lock, clears pause/lab controls, requests restart, and performs bounded VM cleanup. It then rechecks runner identity before waking the resident runner or starting an absent one. Ctrl+C sets shared shutdown state; the outer stops an active cycle child's process tree.
 
@@ -201,7 +231,7 @@ stateDiagram-v2
     stop_watchdog --> [*]: Supervisor cleanup
 ```
 
-Defaults in [Start-TestRunner.ps1](../../test/Start-TestRunner.ps1) are 2,700 seconds for steps, 600 seconds for preamble work, and 30-second polling. `runner.phase` selects the tighter preamble bound until the inner clears it on entering the cycle body; configuration can override or disable the tighter bound. Missing step heartbeats age from watchdog arming. Preamble phases include host registration, host driver, stash address, host conditions, and VM admission. Each phase write also appends an `[inner phase]` line with PID and generation to `outer.log`, so a kill stays attributable after `runner.phase` is overwritten. When no inner is found, the watchdog writes `runner.watchdog.lapsed` and the cycle worker reports the unguarded cycle.
+Defaults in [Start-TestRunner.ps1](../../test/Start-TestRunner.ps1) are 2,700 seconds for steps, 600 seconds for preamble work, and 30-second polling. `runner.phase` selects the tighter preamble bound until the inner clears it on entering the cycle body; configuration can override or disable the tighter bound. Missing step heartbeats age from watchdog arming. Preamble phases include the configuration gate, host registration, host driver, stash address, host conditions, and VM admission; the cycle body briefly re-enters the `config-gate` phase for its project storage gate. Each phase write also appends an `[inner phase]` line with PID and generation to `outer.log`, so a kill stays attributable after `runner.phase` is overwritten. When no inner is found, the watchdog writes `runner.watchdog.lapsed` and the cycle worker reports the unguarded cycle.
 
 Completed pause polls and lab-health probes refresh the runspace step heartbeat.
 A deliberate hold can therefore outlast the step timeout, while a blocked probe
@@ -212,20 +242,26 @@ The watchdog captures PID plus process start identity and rechecks before termin
 
 Configuration rejection is `config_gate_failed`, rather than a crash or watchdog
 stall. The inner returns the dedicated `EX_CONFIG` exit code 78, so the refusal
-stays classified even if evidence cannot be written. Each gate run retains its
-verdict and transcript under `runtime/runner-attempts/`;
-`runner.configGate.json` points to the latest result. The retained folders are
-bounded to 20 attempts, and the outer deletes the previous
-`runner.configGate.json` and `runner.watchdog-kill.json` before each spawn. The
-outer publishes a separate `runnerFault` with attempt time, generation,
-framework commit and evidence paths. The status page and pool view show the host
-failure while preserving the previous completed cycle's verdict, provenance and
-pass/fail accounting. A successful gate clears the prior attempt fault; a fault
+stays classified even if evidence cannot be written. After synchronizing the
+project and before replacing the last completed cycle, the cycle body also runs
+`Invoke-ProjectStorageGate` from
+[Test.ConfigPreflight.psm1](../../test/modules/Test.ConfigPreflight.psm1); a
+storage-admission refusal finalizes the cycle and takes the same exit.
+[Test.RunnerAttemptHistory.psm1](../../test/modules/Test.RunnerAttemptHistory.psm1)
+retains each gate run's verdict and transcript, and each outer fault of an
+unfinished attempt as `runner-fault.json`, under `runtime/runner-attempts/`;
+`runner.configGate.json` points to the latest gate result. The history index is
+rebuilt from the retained evidence and bounded to 20 attempts, and the outer
+deletes the previous `runner.configGate.json` and `runner.watchdog-kill.json`
+before each spawn. The outer publishes a separate `runnerFault` with attempt
+time, generation, stage, framework commit and evidence paths. The status page
+and pool view show the host failure while preserving the previous completed
+cycle's verdict, provenance and pass/fail accounting. A successful gate clears the prior attempt fault; a fault
 during an unfinished cycle still finalizes that cycle as failed.
 
 ## Recovery and host refresh
 
-[Test.RecoveryLedger.psm1](../../test/modules/Test.RecoveryLedger.psm1) registers bounded repairs and keeps their attempt ledger; the outer plans them per failure through `Invoke-OuterRecovery`, gated by `testCycle.autoRemediation.enabled` (default off). [Test.Recovery.psm1](../../test/modules/Test.Recovery.psm1) runs the startup stale-state sweep. An applied repair can bypass ordinary backoff and use the next cycle for verification. Otherwise outer failure pause defaults to one hour, polling framework/project revisions and local configuration changes every five minutes; restart requests, enabled bounded repair, or the deadline can release it. Repeated stalls in the same preamble phase widen that pause while retaining early-release triggers.
+[Test.RecoveryLedger.psm1](../../test/modules/Test.RecoveryLedger.psm1) registers bounded repairs and keeps their attempt ledger; the outer plans them per failure through `Invoke-OuterRecovery`, gated by `testCycle.autoRemediation.enabled` (default off). [Test.Recovery.psm1](../../test/modules/Test.Recovery.psm1) runs the startup stale-state sweep. An applied repair can bypass ordinary backoff and use the next cycle for verification. Otherwise outer failure pause defaults to one hour, polling the configured framework upstream tip, the project tip, and local configuration changes every 30 seconds; restart requests, enabled bounded repair, or the deadline can release it. From the third consecutive stall in the same preamble phase, the pause widens geometrically up to eight times its length while retaining early-release triggers; a passing cycle, or a failure outside a preamble stall, resets the streak. A configuration-gate refusal whose structured failures are all transient network classes holds for 120 seconds instead, doubling up to 15 minutes while consecutive holds expire without recovery; it probes repository access every 30 seconds and ends once every required source answers, while configuration edits and restart requests still end it early.
 
 Host refresh uses [Test.HostRefresh.psm1](../../test/modules/Test.HostRefresh.psm1), [Test.HostRefreshTrigger.psm1](../../test/modules/Test.HostRefreshTrigger.psm1), and the refresh dispatch/preflight/barrier handlers in both runner loops. The view below shows the existing dispatch roles; preflight and the ordinary barrier run in separate fresh cycle chains.
 

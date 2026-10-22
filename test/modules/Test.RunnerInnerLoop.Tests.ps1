@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.18.2
+.VERSION 2026.10.22
 .GUID 422a68fe-a953-4858-a4d5-e3de9fbbbaf8
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -471,6 +471,35 @@ Describe 'Write-InnerLog' {
             Remove-Item -LiteralPath $d -Recurse -Force -ErrorAction SilentlyContinue
         }
     }
+    It 'retains a redacted error and stack when an unexpected failure precedes the cycle transcript' {
+        Import-Module (Join-Path $here 'Test.RecoveryContract.psm1') -Global -DisableNameChecking
+        $ast = [Management.Automation.Language.Parser]::ParseFile((Join-Path $here 'Test.RunnerInnerLoop.psm1'), [ref]$null, [ref]$null)
+        $branch = $ast.Find({ param($node)
+            $node -is [Management.Automation.Language.IfStatementAst] -and
+                $node.Clauses[0].Item1.Extent.Text -eq '-not $script:CycleRestartHandled'
+        }, $true)
+        $statements = @($branch.Clauses[0].Item2.Statements)
+        $prefix = [Collections.Generic.List[string]]::new()
+        foreach ($statement in $statements) {
+            if ($statement.Extent.Text -eq 'Write-Output ""') { break }
+            $prefix.Add($statement.Extent.Text)
+        }
+        $handler = [scriptblock]::Create($prefix -join "`n")
+        $priorRuntime = $env:YURUNA_RUNTIME_DIR
+        $env:YURUNA_RUNTIME_DIR = Join-Path $TestDrive 'pre-transcript-runtime'
+        $null = New-Item -ItemType Directory -Path $env:YURUNA_RUNTIME_DIR
+        $CycleCount = 42
+        $ConsecutiveCrashes = 0
+        $null = @($CycleCount, $ConsecutiveCrashes) # Inputs consumed by the production catch prefix.
+        try {
+            try { throw 'fixture pre-transcript crash password=diagnostic-secret https://user:diagnostic-url-secret@example.invalid/repo' }
+            catch { & $handler }
+            $log = Get-Content -LiteralPath (Join-Path $env:YURUNA_RUNTIME_DIR 'outer.log') -Raw
+            $log | Should -Match '\[inner\].*cycle 42.*fixture pre-transcript crash'
+            $log | Should -Match 'Test.RunnerInnerLoop.Tests.ps1'
+            $log | Should -Not -Match 'diagnostic-secret|diagnostic-url-secret'
+        } finally { $env:YURUNA_RUNTIME_DIR = $priorRuntime }
+    }
 }
 
 Describe 'Inner-cycle child-script import discipline' {
@@ -524,6 +553,18 @@ Describe 'gitCommits array-shape (double-wrap regression guard)' {
             if ($null -eq $list[0].sha) { throw 'element 0 is not a {sha,...} object' }
         }
     }
+    It 'publishes source evidence only for the actual commit and excludes private proof' {
+        InModuleScope Test.RunnerInnerLoop {
+            $selection = @{selectedSha=('a'*40);source='mirror';verification='mirror-stale';refreshAgeSeconds=300;fallbackReason='origin-transport-failed';proof=@{receipt='private-receipt'};fetchUrl='http://mirror/private';detail='private-output'}
+            $list = New-CycleGitCommitList -GitCommit ('a'*40) -FrameworkUrl 'https://user:fixture-secret@example.invalid/framework.git' -FrameworkSelection $selection
+            $list[0].verification | Should -BeExactly 'mirror-stale'
+            $list[0].refreshAgeSeconds | Should -Be 300
+            $list[0].fallbackReason | Should -BeExactly 'origin-transport-failed'
+            ($list | ConvertTo-Json -Depth 10) | Should -Not -Match 'fixture-secret|private-receipt|private-output|"proof"|"fetchUrl"'
+            { New-CycleGitCommitList -GitCommit ('b'*40) -FrameworkUrl 'https://example.invalid/framework.git' -FrameworkSelection $selection } |
+                Should -Throw '*source-provenance-head-mismatch*'
+        }
+    }
     It 'the call site assigns the helper directly, never wrapped in @() (the trap)' {
         $src = Get-Content -LiteralPath (Join-Path $here 'Test.RunnerInnerLoop.psm1') -Raw
         Assert-True ($src -match '\$GitCommitsList\s*=\s*New-CycleGitCommitList') `
@@ -547,6 +588,79 @@ Describe 'gitCommits array-shape (double-wrap regression guard)' {
             'New-CycleGitCommitList must receive the resolved $projLinkUrl'
         Assert-True (-not ($src -match '-ProjectGitCommit\s+\$ProjectGitCommit\s+-ProjectUrl\s+\$projUrl\b')) `
             'the raw $projUrl must not reach New-CycleGitCommitList directly'
+    }
+}
+
+Describe 'Cycle source provenance with installed Git revisions' {
+    BeforeAll {
+        Import-Module (Join-Path $here 'Test.HostGit.psm1') -Global -DisableNameChecking
+        $ast = [Management.Automation.Language.Parser]::ParseFile((Join-Path $here 'Test.RunnerInnerLoop.psm1'), [ref]$null, [ref]$null)
+        $assignment = $ast.Find({ param($node)
+            $node -is [Management.Automation.Language.AssignmentStatementAst] -and
+                $node.Left.Extent.Text -eq '$GitCommitsList' -and
+                $node.Right.Extent.Text -match '^New-CycleGitCommitList\b'
+        }, $true)
+        $assignment | Should -Not -BeNullOrEmpty
+        $script:ProvenanceProduction = [scriptblock]::Create(@'
+param($Fixture)
+$RepoRoot = $Fixture.RepoRoot
+$Config = @{repositories=@{frameworkUrl='https://github.com/fixture/framework'}}
+$GitCommit = Get-CurrentGitCommit -RepoRoot $RepoRoot
+$projectReference = Get-ProjectGitCommitReference -RepoRoot $RepoRoot -ProjectUrl 'https://github.com/fixture/project'
+$ProjectGitCommit = $projectReference.sha
+$projLinkUrl = $projectReference.repoUrl
+$sourceHandoff = @{framework=$Fixture.Framework}
+$projectSourceSelection = $Fixture.Project
+'@ + "`n" + $assignment.Extent.Text + "`nreturn ,`$GitCommitsList")
+    }
+    BeforeEach {
+        $root = Join-Path $TestDrive ([guid]::NewGuid().ToString('N'))
+        $project = Join-Path $root 'project'
+        foreach ($path in @($root, $project)) {
+            $null = New-Item -ItemType Directory -Path $path -Force
+            & git init --quiet --initial-branch=main $path
+            & git -C $path config user.name Fixture
+            & git -C $path config user.email fixture@example.invalid
+            [IO.File]::WriteAllText((Join-Path $path 'source.txt'), $path)
+            & git -C $path add source.txt
+            & git -C $path commit --quiet -m source
+            if ($LASTEXITCODE -ne 0) { throw 'Could not initialize source provenance fixture.' }
+        }
+        $script:ProvenanceFixture = @{
+            RepoRoot=$root
+            Framework=@{selectedSha=([string](& git -C $root rev-parse HEAD)).Trim();source='origin';verification='origin-direct';fallbackReason='mirror-untrusted'}
+            Project=@{selectedSha=([string](& git -C $project rev-parse HEAD)).Trim();source='origin';verification='origin-direct';fallbackReason='mirror-untrusted'}
+        }
+    }
+    It 'publishes full source selections while preserving the actual short display hashes' {
+        $list = & (Get-Module Test.RunnerInnerLoop) $script:ProvenanceProduction $script:ProvenanceFixture
+        $list.Count | Should -Be 2
+        $list[0].sha | Should -BeExactly (Get-CurrentGitCommit -RepoRoot $script:ProvenanceFixture.RepoRoot)
+        $list[1].sha | Should -BeExactly (Get-ProjectGitCommitReference -RepoRoot $script:ProvenanceFixture.RepoRoot -ProjectUrl 'https://github.com/fixture/project').sha
+        $list[0].sha.Length | Should -BeLessThan 40
+        $list[1].sha.Length | Should -BeLessThan 40
+        $list[0].selectedSha | Should -BeExactly $script:ProvenanceFixture.Framework.selectedSha
+        $list[1].selectedSha | Should -BeExactly $script:ProvenanceFixture.Project.selectedSha
+        @($list | Where-Object fallbackReason -NE mirror-untrusted).Count | Should -Be 0
+    }
+    It 'rejects a different full <Kind> revision even when its display prefix matches' -ForEach @(
+        @{Kind='Framework'}, @{Kind='Project'}
+    ) {
+        $selection = $script:ProvenanceFixture[$Kind]
+        $last = if ($selection.selectedSha.EndsWith('0')) { '1' } else { '0' }
+        $selection.selectedSha = $selection.selectedSha.Substring(0, 39) + $last
+        { & (Get-Module Test.RunnerInnerLoop) $script:ProvenanceProduction $script:ProvenanceFixture } |
+            Should -Throw '*source-provenance-head-mismatch*'
+    }
+    It 'does not attest the framework checkout as a project when project metadata is missing' {
+        Remove-Item -LiteralPath (Join-Path $script:ProvenanceFixture.RepoRoot 'project/.git') -Recurse -Force
+        $script:ProvenanceFixture.Project.selectedSha = $script:ProvenanceFixture.Framework.selectedSha
+        # Keep a project entry to exercise the attestation boundary even when
+        # the metadata producer correctly refuses the missing checkout.
+        $code = $script:ProvenanceProduction.ToString().Replace('$ProjectGitCommit = $projectReference.sha', '$ProjectGitCommit = $GitCommit').
+            Replace('$projLinkUrl = $projectReference.repoUrl', '$projLinkUrl = "https://github.com/fixture/project"')
+        { & (Get-Module Test.RunnerInnerLoop) ([scriptblock]::Create($code)) $script:ProvenanceFixture } |
+            Should -Throw '*source-provenance-head-mismatch*'
     }
 }
 

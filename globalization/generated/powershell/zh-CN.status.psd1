@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.18.2
+.VERSION 2026.10.22
 .GUID 42bcda77-08ce-3c8e-a78b-3476cd1c4efc
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -689,6 +689,11 @@
         }
         ' MB'
     )
+    'status.git_source_mirror_confirmed' = 'mirror.origin'
+    'status.git_source_mirror_fresh' = 'mirror.fresh'
+    'status.git_source_mirror_stale' = 'mirror.stale'
+    'status.git_source_not_applicable' = 'not.applicable'
+    'status.git_source_origin_direct' = 'remote.origin'
     'status.guest_not_found' = @(
         @{
             'arg' = 'guest'

@@ -4,6 +4,11 @@ Yuruna uses [Calendar Versioning](https://calver.org/): `YYYY.MM.DD`.
 Tags are cut from the `main` branch; entries below summarize each
 tagged release.
 
+## 2026.10.22
+
+- **Local Git mirror.** Caching proxy holds copy of
+  git repositories for framework and project.
+
 ## 2026.10.18.2
 
 - **Storage shortages stop before a test cycle starts.** Hyper-V checks available
@@ -621,6 +626,6 @@ LICENSEURI <https://yuruna.link/license>
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.18.1
+Last review: 2026.10.22
 
 Back to [Yuruna](README.md)

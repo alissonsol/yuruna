@@ -725,6 +725,11 @@ const DataqpsPlocmstatus = `{
     },
     " ⱮɃ‬ ~~~~]"
   ],
+  "status.git_source_mirror_confirmed": "[!‮mirror.origin‬ ~~~~~~]",
+  "status.git_source_mirror_fresh": "[!‮mirror.fresh‬ ~~~~~]",
+  "status.git_source_mirror_stale": "[!‮mirror.stale‬ ~~~~~]",
+  "status.git_source_not_applicable": "[!‮not.applicable‬ ~~~~~~]",
+  "status.git_source_origin_direct": "[!‮remote.origin‬ ~~~~~~]",
   "status.guest_not_found": [
     "[!‮",
     {

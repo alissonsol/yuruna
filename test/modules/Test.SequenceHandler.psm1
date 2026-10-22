@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.18.2
+.VERSION 2026.10.22
 .GUID 4232820e-f96a-47ea-863b-f94b73f9c76f
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -69,6 +69,46 @@ function Test-GuestPayloadUnavailable {
         if ($Output.Contains($reason)) { return $true }
     }
     return $false
+}
+
+# See https://yuruna.link/4220a755-005e
+# apt's own wording for an index that disagrees with its InRelease. Through the
+# caching proxy it names a cached pair the origin never published together.
+$script:AptIndexMismatchPattern = 'E: Failed to fetch (?<url>\S+)\s+(?:File has unexpected size \((?<received>\d+) != (?<expected>\d+)\)\. Mirror sync in progress\?|(?<hash>Hash Sum mismatch))(?:\s*\[IP: (?<ip>[^\s\]]+) (?<port>\d+)\])?'
+
+function Get-GuestAptIndexMismatch {
+    <#
+    .SYNOPSIS
+        The last apt index in the guest output that disagreed with its InRelease, or $null.
+    .DESCRIPTION
+        Reads the apt error line and what apt_retry reported about the caching
+        proxy's copy of that index: its headers and whether the purge was taken.
+    .OUTPUTS
+        [System.Collections.Specialized.OrderedDictionary] or $null.
+    #>
+    [CmdletBinding()]
+    [OutputType([System.Collections.Specialized.OrderedDictionary])]
+    param([AllowNull()][string]$Output)
+    if ([string]::IsNullOrEmpty($Output)) { return $null }
+    $found = [regex]::Matches($Output, $script:AptIndexMismatchPattern)
+    if ($found.Count -eq 0) { return $null }
+    $last = $found[$found.Count - 1]
+    $url = $last.Groups['url'].Value
+    $server = if ($last.Groups['ip'].Success) { "$($last.Groups['ip'].Value):$($last.Groups['port'].Value)" } else { '' }
+    $released = [regex]::Matches($Output, 'Release file created at: ([^\r\n]+)')
+    $copy = [regex]::Matches($Output, 'apt_retry: proxy copy of ' + [regex]::Escape($url) + ': ([^\r\n]*)')
+    $purge = [regex]::Matches($Output, 'apt_retry: asked the caching proxy to PURGE ' + [regex]::Escape($url) + ': HTTP (\d{3})')
+    return [ordered]@{
+        kind               = if ($last.Groups['hash'].Success) { 'hash-sum-mismatch' } else { 'unexpected-size' }
+        url                = $url
+        receivedBytes      = if ($last.Groups['received'].Success) { [long]$last.Groups['received'].Value } else { $null }
+        expectedBytes      = if ($last.Groups['expected'].Success) { [long]$last.Groups['expected'].Value } else { $null }
+        server             = $server
+        releaseFileCreated = if ($released.Count -gt 0) { $released[$released.Count - 1].Groups[1].Value.Trim() } else { '' }
+        occurrences        = $found.Count
+        proxyCopy          = if ($copy.Count -gt 0) { $copy[$copy.Count - 1].Groups[1].Value.Trim() } else { '' }
+        proxyPurgeStatus   = if ($purge.Count -gt 0) { [int]$purge[$purge.Count - 1].Groups[1].Value } else { $null }
+    }
 }
 
 # See https://yuruna.link/4213a0b3-0157
@@ -203,10 +243,10 @@ function Resolve-WaitForTextStepParam {
     }
 }
 
-function Invoke-Arm64HyperVColdPowerCycle {
+function Invoke-SequenceColdPowerCycle {
     <#
     .SYNOPSIS
-        Cold-restart a running ARM64 Hyper-V guest between safe retry attempts.
+        Cold-restart a running guest between safe retry attempts.
     .DESCRIPTION
         The caller owns the platform/architecture policy. This helper is
         deliberately fail-closed: a retry must not continue when the VM's
@@ -223,36 +263,113 @@ function Invoke-Arm64HyperVColdPowerCycle {
         [switch]$BootInstallerMedia
     )
 
+    $result = [ordered]@{
+        vmName = [string]$Context.VMName; hostType = [string]$Context.HostType
+        phase = 'capability'; reasonCode = 'required-command-missing'; outcome = 'failed'
+        requiredCommand = ''; initialState = 'unknown'; stoppedState = 'unknown'; runningState = 'unknown'
+    }
+    $Context.ColdPowerCycleResult = $result
     $requiredCommand = @('Get-VMState', 'Stop-VMForce', 'Start-VM', 'Restart-VMConsole')
     if ($BootInstallerMedia) { $requiredCommand += 'Set-VMInstallerMediaFirstBoot' }
     foreach ($commandName in $requiredCommand) {
-        if (-not (Get-Command $commandName -ErrorAction SilentlyContinue)) { return $false }
+        if (-not (Get-Command $commandName -ErrorAction SilentlyContinue)) { $result.requiredCommand = $commandName; return $false }
     }
 
     try {
-        if ([string](Get-VMState -VMName $Context.VMName) -ne 'running') { return $false }
+        $result.phase = 'initial-state'; $result.reasonCode = 'vm-not-running'
+        $result.initialState = [string](Get-VMState -VMName $Context.VMName)
+        if ($result.initialState -ne 'running') { return $false }
+        $result.phase = 'stop-request'; $result.reasonCode = 'force-stop-failed'
         if (-not (Stop-VMForce -VMName $Context.VMName -StopTimeoutSeconds 20 -Confirm:$false)) { return $false }
-        if ([string](Get-VMState -VMName $Context.VMName) -ne 'stopped') { return $false }
+        $result.phase = 'stopped-state'; $result.reasonCode = 'stop-unconfirmed'
+        $result.stoppedState = [string](Get-VMState -VMName $Context.VMName)
+        if ($result.stoppedState -ne 'stopped') { return $false }
+        $result.phase = 'installer-media'; $result.reasonCode = 'installer-media-selection-failed'
         if ($BootInstallerMedia -and -not (Set-VMInstallerMediaFirstBoot -VMName $Context.VMName -Confirm:$false)) { return $false }
 
+        $result.phase = 'start-request'; $result.reasonCode = 'start-failed'
         $startResult = Start-VM -VMName $Context.VMName -Confirm:$false
         $startRecord = @($startResult) | Where-Object { $_ -is [System.Collections.IDictionary] } | Select-Object -Last 1
-        if (-not $startRecord -or -not $startRecord.success) { return $false }
-        if ([string](Get-VMState -VMName $Context.VMName) -ne 'running') { return $false }
+        if (-not $startRecord -or $startRecord.success -isnot [bool] -or -not $startRecord.success) { return $false }
+        $result.phase = 'running-state'; $result.reasonCode = 'start-unconfirmed'
+        $result.runningState = [string](Get-VMState -VMName $Context.VMName)
+        if ($result.runningState -ne 'running') { return $false }
 
-        # Start-VM can leave the viewer from the failed boot alive. Reopening it
-        # ensures both screenshots and keyboard input bind to the new boot.
+        # Refresh the provider console transport after a new boot; fail if the
+        # provider cannot acknowledge the refresh.
+        $result.phase = 'console'; $result.reasonCode = 'console-reconnect-failed'
         if (-not (Restart-VMConsole -VMName $Context.VMName -Confirm:$false)) { return $false }
         if (Get-Command Repair-ScreenshotRing -ErrorAction SilentlyContinue) {
             [void](Repair-ScreenshotRing -VMName $Context.VMName -Confirm:$false)
         }
+        $result.phase = 'complete'; $result.reasonCode = ''; $result.outcome = 'succeeded'
         return $true
     } catch {
         if (($_.Exception.Data -and $_.Exception.Data['YurunaCycleRestart']) -or
             $_.Exception.Message -like 'YurunaCycleRestart:*') { throw }
-        Write-Verbose "ARM64 Hyper-V cold retry failed for '$($Context.VMName)': $($_.Exception.Message)"
+        $result.reasonCode = 'lifecycle-exception'
+        $result.exceptionType = $_.Exception.GetType().Name
+        Write-Verbose "cold-power-cycle-failed vmName=$($Context.VMName) phase=$($result.phase) exceptionType=$($result.exceptionType)"
         return $false
     }
+}
+
+function Invoke-Arm64HyperVColdPowerCycle {
+    # Retain the legacy helper while sharing the provider-neutral lifecycle checks.
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param([Parameter(Mandatory)][hashtable]$Context, [switch]$BootInstallerMedia)
+    return Invoke-SequenceColdPowerCycle -Context $Context -BootInstallerMedia:$BootInstallerMedia
+}
+
+function Test-SequenceColdPowerCyclePolicy {
+    <# .SYNOPSIS
+        Restrict cold recovery to login observation and non-credential boot confirmation.
+    #>
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param([Parameter(Mandatory)][System.Collections.IDictionary]$Step)
+    $steps = @($Step.steps)
+    if ($steps.Count -eq 0 -or [string]$steps[-1].action -ne 'waitForTextWithNudge') { return $false }
+    $loginWaits = 0
+    foreach ($item in $steps) {
+        if ($item.sensitive) { return $false }
+        switch ([string]$item.action) {
+            'pressKey' { if ([string]$item.name -cne 'Enter') { return $false } }
+            'waitForSeconds' { if ([double]$item.seconds -lt 0 -or [double]$item.seconds -gt 60) { return $false } }
+            'waitForTextWithNudge' {
+                $loginWaits++
+                if (@($item.pattern).Count -ne 1 -or [string]$item.pattern -notmatch '\blogin:\s*$' -or
+                    [string]$item.nudgeKey -cne 'Enter' -or [int]$item.nudgeIntervalSeconds -lt 1) { return $false }
+            }
+            default { return $false }
+        }
+    }
+    if ($loginWaits -ne 1) { return $false }
+    foreach ($item in @($Step.stepsAfterVmRestart | Where-Object { $_ })) {
+        if ($item.sensitive) { return $false }
+        if ([string]$item.action -eq 'waitForSeconds') {
+            if ([double]$item.seconds -lt 0 -or [double]$item.seconds -gt 60) { return $false }
+            continue
+        }
+        if ([string]$item.action -ne 'waitForAndEnter' -or [string]$item.text -cne 'yes' -or -not $item.noSegmentMatch -or
+            @($item.pattern) -cnotcontains 'Continue with autoinstall?') { return $false }
+        $loginPatterns = @($item.pattern | Where-Object { $_ -match '\blogin:\s*$' })
+        if (@($item.pattern).Count -ne 4 -or $loginPatterns.Count -ne 1) { return $false }
+        foreach ($stage in @('subiquity/Install/install/configure_apt', 'subiquity/Install/install/curtin_install')) {
+            if (@($item.pattern) -cnotcontains $stage -or @($item.blindSkipPattern) -cnotcontains $stage) { return $false }
+        }
+        if (@($item.blindSkipPattern) -cnotcontains 'Bahasa Indonesia') { return $false }
+        foreach ($pattern in @($item.pattern)) {
+            if ($pattern -ceq 'Continue with autoinstall?') { continue }
+            if ($pattern -notmatch '\blogin:\s*$' -and $pattern -cnotin @('subiquity/Install/install/configure_apt', 'subiquity/Install/install/curtin_install')) { return $false }
+            if (@($item.skipInputPattern) -cnotcontains $pattern) { return $false }
+        }
+        foreach ($pattern in @($item.skipInputPattern)) {
+            if (@($item.pattern) -cnotcontains $pattern -or $pattern -ceq 'Continue with autoinstall?') { return $false }
+        }
+    }
+    return $true
 }
 
 function Test-Arm64HyperVColdPowerCycleMode {
@@ -2416,6 +2533,7 @@ Register-SequenceAction -Name 'sshFetchAndExecute' -ReplaySafety 'state-changing
         $script:Fail.StepGuestTransportLost     = $null
         $script:Fail.StepGuestRunLost           = $null
         $script:Fail.StepGuestPayloadUnavailable = $null
+        $script:Fail.StepAptIndexMismatch = $null
         # --- REGION: https://yuruna.link/4220a755-0041
         # See https://yuruna.link/4213a0b3-0161
         $detach = $null -ne $c.Step.detach ? [bool]$c.Step.detach : $true
@@ -2441,6 +2559,11 @@ Register-SequenceAction -Name 'sshFetchAndExecute' -ReplaySafety 'state-changing
             if ($result.transportLost) { $script:Fail.StepGuestTransportLost = $true }
             if ($result.runLost) { $script:Fail.StepGuestRunLost = $true }
             if (Test-GuestPayloadUnavailable -Output $result.output) { $script:Fail.StepGuestPayloadUnavailable = $true }
+            $aptMismatch = Get-GuestAptIndexMismatch -Output $result.output
+            if ($aptMismatch) {
+                $script:Fail.StepAptIndexMismatch = $aptMismatch
+                Write-Warning "      apt index disagrees with its InRelease ($($aptMismatch.kind)) via $(if ($aptMismatch.server) { $aptMismatch.server } else { 'no proxy named' }): $($aptMismatch.url)"
+            }
             Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_35be02c672504936' -Arguments @{ exitCode = "$($result.exitCode)"; cmd = "$($fetchContext.Launch)" })
             if ($result.output) { Write-Warning "      output: $($result.output)" }
             return $false
@@ -2480,6 +2603,24 @@ Register-SequenceAction -Name 'retry' -ReplaySafety 'composite' -HostIORequireme
         $configuredMaxAttempts = $maxAttempts
         $retrySuppressionReason = ''
         $innerSteps  = @($c.Step.steps)
+        $genericColdRetry = ([string]$c.Step.restartVmBeforeRetry -eq 'coldPowerCycle')
+        if ($genericColdRetry) {
+            $policyRefusal = if ($c.HostType -notin @('host.windows.hyper-v', 'host.ubuntu.kvm', 'host.macos.utm')) {
+                'cold-power-cycle-unsupported-host'
+            } elseif (-not (Test-SequenceColdPowerCyclePolicy -Step $c.Step)) { 'cold-power-cycle-unsafe-step-shape' } else { '' }
+            if ($policyRefusal) {
+                $script:Fail.LastFailureLabel = $policyRefusal
+                if (Get-Command Send-CycleEventSafely -ErrorAction SilentlyContinue) {
+                    Send-CycleEventSafely -EventRecord @{
+                        timestamp=[DateTime]::UtcNow.ToString('yyyy-MM-ddTHH:mm:ssZ', [Globalization.CultureInfo]::InvariantCulture)
+                        event='retry_suppressed';stack='sequence';reason=$policyRefusal
+                        vmName=[string]$c.VMName;hostType=[string]$c.HostType;attempt=0
+                    }
+                }
+                return $false
+            }
+            $maxAttempts = [Math]::Min($maxAttempts, 3)
+        }
         $installerBootRetry = ([string]$c.Step.restartVmBeforeRetry -eq 'arm64HyperVInstallerBoot')
         if ($installerBootRetry) {
             # This recovery may replay only the initial, non-credential installer
@@ -2519,7 +2660,7 @@ Register-SequenceAction -Name 'retry' -ReplaySafety 'composite' -HostIORequireme
                 $retrySuppressionReason = 'provider is not native ARM64 Hyper-V'
                 1
             }
-        } elseif (Test-Arm64HyperVColdPowerCycleMode -Mode ([string]$c.Step.restartVmBeforeRetry) -HostType $c.HostType) {
+        } elseif ($genericColdRetry -or (Test-Arm64HyperVColdPowerCycleMode -Mode ([string]$c.Step.restartVmBeforeRetry) -HostType $c.HostType)) {
             # The login wait this mode restarts on ends early on a livelocked
             # guest for the same reason. Copies, so the declared steps keep
             # their wait policy for every other invocation.
@@ -2584,8 +2725,29 @@ Register-SequenceAction -Name 'retry' -ReplaySafety 'composite' -HostIORequireme
             $attemptVerbEntry = Get-SequenceAction -Name $script:Fail.LastFailedAction
             if ($attemptVerbEntry -and $attemptVerbEntry.Severity -eq 'hard' -and
                 (Get-Command Save-StepFailureEvidence -ErrorAction SilentlyContinue)) {
-                $evidenceRel = Save-StepFailureEvidence -VMName $c.VMName `
-                    -Label ("step{0}-attempt{1}" -f $c.StepNum, $attempt) -WhatIf:$false
+                $evidenceArguments = @{ VMName=$c.VMName; Label=("step{0}-attempt{1}" -f $c.StepNum, $attempt); WhatIf=$false }
+                $diagnosticRecord = $null
+                if ([string]$c.Step.restartVmBeforeRetry -in @('coldPowerCycle', 'arm64HyperVColdPowerCycle', 'arm64HyperVInstallerBoot') -or
+                    $script:Fail.WaitForTextConsoleSecondOpinion) {
+                    $diagnosticRecord = [ordered]@{
+                        vmName = [string]$c.VMName
+                        hostType = [string]$c.HostType
+                        architecture = [Runtime.InteropServices.RuntimeInformation]::OSArchitecture.ToString()
+                        captureStartupSnapshot = ([string]$c.Step.restartVmBeforeRetry -in @('coldPowerCycle', 'arm64HyperVColdPowerCycle', 'arm64HyperVInstallerBoot'))
+                        vmState = 'unknown'
+                        consoleSecondOpinion = $script:Fail.WaitForTextConsoleSecondOpinion
+                    }
+                    if (Get-Command Get-VMState -ErrorAction SilentlyContinue) {
+                        try {
+                            $observedState = [string](Get-VMState -VMName $c.VMName)
+                            if (-not [string]::IsNullOrWhiteSpace($observedState)) { $diagnosticRecord.vmState = $observedState }
+                        } catch { Write-Verbose "vm-state-unavailable phase=pre-restart exceptionType=$($_.Exception.GetType().Name)" }
+                    }
+                    if ((Get-Command Save-StepFailureEvidence).Parameters.ContainsKey('DiagnosticRecord')) {
+                        $evidenceArguments.DiagnosticRecord = $diagnosticRecord
+                    }
+                }
+                $evidenceRel = Save-StepFailureEvidence @evidenceArguments
             } else {
                 $evidenceRel = $null
             }
@@ -2618,10 +2780,30 @@ Register-SequenceAction -Name 'retry' -ReplaySafety 'composite' -HostIORequireme
                     # Whether the live installer was still on screen, which
                     # decides whether a cold restart must boot the installer DVD.
                     installerRunning       = [bool]$installerRunning
+                    consoleSecondOpinion = $script:Fail.WaitForTextConsoleSecondOpinion
                     ok           = $false
                 }
             }
             if ($attempt -lt $maxAttempts) {
+                $restartMode = [string]$c.Step.restartVmBeforeRetry
+                $nativeArm64HyperV = Test-Arm64HyperVColdPowerCycleMode -Mode $restartMode -HostType $c.HostType
+                $restartableLoginOcrTimeout = (
+                    [string]$script:Fail.LastFailedAction -eq 'waitForTextWithNudge' -and
+                    -not $script:Fail.WaitForTextMatchedFailurePattern -and
+                    -not $script:Fail.WaitForTextConsoleFlood
+                )
+                if ($genericColdRetry) {
+                    if ([string]::IsNullOrWhiteSpace([string]$evidenceRel)) { $retrySuppressionReason = 'startup-diagnostics-unavailable' }
+                    elseif (-not $restartableLoginOcrTimeout) { $retrySuppressionReason = 'login-wait-failure-not-restartable' }
+                    elseif ($installerRunning -and -not (Get-Command Set-VMInstallerMediaFirstBoot -ErrorAction SilentlyContinue)) {
+                        $retrySuppressionReason = 'installer-media-selection-unsupported'
+                        $c.ColdPowerCycleResult = [ordered]@{
+                            phase='capability';reasonCode=$retrySuppressionReason;outcome='refused'
+                            requiredCommand='Set-VMInstallerMediaFirstBoot';initialState=[string]$diagnosticRecord.vmState
+                            vmName=[string]$c.VMName;hostType=[string]$c.HostType
+                        }
+                    }
+                }
                 if ($installerBootRetry) {
                     $retrySuppressionReason = if ([string]$script:Fail.LastFailedAction -ne 'waitForAndEnter') {
                         'failed action is not installer confirmation'
@@ -2651,6 +2833,9 @@ Register-SequenceAction -Name 'retry' -ReplaySafety 'composite' -HostIORequireme
                             configuredMaxAttempts = [int]$configuredMaxAttempts
                             permittedMaxAttempts = [int]$permittedMaxAttempts
                             reason = [string]$retrySuppressionReason
+                            hostType = [string]$c.HostType
+                            requiredCommand = $(if ($retrySuppressionReason -eq 'installer-media-selection-unsupported') { 'Set-VMInstallerMediaFirstBoot' } else { '' })
+                            recovery = $c.ColdPowerCycleResult
                             description = [string]$c.Description; vmName = [string]$c.VMName
                         }
                     }
@@ -2659,22 +2844,26 @@ Register-SequenceAction -Name 'retry' -ReplaySafety 'composite' -HostIORequireme
                 }
                 Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_5e0f817304f680f9' -FormatValues ($c.StepNum, $c.StepCount, $attempt, $maxAttempts, $innerSteps.Count) -FormatBindings @{ stepNum = '0'; stepCount = '1'; attempt = '2'; maxAttempts = '3'; count = '4' })
                 # See https://yuruna.link/4213a0b3-0163
-                $restartMode = [string]$c.Step.restartVmBeforeRetry
-                $nativeArm64HyperV = Test-Arm64HyperVColdPowerCycleMode `
-                    -Mode $restartMode -HostType $c.HostType
-                $restartableLoginOcrTimeout = (
-                    [string]$script:Fail.LastFailedAction -eq 'waitForTextWithNudge' -and
-                    -not $script:Fail.WaitForTextMatchedFailurePattern -and
-                    -not $script:Fail.WaitForTextConsoleFlood
-                )
-                if ($nativeArm64HyperV -and ($restartableLoginOcrTimeout -or $installerBootRetry)) {
+                if (($genericColdRetry -or $nativeArm64HyperV) -and ($restartableLoginOcrTimeout -or $installerBootRetry)) {
                     # An unfinished install must restart from the DVD: its target
                     # may already outrank the DVD while lacking its late-commands.
                     # The installer-confirmation retry runs before curtin, while
                     # the DVD still boots first.
                     $bootInstallerMedia = $installerRunning -and -not $installerBootRetry
-                    if (-not (Invoke-Arm64HyperVColdPowerCycle -Context $c -BootInstallerMedia:$bootInstallerMedia)) {
-                        $script:Fail.LastFailureLabel = "retry VM cold restart failed after attempt $attempt"
+                    $restarted = if ($genericColdRetry) {
+                        Invoke-SequenceColdPowerCycle -Context $c -BootInstallerMedia:$bootInstallerMedia
+                    } else { Invoke-Arm64HyperVColdPowerCycle -Context $c -BootInstallerMedia:$bootInstallerMedia }
+                    if ($c.ColdPowerCycleResult -and (Get-Command Send-CycleEventSafely -ErrorAction SilentlyContinue)) {
+                        Send-CycleEventSafely -EventRecord @{
+                            timestamp = [DateTime]::UtcNow.ToString('yyyy-MM-ddTHH:mm:ssZ', [Globalization.CultureInfo]::InvariantCulture)
+                            event = 'retry_vm_restart'; stack = 'sequence'; attempt = [int]$attempt
+                            maxAttempts = [int]$maxAttempts; vmName = [string]$c.VMName; hostType = [string]$c.HostType
+                            mode = $restartMode; ok = [bool]$restarted; recovery = $c.ColdPowerCycleResult
+                        }
+                    }
+                    if (-not $restarted) {
+                        $failureReason = if ($c.ColdPowerCycleResult) { [string]$c.ColdPowerCycleResult.reasonCode } else { 'unconfirmed-restart' }
+                        $script:Fail.LastFailureLabel = "retry VM cold restart failed after attempt ${attempt}: $failureReason"
                         $script:Fail.LastFailureDescription = $c.Description
                         $script:Fail.LastFailedAction = 'retry'
                         $script:Fail.LastFailedStepNumber = $c.StepNum

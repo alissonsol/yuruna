@@ -342,6 +342,10 @@
       "sourceHash": "434ee94eff2d44ce1db3e688c5b41d945fd2708fd9bf7930398a80ae7e689438",
       "origin": "machine",
       "message": "בסביבת הריצה של מארח זה אין תמיכה בהצפנת AES-GCM (PowerShell {pSVersion} על {trim}), ולכן לא ניתן לפתוח מעטפת פרטי הזדהות או לאטום אחת. כל רישום של אסימון מעבדה וכל חילופי פרטי הזדהות בסנכרון תצורה נכשלים כאן עד לשדרוג PowerShell. אין תקלה בקוד, בשרת המתווך או בכספת. אמתו באמצעות test⁦/lab/Lab-Diag.ps1⁩, ששורת AesGcm בו מדווחת על אותו מצב."
+    },
+    "configsync.mirror_key_confirmation": {
+      "sourceHash": "00c259008f7594804128c237d3890d5b0463718c6f5dbc8968d5d15b68fe816b",
+      "message": "האם לקבל את רישום מפתחות האימות של שרת המראה?"
     }
   }
 }

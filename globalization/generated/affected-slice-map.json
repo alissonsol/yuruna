@@ -324,6 +324,7 @@
         "code:host_refresh.reservation_lost:producer:test/modules/Invoke-StartCycleWorker.ps1",
         "code:host_refresh.reservation_lost:producer:test/modules/Test.StatusControlRoute.psm1",
         "code:host_refresh.restarted:consumer:test/status/yuruna.common.js",
+        "code:host_refresh.restarted:consumer:tools/GitMirror.Qualification.psm1",
         "code:host_refresh.restarted:producer:test/modules/Invoke-StartCycleWorker.ps1",
         "code:host_refresh.restarted:producer:test/modules/Test.StatusControlRoute.psm1",
         "code:host_refresh.resume_request:consumer:test/status/yuruna.common.js",
@@ -3231,6 +3232,15 @@
       "matchCount": 2
     },
     {
+      "id": "code:host_refresh.restarted:consumer:tools/GitMirror.Qualification.psm1",
+      "finding": "catalog-boundaries-host-refresh",
+      "source": "code-registry",
+      "path": "tools/GitMirror.Qualification.psm1",
+      "code": "host_refresh.restarted",
+      "role": "consumer",
+      "matchCount": 1
+    },
+    {
       "id": "code:host_refresh.restarted:producer:test/modules/Invoke-StartCycleWorker.ps1",
       "finding": "catalog-boundaries-host-refresh",
       "source": "code-registry",
@@ -3750,7 +3760,7 @@
       "path": "test/modules/Test.HostGit.psm1",
       "code": "repository_access.denied",
       "role": "producer",
-      "matchCount": 2
+      "matchCount": 4
     },
     {
       "id": "code:repository_access.denied:producer:test/modules/Test.RunnerInnerLoop.psm1",
@@ -3759,7 +3769,7 @@
       "path": "test/modules/Test.RunnerInnerLoop.psm1",
       "code": "repository_access.denied",
       "role": "producer",
-      "matchCount": 2
+      "matchCount": 3
     },
     {
       "id": "code:repository_access.readable:producer:test/modules/Test.HostGit.psm1",
@@ -4915,7 +4925,7 @@
     {
       "wireCode": "host_refresh.completed",
       "path": "test/modules/Test.RunnerOuterLoop.psm1",
-      "matchCount": 7,
+      "matchCount": 8,
       "reason": "Outer-cycle outcome; not a host-refresh state."
     },
     {
@@ -5115,6 +5125,12 @@
       "path": "test/modules/Test.RunnerOuterLoop.psm1",
       "matchCount": 1,
       "reason": "Readiness acknowledgment (ready, failed) the outer loop writes for a refresh handoff; not a host-refresh verdict."
+    },
+    {
+      "wireCode": "host_refresh.failed",
+      "path": "test/modules/Test.SequenceHandler.psm1",
+      "matchCount": 1,
+      "reason": "Outcome of a VM cold-power-cycle recovery whose lifecycle operation failed; not a host-refresh verdict."
     },
     {
       "wireCode": "host_refresh.failed",
@@ -5466,6 +5482,18 @@
     },
     {
       "wireCode": "host_refresh.pending",
+      "path": "test/extension/caching-proxy-service/gitmirror_coordinator.go",
+      "matchCount": 1,
+      "reason": "Git mirror refresh population status; no host-refresh record is read or written."
+    },
+    {
+      "wireCode": "host_refresh.pending",
+      "path": "test/extension/caching-proxy-service/gitmirror.go",
+      "matchCount": 1,
+      "reason": "Git mirror registration reply awaiting repository population; no host-refresh state is involved."
+    },
+    {
+      "wireCode": "host_refresh.pending",
       "path": "test/extension/stash-service/server/internal/httpsrv/web/assets/common.js",
       "matchCount": 1,
       "reason": "Stash item status vocabulary; not a host-refresh value."
@@ -5481,6 +5509,12 @@
       "path": "test/extension/stash-service/server/internal/meta/meta.go",
       "matchCount": 2,
       "reason": "Stash item status constant and schema check; not a host-refresh value."
+    },
+    {
+      "wireCode": "host_refresh.pending",
+      "path": "test/modules/Test.HostGit.psm1",
+      "matchCount": 4,
+      "reason": "Signed Git mirror receipt status used by bounded population polling; no host-refresh state is involved."
     },
     {
       "wireCode": "host_refresh.pending",
@@ -5592,6 +5626,12 @@
     },
     {
       "wireCode": "host_refresh.refused",
+      "path": "test/modules/Test.SequenceHandler.psm1",
+      "matchCount": 1,
+      "reason": "Outcome of VM startup recovery refused before poweroff because installer-media selection is unsupported; not a host-refresh state or verdict."
+    },
+    {
+      "wireCode": "host_refresh.refused",
       "path": "test/modules/Test.SingleInstance.psm1",
       "matchCount": 4,
       "reason": "Detached runner launch outcome; not a host-refresh state or verdict."
@@ -5605,7 +5645,7 @@
     {
       "wireCode": "host_refresh.refused",
       "path": "test/Test-Config.ps1",
-      "matchCount": 1,
+      "matchCount": 2,
       "reason": "TCP connection outcome used to bound transient preflight retries; not a host-refresh state or verdict."
     },
     {
@@ -5750,7 +5790,7 @@
       "wireCode": "host_refresh.running",
       "path": "test/modules/Test.SequenceHandler.psm1",
       "matchCount": 3,
-      "reason": "Virtual machine state before and after an ARM64 Hyper-V cold power cycle, and the state stopVm checks before requesting a shutdown; not a host-refresh request state."
+      "reason": "Virtual machine state before and after a cold power cycle, and the state stopVm checks before requesting a shutdown; not a host-refresh request state."
     },
     {
       "wireCode": "host_refresh.running",
@@ -5829,6 +5869,12 @@
       "path": "test/modules/Test.RecoveryLedger.psm1",
       "matchCount": 2,
       "reason": "Attempt phase of a repair that worked; not a host-refresh verdict."
+    },
+    {
+      "wireCode": "host_refresh.succeeded",
+      "path": "test/modules/Test.SequenceHandler.psm1",
+      "matchCount": 1,
+      "reason": "Outcome of VM cold-power-cycle recovery after its lifecycle and console checks succeed; not a host-refresh verdict."
     },
     {
       "wireCode": "host_refresh.unavailable",
@@ -5965,8 +6011,8 @@
     {
       "wireCode": "host_refresh.unavailable",
       "path": "test/modules/Test.SequenceEngine.psm1",
-      "matchCount": 2,
-      "reason": "OCR second-opinion verdict; not the host-refresh availability."
+      "matchCount": 3,
+      "reason": "Console second-opinion and SSH-responsiveness availability, including a failed independent console probe; not host-refresh availability."
     },
     {
       "wireCode": "host_refresh.unavailable",
@@ -6081,6 +6127,12 @@
       "path": "test/Debug-TestSequence.ps1",
       "matchCount": 3,
       "reason": "Reuse verdict and sequence outcome fallbacks; not the host-refresh state."
+    },
+    {
+      "wireCode": "host_refresh.unknown",
+      "path": "test/extension/caching-proxy-service/gitmirror.go",
+      "matchCount": 1,
+      "reason": "Metrics route label for an unrecognized Git mirror request path; no host-refresh state is involved."
     },
     {
       "wireCode": "host_refresh.unknown",
@@ -6343,8 +6395,8 @@
     {
       "wireCode": "host_refresh.unknown",
       "path": "test/modules/Test.SequenceHandler.psm1",
-      "matchCount": 9,
-      "reason": "Sequence check status, diagnostic outcome and failure-class fallbacks, plus the Get-VMState fallbacks in the stopVm and startVm stopped-waits; not a host-refresh value."
+      "matchCount": 13,
+      "reason": "Sequence check status, diagnostic outcome and failure-class fallbacks, plus unobserved VM states in cold-power-cycle recovery, pre-restart diagnostics and stopVm and startVm stopped-waits; not a host-refresh value."
     },
     {
       "wireCode": "host_refresh.unknown",
@@ -6479,7 +6531,7 @@
     "openBlockerCount": 0,
     "displayOnlyCount": 10,
     "catalogBoundaryCount": 11,
-    "consumerCount": 409,
-    "literalExclusionCount": 282
+    "consumerCount": 410,
+    "literalExclusionCount": 289
   }
 }

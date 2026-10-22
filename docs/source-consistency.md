@@ -255,6 +255,16 @@ rendering; KVM delays replacing its qcow2 overlay until seed generation succeeds
 Every KVM Linux builder resolves its network and reachable host address once,
 as a pair, before rendering. Its explicit address override remains authoritative.
 
+Linux builders name their shared phases alike on every host: `Yuruna harness
+SSH key`, `Vault user password` for test guests or `Vault admin password` for
+service guests, `Select the guest network`, and `Yuruna host coordinates`. The
+host coordinates phase starts where the builder takes the host address
+reachable through the selected network, so a UTM builder that resolves both in
+one call still marks the address as part of the coordinates. Each phase carries
+the same short comment and documentation link across hosts; wording that
+differs names a real platform difference, such as a Hyper-V switch instead of a
+libvirt network or UTM network mode.
+
 Amazon Linux 2023 boots a prebuilt cloud image. Its builders do not seed a dnf
 proxy address: the address could go stale before the guest can verify it, which
 would strand package transactions. The guest update script discovers and probes
@@ -1274,6 +1284,14 @@ verdict only gates recovery; the final verdict always reads the resulting endpoi
 The caching proxy additionally owns host proxy settings, CA/config-service
 setup, bridge preparation and multiple port mappings; its healthy-VM
 adoption and lifecycle lock remain specific to those responsibilities.
+
+Every lifecycle script's `Initialize service runtime` region carries the same
+pointers, https://yuruna.link/42fffc2c-000b and https://yuruna.link/42162449-0004,
+and keeps its preference assignments ahead of `Use-LogLevelFromEnv`. The
+phase-order exceptions among the starters, such as runtime-directory placement,
+stash's missing address phase and failure-first branches, and the caching
+proxy's builder resolution before the start intent, are explained at
+https://yuruna.link/42f52e37-0020.
 
 Acquire the caching-proxy lifecycle lock before destructive VM or port-map
 changes and release it through `try`/`finally` on every exit. An in-process
@@ -2535,12 +2553,31 @@ also works in Windows PowerShell 5.1 and older emulated PowerShell processes.
 Both the JDK and update phases accept native identities 9 (AMD64) and 12 (ARM64)
 and reject unsupported or unavailable identities before package installation.
 
+The three host installers keep their shared regions in one order: `Deferred
+issues`, `Preflight: host architecture`, `Preflight: system requirements`,
+`Elevation announcement`, `Private installer recovery state`, `Preserve running
+service VMs`, `Install platform packages`, `PowerShell modules`, `Preserve
+test/status runtime state`, `Tolerate a v / no-v tag mismatch`, `Development repo
+pulls latest main, not a release tag`, `Clone / update the repo`, `Renormalize
+line endings under .gitattributes`, `Pin to the current release`, `Seed
+test.config.yml from template`, `Baseline reset: remove test-* VMs`, `Test
+modules`, `Host configuration`, `Done summary`, and `Installation summary`.
+Platform regions sit between them. macOS runs `Refresh dispatch` before every
+region so a refresh request never reaches a mutation. Windows elevates through a
+UAC relaunch, so it has no session-group preflight, and it checks its Hyper-V
+edition before system requirements. macOS verifies UTM before installing
+PowerShell modules and repairs version floors before `Host configuration`, so
+host settings run on the repaired PowerShell; Ubuntu and Windows report floors
+after `Done summary`. Windows prints the backup notice inside each `Done
+summary` outcome because the elevated console closes when the run ends. Ubuntu
+checks CPU virtualization after `Elevation announcement`.
+
 ---
 
 LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.18.1
+Last review: 2026.10.22
 
 Back to [Yuruna](../README.md)

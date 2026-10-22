@@ -87,6 +87,8 @@ write_files:
       YURUNA_STATUS_SERVICE_IP=YURUNA_STATUS_SERVICE_IP_PLACEHOLDER
       YURUNA_STATUS_SERVICE_PORT=YURUNA_STATUS_SERVICE_PORT_PLACEHOLDER
       YURUNA_CACHING_PROXY_SERVICE_IP=YURUNA_CACHING_PROXY_SERVICE_IP_PLACEHOLDER
+      YURUNA_GITHUB_REPO=YURUNA_GITHUB_REPO_PLACEHOLDER
+      YURUNA_GITHUB_REF=YURUNA_GITHUB_REF_PLACEHOLDER
   # Operator note; the env files above carry the live coordinates.
   - path: /etc/yuruna/README.pool-control-service
     permissions: '0644'
@@ -190,6 +192,32 @@ runcmd:
       YR_PORT=$(sed -nE 's/^YURUNA_STATUS_SERVICE_PORT=(.*)$/\1/p' "$HF" 2>/dev/null | head -n1)
       ATTEMPT=$((ATTEMPT + 1))
     done
+    # The seed identity is trusted; the LAN supplies only its exact Git objects.
+    if [ "$OK" -eq 0 ] && [ -n "$FETCH_DIR" ]; then
+      YR_PROXY=$(sed -nE 's/^YURUNA_CACHING_PROXY_SERVICE_IP=(.*)$/\1/p' "$HF" 2>/dev/null | head -n1)
+      YR_REPO=$(sed -nE 's/^YURUNA_GITHUB_REPO=(.*)$/\1/p' "$HF" 2>/dev/null | head -n1)
+      YR_SHA=$(sed -nE 's/^YURUNA_GITHUB_REF=(.*)$/\1/p' "$HF" 2>/dev/null | head -n1)
+      if printf '%s\n' "$YR_PROXY" | grep -Eq '^[A-Za-z0-9][A-Za-z0-9.-]*$' &&
+         printf '%s\n' "$YR_REPO" | grep -Eq '^[A-Za-z0-9_-][A-Za-z0-9_.-]*/[A-Za-z0-9_-][A-Za-z0-9_.-]*$' &&
+         printf '%s\n' "$YR_SHA" | grep -Eq '^[0-9a-f]{40}$'; then
+        LAN_URL="http://$YR_PROXY/git/$YR_REPO.git"
+        rm -rf "$FETCH_DIR/tree"
+        if mkdir -p "$FETCH_DIR/empty-home" && git init --quiet "$FETCH_DIR/tree" &&
+           env -i PATH="$PATH" HOME="$FETCH_DIR/empty-home" XDG_CONFIG_HOME="$FETCH_DIR/empty-home" \
+             GIT_CONFIG_COUNT=0 GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_SYSTEM=/dev/null \
+             GIT_CONFIG_GLOBAL=/dev/null GIT_TERMINAL_PROMPT=0 GIT_ASKPASS= SSH_ASKPASS= GCM_INTERACTIVE=never \
+             timeout --kill-after=5 120 git -C "$FETCH_DIR/tree" -c http.proxy= -c credential.helper= \
+             -c http.extraHeader= -c http.followRedirects=false fetch --quiet --depth 1 --no-tags -- "$LAN_URL" "$YR_SHA" &&
+           git -C "$FETCH_DIR/tree" checkout --quiet --detach FETCH_HEAD &&
+           [ "$(git -C "$FETCH_DIR/tree" rev-parse HEAD)" = "$YR_SHA" ]; then
+          printf '%s\n' "$YR_SHA" > "$FETCH_DIR/tree/.yuruna-revision"
+          printf 'https://github.com/%s.git\n' "$YR_REPO" > "$FETCH_DIR/tree/.yuruna-origin"
+          rm -rf "$FETCH_DIR/tree/dev-only" "$FETCH_DIR/tree/docs"
+          if yuruna_accept_framework; then OK=1; SRC=lan-mirror; SRC_URL="$LAN_URL"; fi
+        fi
+        [ "$OK" -eq 1 ] || rm -rf "$FETCH_DIR/tree"
+      fi
+    fi
     if [ "$OK" -eq 0 ]; then
       echo "yuruna pool-control-service: host status service did not serve the framework after 6 attempts; cloning the public mirror instead -- this daemon will run PUBLISHED code, which is older than the host's enlistment." >&2
       if [ -n "$FETCH_DIR" ] &&
@@ -202,6 +230,7 @@ runcmd:
       {
         echo "source=$SRC"
         echo "url=$SRC_URL"
+        if [ "$SRC" = lan-mirror ]; then echo "commit=$YR_SHA"; fi
         echo "version=$(head -n1 "$DEST/VERSION" 2>/dev/null | tr -d '[:space:]')"
         echo "fetchedAt=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
       } > /etc/yuruna/framework-source

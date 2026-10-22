@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.18.2
+.VERSION 2026.10.22
 .GUID 421b43ea-86ef-4745-ba78-cc02250870e2
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -273,6 +273,76 @@ echo "$r"
 '@
         $out = Invoke-RetryLibDriver -Driver $driver
         Assert-StringEqual -Actual $out -Expected 'N H R' -Because "apt non-interactive/hoist result was: '$out'"
+    }
+    It 'purges a cached apt index that disagrees with its InRelease before the next attempt' {
+        # See https://yuruna.link/4220a755-005e
+        # offline_mode serves a stored object without asking the origin, and a
+        # no-cache request does not change that, so only a PURGE frees the pair.
+        if (-not $script:bash) { Set-ItResult -Skipped -Because 'bash is not available on this host'; return }
+        $driver = @'
+
+r=""
+d=$(mktemp -d) || { echo "no-tmpdir"; exit 0; }
+# Real executables on PATH, as in the test above. The fake apt-get fails its
+# first call the way apt reports a mismatched pair; MODE picks the repository.
+cat > "$d/apt-get" <<'EOF'
+#!/bin/sh
+n=$(cat "$CTR" 2>/dev/null || echo 0); n=$((n + 1)); echo "$n" > "$CTR"
+case "$MODE" in
+  suite) u="https://repo.example/linux/dists/noble/stable/binary-arm64/Packages.bz2" ;;
+  flat)  u="https://pkgs.example/core:/stable:/v1.37/deb/Packages" ;;
+  other) echo "E: Failed to fetch https://repo.example/linux/dists/noble/InRelease  Could not connect to 10.0.0.5:3129" >&2; exit 100 ;;
+esac
+if [ "$n" -eq 1 ]; then
+  echo "E: Failed to fetch $u  File has unexpected size (5 != 6). Mirror sync in progress? [IP: 10.0.0.5 3129]" >&2
+  exit 100
+fi
+exit 0
+EOF
+cat > "$d/curl" <<'EOF'
+#!/bin/sh
+echo "$*" >> "$CURLLOG"
+case "$*" in
+  *" -I "*) printf 'HTTP/1.1 200 OK\r\nAge: 9\r\nServer: s\r\n' ;;
+  *PURGE*) printf 200 ;;
+esac
+EOF
+cat > "$d/apt-config" <<'EOF'
+#!/bin/sh
+[ -n "$PROXY" ] && echo "p_https='$PROXY'"
+exit 0
+EOF
+chmod +x "$d/apt-get" "$d/curl" "$d/apt-config"
+PATH="$d:$PATH"
+hash -r
+unset http_proxy https_proxy
+export YURUNA_RETRY_MAX_ATTEMPTS=3 CURLLOG="$d/curl.log"
+sleep() { :; }
+p="--max-time 10 --proxy http://10.0.0.5:3129 -X PURGE"
+
+export MODE=suite PROXY=http://10.0.0.5:3129 CTR="$d/c1"
+o=$(apt_retry apt-get update -y 2>&1) && [ "$(cat "$d/c1")" = 2 ] && r="${r}R " || r="${r}r "
+grep -qF -- "$p https://repo.example/linux/dists/noble/InRelease" "$d/curl.log" \
+  && grep -qF -- "$p https://repo.example/linux/dists/noble/stable/binary-arm64/Packages.bz2" "$d/curl.log" && r="${r}S " || r="${r}s "
+case "$o" in *"proxy copy of https://repo.example/linux/dists/noble/InRelease: HTTP/1.1 200 OK;Age: 9"*) r="${r}H " ;; *) r="${r}h " ;; esac
+
+: > "$d/curl.log"; export MODE=flat CTR="$d/c2"
+apt_retry apt-get update -y >/dev/null 2>&1
+grep -qF -- "$p https://pkgs.example/core:/stable:/v1.37/deb/InRelease" "$d/curl.log" && r="${r}F " || r="${r}f "
+
+: > "$d/curl.log"; export MODE=suite PROXY= CTR="$d/c3"
+o=$(apt_retry apt-get update -y 2>&1)
+[ ! -s "$d/curl.log" ] && case "$o" in *"no caching proxy for https"*) r="${r}X " ;; *) r="${r}x " ;; esac || r="${r}x "
+
+: > "$d/curl.log"; export MODE=other PROXY=http://10.0.0.5:3129 CTR="$d/c4"
+apt_retry apt-get update -y >/dev/null 2>&1 || true
+[ ! -s "$d/curl.log" ] && [ "$(cat "$d/c4")" = 3 ] && r="${r}N" || r="${r}n"
+
+rm -rf "$d"
+echo "$r"
+'@
+        $out = Invoke-RetryLibDriver -Driver $driver
+        Assert-StringEqual -Actual $out -Expected 'R S H F X N' -Because "apt index heal result was: '$out'"
     }
     It 'classifies wget exit codes (incl. re-probe on exit 8) and emits one YURUNA_RETRY marker per failed attempt' {
         if (-not $script:bash) { Set-ItResult -Skipped -Because 'bash is not available on this host'; return }

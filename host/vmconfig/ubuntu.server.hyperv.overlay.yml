@@ -36,17 +36,10 @@
     # The live system's 15-minute tmpfiles-clean timer otherwise races curtin's /target/run unmount.
     - systemctl stop systemd-tmpfiles-clean.timer 2>/dev/null || true
 # === YURUNA_OVERLAY_LATE_HOST_AGENT ===
-    # --- REGION: https://yuruna.link/42e220c4-0007
-    # The host reads COM1 through a named pipe while the cycle runs. journald
-    # forwards every level there, so the serial log carries the guest's own
-    # account of a silence that leaves SSH and the console unanswered, while
-    # the framebuffer console the OCR reads stays quiet. A guest without a
-    # serial port logs one journald warning and nothing else. The device name
-    # follows the guest architecture: Hyper-V's COM port is a 16550 UART,
-    # ttyS0, on x64, and an SBSA PL011 UART, ttyAMA0, on ARM64, where no ttyS0
-    # exists and a console pointed at it leaves the host reader at 0 bytes.
-    # The installer kernel already runs the target's architecture, so uname
-    # decides here, and the heredoc stays unquoted so $tty expands.
+    # --- REGION: https://yuruna.link/42dc5bb9-0004
+    # Forward journald to the COM1 UART this architecture has (ttyS0 on x64, ttyAMA0
+    # on ARM64); the installer kernel already runs the target's architecture.
+    # The heredoc stays unquoted so $tty expands.
     - |
       tty=ttyS0; [ "$(uname -m)" = aarch64 ] && tty=ttyAMA0
       cat > /target/etc/systemd/journald.conf.d/70-yuruna-serial.conf << EOF
@@ -58,15 +51,10 @@
       EOF
       chmod 0644 /target/etc/systemd/journald.conf.d/70-yuruna-serial.conf
 # === YURUNA_OVERLAY_GRUB_PRE_CONSOLE_QUIET ===
-    # --- REGION: https://yuruna.link/42e220c4-0007
-    # The kernel's early boot and panic output reach COM1 only through a
-    # console= argument naming the UART this platform has (ttyS0 on x64, the
-    # PL011 ttyAMA0 on ARM64; see the journald drop-in above). tty0 stays
-    # last, so it remains the primary console and the framebuffer the OCR
-    # reads is unchanged; the quiet loglevel that follows applies to both,
-    # and journald's forwarding above carries the rest to the serial port.
-    # printf with a single-quoted format keeps ${GRUB_CMDLINE_LINUX_DEFAULT}
-    # literal for GRUB while the %s takes the device chosen here.
+    # --- REGION: https://yuruna.link/42dc5bb9-0004
+    # Name the same UART on the kernel cmdline; tty0 stays last so the framebuffer
+    # the OCR reads remains the primary console.
+    # The single-quoted printf format keeps ${GRUB_CMDLINE_LINUX_DEFAULT} literal for GRUB.
     - |
       tty=ttyS0; [ "$(uname -m)" = aarch64 ] && tty=ttyAMA0
       printf 'GRUB_CMDLINE_LINUX_DEFAULT="${GRUB_CMDLINE_LINUX_DEFAULT} console=%s,115200n8 console=tty0"\n' "$tty" > /target/etc/default/grub.d/98-yuruna-serial.cfg

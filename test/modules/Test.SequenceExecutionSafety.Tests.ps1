@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.18.2
+.VERSION 2026.10.22
 .GUID 42e6d9c8-1705-43a2-89f3-6013cc25bb54
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -50,6 +50,9 @@ Describe 'real sequence execution preserves source positions and current-step ca
                     recorder=@{ heartbeatAgeSeconds=256; clockAnalysis=@{ comparison='same-boot'; warnings=@(@{ code='cpu-idle-exceeds-boot-uptime'; cpu='cpu0' }) } } }
             }
             if ($context.Step.seedOldCause) { $state.StepGuestRunLost=$true; $state.WaitForTextOcrTail='old OCR text' }
+            if ($context.Step.seedConsoleEvidence) {
+                $state.WaitForTextConsoleSecondOpinion = [pscustomobject]@{ Verdict='guest-wedged'; Detail='independent VNC read'; QemuPid=4321; VncPort=5983; CpuPercent=782; FramesChanged=$false }
+            }
             if ($context.Step.children) {
                 $childResult = & $context.InvokeStepBlock -Steps $context.Step.children -ParentOrdinal $context.StepNum -ParentAction safetyFixture -ParentAttempt 1
                 if ($context.Step.throwAfterChildren) { throw 'fixture outer handler crash' }
@@ -103,11 +106,11 @@ Describe 'real sequence execution preserves source positions and current-step ca
     It 'clears transport and OCR causes inherited from a previous sequence' {
         $state = Get-SequenceFailureState
         foreach ($name in @('StepGuestAddressUnresolved','StepGuestTransportLost','StepGuestRunLost','StepGuestPayloadUnavailable',
-                'StepVmNotStopped','WaitForTextMatchedFailurePattern','WaitForTextClosestOnScreen','WaitForTextConsoleFlood')) { $state[$name] = 'stale' }
+                'StepVmNotStopped','WaitForTextMatchedFailurePattern','WaitForTextClosestOnScreen','WaitForTextConsoleFlood','WaitForTextConsoleSecondOpinion')) { $state[$name] = 'stale' }
         $script:FixtureSequence = @{steps=@(@{action='safetyFixture';fail=$true})}
         Invoke-Sequence -HostType host.ubuntu.kvm -GuestKey guest.fixture -VMName never-a-real-vm -SequencePath $script:SequenceFile | Should -BeFalse
         foreach ($name in @('StepGuestAddressUnresolved','StepGuestTransportLost','StepGuestRunLost','StepGuestPayloadUnavailable',
-                'StepVmNotStopped','WaitForTextMatchedFailurePattern','WaitForTextClosestOnScreen','WaitForTextConsoleFlood')) { $state[$name] | Should -BeNullOrEmpty }
+                'StepVmNotStopped','WaitForTextMatchedFailurePattern','WaitForTextClosestOnScreen','WaitForTextConsoleFlood','WaitForTextConsoleSecondOpinion')) { $state[$name] | Should -BeNullOrEmpty }
     }
     It 'preserves capture failures and independent progress observations in step events' {
         Mock Get-VMScreenshot -ModuleName Test.SequenceEngine { $false }
@@ -188,6 +191,30 @@ Describe 'real sequence execution preserves source positions and current-step ca
         (Get-SequenceFailureState).OriginatingSequenceInvocationId | Should -Be ''
         (Get-SequenceFailureState).StepProgressAdvisory | Should -BeNullOrEmpty
     }
+    It 'keeps the deepest pre-login VM observations in the real nested retry file and event paths' {
+        Mock Get-VMScreenshot -ModuleName Test.SequenceEngine { $false }
+        $script:FixtureEvents = [Collections.Generic.List[object]]::new()
+        Mock Send-CycleEventSafely -ModuleName Test.SequenceEngine { $script:FixtureEvents.Add($EventRecord) }
+        $script:FixtureSequence = @{steps=@(@{action='retry';maxAttempts=1;steps=@(
+            @{action='retry';maxAttempts=1;steps=@(@{action='safetyFixture';seedConsoleEvidence=$true;fail=$true})}
+        )})}
+        Invoke-Sequence -HostType host.macos.utm -GuestKey guest.fixture -VMName never-a-real-vm -SequencePath $script:SequenceFile | Should -BeFalse
+        $record = Get-Content (Join-Path $env:YURUNA_LOG_DIR 'last_failure.json') -Raw | ConvertFrom-Json
+        $record.context.causeDetail.consoleSecondOpinion.Verdict | Should -Be 'guest-wedged'
+        $record.context.causeDetail.consoleSecondOpinion.QemuPid | Should -Be 4321
+        $record.context.causeDetail.consoleSecondOpinion.VncPort | Should -Be 5983
+        $record.context.causeDetail.consoleSecondOpinion.CpuPercent | Should -Be 782
+        $record.originatingStepInvocationId | Should -Be $script:FixtureRows[0].StepInvocationId
+        $events = @($script:FixtureEvents | Where-Object { $_.event -in @('step_end','step_failure') })
+        $events.Count | Should -Be 4 -Because 'the leaf, both retry wrappers and final failure retain the observation'
+        foreach ($entry in $events) {
+            $entry.consoleSecondOpinion.Verdict | Should -Be 'guest-wedged'
+            $entry.consoleSecondOpinion.CpuPercent | Should -Be 782
+            $entry.originatingStepInvocationId | Should -Be $record.originatingStepInvocationId
+            $entry.progressAdvisory.SshResponsiveness | Should -Be 'unavailable'
+            $entry.progressAdvisory.AutomaticRecoveryAllowed | Should -BeFalse
+        }
+    }
     It 'restores the outer invocation after a nested success before an outer crash' {
         $script:FixtureSequence = @{steps=@(@{action='safetyFixture';children=@(@{action='safetyFixture'});throwAfterChildren=$true})}
         Invoke-Sequence -HostType host.ubuntu.kvm -GuestKey guest.fixture -VMName never-a-real-vm -SequencePath $script:SequenceFile | Should -BeFalse
@@ -199,7 +226,7 @@ Describe 'real sequence execution preserves source positions and current-step ca
     It 'attributes a distinct outer crash to its own invocation after a failed child' {
         $script:FixtureEvents = [Collections.Generic.List[object]]::new()
         Mock Send-CycleEventSafely -ModuleName Test.SequenceEngine { $script:FixtureEvents.Add($EventRecord) }
-        $script:FixtureSequence = @{steps=@(@{action='safetyFixture';children=@(@{action='safetyFixture';seedEvidence=$true;fail=$true});throwAfterChildren=$true})}
+        $script:FixtureSequence = @{steps=@(@{action='safetyFixture';children=@(@{action='safetyFixture';seedEvidence=$true;seedConsoleEvidence=$true;fail=$true});throwAfterChildren=$true})}
         Invoke-Sequence -HostType host.ubuntu.kvm -GuestKey guest.fixture -VMName never-a-real-vm -SequencePath $script:SequenceFile | Should -BeFalse
         $record = Get-Content (Join-Path $env:YURUNA_LOG_DIR 'last_failure.json') -Raw | ConvertFrom-Json
         $record.reason | Should -Be crash
@@ -208,6 +235,7 @@ Describe 'real sequence execution preserves source positions and current-step ca
         $record.originatingStepInvocationId | Should -Not -Be $script:FixtureRows[1].StepInvocationId
         $failure = @($script:FixtureEvents | Where-Object event -EQ step_failure)[-1]
         $failure.progressAdvisory | Should -BeNullOrEmpty
+        $failure.consoleSecondOpinion | Should -BeNullOrEmpty -Because 'a distinct outer crash is not the earlier console timeout'
     }
     It 'publishes the OCR sidecar writer to its handler module' {
         (Get-Command Save-OcrSidecar -ErrorAction Stop).ModuleName | Should -Be 'Test.SequenceEngine'

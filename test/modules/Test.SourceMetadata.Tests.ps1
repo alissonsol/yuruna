@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.18.2
+.VERSION 2026.10.22
 .GUID 42ba21e6-945f-48b7-aacb-cdc136e03c30
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -110,7 +110,7 @@ function Get-TestGuid {
 
 function Get-PsInfoText {
     param([string]$Guid = (Get-TestGuid), [switch]$NoGuid, [switch]$NoCopyright, [switch]$NoPointer)
-    $lines = @('<#PSScriptInfo', '.VERSION 2026.10.18.2')
+    $lines = @('<#PSScriptInfo', '.VERSION 2026.10.22')
     if (-not $NoGuid) { $lines += ".GUID $Guid" }
     $lines += '.AUTHOR Alisson Sol et al.'
     if (-not $NoCopyright) { $lines += '.COPYRIGHT (c) 2019-2026 by Alisson Sol et al.' }

@@ -12072,6 +12072,41 @@
       "sourceHash": "de8bb1cd8c3782c6541cc40b17ea18cce988b08c975f74f0da56be69685895ad",
       "message": "Diagnósticos de rede: {diagnostics}",
       "origin": "machine"
+    },
+    "runner.git_mirror_token_invalid": {
+      "sourceHash": "af2683cfac73ce062661f8383e7b0f03ba78abde097f2d616f298e14f55663c8",
+      "origin": "machine",
+      "message": "O token do GitHub contém caracteres não suportados. Nada foi armazenado. Execute novamente e cole somente o token ou pressione Enter para manter a autenticação atual."
+    },
+    "runner.git_mirror_token_notice": {
+      "sourceHash": "29b86d452ba586ff0cd92a651846a6e1f0b5d359ab607b8443c73cf57b6ba57c",
+      "origin": "machine",
+      "message": "O token do GitHub é opcional. Pressione Enter para manter a autenticação atual. Fornecer um token reconstrói o proxy de cache para aplicá-lo, mesmo que este hospedeiro já armazene o mesmo token. A reconstrução leva cerca de 15 minutos e descarta o cache aquecido. A entrada fica oculta."
+    },
+    "runner.git_mirror_token_prepare": {
+      "sourceHash": "ea0e687dc9337dcbdb629fd04e62f8ad6c7b82ab3970cd95d8f1fb37102f269e",
+      "origin": "machine",
+      "message": "Solicitar um token opcional do GitHub e armazenar um valor fornecido explicitamente"
+    },
+    "runner.git_mirror_token_prompt": {
+      "sourceHash": "691c66cb33171dd8b6ef936a441ec1cb869a740861fea20286cf4896cab95915",
+      "origin": "machine",
+      "message": "Token opcional do GitHub (Enter mantém a autenticação atual)"
+    },
+    "runner.git_mirror_token_provider_failed": {
+      "sourceHash": "ffdfb8c314233e2d9838679aa064b7c1442cb94c218ef3cc2f89ec5709b6f11b",
+      "origin": "machine",
+      "message": "Não foi possível configurar o token opcional do GitHub. Verifique o provedor de autenticação e as permissões do cofre e execute novamente. O proxy não deve ser reconstruído até que a configuração do token seja concluída com sucesso."
+    },
+    "runner.git_mirror_token_replace_stored": {
+      "sourceHash": "6157930bb05ba4656a11c91bbcacd3d1bb7ced254ac76218d3918eed487d3bf3",
+      "origin": "machine",
+      "message": "github-mirror-token ({vaultKey}): (token armazenado) -> (token fornecido pelo operador). O valor anterior continua recuperável no campo previousPassword do cofre."
+    },
+    "runner.git_mirror_token_store_new": {
+      "sourceHash": "1d24a4894abc4d52bf6bd71fd2194fecca373fde4a7cfac2660f8aad84c5edac",
+      "origin": "machine",
+      "message": "github-mirror-token ({vaultKey}): (nenhum token armazenado) -> (token fornecido pelo operador)."
     }
   }
 }

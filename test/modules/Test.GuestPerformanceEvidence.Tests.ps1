@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.18.2
+.VERSION 2026.10.22
 .GUID 42f463f6-e84a-4c17-b6df-5f7f46b59e05
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -240,6 +240,7 @@ function Get-GuestRunToken { return 'detached' }
 function Invoke-GuestSsh { param($Command) $script:sent=$Command; $script:order+='execute'; return @{success=$false;addressResolved=$true;exitCode=7;output='YURUNA_EXECUTION stepInvocationId=original sequenceInvocationId=prior'} }
 function Publish-GuestRetryMarker { return 0 }
 function Test-GuestPayloadUnavailable { return $false }
+function Get-GuestAptIndexMismatch { return $null }
 function Save-FetchExecutionEvidence { param($Context,$Succeeded,$ElapsedSeconds) $script:order+='capture'; $script:succeeded=$Succeeded }
 '@
             $charDelayHelper=Get-ObservationFunction $script:handlerAst 'Resolve-SequenceCharDelay'
@@ -749,6 +750,10 @@ Describe 'Recorder decimal configuration' {
 fae_recorder_collect() { yes 'ordinary CPU sample'; }
 fae_log='__LOG__'
 E_SI=decimal-recorder
+# The kernel recorder waits for this recorder to finish and then writes its own
+# final files into the same folder. wait returns before that, so it would still
+# be writing while the folder is removed below.
+EXEC_KERNEL_RECORDER=0
 EXEC_RECORDER_INTERVAL_SECONDS=08
 EXEC_RECORDER_MAX_SAMPLES=01
 fae_start_recorder

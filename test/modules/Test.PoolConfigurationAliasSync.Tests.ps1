@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.18.2
+.VERSION 2026.10.22
 .GUID 428a6a51-09a1-4515-99d2-2504e234cbcf
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -140,6 +140,37 @@ Describe 'Sync-PoolConfigurationAliasOnProxy guards' {
             $r = Sync-PoolConfigurationAliasOnProxy -ProxyAddress '192.0.2.10' -WhatIf
             Assert-True $r.Ok
             Assert-False $r.Changed
+        }
+    }
+}
+
+Describe 'Caching proxy diagnostics verify pool configuration HTTP access' {
+    BeforeEach {
+        Import-Module (Join-Path $PSScriptRoot 'Test.VMUtility.psm1') -Global -DisableNameChecking
+        Mock Test-TcpPortReachable -ModuleName Test.CachingProxyService { $true }
+        Mock Get-CachingProxyServiceCaPem -ModuleName Test.CachingProxyService { throw 'no certificate in this fixture' }
+    }
+    It 'reports HTTP 403 even when every service port answers' {
+        Mock Invoke-WebRequest -ModuleName Test.CachingProxyService { @{ StatusCode = 403; Content = 'Forbidden' } }
+        $result = Invoke-CachingProxyServiceProbe -CacheIp '192.0.2.10'
+        $result.HttpProxyReachable | Should -BeTrue
+        $result.Lines -join "`n" | Should -Match 'Pool configuration.*HTTP 403'
+        $result.Lines -join "`n" | Should -Match 'pool-configuration-status'
+    }
+    It 'rejects an HTML landing page returned as Git metadata' {
+        Mock Invoke-WebRequest -ModuleName Test.CachingProxyService { @{ StatusCode = 200; Content = '<html>Ready</html>' } }
+        $result = Invoke-CachingProxyServiceProbe -CacheIp '192.0.2.10'
+        $result.Lines -join "`n" | Should -Match 'Pool configuration.*invalid Git'
+    }
+    It 'checks refs as well as HEAD before reporting successful access' {
+        Mock Invoke-WebRequest -ModuleName Test.CachingProxyService {
+            if ($Uri -like '*/HEAD') { return @{ StatusCode = 200; Content = "ref: refs/heads/main`n" } }
+            return @{ StatusCode = 200; Content = "$('a' * 40)`trefs/heads/main`n" }
+        }
+        $result = Invoke-CachingProxyServiceProbe -CacheIp '192.0.2.10'
+        $result.Lines -join "`n" | Should -Match '\[PASS\] Pool configuration'
+        Should -Invoke Invoke-WebRequest -ModuleName Test.CachingProxyService -Times 1 -Exactly -ParameterFilter {
+            $Uri -like '*/info/refs' -and $NoProxy -and $SkipHttpErrorCheck
         }
     }
 }

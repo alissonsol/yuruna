@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.18.2
+.VERSION 2026.10.22
 .GUID 42d2490f-e2d9-4303-a287-fa13182fb811
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -200,6 +200,70 @@ Describe 'the Host ID a dashboard panel shows' {
 }
 
 Describe 'memory readings alongside the complete host inventory' {
+    It 'classifies commit support independently of scrape health: <Name>' -ForEach @(
+        @{ Name = 'macOS exporter up'; HostType = 'host.macos.utm'; Expected = 'Unsupported' },
+        @{ Name = 'macOS exporter down'; HostType = 'host.macos.utm'; Expected = 'Unsupported' },
+        @{ Name = 'unreachable macOS inventory row'; HostType = 'host.macos.utm'; Expected = 'Unsupported' },
+        @{ Name = 'Windows without a reading'; HostType = 'host.windows.hyper-v'; Expected = 'Supported' },
+        @{ Name = 'legacy public Ubuntu without metrics'; HostType = 'host.ubuntu.kvm'; Expected = 'Supported' },
+        @{ Name = 'unrecognized platform'; HostType = 'host.custom.macos'; Expected = 'Unknown' },
+        @{ Name = 'platform not reported'; HostType = ''; Expected = 'Unknown' }
+    ) {
+        $commit = Get-Panel -Id 24
+        $query = @($commit.targets | Where-Object { $_.refId -eq 'A' })[0].expr
+        # The inventory query owns this label, including rows with no up or
+        # memory series. Apply its ordered label-replacement rules to the
+        # reported host type rather than assuming a scrape can classify it.
+        $rules = @([regex]::Matches($query, ',\s*"headroomSupport",\s*"([^"]+)",\s*"hostType",\s*"([^"]+)"'))
+        Assert-True ($rules.Count -gt 0) 'the inventory must supply an explicit support label'
+        $actual = ''
+        foreach ($rule in $rules) {
+            if ($HostType -cmatch ('^(?:' + $rule.Groups[2].Value + ')$')) { $actual = $rule.Groups[1].Value }
+        }
+        Assert-Equal $Expected $actual
+        Assert-True ($query -notmatch '\bup\s*\{|yuruna_host_memory_|windows_memory_') 'support must not depend on an exporter answering'
+    }
+
+    It 'shows commit support without substituting labels for missing or negative byte readings' {
+        $available = Get-Panel -Id 23
+        $commit = Get-Panel -Id 24
+        $fields = @($commit.transformations | Where-Object { $_.id -eq 'filterFieldsByName' })[0].options.include.names
+        Assert-True ($fields -contains 'headroomSupport') 'the support label must survive the table transformation'
+        $organize = @($commit.transformations | Where-Object { $_.id -eq 'organize' })[0]
+        Assert-Equal 'Support' $organize.options.renameByName.headroomSupport
+        $support = Get-Override $commit 'Support'
+        Assert-Equal 'none' (Get-OverrideProperty $support 'unit')
+        Assert-Equal 'Unknown' (Get-OverrideProperty $support 'noValue')
+        Assert-True ($available.targets[0].expr -notmatch 'headroomSupport') 'physical availability has no unsupported-macOS state'
+        foreach ($ref in 'B', 'C') {
+            $query = @($commit.targets | Where-Object { $_.refId -eq $ref })[0].expr
+            Assert-True ($query -notmatch 'headroomSupport|label_replace|\b(?:NaN|Inf)\b') 'byte queries must retain their measurements instead of inventing unsupported values'
+        }
+        foreach ($column in 'Minimum', 'Latest') {
+            $override = Get-Override $commit $column
+            Assert-True (@($override.properties | Where-Object { $_.id -in @('mappings', 'noValue') }).Count -eq 0) 'missing byte values remain n/a, including supported hosts without metrics'
+        }
+    }
+
+    It 'includes native Unix memory readings in the current values and historical minimums' {
+        $available = Get-Panel -Id 23
+        foreach ($ref in 'B', 'C') {
+            $query = @($available.targets | Where-Object { $_.refId -eq $ref })[0].expr
+            Assert-True ($query -match 'windows_memory_available_bytes') 'Windows readings remain available'
+            Assert-True ($query -match 'yuruna_host_memory_available_bytes') 'Ubuntu and macOS readings must reach the table'
+        }
+        $commit = Get-Panel -Id 24
+        foreach ($ref in 'B', 'C') {
+            $query = @($commit.targets | Where-Object { $_.refId -eq $ref })[0].expr
+            Assert-True ($query -match 'windows_memory_commit_limit') 'Windows commit readings remain available'
+            Assert-True ($query -match 'yuruna_host_memory_commit_limit_bytes') 'Ubuntu commit limit must reach the table'
+            Assert-True ($query -match 'yuruna_host_memory_committed_bytes') 'Ubuntu committed memory must be subtracted'
+        }
+        Assert-True ($available.description -match 'macOS.*estimate') 'macOS availability must be labeled as an estimate'
+        Assert-True ($commit.description -match 'overcommit') 'Linux headroom depends on its overcommit policy'
+        Assert-True ($commit.description -match 'macOS.*n/a') 'macOS has no equivalent commit reading'
+    }
+
     It 'keeps hosts without exporter samples and does not invent zero memory' {
         foreach ($id in $script:MemoryPanels) {
             $panel = Get-Panel -Id $id

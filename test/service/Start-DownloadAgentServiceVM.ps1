@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.18.2
+.VERSION 2026.10.22
 .GUID 42f17d0e-cf42-4655-b11b-a34a4a0b449c
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -44,6 +44,8 @@
     or one whose daemon turns out to have been built from another snapshot -- is
     refused rather than deploying code older than the operator is working in.
     Legitimate off-LAN, where the mirror is the only source there is.
+.PARAMETER AllowPseudoLocale
+    Enable developer pseudo locales for the rebuilt service VM. Disabled by default.
 .EXAMPLE
     pwsh test/service/Start-DownloadAgentServiceVM.ps1
     # Builds + starts the VM, waits for :80, and publishes the marker.
@@ -51,8 +53,6 @@
     $env:YURUNA_DOWNLOAD_AGENT_SERVICE_READY_TIMEOUT_SECONDS = '120'
     pwsh test/service/Start-DownloadAgentServiceVM.ps1
     # Short readiness budget for a quick re-check of a VM that is already up.
-.PARAMETER AllowPseudoLocale
-    Enable developer pseudo locales for the rebuilt service VM. Disabled by default.
 #>
 
 [CmdletBinding(SupportsShouldProcess)]
@@ -72,6 +72,8 @@ $InformationPreference = 'Continue'
 # --- REGION: Initialize service runtime
 # See https://yuruna.link/42fffc2c-000b
 # See https://yuruna.link/42162449-0004
+# After the preference assignments above on purpose: an explicit level is the
+# operator's choice and replaces this script's own default.
 Import-Module (Join-Path $PSScriptRoot '../modules/Test.LogLevel.psm1') -Global -Force -DisableNameChecking
 Use-LogLevelFromEnv
 $InformationPreference = $global:InformationPreference
@@ -219,6 +221,9 @@ $statusDecision = $null
 try {
     $statusScript = Join-Path $repoRoot 'test/service/Start-StatusService.ps1'
     if ($tc -and (Test-Path -LiteralPath $statusScript)) {
+        # Start-YurunaStatusServiceIfEnabled's own console output is intentionally
+        # not surfaced; keep only the {ShouldStart; Port} record, the last
+        # non-string object the gate returns.
         $statusResult = Start-YurunaStatusServiceIfEnabled -Config $tc -StartScript $statusScript
         $statusDecision = @($statusResult | Where-Object { $_ -is [System.Collections.IDictionary] }) | Select-Object -Last 1
     }
@@ -249,9 +254,9 @@ $serviceOpResult = 'confirmed'
 # --- REGION: Resolve the VM address
 # See https://yuruna.link/42e220c4-0008
 Import-Module (Join-Path $ModulesDir 'Test.Ssh.psm1') -Global -Force
-$ipDeadline = (Get-Date)
+$ipWaitStart = (Get-Date)
 $vmIp = try { Wait-VMIp -VMName $VMName -TimeoutSeconds 120 } catch { Write-Verbose "Wait-VMIp: $($_.Exception.Message)"; $null }
-$ipWaitSeconds = [int]((Get-Date) - $ipDeadline).TotalSeconds
+$ipWaitSeconds = [int]((Get-Date) - $ipWaitStart).TotalSeconds
 
 # --- REGION: Configure Shared NAT forwarding
 # See https://yuruna.link/42e220c4-0008
@@ -347,8 +352,6 @@ if ($vmIp) {
 
 # --- REGION: Recover the VM address
 # See https://yuruna.link/4220a755-0046
-# Spent here and nowhere else: the sweep costs about two minutes, and this is
-# the one place where the alternative is calling a healthy daemon failed.
 $recoveredIp = ''
 if ((Get-ServiceVmReadinessVerdict -Endpoint $endpoint).IsFailure) {
     $recovery = Confirm-ServiceVmAtRecoveredAddress -VMName $VMName -Port 80 -KnownAddress ([string]$vmIp) -TimeoutSeconds $recoveryProbeSeconds

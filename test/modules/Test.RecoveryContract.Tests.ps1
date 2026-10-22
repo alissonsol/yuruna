@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.18.2
+.VERSION 2026.10.22
 .GUID 42994830-6205-4cf7-a39c-84254b1669c3
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -492,6 +492,10 @@ Describe 'ConvertTo-RunnerRecoveryResult' {
         @{ Dispatch = @{ Outcome = 'no-cycle-result'; ExitCode = 1 }; Outcome = 'infrastructure-fault'; Class = 'outcome_unrecorded'; Stage = 'CycleOutcome' }
         @{ Dispatch = @{ Outcome = 'cycle-aborted'; ExitCode = 64 }; Outcome = 'aborted'; Class = 'cycle_killed'; Stage = 'CycleStart' }
         @{ Dispatch = @{ Outcome = 'pull-error'; ExitCode = 0; RecordDetail = "Unable to create '.git/index.lock': File exists" }; Outcome = 'infrastructure-fault'; Class = 'bootstrap_sync'; Stage = 'FrameworkPull' }
+        @{ Dispatch = @{ Outcome = 'pull-error'; ExitCode = 0; RecordFailureClass = 'source_integrity' }; Outcome = 'infrastructure-fault'; Class = 'source_integrity'; Stage = 'FrameworkPull' }
+        @{ Dispatch = @{ Outcome = 'pull-error'; ExitCode = 0; RecordFailureClass = 'network_timeout' }; Outcome = 'infrastructure-fault'; Class = 'network_timeout'; Stage = 'FrameworkPull' }
+        @{ Dispatch = @{ Outcome = 'pull-error'; ExitCode = 0; RecordFailureClass = 'project_access_denied' }; Outcome = 'infrastructure-fault'; Class = 'project_access_denied'; Stage = 'FrameworkPull' }
+        @{ Dispatch = @{ Outcome = 'pull-error'; ExitCode = 0; RecordFailureClass = 'unrecognized-source-class' }; Outcome = 'infrastructure-fault'; Class = 'bootstrap_sync'; Stage = 'FrameworkPull' }
         @{ Dispatch = @{ Outcome = 'spawn-failed'; ExitCode = 0 }; Outcome = 'infrastructure-fault'; Class = 'cycle_spawn_failed'; Stage = 'CycleSpawn' }
         @{ Dispatch = @{ Outcome = 'storage-full'; ExitCode = 1 }; Outcome = 'infrastructure-fault'; Class = 'pool_storage_full'; Stage = 'PoolStorage' }
     ) {

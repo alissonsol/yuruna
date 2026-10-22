@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.18.2
+.VERSION 2026.10.22
 .GUID 422dbaf3-8d25-41fa-abc0-e70b2229b2b7
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -66,6 +66,10 @@ BeforeAll {
     $script:OpenProbe = { param($Address, $Port) [ordered]@{ address = $Address; port = $Port; open = $true; ms = 3; error = $null } }
     $script:ClosedProbe = { param($Address, $Port) [ordered]@{ address = $Address; port = $Port; open = $false; ms = 2000; error = 'timeout' } }
     $script:ThrowingProbe = { param($Address, $Port) throw "socket exploded for ${Address}:$Port" }
+    $script:SavedHttpPort = $env:YURUNA_CACHING_PROXY_SERVICE_HTTP_PORT
+    $script:SavedHttpsPort = $env:YURUNA_CACHING_PROXY_SERVICE_HTTPS_PORT
+    $env:YURUNA_CACHING_PROXY_SERVICE_HTTP_PORT = ''
+    $env:YURUNA_CACHING_PROXY_SERVICE_HTTPS_PORT = ''
 
     function New-CrossCheckDirectory {
         [CmdletBinding()]
@@ -95,6 +99,11 @@ BeforeAll {
         if ($Neighbor -eq 'throw') { Mock -CommandName Get-GuestNetworkCrossCheckNeighborState -ModuleName $script:ModuleName -MockWith { throw 'neighbor exploded' } }
         else { $state = $Neighbor; Mock -CommandName Get-GuestNetworkCrossCheckNeighborState -ModuleName $script:ModuleName -MockWith { $state }.GetNewClosure() }
     }
+}
+
+AfterAll {
+    $env:YURUNA_CACHING_PROXY_SERVICE_HTTP_PORT = $script:SavedHttpPort
+    $env:YURUNA_CACHING_PROXY_SERVICE_HTTPS_PORT = $script:SavedHttpsPort
 }
 
 Describe 'the verdict names which end the host could reach' {
@@ -186,14 +195,119 @@ Describe 'the check probes both ends and lands its files' {
         $result.verdict | Should -Be 'both-reachable'
     }
 
-    It 'uses the built-in TCP probe when no seam is injected, with a closed socket as the answer' {
+    It 'uses bounded TCP probes for both proxy listeners and SSH when no seam is injected' {
         Set-ProbeMock -Http up -Ping $false -Neighbor 'absent'
-        # TEST-NET-1 (RFC 5737) is never routed, so the connect times out or is refused.
+        Mock -CommandName Test-GuestNetworkCrossCheckTcpPort -ModuleName $script:ModuleName -MockWith {
+            param($Address, $Port)
+            [ordered]@{ address = $Address; port = $Port; open = $false; ms = 2000; error = 'timeout' }
+        }
         $result = Invoke-GuestNetworkCrossCheck -VMName 'vm' -GuestKey 'g' -OutputDirectory (New-CrossCheckDirectory) `
             -CacheHost '192.0.2.42' -GuestAddress '192.0.2.129'
         $result.guestTcp22.open | Should -BeFalse
         $result.guestTcp22.port | Should -Be 22
         $result.guestTcp22.ms | Should -Not -BeNullOrEmpty
+        Should -Invoke -CommandName Test-GuestNetworkCrossCheckTcpPort -ModuleName $script:ModuleName -Times 1 -Exactly -ParameterFilter {
+            $Address -eq '192.0.2.42' -and $Port -eq 3128 -and $TimeoutMs -eq 2000
+        }
+        Should -Invoke -CommandName Test-GuestNetworkCrossCheckTcpPort -ModuleName $script:ModuleName -Times 1 -Exactly -ParameterFilter {
+            $Address -eq '192.0.2.42' -and $Port -eq 3129 -and $TimeoutMs -eq 2000
+        }
+        Should -Invoke -CommandName Test-GuestNetworkCrossCheckTcpPort -ModuleName $script:ModuleName -Times 1 -Exactly -ParameterFilter {
+            $Address -eq '192.0.2.129' -and $Port -eq 22 -and $TimeoutMs -eq 2000
+        }
+    }
+
+    It 'records a closed loopback socket through the real TCP probe' {
+        $socket = [System.Net.Sockets.Socket]::new(
+            [System.Net.Sockets.AddressFamily]::InterNetwork,
+            [System.Net.Sockets.SocketType]::Stream,
+            [System.Net.Sockets.ProtocolType]::Tcp)
+        try {
+            # Reserve the port without listening so another suite cannot claim it.
+            $socket.Bind([System.Net.IPEndPoint]::new([System.Net.IPAddress]::Loopback, 0))
+            $port = $socket.LocalEndPoint.Port
+            $result = & (Get-Module $script:ModuleName) {
+                param([int]$ProbePort)
+                Test-GuestNetworkCrossCheckTcpPort -Address '127.0.0.1' -Port $ProbePort -TimeoutMs 2000
+            } $port
+        } finally { $socket.Dispose() }
+        $result.open | Should -BeFalse
+        $result.address | Should -Be '127.0.0.1'
+        $result.port | Should -Be $port
+        $result.error | Should -Not -BeNullOrEmpty
+        $result.ms | Should -Not -BeNullOrEmpty
+    }
+}
+
+Describe 'proxy listener evidence is separate from host reachability' {
+    BeforeEach { Set-ProbeMock -Http up -Ping $false -Neighbor 'Reachable' }
+
+    It 'records a silent HTTPS listener even when the cache health page and guest answer' {
+        $dir = New-CrossCheckDirectory
+        $result = Invoke-GuestNetworkCrossCheck -VMName 'vm' -OutputDirectory $dir `
+            -CacheHost '192.0.2.42' -GuestAddress '192.0.2.129' -TcpProbe {
+                param($Address, $Port)
+                [ordered]@{ address = $Address; port = $Port; open = ($Port -ne 3129); ms = 7; error = $(if ($Port -eq 3129) { 'timeout' } else { $null }) }
+            }
+        $result.verdict | Should -Be 'both-reachable'
+        $saved = Get-Content -Raw (Join-Path $dir 'network-cross-check.json') | ConvertFrom-Json
+        $saved.cacheHttpTcp.address | Should -Be '192.0.2.42'
+        $saved.cacheHttpTcp.port | Should -Be 3128
+        $saved.cacheHttpTcp.open | Should -BeTrue
+        $saved.cacheHttpsTcp.port | Should -Be 3129
+        $saved.cacheHttpsTcp.open | Should -BeFalse
+        $saved.cacheHttpsTcp.ms | Should -Be 7
+        $saved.cacheHttpsTcp.error | Should -Be 'timeout'
+        $text = Get-Content -Raw (Join-Path $dir 'network-cross-check.txt')
+        $text | Should -Match '(?m)^cacheHttpTcp:\s+192\.0\.2\.42:3128 open=True ms=7'
+        $text | Should -Match '(?m)^cacheHttpsTcp:\s+192\.0\.2\.42:3129 open=False ms=7 error=timeout'
+        $text | Should -Match 'does not establish guest egress'
+    }
+
+    It 'continues the HTTPS and guest probes after the HTTP listener probe throws' {
+        $dir = New-CrossCheckDirectory
+        $result = Invoke-GuestNetworkCrossCheck -VMName 'vm' -OutputDirectory $dir `
+            -CacheHost '192.0.2.42' -GuestAddress '192.0.2.129' -TcpProbe {
+                param($Address, $Port)
+                if ($Port -eq 3128) { throw 'HTTP listener probe failed' }
+                [ordered]@{ address = $Address; port = $Port; open = $true; ms = 4; error = $null }
+            }
+        $result.cacheHttpTcp.error | Should -Be 'HTTP listener probe failed'
+        $result.cacheHttpTcp.open | Should -BeFalse
+        $result.cacheHttpsTcp.open | Should -BeTrue
+        $result.guestTcp22.open | Should -BeTrue
+        $result.verdict | Should -Be 'both-reachable'
+        (Get-Content -Raw (Join-Path $dir 'network-cross-check.json') | ConvertFrom-Json).cacheHttpTcp.error |
+            Should -Be 'HTTP listener probe failed'
+    }
+
+    It 'uses the loaded shared port resolver for each listener' {
+        $portModule = New-Module -Name CrossCheckPortFixture -ScriptBlock {
+            function Get-CachingProxyServicePort {
+                param([string]$Scheme)
+                if ($Scheme -eq 'http') { 4128 } else { 4129 }
+            }
+        } | Import-Module -Global -PassThru
+        try {
+            $result = Invoke-GuestNetworkCrossCheck -VMName 'vm' -OutputDirectory (New-CrossCheckDirectory) `
+                -CacheHost '192.0.2.42' -GuestAddress '192.0.2.129' -TcpProbe $script:OpenProbe
+            $result.cacheHttpTcp.port | Should -Be 4128
+            $result.cacheHttpsTcp.port | Should -Be 4129
+        } finally { Remove-Module -ModuleInfo $portModule -Force }
+    }
+
+    It 'honors environment port overrides without loading a companion module' {
+        $env:YURUNA_CACHING_PROXY_SERVICE_HTTP_PORT = '5128'
+        $env:YURUNA_CACHING_PROXY_SERVICE_HTTPS_PORT = '5129'
+        try {
+            $result = Invoke-GuestNetworkCrossCheck -VMName 'vm' -OutputDirectory (New-CrossCheckDirectory) `
+                -CacheHost '192.0.2.42' -GuestAddress '192.0.2.129' -TcpProbe $script:OpenProbe
+            $result.cacheHttpTcp.port | Should -Be 5128
+            $result.cacheHttpsTcp.port | Should -Be 5129
+        } finally {
+            $env:YURUNA_CACHING_PROXY_SERVICE_HTTP_PORT = ''
+            $env:YURUNA_CACHING_PROXY_SERVICE_HTTPS_PORT = ''
+        }
     }
 }
 
@@ -209,6 +323,8 @@ Describe 'missing inputs are readings, not faults' {
         $result.verdict | Should -Be 'guest-unreachable-proxy-unknown'
         $result.cacheHost | Should -Be ''
         $result.cacheV2 | Should -BeNullOrEmpty
+        $result.cacheHttpTcp | Should -BeNullOrEmpty
+        $result.cacheHttpsTcp | Should -BeNullOrEmpty
         Should -Invoke -CommandName Invoke-WebRequest -ModuleName $script:ModuleName -Times 0 -Exactly
         Get-Content -Raw (Join-Path $dir 'network-cross-check.txt') | Should -Match 'cacheHost:\s+\(none'
     }
@@ -315,6 +431,13 @@ Describe 'the cycle event carries the verdict with the types the schema pins' {
             $record.cacheV2Status | Should -Be 200
             $record.cacheV2Ms | Should -Not -BeNullOrEmpty
             $record.cacheHealthOk | Should -BeTrue
+            $record.cacheHttpTcp.address | Should -Be '192.0.2.42'
+            $record.cacheHttpTcp.port | Should -Be 3128
+            $record.cacheHttpTcp.open | Should -BeFalse
+            $record.cacheHttpTcp.ms | Should -Be 2000
+            $record.cacheHttpTcp.error | Should -Be 'timeout'
+            $record.cacheHttpsTcp.port | Should -Be 3129
+            $record.cacheHttpsTcp.open | Should -BeFalse
             $record.guestAddress | Should -Be '192.0.2.129'
             $record.guestTcp22Ok | Should -BeFalse
             $record.guestPingOk | Should -BeFalse

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.18.2
+.VERSION 2026.10.22
 .GUID 42fa3c81-6d07-4b29-95e8-1c04a7b6f2d3
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -246,6 +246,47 @@ Describe 'the inventory measures the tree it ships with' {
             'the untracked reachable project YAML was invisible to the candidate inventory'
         Assert-Equal -Expected 1 -Actual $config.englishScalars `
             'the untracked project display field was not parsed'
+    }
+
+    It 'reuses a file''s cached counts only while its bytes and the tool are unchanged' {
+        $framework = Join-Path $TestDrive 'framework-cache'
+        $project = Join-Path $TestDrive 'project-cache'
+        New-Item -ItemType Directory -Path (Join-Path $framework 'test/status') -Force | Out-Null
+        New-Item -ItemType Directory -Path $project -Force | Out-Null
+        & git -C $framework init --quiet
+        & git -C $project init --quiet
+        foreach ($relative in @(
+                'README.md', 'template/README.md', 'example/README.md',
+                'example/website/README.md', 'example/text-to-sql/README.md',
+                'docs/pt-BR/README.md', 'docs/pt-BR/template/README.md',
+                'docs/pt-BR/example/README.md', 'docs/pt-BR/example/website/README.md',
+                'docs/pt-BR/example/text-to-sql/README.md', 'docs/pt-BR/index.md')) {
+            $path = Join-Path $project $relative
+            New-Item -ItemType Directory -Path (Split-Path -Parent $path) -Force | Out-Null
+            [IO.File]::WriteAllText($path, "# Fixture`n")
+        }
+        $source = Join-Path $framework 'test/status/cached.ps1'
+        [IO.File]::WriteAllText($source, "Write-Output 'This operator message is counted once.'`n")
+        $output = Join-Path $TestDrive 'cache-domain-inventory.json'
+        $statusCandidates = {
+            $run = & pwsh -NoProfile -File $script:Tool -Root $framework -ProjectRoot $project `
+                -OutputPath $output -Update -Quiet 2>&1 | Out-String
+            Assert-Equal -Expected 0 -Actual $LASTEXITCODE -Because $run
+            [int](@((ConvertFrom-Json -InputObject ([IO.File]::ReadAllText($output))).domains |
+                Where-Object domain -CEQ 'status-ui')[0].candidates)
+        }
+        Assert-Equal -Expected 1 -Actual (& $statusCandidates) 'the first run counts the literal'
+        $cache = Join-Path $framework '.git/yuruna/domain-inventory-cache.json'
+        Assert-True (Test-Path -LiteralPath $cache) 'the run keeps its per-file counts under the git directory'
+        # A changed file is parsed again rather than answered from the cache.
+        [IO.File]::WriteAllText($source, "Write-Output 'This operator message is counted once.'`nWrite-Output 'A second operator message joins it.'`n")
+        Assert-Equal -Expected 2 -Actual (& $statusCandidates) 'an edited file must not keep its old count'
+        # Counts recorded by another version of the tool are never trusted.
+        $stored = [IO.File]::ReadAllText($cache) | ConvertFrom-Json -AsHashtable
+        foreach ($key in @($stored.files.Keys)) { $stored.files[$key] = @(0, 99, 0) }
+        $stored.version = 'another-tool-version'
+        [IO.File]::WriteAllText($cache, (ConvertTo-Json -Compress -Depth 4 -InputObject $stored))
+        Assert-Equal -Expected 2 -Actual (& $statusCandidates) 'a cache from another tool version was used'
     }
 
     It 'reads the project with its own git state when a framework hook exports another' {

@@ -254,8 +254,20 @@ var clientIPRE = regexp.MustCompile(`^(\d+\.\d+)\s+\S+\s+(\S+)`)
 // gitCommitRef is one status.json gitCommits entry: the machine-routable sha +
 // repoUrl (hostname-free, so it stays safe on the unauthenticated pool surface).
 type gitCommitRef struct {
-	Sha     string `json:"sha"`
-	RepoURL string `json:"repoUrl"`
+	Sha               string   `json:"sha"`
+	RepoURL           string   `json:"repoUrl"`
+	Source            string   `json:"source,omitempty"`
+	Verification      string   `json:"verification,omitempty"`
+	Repository        string   `json:"repository,omitempty"`
+	Ref               string   `json:"ref,omitempty"`
+	SelectedSHA       string   `json:"selectedSha,omitempty"`
+	FetchRef          string   `json:"fetchRef,omitempty"`
+	OriginCheckedAt   string   `json:"originCheckedAt,omitempty"`
+	RefreshAgeSeconds *float64 `json:"refreshAgeSeconds,omitempty"`
+	MirrorVersion     string   `json:"mirrorVersion,omitempty"`
+	KeyID             string   `json:"keyId,omitempty"`
+	FallbackReason    string   `json:"fallbackReason,omitempty"`
+	FailureClass      string   `json:"failureClass,omitempty"`
 }
 
 // gitCommitRefs is the gitCommits array with a DEFENSIVE decoder. status.json's
@@ -429,6 +441,24 @@ func commitCells(st *hostStatus) (display, frameworkURL, projectURL string) {
 		short := sha
 		if len(short) > 8 {
 			short = short[:8]
+		}
+		// Keep persisted verification codes compatible with older hosts while
+		// presenting the same concise labels as the host status page.
+		label := ""
+		switch c.Verification {
+		case "origin-direct":
+			label = "remote.origin"
+		case "mirror-confirmed":
+			label = "mirror.origin"
+		case "mirror-stale":
+			label = "mirror.stale"
+		case "mirror-fresh":
+			label = "mirror.fresh"
+		case "not-applicable":
+			label = "not.applicable"
+		}
+		if label != "" {
+			short += " [" + label + "]"
 		}
 		shorts = append(shorts, short)
 		u := commitURL(c.RepoURL, sha)
@@ -1675,7 +1705,7 @@ func fetchCurrentAction(client *http.Client, base string) (bool, error) {
 // served by the status service at /yuruna-repo/VERSION -- the SAME source the
 // host's own status pages read for their header (their getHostInfo() fetches
 // yuruna-repo/VERSION via JS, so the version is not embedded in the HTML). A tiny
-// plain-text file (one CalVer line, e.g. "2026.10.18.2"), so it is lighter than any
+// plain-text file (one CalVer line, e.g. "2026.10.22"), so it is lighter than any
 // status HTML page and fetchable server-side without a JS engine. Returns
 // ("", err) on any failure; the caller keeps the prior version on a transient
 // miss (the version is stable across polls). The value is capped + first-line
@@ -3348,7 +3378,7 @@ type promTargetGroup struct {
 	Labels  map[string]string `json:"labels"`
 }
 
-// handlePrometheusTargets serves the pool's Windows hosts as a Prometheus
+// handlePrometheusTargets serves the pool's supported hosts as a Prometheus
 // HTTP service-discovery document, so the collector scrapes machine metrics at
 // whatever addresses the pool is on right now.
 //
@@ -3374,7 +3404,6 @@ func (s *poolState) handlePrometheusTargets(w http.ResponseWriter, r *http.Reque
 		ids = append(ids, id)
 	}
 	sort.Strings(ids)
-	port := s.hostMetricsPort
 	// Every value is copied out under the lock: the poll goroutine mutates the
 	// hostView/hostStatus these read, so nothing may hold a pointer past Unlock.
 	groups := make([]promTargetGroup, 0, len(ids))
@@ -3383,11 +3412,23 @@ func (s *poolState) handlePrometheusTargets(w http.ResponseWriter, r *http.Reque
 		if hv == nil || !hv.Reachable || hv.CurrentIP == "" || hv.Status == nil {
 			continue
 		}
-		if !strings.HasPrefix(hv.Status.Host, windowsHostTypePrefix) {
+		var target string
+		switch {
+		case strings.HasPrefix(hv.Status.Host, windowsHostTypePrefix):
+			target = net.JoinHostPort(hv.CurrentIP, strconv.Itoa(s.hostMetricsPort))
+		case strings.HasPrefix(hv.Status.Host, "host.ubuntu."), strings.HasPrefix(hv.Status.Host, "host.macos."):
+			// Unix memory metrics share the confirmed status listener. Its
+			// announced port can differ from the pool-wide probe port.
+			statusURL, err := url.Parse(hv.BaseURL)
+			if err != nil || statusURL.Host == "" || statusURL.Scheme != "http" {
+				continue
+			}
+			target = statusURL.Host
+		default:
 			continue
 		}
 		groups = append(groups, promTargetGroup{
-			Targets: []string{net.JoinHostPort(hv.CurrentIP, strconv.Itoa(port))},
+			Targets: []string{target},
 			Labels: map[string]string{
 				"pool":         s.poolFor(id),
 				"hostId":       id,

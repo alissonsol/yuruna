@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.18.2
+.VERSION 2026.10.22
 .GUID 4252ca7f-dcdd-4cf0-893b-f8d1bb64deb4
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -180,7 +180,7 @@ Describe 'setup.ps1 publishes the alias where the proxy address is settled' {
     It 'writes it from the same proxy address the config key is set from' {
         # One freshly-read proxy state behind both, so the hosts entry and
         # vmStart.cachingProxyIp cannot come to disagree about where the proxy is.
-        $configAt = $script:SetupSource.IndexOf('cachingProxyIp: $proxyIp')
+        $configAt = $script:SetupSource.IndexOf('Set-CachingProxyGitMirrorEnrollment -ConfigPath $ConfigPath -ProxyIp $proxyIp')
         $aliasAt  = $script:SetupSource.IndexOf('Set-YurunaHostAlias -RepoRoot $RepoRoot -Name @($Script:DashboardAliasName) -IPAddress $proxyIp')
         Assert-True ($configAt -gt 0) 'the cachingProxyIp write must still exist'
         Assert-True ($aliasAt -gt 0) 'the alias must be written from $proxyIp'

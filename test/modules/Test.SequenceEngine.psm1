@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.18.2
+.VERSION 2026.10.22
 .GUID 4210c3aa-ab5b-4b2b-9259-5c68ad1cb72e
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -100,6 +100,12 @@ $script:CarriedConsoleBaselineMaxAgeSeconds = 120
 $script:CarriedConsoleBaseline  = $null
 # See https://yuruna.link/4213a0b3-011e
 $script:DefaultScreenHistorySize = 20
+# QEMU paints this text itself when the guest has no active scanout. A wait that
+# ends on a guest livelock asks the host driver whether the guest is wedged once
+# every frame has carried it for the same minimum the hypervisor verdict uses.
+# See https://yuruna.link/428e4df6-001c
+$script:DisplayInactivePattern = 'Display output is not active'
+$script:DisplayInactiveLivelockSeconds = 300
 
 # Exponential-backoff helper for filesystem-state poll loops is
 # centralized in Test.Backoff.psm1 (Get-PollDelay) so a tuning change
@@ -988,6 +994,54 @@ function Get-GuestLivelockVerdict {
     }
 }
 
+function Get-DisplayInactiveLivelockVerdict {
+    <#
+    .SYNOPSIS
+        A livelock verdict for a guest whose emulator has reported no active
+        display for a sustained run, or $null when the host driver cannot read
+        the framebuffer independently.
+    .DESCRIPTION
+        QEMU's no-display message alone cannot say whether the guest is halted,
+        rebooting or spinning, and the emulator's CPU alone cannot separate guest
+        work from a hypervisor spin. The run becomes a livelock only when it
+        covers the minimum and the host driver's second opinion, read now, finds
+        byte-identical frames with a busy emulator. Evidence gathering must never
+        fail the wait it serves.
+        See https://yuruna.link/428e4df6-001c
+    .OUTPUTS
+        [pscustomobject] the Get-YurunaVmLivelockVerdict shape plus
+        ConsoleSecondOpinion, or $null.
+    #>
+    [CmdletBinding()]
+    [OutputType([pscustomobject])]
+    param(
+        [Parameter(Mandatory)][string]$VMName,
+        [Parameter(Mandatory)][int]$InactiveSeconds,
+        [int]$MinimumSeconds = $script:DisplayInactiveLivelockSeconds
+    )
+    if (-not (Get-Command Get-VMConsoleSecondOpinion -ErrorAction SilentlyContinue)) { return $null }
+    try {
+        $opinion = Get-VMConsoleSecondOpinion -VMName $VMName
+    } catch {
+        Write-Verbose "      Console second opinion unavailable for '$VMName': $($_.Exception.Message)"
+        return $null
+    }
+    if (-not $opinion) { return $null }
+    $livelocked = ($InactiveSeconds -ge $MinimumSeconds -and [string]$opinion.Verdict -eq 'guest-wedged')
+    return [pscustomobject][ordered]@{
+        Verdict = if ($livelocked) { 'livelocked' } else { 'not-livelocked' }
+        LivelockedSeconds = if ($livelocked) { $InactiveSeconds } else { 0 }
+        MinimumSeconds = $MinimumSeconds
+        VirtualProcessors = 0; GuestRunPercent = $null; HypervisorRunPercent = $null; InterceptsPerSecond = $null
+        InterceptBreakdown = [ordered]@{}; DominantIntercept = ''; SampleCount = 0
+        NewestSampleUtc = [string]$opinion.ObservedAtUtc
+        Detail = [string]$opinion.Detail
+        Reason = "The emulator reported no active display for ${InactiveSeconds}s and the console second opinion was '$([string]$opinion.Verdict)'."
+        ProcessorWindow = $null
+        ConsoleSecondOpinion = $opinion
+    }
+}
+
 function Wait-ForText {
     <#
     .SYNOPSIS
@@ -1074,6 +1128,7 @@ function Wait-ForText {
     $script:Fail.WaitForTextInstallerStage = ''
     $script:Fail.WaitForTextInstallerStageSeconds = 0
     $script:Fail.WaitForTextGuestBootStalled = $false
+    $script:Fail.WaitForTextConsoleSecondOpinion = $null
     $script:Fail.WaitForTextGuestLivelocked = $false
     $script:Fail.WaitForTextGuestLivelock = $null
     $script:Fail.WaitForTextBlankScreenSeconds = 0
@@ -1217,6 +1272,11 @@ function Wait-ForText {
     $nextLivelockCheckUtc = $startUtc
     $livelockVerdict = $null
     $endedOnLivelock = $false
+    # The current run of frames carrying the emulator's no-display message,
+    # measured only for a caller that ends on a livelock. The second opinion
+    # samples for seconds, so it is asked at most once a minute.
+    $displayInactiveSinceUtc = $null
+    $nextDisplayInactiveCheckUtc = $startUtc
 
     # Seed the ring-buffer queue once with anything already on disk from
     # earlier Wait-ForText calls in this guest run (the screensDir persists
@@ -1478,6 +1538,28 @@ function Wait-ForText {
                         }
                     }
                 }
+
+                # End a wait whose guest stopped drawing after a reset instead of
+                # spending the rest of its budget; the caller cold-restarts it.
+                # See https://yuruna.link/428e4df6-001c
+                if ($EndOnGuestLivelock) {
+                    if ($result.AnyText -and (Test-OCRMatch -Text ([string]$result.AnyText) -Pattern $script:DisplayInactivePattern)) {
+                        if (-not $displayInactiveSinceUtc) { $displayInactiveSinceUtc = [DateTime]::UtcNow }
+                        $inactiveSeconds = [int]([DateTime]::UtcNow - $displayInactiveSinceUtc).TotalSeconds
+                        if ($inactiveSeconds -ge $script:DisplayInactiveLivelockSeconds -and [DateTime]::UtcNow -ge $nextDisplayInactiveCheckUtc) {
+                            $nextDisplayInactiveCheckUtc = [DateTime]::UtcNow.AddSeconds(60)
+                            $displayVerdict = Get-DisplayInactiveLivelockVerdict -VMName $VMName -InactiveSeconds $inactiveSeconds
+                            if ($displayVerdict -and $displayVerdict.Verdict -eq 'livelocked') {
+                                $livelockVerdict = $displayVerdict
+                                $script:Fail.WaitForTextConsoleSecondOpinion = $displayVerdict.ConsoleSecondOpinion
+                                $endedOnLivelock = $true
+                                break
+                            }
+                        }
+                    } else {
+                        $displayInactiveSinceUtc = $null
+                    }
+                }
             }
 
             # See https://yuruna.link/4213a0b3-012e
@@ -1644,7 +1726,9 @@ function Wait-ForText {
         # side to investigate instead of leaving both under suspicion.
         if ($consoleRestarts -ge $maxConsoleRestarts -and (Get-Command Get-VMConsoleSecondOpinion -ErrorAction SilentlyContinue)) {
             try {
-                $secondOpinion = Get-VMConsoleSecondOpinion -VMName $VMName
+                # An early end on an inactive display took this reading moments ago.
+                $secondOpinion = if ($script:Fail.WaitForTextConsoleSecondOpinion) { $script:Fail.WaitForTextConsoleSecondOpinion } else { Get-VMConsoleSecondOpinion -VMName $VMName }
+                $script:Fail.WaitForTextConsoleSecondOpinion = $secondOpinion
                 $script:Fail.WaitForTextGuestBootStalled = (
                     $secondOpinion -and $secondOpinion.Verdict -eq 'guest-static' -and
                     $script:LastWaitVerdict.ConsoleSignalsMeasured -and
@@ -1658,6 +1742,10 @@ function Wait-ForText {
                     Write-Verbose "      Console second opinion unavailable: $($secondOpinion.Detail)"
                 }
             } catch {
+                $script:Fail.WaitForTextConsoleSecondOpinion = [pscustomobject]@{
+                    Verdict = 'unavailable'; Detail = $_.Exception.Message
+                    VMName = $VMName; ObservedAtUtc = [DateTime]::UtcNow.ToString('o')
+                }
                 Write-Verbose "      Get-VMConsoleSecondOpinion failed: $($_.Exception.Message)"
             }
         }
@@ -2521,7 +2609,7 @@ function Invoke-Sequence {
             foreach ($cause in @('WaitForTextMatchedFailurePattern', 'WaitForTextOcrTail',
                 'WaitForTextClosestOnScreen', 'WaitForTextConsoleFlood', 'StepGuestAddressUnresolved',
                 'StepGuestTransportLost', 'StepGuestRunLost', 'StepGuestPayloadUnavailable', 'StepInputLost',
-                'StepLauncherRejection', 'StepVmNotStopped', 'WaitForTextGuestLivelock', 'WaitForTextOutputStaticSeconds', 'StepProgressAdvisory')) {
+                'StepLauncherRejection', 'StepAptIndexMismatch', 'StepVmNotStopped', 'WaitForTextGuestLivelock', 'WaitForTextOutputStaticSeconds', 'StepProgressAdvisory')) {
                 $script:Fail[$cause] = $null
             }
             $script:Fail.WaitForTextPatternsSought = [string[]]@()
@@ -2530,6 +2618,7 @@ function Invoke-Sequence {
             $script:Fail.WaitForTextInstallerStage = ''
             $script:Fail.WaitForTextInstallerStageSeconds = 0
             $script:Fail.WaitForTextGuestBootStalled = $false
+            $script:Fail.WaitForTextConsoleSecondOpinion = $null
             $script:Fail.WaitForTextGuestLivelocked = $false
             $script:Fail.WaitForTextBlankScreenSeconds = 0
             $script:Fail.WaitForTextConsoleSignalsMeasured = $true
@@ -2712,6 +2801,7 @@ function Invoke-Sequence {
             $stepEndRecord.originatingStepInvocationId = $script:Fail.OriginatingStepInvocationId
             $stepEndRecord.originatingSequenceInvocationId = $script:Fail.OriginatingSequenceInvocationId
             $stepEndRecord.progressAdvisory = $script:Fail.StepProgressAdvisory
+            $stepEndRecord.consoleSecondOpinion = $script:Fail.WaitForTextConsoleSecondOpinion
         }
         # See https://yuruna.link/4213a0b3-0143
         if (-not $ok) {

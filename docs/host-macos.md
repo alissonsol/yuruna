@@ -604,6 +604,36 @@ returns immediately, then resume the runner. Read the snapshot before
 restarting if the cause matters: the process census tells a crash from a
 wedge, and the log excerpt names what preceded it.
 
+A responsive UTM control channel can still have a guest whose display stops
+updating and whose emulator stays busy. Ubuntu startup login waits now use
+the portable [cold restart policy](test-sequences.md#retry). Each failed
+attempt preserves its frames and `vm-diagnostics.json` before recovery,
+including the independent direct-VNC and VM-specific CPU observations when
+available. UTM control snapshots also retain recent unified logs and crash
+reports. Automatic snapshots skip an additional screenshot so a stuck native
+capture cannot hold up recovery; the failed wait's existing frames are still
+saved. The manual command below retains its normal screenshot attempt.
+These observations distinguish a capture failure from unchanged
+guest output without claiming which kernel or hypervisor component failed.
+
+Before a manual restart, copy the guest's `failed_step*-attempt*` folders and
+`last_failure.json` from its cycle log directory. If no attempt snapshot was
+saved, run this in PowerShell from the repository root, using the exact VM
+name from that failure record and a new evidence directory:
+
+```powershell
+Import-Module ./host/macos.utm/modules/Yuruna.Host.psm1 -DisableNameChecking
+Save-UtmControlSnapshot -VMName 'test-guest.ubuntu.server.26-01' `
+    -OutputDirectory /tmp/yuruna-startup-evidence -Trigger operator -Confirm:$false
+```
+
+Inspect the VM console before choosing recovery. An installer still running
+may need a rebuild from its installer media; an installed guest that cannot
+reach login may recover through a cold VM restart. Restart UTM.app itself
+only for a corroborated control-channel problem, since that affects the
+other VMs it hosts. Keep the saved evidence if restarting recovers the guest:
+successful recovery alone does not identify the underlying cause.
+
 <a id="42885ada-0013"></a>
 
 ## Why the UTM dialog watchdog is narrowly scoped
@@ -632,6 +662,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.18.1
+Last review: 2026.10.22
 
 Back to [Yuruna](../README.md)

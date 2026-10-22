@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.18.2
+.VERSION 2026.10.22
 .GUID 42630144-53bf-4e35-a4c0-971c1bcc65a0
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -70,10 +70,11 @@ $ErrorActionPreference = 'Stop'
 $InformationPreference = 'Continue'
 
 # --- REGION: Log level from environment
-# Honor the caller's logLevel, published as $env:YURUNA_LOG_LEVEL by whatever
-# entry point started this script. After the line above on purpose: an explicit
-# level is the operator's choice and replaces this script's own default. See
-# docs/loglevels.md.
+# See https://yuruna.link/42162449-0004
+# After the preference assignments above on purpose: an explicit level is the
+# operator's choice and replaces this script's own default. $InformationPreference
+# is re-read afterwards because the script-scoped assignment above shadows the
+# global the cascade writes.
 Import-Module (Join-Path $PSScriptRoot '../modules/Test.LogLevel.psm1') -Global -Force -DisableNameChecking
 Use-LogLevelFromEnv
 $InformationPreference = $global:InformationPreference
@@ -92,6 +93,7 @@ $StashServer  = 'ystash-nas'
 $PoolShare    = 'yuruna.pool'
 $StashShare   = 'yuruna.stash'
 
+# --- REGION: Modules
 # $WhatIfPreference is suppressed across the imports and restored immediately
 # after: module-level state built under ShouldProcess (New-YurunaRegistry's
 # Set-Variable, the alias registrations) silently becomes a no-op when a dry run

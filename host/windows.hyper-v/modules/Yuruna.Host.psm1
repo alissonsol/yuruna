@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.18.2
+.VERSION 2026.10.22
 .GUID 425e6973-60a5-43b1-90b8-194b4331c1f8
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -4732,13 +4732,10 @@ function Get-VMConsoleSecondOpinion {
 $script:YurunaDhcpCapture = $null
 
 # --- REGION: Serial console capture
-# See https://yuruna.link/42e220c4-0007
-# A guest that stops servicing its VMBus devices answers neither SSH nor the
-# synthetic keyboard, and its framebuffer keeps showing the last frame it
-# drew. The kernel and journald still write to the serial port, which Hyper-V
-# exposes as a named pipe, so a host-side reader is the one guest-side record
-# of what happened while the guest went quiet. Armed when the VM starts,
-# saved on failure beside the DHCP capture, discarded on a clean teardown.
+# See https://yuruna.link/42dc5bb9-0004
+# The COM1 pipe is the one guest-side record that survives a guest whose VMBus
+# devices stop answering. Armed when the VM starts, saved on failure beside the
+# DHCP capture, discarded on a clean teardown.
 function Get-VMSerialPipeName {
     [CmdletBinding()]
     [OutputType([string])]
@@ -5216,15 +5213,9 @@ function Save-VMDhcpCapture {
 }
 
 # --- REGION: VM network state
-# See https://yuruna.link/42e220c4-0007
-# A guest that drops off the network while its console keeps drawing leaves
-# the host holding the readings nobody has to ask the guest for: whether the
-# synthetic adapter is still connected to its switch, which addresses the
-# integration services last reported, whether the host's neighbor cache still
-# resolves the guest's MAC, whether TCP 22 still answers, and what the Hyper-V
-# worker logged meanwhile. The DHCP capture sees only the lease exchange and
-# the serial log only what the guest chose to say; this is the reading that
-# separates a guest that lost its address from a host that lost the guest.
+# See https://yuruna.link/42dc5bb9-0004
+# The host's own readings of a guest that dropped off the network separate a
+# guest that lost its address from a host that lost the guest.
 function Save-VMNetworkState {
     <#
     .SYNOPSIS
@@ -5867,7 +5858,7 @@ function Get-CachingProxyServiceVmIp {
     return $null
 }
 
-# --- REGION: Host config
+# --- REGION: Host configuration
 # --- REGION: Set-HostProxy
 function Set-HostProxy {
     <#

@@ -342,6 +342,10 @@
       "sourceHash": "025d717a248e94d4923e288b95fbe68c3daca1290026ab9add887b37be9665dc",
       "origin": "machine",
       "message": "重启日志暂时无法读取：{message}"
+    },
+    "configsync.mirror_key_confirmation": {
+      "sourceHash": "00c259008f7594804128c237d3890d5b0463718c6f5dbc8968d5d15b68fe816b",
+      "message": "是否接受镜像验证密钥注册？"
     }
   }
 }

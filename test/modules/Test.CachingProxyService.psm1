@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.18.2
+.VERSION 2026.10.22
 .GUID 422ef01b-468d-4c38-ab4c-8337b8a3ccd5
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -296,7 +296,8 @@ function Test-TcpPortReachable {
     Apache. PASS / WARN / FAIL classification matches the standalone script:
     :3128 / :3129 / :3000 are FAIL on unreachable (hard requirements);
     :80 and the CA cert are WARN (HTTPS caching disabled on guests, HTTP
-    still works).
+    still works). Pool configuration HEAD and refs are checked over HTTP;
+    failures are WARN because a standalone host need not use a pool.
 
     IP resolution, host system-proxy and outbound-proxy checks stay in the
     standalone script -- those are host-state-dependent, not cache-state-
@@ -406,6 +407,28 @@ function Invoke-CachingProxyServiceProbe {
         }
     } catch {
         $lines.Add("  [WARN] CA cert $caUrl fetch failed: $($_.Exception.Message)")
+        $warnCount++
+    }
+
+    # A listening Apache port and a working landing page do not prove that its
+    # NAS-backed Git alias is readable by www-data. Check actual Git metadata.
+    $poolUrl = "http://$(Format-IpUrlHost $CacheIp)/pool-configuration.git"
+    try {
+        foreach ($file in @('HEAD', 'info/refs')) {
+            $reply = Invoke-WebRequest -Uri "$poolUrl/$file" -NoProxy -TimeoutSec 5 -SkipHttpErrorCheck -ErrorAction Stop
+            if ([int]$reply.StatusCode -ne 200) { throw "$file returned HTTP $($reply.StatusCode)" }
+            $content = if ($reply.Content -is [byte[]]) { [Text.Encoding]::UTF8.GetString($reply.Content) } else { [string]$reply.Content }
+            $valid = if ($file -eq 'HEAD') {
+                $content.Trim() -match '^(ref: refs/[^\s]+|[0-9a-f]{40}([0-9a-f]{24})?)$'
+            } else {
+                $content -match '(?m)^[0-9a-f]{40}([0-9a-f]{24})?\trefs/'
+            }
+            if (-not $valid) { throw "$file returned invalid Git metadata" }
+        }
+        $lines.Add("  [PASS] Pool configuration $poolUrl -- HEAD and refs readable (VM full-clone check: http://$(Format-IpUrlHost $CacheIp)/pool-configuration-status)")
+        $passCount++
+    } catch {
+        $lines.Add("  [WARN] Pool configuration $poolUrl -- $($_.Exception.Message); see http://$(Format-IpUrlHost $CacheIp)/pool-configuration-status and /config-fetch-pool-status. Pool updates require this route; Squid availability is independent.")
         $warnCount++
     }
 
@@ -1634,8 +1657,18 @@ function Get-CachingProxyServiceStateIp {
     #>
     [CmdletBinding()]
     [OutputType([string])]
-    param()
-    try { return ([string](Read-CachingProxyServiceState).ipAddress).Trim() }
+    param([switch]$ReadOnly)
+    try {
+        if (-not $ReadOnly) { return ([string](Read-CachingProxyServiceState).ipAddress).Trim() }
+        $runtime = if ($env:YURUNA_RUNTIME_DIR) { $env:YURUNA_RUNTIME_DIR } else { Join-Path (Split-Path -Parent $PSScriptRoot) 'status/runtime' }
+        $path = Join-Path $runtime 'yuruna-caching-proxy-service.yml'
+        if (-not (Test-Path -LiteralPath $path)) { return '' }
+        # Endpoint discovery precedes the first source update. It must not
+        # create runtime directories or rotate a corrupt operator state file.
+        if (-not (Get-Command ConvertFrom-Yaml -ErrorAction SilentlyContinue)) { Import-Module powershell-yaml -ErrorAction Stop }
+        $state = Get-Content -LiteralPath $path -Raw | ConvertFrom-Yaml -Ordered
+        return ([string]$state.ipAddress).Trim()
+    }
     catch { Write-Verbose "caching-proxy-service state: $($_.Exception.Message)"; return '' }
 }
 
@@ -1788,4 +1821,215 @@ function Resolve-CachingProxyServiceCaCertPem {
     return @{ Pem = ''; Source = 'none' }
 }
 
-Export-ModuleMember -Function Get-CachingProxyServiceStatePath, Read-CachingProxyServiceState, Save-CachingProxyServiceState, Test-TcpPortReachable, Invoke-CachingProxyServiceProbe, Test-SequenceRequiresCacheRegistry, Test-CachingProxyRegistryReady, Wait-CachingProxyServiceSettled, Resolve-CachingProxyZotOverride, Get-CachingProxyZotSelfTestReport, Wait-CachingProxyZotSelfTest, Resolve-CachingProxyServiceEndpoint, Get-PoolAggregatorServiceSeedUrl, Wait-YurunaAggregatorReady, Get-PoolConfigurationSeedUrl, Sync-PoolConfigurationAliasOnProxy, Test-CachingProxyServiceCaPem, Get-CachingProxyServiceCaCertBase64, Resolve-CachingProxyServiceCaCertPem
+function Set-CachingProxyGitMirrorEnrollment {
+    <# .SYNOPSIS
+        Enroll this host's own proxy while preserving an operator's other endpoint.
+    #>
+    [CmdletBinding(SupportsShouldProcess)]
+    [OutputType([bool])]
+    param([Parameter(Mandatory)][string]$ConfigPath, [Parameter(Mandatory)][string]$ProxyIp)
+    Import-Module (Join-Path $PSScriptRoot 'Test.ConfigSync.psm1') -DisableNameChecking
+    $templatePath = "$ConfigPath.template"
+    $template = Get-Content -LiteralPath $templatePath -Raw | ConvertFrom-Yaml -Ordered
+    if (-not $template.repositories.mirror) { throw 'mirror-template-not-installed' }
+    $current = Get-Content -LiteralPath $ConfigPath -Raw | ConvertFrom-Yaml -Ordered
+    $config = ConvertTo-MergedHashtable -Template $template -Current $current
+    if ($current.Contains('secrets')) { $config['secrets'] = $current.secrets }
+    $previousIp = [string]$config.vmStart.cachingProxyIp
+    if ($previousIp -and $previousIp -ne $ProxyIp) { return $false }
+    $config.vmStart.cachingProxyIp = $ProxyIp
+    $runtime = Split-Path -Parent (Get-CachingProxyServiceStatePath)
+    $publicPath = Join-Path $runtime 'git-mirror-public-key.json'
+    $endpoint = [string]$config.repositories.mirror.url
+    $ownEndpoint = 'http://' + (ConvertTo-CachingProxyUrlHost -Address $ProxyIp)
+    if ((-not $endpoint -or $endpoint.TrimEnd('/') -eq $ownEndpoint) -and (Test-Path -LiteralPath $publicPath)) {
+        $export = Get-Content -LiteralPath $publicPath -Raw | ConvertFrom-Json
+        $id = [string](Get-ConfigMirrorKeyId -Value $export.publicKey)
+        if ($id -cne [string]$export.keyId) { throw 'mirror-public-key-export-invalid' }
+        $keys = @($config.repositories.mirror.verificationPublicKeys)
+        if ($keys -cnotcontains [string]$export.publicKey) { $config.repositories.mirror.verificationPublicKeys = @($keys) + @([string]$export.publicKey) }
+    }
+    $changes = @(Get-ConfigMirrorChange -Current $current -Proposed $config)
+    if ($previousIp -eq $ProxyIp -and $changes.Count -eq 0) { return $false }
+    if (-not $PSCmdlet.ShouldProcess($ConfigPath, 'Enroll own caching proxy')) { return $false }
+    Copy-Item -LiteralPath $ConfigPath -Destination "$ConfigPath.backup" -Force
+    if ($previousIp -cne $ProxyIp) { Write-Information "vmStart.cachingProxyIp: $previousIp -> $ProxyIp (backup: $ConfigPath.backup)" -InformationAction Continue }
+    foreach ($change in $changes) { Write-Information "$($change.Path): $($change.Previous) -> $($change.Current) (backup: $ConfigPath.backup)" -InformationAction Continue }
+    return (Write-DocumentedTestConfig -ConfigPath $ConfigPath -Config $config -TemplatePath $templatePath -Confirm:$false)
+}
+
+function Initialize-CachingProxyGitMirrorToken {
+    <#
+    .SYNOPSIS
+        Offer secure optional GitHub authentication before proxy provisioning.
+    .DESCRIPTION
+        Enter and headless invocations preserve current authentication without
+        opening the vault. Any valid explicitly supplied token requests a rebuild:
+        the host's stored value cannot prove what a running guest has baked in.
+        Only a boolean reaches the caller; the token stays in this process and
+        the authentication provider until protected seed generation reads it.
+    .OUTPUTS
+        True when the operator supplied a token that must be applied by rebuilding
+        the proxy; false when current authentication should be preserved.
+    #>
+    [CmdletBinding(SupportsShouldProcess)]
+    [OutputType([bool])]
+    param()
+    if (-not (Test-YurunaCanPrompt)) { return $false }
+    $logicalUser = 'github-mirror-token'
+    if (-not $PSCmdlet.ShouldProcess($logicalUser, (Format-YurunaOperatorMessage -Key 'runner.git_mirror_token_prepare'))) { return $false }
+    Write-Information (Format-YurunaOperatorMessage -Key 'runner.git_mirror_token_notice') -InformationAction Continue
+    $secure = Read-Host -Prompt (Format-YurunaOperatorMessage -Key 'runner.git_mirror_token_prompt') -AsSecureString
+    if ($null -eq $secure) { return $false }
+    $token = $null
+    try {
+        if ($secure.Length -eq 0) { return $false }
+        # Preserve embedded NUL characters until validation rejects them;
+        # null-terminated conversions can silently turn malformed input into a
+        # different, apparently valid token.
+        $buffer = [IntPtr]::Zero
+        try {
+            $buffer = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($secure)
+            $token = [Runtime.InteropServices.Marshal]::PtrToStringBSTR($buffer)
+        } finally {
+            if ($buffer -ne [IntPtr]::Zero) { [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($buffer) }
+        }
+        if ($token -match '[\x00-\x20\x7f''"\\]') {
+            throw (Format-YurunaOperatorMessage -Key 'runner.git_mirror_token_invalid')
+        }
+        try {
+            # Loading authentication can bootstrap provider state. It belongs
+            # after explicit input, so Enter and unattended starts remain reads
+            # of neither the user's token nor their provider configuration.
+            $ErrorActionPreference = 'Stop'
+            Import-Module (Join-Path $PSScriptRoot 'Test.Extension.psm1') -Global -Force -DisableNameChecking -Verbose:$false
+            $null = @(Import-Extension -Area 'authentication' -RequireSingle)
+            $mappedKey = [string](Get-EffectiveUser -LogicalUser $logicalUser).vaultKey
+            $vaultKey = if ($mappedKey) { $mappedKey } else { $logicalUser }
+            $exists = Test-VaultEntry -VaultKey $vaultKey
+            $reportKey = if ($exists) { 'runner.git_mirror_token_replace_stored' } else { 'runner.git_mirror_token_store_new' }
+            Write-Information (Format-YurunaOperatorMessage -Key $reportKey -Arguments @{ vaultKey = $vaultKey }) -InformationAction Continue
+            $null = Set-Password -Username $vaultKey -NewPassword $token
+            if (-not $mappedKey) {
+                $null = Set-UserVaultKey -LogicalUser $logicalUser -VaultKey $vaultKey -Confirm:$false
+                if ([string](Get-EffectiveUser -LogicalUser $logicalUser).vaultKey -cne $vaultKey) {
+                    throw [InvalidOperationException]::new('GitHub token vault mapping was not retained.')
+                }
+            }
+        } catch {
+            # A provider exception may echo its arguments. Keep it out of the
+            # transcript and stop the caller before any guest is replaced.
+            throw (Format-YurunaOperatorMessage -Key 'runner.git_mirror_token_provider_failed')
+        }
+        return $true
+    } finally {
+        $token = $null
+        $secure.Dispose()
+    }
+}
+
+function Get-CachingProxyGitMirrorSeedSetting {
+    <# .SYNOPSIS
+        Prepare the mirror's protected seed values and export its public identity.
+    .DESCRIPTION
+        Only a completed vault read can authorize a first signing-key mint. A
+        token is never generated. The return value contains secrets and belongs
+        only in the protected cloud-init seed, never in a transcript or argv.
+    #>
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param([Parameter(Mandatory)][string]$RepoRoot, [Parameter(Mandatory)]$Config)
+    Import-Module (Join-Path $PSScriptRoot 'Test.ConfigSync.psm1') -DisableNameChecking
+    $failures = @(Test-ConfigMirrorSetting -Config $Config)
+    if ($failures.Count -gt 0) { throw "$($failures[0].Cause): $($failures[0].Path)" }
+    $refresh = 60
+    if ($Config.vmStart -and $Config.vmStart.Contains('cachingProxyGitMirrorRefreshSeconds')) {
+        $refresh = [int]$Config.vmStart.cachingProxyGitMirrorRefreshSeconds
+    }
+    $token = ''
+    try {
+        $user = Get-EffectiveUser -LogicalUser 'github-mirror-token'
+        if ($user.vaultKey -and (Test-VaultEntry -VaultKey $user.vaultKey)) {
+            $token = [string](Get-Password -Username 'github-mirror-token')
+        }
+        if ($token -match '[\x00-\x20\x7f''"\\]') { $token = ''; Write-Warning 'github-mirror-token: credential-invalid' }
+    } catch { $token = ''; Write-Warning 'github-mirror-token: vault-read-failed; anonymous' }
+
+    $signingKey = ''
+    $publicKey = ''
+    $keyId = ''
+    $logical = 'github-mirror-signing-key'
+    $rsa = [Security.Cryptography.RSA]::Create()
+    try {
+        $user = Get-EffectiveUser -LogicalUser $logical
+        $vaultKey = if ($user.vaultKey) { [string]$user.vaultKey } else { $logical }
+        # Checking the logical slot also covers an interruption between the
+        # durable vault write and publishing its user mapping.
+        if (Test-VaultEntry -VaultKey $vaultKey) {
+            if (-not $user.vaultKey) { $null = Set-UserVaultKey -LogicalUser $logical -VaultKey $vaultKey -Confirm:$false }
+            $signingKey = [string](Get-Password -Username $logical)
+            $pem = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($signingKey))
+            $rsa.ImportFromPem($pem)
+            if ($rsa.KeySize -lt 3072) { throw 'signing-key-invalid' }
+            # A public-only key cannot attest to host selections.
+            $null = $rsa.ExportPkcs8PrivateKey()
+        } else {
+            $rsa.KeySize = 3072
+            $signingKey = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($rsa.ExportPkcs8PrivateKeyPem()))
+            $null = Set-Password -Username $vaultKey -NewPassword $signingKey
+            if (-not $user.vaultKey) { $null = Set-UserVaultKey -LogicalUser $logical -VaultKey $vaultKey -Confirm:$false }
+        }
+        $publicKey = [Convert]::ToBase64String($rsa.ExportSubjectPublicKeyInfo())
+        $keyId = [string](Get-ConfigMirrorKeyId -Value $publicKey)
+    } catch {
+        # A corrupt or unreadable entry must not change this lab's identity.
+        $signingKey = ''; $publicKey = ''; $keyId = ''
+        Write-Warning 'github-mirror-signing-key: signing-key-unavailable; no-mint-on-read-failure'
+    } finally { $rsa.Dispose() }
+
+    if ($keyId) {
+        $runtime = Split-Path -Parent (Get-CachingProxyServiceStatePath)
+        $publicPath = Join-Path $runtime 'git-mirror-public-key.json'
+        $previous = ''
+        if (Test-Path -LiteralPath $publicPath) {
+            try { $previous = [string]((Get-Content -LiteralPath $publicPath -Raw | ConvertFrom-Json).keyId) }
+            catch { throw 'mirror-public-key-export-invalid' }
+        }
+        if ($previous -cne $keyId) { Write-Information "signing key fingerprint: $previous -> $keyId" -InformationAction Continue }
+        $json = @{ publicKey = $publicKey; keyId = $keyId } | ConvertTo-Json -Compress
+        $temp = "$publicPath.$([guid]::NewGuid().ToString('N')).tmp"
+        try {
+            [IO.File]::WriteAllText($temp, $json)
+            [IO.File]::Move($temp, $publicPath, $true)
+        } finally { if (Test-Path -LiteralPath $temp) { Remove-Item -LiteralPath $temp -Force } }
+        Write-Information "repositories.mirror.verificationPublicKeys: $publicKey (keyId=$keyId)" -InformationAction Continue
+    }
+    # The public framework and project are always served, so a public-release
+    # host can join a lab whose proxy a development checkout provisioned without
+    # registering them. Every other repository, a development one included,
+    # comes from this checkout's remote and configured URLs below; a published
+    # module never names a repository its readers cannot clone.
+    $repositories = [Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
+    foreach ($name in @('alissonsol/yuruna', 'alissonsol/yuruna-project')) { $null = $repositories.Add($name) }
+    $remote = [string](& git -C $RepoRoot remote get-url origin 2>$null)
+    $commit = [string](& git -C $RepoRoot rev-parse HEAD 2>$null)
+    if ($LASTEXITCODE -ne 0 -or $commit -notmatch '^[0-9a-f]{40}$') { throw 'mirror-build-commit-unavailable' }
+    $buildRepository = ''
+    foreach ($url in @($remote, [string]$Config.repositories.frameworkUrl, [string]$Config.repositories.projectUrl, [string]$Config.pool.configurationGitUrl)) {
+        if ($url -match '^https://github\.com/(?<owner>[A-Za-z0-9][A-Za-z0-9-]*)/(?<repo>[A-Za-z0-9][A-Za-z0-9._-]*?)(?:\.git)?/?$') {
+            $name = "$($Matches.owner)/$($Matches.repo)".ToLowerInvariant()
+            $null = $repositories.Add($name)
+            if ($url -ceq $remote) { $buildRepository = $name }
+        }
+    }
+    if (-not $buildRepository) { throw 'mirror-build-repository-unsupported' }
+    $json = @{ repositories = @($repositories | Sort-Object) } | ConvertTo-Json -Compress
+    return @{
+        SigningKeyBase64 = $signingKey; TokenBase64 = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($token))
+        PublicKey = $publicKey; KeyId = $keyId; RefreshSeconds = $refresh
+        RepositoriesBase64 = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($json))
+        BuildRepository = $buildRepository; BuildCommit = $commit
+    }
+}
+
+Export-ModuleMember -Function Initialize-CachingProxyGitMirrorToken, Set-CachingProxyGitMirrorEnrollment, Get-CachingProxyGitMirrorSeedSetting, Get-CachingProxyServiceStateIp, Get-CachingProxyServiceStatePath, Read-CachingProxyServiceState, Save-CachingProxyServiceState, Test-TcpPortReachable, Invoke-CachingProxyServiceProbe, Test-SequenceRequiresCacheRegistry, Test-CachingProxyRegistryReady, Wait-CachingProxyServiceSettled, Resolve-CachingProxyZotOverride, Get-CachingProxyZotSelfTestReport, Wait-CachingProxyZotSelfTest, Resolve-CachingProxyServiceEndpoint, Get-PoolAggregatorServiceSeedUrl, Wait-YurunaAggregatorReady, Get-PoolConfigurationSeedUrl, Sync-PoolConfigurationAliasOnProxy, Test-CachingProxyServiceCaPem, Get-CachingProxyServiceCaCertBase64, Resolve-CachingProxyServiceCaCertPem

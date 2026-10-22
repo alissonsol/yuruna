@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.18.2
+.VERSION 2026.10.22
 .GUID 42801635-2de0-4574-8b48-dbac5d2347c2
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -84,6 +84,8 @@
           localRoot: '/srv'         # kind: local -- REQUIRED unattended, see below
           networkPath: '//ypool-nas/work/yuruna.pool'
           networkUser: 'yuruna-pool'
+          stashNetworkPath: '//ystash-nas/work/yuruna.stash'
+          stashNetworkUser: 'yuruna-stash'
           onFailure: stop           # stop | local -- see below
         lab:
           name: workshop
@@ -114,6 +116,14 @@
     asked for a NAS is the kind of divergence nobody notices until the beacon is
     a single point of failure. Set it to 'local' to have an unreachable NAS fall
     back to real local shares on this machine.
+
+    NAS answers default to the corresponding values already in test.config.yml.
+    Pool and stash use independent shares and accounts; an older answer file can
+    omit the stash answers when this machine already has them configured.
+    Existing local mount paths are preserved. Interactive runs ask for each NAS
+    password securely; Enter keeps an existing stored credential. Unattended
+    runs require the real NAS credentials to be stored beforehand. Passwords
+    never appear in the answer file or setup log.
 .PARAMETER Rebuild
     Tear down and rebuild every service VM this run touches instead of adopting
     a healthy one. This is how a changed address or credential reaches a guest:
@@ -1124,8 +1134,8 @@ function Initialize-SetupElevation {
         Write-SetupMessage 'sudo is already authorized on this terminal -- no password needed.'
         return $true
     }
-    if ($Script:Unattended) {
-        Write-SetupWarning ('This run needs sudo and the timestamp is cold, but an answer file is consent to a setup, not a password. ' +
+    if ($Script:Unattended -or -not (Test-YurunaCanPrompt)) {
+        Write-SetupWarning ('This run needs sudo and the timestamp is cold, but it cannot request a password on this terminal. ' +
                             'Steps needing root will fail with the command to run. Prime it first with "sudo -v" and re-run.')
         return $false
     }
@@ -1886,12 +1896,17 @@ function New-SetupAnswerDocument {
         [AllowEmptyString()][string]$LocalRoot = '',
         [AllowEmptyString()][string]$NetworkPath = '',
         [AllowEmptyString()][string]$NetworkUser = '',
+        [AllowEmptyString()][string]$StashNetworkPath = '',
+        [AllowEmptyString()][string]$StashNetworkUser = '',
         [Parameter(Mandatory)][string]$OnFailure,
         [AllowEmptyString()][string]$LabName = ''
     )
     $doc = [ordered]@{
         setup   = [ordered]@{ type = $SetupType; runTests = $RunTests; projectUrl = "$ProjectUrl" }
-        storage = [ordered]@{ kind = $StorageKind; localRoot = "$LocalRoot"; networkPath = "$NetworkPath"; networkUser = "$NetworkUser"; onFailure = $OnFailure }
+        storage = [ordered]@{
+            kind = $StorageKind; localRoot = "$LocalRoot"; networkPath = "$NetworkPath"; networkUser = "$NetworkUser"
+            stashNetworkPath = "$StashNetworkPath"; stashNetworkUser = "$StashNetworkUser"; onFailure = $OnFailure
+        }
     }
     # No createDefaultPool key: the pool is ensured on every run, so writing one
     # would re-introduce a setting that the next run ignores.
@@ -1923,6 +1938,8 @@ function Test-SetupAnswerSet {
         [AllowEmptyString()][AllowNull()][string]$LocalRoot = '',
         [AllowEmptyString()][AllowNull()][string]$NetworkPath = '',
         [AllowEmptyString()][AllowNull()][string]$NetworkUser = '',
+        [AllowEmptyString()][AllowNull()][string]$StashNetworkPath = '',
+        [AllowEmptyString()][AllowNull()][string]$StashNetworkUser = '',
         [AllowEmptyString()][AllowNull()][string]$OnFailure = '',
         [AllowEmptyString()][AllowNull()][string]$LabName = ''
     )
@@ -1943,6 +1960,9 @@ function Test-SetupAnswerSet {
     if ($StorageKind -eq 'nas' -and (-not $NetworkPath -or -not $NetworkUser)) {
         $problems.Add("storage.kind 'nas' needs both storage.networkPath and storage.networkUser.")
     }
+    if ($StorageKind -eq 'nas' -and (-not $StashNetworkPath -or -not $StashNetworkUser)) {
+        $problems.Add("storage.kind 'nas' needs both storage.stashNetworkPath and storage.stashNetworkUser, or existing stash coordinates in test.config.yml.")
+    }
     # Required for kind 'local' only, and deliberately not for the NAS fallback:
     # a NAS that mounts is the expected outcome and never needs the key, so
     # demanding it up front would refuse a run that was going to be fine. The
@@ -1958,6 +1978,223 @@ function Test-SetupAnswerSet {
     # with @(...) and report each message on its own line, and an empty result has
     # to collect as an empty list rather than as one empty array.
     return $problems.ToArray()
+}
+
+function Resolve-SetupNasStorageTier {
+<#
+.SYNOPSIS
+    Resolve the independent NAS tiers while preserving this machine's mount paths.
+#>
+    [CmdletBinding()]
+    [OutputType([pscustomobject[]])]
+    param(
+        [AllowNull()]$Config,
+        [Parameter(Mandatory)][string]$HostType,
+        [string]$NetworkPath = '', [string]$NetworkUser = '',
+        [string]$StashNetworkPath = '', [string]$StashNetworkUser = ''
+    )
+    $storage = if ($Config -is [Collections.IDictionary] -and $Config['networkStorage'] -is [Collections.IDictionary]) {
+        $Config['networkStorage']
+    } else { @{} }
+    $resolved = [Collections.Generic.List[object]]::new()
+    $defaultLocal = @{}
+    foreach ($tier in @(
+        @{ Kind = 'pool'; Prefix = 'poolStorage'; Path = $NetworkPath; User = $NetworkUser },
+        @{ Kind = 'stash'; Prefix = 'stashStorage'; Path = $StashNetworkPath; User = $StashNetworkUser }
+    )) {
+        $path = if ($tier.Path) { $tier.Path.Trim() } else { [string]$storage["$($tier.Prefix)NetworkPath"] }
+        $user = if ($tier.User) { $tier.User.Trim() } else { [string]$storage["$($tier.Prefix)NetworkUser"] }
+        $local = [string]$storage["$($tier.Prefix)LocalPath"]
+        $defaultLocal[$tier.Kind] = [string]::IsNullOrWhiteSpace($local)
+        if ($defaultLocal[$tier.Kind]) {
+            $server = if ($path) { Get-PoolStorageServerName -NetworkPath $path } else { '' }
+            $local = Get-ConfigSyncLocalPathDefault -HostType $HostType -Tier $tier.Kind `
+                -ServerName $server
+        }
+        $resolved.Add([pscustomobject]@{ Kind = $tier.Kind; ConfigPrefix = $tier.Prefix; NetworkPath = $path.Trim(); NetworkUser = $user.Trim(); LocalPath = $local })
+    }
+    $comparison = if ($HostType -like '*windows*') { [StringComparison]::OrdinalIgnoreCase } else { [StringComparison]::Ordinal }
+    if ($resolved[0].LocalPath -and [string]::Equals($resolved[0].LocalPath.TrimEnd('/', '\'), $resolved[1].LocalPath.TrimEnd('/', '\'), $comparison)) {
+        # Two shares on one NAS need separate mount points. Use the established
+        # tier aliases only for defaults; an operator's nonempty path wins.
+        foreach ($item in $resolved) {
+            if ($defaultLocal[$item.Kind]) {
+                $server = if ($item.Kind -eq 'pool') { 'ypool-nas' } else { 'ystash-nas' }
+                $item.LocalPath = Get-ConfigSyncLocalPathDefault -HostType $HostType -Tier $item.Kind -ServerName $server
+            }
+        }
+        if ([string]::Equals($resolved[0].LocalPath.TrimEnd('/', '\'), $resolved[1].LocalPath.TrimEnd('/', '\'), $comparison)) {
+            throw 'networkStorage.poolStorageLocalPath and networkStorage.stashStorageLocalPath must name distinct mount points.'
+        }
+    }
+    return $resolved.ToArray()
+}
+
+function Set-SetupNasStorageConfig {
+<#
+.SYNOPSIS
+    Apply the selected NAS coordinates without rewriting unrelated YAML or comments.
+.DESCRIPTION
+    Only the six storage coordinates are edited. A complete backup and the
+    previous -> new reports precede the atomic write, so an operator can recover
+    an explicit change and compare it with the configuration they already had.
+#>
+    [CmdletBinding(SupportsShouldProcess)]
+    [OutputType([bool])]
+    param([Parameter(Mandatory)][string]$ConfigPath, [Parameter(Mandatory)][object[]]$Tier)
+    $text = [string](Get-Content -LiteralPath $ConfigPath -Raw)
+    $doc = $text | ConvertFrom-Yaml -Ordered
+    $storage = if ($doc -is [Collections.IDictionary] -and $doc['networkStorage'] -is [Collections.IDictionary]) {
+        $doc['networkStorage']
+    } else { @{} }
+    $changes = [ordered]@{}
+    foreach ($item in $Tier) {
+        foreach ($field in @('NetworkPath', 'NetworkUser', 'LocalPath')) {
+            $key = "$($item.ConfigPrefix)$field"
+            $value = [string]$item.$field
+            if ([string]::IsNullOrWhiteSpace($value)) { throw "networkStorage.$key is empty; complete the NAS answers before mounting." }
+            if ([string]$storage[$key] -cne $value) {
+                $changes[$key] = @{ Previous = [string]$storage[$key]; Value = $value }
+            }
+        }
+    }
+    if ($changes.Count -eq 0) { return $true }
+    $newline = if ($text.Contains("`r`n")) { "`r`n" } else { "`n" }
+    $lines = [Collections.Generic.List[string]]::new()
+    $lines.AddRange([string[]]($text -split '\r?\n'))
+    $section = -1
+    for ($i = 0; $i -lt $lines.Count; $i++) {
+        if ($lines[$i] -match '^networkStorage\s*:\s*(?:#.*)?$') { $section = $i; break }
+    }
+    if ($section -lt 0) {
+        if ($doc -is [Collections.IDictionary] -and $doc.Contains('networkStorage')) {
+            throw 'networkStorage must use an indented YAML mapping so setup can preserve the surrounding comments.'
+        }
+        $section = $lines.Count
+        $lines.Add('networkStorage:')
+    }
+    foreach ($key in $changes.Keys) {
+        $index = -1
+        $end = $section + 1
+        while ($end -lt $lines.Count -and $lines[$end] -notmatch '^[^\s#]') {
+            if ($lines[$end] -match "^(\s+)$([regex]::Escape($key))\s*:") { $index = $end }
+            $end++
+        }
+        $rendered = Format-YamlScalarValue -Value $changes[$key].Value
+        if ($index -ge 0) {
+            # A # inside a quoted path is data, while an unquoted # after
+            # whitespace starts the inline comment that belongs to this key.
+            $line = $lines[$index]
+            $quote = [char]0
+            $comment = ''
+            for ($j = $line.IndexOf(':') + 1; $j -lt $line.Length; $j++) {
+                $c = $line[$j]
+                if ($quote -ne [char]0) {
+                    if ($c -eq $quote) {
+                        if ($quote -eq "'" -and $j + 1 -lt $line.Length -and $line[$j + 1] -eq "'") { $j++ }
+                        elseif ($quote -ne '"' -or $j -eq 0 -or $line[$j - 1] -ne '\') { $quote = [char]0 }
+                    }
+                } elseif ($c -in @([char]39, [char]34)) { $quote = $c }
+                elseif ($c -eq '#' -and $j -gt 0 -and [char]::IsWhiteSpace($line[$j - 1])) { $comment = ' ' + $line.Substring($j); break }
+            }
+            $indent = [regex]::Match($line, '^\s+').Value
+            $lines[$index] = "${indent}${key}: $rendered$comment"
+        } else { $lines.Insert($end, "  ${key}: $rendered") }
+    }
+    $updated = $lines -join $newline
+    $check = $updated | ConvertFrom-Yaml -Ordered
+    foreach ($key in $changes.Keys) {
+        if ([string]$check['networkStorage'][$key] -cne $changes[$key].Value) { throw "NAS configuration did not round-trip for networkStorage.$key; no file was written." }
+    }
+    if ($PSCmdlet.ShouldProcess($ConfigPath, 'Apply the selected NAS storage coordinates')) {
+        $backup = "$ConfigPath.setup-storage.backup"
+        Copy-Item -LiteralPath $ConfigPath -Destination $backup -Force
+        foreach ($key in $changes.Keys) {
+            $previous = if ($changes[$key].Previous) { $changes[$key].Previous } else { '(blank)' }
+            Write-SetupMessage "networkStorage.${key}: $previous -> $($changes[$key].Value)"
+        }
+        Write-SetupMessage "Previous storage configuration is recoverable at $backup"
+        if (-not (Write-YurunaStateFile -Path $ConfigPath -Content $updated -Confirm:$false)) { throw "Could not write NAS storage configuration to $ConfigPath; the previous file is at $backup." }
+        if (Get-Command Clear-TestConfigCache -ErrorAction SilentlyContinue) { Clear-TestConfigCache }
+    }
+    return $true
+}
+
+function Initialize-SetupNasCredential {
+<#
+.SYNOPSIS
+    Securely collect real NAS credentials before the run closes its prompt window.
+.DESCRIPTION
+    Enter reuses a stored credential. Missing credentials never call the vault's
+    auto-generation path: only a password the operator supplies can create an
+    entry for an existing NAS account. Passwords stay in-process and out of the
+    setup log, answer document and child command lines.
+#>
+    [CmdletBinding(SupportsShouldProcess)]
+    param([Parameter(Mandatory)][object[]]$Tier, [bool]$Unattended = $false)
+    if ($WhatIfPreference) { return }
+    $canPrompt = -not $Unattended -and (Test-YurunaCanPrompt)
+    foreach ($user in @($Tier.NetworkUser | Sort-Object -Unique)) {
+        if ([string]::IsNullOrWhiteSpace($user)) { throw 'A NAS account is missing from the storage answers.' }
+        $existing = [string](Get-YurunaMachineCredential -LogicalUser $user)
+        if (-not $canPrompt) {
+            if (-not $existing) { throw "No NAS password is stored for '$user'. Run setup interactively to enter the real NAS password, or store it in the authentication vault before an unattended run." }
+            Write-SetupDetail "NAS credential for '$user' reused from the authentication vault."
+            continue
+        }
+        $prompt = "NAS password for '$user'"
+        if ($existing) { $prompt += ' (Enter keeps the stored password)' }
+        $secure = Read-Host -Prompt $prompt -AsSecureString
+        try { $password = [Net.NetworkCredential]::new('', $secure).Password }
+        finally { if ($secure) { $secure.Dispose() } }
+        if (-not $password) {
+            if ($existing) { Write-SetupDetail "NAS credential for '$user' reused from the authentication vault."; continue }
+            throw "No NAS password was supplied for '$user'; the real password is required before this share can be mounted."
+        }
+        if ($password -ceq $existing) { continue }
+        $mapped = ([string](Get-EffectiveUser -LogicalUser $user).vaultKey).Trim()
+        $key = if ($mapped) { $mapped.Trim() } elseif ($existing) { $user } else { "smb.$user" }
+        if ($PSCmdlet.ShouldProcess("NAS account '$user'", 'Store the operator-supplied password in the authentication vault')) {
+            $previous = if ($existing) { '(stored credential)' } else { '(no stored credential)' }
+            Write-SetupMessage "NAS credential '$user': $previous -> (operator-supplied credential); the vault retains the previous password."
+            try {
+                Set-Password -Username $key -NewPassword $password
+                if (-not $mapped -and -not $existing) { [void](Set-UserVaultKey -LogicalUser $user -VaultKey $key -Confirm:$false) }
+            } catch { throw "Could not store the NAS credential for '$user'; check the authentication vault permissions and configuration." }
+            Write-SetupMessage "NAS credential for '$user' stored in the authentication vault."
+        }
+        $password = $null
+        $existing = $null
+    }
+}
+
+function Invoke-SetupNasStorage {
+<#
+.SYNOPSIS
+    Establish Linux mount authorization, then verify both independent NAS tiers.
+#>
+    [CmdletBinding(SupportsShouldProcess)]
+    param([Parameter(Mandatory)][object[]]$Tier)
+    if (-not $PSCmdlet.ShouldProcess('pool and stash NAS storage', 'Mount and verify both shares')) { return }
+    if ($IsLinux) {
+        $sudoers = Set-PoolStorageSudoers -Confirm:$false -NonInteractive
+        Write-SetupDetail "NAS mount authorization: $($sudoers.Action) -- $($sudoers.Message)"
+        if ($sudoers.Action -notin @('present', 'installed')) { throw "Linux NAS mount authorization is not ready: $($sudoers.Message)" }
+    }
+    $failures = [Collections.Generic.List[string]]::new()
+    foreach ($item in $Tier) {
+        # Both tiers use the same mount shape. The exported normalizer also
+        # expands '~' for the OS while the file retains the operator's spelling.
+        $mount = Get-YurunaPoolStorageConfig -Config @{ networkStorage = @{
+            poolStorageNetworkPath = $item.NetworkPath; poolStorageNetworkUser = $item.NetworkUser; poolStorageLocalPath = $item.LocalPath
+        } }
+        if (-not (Connect-YurunaPoolStorage -Config $mount -Confirm:$false)) {
+            $reason = Get-PoolStorageLastMountError
+            if (-not $reason) { $reason = 'the mount attempt recorded no reason; check NAS reachability and the share name' }
+            $failures.Add("$($item.Kind) share '$($item.NetworkPath)' at '$($item.LocalPath)': $reason")
+        }
+    }
+    if ($failures.Count -gt 0) { throw ($failures -join '; ') }
 }
 
 function Set-SetupProjectUrl {
@@ -2177,7 +2414,8 @@ function Read-Choice {
     param(
         [Parameter(Mandatory)][string]$Question,
         [Parameter(Mandatory)][hashtable[]]$Option,
-        [Parameter(Mandatory)]$Default
+        [Parameter(Mandatory)]$Default,
+        [string]$ConfigKey = ''
     )
     $label = { param($Value) ($Option | Where-Object { $_.Value -eq $Value } | Select-Object -First 1).Label }
     if ($Script:Unattended) {
@@ -2185,6 +2423,8 @@ function Read-Choice {
         Write-SetupLogLine -Level 'ANSWER' -Message "$Default -- $(& $label $Default) (unattended default)"
         return $Default
     }
+    Assert-YurunaPromptable -Question $Question -ParameterName '-AnswerFile' -ConfigKey $ConfigKey
+    $answerHint = if ($ConfigKey) { "set $ConfigKey in -AnswerFile" } else { 'provide -AnswerFile' }
     Write-SetupMessage ''
     Write-SetupMessage $Question
     for ($i = 0; $i -lt $Option.Count; $i++) {
@@ -2192,7 +2432,11 @@ function Read-Choice {
         Write-SetupMessage ("  [{0}] {1}{2}" -f ($i + 1), $Option[$i].Label, $marker)
     }
     while ($true) {
-        $answer = (Read-Host 'Choice').Trim()
+        $inputValue = Read-Host 'Choice'
+        if ($null -eq $inputValue) {
+            throw "Setup input is closed while asking '$Question'. Re-run interactively or $answerHint."
+        }
+        $answer = $inputValue.Trim()
         if (-not $answer) {
             Write-SetupLogLine -Level 'ANSWER' -Message "$Default -- $(& $label $Default) (Enter: default)"
             return $Default
@@ -2207,24 +2451,48 @@ function Read-Choice {
 }
 
 function Read-Text {
+<#
+.SYNOPSIS
+    Resolve text while keeping a missing required answer at its own question.
+.DESCRIPTION
+    Enter accepts an existing nonempty default. A required field with no default
+    must be answered before the next question is shown, so a recoverable omission
+    cannot turn into a fatal configuration error at the end of the questionnaire.
+#>
     param(
         [Parameter(Mandatory)][string]$Question,
-        [string]$Default = ''
+        [string]$Default = '',
+        [string]$ConfigKey = '',
+        [switch]$Required
     )
+    $requiredName = if ($ConfigKey) { $ConfigKey } else { $Question }
     if ($Script:Unattended) {
         Write-SetupLogLine -Level 'ASK' -Message "$Question -- not asked (unattended)"
+        if ($Required -and [string]::IsNullOrWhiteSpace($Default)) {
+            throw "$requiredName is required for unattended setup. Set it in -AnswerFile or configure it in test/test.config.yml before re-running."
+        }
         Write-SetupLogLine -Level 'ANSWER' -Message "$Default (unattended default)"
         return $Default
     }
+    Assert-YurunaPromptable -Question $Question -ParameterName '-AnswerFile' -ConfigKey $ConfigKey
+    $answerHint = if ($ConfigKey) { "set $ConfigKey in -AnswerFile" } else { 'provide -AnswerFile' }
     $suffix = if ($Default) { " [$Default]" } else { '' }
-    Write-SetupLogLine -Level 'ASK' -Message "$Question$suffix"
-    $answer = (Read-Host "$Question$suffix").Trim()
-    if (-not $answer) {
-        Write-SetupLogLine -Level 'ANSWER' -Message "$(if ($Default) { $Default } else { "''" }) (Enter: default)"
-        return $Default
+    while ($true) {
+        Write-SetupLogLine -Level 'ASK' -Message "$Question$suffix"
+        $inputValue = Read-Host "$Question$suffix"
+        if ($null -eq $inputValue) {
+            throw "Setup input is closed while asking '$Question'. Re-run interactively or $answerHint."
+        }
+        $answer = $inputValue.Trim()
+        $value = if ($answer) { $answer } else { $Default }
+        if ($Required -and [string]::IsNullOrWhiteSpace($value)) {
+            Write-SetupLogLine -Level 'ANSWER' -Message "'' (rejected: $requiredName is required)"
+            Write-SetupMessage "$requiredName is required. Enter a value; a blank answer only keeps a nonempty default."
+            continue
+        }
+        Write-SetupLogLine -Level 'ANSWER' -Message $(if ($answer) { "$answer (typed)" } else { "$(if ($Default) { $Default } else { "''" }) (Enter: default)" })
+        return $value
     }
-    Write-SetupLogLine -Level 'ANSWER' -Message "$answer (typed)"
-    return $answer
 }
 
 function Test-DashboardAlias {
@@ -2495,7 +2763,7 @@ function Get-DecisionSource {
 $setupType = Get-Answer 'setup.type'
 $setupTypeSource = Get-DecisionSource -FromAnswerFile ([bool]$setupType)
 if (-not $setupType) {
-    $setupType = Read-Choice -Question 'What are you setting up?' -Default 'standalone' -Option @(
+    $setupType = Read-Choice -Question 'What are you setting up?' -Default 'standalone' -ConfigKey 'setup.type' -Option @(
         @{ Label = 'Standalone host -- one machine that runs tests by itself'; Value = 'standalone' }
         @{ Label = 'Lab -- a beacon other machines join (shared storage + services + a pool)'; Value = 'lab' }
     )
@@ -2514,7 +2782,7 @@ $runTests = if ($null -ne $runTestsAnswer) {
     elseif ([string]$runTestsAnswer -match '^(?i:false|no|off|0)$') { $false }
     else { throw "setup.runTests must be a boolean or yes/no value." }
 } else {
-    (Read-Choice -Question 'Should this machine run tests itself?' -Default $true -Option @(
+    (Read-Choice -Question 'Should this machine run tests itself?' -Default $true -ConfigKey 'setup.runTests' -Option @(
         @{ Label = 'Yes -- configure host settings (display sleep, screen lock, firewall)'; Value = $true }
         @{ Label = 'No -- this machine only hosts services'; Value = $false }
     ))
@@ -2536,17 +2804,33 @@ if (-not $storageKind) {
     # stash service and the pool configuration store both live on it.
     if (-not $isLab) { $storageOptions += @{ Label = 'None -- skip shared storage and the stash service'; Value = 'none' } }
     $storageKind = Read-Choice -Question 'Where should pool and stash storage live?' `
-        -Default $(if ($isLab) { 'nas' } else { 'local' }) -Option $storageOptions
+        -Default $(if ($isLab) { 'nas' } else { 'local' }) -ConfigKey 'storage.kind' -Option $storageOptions
 }
 
 $storageNetworkPath = [string](Get-Answer 'storage.networkPath')
 $storageNetworkUser = [string](Get-Answer 'storage.networkUser')
+$storageStashNetworkPath = [string](Get-Answer 'storage.stashNetworkPath')
+$storageStashNetworkUser = [string](Get-Answer 'storage.stashNetworkUser')
 # Captured before the prompts below, which overwrite the values with what the
 # operator types -- after them there is no telling the two sources apart.
 $storageNetworkFromFile = [bool]$storageNetworkPath
+$storageStashNetworkFromFile = [bool]$storageStashNetworkPath
+$nasStorageTiers = @()
 if ($storageKind -eq 'nas') {
-    if (-not $storageNetworkPath) { $storageNetworkPath = Read-Text -Question 'NAS share for the pool (e.g. //ypool-nas/work/yuruna.pool)' }
-    if (-not $storageNetworkUser) { $storageNetworkUser = Read-Text -Question 'NAS account' -Default 'yuruna-pool' }
+    Import-SetupModule (Join-Path $TestRoot 'modules/Test.ConfigServiceSync.psm1')
+    Import-SetupModule (Join-Path $TestRoot 'modules/Test.Config.psm1')
+    $existingSetupConfig = if (Test-Path -LiteralPath $ConfigPath) { Read-TestConfig -Path $ConfigPath -NoCache } else { $null }
+    $nasDefaults = @(Resolve-SetupNasStorageTier -Config $existingSetupConfig -HostType $HostType)
+    if (-not $storageNetworkPath) { $storageNetworkPath = Read-Text -Question 'NAS share for the pool (e.g. //ypool-nas/work/yuruna.pool)' -Default $nasDefaults[0].NetworkPath -Required -ConfigKey 'storage.networkPath' }
+    if (-not $storageNetworkUser) { $storageNetworkUser = Read-Text -Question 'Pool NAS account' -Default $(if ($nasDefaults[0].NetworkUser) { $nasDefaults[0].NetworkUser } else { 'yuruna-pool' }) -Required -ConfigKey 'storage.networkUser' }
+    if (-not $storageStashNetworkPath) {
+        Write-SetupMessage 'The stash needs its own existing NAS share. It may be on the same NAS as the pool; enter its actual share path. Enter only keeps a displayed default.'
+        $storageStashNetworkPath = Read-Text -Question 'NAS share for the stash (e.g. //ystash-nas/work/yuruna.stash)' -Default $nasDefaults[1].NetworkPath -Required -ConfigKey 'storage.stashNetworkPath'
+    }
+    if (-not $storageStashNetworkUser) { $storageStashNetworkUser = Read-Text -Question 'Stash NAS account' -Default $(if ($nasDefaults[1].NetworkUser) { $nasDefaults[1].NetworkUser } else { 'yuruna-stash' }) -Required -ConfigKey 'storage.stashNetworkUser' }
+    $nasStorageTiers = @(Resolve-SetupNasStorageTier -Config $existingSetupConfig -HostType $HostType `
+        -NetworkPath $storageNetworkPath -NetworkUser $storageNetworkUser `
+        -StashNetworkPath $storageStashNetworkPath -StashNetworkUser $storageStashNetworkUser)
 }
 
 # Resolved BEFORE the storage root, because whether the root is needed at all
@@ -2576,7 +2860,7 @@ $labNameSource = ''
 if ($isLab) {
     $labName = [string](Get-Answer 'lab.name')
     $labNameSource = Get-DecisionSource -FromAnswerFile ([bool]$labName)
-    if (-not $labName) { $labName = Read-Text -Question 'Lab beacon name' -Default ([Environment]::MachineName.ToLowerInvariant()) }
+    if (-not $labName) { $labName = Read-Text -Question 'Lab beacon name' -Default ([Environment]::MachineName.ToLowerInvariant()) -ConfigKey 'lab.name' }
 }
 # The 'default' pool is NOT asked about and has no answer-file key: a lab with no pool
 # is one no host can be enrolled into, so it is derived at the end of the run from the
@@ -2613,6 +2897,10 @@ $networkSource = if ($storageKind -ne 'nas') { "not asked -- storage.kind is '$s
 Add-SetupDecision -Name 'storage.localRoot'       -Value $storageLocalRoot   -Source $localRootSource
 Add-SetupDecision -Name 'storage.networkPath'     -Value $storageNetworkPath -Source $networkSource
 Add-SetupDecision -Name 'storage.networkUser'     -Value $storageNetworkUser -Source $networkSource
+$stashNetworkSource = if ($storageKind -ne 'nas') { "not asked -- storage.kind is '$storageKind'" }
+                      else { Get-DecisionSource -FromAnswerFile $storageStashNetworkFromFile }
+Add-SetupDecision -Name 'storage.stashNetworkPath' -Value $storageStashNetworkPath -Source $stashNetworkSource
+Add-SetupDecision -Name 'storage.stashNetworkUser' -Value $storageStashNetworkUser -Source $stashNetworkSource
 Add-SetupDecision -Name 'storage.onFailure'       -Value $storageOnFailure   -Source $storageOnFailureSource
 if ($isLab) {
     Add-SetupDecision -Name 'lab.name'              -Value $labName -Source $labNameSource
@@ -2625,6 +2913,7 @@ if ($isLab) {
 # has rewritten the hosts file and paid for a multi-minute proxy build.
 $answerProblems = @(Test-SetupAnswerSet -SetupType $setupType -StorageKind $storageKind `
     -LocalRoot $storageLocalRoot -NetworkPath $storageNetworkPath -NetworkUser $storageNetworkUser `
+    -StashNetworkPath $storageStashNetworkPath -StashNetworkUser $storageStashNetworkUser `
     -OnFailure $storageOnFailure -LabName $labName)
 if ($answerProblems.Count -gt 0) {
     foreach ($problem in $answerProblems) { Write-SetupError $problem }
@@ -2644,10 +2933,11 @@ if ($storageKind -eq 'local') {
     Write-SetupMessage (Format-YurunaOperatorMessage -Key 'automation.operator_11dfac53e0602112')
 }
 
-# --- REGION: What a previous `sudo` run left behind -- the SCAN and the asking
-# Read-only here; the chown / umount / kill that acts on these answers is a step further
-# down. The asking has to happen HERE, above the sentence that promises nothing else
-# will ask: inside a step the question would go to the log, leaving a bare prompt.
+# --- REGION: Root-artifact scan
+# What a previous `sudo` run left behind, found and asked about. Read-only here; the
+# chown / umount / kill that acts on these answers is a step further down. The asking
+# has to happen HERE, above the sentence that promises nothing else will ask: inside a
+# step the question would go to the log, leaving a bare prompt.
 # See https://yuruna.link/4213a0b3-01a7
 $Script:RootArtifactPorts = @(8080, 8443)
 $Script:RootArtifactFound = @()
@@ -2699,6 +2989,21 @@ if (-not $IsWindows -and -not $WhatIfPreference) {
 # credential is taken here, once, and the contract that forbids any later
 # question is published into the environment every child inherits.
 try {
+$nasCredentialError = ''
+if ($storageKind -eq 'nas' -and -not $WhatIfPreference) {
+    try {
+        Import-SetupModule (Join-Path $TestRoot 'modules/Test.Extension.psm1')
+        $null = @(Import-Extension -Area 'authentication' -RequireSingle)
+        Import-SetupModule (Join-Path $TestRoot 'modules/Test.Lab.psm1')
+        Initialize-SetupNasCredential -Tier $nasStorageTiers -Unattended $Script:Unattended
+    } catch {
+        # Credential preparation belongs to the NAS attempt. Deferring its
+        # failure lets the operator's existing stop/local policy decide what
+        # follows, just as it does for an unreachable share.
+        $nasCredentialError = $_.Exception.Message
+        Write-SetupWarning $nasCredentialError
+    }
+}
 if (-not $WhatIfPreference) {
     $Script:ElevationOk = Initialize-SetupElevation -Reason @(
         'host settings -- display sleep, screen lock, power management',
@@ -2778,9 +3083,10 @@ if (-not $WhatIfPreference) {
     Write-SetupDetail "host type: $HostType"
 })
 
-# --- REGION: 1b. What a previous `sudo` run left behind -- the CLEARING
-# BEFORE anything is written: two of the things this finds are what make the writing
-# fail. Only the acting half is here; the scan and the questions ran above.
+# --- REGION: 1b. Root-artifact clearing
+# What a previous `sudo` run left behind, cleared BEFORE anything is written: two of
+# the things this finds are what make the writing fail. Only the acting half is here;
+# the scan and the questions ran above.
 # See https://yuruna.link/4213a0b3-01a8
 if (-not $IsWindows) {
     [void](Invoke-SetupStep -Name 'Check for state left behind by a previous sudo run' -Critical -Action {
@@ -2823,9 +3129,9 @@ if (-not $IsWindows) {
 
 # --- REGION: 2. Config
 [void](Invoke-SetupStep -Name 'Create or refresh test/test.config.yml from the template' -Critical -AlreadyDone {
-    # Only "already done" when the file exists AND the operator named no project
-    # URL -- otherwise there is a change to apply.
-    (Test-Path -LiteralPath $ConfigPath) -and -not $projectUrl
+    # NAS answers must reach the file even when no project URL was supplied.
+    # Other runs are already configured when the file exists and no URL changed.
+    (Test-Path -LiteralPath $ConfigPath) -and -not $projectUrl -and $storageKind -ne 'nas'
 } -Action {
     Import-SetupModule (Join-Path $TestRoot 'modules/Test.ConfigSync.psm1')
     # test.config.yml.template -- NOT test.config.template.yml. Getting this
@@ -2839,6 +3145,9 @@ if (-not $IsWindows) {
     }
     if ($projectUrl) {
         [void](Set-SetupProjectUrl -ConfigPath $ConfigPath -ProjectUrl $projectUrl -FromAnswerFile:$projectUrlFromAnswer)
+    }
+    if ($storageKind -eq 'nas') {
+        [void](Set-SetupNasStorageConfig -ConfigPath $ConfigPath -Tier $nasStorageTiers -Confirm:$false)
     }
 })
 
@@ -3009,26 +3318,8 @@ if ($storageKind -eq 'none') {
     # takes over and IS critical.
     $nasFailureIndex = $Script:Failed.Count
     $ok = Invoke-SetupStep -Name "Mount the NAS share $storageNetworkPath" -Provides 'storage' -Action {
-        Import-SetupModule (Join-Path $TestRoot 'modules/Test.PoolStorage.psm1')
-        Import-SetupModule (Join-Path $TestRoot 'modules/Test.Config.psm1')
-        # Sudoers FIRST on Linux: the mount runs `sudo -n` and fails outright
-        # without the drop-in, which reads as an unreachable NAS.
-        if ($IsLinux -and (Get-Command Set-PoolStorageSudoers -ErrorAction SilentlyContinue)) {
-            # Without -NonInteractive this falls through to bare sudo calls that
-            # read the password from /dev/tty -- unreachable by the closed stdin
-            # and -NonInteractive that govern every other elevation here, and
-            # raised after the accounts, the SMB server and the shares already
-            # exist. A captured run gets the manual commands instead.
-            [void](Set-PoolStorageSudoers -Confirm:$false -NonInteractive:(-not (Test-YurunaCanPrompt)))
-        }
-        $cfg  = Read-TestConfig -Path $ConfigPath
-        $pool = Get-YurunaPoolStorageConfig -Config $cfg -WarningAction SilentlyContinue
-        if (-not $pool) {
-            throw "networkStorage.pool is not configured in $ConfigPath. Set networkPath ($storageNetworkPath), networkUser ($storageNetworkUser) and localPath there, then re-run."
-        }
-        if (-not (Connect-YurunaPoolStorage -Config $pool)) {
-            throw "could not mount $storageNetworkPath"
-        }
+        if ($nasCredentialError) { throw $nasCredentialError }
+        Invoke-SetupNasStorage -Tier $nasStorageTiers -Confirm:$false
     }
     if (-not $ok) {
         # storage.onFailure decides, in BOTH modes, and it is the only thing that
@@ -3157,23 +3448,10 @@ Invoke-ServiceVMEnsure -Service 'stash service' -RosterKey 'stash' -Requires 'st
     -StopScript 'Stop-StashServiceVM.ps1' -StartScript 'Start-StashServiceVM.ps1'
 
 # --- REGION: 8. Bind config to the local proxy
-[void](Invoke-SetupStep -Name 'Point test.config.yml at this machine''s caching proxy' -AlreadyDone {
-    if (-not $proxyIp) { return $false }
-    (Get-Content -LiteralPath $ConfigPath -Raw) -match "(?m)^\s*cachingProxyIp\s*:\s*$([regex]::Escape($proxyIp))\s*$"
-} -Action {
+[void](Invoke-SetupStep -Name 'Point test.config.yml at this machine''s caching proxy' -Action {
     if (-not $proxyIp) { throw 'the caching proxy VM did not report an IP address' }
-    $lines = Get-Content -LiteralPath $ConfigPath
-    $hit = $false
-    for ($i = 0; $i -lt $lines.Count; $i++) {
-        if ($lines[$i] -match '^(\s*)cachingProxyIp\s*:') {
-            $lines[$i] = "$($Matches[1])cachingProxyIp: $proxyIp"
-            $hit = $true
-            break
-        }
-    }
-    if (-not $hit) { throw "no vmStart.cachingProxyIp key found in $ConfigPath to set" }
-    Set-Content -LiteralPath $ConfigPath -Value $lines
-    Write-SetupDetail "cachingProxyIp -> $proxyIp"
+    Import-SetupModule (Join-Path $TestRoot 'modules/Test.CachingProxyService.psm1')
+    [void](Set-CachingProxyGitMirrorEnrollment -ConfigPath $ConfigPath -ProxyIp $proxyIp -Confirm:$false)
 })
 
 # --- REGION: 8b. Dashboard alias -- standalone
@@ -3328,6 +3606,7 @@ if (-not $AnswerFile) {
     # breath, as the way to set up the next machine.
     $answerGap = @(Test-SetupAnswerSet -SetupType $setupType -StorageKind $storageKind `
         -LocalRoot $storageLocalRoot -NetworkPath $storageNetworkPath -NetworkUser $storageNetworkUser `
+        -StashNetworkPath $storageStashNetworkPath -StashNetworkUser $storageStashNetworkUser `
         -OnFailure $storageOnFailure -LabName $labName)
     # Covers the combination the strict check deliberately allows: a NAS run that
     # is permitted to fall back to local shares needs the root only if the NAS is
@@ -3339,7 +3618,8 @@ if (-not $AnswerFile) {
     try {
         $doc = New-SetupAnswerDocument -SetupType $setupType -RunTests $runTests -ProjectUrl $projectUrl `
             -StorageKind $storageKind -LocalRoot $storageLocalRoot -NetworkPath $storageNetworkPath `
-            -NetworkUser $storageNetworkUser -OnFailure $storageOnFailure -LabName $labName
+            -NetworkUser $storageNetworkUser -StashNetworkPath $storageStashNetworkPath `
+            -StashNetworkUser $storageStashNetworkUser -OnFailure $storageOnFailure -LabName $labName
         Import-YamlModule
         ConvertTo-Yaml $doc | Set-Content -LiteralPath $answerOut -Encoding utf8
         Write-SetupMessage ''

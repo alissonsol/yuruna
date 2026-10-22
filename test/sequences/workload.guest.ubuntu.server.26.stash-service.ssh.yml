@@ -4,12 +4,12 @@
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 
 # Standalone SMOKE TEST of the stash daemon build + launch on a vanilla
-# Ubuntu guest (no NAS seed -> local-fallback storage); NOT the production
-# bring-up (Start-StashServiceVM + cloud-init) and NOT listed in any
-# test.runner.yml -- run it manually.
+# Ubuntu guest (no NAS seed -> the daemon uses local-fallback storage).
+# It is NOT the production bring-up and is NOT listed in any test.runner.yml;
+# run it manually to verify the daemon compiles + starts.
 
 # The deploy is the LAST step on purpose: ubuntu.server.26.stash-service.sh
-# masks the OS sshd and rebinds :22 to the Yuruna Stash daemon, any later
+# masks the OS sshd and rebinds :22 to the Yuruna Stash daemon, so any later
 # sshExec/sshWaitReady would hit the stash protocol on :22, not OpenSSH, and
 # hang or false-fail.
 
@@ -24,6 +24,7 @@ resource:
   ubuntu.server.26:
     - start.guest.ubuntu.server.26.ssh
 variables:
+  # This account cascades into the VM seed and prerequisite login.
   username: stash-admin
 
 # --- REGION: component

@@ -520,10 +520,7 @@ func TestRedactEventLine(t *testing.T) {
 // framework/project deep-link URLs, including the non-linkable cases the host
 // status page also renders as plain text (non-URL repo, "unknown" SHA).
 func TestCommitCells(t *testing.T) {
-	fw := struct {
-		Sha     string `json:"sha"`
-		RepoURL string `json:"repoUrl"`
-	}{"1583275bdeadbeef", "https://github.com/org/yuruna"}
+	fw := gitCommitRef{Sha: "1583275bdeadbeef", RepoURL: "https://github.com/org/yuruna"}
 	proj := fw
 	proj.Sha, proj.RepoURL = "a1b2c3d4c0ffee", "https://github.com/org/project"
 
@@ -554,14 +551,63 @@ func TestCommitCells(t *testing.T) {
 	}
 
 	// non-http repo and "unknown" SHA still show in the display but don't link.
-	bad := struct {
-		Sha     string `json:"sha"`
-		RepoURL string `json:"repoUrl"`
-	}{"unknown", "git@github.com:org/x.git"}
+	bad := gitCommitRef{Sha: "unknown", RepoURL: "git@github.com:org/x.git"}
 	stBad := &hostStatus{}
 	stBad.GitCommits = append(stBad.GitCommits, bad)
 	if disp, fwURL, _ := commitCells(stBad); disp != "unknown" || fwURL != "" {
 		t.Fatalf("non-linkable commit: disp=%q fwURL=%q", disp, fwURL)
+	}
+}
+
+func TestCommitCellsVerificationDisplay(t *testing.T) {
+	for _, tc := range []struct {
+		verification string
+		label        string
+	}{
+		{"origin-direct", "remote.origin"},
+		{"mirror-confirmed", "mirror.origin"},
+		{"mirror-stale", "mirror.stale"},
+		{"mirror-fresh", "mirror.fresh"},
+		{"not-applicable", "not.applicable"},
+		{"", ""},
+		{"unknown", ""},
+	} {
+		t.Run(tc.verification, func(t *testing.T) {
+			st := &hostStatus{GitCommits: gitCommitRefs{
+				{Sha: "1583275bdeadbeef", RepoURL: "https://github.com/org/yuruna", Verification: tc.verification},
+				{Sha: "a1b2c3d4c0ffee", RepoURL: "https://github.com/org/project", Verification: tc.verification},
+			}}
+			before, err := json.Marshal(st.GitCommits)
+			if err != nil {
+				t.Fatal(err)
+			}
+			suffix := ""
+			if tc.label != "" {
+				suffix = " [" + tc.label + "]"
+			}
+			display, frameworkURL, projectURL := commitCells(st)
+			want := "1583275b" + suffix + ", a1b2c3d4" + suffix
+			if display != want {
+				t.Fatalf("display = %q, want %q", display, want)
+			}
+			if frameworkURL != "https://github.com/org/yuruna/commit/1583275bdeadbeef" || projectURL != "https://github.com/org/project/commit/a1b2c3d4c0ffee" {
+				t.Fatalf("commit links changed: %q/%q", frameworkURL, projectURL)
+			}
+			after, err := json.Marshal(st.GitCommits)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !bytes.Equal(before, after) {
+				t.Fatalf("display mutated stored provenance: before=%s after=%s", before, after)
+			}
+			var restored gitCommitRefs
+			if err := json.Unmarshal(after, &restored); err != nil {
+				t.Fatal(err)
+			}
+			if len(restored) != 2 || restored[0].Verification != tc.verification || restored[1].Verification != tc.verification {
+				t.Fatalf("verification did not retain its wire value: %+v", restored)
+			}
+		})
 	}
 }
 
@@ -570,6 +616,35 @@ func TestCommitCells(t *testing.T) {
 // array-double-wrap a host writer can emit), and NEVER fails the whole
 // status.json parse over a malformed gitCommits -- the host must stay in the pool
 // view. The host-side writer fix is the real correction; this is defense.
+func TestGitSourceProvenanceRoundTrip(t *testing.T) {
+	input := []byte(`[{"sha":"abc","repoUrl":"https://github.com/example/project","source":"mirror","verification":"mirror-stale","repository":"example/project","ref":"HEAD","selectedSha":"abc","fetchRef":"refs/yuruna/pins/abc","originCheckedAt":"2026-10-20T12:00:00Z","refreshAgeSeconds":60,"mirrorVersion":"test","keyId":"key","fallbackReason":"mirror-upstream-unreachable","failureClass":"host_network_degraded","proof":"not-public"}]`)
+	var commits gitCommitRefs
+	if err := json.Unmarshal(input, &commits); err != nil {
+		t.Fatal(err)
+	}
+	if len(commits) != 1 || commits[0].Verification != "mirror-stale" || commits[0].RefreshAgeSeconds == nil || *commits[0].RefreshAgeSeconds != 60 {
+		t.Fatalf("provenance lost: %+v", commits)
+	}
+	output, err := json.Marshal(commits)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []map[string]interface{}
+	if err := json.Unmarshal(output, &got); err != nil {
+		t.Fatal(err)
+	}
+	if got[0]["source"] != "mirror" || got[0]["keyId"] != "key" || got[0]["fallbackReason"] != "mirror-upstream-unreachable" {
+		t.Fatalf("pool output lost provenance: %s", output)
+	}
+	if _, exposed := got[0]["proof"]; exposed {
+		t.Fatal("private proof was exposed")
+	}
+	display, _, _ := commitCells(&hostStatus{GitCommits: commits})
+	if !strings.Contains(display, "[mirror.stale]") {
+		t.Fatalf("pool commit cell hides unconfirmed freshness: %q", display)
+	}
+}
+
 func TestGitCommitsTolerantDecode(t *testing.T) {
 	// Flat (correct) shape.
 	var flat hostStatus
@@ -607,13 +682,10 @@ func TestGitCommitsTolerantDecode(t *testing.T) {
 // two deep-links resolve.
 func TestHostInfoCommitLabels(t *testing.T) {
 	s := newPoolState("default", 8080)
-	hv := &hostView{HostId: "4253419c", BaseURL: "http://192.168.7.13:8080", Reachable: true, Version: "2026.10.18.2", PoolId: "lab", PoolGuid: "42a1b2c3-d4e5-4f60-8a1b-2c3d4e5f6071"}
+	hv := &hostView{HostId: "4253419c", BaseURL: "http://192.168.7.13:8080", Reachable: true, Version: "2026.10.22", PoolId: "lab", PoolGuid: "42a1b2c3-d4e5-4f60-8a1b-2c3d4e5f6071"}
 	hv.Status = &hostStatus{HostId: "4253419c", Host: "host.windows.hyper-v", CycleStartUtc: "c1", OverallStatus: "pass"}
 	hv.Status.GitCommits = append(hv.Status.GitCommits,
-		struct {
-			Sha     string `json:"sha"`
-			RepoURL string `json:"repoUrl"`
-		}{"1583275bcafef00d", "https://github.com/org/yuruna"})
+		gitCommitRef{Sha: "1583275bcafef00d", RepoURL: "https://github.com/org/yuruna"})
 	s.hosts[hv.HostId] = hv
 
 	req := metricsRequest()

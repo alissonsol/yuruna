@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.18.2
+.VERSION 2026.10.22
 .GUID 425b1941-f370-4155-9842-47cbe6837b47
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -53,17 +53,6 @@ $script:YurunaBranchExplicit = $PSBoundParameters.ContainsKey('YurunaBranch')
 
 function Write-Step { param([string]$m) Write-Output "==> $m" }
 function Write-Warn { param([string]$m) Write-Warning $m }
-
-# --- REGION: Deferred issues
-# Every non-fatal problem is recorded here as well as printed where it happens:
-# hundreds of lines scroll past, and the closing summary is what survives.
-# Nothing here stops the run, but a problem must not pass unmentioned either.
-$script:YurunaIssue = [System.Collections.Generic.List[string]]::new()
-function Add-InstallIssue {
-    param([Parameter(Mandatory)][string]$Message)
-    [void]$script:YurunaIssue.Add($Message)
-    Write-Warn $Message
-}
 function Write-Die  { param([string]$m) Write-Error $m }
 
 # Resolve -YurunaDir to a full path before anything reads it. Every later use is
@@ -79,6 +68,17 @@ try {
     if ($YurunaDir.Length -gt 3) { $YurunaDir = $YurunaDir.TrimEnd('\') }
 } catch {
     Write-Warn "Could not resolve -YurunaDir '$YurunaDir' to a full path: $($_.Exception.Message)"
+}
+
+# --- REGION: Deferred issues
+# Every non-fatal problem is recorded here as well as printed where it happens:
+# hundreds of lines scroll past, and the closing summary is what survives.
+# Nothing here stops the run, but a problem must not pass unmentioned either.
+$script:YurunaIssue = [System.Collections.Generic.List[string]]::new()
+function Add-InstallIssue {
+    param([Parameter(Mandatory)][string]$Message)
+    [void]$script:YurunaIssue.Add($Message)
+    Write-Warn $Message
 }
 
 # --- REGION: https://yuruna.link/429fb30b-0003
@@ -137,7 +137,7 @@ if (-not ($IsWindows -or $env:OS -eq 'Windows_NT')) {
     Write-Die 'This installer only supports Windows.'
 }
 
-# --- REGION: Preflight: Hyper-V-capable Windows edition (HARD gate)
+# --- REGION: Preflight: Hyper-V-capable Windows edition
 # See https://yuruna.link/42ad660e-0014
 # Unlike the soft tested-baseline warnings below, this is not negotiable: Home and
 # S mode editions ship no Hyper-V platform, so nothing later in the run can make the
@@ -387,7 +387,7 @@ if (-not $SkipPreflight) {
     Test-DisplayScaling
 }
 
-# --- REGION: Single-fetch materialization (irm|iex path)
+# --- REGION: Single-fetch materialization
 # See https://yuruna.link/429fb30b-001a
 Get-ChildItem -LiteralPath $env:TEMP -Filter 'yuruna-windows-hyper-v-*.ps1' -ErrorAction SilentlyContinue |
     Where-Object { $_.LastWriteTime -lt (Get-Date).AddHours(-1) } |
@@ -424,7 +424,9 @@ if (-not $PSCommandPath) {
     return
 }
 
-# --- REGION: Elevation announcement + self-relaunch
+# --- REGION: Elevation announcement
+# Relaunch elevated through UAC unless this session is already Administrator.
+# See https://yuruna.link/429fb30b-001b
 $principal = New-Object Security.Principal.WindowsPrincipal(
     [Security.Principal.WindowsIdentity]::GetCurrent())
 $isAdmin = $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
@@ -495,7 +497,9 @@ Write-Step "  repo   : $YurunaRepo ($YurunaBranch)"
 Write-Step "  target : $YurunaDir"
 Write-Step "  shell  : $((Get-Process -Id $PID).ProcessName) (PowerShell $($PSVersionTable.PSVersion))"
 
-# --- REGION: PowerShell 7 bootstrap (PS 5.1 -> PS 7)
+# --- REGION: PowerShell 7 bootstrap
+# Windows PowerShell 5.x installs pwsh and re-executes this file under it.
+# See https://yuruna.link/429fb30b-001b
 if ($PSVersionTable.PSVersion.Major -lt 7) {
     Write-Step 'Bootstrapping PowerShell 7 (Windows PowerShell 5.x detected)'
     if (-not (Get-Command winget -ErrorAction SilentlyContinue)) {
@@ -557,7 +561,257 @@ re-run this installer.
     return
 }
 
-# --- REGION: Status-port lookup (lightweight YAML scan)
+# --- REGION: Private installer recovery state
+# This capsule also lives in Test.SingleInstance; the standalone installer must
+# keep working when no checkout modules can be loaded.
+function Invoke-YurunaInstallerState {
+    <#
+    .SYNOPSIS
+        Capture or restore private installer recovery state without a module dependency.
+    .DESCRIPTION
+        Embedded verbatim in each standalone installer. Capture runs before
+        stopping a runner; restore validates the candidate runner before any
+        config seeding. Existing different files are never overwritten. The
+        frozen launch record is retained for an explicit operator start, and
+        never changes the live record's cleanExit flag.
+    #>
+    [CmdletBinding()]
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+        Justification = 'Installer transaction helper; capture and restore are explicit actions with fail-closed validation.')]
+    [OutputType([hashtable])]
+    param(
+        [Parameter(Mandatory)][ValidateSet('Capture', 'Restore', 'Read')][string]$Action,
+        [Parameter(Mandatory)][string]$RepoRoot,
+        [Parameter(Mandatory)][string]$SnapshotPath,
+        [string]$RuntimeDir,
+        [string]$PrivateRoot
+    )
+    $ErrorActionPreference = 'Stop'
+    $comparison = if ($IsLinux) { [StringComparison]::Ordinal } else { [StringComparison]::OrdinalIgnoreCase }
+    $repo = [IO.Path]::GetFullPath($RepoRoot).TrimEnd('/', '\')
+    $runtimeExplicit = -not [string]::IsNullOrEmpty($RuntimeDir) -or -not [string]::IsNullOrEmpty($env:YURUNA_RUNTIME_DIR)
+    if (-not $RuntimeDir) { $RuntimeDir = if ($env:YURUNA_RUNTIME_DIR) { $env:YURUNA_RUNTIME_DIR } else { Join-Path $repo 'test/status/runtime' } }
+    $runtime = [IO.Path]::GetFullPath($RuntimeDir).TrimEnd('/', '\')
+    $snapshot = [IO.Path]::GetFullPath($SnapshotPath)
+    foreach ($served in @($repo, $runtime)) {
+        if ($snapshot.StartsWith($served + [IO.Path]::DirectorySeparatorChar, $comparison)) {
+            throw 'Installer recovery state must be outside the checkout and runtime directory.'
+        }
+    }
+    $hashBytes = { param([byte[]]$Value) [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($Value)).ToLowerInvariant() }
+    $readBytes = {
+        param([string]$Path, [long]$Limit)
+        $info = [IO.FileInfo]::new($Path)
+        if ($info.LinkTarget -or -not $info.Exists -or $info.Length -gt $Limit) { throw "Installer state file is missing, linked, or too large: $Path" }
+        [byte[]]$value = [IO.File]::ReadAllBytes($Path)
+        if ($value.Length -gt $Limit) { throw "Installer state file grew beyond its limit: $Path" }
+        return ,$value
+    }
+    $jsonOption = @{}
+    if ((Get-Command ConvertFrom-Json).Parameters.ContainsKey('DateKind')) { $jsonOption.DateKind = 'String' }
+    $validateLaunch = {
+        param($Launch)
+        if ($null -eq $Launch) { return }
+        if ($Launch -isnot [Collections.IDictionary] -or $Launch.schemaVersion -ne 1 -or $Launch.runnerProtocolVersion -ne 1) {
+            throw 'Installer launch record has an unsupported schema or runner protocol.'
+        }
+        $scriptPath = Join-Path $repo 'test/Start-TestRunner.ps1'
+        if (-not [string]::Equals([IO.Path]::GetFullPath([string]$Launch.scriptPath), $scriptPath, $comparison) -or
+            -not [string]::Equals([IO.Path]::GetFullPath([string]$Launch.repoRoot).TrimEnd('/', '\'), $repo, $comparison)) {
+            throw 'Installer launch record belongs to another checkout.'
+        }
+        if ($Launch.parameters -isnot [Collections.IDictionary] -or $Launch.environment -isnot [Collections.IDictionary]) {
+            throw 'Installer launch record has no validated parameters or environment.'
+        }
+        $names = @('ConfigPath', 'NoGitPull', 'NoStatusService', 'NoConfigGate', 'CycleDelaySeconds', 'logLevel')
+        if ($Launch.parameters.Count -ne $names.Count) { throw 'Installer launch record has an incomplete option set.' }
+        $command = Get-Command -Name $scriptPath -CommandType ExternalScript -ErrorAction Stop
+        foreach ($name in $names) {
+            if (-not $Launch.parameters.Contains($name)) { throw "Installer launch record lacks option $name." }
+            $meta = $null
+            try { $meta = $command.ResolveParameter($name) } catch { $meta = $null }
+            if (-not $meta -or $meta.Name -cne $name) { throw "Candidate runner does not accept recorded option $name." }
+            $value = $Launch.parameters[$name]
+            if ($null -eq $value) { continue }
+            if ($meta.SwitchParameter) {
+                if ($value -isnot [bool]) { throw "Recorded option $name must be Boolean." }
+                continue
+            }
+            $converted = [Management.Automation.LanguagePrimitives]::ConvertTo($value, $meta.ParameterType)
+            foreach ($attribute in @($meta.Attributes)) {
+                $valid = $true
+                if ($attribute -is [Management.Automation.ValidateSetAttribute]) {
+                    $comparer = if ($attribute.IgnoreCase) { [StringComparer]::OrdinalIgnoreCase } else { [StringComparer]::Ordinal }
+                    $valid = @($attribute.ValidValues | Where-Object { $comparer.Equals([string]$_, [string]$converted) }).Count -gt 0
+                } elseif ($attribute -is [Management.Automation.ValidateRangeAttribute]) {
+                    $valid = ($null -eq $attribute.MinRange -or $converted -ge $attribute.MinRange) -and
+                        ($null -eq $attribute.MaxRange -or $converted -le $attribute.MaxRange)
+                } elseif ($attribute -is [Management.Automation.ValidatePatternAttribute]) {
+                    $valid = [regex]::IsMatch([string]$converted, $attribute.RegexPattern, $attribute.Options)
+                } elseif ($attribute -is [Management.Automation.ValidateNotNullOrEmptyAttribute]) {
+                    $valid = -not [string]::IsNullOrEmpty([string]$converted)
+                }
+                if (-not $valid) { throw "Recorded option $name is invalid for the candidate runner." }
+            }
+        }
+        if (-not [IO.Path]::IsPathRooted([string]$Launch.parameters.ConfigPath)) { throw 'Recorded ConfigPath is not absolute.' }
+        foreach ($name in $Launch.environment.Keys) {
+            if ([string]$name -cnotmatch '^YURUNA_[A-Z0-9_]+$' -or $Launch.environment[$name] -isnot [string]) {
+                throw 'Installer launch record has an invalid environment entry.'
+            }
+        }
+    }
+    $readLaunch = {
+        param([string]$Path)
+        # The public protocol is a bounded ASCII header plus UTF-8 JSON.
+        # Refuse damaged evidence instead of inferring launch defaults.
+        $raw = & $readBytes $Path 1048576
+        $lineEnd = [Array]::IndexOf($raw, [byte]10)
+        if ($lineEnd -lt 1 -or $lineEnd -gt 4096) { throw 'Installer launch record has a malformed header.' }
+        $header = [Text.Encoding]::ASCII.GetString($raw, 0, $lineEnd) | ConvertFrom-Json -AsHashtable @jsonOption
+        if ($header.format -cne 'yuruna.critical-record' -or $header.version -ne 1 -or $header.kind -cne 'runner-launch' -or $header.generation -lt 1) {
+            throw 'Installer launch record has an unsupported header.'
+        }
+        $payload = [byte[]]::new($raw.Length - $lineEnd - 1)
+        [Array]::Copy($raw, $lineEnd + 1, $payload, 0, $payload.Length)
+        if ($header.payloadBytes -ne $payload.Length -or $header.payloadSha256 -cne (& $hashBytes $payload)) {
+            throw 'Installer launch record checksum failed.'
+        }
+        return [Text.UTF8Encoding]::new($false, $true).GetString($payload) | ConvertFrom-Json -AsHashtable -Depth 64 @jsonOption
+    }
+    if ($Action -eq 'Capture') {
+        if ([IO.File]::Exists($snapshot)) { throw "Installer snapshot already exists: $snapshot" }
+        $launch = $null
+        if (-not $PrivateRoot) { $PrivateRoot = Join-Path $HOME '.yuruna/host-refresh' }
+        if (([IO.DirectoryInfo]::new($PrivateRoot)).LinkTarget) { throw 'Installer launch state root is linked.' }
+        if (-not $runtimeExplicit -and [IO.Directory]::Exists($PrivateRoot)) {
+            $recordMatches = @()
+            $records = @([IO.Directory]::EnumerateFiles($PrivateRoot, 'runner-launch.*.record'))
+            if ($records.Count -gt 128) { throw 'Too many runner launch records; select YURUNA_RUNTIME_DIR explicitly.' }
+            foreach ($candidatePath in $records) {
+                $candidate = & $readLaunch $candidatePath
+                if (-not [string]::Equals([string]$candidate.repoRoot, $repo, $comparison)) { continue }
+                $alive = $false
+                try {
+                    $process = [Diagnostics.Process]::GetProcessById([int]$candidate.runner.pid)
+                    $started = [DateTimeOffset]::new($process.StartTime.ToUniversalTime()).ToUnixTimeMilliseconds()
+                    $alive = $started -eq [long]$candidate.runner.startTimeUnixMs
+                    $process.Dispose()
+                } catch { $alive = $false }
+                $recordMatches += @{ record = $candidate; alive = $alive }
+            }
+            $live = @($recordMatches | Where-Object { $_.alive })
+            if ($live.Count -eq 1) { $recordMatches = $live }
+            if ($recordMatches.Count -gt 1) { throw 'Multiple recorded runtimes use this checkout; select YURUNA_RUNTIME_DIR explicitly before upgrade.' }
+            if ($recordMatches.Count -eq 1) { $runtime = [IO.Path]::GetFullPath([string]$recordMatches[0].record.runtimeDir).TrimEnd('/', '\') }
+            if ($snapshot.StartsWith($runtime + [IO.Path]::DirectorySeparatorChar, $comparison)) {
+                throw 'Installer recovery state must be outside the recorded runtime directory.'
+            }
+        }
+        $keyPath = if ($IsLinux) { $runtime } else { $runtime.ToLowerInvariant() }
+        $key = (& $hashBytes ([Text.Encoding]::UTF8.GetBytes($keyPath))).Substring(0, 16)
+        $recordPath = Join-Path $PrivateRoot "runner-launch.$key.record"
+        if ([IO.File]::Exists($recordPath)) {
+            $launch = & $readLaunch $recordPath
+            & $validateLaunch $launch
+            if (-not [string]::Equals([IO.Path]::GetFullPath([string]$launch.runtimeDir).TrimEnd('/', '\'), $runtime, $comparison)) {
+                throw 'Installer launch record belongs to another runtime directory.'
+            }
+        } elseif ([IO.File]::Exists("$recordPath.prev") -or [IO.File]::Exists((Join-Path $runtime 'runner.pid'))) {
+            throw 'Runner launch evidence is missing; choose the configuration and launch options before stopping or upgrading this runner.'
+        }
+        $configPath = if ($launch) { [string]$launch.parameters.ConfigPath } else { Join-Path $repo 'test/test.config.yml' }
+        $configs = @()
+        foreach ($path in @($configPath, (Join-Path $repo 'test/test.config.yml')) | Select-Object -Unique) {
+            if (-not [IO.File]::Exists($path)) {
+                if ($launch -and $path -eq $configPath) { throw "Recorded configuration is missing: $path" }
+                continue
+            }
+            $bytes = & $readBytes $path 4194304
+            $config = @{ path = $path; bytes = [Convert]::ToBase64String($bytes); sha256 = (& $hashBytes $bytes) }
+            if ($IsWindows) { $config.sddl = (Get-Acl -LiteralPath $path).Sddl }
+            else { $config.unixMode = [int][IO.File]::GetUnixFileMode($path) }
+            $configs += $config
+        }
+        if (-not $launch -and $configs.Count -eq 0) { return $null }
+        $state = @{ schema = 'yuruna.installer-state/v1'; repoRoot = $repo; configPath = $configPath; privateRoot = $PrivateRoot
+            launchRecord = $launch; configurations = $configs; capturedUtc = [DateTime]::UtcNow.ToString('o') }
+        $parent = Split-Path $snapshot -Parent
+        $directory = [IO.DirectoryInfo]::new($parent)
+        if ($directory.LinkTarget) { throw 'Installer snapshot directory is linked.' }
+        if ($directory.Exists -and @($directory.EnumerateFileSystemInfos()).Count -ne 0) {
+            throw 'Installer snapshot requires a dedicated empty directory.'
+        }
+        if ($IsWindows) {
+            $null = [IO.Directory]::CreateDirectory($parent)
+            $acl = [Security.AccessControl.DirectorySecurity]::new()
+            $identity = [Security.Principal.WindowsIdentity]::GetCurrent().User
+            $acl.SetOwner($identity)
+            $acl.SetAccessRuleProtection($true, $false)
+            $rule = [Security.AccessControl.FileSystemAccessRule]::new($identity, 'FullControl', 'ContainerInherit, ObjectInherit', 'None', 'Allow')
+            $acl.AddAccessRule($rule)
+            Set-Acl -LiteralPath $parent -AclObject $acl
+        } else {
+            $null = [IO.Directory]::CreateDirectory($parent, [IO.UnixFileMode]448)
+            [IO.File]::SetUnixFileMode($parent, [IO.UnixFileMode]448)
+        }
+        [IO.File]::WriteAllText($snapshot, ($state | ConvertTo-Json -Depth 64), [Text.UTF8Encoding]::new($false))
+        if (-not $IsWindows) { [IO.File]::SetUnixFileMode($snapshot, [IO.UnixFileMode]384) }
+        return $state
+    }
+    $snapshotDirectory = [IO.DirectoryInfo]::new((Split-Path $snapshot -Parent))
+    if ($snapshotDirectory.LinkTarget) { throw 'Installer snapshot directory is linked.' }
+    if (-not $IsWindows -and (([int][IO.File]::GetUnixFileMode($snapshotDirectory.FullName) -band 63) -ne 0 -or
+            ([int][IO.File]::GetUnixFileMode($snapshot) -band 63) -ne 0)) {
+        throw 'Installer snapshot permissions must restrict access to its owner.'
+    }
+    $savedBytes = & $readBytes $snapshot 16777216
+    $state = [Text.UTF8Encoding]::new($false, $true).GetString($savedBytes) | ConvertFrom-Json -AsHashtable -Depth 64 @jsonOption
+    if ($state.schema -cne 'yuruna.installer-state/v1' -or -not [string]::Equals([string]$state.repoRoot, $repo, $comparison)) {
+        throw "Installer snapshot does not identify this checkout: $snapshot"
+    }
+    & $validateLaunch $state.launchRecord
+    if (@($state.configurations).Count -eq 0) { throw 'Installer snapshot has no saved configuration.' }
+    # Validate every file before the first write, so an incompatible runner or
+    # changed external configuration cannot leave a partially restored setup.
+    foreach ($config in @($state.configurations)) {
+        $fullConfig = [IO.Path]::GetFullPath([string]$config.path)
+        if (-not [string]::Equals($fullConfig, [string]$state.configPath, $comparison) -and
+            -not [string]::Equals($fullConfig, (Join-Path $repo 'test/test.config.yml'), $comparison)) {
+            throw 'Installer snapshot contains an unrelated configuration path.'
+        }
+        $bytes = [Convert]::FromBase64String([string]$config.bytes)
+        if ((& $hashBytes $bytes) -cne [string]$config.sha256) { throw "Installer configuration snapshot hash failed: $snapshot" }
+        if ($Action -eq 'Restore' -and [IO.File]::Exists([string]$config.path)) {
+            $present = & $readBytes ([string]$config.path) 4194304
+            if ((& $hashBytes $present) -cne [string]$config.sha256) { throw "Configuration changed after capture; recovery snapshot retained at $snapshot" }
+        } elseif ($Action -eq 'Restore' -and -not [IO.File]::Exists([string]$config.path) -and -not ([string]$config.path).StartsWith($repo + [IO.Path]::DirectorySeparatorChar, $comparison)) {
+            throw "External configuration is missing; recovery snapshot retained at $snapshot"
+        }
+    }
+    if ($Action -eq 'Restore') {
+        foreach ($config in @($state.configurations)) {
+            if (-not [IO.File]::Exists([string]$config.path)) {
+                $options = [IO.FileStreamOptions]::new()
+                $options.Mode = [IO.FileMode]::CreateNew
+                $options.Access = [IO.FileAccess]::Write
+                $options.Share = [IO.FileShare]::None
+                if (-not $IsWindows) { $options.UnixCreateMode = [IO.UnixFileMode][int]$config.unixMode }
+                $stream = [IO.FileStream]::new([string]$config.path, $options)
+                $stream.Dispose()
+                if ($IsWindows) {
+                    $acl = [Security.AccessControl.FileSecurity]::new()
+                    $acl.SetSecurityDescriptorSddlForm([string]$config.sddl)
+                    Set-Acl -LiteralPath ([string]$config.path) -AclObject $acl
+                }
+                [IO.File]::WriteAllBytes([string]$config.path, [Convert]::FromBase64String([string]$config.bytes))
+            }
+        }
+    }
+    return $state
+}
+
+# --- REGION: Status-port lookup
 # Read statusService.port from test.config.yml WITHOUT powershell-yaml: the
 # module may not be installed yet at this point in the bootstrap. Returns 0
 # when the file/key is absent so the caller falls back to the 8080 default.
@@ -584,11 +838,10 @@ function Get-StatusServicePort {
 }
 
 # --- REGION: https://yuruna.link/429fb30b-000a
-# A PID file outlives its process and Windows reuses PIDs, so the number alone
-# never identifies the owner: the process must still run one of the Yuruna
-# scripts, or must have started when the matching .start record (ISO-8601 UTC,
-# written by the runner and the inner loop) says it did. A process name check
-# is not enough, because the shell that launched this installer is a pwsh too.
+# A recycled PID can belong to another pwsh -- the shell that launched this
+# installer is one -- so a PID-file entry must also run a Yuruna script or have
+# started within two seconds of its .start record.
+# See https://yuruna.link/429fb30b-000b
 function Test-YurunaPidFileOwner {
     [CmdletBinding()]
     [OutputType([bool])]
@@ -612,6 +865,7 @@ function Test-YurunaPidFileOwner {
     }
 }
 
+# Stop the runner/inner/status-service and WAIT before the checkout rename.
 # taskkill /T /F is deliberate: a soft Ctrl+C only requests "exit after the
 # current cycle", which can pin the checkout for a full VM cycle. VMs untouched.
 function Stop-YurunaProcess {
@@ -684,12 +938,8 @@ function Stop-YurunaProcess {
         return
     }
 
-    # Only PIDs we actually stopped are worth waiting on below. A candidate that
-    # was already gone, or that identity validation rejected, never exits on our
-    # account: port 8080 in particular is commonly held by http.sys on behalf of
-    # a driver-hosted listener, which reports the System process (pid 4) as its
-    # owner -- waiting for that one to exit is a guaranteed 20-second stall
-    # ending in a warning that names a process nobody can or should stop.
+    # Wait only on PIDs actually stopped: port 8080's http.sys owner (pid 4) never exits.
+    # See https://yuruna.link/429fb30b-000a
     $stoppedPids = New-Object System.Collections.Generic.List[int]
 
     foreach ($targetPid in $targetPids) {
@@ -929,6 +1179,10 @@ if (Test-CachingProxyServiceRunning) {
     Write-Step 'yuruna-caching-proxy-service VM is running -- preserving cached content (no Stop-VM / Remove-VM in this installer)'
 }
 
+$script:InstallerSnapshotPath = Join-Path $HOME ('.yuruna/installer-state/' + [guid]::NewGuid().ToString('N') + '/state.json')
+$capturedInstallerState = Invoke-YurunaInstallerState -Action Capture -RepoRoot $YurunaDir -SnapshotPath $script:InstallerSnapshotPath
+if ($capturedInstallerState) { Write-Step "Private installer recovery state: $script:InstallerSnapshotPath" }
+
 Write-Step 'Stopping anything that would block a repo update (runner + status service; VMs preserved)'
 Stop-YurunaProcess -YurunaDir $YurunaDir
 
@@ -936,6 +1190,7 @@ Write-Step 'Checking the Yuruna checkout is not locked by a shell / editor / Exp
 Assert-YurunaCheckoutMovable -Dir $YurunaDir
 
 # --- REGION: winget availability
+# See https://yuruna.link/429fb30b-001c
 if (-not (Get-Command winget -ErrorAction SilentlyContinue)) {
     Write-Die @'
 winget is not available on this system. Install "App Installer" from the
@@ -1052,6 +1307,7 @@ if (Get-Module -ListAvailable -Name powershell-yaml -ErrorAction SilentlyContinu
 }
 
 # --- REGION: Hyper-V feature
+# See https://yuruna.link/429fb30b-001d and https://yuruna.link/429fb30b-001e
 Write-Step 'Enabling Hyper-V Windows Feature (if not already enabled)'
 $dismExe = Join-Path $env:WINDIR 'System32\dism.exe'
 $infoOut  = & $dismExe /English /Online /Get-FeatureInfo /FeatureName:Microsoft-Hyper-V-All 2>&1
@@ -1101,13 +1357,6 @@ reached here only because preflight was skipped or the edition was unrecognized.
     }
 }
 
-$gitCmd = Get-Command git -ErrorAction SilentlyContinue
-$gitExe = if ($gitCmd) { $gitCmd.Source } else { $null }
-if (-not $gitExe) { Write-Die 'git not found after install -- open a new terminal and re-run.' }
-
-$parent = Split-Path -Parent $YurunaDir
-if (-not (Test-Path $parent)) { New-Item -ItemType Directory -Path $parent -Force | Out-Null }
-
 # --- REGION: Preserve test/status runtime state
 $YurunaStatusBackup = $null
 $TestStatusSubdirs  = @('runtime', 'perf', 'log', 'extension', 'captures', 'ssh')
@@ -1150,12 +1399,6 @@ function Restore-YurunaStatus {
     }
     Remove-Item -LiteralPath $script:YurunaStatusBackup -Recurse -Force -ErrorAction SilentlyContinue
     $script:YurunaStatusBackup = $null
-}
-
-try { Backup-YurunaStatus } catch {
-    if ($script:YurunaStatusBackup) { Remove-Item -LiteralPath $script:YurunaStatusBackup -Recurse -Force -ErrorAction SilentlyContinue }
-    $script:YurunaStatusBackup = $null
-    throw
 }
 
 # --- REGION: Tolerate a v / no-v tag mismatch
@@ -1206,6 +1449,19 @@ function Resolve-YurunaDevBranch {
 }
 
 # --- REGION: Clone / update the repo
+$gitCmd = Get-Command git -ErrorAction SilentlyContinue
+$gitExe = if ($gitCmd) { $gitCmd.Source } else { $null }
+if (-not $gitExe) { Write-Die 'git not found after install -- open a new terminal and re-run.' }
+
+$parent = Split-Path -Parent $YurunaDir
+if (-not (Test-Path $parent)) { New-Item -ItemType Directory -Path $parent -Force | Out-Null }
+
+try { Backup-YurunaStatus } catch {
+    if ($script:YurunaStatusBackup) { Remove-Item -LiteralPath $script:YurunaStatusBackup -Recurse -Force -ErrorAction SilentlyContinue }
+    $script:YurunaStatusBackup = $null
+    throw
+}
+
 if (Test-Path (Join-Path $YurunaDir '.git')) {
     Write-Step "Updating existing Yuruna checkout at $YurunaDir"
     $actualRemote   = (& $gitExe -C $YurunaDir remote get-url origin 2>$null)
@@ -1357,7 +1613,8 @@ if (Test-Path (Join-Path $YurunaDir '.git')) {
     }
 }
 
-# --- REGION: Pin to the current release (opt-in)
+# --- REGION: Pin to the current release
+# Opt-in through -PinVersion.
 # See https://yuruna.link/429fb30b-0006
 if ($PinVersion -and -not $script:YurunaBranchExplicit -and (Test-Path (Join-Path $YurunaDir '.git'))) {
     $versionFile = Join-Path $YurunaDir 'VERSION'
@@ -1373,6 +1630,10 @@ if ($PinVersion -and -not $script:YurunaBranchExplicit -and (Test-Path (Join-Pat
     }
 }
 Restore-YurunaStatus
+if (Test-Path -LiteralPath $script:InstallerSnapshotPath) {
+    $null = Invoke-YurunaInstallerState -Action Restore -RepoRoot $YurunaDir -SnapshotPath $script:InstallerSnapshotPath
+    Write-Step "Recorded runner options retained. After setup, explicitly start with: pwsh '$YurunaDir/test/lab/Start-RecordedTestRunner.ps1' -SnapshotPath '$script:InstallerSnapshotPath'"
+}
 
 # --- REGION: Seed test.config.yml from template
 $testDir = Join-Path $YurunaDir 'test'
@@ -1403,12 +1664,12 @@ if ($script:RestartNeeded) {
     Write-Warn "test\Remove-TestVMFiles.ps1 not found under $YurunaDir -- skipping test-VM cleanup."
 }
 
-# --- REGION: Test modules (Pester 6, PSScriptAnalyzer)
-# The version policy lives in tools\Install-TestModule.ps1, shared by the
-# installer of every host platform, so it runs once the checkout exists. Each
-# MODULE-ISSUE line it prints reaches the closing summary; a missing test module
-# does not stop the install. A child pwsh keeps the gallery calls' preference
-# changes and loaded PowerShellGet out of this session.
+# --- REGION: Test modules
+# Pester 6 and PSScriptAnalyzer. The version policy lives in tools\Install-TestModule.ps1,
+# shared by the installer of every host platform, so it runs once the checkout exists.
+# Each MODULE-ISSUE line it prints reaches the closing summary; a missing test module
+# does not stop the install. A child pwsh keeps the gallery calls' preference changes
+# and loaded PowerShellGet out of this session.
 function Install-YurunaTestModule {
     param([Parameter(Mandatory)][string]$Root)
     $moduleScript = Join-Path $Root 'tools/Install-TestModule.ps1'
@@ -1454,7 +1715,9 @@ function Install-YurunaTestModule {
 }
 Install-YurunaTestModule -Root $YurunaDir
 
-# --- REGION: Enable-TestAutomation.ps1 hint
+# --- REGION: Host configuration
+# See https://yuruna.link/429fb30b-0015
+# Windows leaves host settings to the operator, so this names the command to run.
 $setHost = Join-Path $YurunaDir 'host\windows.hyper-v\Enable-TestAutomation.ps1'
 Write-Step ''
 Write-Step 'Host configuration (test-host setup) is NOT auto-applied.'
@@ -1474,6 +1737,8 @@ $script:InstallSucceeded = $true
     }
     # --- REGION: Done summary
     # See https://yuruna.link/429fb30b-001f
+    # The shell installers print their Backup notice on its own; here each outcome
+    # carries it, the handoff banner on success and this console otherwise.
     Write-Output ''
     Write-Output '========'
     if ($script:InstallSucceeded) {
@@ -1784,7 +2049,7 @@ if ($script:YurunaIssue.Count -gt 0) {
     Write-Output 'Install finished with no issues.'
 }
 
-# --- REGION: Clean up the single-fetch materialization temp
+# --- REGION: Clean up temporary files
 # Only the final stage reaches here (relaunch stages return earlier). When this
 # run arrived via the irm|iex materialization gate, $PSCommandPath is that temp
 # file -- remove it now. A crash before this point leaves it for the >1h sweep
@@ -1793,7 +2058,7 @@ if ($PSCommandPath -and (Split-Path -Leaf $PSCommandPath) -match '^yuruna-window
     Remove-Item -LiteralPath $PSCommandPath -Force -ErrorAction SilentlyContinue
 }
 
-# --- REGION: Closing hold on the paths that open no handoff window
+# --- REGION: Closing hold
 # See https://yuruna.link/429fb30b-0020
 # Failure and reboot outcomes have no handoff window; hold after the complete summary.
 # The 60-second delay is bounded and never asks for input.

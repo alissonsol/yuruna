@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.18.2
+.VERSION 2026.10.22
 .GUID 42859ca6-4a84-417f-b9e8-f2a3a4dd84a5
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -53,7 +53,7 @@
     machine. Per-run output is disposable and goes to a gitignored directory.
 
     A baseline row is `total`, `skipped` and `seconds`, recorded by
-    -UpdateBaseline on the reference host, plus two optional fields that are
+    -UpdateBaseline on the reference host, plus three optional fields that are
     edited by hand in a reviewed change and that a refresh carries over:
       platformTotal   { "macos": 6 } -- the test count that platform must reach
                       when it differs from `total`. A suite that defines some of
@@ -62,9 +62,25 @@
                       the platform with fewer. Platforms are windows, linux and
                       macos; one with no entry is held to `total`. A refresh on
                       another platform never lowers such a row's `total`.
+      platformSkipped { "linux": 1, "windows": 0 } -- reviewed skip budgets for
+                      known platforms. Missing entries use `skipped`; refresh
+                      preserves both this map and that fallback budget. Actual
+                      observed skips remain in suite-results.json.
       timeoutSeconds  a cap of its own for one suite, for a suite that takes
                       several times longer on a slow host than the recorded cost
                       plus the allowance covers. It only raises the cap.
+
+    RECORDED PASSES: on Linux with strace and python3, a run with -Record traces
+    each suite it runs (tools/suite_impact.py) and keeps, for every passing
+    suite, the paths its process tree read, probed and listed, with their
+    fingerprints and the suite's NUnit result. A later run without -All counts
+    a recorded pass instead of running the suite again when every recorded input
+    is unchanged and the record's context matches: the same calendar day, root,
+    platform, toolchain, runner and environment (process and session identifiers
+    excepted). A reused suite still goes through all five conditions, from its
+    recorded NUnit file. Such a run is complete for a commit; a release runs with
+    -All. Without strace or python3 nothing is recorded and every suite runs.
+    Records live under the clone's Git directory (yuruna/test-impact).
 
     The suites are NOT part of a test cycle and this script must never be
     called from one -- it runs beside the harness, on a developer or CI host.
@@ -78,7 +94,9 @@
 .PARAMETER Filter
     Wildcard applied to the suite file's base name, e.g. 'Test.Pool*'.
 .PARAMETER ThrottleLimit
-    Concurrent suite processes. Default 8.
+    Concurrent suite processes. Default: half the logical processors, at least 8
+    and at most 16. Past 16 the longest suite slows under the load faster than
+    the extra workers finish the rest, so the run takes longer, not less.
 .PARAMETER TimeoutSeconds
     Per-suite wall-clock limit before the process is killed. Default 300, added
     to the suite's recorded cost. A baseline row's `timeoutSeconds` raises the
@@ -117,9 +135,26 @@
     omit this switch to collect all failures. Existing suite deadlines still apply.
 .PARAMETER Quiet
     Print only the summary line.
+.PARAMETER All
+    Run every selected suite, counting no recorded pass. Release gates use it.
+    UpdateBaseline and RegisterNewSuites always behave this way.
+.PARAMETER Record
+    Trace every suite this run executes and record each one that passes. A
+    traced suite runs slower (up to three times for one that probes many paths),
+    so its cap is four times the untraced one. Ignored, with a note, where
+    strace or python3 is unavailable.
+.PARAMETER Background
+    Record at idle priority, and launch no further suite while a run without
+    this switch is active on the same clone. tools/Start-TestWatcher.ps1 runs
+    the suites this way after each change so the next foreground run finds them
+    recorded. Implies Record.
 .EXAMPLE
     pwsh -NoProfile -File tools/Invoke-TestSuite.ps1
-    Runs every suite; exits non-zero on any of the five conditions.
+    Runs every suite without a reusable recorded pass; exits non-zero on any of
+    the five conditions.
+.EXAMPLE
+    pwsh -NoProfile -File tools/Invoke-TestSuite.ps1 -All
+    Runs every suite, as a release requires.
 .EXAMPLE
     pwsh -NoProfile -File tools/Invoke-TestSuite.ps1 -Filter 'Test.Pool*' -Quiet
     Runs one family, summary only.
@@ -133,7 +168,7 @@ param(
     [string]$Root,
     [string[]]$Path = @('test/modules', 'host/modules'),
     [string]$Filter,
-    [int]$ThrottleLimit = 8,
+    [int]$ThrottleLimit = [Math]::Clamp([int][Math]::Floor([Environment]::ProcessorCount / 2), 8, 16),
     [int]$TimeoutSeconds = 300,
     [string]$ResultsPath,
     [string]$BaselinePath,
@@ -142,7 +177,10 @@ param(
     [switch]$RegisterNewSuites,
     [switch]$PassThru,
     [switch]$FailFast,
-    [switch]$Quiet
+    [switch]$Quiet,
+    [switch]$All,
+    [switch]$Record,
+    [switch]$Background
 )
 
 $ErrorActionPreference = 'Stop'
@@ -207,6 +245,16 @@ function Get-SuiteFloor {
     return [int]$Row.total
 }
 
+# --- REGION: Get-SuiteSkipBudget
+function Get-SuiteSkipBudget {
+    param([Parameter(Mandatory)]$Row, [Parameter(Mandatory)][string]$Platform)
+    $budgets = $Row.PSObject.Properties['platformSkipped']
+    if ($budgets -and $budgets.Value -is [pscustomobject] -and $budgets.Value.PSObject.Properties[$Platform]) {
+        return [int]$budgets.Value.$Platform
+    }
+    return [int]$Row.skipped
+}
+
 # --- REGION: Assert-RefreshBaseline
 function Assert-RefreshBaseline {
     param([Parameter(Mandatory)]$Baseline, [string[]]$AllowedRoot = @('test/modules', 'host/modules'))
@@ -227,8 +275,8 @@ function Assert-RefreshBaseline {
         $count = Assert-BaselineCount $row.Value.total "$($row.Name).total" -Minimum 1
         $skipped = Assert-BaselineCount $row.Value.skipped "$($row.Name).skipped"
         if ($skipped -gt $count) { throw 'Existing baseline contains impossible skip counts.' }
-        # Two optional fields are maintained by hand and survive a refresh: a per-platform
-        # floor and a per-suite timeout. A malformed one would be read by every run.
+        # Reviewed platform floors and skip budgets survive refresh alongside
+        # per-suite timeouts; one platform must not weaken another's coverage.
         if ($row.Value.PSObject.Properties['platformTotal']) {
             $floors = $row.Value.platformTotal
             if ($floors -isnot [pscustomobject]) { throw "Suite '$($row.Name)' has an invalid platformTotal." }
@@ -239,6 +287,17 @@ function Assert-RefreshBaseline {
         }
         if ($row.Value.PSObject.Properties['timeoutSeconds']) {
             $null = Assert-BaselineCount $row.Value.timeoutSeconds "$($row.Name).timeoutSeconds" -Minimum 1
+        }
+        if ($row.Value.PSObject.Properties['platformSkipped']) {
+            $budgets = $row.Value.platformSkipped
+            if ($budgets -isnot [pscustomobject]) { throw "Suite '$($row.Name)' has an invalid platformSkipped." }
+            foreach ($budget in $budgets.PSObject.Properties) {
+                if ($budget.Name -cnotin @('windows', 'linux', 'macos')) { throw "Suite '$($row.Name)' names an unknown platform '$($budget.Name)'." }
+                if (($budget.Value -isnot [int] -and $budget.Value -isnot [long]) -or $budget.Value -lt 0 -or
+                    $budget.Value -gt (Get-SuiteFloor -Row $row.Value -Platform $budget.Name)) {
+                    throw "$($row.Name).platformSkipped.$($budget.Name) must be a nonnegative integer no greater than the platform test count."
+                }
+            }
         }
         $tests += $count
         $skips += $skipped
@@ -280,7 +339,7 @@ function Assert-SuiteBaselineRefresh {
         if ($counts.rc -ne 0 -or $counts.failed -ne 0 -or $counts.errors -ne 0 -or
             $counts.skipped -gt $counts.total) { throw "Suite '$($row.path)' did not pass." }
         $previous = if ($Baseline) { $Baseline.suites.PSObject.Properties[$row.path] } else { $null }
-        $skipBudget = if ($previous) { $previous.Value.skipped } else { 0 }
+        $skipBudget = if ($previous) { Get-SuiteSkipBudget -Row $previous.Value -Platform $Platform } else { 0 }
         if ($counts.skipped -gt $skipBudget) { throw "Suite '$($row.path)' increased its skip budget ($skipBudget -> $($counts.skipped))." }
         if ($previous -and $counts.total -lt (Get-SuiteFloor -Row $previous.Value -Platform $Platform)) { throw "Suite '$($row.path)' lost tests." }
 
@@ -323,6 +382,125 @@ function Assert-SuiteBaselineRefresh {
         if ((Assert-BaselineCount $Run.totals.$field "totals.$field") -ne $sums[$field]) {
             throw "Report totals.$field does not match suite evidence."
         }
+    }
+}
+
+# --- REGION: Recorded passes
+# A recorded pass stands only for what strace saw the suite read. Whatever it
+# cannot see reaches every record through the context: the calendar day (tests
+# read the clock), the root, platform, account, toolchain, the runner's own
+# files and the environment. The environment leaves out the variables the
+# runner sets for each suite and the ones that only name a process, session,
+# socket or token, which differ in every shell and that no suite branches on.
+$script:ImpactVolatileVariable = '^(_|PWD|OLDPWD|SHLVL|COLUMNS|LINES|TMPDIR|TMP|TEMP|YURUNA_TEST_TEMP_ROOT|DOTNET_EnableDiagnostics|' +
+    'CLAUDE_PID|CLAUDE_CODE_SESSION_ID|CLAUDE_CODE_MESSAGING_SOCKET|CLAUDE_CODE_MESSAGING_TOKEN|CLAUDE_CODE_SSE_PORT|' +
+    'VSCODE_PID|VSCODE_IPC_HOOK.*|VSCODE_GIT_IPC_HANDLE|GIO_LAUNCHED_DESKTOP_FILE_PID|INVOCATION_ID|JOURNAL_STREAM|MANAGERPID|' +
+    'SYSTEMD_EXEC_PID|SSH_AUTH_SOCK|SSH_AGENT_PID|GPG_AGENT_INFO|DBUS_SESSION_BUS_ADDRESS|SESSION_MANAGER|XAUTHORITY|WINDOWID|' +
+    'TERM_SESSION_ID|TMUX_PANE|GOTELEMETRY_GOPLS_CLIENT_START_TIME|GOTELEMETRY_GOPLS_CLIENT_TOKEN|MEMORY_PRESSURE_WATCH|MEMORY_PRESSURE_WRITE)$'
+
+function Get-SuiteImpactContext {
+    param([Parameter(Mandatory)][string]$Root, [Parameter(Mandatory)][string]$PesterVersion, [Parameter(Mandatory)][string[]]$File)
+    $variables = [Environment]::GetEnvironmentVariables()
+    $names = [string[]]@($variables.Keys | Where-Object { $_ -cnotmatch $script:ImpactVolatileVariable })
+    [Array]::Sort($names, [StringComparer]::Ordinal)
+    $environment = ($names | ForEach-Object { "$_=$($variables[$_])" }) -join "`n"
+    $sha = [Security.Cryptography.SHA256]::Create()
+    try {
+        $digest = { param([byte[]]$Bytes) [Convert]::ToHexString($sha.ComputeHash($Bytes)).ToLowerInvariant() }
+        $lines = @(
+            'schema=1'
+            "day=$([DateTime]::UtcNow.ToString('yyyy-MM-dd', [Globalization.CultureInfo]::InvariantCulture))/$([DateTime]::Now.ToString('yyyy-MM-dd', [Globalization.CultureInfo]::InvariantCulture))"
+            "root=$Root"
+            "platform=$([Runtime.InteropServices.RuntimeInformation]::RuntimeIdentifier)"
+            "user=$([Environment]::UserName)"
+            "pwsh=$($PSVersionTable.PSVersion)"
+            "pester=$PesterVersion"
+            "environment=$(& $digest ([Text.Encoding]::UTF8.GetBytes($environment)))"
+        )
+        $lines += @($File | ForEach-Object { "file=$([IO.Path]::GetFileName($_)):$(& $digest ([IO.File]::ReadAllBytes($_)))" })
+        return (& $digest ([Text.Encoding]::UTF8.GetBytes($lines -join "`n")))
+    } finally { $sha.Dispose() }
+}
+
+# Decides what this run may reuse and record. Every missing piece turns the
+# feature off with a note and leaves the run as it would be without it: every
+# suite runs and nothing is recorded.
+function Get-SuiteImpactSetting {
+    param([Parameter(Mandatory)][string]$Root, [Parameter(Mandatory)][string]$ToolDirectory, [Parameter(Mandatory)][string]$PesterVersion,
+        [switch]$Reuse, [switch]$Record)
+    $setting = @{ Reuse = $false; Record = $false; Note = $null; ImpactRoot = $null; Cache = $null }
+    if (-not ($Reuse -or $Record)) { return $setting }
+    $tool = Join-Path $ToolDirectory 'suite_impact.py'
+    if (-not $IsLinux) { $setting.Note = 'recorded passes need strace, which runs only on Linux'; return $setting }
+    if (-not (Test-Path -LiteralPath $tool)) { $setting.Note = "recorded passes need $tool"; return $setting }
+    $python = Get-Command python3 -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
+    if (-not $python) { $setting.Note = 'recorded passes need python3'; return $setting }
+    $commonDirectory = git -C $Root rev-parse --path-format=absolute --git-common-dir 2>$null
+    if ($LASTEXITCODE -ne 0 -or -not $commonDirectory) { $setting.Note = 'recorded passes need a Git work tree to keep them in'; return $setting }
+    $setting.ImpactRoot = Join-Path ([string]$commonDirectory) 'yuruna/test-impact'
+    # Worktrees share one Git directory; each root keeps records of its own.
+    $rootKey = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData([Text.Encoding]::UTF8.GetBytes($Root))).Substring(0, 16).ToLowerInvariant()
+    $setting.Cache = Join-Path $setting.ImpactRoot $rootKey
+    $setting.Python = $python.Source
+    $setting.Tool = $tool
+    $setting.Context = Get-SuiteImpactContext -Root $Root -PesterVersion $PesterVersion -File @($PSCommandPath, (Join-Path $ToolDirectory '_InvokeOneSuite.ps1'), $tool)
+    $setting.Reuse = [bool]$Reuse
+    if ($Record) {
+        $tracer = if ($env:YURUNA_STRACE) { $env:YURUNA_STRACE } else {
+            (Get-Command strace -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1).Source
+        }
+        if (-not $tracer) {
+            $setting.Note = 'nothing is recorded: strace is not on PATH (set YURUNA_STRACE to use another copy)'
+        } else {
+            # The probe uses the options a recording uses, so an older strace or a
+            # host that forbids ptrace is found here instead of in every suite.
+            $null = & $tracer -f -q -y --seccomp-bpf -e signal=none -e 'trace=%file,%process,getdents64,fchdir' -o /dev/null -- true 2>&1
+            if ($LASTEXITCODE -ne 0) {
+                $setting.Note = "nothing is recorded: $tracer cannot trace here (ptrace denied, or a strace older than 6.0)"
+            } else {
+                $setting.Record = $true
+                $setting.Tracer = $tracer
+                # Records are compared by content inside the workspace: this root
+                # and every Git checkout beside it.
+                $parent = Split-Path -Parent $Root
+                $setting.Zone = @($Root) + @(Get-ChildItem -LiteralPath $parent -Directory -ErrorAction SilentlyContinue |
+                    Where-Object { $_.FullName -ne $Root -and (Test-Path -LiteralPath (Join-Path $_.FullName '.git')) } |
+                    ForEach-Object FullName)
+            }
+        }
+    }
+    return $setting
+}
+
+# Background runs yield to foreground ones. A foreground run holds a lock file
+# open for its whole run; one that crashed leaves a file anyone can open, which
+# is removed once it is old enough that it cannot be one still being locked.
+function Test-ForegroundRun {
+    param([string]$Directory)
+    if (-not $Directory -or -not [IO.Directory]::Exists($Directory)) { return $false }
+    foreach ($lock in [IO.Directory]::GetFiles($Directory, '*.lock')) {
+        try {
+            ([IO.File]::Open($lock, [IO.FileMode]::Open, [IO.FileAccess]::ReadWrite, [IO.FileShare]::None)).Dispose()
+            if ([IO.File]::GetLastWriteTimeUtc($lock) -lt [DateTime]::UtcNow.AddMinutes(-1)) {
+                Remove-Item -LiteralPath $lock -Force -ErrorAction SilentlyContinue
+            }
+        } catch [IO.FileNotFoundException] {
+            continue
+        } catch {
+            return $true
+        }
+    }
+    return $false
+}
+
+function Get-NUnitCount {
+    param([Parameter(Mandatory)][string]$Path)
+    $document = [xml](Get-Content -LiteralPath $Path -Raw -ErrorAction Stop)
+    if ($document.DocumentElement.LocalName -cne 'test-results') { throw 'Expected an NUnit test-results root element.' }
+    $r = $document.'test-results'
+    [pscustomobject]@{
+        total = [int]$r.total; failed = [int]$r.failures; errors = [int]$r.errors
+        skipped = [int]$r.skipped + [int]$r.ignored + [int]$r.'not-run'
     }
 }
 
@@ -460,6 +638,16 @@ foreach ($rel in $ordered) {
     $timeoutFor[$rel] = [math]::Max($cap, $own)
 }
 
+$pesterVersion = (Get-Module -ListAvailable Pester | Where-Object { $_.Version -ge [version]'6.0.0' -and $_.Version -lt [version]'7.0.0' } |
+    Sort-Object Version -Descending | Select-Object -First 1).Version.ToString()
+$impact = Get-SuiteImpactSetting -Root $RepoRoot -ToolDirectory $PSScriptRoot -PesterVersion $pesterVersion `
+    -Reuse:(-not ($All -or $UpdateBaseline -or $RegisterNewSuites)) -Record:($Record -or $Background)
+if ($Background) {
+    # Every suite process inherits the idle priority, so the operator's own
+    # work and any foreground run keep the processors first.
+    [Diagnostics.Process]::GetCurrentProcess().PriorityClass = [Diagnostics.ProcessPriorityClass]::Idle
+}
+
 $null = New-Item -ItemType Directory -Force -Path $ResultsPath
 # Deterministic result names must not be removed or read by overlapping runs.
 # Keep the lock file after disposal: unlinking it would let a third process
@@ -475,12 +663,89 @@ try {
 $failureSignal = [Threading.ManualResetEventSlim]::new($false)
 $runTemp = $null
 $runLock = $null
+$foregroundLock = $null
 try {
     $logDir = Join-Path $ResultsPath ('logs/' + [DateTime]::UtcNow.ToString('yyyyMMddTHHmmssfffZ') + '-' + [guid]::NewGuid().ToString('N'))
     $null = New-Item -ItemType Directory -Path $logDir
 
+    $foregroundDirectory = if ($impact.ImpactRoot) { Join-Path $impact.ImpactRoot 'foreground' } else { $null }
+    if ($foregroundDirectory -and -not $Background) {
+        try {
+            $null = New-Item -ItemType Directory -Force -Path $foregroundDirectory
+            $foregroundLockPath = Join-Path $foregroundDirectory "$PID-$([guid]::NewGuid().ToString('N')).lock"
+            $foregroundLock = [IO.File]::Open($foregroundLockPath, [IO.FileMode]::CreateNew, [IO.FileAccess]::ReadWrite, [IO.FileShare]::None)
+        } catch {
+            Write-Verbose "background runs will not yield to this one: $($_.Exception.Message)"
+        }
+    }
+
+    # --- REGION: Reuse recorded passes
+    # A reused suite's recorded NUnit file goes where its run would have written
+    # one, so the five conditions and every later reader see the same evidence.
+    $reused = [Collections.Generic.List[object]]::new()
+    $whyRun = @{}
+    if ($impact.Reuse -and $ordered.Count) {
+        $answers = $null
+        try {
+            $answerText = ConvertTo-Json -InputObject @{ suites = @($ordered) } -Compress |
+                & $impact.Python $impact.Tool check --cache $impact.Cache --context $impact.Context
+            if ($LASTEXITCODE -ne 0) { throw "suite_impact.py check exited with $LASTEXITCODE" }
+            $answers = ($answerText -join "`n") | ConvertFrom-Json -AsHashtable
+        } catch {
+            $impact.Note = "recorded passes were not consulted: $($_.Exception.Message)"
+        }
+        if ($answers) {
+            $remaining = [Collections.Generic.List[string]]::new()
+            foreach ($rel in $ordered) {
+                $answer = $answers[$rel]
+                if ($answer -and $answer.hit) {
+                    $xml = Join-Path $ResultsPath ('nunit-' + ($rel -replace '[\\/]', '_') + '.xml')
+                    try {
+                        [IO.File]::WriteAllText($xml, [string]$answer.nunit, [Text.UTF8Encoding]::new($false))
+                        $count = Get-NUnitCount -Path $xml
+                        # ConvertFrom-Json turns an ISO 8601 string into a DateTime.
+                        $recordedAt = $answer.recordedUtc
+                        if ($recordedAt -is [datetime]) {
+                            $recordedAt = $recordedAt.ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ', [Globalization.CultureInfo]::InvariantCulture)
+                        }
+                        $reused.Add([pscustomobject]@{
+                                path = $rel; rc = 0; haveXml = $true; total = $count.total; failed = $count.failed
+                                errors = $count.errors; skipped = $count.skipped; seconds = 0; message = ''
+                                stdoutLog = $null; stderrLog = $null; impact = "reused the pass recorded at $recordedAt"
+                            })
+                        continue
+                    } catch {
+                        Remove-Item -LiteralPath $xml -Force -ErrorAction SilentlyContinue
+                        $answer = @{ reason = "the recorded NUnit file is unreadable: $($_.Exception.Message)" }
+                    }
+                }
+                $whyRun[$rel] = if ($answer) { [string]$answer.reason } else { 'no recorded pass' }
+                $remaining.Add($rel)
+            }
+            $ordered = @($remaining)
+        }
+    }
+    if (($Record -or $Background) -and -not $impact.Record) {
+        Write-Warning "Invoke-TestSuite: $($impact.Note)"
+    } elseif ($impact.Note -and -not $Quiet) {
+        Write-Information "Invoke-TestSuite: $($impact.Note)" -InformationAction Continue
+    }
+    $recording = if ($impact.Record) {
+        # Paths under these never count as inputs: this run's results and
+        # temporary folders, the gitignored folder every run writes its results
+        # under, the clone's own caches, and the user's cache. Resolving a
+        # results path lists its parent, which other runs keep changing.
+        $ignore = @($ResultsPath, (Join-Path $RepoRoot '.test-results'), (Split-Path -Parent $impact.ImpactRoot))
+        if ($env:HOME) { $ignore += Join-Path $env:HOME '.cache' }
+        @{ Python = $impact.Python; Tool = $impact.Tool; Tracer = $impact.Tracer; Cache = $impact.Cache
+            Context = $impact.Context; Zone = $impact.Zone; Ignore = $ignore }
+    } else { $null }
+    $foregroundCheck = if ($Background) { ${function:Test-ForegroundRun}.ToString() } else { $null }
+
     if (-not $Quiet) {
-        Write-Information "Running $($ordered.Count) suite(s), throttle $ThrottleLimit, timeout ${TimeoutSeconds}s + each suite's recorded cost" -InformationAction Continue
+        $reusedText = if ($reused.Count) { " ($($reused.Count) more reused from recorded passes)" } else { '' }
+        $tracedText = if ($recording) { ', traced, timeout x4' } else { '' }
+        Write-Information "Running $($ordered.Count) suite(s)$reusedText, throttle $ThrottleLimit, timeout ${TimeoutSeconds}s + each suite's recorded cost$tracedText" -InformationAction Continue
     }
 
     # --- REGION: Run
@@ -508,8 +773,20 @@ try {
         $caps    = $using:timeoutFor
         $signal  = $using:failureSignal
         $timeout = if ($caps.ContainsKey($rel)) { $caps[$rel] } else { $using:TimeoutSeconds }
+        $recording = $using:recording
+        $whyRun = ($using:whyRun)[$rel]
+        $impactNote = $whyRun
+        $foregroundCheck = $using:foregroundCheck
+        if ($foregroundCheck -and (& ([scriptblock]::Create($foregroundCheck)) -Directory $using:foregroundDirectory)) {
+            $reason = 'not launched: a foreground run is active on this clone'
+            return [pscustomobject]@{
+                path = $rel; rc = 125; haveXml = $false; total = 0; failed = 0; errors = 0; skipped = 0
+                seconds = 0; message = $reason; stdoutLog = $null; stderrLog = $null; impact = $reason
+            }
+        }
         if (-not $using:Quiet) {
-            Write-Information "Starting $rel (limit ${timeout}s)" -InformationAction Continue
+            $shownLimit = if ($recording) { "${timeout}s, x4 while traced" } else { "${timeout}s" }
+            Write-Information "Starting $rel (limit $shownLimit)" -InformationAction Continue
         }
 
         $xml = Join-Path $outDir ('nunit-' + ($rel -replace '[\\/]', '_') + '.xml')
@@ -524,7 +801,7 @@ try {
             [IO.File]::WriteAllText($stderrLog, $reason, [Text.UTF8Encoding]::new($false))
             return [pscustomobject]@{
                 path = $rel; rc = 125; haveXml = $false; total = 0; failed = 0; errors = 0; skipped = 0
-                seconds = 0; message = $reason; stdoutLog = $stdoutLog; stderrLog = $stderrLog
+                seconds = 0; message = $reason; stdoutLog = $stdoutLog; stderrLog = $stderrLog; impact = $impactNote
             }
         }
         # Each suite gets a temp folder of its own under the run's master
@@ -542,110 +819,192 @@ try {
         $suiteTemp = Join-Path $runTempRoot ('yrn-suite-' + [guid]::NewGuid().ToString('N').Substring(0, 12))
         $null = New-Item -ItemType Directory -Force -Path $suiteTemp
 
-        $psi = [Diagnostics.ProcessStartInfo]::new()
-        $psi.FileName               = (Get-Process -Id $PID).Path
-        $psi.RedirectStandardOutput = $true
-        $psi.RedirectStandardError  = $true
-        $psi.UseShellExecute        = $false
-        $psi.WorkingDirectory       = $root
-        foreach ($name in 'TMPDIR', 'TMP', 'TEMP', 'YURUNA_TEST_TEMP_ROOT') { $psi.Environment[$name] = $suiteTemp }
-        $psi.Environment['DOTNET_EnableDiagnostics'] = '0'
-        # NonInteractive is process-local; every nested launcher must set it so
-        # an unexpected host prompt fails instead of waiting on the operator.
-        foreach ($a in @('-NoProfile', '-NonInteractive', '-File', $shim, '-Suite', (Join-Path $root $rel), '-Xml', $xml)) {
-            $psi.ArgumentList.Add($a)
-        }
-
-        $t0 = [Diagnostics.Stopwatch]::StartNew()
-        $p  = [Diagnostics.Process]::Start($psi)
-        # Drain both streams before waiting: a suite that fills a 64 KB pipe buffer
-        # would otherwise block forever and be killed as a false timeout. Pester
-        # writes internal reporting errors to stdout, so retain both streams even
-        # when the child exits successfully. Logs stay quiet unless evidence fails.
-        $stdout = $p.StandardOutput.ReadToEndAsync()
-        $stderr = $p.StandardError.ReadToEndAsync()
-        $cancelled = $false
-        if ($using:FailFast -or -not $using:Quiet) {
-            $waitClock = [Diagnostics.Stopwatch]::StartNew()
-            $timedOut = $false
-            $nextProgress = 30
-            while ($true) {
-                $remaining = [Math]::Max(1, [int][Math]::Ceiling($timeout * 1000 - $waitClock.Elapsed.TotalMilliseconds))
-                if ($p.WaitForExit([Math]::Min(1000, $remaining))) { break }
-                if ($using:FailFast -and $signal.IsSet) { $cancelled = $true; break }
-                if ($waitClock.Elapsed.TotalSeconds -ge $timeout) { $timedOut = $true; break }
-                if (-not $using:Quiet -and $waitClock.Elapsed.TotalSeconds -ge $nextProgress) {
-                    Write-Information ("Still running {0}: {1:n0}s elapsed, limit {2}s" -f $rel,
-                        $waitClock.Elapsed.TotalSeconds, $timeout) -InformationAction Continue
-                    $nextProgress += 30
-                }
+        # A traced suite that does not pass runs again untraced, and that run
+        # decides. ptrace changes how a traced process dies -- a killed child
+        # stays visible until strace reaps it -- so a test that bounds a process
+        # kill, or a stop strace cannot follow, can fail only because it was
+        # traced. A suite that fails that way twice in the context's day runs
+        # untraced for the rest of it; one such failure can be a load flake,
+        # which tracing makes likelier.
+        $trace = [bool]$recording
+        $untraceableMark = $null
+        $untraceable = $false
+        $tracedFailures = 0
+        if ($recording) {
+            $untraceableMark = Join-Path $recording.Cache ('untraceable/' +
+                [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData([Text.Encoding]::UTF8.GetBytes($rel))).Substring(0, 32).ToLowerInvariant())
+            if ([IO.File]::Exists($untraceableMark)) {
+                $mark = [IO.File]::ReadAllLines($untraceableMark)
+                if ($mark.Count -ge 2 -and $mark[0] -ceq $recording.Context) { $null = [int]::TryParse($mark[1], [ref]$tracedFailures) }
             }
-        } else { $timedOut = -not $p.WaitForExit($timeout * 1000) }
-        if ($timedOut -or $cancelled) {
-            # Only this worker's owned child and its descendants are stopped.
-            # A failed stop cannot turn timeout or cancellation into a passing row.
-            try { $p.Kill($true) } catch { Write-Debug "kill after timeout failed: $($_.Exception.Message)" }
-            $null = $p.WaitForExit(5000)
-        }
-        $t0.Stop()
-
-        $rc  = if ($timedOut) { 124 } elseif ($cancelled) { 125 } else { $p.ExitCode }
-        $out = if ($stdout.Wait(5000)) { $stdout.Result } else { '[stdout did not close after process exit or timeout]' }
-        $err = if ($stderr.Wait(5000)) { $stderr.Result } else { '[stderr did not close after process exit or timeout]' }
-        [IO.File]::WriteAllText($stdoutLog, $out, [Text.UTF8Encoding]::new($false))
-        [IO.File]::WriteAllText($stderrLog, $err, [Text.UTF8Encoding]::new($false))
-        $p.Dispose()
-        $err = $err.Trim()
-        if ($timedOut) { $err = "timed out after ${timeout}s`n$err".Trim() }
-        if ($cancelled) { $err = "cancelled after another suite failed (FailFast)`n$err".Trim() }
-
-        $total = $failed = $skipped = $errors = 0
-        $haveXml = Test-Path -LiteralPath $xml -PathType Leaf
-        if ($haveXml) {
-            try {
-                $document = [xml](Get-Content -LiteralPath $xml -Raw -ErrorAction Stop)
-                # NUnit's name attribute shadows Name in PowerShell's XML adapter.
-                if ($document.DocumentElement.LocalName -cne 'test-results') { throw 'Expected an NUnit test-results root element.' }
-                $r = $document.'test-results'
-                $total   = [int]$r.total
-                $failed  = [int]$r.failures
-                $errors  = [int]$r.errors
-                $skipped = [int]$r.skipped + [int]$r.ignored + [int]$r.'not-run'
-            } catch {
-                $haveXml = $false
-                $err = "unreadable result file: $($_.Exception.Message)`n$err".Trim()
+            if ($tracedFailures -ge 2) {
+                $trace = $false
+                $untraceable = $true
             }
         }
+        $tracedFailure = $null
+        while ($true) {
+            $psi = [Diagnostics.ProcessStartInfo]::new()
+            $psi.FileName               = (Get-Process -Id $PID).Path
+            $psi.RedirectStandardOutput = $true
+            $psi.RedirectStandardError  = $true
+            $psi.UseShellExecute        = $false
+            $psi.WorkingDirectory       = $root
+            foreach ($name in 'TMPDIR', 'TMP', 'TEMP', 'YURUNA_TEST_TEMP_ROOT') { $psi.Environment[$name] = $suiteTemp }
+            $psi.Environment['DOTNET_EnableDiagnostics'] = '0'
+            # NonInteractive is process-local; every nested launcher must set it so
+            # an unexpected host prompt fails instead of waiting on the operator.
+            foreach ($a in @('-NoProfile', '-NonInteractive', '-File', $shim, '-Suite', (Join-Path $root $rel), '-Xml', $xml)) {
+                $psi.ArgumentList.Add($a)
+            }
+            $observations = $null
+            if ($trace) {
+                # The same suite process, started by the recorder under strace.
+                $observations = Join-Path $suiteTemp 'observations.json'
+                $traced = [Collections.Generic.List[string]]::new()
+                $traced.AddRange([string[]]@($recording.Tool, 'run', '--strace', $recording.Tracer, '--out', $observations))
+                foreach ($zone in $recording.Zone) { $traced.AddRange([string[]]@('--zone', $zone)) }
+                foreach ($skip in @($recording.Ignore) + $runTempRoot) { $traced.AddRange([string[]]@('--ignore', $skip)) }
+                $traced.Add('--')
+                $traced.Add($psi.FileName)
+                $traced.AddRange([string[]]@($psi.ArgumentList))
+                $psi.ArgumentList.Clear()
+                foreach ($a in $traced) { $psi.ArgumentList.Add($a) }
+                $psi.FileName = $recording.Python
+            }
 
-        if ($haveXml -and ($failed -gt 0 -or $errors -gt 0)) {
-            # Worker verbosity is quiet; NUnit is the authority for both the
-            # verdict and the assertion that explains it to the operator.
-            $failures = @($document.SelectNodes('//test-case[failure] | //test-suite[failure]'))
-            $details = [Collections.Generic.List[string]]::new()
-            foreach ($failure in ($failures | Select-Object -First 10)) {
-                $details.Add("FAIL  $($failure.GetAttribute('name'))")
-                foreach ($field in 'message', 'stack-trace') {
-                    $node = $failure.SelectSingleNode("failure/$field")
-                    if ($node -and $node.InnerText) {
-                        $text = $node.InnerText.Trim()
-                        if ($text.Length -gt 2000) { $text = $text.Substring(0, 2000) + ' [truncated; see NUnit results]' }
-                        $details.Add($text)
+            $limit = if ($trace) { 4 * $timeout } else { $timeout }
+            $t0 = [Diagnostics.Stopwatch]::StartNew()
+            $p  = [Diagnostics.Process]::Start($psi)
+            # Drain both streams before waiting: a suite that fills a 64 KB pipe buffer
+            # would otherwise block forever and be killed as a false timeout. Pester
+            # writes internal reporting errors to stdout, so retain both streams even
+            # when the child exits successfully. Logs stay quiet unless evidence fails.
+            $stdout = $p.StandardOutput.ReadToEndAsync()
+            $stderr = $p.StandardError.ReadToEndAsync()
+            $cancelled = $false
+            if ($using:FailFast -or -not $using:Quiet) {
+                $waitClock = [Diagnostics.Stopwatch]::StartNew()
+                $timedOut = $false
+                $nextProgress = 30
+                while ($true) {
+                    $remaining = [Math]::Max(1, [int][Math]::Ceiling($limit * 1000 - $waitClock.Elapsed.TotalMilliseconds))
+                    if ($p.WaitForExit([Math]::Min(1000, $remaining))) { break }
+                    if ($using:FailFast -and $signal.IsSet) { $cancelled = $true; break }
+                    if ($waitClock.Elapsed.TotalSeconds -ge $limit) { $timedOut = $true; break }
+                    if (-not $using:Quiet -and $waitClock.Elapsed.TotalSeconds -ge $nextProgress) {
+                        Write-Information ("Still running {0}: {1:n0}s elapsed, limit {2}s" -f $rel,
+                            $waitClock.Elapsed.TotalSeconds, $limit) -InformationAction Continue
+                        $nextProgress += 30
                     }
                 }
+            } else { $timedOut = -not $p.WaitForExit($limit * 1000) }
+            if ($timedOut -or $cancelled) {
+                # Only this worker's owned child and its descendants are stopped.
+                # A failed stop cannot turn timeout or cancellation into a passing row.
+                try { $p.Kill($true) } catch { Write-Debug "kill after timeout failed: $($_.Exception.Message)" }
+                $null = $p.WaitForExit(5000)
             }
-            if ($failures.Count -gt 10) { $details.Add("... $($failures.Count - 10) more failure(s); see NUnit results.") }
-            $details.Add("NUnit results: $xml")
-            $details.Add("Worker logs: $stdoutLog ; $stderrLog")
-            $err = (@($err, ($details -join "`n")) | Where-Object { $_ }) -join "`n"
-        }
+            $t0.Stop()
 
-        if (-not $haveXml) {
-            # A zero process exit cannot prove tests passed without their results.
-            # Keep Pester's original diagnostic, which can be emitted only on stdout.
-            $err = (@($err, $out.Trim(), "Worker logs: $stdoutLog ; $stderrLog") | Where-Object { $_ }) -join "`n"
+            $rc  = if ($timedOut) { 124 } elseif ($cancelled) { 125 } else { $p.ExitCode }
+            $out = if ($stdout.Wait(5000)) { $stdout.Result } else { '[stdout did not close after process exit or timeout]' }
+            $err = if ($stderr.Wait(5000)) { $stderr.Result } else { '[stderr did not close after process exit or timeout]' }
+            [IO.File]::WriteAllText($stdoutLog, $out, [Text.UTF8Encoding]::new($false))
+            [IO.File]::WriteAllText($stderrLog, $err, [Text.UTF8Encoding]::new($false))
+            $p.Dispose()
+            $err = $err.Trim()
+            if ($timedOut) { $err = "timed out after ${limit}s`n$err".Trim() }
+            if ($cancelled) { $err = "cancelled after another suite failed (FailFast)`n$err".Trim() }
+
+            $total = $failed = $skipped = $errors = 0
+            $haveXml = Test-Path -LiteralPath $xml -PathType Leaf
+            if ($haveXml) {
+                try {
+                    $document = [xml](Get-Content -LiteralPath $xml -Raw -ErrorAction Stop)
+                    # NUnit's name attribute shadows Name in PowerShell's XML adapter.
+                    if ($document.DocumentElement.LocalName -cne 'test-results') { throw 'Expected an NUnit test-results root element.' }
+                    $r = $document.'test-results'
+                    $total   = [int]$r.total
+                    $failed  = [int]$r.failures
+                    $errors  = [int]$r.errors
+                    $skipped = [int]$r.skipped + [int]$r.ignored + [int]$r.'not-run'
+                } catch {
+                    $haveXml = $false
+                    $err = "unreadable result file: $($_.Exception.Message)`n$err".Trim()
+                }
+            }
+
+            if ($haveXml -and ($failed -gt 0 -or $errors -gt 0)) {
+                # Worker verbosity is quiet; NUnit is the authority for both the
+                # verdict and the assertion that explains it to the operator.
+                $failures = @($document.SelectNodes('//test-case[failure] | //test-suite[failure]'))
+                $details = [Collections.Generic.List[string]]::new()
+                foreach ($failure in ($failures | Select-Object -First 10)) {
+                    $details.Add("FAIL  $($failure.GetAttribute('name'))")
+                    foreach ($field in 'message', 'stack-trace') {
+                        $node = $failure.SelectSingleNode("failure/$field")
+                        if ($node -and $node.InnerText) {
+                            $text = $node.InnerText.Trim()
+                            if ($text.Length -gt 2000) { $text = $text.Substring(0, 2000) + ' [truncated; see NUnit results]' }
+                            $details.Add($text)
+                        }
+                    }
+                }
+                if ($failures.Count -gt 10) { $details.Add("... $($failures.Count - 10) more failure(s); see NUnit results.") }
+                $details.Add("NUnit results: $xml")
+                $details.Add("Worker logs: $stdoutLog ; $stderrLog")
+                $err = (@($err, ($details -join "`n")) | Where-Object { $_ }) -join "`n"
+            }
+
+            if (-not $haveXml) {
+                # A zero process exit cannot prove tests passed without their results.
+                # Keep Pester's original diagnostic, which can be emitted only on stdout.
+                $err = (@($err, $out.Trim(), "Worker logs: $stdoutLog ; $stderrLog") | Where-Object { $_ }) -join "`n"
+            }
+            $passed = $rc -eq 0 -and $haveXml -and $total -gt 0 -and $failed -eq 0 -and $errors -eq 0
+            if ($trace -and -not $passed -and -not $cancelled) {
+                $tracedFailure = (@(($err -split "`n") | Where-Object { $_.Trim() }) + "rc=$rc")[0].Trim()
+                if ($tracedFailure.Length -gt 200) { $tracedFailure = $tracedFailure.Substring(0, 200) + '...' }
+                if (Test-Path -LiteralPath $xml) { Remove-Item -LiteralPath $xml -Force }
+                $trace = $false
+                # A folder of its own for the second run too, so nothing the
+                # traced run left behind can reach it.
+                $suiteTemp = Join-Path $runTempRoot ('yrn-suite-' + [guid]::NewGuid().ToString('N').Substring(0, 12))
+                $null = New-Item -ItemType Directory -Force -Path $suiteTemp
+                continue
+            }
+            break
         }
         if ($using:FailFast -and ($rc -ne 0 -or -not $haveXml -or $total -eq 0 -or $failed -gt 0 -or $errors -gt 0)) {
             $signal.Set()
+        }
+
+        if ($recording) {
+            $outcome = 'not recorded: the suite did not pass'
+            if ($passed -and $untraceable) {
+                $outcome = 'not recorded: it failed under strace twice today, so it ran untraced'
+            } elseif ($passed -and $tracedFailure) {
+                $outcome = "not recorded: it failed only under strace ($tracedFailure)"
+                try {
+                    $null = New-Item -ItemType Directory -Force -Path (Split-Path -Parent $untraceableMark)
+                    [IO.File]::WriteAllText($untraceableMark, "$($recording.Context)`n$($tracedFailures + 1)`n", [Text.UTF8Encoding]::new($false))
+                } catch { Write-Debug "untraceable mark not written: $($_.Exception.Message)" }
+            } elseif ($passed -and $observations) {
+                $outcome = 'not recorded: the traced run wrote no observations'
+                if (Test-Path -LiteralPath $observations) {
+                    $answer = & $recording.Python $recording.Tool commit --candidate $observations --cache $recording.Cache `
+                        --suite $rel --context $recording.Context --xml $xml --total $total --skipped $skipped `
+                        --seconds ([math]::Round($t0.Elapsed.TotalSeconds, 2)) 2>&1
+                    try {
+                        $verdict = ($answer -join "`n") | ConvertFrom-Json
+                        $outcome = if ($verdict.recorded) { 'recorded' } else { "not recorded: $($verdict.reason)" }
+                    } catch {
+                        $outcome = "not recorded: $(($answer | Out-String).Trim())"
+                    }
+                }
+            }
+            $impactNote = (@($whyRun, $outcome) | Where-Object { $_ }) -join '; '
         }
 
         if (-not $using:Quiet) {
@@ -664,12 +1023,13 @@ try {
             message = $err
             stdoutLog = $stdoutLog
             stderrLog = $stderrLog
+            impact  = $impactNote
         }
     }
     $sw.Stop()
 
     # --- REGION: Adjudicate
-    $results = @($results | Sort-Object path)
+    $results = @(@($reused) + @($results | Where-Object { $null -ne $_ }) | Sort-Object path)
     $problems = [Collections.Generic.List[string]]::new()
 
     # Report the originating failure before its canceled siblings.
@@ -715,6 +1075,7 @@ try {
         failed  = [int]($results | Measure-Object failed  -Sum).Sum
         errors  = [int]($results | Measure-Object errors  -Sum).Sum
         skipped = [int]($results | Measure-Object skipped -Sum).Sum
+        reused  = $reused.Count
         seconds = [math]::Round($sw.Elapsed.TotalSeconds, 1)
     }
 
@@ -725,6 +1086,7 @@ try {
                           @{n = 'result'; e = {
                                   if (-not $_.haveXml -or $_.rc -ne 0) { 'incomplete' }
                                   elseif ($_.failed -gt 0 -or $_.errors -gt 0 -or $_.total -eq 0) { 'failed' }
+                                  elseif ([string]$_.impact -like 'reused*') { 'reused' }
                                   else { 'passed' }
                               } },
                           @{n = 'tests'; e = { $_.total } },
@@ -742,8 +1104,14 @@ try {
         startedUtc    = (Get-Date).ToUniversalTime().ToString('o')
         host          = [Environment]::MachineName
         pwshVersion   = $PSVersionTable.PSVersion.ToString()
-        pesterVersion = (Get-Module -ListAvailable Pester | Where-Object { $_.Version -ge [version]'6.0.0' -and $_.Version -lt [version]'7.0.0' } | Sort-Object Version -Descending | Select-Object -First 1).Version.ToString()
+        pesterVersion = $pesterVersion
         throttle      = $ThrottleLimit
+        impact        = [pscustomobject]@{
+            reused   = $reused.Count
+            recorded = @($results | Where-Object { [string]$_.impact -match '(^|; )recorded$' }).Count
+            traced   = [bool]$recording
+            note     = $impact.Note
+        }
         totals        = $totals
         problems      = @($problems)
         suites        = $results
@@ -755,18 +1123,18 @@ try {
         try {
             $currentSuites = @(Get-SuiteFile -Root $RepoRoot -Under $Path)
             if (@(Compare-Object $discoveredSuites $currentSuites).Count -ne 0) { throw 'Suite discovery changed during the run.' }
-            $record = Get-Content -LiteralPath (Join-Path $ResultsPath 'suite-results.json') -Raw | ConvertFrom-Json
+            $writtenRun = Get-Content -LiteralPath (Join-Path $ResultsPath 'suite-results.json') -Raw | ConvertFrom-Json
             if ($RegisterNewSuites) {
                 # New rows have no skip allowance. Validate all of their NUnit cases
                 # without presenting unexecuted historical rows as part of this run.
-                Assert-SuiteBaselineRefresh -Run $record -Baseline $null -ExpectedSuites $suites -ResultsPath $ResultsPath -AllowedRoot $Path
+                Assert-SuiteBaselineRefresh -Run $writtenRun -Baseline $null -ExpectedSuites $suites -ResultsPath $ResultsPath -AllowedRoot $Path
                 foreach ($suite in $suites) {
                     if ((Get-FileHash -LiteralPath (Join-Path $RepoRoot $suite) -Algorithm SHA256).Hash -cne $registrationSourceHashes[$suite]) {
                         throw "Suite source changed during registration: $suite"
                     }
                 }
             } else {
-                Assert-SuiteBaselineRefresh -Run $record -Baseline $baseline -ExpectedSuites $suites -ResultsPath $ResultsPath -AllowedRoot $Path
+                Assert-SuiteBaselineRefresh -Run $writtenRun -Baseline $baseline -ExpectedSuites $suites -ResultsPath $ResultsPath -AllowedRoot $Path
             }
             $currentHash = if (Test-Path -LiteralPath $BaselinePath) { (Get-FileHash -LiteralPath $BaselinePath -Algorithm SHA256).Hash } else { $null }
             if ($currentHash -cne $baselineHash) { throw 'Baseline changed during the run; refusing to overwrite it.' }
@@ -787,7 +1155,7 @@ try {
             $row = [ordered]@{ total = $r.total; skipped = $r.skipped; seconds = $r.seconds }
             $previous = if ($baseline -and -not $RegisterNewSuites) { $baseline.suites.PSObject.Properties[$r.path] } else { $null }
             if ($previous) {
-                foreach ($field in @('platformTotal', 'timeoutSeconds')) {
+                foreach ($field in @('platformTotal', 'platformSkipped', 'timeoutSeconds')) {
                     if ($previous.Value.PSObject.Properties[$field]) { $row[$field] = $previous.Value.$field }
                 }
                 # A suite with per-platform floors has a reference count that a run on
@@ -795,6 +1163,11 @@ try {
                 # without a floor of its own is held to.
                 if ($previous.Value.PSObject.Properties['platformTotal'] -and [int]$previous.Value.total -gt $row.total) {
                     $row.total = [int]$previous.Value.total
+                }
+                # The reviewed override permits skips only on named platforms;
+                # keep the fallback unchanged for every unlisted platform.
+                if ($previous.Value.PSObject.Properties['platformSkipped']) {
+                    $row.skipped = [int]$previous.Value.skipped
                 }
             }
             $map[$r.path] = [pscustomobject]$row
@@ -847,8 +1220,10 @@ try {
         }
     }
 
-    Write-Information ("{0} suite(s), {1} test(s), {2} failed, {3} skipped, {4} incomplete suite(s), {5}s" -f
-        $totals.suites, $totals.tests, ($totals.failed + $totals.errors), $totals.skipped, $totals.incomplete, $totals.seconds) -InformationAction Continue
+    $reusedSummary = if ($reused.Count) { ", $($reused.Count) reused from recorded passes" } else { '' }
+    Write-Information ("{0} suite(s), {1} test(s), {2} failed, {3} skipped, {4} incomplete suite(s), {5}s{6}" -f
+        $totals.suites, $totals.tests, ($totals.failed + $totals.errors), $totals.skipped, $totals.incomplete, $totals.seconds,
+        $reusedSummary) -InformationAction Continue
 
     # Keep the report beside its logs so a later run does not erase the link
     # between an incomplete suite and its original diagnostics.
@@ -866,6 +1241,10 @@ try {
 } finally {
     $failureSignal.Dispose()
     $resultLock.Dispose()
+    if ($foregroundLock) {
+        $foregroundLock.Dispose()
+        Remove-Item -LiteralPath $foregroundLockPath -Force -ErrorAction SilentlyContinue
+    }
     # Every suite has exited by now, killed ones included, so the master and the
     # suite folders under it hold nothing a live process still uses. The lock
     # goes first: a directory holding an open file cannot be removed on Windows.

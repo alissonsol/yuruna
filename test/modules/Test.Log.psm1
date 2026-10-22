@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.18.2
+.VERSION 2026.10.22
 .GUID 429770ab-d272-43a0-985e-672863545e2c
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -643,6 +643,12 @@ function Save-StepFailureEvidence {
     .PARAMETER Label
         Distinguishes one capture from the next within a cycle (an attempt
         ordinal, say). Non-portable characters are replaced.
+    .PARAMETER DiagnosticRecord
+        Optional startup observations: hostType, architecture, vmState and
+        consoleSecondOpinion. Saved even when no screen could be captured.
+        With captureStartupSnapshot set, an available UTM control snapshot is
+        collected before this call returns, while the failed startup VM still
+        exists and before a retry can power it off.
     #>
     [CmdletBinding(SupportsShouldProcess)]
     [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidGlobalVars', '',
@@ -650,7 +656,8 @@ function Save-StepFailureEvidence {
     [OutputType([string])]
     param(
         [Parameter(Mandatory)][string]$VMName,
-        [Parameter(Mandatory)][string]$Label
+        [Parameter(Mandatory)][string]$Label,
+        [System.Collections.IDictionary]$DiagnosticRecord
     )
     try {
         if (-not $global:__YurunaCycleFolder) { return $null }
@@ -675,7 +682,7 @@ function Save-StepFailureEvidence {
         }
         $hasScreen = $srcScreen -and (Test-Path -LiteralPath $srcScreen)
         $hasOcr    = $srcOcr    -and (Test-Path -LiteralPath $srcOcr)
-        if ($frames.Count -eq 0 -and $earliest.Count -eq 0 -and -not $hasScreen -and -not $hasOcr) { return $null }
+        if ($frames.Count -eq 0 -and $earliest.Count -eq 0 -and -not $hasScreen -and -not $hasOcr -and -not $DiagnosticRecord) { return $null }
 
         if (-not $PSCmdlet.ShouldProcess($destDir, (Format-YurunaOperatorMessage -Key 'runner.operator_e93a4d7fd69e4e80'))) { return $null }
         if (-not (Test-Path -LiteralPath $destDir)) {
@@ -696,6 +703,45 @@ function Save-StepFailureEvidence {
         }
         if ($hasOcr) {
             Copy-Item -LiteralPath $srcOcr -Destination (Join-Path $destDir 'failure_ocr.txt') -Force -ErrorAction SilentlyContinue
+        }
+        if ($DiagnosticRecord) {
+            # Only the diagnostic contract belongs in this public artifact;
+            # callers may carry unrelated execution context or secret arguments.
+            $diagnostic = [ordered]@{
+                schema = 'yuruna.vm-startup-diagnostic/v1'; observedAtUtc = [DateTime]::UtcNow.ToString('o')
+                vmName = $VMName; hostType = [string]$DiagnosticRecord.hostType
+                architecture = [string]$DiagnosticRecord.architecture; vmState = [string]$DiagnosticRecord.vmState
+                consoleSecondOpinion = $null; controlSnapshot = $null
+            }
+            if ($DiagnosticRecord.consoleSecondOpinion) {
+                $opinion = [ordered]@{}
+                foreach ($field in @('Verdict', 'Detail', 'ObservedAtUtc', 'VMName', 'VMState', 'QemuPid', 'VncPort',
+                    'IntervalSeconds', 'FirstFrameSha256', 'SecondFrameSha256', 'FramesChanged', 'FirstCpuSeconds', 'SecondCpuSeconds', 'CpuPercent')) {
+                    $opinion[$field] = $DiagnosticRecord.consoleSecondOpinion.$field
+                }
+                $diagnostic.consoleSecondOpinion = $opinion
+            }
+            $diagnosticPath = Join-Path $destDir 'vm-diagnostics.json'
+            $encoding = [System.Text.UTF8Encoding]::new($false)
+            [IO.File]::WriteAllText($diagnosticPath, (ConvertTo-Json -InputObject $diagnostic -Depth 8), $encoding)
+            if ($DiagnosticRecord.captureStartupSnapshot -and $diagnostic.hostType -eq 'host.macos.utm') {
+                try {
+                    if ((Get-Command Save-UtmControlSnapshot -ErrorAction SilentlyContinue) -and
+                        (Get-Command New-YurunaDeadline -ErrorAction SilentlyContinue)) {
+                        $deadline = New-YurunaDeadline -TotalMilliseconds 30000
+                        # The first login wait may already exceed forty minutes;
+                        # include its boot transition without extending probe time.
+                        $snapshot = Save-UtmControlSnapshot -OutputDirectory $destDir -Trigger 'startup-timeout' `
+                            -VMName $VMName -LogWindowMinutes 60 -LogTimeoutSeconds 10 -Deadline $deadline -SkipScreenshot -Confirm:$false
+                        $diagnostic.controlSnapshot = [ordered]@{ written = [bool]$snapshot.Written; reason = [string]$snapshot.Reason; path = [string]$snapshot.Path }
+                    } else {
+                        $diagnostic.controlSnapshot = [ordered]@{ written = $false; reason = 'capability-unavailable'; path = '' }
+                    }
+                } catch {
+                    $diagnostic.controlSnapshot = [ordered]@{ written = $false; reason = $_.Exception.Message; path = '' }
+                }
+                [IO.File]::WriteAllText($diagnosticPath, (ConvertTo-Json -InputObject $diagnostic -Depth 8), $encoding)
+            }
         }
         return "$VMName/failed_${safeLabel}"
     } catch {

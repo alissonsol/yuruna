@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.18.2
+.VERSION 2026.10.22
 .GUID 42da4d2b-cbcd-4c6d-b4e8-973686da3b1a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -84,6 +84,7 @@ function Reset-FailState {
     # later failure in this file as input_lost.
     $f.StepInputLost = $null
     $f.StepLauncherRejection = $null
+    $f.StepAptIndexMismatch = $null
     # Same reasoning as the flood slot: a test that sets either of these would
     # otherwise leave every later test in this file reporting a parked console or
     # an operator hold it never had.
@@ -97,6 +98,7 @@ function Reset-FailState {
     # Same reasoning again: a test that records a livelock or a blank console
     # would otherwise leave every later record carrying it.
     $f.WaitForTextGuestLivelock = $null
+    $f.WaitForTextConsoleSecondOpinion = $null
     $f.WaitForTextGuestLivelocked = $false
     $f.WaitForTextBlankScreenSeconds = 0
     return $f
@@ -426,6 +428,34 @@ Describe 'New-SequenceFailureRecord classificationSource discrimination' {
         Assert-True ($r.File.context.causeDetail.Contains('launcherRejection')) 'the field must always be present'
         Assert-True ($null -eq $r.File.context.causeDetail.launcherRejection) 'and null without a refusal'
         Assert-Equal -Expected '' -Actual $r.Event.causeLauncherRejection
+    }
+
+    It 'records an apt index mismatch beside script_error, naming the index and the proxy' {
+        # The script failed, so the class stays; the field says the fix is in the
+        # cache or at the origin rather than in the script.
+        $f = Reset-FailState
+        $url = 'https://download.docker.com/linux/ubuntu/dists/noble/stable/binary-arm64/Packages.bz2'
+        $f.StepAptIndexMismatch = [ordered]@{ kind = 'unexpected-size'; url = $url; receivedBytes = [long]68994; expectedBytes = [long]68759
+            server = '192.168.7.42:3129'; releaseFileCreated = 'Wed, 21 Oct 2026 08:17:46 +0000'; occurrences = 5
+            proxyCopy = 'HTTP/1.1 200 OK;Age: 33000'; proxyPurgeStatus = 200 }
+        $r = New-SequenceFailureRecord -Reason step -VMName 'v' -GuestKey 'g' -HostType 'h' -SequencePath $script:seqPath -LogDir 'd' -TotalSteps 5
+        $mismatch = $r.File.context.causeDetail.aptIndexMismatch
+        Assert-Equal -Expected 'unexpected-size' -Actual $mismatch.kind
+        Assert-Equal -Expected $url -Actual $mismatch.url
+        Assert-Equal -Expected 68994 -Actual $mismatch.receivedBytes
+        Assert-Equal -Expected 68759 -Actual $mismatch.expectedBytes
+        Assert-Equal -Expected '192.168.7.42:3129' -Actual $mismatch.server
+        Assert-Equal -Expected 5 -Actual $mismatch.occurrences
+        Assert-Equal -Expected 200 -Actual $mismatch.proxyPurgeStatus
+        Assert-Equal -Expected $url -Actual $r.Event.causeAptIndexMismatch
+    }
+
+    It 'leaves the apt index mismatch empty when apt reported none' {
+        $null = Reset-FailState
+        $r = New-SequenceFailureRecord -Reason step -VMName 'v' -GuestKey 'g' -HostType 'h' -SequencePath $script:seqPath -LogDir 'd' -TotalSteps 5
+        Assert-True ($r.File.context.causeDetail.Contains('aptIndexMismatch')) 'the field must always be present'
+        Assert-True ($null -eq $r.File.context.causeDetail.aptIndexMismatch) 'and null without a mismatch'
+        Assert-Equal -Expected '' -Actual $r.Event.causeAptIndexMismatch
     }
 
     It 'leaves the flood field empty, not absent, on an ordinary failure' {
@@ -779,6 +809,48 @@ Describe 'A guest that never reached the stopped state' {
         Assert-Equal -Expected '' -Actual $r.File.context.causeDetail.vmState -Because 'always present, empty when unobserved'
         Assert-Equal -Expected 0 -Actual $r.File.context.causeDetail.vmStateWaitedSeconds
         Assert-Equal -Expected '' -Actual $r.File.context.causeDetail.firstGuestSilenceUtc
+    }
+}
+
+Describe 'Independent console observations survive failure serialization' {
+    It 'retains a busy inactive VM as evidence without granting recovery' {
+        $f = Reset-FailState
+        $f.WaitForTextConsoleSecondOpinion = [pscustomobject]@{
+            Verdict = 'guest-wedged'; Detail = 'Independent VNC frames are identical; QEMU remains busy.'
+            ObservedAtUtc = '2026-10-21T11:19:48Z'; VMName = 'vm1'; VMState = 'running'
+            QemuPid = 4321; VncPort = 5983; IntervalSeconds = 5
+            FirstFrameSha256 = 'ABC'; SecondFrameSha256 = 'ABC'; FramesChanged = $false
+            FirstCpuSeconds = 100.0; SecondCpuSeconds = 139.1; CpuPercent = 782.0
+        }
+        $f.StepProgressAdvisory = Get-GuestProgressAdvisory -OutputStaticSeconds 2485
+        $r = New-SequenceFailureRecord -Reason step -VMName 'vm1' -GuestKey 'guest.ubuntu.server.26' -HostType 'host.macos.utm' -SequencePath $script:seqPath -LogDir 'd' -TotalSteps 19
+        $disk = $r.File | ConvertTo-Json -Depth 12 | ConvertFrom-Json -AsHashtable
+        $eventRecord = $r.Event | ConvertTo-Json -Depth 12 | ConvertFrom-Json -AsHashtable
+        $disk.context.causeDetail.consoleSecondOpinion.Verdict | Should -Be 'guest-wedged'
+        $disk.context.causeDetail.consoleSecondOpinion.QemuPid | Should -Be 4321
+        $disk.context.causeDetail.consoleSecondOpinion.CpuPercent | Should -Be 782.0
+        $disk.context.causeDetail.consoleSecondOpinion.FramesChanged | Should -BeFalse
+        $eventRecord.consoleSecondOpinion | ConvertTo-Json -Compress | Should -Be ($disk.context.causeDetail.consoleSecondOpinion | ConvertTo-Json -Compress)
+        $disk.context.causeDetail.progressAdvisory.automaticRecoveryAllowed | Should -BeFalse
+        $disk.failureClass | Should -Be 'ocr_timeout'
+    }
+    It 'preserves unavailable readings as null rather than idle measurements' {
+        $f = Reset-FailState
+        $f.WaitForTextConsoleSecondOpinion = [pscustomobject]@{ Verdict = 'unavailable'; Detail = 'VNC unavailable'; CpuPercent = $null; FramesChanged = $null }
+        $r = New-SequenceFailureRecord -Reason step -VMName 'vm1' -HostType 'host.macos.utm' -SequencePath $script:seqPath -LogDir 'd'
+        $disk = $r.File | ConvertTo-Json -Depth 12 | ConvertFrom-Json -AsHashtable
+        $disk.context.causeDetail.consoleSecondOpinion.Verdict | Should -Be 'unavailable'
+        $disk.context.causeDetail.consoleSecondOpinion.ContainsKey('CpuPercent') | Should -BeTrue
+        $disk.context.causeDetail.consoleSecondOpinion.CpuPercent | Should -BeNullOrEmpty
+        $disk.context.causeDetail.consoleSecondOpinion.FramesChanged | Should -BeNullOrEmpty
+    }
+    It 'distinguishes no independent probe from a probe with unavailable measurements' {
+        [void](Reset-FailState)
+        $r = New-SequenceFailureRecord -Reason step -VMName 'vm1' -HostType 'h' -SequencePath $script:seqPath -LogDir 'd'
+        $r.File.context.causeDetail.Contains('consoleSecondOpinion') | Should -BeTrue
+        $r.File.context.causeDetail.consoleSecondOpinion | Should -BeNullOrEmpty
+        $r.Event.ContainsKey('consoleSecondOpinion') | Should -BeTrue
+        $r.Event.consoleSecondOpinion | Should -BeNullOrEmpty
     }
 }
 

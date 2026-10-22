@@ -720,14 +720,48 @@ may nest.
 |---|---|---|
 | `maxAttempts` | integer | Default `3`, must be `>= 1`. |
 | `steps` | array | Step objects, recursive (same shape as a top-level `steps:`). |
-| `restartVmBeforeRetry` | string | Optional. `arm64HyperVColdPowerCycle` cold-restarts only on native ARM64 Hyper-V, only after a `waitForTextWithNudge` timeout, and only when another attempt remains. Other hosts retain ordinary retry behavior. `arm64HyperVInstallerBoot` provides the separately gated initial-installer recovery described below. |
+| `restartVmBeforeRetry` | string | Optional. `coldPowerCycle` cold-restarts a guest after a safe login-wait timeout on Windows Hyper-V (AMD64 or ARM64), Ubuntu KVM, and macOS UTM. Another attempt must remain. `arm64HyperVColdPowerCycle` retains its native ARM64 Hyper-V restriction for existing sequences. `arm64HyperVInstallerBoot` provides the separately gated initial-installer recovery described below. |
 | `stepsAfterVmRestart` | array | Optional recursive steps run only after that cold restart succeeds. Use this to restore or settle boot state (for example, re-answering an installer confirmation or waiting for an installed guest's console) before the next attempt. |
 
-The cold-restart mode is intentionally narrower than a portable "restart on
-failure" switch. It does not run for a matched `failurePatterns` entry, a
+The portable cold-restart mode accepts only the bounded, observation-only
+login retry used by the Ubuntu startup sequences: console redraw keys and
+login waits, with explicitly declared installer-confirmation recovery steps.
+It does not run for a matched `failurePatterns` entry, a
 console flood, or a password-prompt failure. Keep credential-changing steps
 outside such a retry block so a partially completed password transaction is
 never replayed after a power cut.
+
+Ubuntu 24 and 26 use `coldPowerCycle` for their login waits. Recovery saves
+the failed attempt's evidence before stopping the VM, confirms that the VM
+stopped, starts it, confirms that it is running, and refreshes the console.
+A failed or ambiguous operation ends recovery rather than replaying input
+against an unknown boot. Recovery is limited to three attempts; the final
+attempt never restarts the guest. This handles a guest that stops reaching
+login; it does not establish the underlying kernel or hypervisor fault.
+
+The login waits inside such a retry end early, instead of spending the rest of
+their budget, once the guest is proven wedged. On native ARM64 Hyper-V the proof
+is the host recording's livelock verdict, described below. Where QEMU draws the
+console, it paints `Display output is not active.` itself when the guest has no
+active scanout; a healthy warm reboot shows that text for seconds. When every
+frame of the wait has carried it for 300 seconds and the host driver's
+independent console probe still finds byte-identical frames with a busy emulator
+(`guest-wedged`), the wait ends with a `livelocked` verdict and the retry
+cold-restarts the guest. Neither reading is enough alone: the message does not
+show that the guest is still executing, and the probe's CPU measurement cannot
+tell guest work from a hypervisor spin. Any frame with other content restarts
+the 300-second run. Only the macOS UTM driver's probe can report `guest-wedged`,
+so other hosts keep their full budget. The failure record keeps the verdict in
+`causeDetail.guestLivelock`, whose `reason` names the display evidence, and the
+probe's reading in `causeDetail.consoleSecondOpinion`.
+
+`retry_attempt.evidencePath` points to the retained frames and
+`vm-diagnostics.json` for that attempt. `retry_vm_restart` records the
+recovery phase, outcome, and observed VM states, so a failed stop, failed
+start, or console refresh can be distinguished from another guest timeout.
+Copy these artifacts and the guest's `last_failure.json` before a manual
+restart. The independent console observation is also preserved through
+nested failures; see the [failure schema](failure-schema.md#causedetail-fields-that-describe-the-screen).
 
 When the timed-out wait's OCR tail still shows the live installer's
 `subiquity/` event lines, the install never finished, and the restart puts the
@@ -738,8 +772,14 @@ between the bootloader and the late-commands would boot a target that lacks
 the changes its late-commands make: the first login would skip the forced password change
 and the sequence would fail later on a missing `Current password` prompt. With
 the DVD first, the guest reinstalls and `stepsAfterVmRestart` answers the
-installer confirmation again. The restart fails closed when the host cannot
-select exactly one installer DVD.
+installer confirmation again. Recovery ends if selecting exactly one
+installer DVD fails; a failure after the stop leaves the VM stopped for
+inspection. A missing selection capability is detected before stopping the
+VM. This capability currently exists only on Hyper-V. KVM and UTM can restart a timed-out login
+wait with its existing boot configuration, but do not automatically restart
+a visibly incomplete installer that requires this firmware change. Preserve
+its attempt evidence and inspect the installer before manually deciding
+whether to rebuild it.
 
 `arm64HyperVInstallerBoot` permits at most two attempts of a single
 `waitForAndEnter` step answering `yes` to `Continue with autoinstall?`.
@@ -1512,6 +1552,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.18.1
+Last review: 2026.10.22
 
 Back to [Yuruna](../README.md)

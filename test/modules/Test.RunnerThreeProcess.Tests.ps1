@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.18.2
+.VERSION 2026.10.22
 .GUID 4227f6df-0fe0-4a7d-b85b-64c7c2f5ede7
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -79,7 +79,15 @@ BeforeAll {
         }
         $null = New-Item -ItemType Directory -Path $f.Home, $f.Runtime, $f.Log, $f.Bin -Force
         Copy-Item -LiteralPath (Join-Path $tree 'test/test.config.yml.template') -Destination $f.Config
-        [System.IO.File]::WriteAllText((Join-Path $f.Bin 'git'), "#!/bin/bash`nprintf '%s\n' ""`$*"" >> '$($f.GitLog)'`nexit 0`n")
+        [System.IO.File]::WriteAllText((Join-Path $f.Bin 'git'), @"
+#!/bin/bash
+printf '%s\n' "`$*" >> '$($f.GitLog)'
+case " `$* " in
+  *" rev-parse HEAD "*) printf '%s\n' 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' ;;
+  *" remote get-url origin "*) printf '%s\n' 'https://github.com/fixture/framework' ;;
+esac
+exit 0
+"@)
         [System.IO.File]::WriteAllText((Join-Path $f.Bin 'sudo'), "#!/bin/bash`nexit 0`n")
         [System.IO.File]::WriteAllText((Join-Path $f.Bin 'getent'), @'
 #!/bin/bash

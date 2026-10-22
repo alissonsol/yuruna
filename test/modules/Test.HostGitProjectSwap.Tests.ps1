@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.18.2
+.VERSION 2026.10.22
 .GUID 4207281c-d594-4c5f-b5f3-215bb075539f
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -79,6 +79,29 @@ Describe 'Update-ProjectClone swaps in a proven-complete clone' {
         $script:Remote = New-GitRemoteFixture -Root $script:Root
     }
     AfterEach { Remove-Item -LiteralPath $script:Root -Recurse -Force -ErrorAction SilentlyContinue }
+
+    It 'keeps the gate-selected commit and canonical tracking when origin advances before cloning' {
+        $repo = New-RepoRootFixture -Root $script:Root -WithCheckout
+        $url = ([UriBuilder]::new('file', '', -1, $script:Remote)).Uri.AbsoluteUri
+        $context = @{ mode = 'off' }
+        $selection = Resolve-GitSourceSelection -RepositoryUrl $url -Ref HEAD -SourceContext $context -Operation Gate
+        $selection.success | Should -BeTrue -Because $selection.detail
+        Set-Content -LiteralPath (Join-Path $script:Remote 'later.txt') -Value 'next generation'
+        & git -C $script:Remote add . 2>&1 | Out-Null
+        & git -C $script:Remote -c user.name=fixture -c user.email=fixture@example.invalid commit --quiet -m 'later' 2>&1 | Out-Null
+        $LASTEXITCODE | Should -Be 0
+        $result = Update-ProjectClone -RepoRoot $repo -ProjectUrl $url -SourceContext $context -SourceSelection $selection -Confirm:$false 6>$null
+        $result.success | Should -BeTrue -Because $result.errorMessage
+        $result.revision | Should -BeExactly $selection.selectedSha
+        $project = Join-Path $repo project
+        (& git -C $project rev-parse HEAD).Trim() | Should -BeExactly $selection.selectedSha
+        (& git -C $project remote get-url origin).Trim() | Should -BeExactly $url
+        (& git -C $project symbolic-ref HEAD).Trim() | Should -BeExactly $selection.resolvedDefaultBranch
+        (& git -C $project rev-parse --abbrev-ref '@{upstream}').Trim() | Should -BeExactly ('origin/' + $selection.resolvedDefaultBranch.Substring(11))
+        Test-Path -LiteralPath (Join-Path $project later.txt) | Should -BeFalse
+        Test-Path -LiteralPath (Join-Path $project old.txt) | Should -BeFalse
+        Test-Path -LiteralPath (Join-Path $repo project.previous) | Should -BeFalse
+    }
 
     It 'replaces the checkout with a fresh clone and leaves nothing beside it' {
         $repo = New-RepoRootFixture -Root $script:Root -WithCheckout

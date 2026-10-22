@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.18.2
+.VERSION 2026.10.22
 .GUID 42b8c3e5-1f7a-4d96-a2c8-6e0b9d4f1a37
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -492,6 +492,43 @@ exit 5
             }
         }
     }
+
+    It 'cleans incomplete installer captures and retains completed recovery capsules outside temp' {
+        if (-not $script:Posix) { Set-ItResult -Skipped -Because 'the installers run under bash'; return }
+        foreach ($installer in $script:Installers) {
+            foreach ($failCapture in @(0, 1)) {
+                $root = Join-Path $TestDrive ([guid]::NewGuid().ToString('N'))
+                $null = New-Item -ItemType Directory -Path $root, "$root/tmp", "$root/checkout" -Force
+                $text = [IO.File]::ReadAllText((Join-Path $script:RepoRoot $installer))
+                $capture = Get-YurunaTestShellFunction -Text $text -Name capture_installer_state
+                $capture = $capture.Replace('$HOME/.yuruna/installer-state', "$root/recovery")
+                $body = @"
+set -euo pipefail
+$($script:RegistryText[$installer])
+$capture
+YURUNA_TMP_PATHS=()
+YURUNA_INSTALLER_STATE_DIR=""
+YURUNA_INSTALLER_STATE_RETAINED=0
+YURUNA_DIR='$root/checkout'
+export TMPDIR='$root/tmp'
+pwsh() { :; }
+log() { :; }
+die() { exit 5; }
+invoke_yuruna_installer_state() { echo '{}' > "`$YURUNA_INSTALLER_STATE_DIR/state.json"; return $failCapture; }
+trap 'p="`$YURUNA_INSTALLER_STATE_DIR"; yuruna_cleanup_tmp_paths; if [[ -d "`$p" ]]; then echo "RETAINED=`$p"; else echo REMOVED; fi' EXIT
+capture_installer_state
+"@
+                $result = Invoke-YurunaTestShell -Body $body
+                if ($failCapture) {
+                    Assert-Equal 5 $result.ExitCode -Because 'capture failure stops the installer'
+                    Assert-Match '(?m)^REMOVED$' $result.Output 'the incomplete capsule is removed by the exit trap'
+                } else {
+                    Assert-Equal 0 $result.ExitCode -Because 'completed capture succeeds'
+                    Assert-Match ('(?m)^RETAINED=' + [regex]::Escape("$root/recovery/")) $result.Output 'restart state lives in private recovery storage, not OS-prunable temp'
+                }
+            }
+        }
+    }
 }
 
 Describe 'A guest step removes the recorder folder and profile of the step before it' {
@@ -585,7 +622,15 @@ Describe 'Temp files with secrets or large captures are removed on every path' {
         while ($try -and $try -isnot [System.Management.Automation.Language.TryStatementAst]) { $try = $try.Parent }
         Assert-NotNull $try "$Script creates the seed folder inside a try"
         Assert-NotNull $try.Finally "$Script has a finally for it"
-        Assert-Match 'Remove-Item -LiteralPath \$SeedDir -Recurse' $try.Finally.Extent.Text "$Script removes the seed in that finally"
+        if ($Script -eq 'host/windows.hyper-v/guest.caching-proxy-service/New-VM.ps1') {
+            Assert-Match '\$SeedDir\s*=\s*\$seedWorkspace\.Source' $assignment.Extent.Text "$Script renders into the protected workspace source"
+            Assert-Match '\$seedWorkspace\s*=\s*New-CachingProxySeedWorkspace' $try.Body.Extent.Text "$Script creates its protected workspace inside the try"
+            Assert-Match 'Remove-CachingProxySeedWorkspace -Workspace \$seedWorkspace' $try.Finally.Extent.Text "$Script disposes that same protected workspace in finally"
+            $cleanup = Get-YurunaTestFunctionAst -Path (Join-Path $script:RepoRoot 'host/modules/Yuruna.CachingProxySeed.psm1') -Name 'Remove-CachingProxySeedWorkspace'
+            Assert-Match 'Remove-Item -LiteralPath \$Workspace\.Root -Recurse -Force' $cleanup.Extent.Text 'the helper removes the containing source and image staging tree'
+        } else {
+            Assert-Match 'Remove-Item -LiteralPath \$SeedDir -Recurse' $try.Finally.Extent.Text "$Script removes the seed in that finally"
+        }
     }
 
     It 'removes the <Function> temp files of <Driver> in a finally' -TestCases @(

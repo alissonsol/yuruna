@@ -680,6 +680,21 @@
     "remediation.port_stop_command": {
       "sourceHash": "c090c76e3af1f133e640e3045dd40d2873575320079ece6a660bd60acc7be1f5",
       "message": "{command} # pára da forma como foi iniciado"
+    },
+    "remediation.source_integrity_rationale": {
+      "sourceHash": "45447a5b7c3491544e1cc8846e649d814321c90d08a3278c630ae2d7c9ded6e0",
+      "origin": "machine",
+      "message": "source_integrity: a verificação da origem falhou. Preserve o checkout instalado e examine as evidências antes de tentar novamente. {detail}"
+    },
+    "remediation.source_integrity_action_identity": {
+      "sourceHash": "a859a21e2a027affa037fa212acfca323bdeb51a40d91d59afbaad79fb816fc8",
+      "origin": "machine",
+      "message": "Compare os identificadores das chaves cadastradas com a identidade exportada pelo responsável pelo proxy e examine o recibo assinado e o SHA selecionado."
+    },
+    "remediation.source_integrity_action_evidence": {
+      "sourceHash": "1119e7416a9854e3111c91005788de244fc41633b6b681615c1f0ee0f61fb1cc",
+      "origin": "machine",
+      "message": "Examine sourceSelections nos diagnósticos da validação da configuração e o estado do espelho; mantenha ativada a verificação de assinaturas e commits."
     }
   }
 }

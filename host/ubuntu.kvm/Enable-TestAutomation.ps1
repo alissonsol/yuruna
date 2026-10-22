@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.18.2
+.VERSION 2026.10.22
 .GUID 4202d0ff-c419-4c17-bf82-ec1f841f72c7
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -395,8 +395,8 @@ if (Test-Path -LiteralPath $cfgPath) {
 }
 
 # --- REGION: libvirt-qemu search ACL on $HOME
-# Allow libvirt-qemu to traverse a private home without granting file access.
 # See https://yuruna.link/42e220c4-0004
+# Allow libvirt-qemu to traverse a private home without granting file access.
 & getent passwd libvirt-qemu *> $null
 $haveLibvirtQemu = ($LASTEXITCODE -eq 0)
 $haveSetfacl    = [bool](Get-Command -Name 'setfacl' -ErrorAction SilentlyContinue)
@@ -416,8 +416,8 @@ if (-not $libvirtReady) {
 }
 
 # --- REGION: GNOME idle / lock / dim
-# GNOME settings are optional on hosts without a desktop session.
 # See https://yuruna.link/42e220c4-0004
+# GNOME settings are optional on hosts without a desktop session.
 $gsettings = Get-Command -Name 'gsettings' -ErrorAction SilentlyContinue
 if ($gsettings) {
     $tweaks = Get-LinuxAutomationGsetting

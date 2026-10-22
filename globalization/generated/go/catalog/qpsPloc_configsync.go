@@ -115,6 +115,7 @@ const DataqpsPlocconfigsync = `{
       ]
     }
   },
+  "configsync.mirror_key_confirmation": "[Áççéƥţ ɱířřóř ṽéříƒíçáţíóñ ķéý éñřóļļɱéñţ? ~~~~~~~~~~~~~~~~~]",
   "configsync.operator_03e72c207d4307ef": [
     "[  Ķéýš ţħíš ħóšţ'š šçħéɱá ďéƒíñéš ţħáţ ",
     {

@@ -5,7 +5,8 @@
 unset E_SHA EXEC_SHA256 E_RETRY_SHA EXEC_RETRY_SHA256 EXEC_REQUIRE_SHA256 EXEC_ALLOW_UNVERIFIED \
       E_FB_REPO E_FB_REF E_PROJECT_REPO E_PROJECT_REF EXEC_FALLBACK_REPO EXEC_FALLBACK_REF \
       YURUNA_GITHUB_REPO YURUNA_GITHUB_REF EXEC_BASE_URL EXEC_QUERY_PARAMS YurunaCacheContent \
-      GH_TOKEN E_SI E_QI FAE_INVOCATION_SCRIPT YURUNA_STATUS_SERVICE_IP YURUNA_STATUS_SERVICE_PORT
+      GH_TOKEN E_SI E_QI FAE_INVOCATION_SCRIPT YURUNA_STATUS_SERVICE_IP YURUNA_STATUS_SERVICE_PORT \
+      YURUNA_CACHING_PROXY_SERVICE_IP
 work=$(mktemp -d)
 fae_test_mktemp=$(command -v mktemp)
 trap 'rm -rf -- "$work"' EXIT
@@ -39,6 +40,23 @@ if [ -n "$config" ]; then
         printf '%s\n' 'AUTH_HEADER_MATCH=1' >> "$FAE_TEST_CALLS"
     fi
 fi
+case "$url" in
+    */livecheck)
+        [ "${FAE_TEST_HOST:-absent}" = present ]; exit $? ;;
+    */git-mirror/status.json)
+        [ "${FAE_TEST_MIRROR:-present}" = present ]; exit $? ;;
+    */git-raw/*)
+        if [ "${FAE_TEST_MIRROR_RAW:-}" = missing ]; then
+            printf '  HTTP/1.1 404 Not found\n' >&2; exit 8
+        fi
+        if [ "${FAE_TEST_MIRROR_RAW:-}" = mismatch ]; then
+            printf '  HTTP/1.1 200 OK\n' >&2
+            printf 'echo WRONG_PAYLOAD_RAN\n' > "$out"; exit 0
+        fi
+        if [ "${FAE_TEST_MIRROR_RAW:-}" = oversized ]; then
+            head -c 16777217 /dev/zero > "$out"; exit $?
+        fi ;;
+esac
 if [ "$FAE_TEST_HTTP" != unavailable ]; then
     printf '  HTTP/1.1 %s Fixture response\n' "$FAE_TEST_HTTP" >&2
     printf '  Set-Cookie: private=%s\n' "$FAE_TEST_SECRET" >&2
@@ -56,9 +74,11 @@ cat > "$work/bin/timeout" <<'TIMEOUT'
 #!/bin/bash
 # Suppress only the unrelated provenance probe; payload execution stays real.
 for arg in "$@"; do [ "$arg" != guest_evidence_provenance ] || exit 0; done
-exit 99
+exec "$FAE_TEST_REAL_TIMEOUT" "$@"
 TIMEOUT
 printf '#!/bin/bash\nexit 0\n' > "$work/bin/clear"
+printf '#!/bin/bash\nprintf "1 eth0 inet 192.0.2.20/24\\n"\n' > "$work/bin/ip"
+printf '#!/bin/bash\nexit 0\n' > "$work/bin/sleep"
 printf '#!/bin/bash\nexec "$@"\n' > "$work/bin/sudo"
 chmod +x "$work/bin/"*
 # shellcheck disable=SC2016
@@ -87,6 +107,7 @@ scenario() {
     env PATH="$work/bin:$PATH" EXEC_PROFILE=0 EXEC_RECORDER=0 EXEC_KEEP_PROFILE=0 \
         FAE_TEST_DIR="$work" FAE_TEST_CALLS="$work/calls" FAE_TEST_CONFIGS="$work/configs" \
         FAE_TEST_REAL_MKTEMP="$fae_test_mktemp" \
+        FAE_TEST_REAL_TIMEOUT="$(command -v timeout)" \
         FAE_TEST_SECRET="$secret" FAE_TEST_HTTP=200 FAE_TEST_WGET_EXIT=0 FAE_TEST_PAYLOAD_EXIT=0 FAE_TEST_CHILD_SHA="$good" \
         E_FB_REPO=framework/repository E_FB_REF="$framework_ref" \
         E_PROJECT_REPO=private/project E_PROJECT_REF="$project_ref" \
@@ -130,3 +151,12 @@ scenario project_query 'project/example/workload.sh?nocache=path-source' present
 scenario authenticated_query 'project/example/workload.sh?nocache=path-source' present GH_TOKEN="$secret" 'EXEC_QUERY_PARAMS=?extra=override'
 scenario nested guest/ubuntu.server.26/ubuntu.server.26.update.sh present E_SHA="$nestedgood"
 scenario invalid_identity project/example/workload.sh present FAE_INVOCATION_SCRIPT=../forged.sh
+scenario mirror guest/workload.sh present YURUNA_CACHING_PROXY_SERVICE_IP=mirror.invalid GH_TOKEN="$secret"
+scenario mirror_project project/example/workload.sh present YURUNA_CACHING_PROXY_SERVICE_IP=mirror.invalid
+scenario mirror_library guest/workload.sh absent YURUNA_CACHING_PROXY_SERVICE_IP=mirror.invalid
+scenario mirror_mismatch guest/workload.sh present YURUNA_CACHING_PROXY_SERVICE_IP=mirror.invalid FAE_TEST_MIRROR_RAW=mismatch
+scenario mirror_missing guest/workload.sh present YURUNA_CACHING_PROXY_SERVICE_IP=mirror.invalid FAE_TEST_MIRROR_RAW=missing GH_TOKEN="$secret"
+scenario mirror_old guest/workload.sh present YURUNA_CACHING_PROXY_SERVICE_IP=mirror.invalid FAE_TEST_MIRROR=absent
+scenario mirror_unpinned guest/workload.sh present YURUNA_CACHING_PROXY_SERVICE_IP=mirror.invalid E_FB_REF=main
+scenario mirror_host guest/workload.sh present YURUNA_CACHING_PROXY_SERVICE_IP=mirror.invalid YURUNA_STATUS_SERVICE_IP=host.invalid YURUNA_STATUS_SERVICE_PORT=8080 FAE_TEST_HOST=present
+scenario mirror_oversized guest/workload.sh present YURUNA_CACHING_PROXY_SERVICE_IP=mirror.invalid FAE_TEST_MIRROR_RAW=oversized

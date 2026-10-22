@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.18.2
+.VERSION 2026.10.22
 .GUID 42d40efa-2d27-4f91-93ff-3707aaa44c6b
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -110,6 +110,7 @@ $script:TypedField = @{
     causeVmState        = 'string'
     causeVmStateWaitedSeconds = 'int'
     causeLauncherRejection = 'string'
+    causeAptIndexMismatch = 'string'
     firstGuestSilenceUtc = 'string'
     firstGuestSilenceSource = 'string'
     staleEvidence       = 'array'

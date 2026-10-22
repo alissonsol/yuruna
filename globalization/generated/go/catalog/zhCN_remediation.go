@@ -680,6 +680,16 @@ const DatazhCNremediation = `{
       "trust": "internal"
     },
     "       # 按启动时的方式停止该进程"
+  ],
+  "remediation.source_integrity_action_evidence": "检查配置验证诊断中的 sourceSelections 和镜像状态；保持签名和提交验证启用。",
+  "remediation.source_integrity_action_identity": "将已登记的密钥 ID 与代理所有者导出的身份进行比较，并检查已签名的回执和所选 SHA。",
+  "remediation.source_integrity_rationale": [
+    "source_integrity：来源验证失败。请保留已安装的检出目录，并在重试前检查证据。",
+    {
+      "arg": "detail",
+      "type": "detail",
+      "trust": "external"
+    }
   ]
 }
 `

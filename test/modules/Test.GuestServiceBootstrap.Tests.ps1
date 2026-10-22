@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.18.2
+.VERSION 2026.10.22
 .GUID 42a28f50-90bf-4aa0-a8f6-cda286b79d39
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -112,6 +112,9 @@ yuruna_service_wait_active() {
 set -u
 mkdir -p "$FIXTURE_ROOT/etc/yuruna" "$FIXTURE_ROOT/checkout" "$FIXTURE_ROOT/payload"
 printf 'YURUNA_STATUS_SERVICE_IP=192.0.2.1\nYURUNA_STATUS_SERVICE_PORT=8080\n' > "$FIXTURE_ROOT/etc/yuruna/host.env"
+case "$FIXTURE_MODE" in
+    lan-*) printf 'YURUNA_CACHING_PROXY_SERVICE_IP=192.0.2.2\nYURUNA_GITHUB_REPO=example/repo\nYURUNA_GITHUB_REF=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n' >> "$FIXTURE_ROOT/etc/yuruna/host.env" ;;
+esac
 printf 'previous\n' > "$FIXTURE_ROOT/checkout/VERSION"
 printf 'prior-source\n' > "$FIXTURE_ROOT/etc/yuruna/framework-source"
 printf 'old checkout\n' > "$FIXTURE_ROOT/checkout/old.txt"
@@ -139,7 +142,7 @@ wget() {
     done
     if [ "$output" = '-' ]; then cat "$FIXTURE_ROOT/good.tar.gz"; else cp "$FIXTURE_ROOT/good.tar.gz" "$output"; fi
     case "$FIXTURE_MODE" in
-        transfer-error|all-fail|mirror-invalid) return 8 ;;
+        transfer-error|all-fail|mirror-invalid|lan-*) return 8 ;;
         retry) [ "$count" -gt 1 ] || return 8 ;;
     esac
     return 0
@@ -158,10 +161,37 @@ tar() {
 git() {
     printf 'git %s\n' "$*" >> "$FIXTURE_ROOT/calls"
     [ "$FIXTURE_MODE" != all-fail ] || return 1
+    if [ "$1" = init ]; then mkdir -p "$3"; return; fi
+    if [ "$1" = -C ]; then
+        destination=$2; shift 2
+        while [ "$1" = -c ]; do shift 2; done
+        case "$1" in
+            fetch) [ "$FIXTURE_MODE" != lan-unavailable ]; return ;;
+            checkout) printf 'pinned-version\n' > "$destination/VERSION"; printf 'pinned\n' > "$destination/new.txt"; return ;;
+            rev-parse)
+                if [ "$FIXTURE_MODE" = lan-mismatch ]; then printf 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\n'
+                else printf 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n'; fi
+                return ;;
+        esac
+        return 90
+    fi
+    [ "$FIXTURE_MODE" != lan-mismatch ] || return 1
     for destination in "$@"; do :; done
     mkdir -p "$destination"
     printf 'mirror checkout\n' > "$destination/mirror.txt"
     if [ "$FIXTURE_MODE" != mirror-invalid ]; then printf 'mirror-version\n' > "$destination/VERSION"; fi
+}
+env() {
+    printf 'env %s\n' "$*" >> "$FIXTURE_ROOT/calls"
+    while [ "$#" -gt 0 ]; do
+        case "$1" in -i) shift ;; -u) shift 2 ;; *=*) shift ;; *) break ;; esac
+    done
+    "$@"
+}
+timeout() {
+    [ "$1" = --kill-after=5 ] && [ "$2" = 120 ] || return 91
+    shift 2
+    "$@"
 }
 mv() {
     if [ "$2" = "$FIXTURE_ROOT/checkout" ]; then
@@ -538,6 +568,27 @@ pwsh() { printf 'pwsh %s\n' "$*" >> "$FIXTURE_ROOT/calls"; }
 }
 
 Describe 'Service seeds accept only complete framework sources' {
+    It '<Service> obtains the trusted full pin from the LAN before the public clone' -ForEach @(
+        @{ Service='stash' }, @{ Service='pool-control' }, @{ Service='download-agent' }
+    ) -Skip:(-not $script:CanRunBash) {
+        $result = Invoke-ServiceFrameworkFixture $Service lan-success
+        $result.Version | Should -BeExactly pinned-version
+        $result.Marker | Should -Match '(?m)^source=lan-mirror$'
+        $result.Marker | Should -Match '(?m)^commit=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa$'
+        $result.Calls | Should -Match 'fetch --quiet --depth 1 --no-tags -- http://192.0.2.2/git/example/repo.git a{40}'
+        $result.Calls | Should -Match 'env -i PATH=.* HOME=.*empty-home.*GIT_CONFIG_COUNT=0 GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_SYSTEM=/dev/null'
+        $result.Calls | Should -Not -Match 'clone --depth 1'
+        Get-Content -Raw (Join-Path $result.Root 'checkout/.yuruna-origin') | Should -BeExactly "https://github.com/example/repo.git`n"
+    }
+    It '<Service> preserves the installed tree when the LAN SHA mismatches and the public clone fails' -ForEach @(
+        @{ Service='stash' }, @{ Service='pool-control' }, @{ Service='download-agent' }
+    ) -Skip:(-not $script:CanRunBash) {
+        $result = Invoke-ServiceFrameworkFixture $Service lan-mismatch
+        $result.Version | Should -BeExactly previous
+        $result.Marker.Trim() | Should -BeExactly prior-source
+        Test-Path (Join-Path $result.Root 'checkout/old.txt') | Should -BeTrue
+        @(Get-ChildItem $result.Root -Filter 'checkout.fetch.*').Count | Should -Be 0
+    }
     It '<Service> publishes a validated host archive' -ForEach @(
         @{ Service='stash' }, @{ Service='pool-control' }, @{ Service='download-agent' }
     ) -Skip:(-not $script:CanRunBash) {

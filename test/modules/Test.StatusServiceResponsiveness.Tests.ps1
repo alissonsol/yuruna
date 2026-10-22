@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.18.2
+.VERSION 2026.10.22
 .GUID 421acc52-385e-488d-859e-c51ce10fdcdc
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -172,7 +172,7 @@ function New-HarnessTree {
         if ($IsWindows) { Copy-Item -LiteralPath (Join-Path $script:RepoRoot $name) -Destination (Join-Path $tree.Repo $name) -Recurse }
         else { $null = New-Item -ItemType SymbolicLink -Path (Join-Path $tree.Repo $name) -Target (Join-Path $script:RepoRoot $name) }
     }
-    $replaced = @('Test.HostRefresh.psm1', 'Test.HostRefreshIntent.psm1', 'Test.InnerSpawn.psm1', 'Invoke-HostDiagnosticWorker.ps1', 'Invoke-StartCycleWorker.ps1')
+    $replaced = @('Test.HostRefresh.psm1', 'Test.HostRefreshIntent.psm1', 'Test.InnerSpawn.psm1', 'Test.HostMemoryMetrics.psm1', 'Invoke-HostDiagnosticWorker.ps1', 'Invoke-StartCycleWorker.ps1')
     foreach ($file in @(Get-ChildItem -LiteralPath $here -File)) {
         if ($replaced -contains $file.Name -or $file.Name -like '*.Tests.ps1') { continue }
         if ($IsWindows) { Copy-Item -LiteralPath $file.FullName -Destination (Join-Path $modules $file.Name) }
@@ -181,6 +181,13 @@ function New-HarnessTree {
     [IO.File]::WriteAllText((Join-Path $modules 'Test.HostRefresh.psm1'), $script:StubHostRefresh)
     [IO.File]::WriteAllText((Join-Path $modules 'Test.HostRefreshIntent.psm1'), $script:StubHostRefreshIntent)
     [IO.File]::WriteAllText((Join-Path $modules 'Test.InnerSpawn.psm1'), $script:StubInnerSpawn)
+    [IO.File]::WriteAllText((Join-Path $modules 'Test.HostMemoryMetrics.psm1'), @'
+function Get-YurunaHostMemoryMetricPayload {
+    if (Test-Path -LiteralPath (Join-Path $env:YURUNA_TEST_STUB_DIR 'memory.fail')) { throw 'memory read unavailable' }
+    [pscustomobject]@{ Success = $true; Body = "# TYPE yuruna_host_memory_available_bytes gauge`nyuruna_host_memory_available_bytes 4096`nyuruna_host_memory_collection_success 1`n" }
+}
+Export-ModuleMember -Function Get-YurunaHostMemoryMetricPayload
+'@)
     [IO.File]::WriteAllText((Join-Path $tree.Repo 'test/lab/Invoke-HostRefresh.ps1'), (Get-StandInWorker -Kind 'refresh' -ParamBlock @'
     [string]$RequestId, [long]$DeadlineTickMs, [long]$PreAdmissionDeadlineTickMs
 '@))
@@ -227,7 +234,7 @@ function Invoke-HarnessRequest {
         $json = $null
         try { $json = ConvertFrom-Json -InputObject $text } catch { $json = $null }
         $retryAfter = if ($response.Headers.RetryAfter) { [string]$response.Headers.RetryAfter } else { '' }
-        return [pscustomobject]@{ Status = [int]$response.StatusCode; Text = $text; Json = $json; ElapsedMs = $watch.ElapsedMilliseconds; RetryAfter = $retryAfter }
+        return [pscustomobject]@{ Status = [int]$response.StatusCode; Text = $text; Json = $json; ElapsedMs = $watch.ElapsedMilliseconds; RetryAfter = $retryAfter; ContentType = [string]$response.Content.Headers.ContentType }
     } finally { $cts.Dispose(); $message.Dispose() }
 }
 
@@ -417,6 +424,36 @@ AfterAll {
 }
 
 Describe 'a live listener stays responsive around bodies and workers' {
+
+    It 'serves native memory readings as Prometheus metrics without a control header' {
+        Assert-True $script:HarnessReady $script:HarnessSkipReason
+        $reply = Invoke-HarnessRequest -Path 'metrics' -NoCsrfHeader
+        Assert-Equal 200 $reply.Status $reply.Text
+        Assert-Match '^text/plain; version=0.0.4' $reply.ContentType
+        Assert-Match '(?m)^yuruna_host_memory_available_bytes 4096$' $reply.Text
+        Assert-Match '(?m)^yuruna_host_memory_collection_success 1$' $reply.Text
+    }
+
+    It 'fails a memory scrape without publishing zero readings or stopping the listener' {
+        Assert-True $script:HarnessReady $script:HarnessSkipReason
+        $failure = Join-Path $script:Tree.Stub 'memory.fail'
+        [IO.File]::WriteAllText($failure, '')
+        try {
+            $reply = Invoke-HarnessRequest -Path 'metrics' -NoCsrfHeader
+            Assert-Equal 503 $reply.Status $reply.Text
+            Assert-Match '(?m)^yuruna_host_memory_collection_success 0$' $reply.Text
+            Assert-False ($reply.Text -match 'yuruna_host_memory_available_bytes') 'an unreadable memory source is not zero available bytes'
+            Assert-Equal 200 (Invoke-HarnessRequest -Path 'runtime/status.json').Status
+        } finally { Remove-Item -LiteralPath $failure -Force }
+    }
+
+    It 'keeps the metrics endpoint read-only and honors HEAD' {
+        Assert-True $script:HarnessReady $script:HarnessSkipReason
+        $head = Invoke-HarnessRequest -Method HEAD -Path 'metrics' -NoCsrfHeader
+        Assert-Equal 200 $head.Status
+        Assert-StringEqual '' $head.Text
+        Assert-Equal 405 (Invoke-HarnessRequest -Method POST -Path 'metrics' -NoCsrfHeader).Status
+    }
 
     It 'keeps answering health checks while a diagnostic upload withholds its body' {
         Assert-True $script:HarnessReady $script:HarnessSkipReason

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.18.2
+.VERSION 2026.10.22
 .GUID 427027e4-02aa-49bd-8f50-95db47263320
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -109,6 +109,7 @@ Import-Module (Join-Path (Split-Path -Parent (Split-Path -Parent (Split-Path -Pa
 Write-BaseImageProvenance -BaseImagePath $baseImageFile
 
 # --- REGION: Remove existing VM
+# See https://yuruna.link/42e220c4-0004
 # Runs AFTER the base image is confirmed so a failed image fetch never
 # destroys a working VM.
 Remove-HyperVGuestDefinition -VMName $VMName -Confirm:$false
@@ -141,9 +142,8 @@ try {
     }
 
     # --- REGION: Select the guest network
-    # Pick a vSwitch -- prefer Yuruna-External (LAN-bridged) so the install
-    # VM gets a real LAN IP via DHCP. Default Switch fallback for hosts
-    # that can't create an External vSwitch. Same pattern as guest.caching-proxy-service.
+    # See https://yuruna.link/42e220c4-0004
+    # Select the switch before resolving the host address reachable through it.
     $switchName = Resolve-HyperVGuestSwitch
 
     # --- REGION: https://yuruna.link/4220a755-002d

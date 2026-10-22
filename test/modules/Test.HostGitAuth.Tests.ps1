@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.18.2
+.VERSION 2026.10.22
 .GUID 421d3153-a504-4156-917e-10ff36bab08d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -272,13 +272,62 @@ Describe 'Invoke-GitNetworkCommand -- chains the credential sources, plain git l
         Assert-True ($script:invokeGitNetworkText -match 'Invoke-GitNetworkCommandOnce') 'each attempt runs through the prompt-proof once-runner'
         Assert-True ($script:invokeGitNetworkText -match 'Test-GitRemoteAuthFailure') 'a failed attempt must be classified before another source is tried'
     }
-    It 'falls through an auth-rejected credentialed attempt to the plain run' {
-        $env:GH_TOKEN = 'ghp_UNIT_TEST_token'
+    It 'uses plain Git when no injected credential exists (bounded=<Bounded>)' -ForEach @(
+        @{ Bounded = $false }, @{ Bounded = $true }
+    ) {
+        $script:networkAttemptMaximum = if ($Bounded) { 20 } else { 60 }
+        Mock -ModuleName Test.HostGit Get-YurunaGitAuthAttemptList { @() }
+        Mock -ModuleName Test.HostGit Invoke-GitNetworkCommandOnce {
+            @{ ExitCode = 0; Output = 'anonymous Git succeeded' }
+        }
+        $arguments = @{ GitArgs = @('ls-remote', 'https://github.com/acme/framework.git', 'HEAD') }
+        if ($Bounded) { $arguments.DeadlineUtc = [DateTimeOffset]::UtcNow.AddSeconds(20) }
+        $result = Invoke-GitNetworkCommand @arguments
+        $result.ExitCode | Should -Be 0
+        $result.Output | Should -BeExactly 'anonymous Git succeeded'
+        Should -Invoke -ModuleName Test.HostGit Invoke-GitNetworkCommandOnce -Exactly -Times 1 -ParameterFilter {
+            $GitArgs[0] -eq 'ls-remote' -and $TimeoutSeconds -gt 0 -and $TimeoutSeconds -le $script:networkAttemptMaximum
+        }
+    }
+    It 'falls through rejected token and gh credentials to the machine credential (bounded=<Bounded>)' -ForEach @(
+        @{ Bounded = $false }, @{ Bounded = $true }
+    ) {
+        $script:networkAttemptMaximum = if ($Bounded) { 20 } else { 60 }
+        Mock -ModuleName Test.HostGit Get-YurunaGitAuthAttemptList {
+            @(@{ Source = 'token'; Args = @('-c', 'credential.helper=token') },
+                @{ Source = 'gh'; Args = @('-c', 'credential.helper=gh') })
+        }
         Mock -ModuleName Test.HostGit Invoke-GitNetworkCommandOnce {
             if ($GitArgs -contains '-c') { return @{ ExitCode = 128; Output = "fatal: Authentication failed for 'https://github.com/acme/framework.git/'" } }
-            return @{ ExitCode = 0; Output = '' }
+            return @{ ExitCode = 0; Output = 'machine credential succeeded' }
         }
-        Assert-True ((Invoke-GitNetworkCommand -GitArgs @('fetch')).ExitCode -eq 0) 'the plain last-resort run wins after every credentialed attempt is rejected'
+        $arguments = @{ GitArgs = @('fetch') }
+        if ($Bounded) { $arguments.DeadlineUtc = [DateTimeOffset]::UtcNow.AddSeconds(20) }
+        $result = Invoke-GitNetworkCommand @arguments
+        $result.ExitCode | Should -Be 0
+        $result.Output | Should -BeExactly 'machine credential succeeded'
+        Should -Invoke -ModuleName Test.HostGit Invoke-GitNetworkCommandOnce -Exactly -Times 1 -ParameterFilter {
+            $GitArgs -contains 'credential.helper=token' -and $TimeoutSeconds -gt 0 -and $TimeoutSeconds -le $script:networkAttemptMaximum
+        }
+        Should -Invoke -ModuleName Test.HostGit Invoke-GitNetworkCommandOnce -Exactly -Times 1 -ParameterFilter {
+            $GitArgs -contains 'credential.helper=gh' -and $TimeoutSeconds -gt 0 -and $TimeoutSeconds -le $script:networkAttemptMaximum
+        }
+        Should -Invoke -ModuleName Test.HostGit Invoke-GitNetworkCommandOnce -Exactly -Times 1 -ParameterFilter {
+            $GitArgs.Count -eq 1 -and $GitArgs[0] -eq 'fetch' -and $TimeoutSeconds -gt 0 -and $TimeoutSeconds -le $script:networkAttemptMaximum
+        }
+    }
+    It 'starts no Git attempt after the deadline (credentials=<HasCredentials>)' -ForEach @(
+        @{ HasCredentials = $false }, @{ HasCredentials = $true }
+    ) {
+        $script:hasDeadlineCredentials = $HasCredentials
+        Mock -ModuleName Test.HostGit Get-YurunaGitAuthAttemptList {
+            if ($script:hasDeadlineCredentials) { @{ Source = 'token'; Args = @('-c', 'credential.helper=token') } }
+        }
+        Mock -ModuleName Test.HostGit Invoke-GitNetworkCommandOnce { throw 'An expired deadline must not start Git.' }
+        $result = Invoke-GitNetworkCommand -GitArgs @('fetch') -DeadlineUtc ([DateTimeOffset]::UtcNow.AddSeconds(-1))
+        $result.ExitCode | Should -Be 124
+        $result.Output | Should -BeExactly 'Git exceeded the enclosing deadline.'
+        Should -Invoke -ModuleName Test.HostGit Invoke-GitNetworkCommandOnce -Exactly -Times 0
     }
     It 'returns a network failure immediately -- more credentials cannot fix an outage' {
         $env:GH_TOKEN = 'ghp_UNIT_TEST_token'

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.18.2
+.VERSION 2026.10.22
 .GUID 42b8bc4c-f5b0-463b-9fd9-76f8a65ee16f
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -919,5 +919,125 @@ Describe 'Wait-ForText records the hypervisor verdict and a blank console' {
     It 'resets the blank run when a frame carries text' {
         Invoke-ScriptedWait -Frames @('', '', 'yuhost26 login: _') -Livelock $null -TimeoutSeconds 4 | Should -BeFalse
         (Get-ProbeFailSlot 'WaitForTextBlankScreenSeconds') | Should -Be 0
+    }
+}
+
+Describe 'Wait-ForText ends on a display the emulator keeps reporting inactive' {
+    BeforeAll {
+        . (Get-Module Test.SequenceEngine) {
+            function Get-EnabledOcrProvider { return @('scripted') }
+            function Get-CycleScreenDir {
+                [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter', '',
+                    Justification = 'Stub: the signature has to match the real helper so the caller binds.')]
+                [CmdletBinding(SupportsShouldProcess)]
+                param($VMName)
+                $null = $PSCmdlet.ShouldProcess($script:DisplayProbe.ScreenDir, 'Ensure cycle screen dir exists')
+                return $script:DisplayProbe.ScreenDir
+            }
+            function Get-VMScreenshot {
+                [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter', '',
+                    Justification = 'Stub: the signature has to match the real helper so the caller binds.')]
+                param($VMName, $OutFile, $HostType)
+                Set-Content -LiteralPath $OutFile -Value ('png{0}' -f $script:DisplayProbe.Poll) -NoNewline
+                return $true
+            }
+            function Test-CombinedOcrMatch {
+                [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter', '',
+                    Justification = 'Stub: the signature has to match the real helper so the caller binds.')]
+                param($ImagePath, $Pattern, $FreshMatchTailLines, [switch]$NoSegmentMatch)
+                $i = $script:DisplayProbe.Poll % $script:DisplayProbe.Frames.Count
+                $text = [string]$script:DisplayProbe.Frames[$i]
+                $script:DisplayProbe.Poll++
+                return @{ Match = $false; AnyText = $text; EngineResults = [ordered]@{ scripted = @{ Text = $text; Matched = $false } } }
+            }
+            # No host recording: the hypervisor verdict must not be what ends these waits.
+            function Get-GuestLivelockVerdict {
+                [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter', '',
+                    Justification = 'Stub: the signature has to match the real helper so the caller binds.')]
+                param($VMName, $Since)
+                return $null
+            }
+            function Get-VMConsoleSecondOpinion {
+                [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter', '',
+                    Justification = 'Stub: the signature has to match the real host-driver probe so the caller binds.')]
+                param($VMName, $IntervalSeconds)
+                $script:DisplayProbe.OpinionReads++
+                return [pscustomobject]@{ Verdict = $script:DisplayProbe.Opinion; Detail = "scripted $($script:DisplayProbe.Opinion)"; CpuPercent = 1082.0 }
+            }
+            $script:DisplayOpinionStub = ${function:Get-VMConsoleSecondOpinion}
+            function Reset-DisplayProbeState {
+                [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+                    Justification = 'Test stub helper: reseeds an in-memory recording bag; no external state.')]
+                param([string]$ScreenDir, [string[]]$Frames, [string]$Opinion)
+                $script:DisplayProbe = @{ ScreenDir = $ScreenDir; Poll = 0; Frames = $Frames; Opinion = $Opinion; OpinionReads = 0 }
+            }
+            $script:SavedDisplayInactiveLivelockSeconds = $script:DisplayInactiveLivelockSeconds
+            $script:DisplayInactiveLivelockSeconds = 2
+        }
+        $script:inactive = 'Display output is not active.'
+        function Invoke-DisplayWait {
+            [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+                Justification = 'Test helper: drives the function under test against scripted frames.')]
+            param([string[]]$Frames, [string]$Opinion, [int]$TimeoutSeconds, [switch]$EndOnGuestLivelock)
+            & (Get-Module Test.SequenceEngine) { param($d, $f, $o) Reset-DisplayProbeState -ScreenDir $d -Frames $f -Opinion $o } $script:probeDir $Frames $Opinion
+            Clear-CarriedConsoleBaseline
+            return [bool](Wait-ForText -VMName 'vm-01' -Pattern @('amisad-edge-a login:') -TimeoutSeconds $TimeoutSeconds -PollSeconds 1 `
+                -EndOnGuestLivelock:$EndOnGuestLivelock -WarningAction SilentlyContinue -InformationAction SilentlyContinue)
+        }
+        function Get-DisplayProbeValue { param([string]$Name) & (Get-Module Test.SequenceEngine) { param($n) $script:DisplayProbe[$n] } $Name }
+        function Get-DisplayFailSlot { param([string]$Name) & (Get-Module Test.SequenceEngine) { param($n) $script:Fail[$n] } $Name }
+    }
+    AfterAll {
+        & (Get-Module Test.SequenceEngine) {
+            $script:DisplayInactiveLivelockSeconds = $script:SavedDisplayInactiveLivelockSeconds
+            Remove-Item -Path Function:\Get-VMConsoleSecondOpinion -ErrorAction SilentlyContinue
+        }
+    }
+    BeforeEach {
+        $script:probeDir = Join-Path ([System.IO.Path]::GetTempPath()) ("yuruna-wfd-{0}-{1}" -f $PID, [guid]::NewGuid().ToString('N').Substring(0, 8))
+        New-Item -ItemType Directory -Path $script:probeDir -Force | Out-Null
+    }
+    AfterEach { Remove-Item -LiteralPath $script:probeDir -Recurse -Force -ErrorAction SilentlyContinue }
+
+    It 'ends the wait once the whole window shows no display and the second opinion finds the guest wedged' {
+        $clock = [Diagnostics.Stopwatch]::StartNew()
+        Invoke-DisplayWait -Frames @($script:inactive) -Opinion 'guest-wedged' -TimeoutSeconds 60 -EndOnGuestLivelock | Should -BeFalse
+        $clock.Elapsed.TotalSeconds | Should -BeLessThan 20 -Because 'the cold restart must not wait out the remaining budget'
+        (Get-DisplayFailSlot 'WaitForTextGuestLivelocked') | Should -BeTrue
+        $verdict = Get-DisplayFailSlot 'WaitForTextGuestLivelock'
+        $verdict.Verdict | Should -Be 'livelocked'
+        $verdict.LivelockedSeconds | Should -BeGreaterOrEqual 2
+        $verdict.MinimumSeconds | Should -Be 2
+        (Get-DisplayFailSlot 'WaitForTextConsoleSecondOpinion').Verdict | Should -Be 'guest-wedged'
+        Get-DisplayProbeValue 'OpinionReads' | Should -Be 1 -Because 'the failure record reuses the reading that ended the wait'
+    }
+    It 'keeps waiting when the second opinion does not find the guest wedged' {
+        $clock = [Diagnostics.Stopwatch]::StartNew()
+        Invoke-DisplayWait -Frames @($script:inactive) -Opinion 'guest-static' -TimeoutSeconds 4 -EndOnGuestLivelock | Should -BeFalse
+        $clock.Elapsed.TotalSeconds | Should -BeGreaterOrEqual 3.5
+        (Get-DisplayFailSlot 'WaitForTextGuestLivelocked') | Should -BeFalse -Because 'an inactive display alone never authorizes a reset'
+    }
+    It 'needs every frame of the window to show no display' {
+        Invoke-DisplayWait -Frames @($script:inactive, 'booting') -Opinion 'guest-wedged' -TimeoutSeconds 5 -EndOnGuestLivelock | Should -BeFalse
+        (Get-DisplayFailSlot 'WaitForTextGuestLivelocked') | Should -BeFalse
+        Get-DisplayProbeValue 'OpinionReads' | Should -Be 0 -Because 'a frame with other content restarts the run'
+    }
+    It 'leaves a wait that did not ask to end on a livelock on its full budget' {
+        $clock = [Diagnostics.Stopwatch]::StartNew()
+        Invoke-DisplayWait -Frames @($script:inactive) -Opinion 'guest-wedged' -TimeoutSeconds 4 | Should -BeFalse
+        $clock.Elapsed.TotalSeconds | Should -BeGreaterOrEqual 3.5
+        (Get-DisplayFailSlot 'WaitForTextGuestLivelocked') | Should -BeFalse
+        Get-DisplayProbeValue 'OpinionReads' | Should -Be 0
+    }
+    It 'leaves hosts without an independent framebuffer read on their full budget' {
+        & (Get-Module Test.SequenceEngine) { Remove-Item -Path Function:\Get-VMConsoleSecondOpinion }
+        try {
+            $clock = [Diagnostics.Stopwatch]::StartNew()
+            Invoke-DisplayWait -Frames @($script:inactive) -Opinion 'guest-wedged' -TimeoutSeconds 4 -EndOnGuestLivelock | Should -BeFalse
+            $clock.Elapsed.TotalSeconds | Should -BeGreaterOrEqual 3.5
+            (Get-DisplayFailSlot 'WaitForTextGuestLivelocked') | Should -BeFalse
+        } finally {
+            . (Get-Module Test.SequenceEngine) { Set-Item -Path Function:\Get-VMConsoleSecondOpinion -Value $script:DisplayOpinionStub }
+        }
     }
 }

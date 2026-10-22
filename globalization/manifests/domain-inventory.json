@@ -7,12 +7,12 @@
   },
   "totals": {
     "domains": 16,
-    "files": 547,
-    "candidates": 8017,
-    "fragments": 1796,
-    "catalogCalls": 5424,
+    "files": 560,
+    "candidates": 8268,
+    "fragments": 1807,
+    "catalogCalls": 5439,
     "pages": 15,
-    "markdown": 125,
+    "markdown": 136,
     "yamlFields": 178
   },
   "projectScope": {
@@ -60,9 +60,9 @@
       "repository": "yuruna",
       "present": true,
       "files": 6,
-      "candidates": 590,
+      "candidates": 591,
       "fragments": 185,
-      "catalogCalls": 89,
+      "catalogCalls": 90,
       "pages": 5,
       "markdown": 0,
       "yamlFields": 0,
@@ -128,7 +128,7 @@
       "repository": "yuruna",
       "present": true,
       "files": 47,
-      "candidates": 935,
+      "candidates": 936,
       "fragments": 327,
       "catalogCalls": 198,
       "pages": 5,
@@ -162,7 +162,7 @@
       "repository": "yuruna",
       "present": true,
       "files": 50,
-      "candidates": 662,
+      "candidates": 663,
       "fragments": 142,
       "catalogCalls": 66,
       "pages": 3,
@@ -196,7 +196,7 @@
       "repository": "yuruna",
       "present": true,
       "files": 43,
-      "candidates": 562,
+      "candidates": 563,
       "fragments": 158,
       "catalogCalls": 79,
       "pages": 2,
@@ -229,9 +229,9 @@
       "domain": "caching-proxy",
       "repository": "yuruna",
       "present": true,
-      "files": 42,
-      "candidates": 99,
-      "fragments": 18,
+      "files": 51,
+      "candidates": 148,
+      "fragments": 22,
       "catalogCalls": 43,
       "pages": 0,
       "markdown": 1,
@@ -246,16 +246,16 @@
           "candidates": 23
         },
         {
+          "file": "test/extension/caching-proxy-service/gitmirror.go",
+          "candidates": 19
+        },
+        {
           "file": "test/extension/caching-proxy-service/landing.go",
           "candidates": 17
         },
         {
-          "file": "test/extension/caching-proxy-service/squid.go",
-          "candidates": 9
-        },
-        {
-          "file": "test/extension/caching-proxy-parser-service/main_linux.go",
-          "candidates": 8
+          "file": "test/extension/caching-proxy-service/gitmirror_git.go",
+          "candidates": 12
         }
       ]
     },
@@ -349,21 +349,25 @@
       "domain": "runner",
       "repository": "yuruna",
       "present": true,
-      "files": 132,
-      "candidates": 2056,
-      "fragments": 306,
-      "catalogCalls": 2360,
+      "files": 135,
+      "candidates": 2167,
+      "fragments": 312,
+      "catalogCalls": 2373,
       "pages": 0,
       "markdown": 1,
       "yamlFields": 0,
       "topFiles": [
         {
           "file": "test/modules/Test.SequenceHandler.psm1",
-          "candidates": 108
+          "candidates": 117
         },
         {
           "file": "test/modules/Test.Ssh.psm1",
           "candidates": 108
+        },
+        {
+          "file": "test/modules/Test.CachingProxyService.psm1",
+          "candidates": 92
         },
         {
           "file": "test/modules/Test.Diagnostic.psm1",
@@ -371,11 +375,7 @@
         },
         {
           "file": "test/modules/Test.RunnerInnerLoop.psm1",
-          "candidates": 89
-        },
-        {
-          "file": "test/modules/Test.HostCondition.Mac.psm1",
-          "candidates": 86
+          "candidates": 90
         }
       ]
     },
@@ -383,10 +383,10 @@
       "domain": "host-drivers",
       "repository": "yuruna",
       "present": true,
-      "files": 83,
-      "candidates": 824,
+      "files": 84,
+      "candidates": 838,
       "fragments": 121,
-      "catalogCalls": 1727,
+      "catalogCalls": 1728,
       "pages": 0,
       "markdown": 28,
       "yamlFields": 0,
@@ -452,8 +452,8 @@
       "repository": "yuruna",
       "present": true,
       "files": 5,
-      "candidates": 537,
-      "fragments": 130,
+      "candidates": 610,
+      "fragments": 131,
       "catalogCalls": 84,
       "pages": 0,
       "markdown": 8,
@@ -461,15 +461,15 @@
       "topFiles": [
         {
           "file": "install/windows.hyper-v.ps1",
-          "candidates": 261
+          "candidates": 298
         },
         {
           "file": "install/setup.ps1",
-          "candidates": 189
+          "candidates": 222
         },
         {
           "file": "guest/windows.11/windows.11.update.ps1",
-          "candidates": 38
+          "candidates": 41
         },
         {
           "file": "guest/windows.11/windows.11.k8s.ps1",
@@ -490,7 +490,7 @@
       "fragments": 0,
       "catalogCalls": 0,
       "pages": 0,
-      "markdown": 72,
+      "markdown": 83,
       "yamlFields": 0,
       "topFiles": []
     },

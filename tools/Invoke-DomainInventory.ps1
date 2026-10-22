@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.18.2
+.VERSION 2026.10.22
 .GUID 42d0a94f-27b6-4c85-9e13-8a604fb2d7c1
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -569,22 +569,31 @@ function Get-DomainCount {
             if ($ext -eq '.html') { $result.pages++ }
             if ($ext -notin '.ps1', '.psm1', '.js', '.go') { continue }
 
-            $text = [IO.File]::ReadAllText($full)
             $result.files++
-            foreach ($m in [regex]::Matches($text, 'YurunaI18n\.t\(|Yuruna\.t\(|Format-CatalogMessage|Format-YurunaOperatorMessage|New-SequencePlannerException\s+-Key\b|catalog\.Render|Translate\(')) {
-                $result.catalogCalls++
+            $cacheKey = $ext + '|' + [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData([IO.File]::ReadAllBytes($full)))
+            $counts = $script:FileCountCache[$cacheKey]
+            if ($null -eq $counts) {
+                $text = [IO.File]::ReadAllText($full)
+                $calls = [regex]::Matches($text, 'YurunaI18n\.t\(|Yuruna\.t\(|Format-CatalogMessage|Format-YurunaOperatorMessage|New-SequencePlannerException\s+-Key\b|catalog\.Render|Translate\(').Count
+                $literals = if ($ext -in '.ps1', '.psm1') {
+                    Get-PowerShellStringLiteral -Path $full
+                } else {
+                    Get-ScannedStringLiteral -Text $text -BacktickRaw:($ext -eq '.go')
+                }
+                $prose = 0
+                $broken = 0
+                foreach ($literal in $literals) {
+                    if (-not (Test-IsProseCandidate -Text $literal)) { continue }
+                    $prose++
+                    if (Test-IsSentenceFragment -Text $literal) { $broken++ }
+                }
+                $counts = @($calls, $prose, $broken)
+                $script:FileCountCache[$cacheKey] = $counts
             }
-            $literals = if ($ext -in '.ps1', '.psm1') {
-                Get-PowerShellStringLiteral -Path $full
-            } else {
-                Get-ScannedStringLiteral -Text $text -BacktickRaw:($ext -eq '.go')
-            }
-            $found = 0
-            foreach ($literal in $literals) {
-                if (-not (Test-IsProseCandidate -Text $literal)) { continue }
-                $found++
-                if (Test-IsSentenceFragment -Text $literal) { $result.fragments++ }
-            }
+            $script:FileCountSeen[$cacheKey] = $counts
+            $result.catalogCalls += [int]$counts[0]
+            $found = [int]$counts[1]
+            $result.fragments += [int]$counts[2]
             if ($found -gt 0) {
                 $result.candidates += $found
                 $perFile[$relative] = $found
@@ -601,7 +610,37 @@ function Get-DomainCount {
     return $result
 }
 
+# --- REGION: Per-file count cache
+# A source file's counts depend only on its bytes and on this script, so they
+# are kept under the git directory, keyed by both, and only a file whose bytes
+# changed is parsed again. Without a git directory every file is parsed.
+$script:FileCountCache = @{}
+$script:FileCountSeen = @{}
+$fileCountCachePath = $null
+$fileCountVersion = (Get-FileHash -LiteralPath $PSCommandPath -Algorithm SHA256).Hash
+$gitCommonDir = & git -C $RepoRoot rev-parse --path-format=absolute --git-common-dir 2>$null
+if ($LASTEXITCODE -eq 0 -and $gitCommonDir) {
+    $fileCountCachePath = Join-Path ([string]$gitCommonDir).Trim() 'yuruna/domain-inventory-cache.json'
+    try {
+        $stored = [IO.File]::ReadAllText($fileCountCachePath) | ConvertFrom-Json -AsHashtable
+        if ($stored.version -eq $fileCountVersion) {
+            foreach ($entry in $stored.files.GetEnumerator()) { $script:FileCountCache[$entry.Key] = @($entry.Value) }
+        }
+    } catch { $script:FileCountCache = @{} }
+}
+
 $rows = @(foreach ($d in $Domains) { Get-DomainCount -Domain $d })
+
+if ($fileCountCachePath) {
+    # Only the files this run read are kept, so the cache never outgrows the tree.
+    try {
+        $null = New-Item -ItemType Directory -Force -Path (Split-Path -Parent $fileCountCachePath)
+        $staged = "$fileCountCachePath.$PID.tmp"
+        [IO.File]::WriteAllText($staged, (ConvertTo-Json -Compress -Depth 4 -InputObject ([ordered]@{
+                        version = $fileCountVersion; files = $script:FileCountSeen })), [Text.UTF8Encoding]::new($false))
+        Move-Item -LiteralPath $staged -Destination $fileCountCachePath -Force
+    } catch { Remove-Item -LiteralPath $staged -Force -ErrorAction SilentlyContinue }
+}
 
 $doc = [ordered]@{
     schema      = 'yuruna.domain-inventory/v2'

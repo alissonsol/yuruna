@@ -4,9 +4,14 @@
 // state, set each pool's framework and project URLs, add/remove hosts, delete
 // an empty pool.
 (function () {
+  var applying = false;
+  var latestRead = 0;
   // Header version + host id and the footer bar; its countdown re-reads pool
   // configuration rather than reloading, so a half-typed new-pool id is not wiped.
-  var chrome = Y.initChrome({ refresh: function () { load({ quiet: true }); } });
+  var chrome = Y.initChrome({
+    refresh: function () { load({ quiet: true }); },
+    paused: function () { return applying; }
+  });
 
   // Built once, not per read: the sort an operator chose is theirs until they
   // change it, and re-reading pool configuration every minute must not put the table
@@ -80,22 +85,40 @@
     if ((p.members || []).length === 0) { sel.disabled = true; }
 
     Y.onSelectCommit(sel, function () {
+      if (applying) { return; }
       var action = sel.value;
       var count = (p.members || []).length;
       if (!window.confirm(window.YurunaI18n.t("pool.apply_value1_to_all_value2_host_s_in_pool_value3", {value1: (LABEL[action]), value2: (count), value3: (p.poolId)}))) {
         load();
         return;
       }
-      sel.disabled = true;
-      // Re-read BEFORE reporting: the reload clears the notice area, so a
-      // message written first would be wiped before it could be read -- and
-      // which members refused is the whole answer here.
-      Y.mutate('/api/pool/host-control', { method: 'POST', timeoutMs: 90000, body: { poolId: p.poolId, action: action } }).then(function (res) {
-        return load().then(function () { reportApply(p.poolId, action, res); });
-      }, function (failure) {
-        return load().then(function () {
+      applying = true;
+      // Invalidate reads started before the command.
+      latestRead++;
+      var unblock = Y.block(null, {
+        containFocus: true,
+        // Unlock must remain interactive.
+        allowDialog: function () { return document.getElementById('yuruna-unlock'); }
+      });
+      var finish = function () {
+        try { unblock(); } finally { applying = false; }
+        var row = poolRow(p.poolId);
+        var replacement = row && row.querySelector('select');
+        if (replacement && !replacement.disabled) { replacement.focus(); }
+      };
+      // Readback clears notices; report its per-host outcome afterward.
+      var response, error;
+      Promise.resolve().then(function () {
+        return Y.mutate('/api/pool/host-control', { method: 'POST', timeoutMs: 90000, body: { poolId: p.poolId, action: action } });
+      }).then(function (res) { response = res; }, function (failure) { error = failure; }).then(function () {
+        return load({ statusAction: true });
+      }).then(function () {
+        if (error) { throw error; }
+        reportApply(p.poolId, action, response);
+      }).then(finish, function (failure) {
+        try {
           Y.notice('error', window.YurunaI18n.t("pool.pool_status_change_failed_value1", {value1: (failure.message)}));
-        });
+        } finally { finish(); }
       });
     });
 
@@ -158,34 +181,42 @@
   // for pool configuration and then on every member for its state.
   function load(opts) {
     var finish = Y.beginPageLoad(chrome, { quiet: !!(opts && opts.quiet), target: document.getElementById('pool-rows'), label: window.YurunaI18n.t("pool.loading_pools") });
-    return renderPools().then(finish, finish);
+    return Promise.resolve().then(function () { return renderPools(opts); }).then(finish, function (failure) {
+      finish();
+      if (opts && opts.statusAction) { throw failure; }
+    });
   }
 
-  function renderPools() {
+  function renderPools(opts) {
+    // Focus entering the barrier can release a deferred repaint.
+    if (applying && !(opts && opts.statusAction)) { return Promise.resolve(); }
+    var readId = ++latestRead;
     return window.YurunaFirstUsable.measure("test/extension/pool-control-service/server/internal/httpsrv/web/pools.html", "data", function () {
-      return renderPoolsMeasured();
+      return renderPoolsMeasured(readId);
     });
   }
 
 
-  function renderPoolsMeasured() {
+  function renderPoolsMeasured(readId) {
     Y.clearNotice();
     // Y.hostInfo is memoized and non-rejecting, so this is one read for the
     // life of the page and an aggregator this daemon does not know about just
     // means unlinked ids. Asked for alongside the state read rather than after
     // it, because neither depends on the other.
     return Promise.all([Y.api('/api/state'), Y.hostInfo()]).then(function (both) {
+      if (readId !== latestRead) { return; }
       chrome.markLoaded();
       goBaseUrl = both[1].goBaseUrl || '';
       targetPoolId = (both[0].autoEnrollment && both[0].autoEnrollment.targetPoolId) || '';
-      return paintPools(both[0].pools || []);
+      return paintPools(both[0].pools || [], readId);
     }, function (e) {
+      if (readId !== latestRead) { return; }
       Y.notice('error', window.YurunaI18n.t("pool.could_not_load_pools_value1", {value1: (e.message)}));
       window.YurunaFirstUsable.mark('test/extension/pool-control-service/server/internal/httpsrv/web/pools.html', 'error');
     });
   }
 
-  function paintPools(pools) {
+  function paintPools(pools, readId) {
     var tbody = document.getElementById('pool-rows');
     if (Y.holdRepaint(tbody, renderPools)) { return Promise.resolve(); }
     tbody.textContent = '';
@@ -217,8 +248,10 @@
     // a pool whose hosts are all down still renders and stays editable. A
     // failure keeps the previous states rather than blanking the column.
     return Y.api('/api/pool/host-control').then(function (d) {
+      if (readId !== latestRead) { return; }
       control = d.pools || {};
     }, function () { }).then(function () {
+      if (readId !== latestRead) { return; }
       for (var j = 0; j < pools.length; j++) {
         var p = pools[j];
         if (statusCells[p.poolId] && !Y.holdRepaint(statusCells[p.poolId], renderPools)) { renderStatus(statusCells[p.poolId], p); }
@@ -231,14 +264,17 @@
     });
   }
 
-  // The outcome of a row's action, in the row that produced it. Looked up by
-  // pool after the reload, because the reload may have replaced the row the
-  // action started from.
-  function feedbackOnRow(poolId, kind, text) {
+  // Reloads replace rows; focus and feedback must find the current pool.
+  function poolRow(poolId) {
     var rows = document.getElementById('pool-rows').children;
     for (var i = 0; i < rows.length; i++) {
-      if (rows[i].getAttribute('data-pool-id') === poolId) { Y.rowFeedback(rows[i], kind, text); }
+      if (rows[i].getAttribute('data-pool-id') === poolId) { return rows[i]; }
     }
+  }
+
+  function feedbackOnRow(poolId, kind, text) {
+    var row = poolRow(poolId);
+    if (row) { Y.rowFeedback(row, kind, text); }
   }
 
   // sendRepositories writes one pool's pair; both empty clears it, and each

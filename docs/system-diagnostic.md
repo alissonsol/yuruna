@@ -377,6 +377,9 @@ transport cleanup. Both samples precede optional boot metadata; a timeout
 retains any completed samples and remains advisory. Samples include boot ID,
 UTC, BOOTTIME uptime, monotonic time when Python is available, tick rate, online
 CPUs, and raw per-CPU `/proc/stat`.
+Clock-only captures retain timestamped uptime, CPU accounting, interrupts,
+and softirqs before optional Python clock reads. Readable kernel files are
+read directly so privilege setup cannot consume that early evidence budget.
 Host samples bracket the processor change with UTC, performance-counter ticks,
 and bounded Hyper-V processor and VM context. Analysis flags impossible
 accounting, counter decreases, incomplete samples, and clock discontinuities.
@@ -393,6 +396,12 @@ hashes, and separate downloaded/executed payload hashes. Missing, invalid,
 unsafe, or oversized sources have explicit states. No remote URLs or source
 contents are included. Stable boot metadata and provenance are collected once
 per execution and retained outside the rolling process samples.
+
+The execution recorder also retains bounded TCP socket tables, socket usage,
+and TCP counters alongside addresses, routes, neighbor state, and interface
+counters before uploading evidence. These passive readings can retain a
+connection attempt or retransmissions that later connectivity probes miss.
+The existing sample deadline, byte cap, and ring size still bound collection.
 
 A separate kernel collector starts with the execution recorder and uploads
 through the host's existing HTTP diagnostic endpoint without SSH. It keeps
@@ -439,6 +448,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.18.1
+Last review: 2026.10.22
 
 Back to [Yuruna](../README.md)

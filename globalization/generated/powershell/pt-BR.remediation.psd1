@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.18.2
+.VERSION 2026.10.22
 .GUID 423016db-0df4-34b1-40de-ed496a3fd9c6
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -715,5 +715,15 @@
             'trust' = 'internal'
         }
         ' # pára da forma como foi iniciado'
+    )
+    'remediation.source_integrity_action_evidence' = 'Examine sourceSelections nos diagnósticos da validação da configuração e o estado do espelho; mantenha ativada a verificação de assinaturas e commits.'
+    'remediation.source_integrity_action_identity' = 'Compare os identificadores das chaves cadastradas com a identidade exportada pelo responsável pelo proxy e examine o recibo assinado e o SHA selecionado.'
+    'remediation.source_integrity_rationale' = @(
+        'source_integrity: a verificação da origem falhou. Preserve o checkout instalado e examine as evidências antes de tentar novamente. '
+        @{
+            'arg' = 'detail'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
     )
 }

@@ -704,6 +704,16 @@ const DataheILremediation = `{
       "trust": "internal"
     },
     "       # עוצר אותו באותו אופן שבו הופעל"
+  ],
+  "remediation.source_integrity_action_evidence": "יש לבדוק את sourceSelections באבחון אימות התצורה ואת מצב המראה; יש להשאיר את אימות החתימה והקומיט פעיל.",
+  "remediation.source_integrity_action_identity": "יש להשוות את מזהי המפתחות הרשומים לזהות שייצא בעל שרת הפרוקסי, ולבדוק את האישור החתום ואת ה-SHA שנבחר.",
+  "remediation.source_integrity_rationale": [
+    "source_integrity: אימות המקור נכשל. יש לשמור את העותק המותקן ולבדוק את הראיות לפני ניסיון נוסף. ",
+    {
+      "arg": "detail",
+      "type": "detail",
+      "trust": "external"
+    }
   ]
 }
 `

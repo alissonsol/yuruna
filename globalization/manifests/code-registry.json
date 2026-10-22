@@ -3551,7 +3551,8 @@
         "test/modules/Test.StatusControlRoute.psm1"
       ],
       "consumedBy": [
-        "test/status/yuruna.common.js"
+        "test/status/yuruna.common.js",
+        "tools/GitMirror.Qualification.psm1"
       ],
       "rendersAs": "status.start_cycle_cycle_restarted"
     },

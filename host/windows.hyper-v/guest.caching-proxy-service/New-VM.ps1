@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.18.2
+.VERSION 2026.10.22
 .GUID 4242f187-1ce6-46a5-a5a4-7c2435ed1ac1
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -135,6 +135,7 @@ Import-Module (Join-Path $PSScriptRoot '../../../test/modules/Test.Provenance.ps
 Write-BaseImageProvenance -BaseImagePath $baseImageFile
 
 # --- REGION: Remove existing VM
+# See https://yuruna.link/42e220c4-0004
 # Runs AFTER the base image is confirmed so a failed image fetch never
 # destroys a working VM.
 Remove-HyperVGuestDefinition -VMName $VMName -Confirm:$false
@@ -161,11 +162,12 @@ if (-not (Expand-ExtensionVmDisk -Path $vhdxFile -SizeBytes 512GB -Format 'vhdx'
 # --- REGION: Stage the cloud-init seed directory
 # meta-data is shared under host/vmconfig/ (byte-identical across all 3 host platforms).
 $hostVmConfigDir = Join-Path (Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSScriptRoot))) 'host/vmconfig'
-# New-YurunaSeedDirectory creates the folder exclusively under a random name,
-# so nothing planted at a predictable %TEMP% path is ever reused.
-Import-Module (Join-Path $PSScriptRoot '../../../automation/Yuruna.Common.psm1') -DisableNameChecking
+# Seed-only staging has an explicit protected ACL before any secret is written.
+Import-Module (Join-Path $PSScriptRoot '../../modules/Yuruna.CachingProxySeed.psm1') -Force
+$seedWorkspace = $null
 try {
-    $SeedDir = New-YurunaSeedDirectory -VMName $VMName
+    $seedWorkspace = New-CachingProxySeedWorkspace -ParentPath $vmDir
+    $SeedDir = $seedWorkspace.Source
 
     Copy-Item -Path (Join-Path $hostVmConfigDir 'caching-proxy-service.meta-data') -Destination "$SeedDir/meta-data"
 
@@ -198,17 +200,16 @@ try {
 
     # --- REGION: Select the guest network
     # See https://yuruna.link/42e220c4-0004
-    # Select the switch before deriving its reachable host address for the seed.
+    # Select the switch before resolving the host address reachable through it.
     $switchName = Resolve-HyperVGuestSwitch
 
-    # --- REGION: https://yuruna.link/4220a755-001b
-    # Hyper-V: the host IP comes from the vSwitch picked above (Get-GuestReachableHostIp -SwitchName); empty -> github fallback.
+    # --- REGION: Yuruna host coordinates
+    # See https://yuruna.link/4220a755-001b
+    # Bake the status-service address reachable through the selected guest network.
     $YurunaHostIp = Get-GuestReachableHostIp -SwitchName $switchName
     if (-not $YurunaHostIp) { $YurunaHostIp = '' }
     Import-Module (Join-Path $_repoRootForExt 'test/modules/Test.Config.psm1') -Global -Force
     Import-Module (Join-Path $_repoRootForExt 'test/modules/Test.Locale.psm1') -Global -Force
-    # --- REGION: Yuruna host coordinates
-    # See https://yuruna.link/4220a755-001b
     $_statusSeed = Get-YurunaStatusServiceSeed -RepoRoot $_repoRootForExt
     $YurunaHostPort = $_statusSeed.Port
     $tc = $_statusSeed.Config
@@ -367,6 +368,7 @@ try {
     # repository, so it has no way to answer this for itself.
     Import-Module (Join-Path $_repoRootForExt 'test/modules/Test.FrameworkSource.psm1') -Force
     $brand = Get-YurunaBrandIdentity -RepoRoot $_repoRootForExt -Config $tc
+    $gitMirrorSeed = Get-CachingProxyGitMirrorSeedSetting -RepoRoot $_repoRootForExt -Config $tc
 
     # --- REGION: Render user-data / meta-data
     # Render user-data from the shared base + Hyper-V overlay
@@ -399,6 +401,12 @@ try {
             YURUNA_CONFIG_SERVICE_CA_CERT_BASE64_PLACEHOLDER     = $configCaCertB64
             YURUNA_BRAND_NAME_PLACEHOLDER    = $brand.Name
             YURUNA_BRAND_VERSION_PLACEHOLDER = $brand.Version
+            YURUNA_GIT_MIRROR_SIGNING_KEY_BASE64_PLACEHOLDER = $gitMirrorSeed.SigningKeyBase64
+            YURUNA_GIT_MIRROR_TOKEN_BASE64_PLACEHOLDER = $gitMirrorSeed.TokenBase64
+            YURUNA_GIT_MIRROR_REPOSITORIES_BASE64_PLACEHOLDER = $gitMirrorSeed.RepositoriesBase64
+            YURUNA_GIT_MIRROR_REFRESH_SECONDS_PLACEHOLDER = $gitMirrorSeed.RefreshSeconds
+            YURUNA_GIT_MIRROR_BUILD_REPOSITORY_PLACEHOLDER = $gitMirrorSeed.BuildRepository
+            YURUNA_GIT_MIRROR_BUILD_COMMIT_PLACEHOLDER = $gitMirrorSeed.BuildCommit
             YURUNA_ZOT_OVERRIDE_VERSION_PLACEHOLDER = $zotOverride.Version
             YURUNA_ZOT_OVERRIDE_SHA256_PLACEHOLDER  = $zotOverride.Sha256
         } `
@@ -412,7 +420,8 @@ try {
     # --- REGION: Generate cloud-init seed ISO
     $SeedIso = Join-Path $vmDir "seed.iso"
     Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_5f1478be62ab5e8d')
-    CreateIso -SourceDir $SeedDir -OutputFile $SeedIso -VolumeId "cidata"
+    CreateIso -SourceDir $SeedDir -OutputFile $seedWorkspace.Image -VolumeId "cidata"
+    Publish-CachingProxySeedImage -Workspace $seedWorkspace -Path $SeedIso -Confirm:$false
 
     # Surface credentials BEFORE the long VM-create/boot/cloud-init wait.
     # If anything in those 20-35 minutes fails (cloud-init stall, apt rate-
@@ -430,11 +439,12 @@ try {
     # --- REGION: Create and configure the Hyper-V VM
     New-HyperVServiceGuest -VMName $VMName -SwitchName $switchName -DiskPath $vhdxFile -SeedPath $SeedIso -HostCores $hostCores -MemoryMb $MemoryMb -MacAddress $MacAddress -Confirm:$false
 
-    # --- REGION: Clean up temporary files
+    $createdVm = Hyper-V\Get-VM -Name $VMName -ErrorAction Stop
+    Grant-CachingProxySeedVmRead -Path $SeedIso -VMId $createdVm.Id -Confirm:$false
 } finally {
     # The seed holds the guest's admin credentials; it must not outlive this
     # script on any path, an early exit or a throw included.
-    Remove-Item -LiteralPath $SeedDir -Recurse -Force -ErrorAction SilentlyContinue
+    Remove-CachingProxySeedWorkspace -Workspace $seedWorkspace -Confirm:$false
 }
 
 # --- REGION: Start VM and wait for IP

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.18.2
+.VERSION 2026.10.22
 .GUID 428d5583-549b-428b-9150-dfe8fe3266a4
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -97,6 +97,10 @@ function Initialize-SequenceFailureStateStore {
     # Set only on timeout with sustained static content and an independent
     # hypervisor framebuffer confirmation. Never inferred from OCR absence.
     $Store['WaitForTextGuestBootStalled'] = $false
+    # Independent VM-console observations are distinct from the Windows host
+    # sampler's virtual-processor counters. Retain unavailable readings too,
+    # so absence of a probe is never reported as a measured idle guest.
+    $Store['WaitForTextConsoleSecondOpinion'] = $null
     # The host recording's livelock verdict at the failed wait (see
     # Get-YurunaVmLivelockVerdict), and whether it found every virtual
     # processor pinned in the hypervisor for the verdict's full window.
@@ -161,6 +165,11 @@ function Initialize-SequenceFailureStateStore {
     # those that were typed, and whether a context was prepared. Every refusal
     # comes before the payload runs. The last refusal of the step, or $null.
     $Store['StepLauncherRejection'] = $null
+    # Set by an SSH fetch whose apt reported an index that disagrees with its
+    # InRelease: the URL, the sizes, the server apt named, and what apt_retry saw
+    # of the caching proxy's copy. The script did fail, but the fix is in the
+    # cache or the origin, which script_error alone does not say.
+    $Store['StepAptIndexMismatch'] = $null
     # Set by stopVm and startVm when the guest did not reach the stopped state
     # inside the step's deadline. A VM that ignores a shutdown request is not a
     # provisioning fault, and retrying the same wait cannot help it: the record
@@ -287,12 +296,14 @@ function New-SequenceFailureRecord {
     $originatingStepInvocationId = [string]$fail.LastFailedStepInvocationId
     $originatingSequenceInvocationId = [string]$fail.LastFailedSequenceInvocationId
     $progressAdvisory = $fail.StepProgressAdvisory
+    $consoleSecondOpinion = $fail.WaitForTextConsoleSecondOpinion
     if ($Reason -eq 'step' -and $fail.OriginatingStepInvocationId -and $fail.OriginatingSequenceInvocationId) {
         $originatingStepInvocationId = [string]$fail.OriginatingStepInvocationId
         $originatingSequenceInvocationId = [string]$fail.OriginatingSequenceInvocationId
     } elseif ($Reason -eq 'crash' -and $fail.OriginatingStepInvocationId -and
         $fail.OriginatingStepInvocationId -ne $fail.LastFailedStepInvocationId) {
         $progressAdvisory = $null
+        $consoleSecondOpinion = $null
     }
 
     if ($Reason -eq 'crash') {
@@ -319,6 +330,17 @@ function New-SequenceFailureRecord {
         receivedSha256 = [string]$fail.StepLauncherRejection.receivedSha256
         expectedSha256 = [string]$fail.StepLauncherRejection.expectedSha256
         payloadState   = [string]$fail.StepLauncherRejection.payloadState
+    } } else { $null }
+    $aptIndexMismatch = if ($fail.StepAptIndexMismatch -is [System.Collections.IDictionary]) { [ordered]@{
+        kind               = [string]$fail.StepAptIndexMismatch.kind
+        url                = [string]$fail.StepAptIndexMismatch.url
+        receivedBytes      = $fail.StepAptIndexMismatch.receivedBytes
+        expectedBytes      = $fail.StepAptIndexMismatch.expectedBytes
+        server             = [string]$fail.StepAptIndexMismatch.server
+        releaseFileCreated = [string]$fail.StepAptIndexMismatch.releaseFileCreated
+        occurrences        = [int]$fail.StepAptIndexMismatch.occurrences
+        proxyCopy          = [string]$fail.StepAptIndexMismatch.proxyCopy
+        proxyPurgeStatus   = $fail.StepAptIndexMismatch.proxyPurgeStatus
     } } else { $null }
     # Runtime cause signal (empty-array guard mirrors innerSuggestedRecoveries so
     # patternsSought never collapses to $null via the if-pipeline flatten).
@@ -606,6 +628,7 @@ function New-SequenceFailureRecord {
                     # intercepts it was taking. $null when the host keeps no
                     # recording to judge from.
                     guestLivelock = $guestLivelock
+                    consoleSecondOpinion = $consoleSecondOpinion
                     progressAdvisory = $progressAdvisory
                     installerStage = $installerStage
                     installerStageUnchangedSeconds = $installerStageSeconds
@@ -628,6 +651,9 @@ function New-SequenceFailureRecord {
                     # The guest launcher's refusal of a typed GUI envelope, which
                     # always precedes the payload. $null when it refused nothing.
                     launcherRejection      = $launcherRejection
+                    # An apt index that disagreed with its InRelease, as apt and
+                    # apt_retry reported it. $null when apt reported none.
+                    aptIndexMismatch       = $aptIndexMismatch
                 }
             }
         }
@@ -682,8 +708,10 @@ function New-SequenceFailureRecord {
         firstGuestSilenceUtc    = $firstGuestSilenceUtc
         firstGuestSilenceSource = $firstGuestSilenceSource
         causeLauncherRejection  = if ($launcherRejection) { $launcherRejection.code } else { '' }
+        causeAptIndexMismatch   = if ($aptIndexMismatch) { $aptIndexMismatch.url } else { '' }
         progressAdvisory         = $progressAdvisory
         guestProcessorWindow    = if ($guestLivelock) { $guestLivelock.processorWindow } else { $null }
+        consoleSecondOpinion    = $consoleSecondOpinion
         reproCommand            = $reproCommand
         failureScreenshotPath   = $failScreenName
         failureOcrPath          = $failOcrName

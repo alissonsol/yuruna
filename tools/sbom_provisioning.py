@@ -425,10 +425,13 @@ class _Collector:
         values.update(_bindings(text))
         self._seed_packages(path, text)
         stages = set()
+        # Whether the file is a cloud-config depends on the file, not the line;
+        # testing the whole text for every line made a long seed quadratic.
+        cloud_config = "vmconfig/" in path.lower() or "#cloud-config" in raw or bool(re.search(r"(?m)^\s*runcmd:", raw))
         for line, command in _logical_lines(text):
             if not command:
                 continue
-            if "vmconfig/" in path.lower() or "#cloud-config" in raw or re.search(r"(?m)^\s*runcmd:", raw):
+            if cloud_config:
                 sequence_command = re.fullmatch(r"-\s*(['\"])(.*)\1", command)
                 if sequence_command:
                     command = sequence_command[2].replace("''", "'")

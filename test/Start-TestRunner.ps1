@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.18.2
+.VERSION 2026.10.22
 .GUID 4246a89e-2ebb-49a1-87a4-31d719f44bf1
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -98,7 +98,10 @@ if ($IsWindows -and $env:YURUNA_KEEP_CONSOLE_ENCODING -ne '1') { [Console]::Outp
 # mirror hiccup) recovers within an hour without manual intervention.
 Import-Module (Join-Path $PSScriptRoot '../automation/Yuruna.Globalization.psm1') -DisableNameChecking
 $script:FailurePauseMaxSeconds    = 60 * 60   # cap a backoff at 60 min
-$script:FailureCommitPollSeconds  = 5 * 60    # check origin every 5 min
+$script:OuterNetworkGateRetrySeconds = 120
+$script:OuterNetworkGateRetryMaxSeconds = 15 * 60
+$script:OuterNetworkGateRecoveryPollSeconds = 30
+$script:FailureCommitPollSeconds  = 30        # source checks share one 30-second budget
 $script:OuterPullErrorSleepSeconds    = 30        # short pause if outer's own git pull errors
 $script:InnerSpawnErrorSleepSeconds   = 30        # short pause if Start-Process itself fails
 $script:StepTimeoutSecondsDefault = 2700        # watchdog: kill inner when heartbeat older than this
@@ -215,15 +218,8 @@ if ($RefreshResume) {
         $gateBlocks = Format-YurunaOperatorMessage -Key 'runner.refresh_gate_blocks_start' -Arguments @{ requestId = "$($startGate.RequestId)"; state = "$($startGate.State)" }
         Write-Warning $gateBlocks
         Write-OuterLog $gateBlocks
-        # An orphaned gate -- owner provably dead or recycled, no live
-        # handoff token -- has no worker mid-repair, and nothing else may
-        # bring the status service back while the hold stands: the outer's
-        # ensure defers to the gate, and a refresh worker only restores the
-        # listener when one runs. Without the service a remote operator has
-        # no dashboard, no view of the unresolved request, and no Retry to
-        # relaunch it. The runner stays refused; only the observational
-        # status service is ensured so the resume controls are reachable
-        # off-host.
+        # An orphaned gate still refuses the runner but ensures the status service.
+        # See https://yuruna.link/42f909ad-0023
         if ($startGate.Orphaned -and -not $NoStatusService) {
             try {
                 $ensureDecision = Start-YurunaStatusServiceIfEnabled -Config (Read-TestConfig -Path $ConfigPath) `
@@ -409,8 +405,8 @@ if ($script:ForwardEnvSnapshot.Count -gt 0) {
 }
 Write-Output "========"
 
-# Why a missing powershell-yaml is a hard stop rather than a warning:
-# docs/runner-outer-loop.md#powershell-yaml-must-be-installed
+# A missing powershell-yaml is a hard stop rather than a warning.
+# See https://yuruna.link/42f909ad-0009
 if (-not (Get-Module -ListAvailable -Name powershell-yaml -ErrorAction SilentlyContinue)) {
     # exit is a bounded, non-interactive stop; the outer loop must never block
     # on a prompt.
@@ -441,8 +437,7 @@ if ($elevationHostType -and (Get-Command Assert-RunnerElevation -ErrorAction Sil
 }
 
 # --- REGION: Pre-cycle config gate
-# What it validates, why -SkipSend is mandatory here, and the -NoConfigGate
-# bypass: docs/runner-outer-loop.md#pre-cycle-config-gate
+# See https://yuruna.link/42f909ad-000a
 $gate = Invoke-ConfigGate -TestRoot $TestRoot -ConfigPath $ConfigPath -Skip:$NoConfigGate -CallerName 'outer startup'
 if (-not $gate.passed) {
     if ($RefreshResume) {
@@ -482,6 +477,9 @@ Invoke-RunnerOuterLoop -State @{
     CycleDelaySeconds         = $CycleDelaySeconds
     LogLevel                  = $logLevel
     FailurePauseMaxSeconds    = $script:FailurePauseMaxSeconds
+    OuterNetworkGateRetrySeconds = $script:OuterNetworkGateRetrySeconds
+    OuterNetworkGateRetryMaxSeconds = $script:OuterNetworkGateRetryMaxSeconds
+    OuterNetworkGateRecoveryPollSeconds = $script:OuterNetworkGateRecoveryPollSeconds
     FailureCommitPollSeconds  = $script:FailureCommitPollSeconds
     OuterPullErrorSleepSeconds    = $script:OuterPullErrorSleepSeconds
     InnerSpawnErrorSleepSeconds   = $script:InnerSpawnErrorSleepSeconds

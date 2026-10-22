@@ -138,6 +138,13 @@ record can name the end that went silent instead of the one the console
 happened to mention. The cross-check runs on every host type; the
 `vm-network.state` files are Hyper-V only.
 
+Separate `cacheHttpTcp` and `cacheHttpsTcp` records check the web proxy's
+listeners, normally ports 3128 and 3129, with configured port overrides.
+They retain the address, port, connection result, elapsed time, and error.
+Read them alongside the verdict: a reachable registry does not establish that
+the HTTPS proxy listener answers, and a successful host probe does not
+establish the guest's NAT path or explain a connection that failed earlier.
+
 For ARM64 coverage of this guest use `host.macos.utm` or `host.ubuntu.kvm`,
 which present the virtio devices the image drives. On Hyper-V it is an
 AMD64-only guest.
@@ -655,6 +662,14 @@ scoped to `vmStart.cachingProxyIp`, or `LocalSubnet` when no scrape address is
 configured. Convergence preserves unrelated service arguments and restores the
 prior command line if the changed service fails its readiness probe.
 
+Each cycle converges existing installs under a 60-second process bound, including
+the collector set, wildcard listener, automatic service, and firewall coverage
+on all profiles. Healthy services are never restarted. Command-line changes
+report `command line: previous -> new` before writing, preserving custom
+configuration-file paths and unrelated flags. A successful local probe does not
+prove reachability from Prometheus: a running exporter with local samples and a
+remote scrape timeout requires checking its listener and inbound firewall scope.
+
 Readiness and capability are separate. A healthy payload can contain Hyper-V
 host metrics while no VM is running. Guest runtime and dispatch-wait capability
 are then `not-applicable`; with a running VM, missing series are `absent`, not
@@ -721,9 +736,11 @@ authorizes a restart. A single heavily trapping processor also occurs during
 successful workloads, so the all-processor recovery predicate remains intact.
 Kernel-stall evidence can explain a failed workload even when that recovery
 verdict remains `not-livelocked`; it does not relax the predicate. CPU-restart
-clock captures use a ten-second SSH budget and collect both observations before
-optional boot metadata. Missing or partial captures remain advisory and cannot
-establish that a processor-count change caused a later stall.
+clock captures use a ten-second SSH budget. Each observation retains uptime,
+CPU accounting, interrupts, and softirqs before optional Python clock reads;
+both observations precede optional boot metadata. Missing or partial captures
+remain advisory and cannot establish that a processor-count change caused a
+later stall.
 
 Records carry host UTC and monotonic QPC anchors, actual AC/DC state, and VM CPU
 and memory configuration, including processor reserve/maximum/weight, nested
@@ -806,6 +823,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.18.1
+Last review: 2026.10.22
 
 Back to [Yuruna](../README.md)

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.18.2
+.VERSION 2026.10.22
 .GUID 4284f1a3-c3b1-43a6-8b63-36822be6e25d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -96,6 +96,7 @@ Import-Module (Join-Path $PSScriptRoot '../../../test/modules/Test.Provenance.ps
 Write-BaseImageProvenance -BaseImagePath $baseImageFile
 
 # --- REGION: Remove existing VM
+# See https://yuruna.link/42e220c4-0004
 # Runs AFTER the base image is confirmed so a failed image fetch never
 # destroys a working VM.
 Remove-HyperVGuestDefinition -VMName $VMName -Confirm:$false
@@ -131,6 +132,8 @@ try {
     Copy-Item -Path (Join-Path $hostVmConfigDir 'download-agent-service.meta-data') -Destination "$SeedDir/meta-data"
 
     # --- REGION: Yuruna harness SSH key
+    # See https://yuruna.link/42e220c4-0004
+    # Seed the shared harness key so guest provisioning and failure diagnostics agree.
     $_repoRoot = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSScriptRoot))
     Import-Module (Join-Path $_repoRoot 'test/modules/Test.Ssh.psm1')       -Force -DisableNameChecking
     Import-Module (Join-Path $_repoRoot 'test/modules/Test.Extension.psm1') -Global -Force -Verbose:$false
@@ -139,10 +142,8 @@ try {
     if (-not $SshAuthorizedKey) { Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_24e40b06bcf4c618'); exit 1 }
 
     # --- REGION: Vault admin password
-    # The password belongs to THIS VM's own administrator. The account name is
-    # per-VM-family: a name shared with the caching-proxy-service and stash-service
-    # VMs would resolve to a single vault entry, and whichever VM was built last
-    # would invalidate the others' credential.
+    # Each service family has its own admin account: a shared name would map several
+    # VMs to one vault entry, and the last build would invalidate the others' credential.
     $_authActiveName = @(Import-Extension -Area 'authentication' -RequireSingle)[0]
     $AdminPassword = Get-Password -Username 'download-agent-service-admin'
     if (-not $AdminPassword) { Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_ce7652d3e480135e'); exit 1 }
@@ -150,16 +151,13 @@ try {
     Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_c427eb2402415f42' -Arguments @{ authentication = "$(Resolve-ExtensionAreaDir -Area 'authentication')" })
 
     # --- REGION: Select the guest network
-    # The pool NAS + source coordinates baked into cloud-init depend on the chosen
-    # network, so resolve it first. Prefer Yuruna-External so the VM gets a LAN
-    # IP and can reach the NAS + the host status service; fall back to Default
-    # Switch only when External is unavailable (Wi-Fi-only host), where the VM
-    # is reachable only from same-host peers and the NAS likely isn't routable.
+    # See https://yuruna.link/42e220c4-0004
+    # Select the switch before resolving the host address reachable through it.
     $switchName = Resolve-HyperVGuestSwitch
 
-    # --- REGION: https://yuruna.link/4220a755-001b
-    # Host coordinates (status service, for the in-VM source fetch) + pool storage
-    # coordinates (the NAS that holds the download pool), baked into the seed.
+    # --- REGION: Yuruna host coordinates
+    # See https://yuruna.link/4220a755-001b
+    # Bake the status-service address and storage coordinates for the selected network.
     Import-Module (Join-Path $_repoRoot 'test/modules/Test.PoolStorage.psm1')  -Global -Force
     Import-Module (Join-Path $_repoRoot 'test/modules/Test.YurunaDir.psm1')    -Global -Force
     Import-Module (Join-Path $_repoRoot 'test/modules/Test.Config.psm1')       -Global -Force
@@ -167,8 +165,6 @@ try {
     Import-Module (Join-Path $_repoRoot 'test/modules/Test.CachingProxyService.psm1') -Global -Force
     $YurunaHostIp = Get-GuestReachableHostIp -SwitchName $switchName
     if (-not $YurunaHostIp) { $YurunaHostIp = '' }
-    # --- REGION: Yuruna host coordinates
-    # See https://yuruna.link/4220a755-001b
     $_statusSeed = Get-YurunaStatusServiceSeed -RepoRoot $_repoRoot
     $YurunaHostPort = $_statusSeed.Port
     $tc = $_statusSeed.Config

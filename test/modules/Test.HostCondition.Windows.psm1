@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.18.2
+.VERSION 2026.10.22
 .GUID 42475b3f-e79e-40ac-8114-ff6104d9b316
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -2187,14 +2187,11 @@ function Initialize-WindowsHostMetricsExporter {
         provider is registered for macOS or Linux, where the same work would
         have to ask.
 
-        Cheap on a host that is already converged, which is nearly every cycle.
-        Install-YurunaHostMetricsExporter asks for the service first and
-        returns already-present without touching a package manager, a file or
-        the network, so that is the whole per-cycle cost. The exporter is a
-        service -- once it runs with the right flags it keeps running across
-        reboots, and the scrape is its own watchdog -- so re-deriving its
-        configuration every cycle would buy nothing and cost every cycle. Only
-        the cycle that installs it goes on to configure it.
+        Registration alone does not prove readiness. Existing services also
+        converge their collectors, listener and scrape-scoped firewall rule;
+        package upgrades and firewall changes can otherwise strand telemetry
+        permanently. Convergence runs under a separate process bound, and a
+        healthy service is never rewritten or restarted.
 
         The bound on one attempt and the spacing between attempts both belong to
         Install-YurunaHostMetricsExporter and are not restated here. A bound
@@ -2207,7 +2204,7 @@ function Initialize-WindowsHostMetricsExporter {
         operator to stop reading the degraded state that matters.
     .PARAMETER ConfigPath
         test.config.yml, read only for the scrape source that scopes the
-        firewall rule, and only on the pass that installed the exporter.
+        firewall rule.
     .OUTPUTS
         [pscustomobject] Status, Reason. Status is one of Present, Installed,
         Throttled, Unavailable, Failed, Skipped.
@@ -2229,7 +2226,7 @@ function Initialize-WindowsHostMetricsExporter {
         $install = Install-YurunaHostMetricsExporter -Confirm:$false
         $reason = "$($install.Reason)"
         switch ("$($install.Outcome)") {
-            'already-present'   { return [pscustomobject]@{ Status = 'Present'; Reason = $reason } }
+            'already-present'   { }
             'skipped-throttled' { return [pscustomobject]@{ Status = 'Throttled'; Reason = $reason } }
             'skipped-whatif'    { return [pscustomobject]@{ Status = 'Skipped'; Reason = $reason } }
             'not-applicable'    { return [pscustomobject]@{ Status = 'Skipped'; Reason = $reason } }
@@ -2238,11 +2235,8 @@ function Initialize-WindowsHostMetricsExporter {
             default             { return [pscustomobject]@{ Status = 'Failed'; Reason = $reason } }
         }
 
-        # Reached only on the cycle that put the service on the host. This is
-        # what gives it the collector set, listen port and scrape-scoped
-        # firewall rule the host publishes, so one cycle takes a bare host all
-        # the way to a scraped endpoint. -SkipInstall because the acquisition
-        # already happened above and a second one must not be reachable here.
+        # Acquisition is decided above. Drift repair must also reach existing
+        # services without starting another install or blocking the runner.
         $scrapeIp = ''
         if ($ConfigPath -and (Test-Path -LiteralPath $ConfigPath)) {
             try {
@@ -2254,8 +2248,10 @@ function Initialize-WindowsHostMetricsExporter {
                 Write-Verbose "test.config.yml parse failed: $($_.Exception.Message)"
             }
         }
-        $null = Set-YurunaHostMetricsExporter -ConfigIp $scrapeIp -EnvIp $env:YURUNA_CACHING_PROXY_SERVICE_IP -SkipInstall -Confirm:$false
-        return [pscustomobject]@{ Status = 'Installed'; Reason = $reason }
+        $converged = Set-YurunaHostMetricsExporter -ConfigIp $scrapeIp -EnvIp $env:YURUNA_CACHING_PROXY_SERVICE_IP -SkipInstall -TimeoutSec 60 -Confirm:$false
+        if (-not $converged.Ensured) { return [pscustomobject]@{ Status = 'Failed'; Reason = [string]$converged.Message } }
+        $status = if ($install.Outcome -eq 'already-present') { 'Present' } else { 'Installed' }
+        return [pscustomobject]@{ Status = $status; Reason = $reason }
     } catch {
         return [pscustomobject]@{ Status = 'Failed'; Reason = (Format-YurunaOperatorMessage -Key 'runner.operator_255019e79dd813a4' -Arguments @{ message = "$($_.Exception.Message)" }) }
     }

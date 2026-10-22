@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.18.2
+.VERSION 2026.10.22
 .GUID 42b86905-6f08-4020-9f8c-68c7b31b76ef
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -534,6 +534,36 @@ Describe 'the presence beacon cadence' {
 }
 
 Describe 'the caching-proxy seed fetches the sources it builds' {
+    It 'keeps the installed source manifest, fetch loop and runtime files identical' {
+        $dir = Join-Path $script:RepoRoot 'test/extension/caching-proxy-service'
+        $module = Import-Module (Join-Path $dir 'default.psm1') -Force -PassThru -DisableNameChecking
+        $manifest = @( & $module { (Get-CachingProxyServiceInfo).SourceFiles } )
+        $seed = Get-Content (Join-Path $script:RepoRoot 'host/vmconfig/caching-proxy-service.base.user-data') -Raw
+        $loop = [regex]::Match($seed, 'for f in (?<files>[^;]+); do\s+wget[^\n]*\$\{YR_BASE\}test/extension/caching-proxy-service/\$f')
+        $loop.Success | Should -BeTrue
+        $fetched = @($loop.Groups['files'].Value -split '\s+' | Where-Object { $_ })
+        $runtime = @(Get-ChildItem -LiteralPath $dir -File | Where-Object {
+            ($_.Extension -in @('.go','.service','.sh') -and $_.Name -notlike '*_test.go') -or $_.Name -eq 'go.mod'
+        } | ForEach-Object Name) + @('internal/catalog/registry.go')
+        @(Compare-Object ($runtime | Sort-Object) ($fetched | Sort-Object)).Count | Should -Be 0
+        @(Compare-Object ($runtime | Sort-Object) ($manifest | Sort-Object)).Count | Should -Be 0
+        $manifest.Count | Should -Be (@($manifest | Sort-Object -Unique).Count)
+    }
+
+    It 'installs the <Unit> artifact fetched by the seed' -ForEach @(
+        @{Unit='caching-proxy-service.service'}, @{Unit='git-mirror-worker.service'}, @{Unit='git-mirror-reader.service'}
+    ) {
+        $seed = Get-Content (Join-Path $script:RepoRoot 'host/vmconfig/caching-proxy-service.base.user-data') -Raw
+        $install = @([regex]::Matches($seed, '(?m)^\s*install\s+[^\n]+') | ForEach-Object Value |
+            Where-Object { $_ -match ('\b'+[regex]::Escape($Unit)+'\b') -and $_ -match '/etc/systemd/system/' })
+        $install.Count | Should -Be 1
+    }
+
+    It 'installs the CGI wrapper with root ownership and executable permissions' {
+        $seed = Get-Content (Join-Path $script:RepoRoot 'host/vmconfig/caching-proxy-service.base.user-data') -Raw
+        $seed | Should -Match '(?m)^\s*install -o root -g root -m 0755 git-mirror-http-backend\.sh /usr/local/libexec/yuruna/'
+    }
+
     It 'names every Go file on disk, and none that is not' {
         # The seed fetches a NAMED list of files, one wget each, then runs
         # `go build .` over whatever landed. A source file added to -- or

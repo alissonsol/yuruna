@@ -323,7 +323,7 @@ required keys, validated at entry:
 | `ShutdownState` | `[hashtable]` | Reference-shared with the caller's Ctrl+C handler. Flipping `['Requested']` ends the loop. |
 | `NoGitPull` | `[bool]` | Skip the framework pull (operator's `-NoGitPull` switch). |
 | `FailurePauseMaxSeconds` | `[int]` | Failure-pause cap (default 60 min). |
-| `FailureCommitPollSeconds` | `[int]` | Trigger-poll cadence inside the pause (default 5 min). |
+| `FailureCommitPollSeconds` | `[int]` | Trigger-poll cadence inside the pause (default 30 s). |
 | `OuterPullErrorSleepSeconds` | `[int]` | Short retry sleep when the outer's own `git pull` fails. |
 | `InnerSpawnErrorSleepSeconds` | `[int]` | Short retry sleep when `Start-Process` itself fails. |
 | `StepTimeoutSecondsDefault` | `[int]` | Watchdog default (overridden per-cycle by `testCycle.stepTimeoutSeconds`). |
@@ -1115,6 +1115,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.18.1
+Last review: 2026.10.22
 
 Back to [Yuruna](../README.md)

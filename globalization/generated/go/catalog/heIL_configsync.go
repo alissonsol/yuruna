@@ -113,6 +113,7 @@ const DataheILconfigsync = `{
       ]
     }
   },
+  "configsync.mirror_key_confirmation": "האם לקבל את רישום מפתחות האימות של שרת המראה?",
   "configsync.operator_03e72c207d4307ef": [
     "  מפתחות שהסכמה של מארח זה מגדירה ושאינם קיימים אצל ",
     {

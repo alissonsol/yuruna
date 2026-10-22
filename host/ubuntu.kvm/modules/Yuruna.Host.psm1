@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.18.2
+.VERSION 2026.10.22
 .GUID 42539052-a22b-452d-ad7f-0bbf053904ff
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -1172,8 +1172,17 @@ function Restart-VMConsole {
     & pkill -f "virt-viewer.*$([regex]::Escape($VMName))" 2>$null | Out-Null
     Start-Sleep -Milliseconds 200
     & bash -c "setsid -f env GDK_BACKEND=x11 virt-viewer --connect '$($script:VirshUri)' '$VMName' </dev/null >/dev/null 2>&1" 2>$null
-    Write-Verbose "    Reconnected virt-viewer for '$VMName'"
-    return $true
+    if ($LASTEXITCODE -ne 0) { return $false }
+    # setsid acknowledges its fork before the viewer runs. A successful
+    # launcher alone therefore cannot prove that the console client exists.
+    for ($probe = 0; $probe -lt 20; $probe++) {
+        Start-Sleep -Milliseconds 250
+        if (Test-VMConsoleOpen -VMName $VMName) {
+            Write-Verbose "    Reconnected virt-viewer for '$VMName'"
+            return $true
+        }
+    }
+    return $false
 }
 
 # --- REGION: Image
@@ -3523,7 +3532,7 @@ function Get-CachingProxyServiceVmIp {
     return (Get-VMIp -VMName 'yuruna-caching-proxy-service')
 }
 
-# --- REGION: Host config
+# --- REGION: Host configuration
 # --- REGION: Set-HostProxy
 function Set-HostProxy {
     <#

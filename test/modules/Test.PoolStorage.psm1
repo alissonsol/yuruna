@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.18.2
+.VERSION 2026.10.22
 .GUID 42273fc7-eee1-4ff4-9191-32ad482e41dd
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -1443,7 +1443,11 @@ function Get-PoolStorageSudoCommandPath {
 .SYNOPSIS
 True when passwordless sudo is ALREADY in effect for every command the poolStorage mount runs. Non-Linux returns $true (those mounts need no sudo).
 .DESCRIPTION
-`sudo -n -l <cmd>` exits 0 when the invoking user may run <cmd> and, because of -n, never prompts -- so this is safe on the unattended path as well as the interactive one.
+Each command's harmless `--version` is executed through `sudo -n -k`: -n
+forbids a password prompt, while -k WITH a command ignores the timestamp for
+that invocation without clearing the operator's shared authorization. A list
+query (`sudo -n -l`) proves permission, not NOPASSWD, and succeeds for ordinary
+password-protected sudo while setup keeps its credential cache warm.
 
 Biased toward $false: any check that is not a clean 0 reports "not configured". For the installer a redundant re-install merely re-prompts once, whereas a false "already configured" would leave the mount broken exactly as before. Callers use it in the other direction too -- to STOP printing the "install this drop-in" instructions at an operator who already has it installed, which otherwise reads as the install having silently failed.
 #>
@@ -1458,7 +1462,7 @@ function Test-PoolStorageSudoReady {
     }
     foreach ($c in $Commands) {
         if ([string]::IsNullOrWhiteSpace($c)) { continue }
-        $rc = Invoke-PoolStorageProcess -FilePath 'sudo' -ArgumentList @('-n', '-l', $c) -TimeoutSeconds 15
+        $rc = Invoke-PoolStorageProcess -FilePath 'sudo' -ArgumentList @('-n', '-k', $c, '--version') -TimeoutSeconds 15
         if ($rc -ne 0) { return $false }
     }
     return $true
@@ -1466,16 +1470,17 @@ function Test-PoolStorageSudoReady {
 
 <#
 .SYNOPSIS
-Idempotently installs the Linux passwordless-sudo drop-in the poolStorage mount needs, prompting the operator ONCE for their sudo password. Interactive path only -- the unattended runner still cannot (and must not) self-elevate.
+Idempotently installs the Linux passwordless-sudo drop-in the poolStorage mount needs, prompting an interactive operator ONCE when authorization is needed. A noninteractive caller may use existing sudo authorization but never prompts.
 .DESCRIPTION
 The mount path runs `sudo -n mount/mkdir/umount` (never prompts), so without an /etc/sudoers.d drop-in granting those NOPASSWD it fails and the runner buffers locally. An operator running Sync-HostConfiguration IS at a terminal and can supply the password once. This:
 
   1. Is Linux-only (macOS mounts via `mount_smbfs -N` with no sudo; Windows uses SMB mappings) -- returns Action='unsupported' elsewhere.
   2. Resolves the account (current user) and the REAL mkdir/mount/umount paths (sudo matches the fully-qualified command), so the rule matches how the mount actually invokes them.
-  3. Probes whether passwordless sudo for those commands is ALREADY in effect (`sudo -n -l <cmd>`); if so it is a no-op (Action='present').
-  4. Otherwise writes the drop-in via `sudo tee`, `chmod 0440`, and validates with `visudo -cf` (removing it again if validation fails). sudo inherits the terminal so its one password prompt reaches the operator; the cached timestamp covers the follow-up chmod/visudo.
+  3. Proves passwordless sudo for those commands is ALREADY in effect with uncached version probes; if so it is a no-op (Action='present').
+  4. Otherwise writes the drop-in and validates it with `visudo -cf` (removing it again if validation fails). Interactive sudo inherits the terminal so its one password prompt reaches the operator. A noninteractive caller uses bounded `sudo -n` calls and an already-authorized cache.
+  5. Repeats the uncached command probes before reporting success, so a later overriding sudoers rule cannot masquerade as a working installation.
 
-Returns @{ Action = unsupported|present|installed|failed|skipped|whatif; DropInPath; Rule; Message }. Honors -WhatIf (Action='whatif', writes nothing) and -NonInteractive (Action='skipped' with the hint -- never blocks on a password).
+Returns @{ Action = unsupported|present|installed|failed|skipped|whatif; DropInPath; Rule; Message }. Honors -WhatIf (Action='whatif', writes nothing) and -NonInteractive (no password prompts; Action='skipped' with the hint when sudo is not already authorized).
 #>
 function Set-PoolStorageSudoers {
     [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseSingularNouns', '',
@@ -1510,7 +1515,7 @@ function Set-PoolStorageSudoers {
         return @{ Action = 'present'; DropInPath = $spec.File; Rule = $spec.Rule; Message = (Format-YurunaOperatorMessage -Key 'runner.operator_7a2644594a03553e' -Arguments @{ user = "$User" }) }
     }
 
-    if ($NonInteractive) {
+    if ($NonInteractive -and (Invoke-PoolStorageProcess -FilePath 'sudo' -ArgumentList @('-n', '-v') -TimeoutSeconds 15) -ne 0) {
         return @{ Action = 'skipped'; DropInPath = $spec.File; Rule = $spec.Rule; Message = (Format-YurunaOperatorMessage -Key 'runner.operator_3f1222f3734c430b' -Arguments @{ join = "$((Get-PoolStorageLinuxSudoHint -User $User -MkdirPath $mkdir -MountPath $mount -UmountPath $umount) -join ' ')" }) }
     }
     if (-not $PSCmdlet.ShouldProcess($spec.File, (Format-YurunaOperatorMessage -Key 'runner.operator_5276d666b1441ef9' -Arguments @{ user = "$User" }))) {
@@ -1524,25 +1529,54 @@ function Set-PoolStorageSudoers {
     # idiom the operator hint documents; PowerShell appends the trailing newline a
     # sudoers file wants.
     Write-Host (Format-YurunaOperatorMessage -Key 'runner.operator_db6414f7fa84b289' -Arguments @{ file = "$($spec.File)" })
+    $temporary = ''
     try {
-        $spec.Rule | & sudo tee $spec.File | Out-Null
-        $teeRc = $LASTEXITCODE
-        if ($teeRc -ne 0) {
-            return @{ Action = 'failed'; DropInPath = $spec.File; Rule = $spec.Rule; Message = (Format-YurunaOperatorMessage -Key 'runner.operator_cf16b3b8b709addd' -Arguments @{ file = "$($spec.File)"; teeRc = "$teeRc"; join = "$((Get-PoolStorageLinuxSudoHint -User $User -MkdirPath $mkdir -MountPath $mount -UmountPath $umount) -join ' ')" }) }
+        if ($NonInteractive) {
+            # The rule contains no secret. A file lets the bounded native helper
+            # keep stdin closed while install publishes the final 0440 mode in
+            # one command; no captured child can ask for another password.
+            $temporary = [IO.Path]::GetTempFileName()
+            [IO.File]::WriteAllText($temporary, "$($spec.Rule)`n", [Text.UTF8Encoding]::new($false))
+            $installArgs = @('-n', 'install', '-m', '0440', $temporary, $spec.File)
+            $install = Invoke-PoolStorageProcessResult -FilePath 'sudo' -ArgumentList $installArgs -TimeoutSeconds 15
+            if ($install.ExitCode -ne 0) {
+                throw (Format-YurunaOperatorMessage -Key 'exceptions.runner_e5734bccf5e0076c' -Arguments @{ join = "$($installArgs -join ' ')"; exitCode = "$($install.ExitCode)"; output = "$(Get-PoolStorageProcessErrorDetail -StdErr $install.StdErr)" })
+            }
+            $chmodRc = 0
+            $validation = Invoke-PoolStorageProcessResult -FilePath 'sudo' -ArgumentList @('-n', 'visudo', '-cf', $spec.File) -TimeoutSeconds 15
+            $visudoRc = $validation.ExitCode
+            $visudoOut = "$($validation.StdOut)`n$($validation.StdErr)".Trim()
+        } else {
+            $spec.Rule | & sudo tee $spec.File | Out-Null
+            $teeRc = $LASTEXITCODE
+            if ($teeRc -ne 0) {
+                return @{ Action = 'failed'; DropInPath = $spec.File; Rule = $spec.Rule; Message = (Format-YurunaOperatorMessage -Key 'runner.operator_cf16b3b8b709addd' -Arguments @{ file = "$($spec.File)"; teeRc = "$teeRc"; join = "$((Get-PoolStorageLinuxSudoHint -User $User -MkdirPath $mkdir -MountPath $mount -UmountPath $umount) -join ' ')" }) }
+            }
+            & sudo chmod 0440 $spec.File | Out-Null
+            $chmodRc = $LASTEXITCODE
+            $visudoOut = (& sudo visudo -cf $spec.File 2>&1 | Out-String).Trim()
+            $visudoRc = $LASTEXITCODE
         }
-        & sudo chmod 0440 $spec.File | Out-Null
-        $chmodRc = $LASTEXITCODE
-        $visudoOut = (& sudo visudo -cf $spec.File 2>&1 | Out-String).Trim()
-        $visudoRc = $LASTEXITCODE
         if ($chmodRc -ne 0 -or $visudoRc -ne 0) {
             # A syntactically invalid drop-in can break sudo for EVERY command, so
             # remove it rather than leave it in place.
-            & sudo rm -f $spec.File | Out-Null
+            if ($NonInteractive) {
+                $null = Invoke-PoolStorageProcess -FilePath 'sudo' -ArgumentList @('-n', 'rm', '-f', $spec.File) -TimeoutSeconds 15
+            } else {
+                & sudo rm -f $spec.File | Out-Null
+            }
             return @{ Action = 'failed'; DropInPath = $spec.File; Rule = $spec.Rule; Message = (Format-YurunaOperatorMessage -Key 'runner.operator_19bf4f38e92c1bb1' -Arguments @{ chmodRc = "$chmodRc"; visudoRc = "${visudoRc}"; visudoOut = "$visudoOut"; join = "$((Get-PoolStorageLinuxSudoHint -User $User -MkdirPath $mkdir -MountPath $mount -UmountPath $umount) -join ' ')" }) }
+        }
+        if (-not (Test-PoolStorageSudoReady -Commands $spec.Commands)) {
+            # Keep a valid rule for inspection: another matching rule may be
+            # overriding it, and deleting this one cannot repair that policy.
+            throw [UnauthorizedAccessException]::new("sudo -n -k <command> --version != 0; NOPASSWD: $($spec.Commands -join ', ')")
         }
         return @{ Action = 'installed'; DropInPath = $spec.File; Rule = $spec.Rule; Message = (Format-YurunaOperatorMessage -Key 'runner.operator_59aa4c1b646b2e46' -Arguments @{ file = "$($spec.File)"; user = "$User" }) }
     } catch {
         return @{ Action = 'failed'; DropInPath = $spec.File; Rule = $spec.Rule; Message = (Format-YurunaOperatorMessage -Key 'runner.operator_6227c4e7e4952085' -Arguments @{ file = "$($spec.File)"; message = "$($_.Exception.Message)"; join = "$((Get-PoolStorageLinuxSudoHint -User $User -MkdirPath $mkdir -MountPath $mount -UmountPath $umount) -join ' ')" }) }
+    } finally {
+        if ($temporary) { Remove-Item -LiteralPath $temporary -Force -ErrorAction SilentlyContinue }
     }
 }
 

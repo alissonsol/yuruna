@@ -1706,6 +1706,11 @@ Two reasons NOT to fold this into squid-exporter:
 that file independently of Squid. Prometheus can therefore still scrape the
 listener and runtime-mode readings while Squid is unavailable.
 
+The same file carries the apt index self-test's `yuruna_apt_index_*` series,
+appended from `/var/lib/yuruna/apt-index-selftest.prom`, or
+`yuruna_apt_index_selftest_available 0` before its first run (see the
+[apt index pairs self-test](caching.md#42f6b05f-005b)).
+
 <a id="429f3d06-004b"></a>
 
 ### zot manifest canary exporter
@@ -2624,6 +2629,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.18.1
+Last review: 2026.10.22
 
 Back to [Yuruna](../README.md)

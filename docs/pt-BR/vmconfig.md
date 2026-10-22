@@ -1854,6 +1854,11 @@ Duas razões para NÃO incorporar isso ao squid-exporter:
 esse arquivo independentemente do Squid. Assim, o Prometheus ainda consegue
 coletar as leituras da porta e do modo de execução quando o Squid está indisponível.
 
+O mesmo arquivo traz as séries `yuruna_apt_index_*` do autoteste de índices do apt,
+acrescentadas a partir de `/var/lib/yuruna/apt-index-selftest.prom`, ou
+`yuruna_apt_index_selftest_available 0` antes da primeira execução (veja o
+[autoteste de pares de índices do apt](../caching.md#42f6b05f-005b)).
+
 <a id="429f3d06-004b"></a>
 
 <a id="zot-manifest-canary-exporter"></a>
@@ -2938,6 +2943,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.18.1
+Last review: 2026.10.22
 
 Back to [Yuruna](../../README.md)

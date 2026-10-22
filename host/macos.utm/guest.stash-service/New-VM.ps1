@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.18.2
+.VERSION 2026.10.22
 .GUID 4298cc86-a88d-484a-9f42-179d9e217fbf
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -87,6 +87,7 @@ Import-Module (Join-Path $_repoRoot 'test/modules/Test.Provenance.psm1') -Force
 Write-BaseImageProvenance -BaseImagePath $baseImageFile
 
 # --- REGION: Remove existing VM
+# See https://yuruna.link/42e220c4-0004
 # Runs AFTER the base image is confirmed so a failed image fetch never
 # destroys a working VM.
 Import-Module (Join-Path (Split-Path -Parent $PSScriptRoot) 'modules/Yuruna.Host.psm1') -Force
@@ -130,12 +131,16 @@ $hostVmConfigDir = Join-Path (Split-Path -Parent (Split-Path -Parent (Split-Path
 Copy-Item -Path (Join-Path $hostVmConfigDir 'stash-service.meta-data') -Destination "$SeedDir/meta-data"
 
 # --- REGION: Yuruna harness SSH key
+# See https://yuruna.link/42e220c4-0004
+# Seed the shared harness key so guest provisioning and failure diagnostics agree.
 Import-Module (Join-Path $_repoRoot 'test/modules/Test.Ssh.psm1')       -Force -DisableNameChecking
 Import-Module (Join-Path $_repoRoot 'test/modules/Test.Extension.psm1') -Global -Force -Verbose:$false
 $SshAuthorizedKey = Get-YurunaSshPublicKey
 if (-not $SshAuthorizedKey) { Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_24e40b06bcf4c618'); exit 1 }
 
 # --- REGION: Vault admin password
+# Each service family has its own admin account: a shared name would map several
+# VMs to one vault entry, and the last build would invalidate the others' credential.
 $_authActiveName = @(Import-Extension -Area 'authentication' -RequireSingle)[0]
 $AdminPassword = Get-Password -Username 'stash-admin'
 if (-not $AdminPassword) { Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_5f54f73b7b1051eb'); exit 1 }
@@ -143,9 +148,8 @@ Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_762658980a25b8fb'
 Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_c427eb2402415f42' -Arguments @{ authentication = "$(Resolve-ExtensionAreaDir -Area 'authentication')" })
 
 # --- REGION: Select the guest network
-# See https://yuruna.link/4220a755-001b
-# Resolve the network and reachable host address together for both seed and bundle.
-# YURUNA_GUEST_REACHABLE_HOST_IP overrides the host address.
+# See https://yuruna.link/42e220c4-0004
+# Resolve the network mode once so the seed and the bundle cannot disagree.
 Import-Module (Join-Path (Split-Path -Parent $ScriptDir) 'modules/Yuruna.Host.psm1') -Force
 Import-Module (Join-Path $_repoRoot 'test/modules/Test.PoolStorage.psm1')  -Global -Force
 Import-Module (Join-Path $_repoRoot 'test/modules/Test.YurunaDir.psm1')    -Global -Force
@@ -153,14 +157,17 @@ Import-Module (Join-Path $_repoRoot 'test/modules/Test.Config.psm1')       -Glob
 Import-Module (Join-Path $_repoRoot 'test/modules/Test.Locale.psm1') -Global -Force
 Import-Module (Join-Path $_repoRoot 'test/modules/Test.CachingProxyService.psm1') -Global -Force
 $NetworkMode = Resolve-UtmNetworkMode
+
+# --- REGION: Yuruna host coordinates
+# See https://yuruna.link/4220a755-001b
+# Bake the status-service address and storage coordinates for the selected network.
+# YURUNA_GUEST_REACHABLE_HOST_IP overrides the host address.
 if ($env:YURUNA_GUEST_REACHABLE_HOST_IP) {
     $YurunaHostIp = $env:YURUNA_GUEST_REACHABLE_HOST_IP
 } else {
     $YurunaHostIp = Get-GuestReachableHostIp -NetworkMode $NetworkMode
 }
 if (-not $YurunaHostIp) { $YurunaHostIp = '' }
-# --- REGION: Yuruna host coordinates
-# See https://yuruna.link/4220a755-001b
 $_statusSeed = Get-YurunaStatusServiceSeed -RepoRoot $_repoRoot
 $YurunaHostPort = $_statusSeed.Port
 $tc = $_statusSeed.Config
@@ -209,7 +216,8 @@ if ($LASTEXITCODE -ne 0) {
     exit 1
 }
 
-# --- REGION: Create and configure the UTM bundle (config.plist, QEMU backend)
+# --- REGION: Create and configure the UTM bundle
+# config.plist selects the QEMU backend.
 Import-Module (Join-Path $PSScriptRoot '../modules/Yuruna.Host.psm1') -DisableNameChecking -Verbose:$false
 New-UtmServiceBundleConfiguration -TemplatePath (Join-Path $ScriptDir 'config.plist.template') -BundlePath $UtmDir -VMName $VMName -NetworkMode $NetworkMode -MemoryMb 2048 -Confirm:$false
 $VncDisplay = Get-VncDisplayForVm -VMName $VMName

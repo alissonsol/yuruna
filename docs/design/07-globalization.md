@@ -32,15 +32,20 @@ The seven boxes group generated PowerShell, Go, and browser formats; service
 catalog copies; and browser consumers. The embedder writes the kernel, locale
 data, and default tables into the shared runtimes, service-only tables into
 service scripts whose pages already load the shared runtime, and one catalog
-asset per non-default locale. It also writes the Go SDK's locale data. PowerShell
-reads generated `.psd1` catalogs directly rather than receiving a service-local
-copy.
+asset per non-default locale. It also writes the Go SDK's locale data and, into
+each Go service module, that service's catalog tables plus a registry carrying
+the browser kernel and tables for self-contained pages. The caching-proxy and
+parser modules also receive a generated request adapter for those pages.
+PowerShell reads generated `.psd1` catalogs directly rather than receiving a
+service-local copy.
 
 Sources: [locale manifest](../../globalization/locale-manifest.json),
 [source catalogs](../../globalization/catalogs/),
 [compiler](../../tools/Invoke-CatalogCompile.ps1),
 [generated catalogs](../../globalization/generated/),
 [embedder](../../tools/Invoke-CatalogEmbed.ps1),
+[Go locale data](../../test/extension/extension-sdk/i18n/localedata.go),
+[request adapter source](../../globalization/kernel/yuruna.rawpage.js),
 [service catalog example](../../test/extension/extension-sdk/internal/catalog/),
 [status browser runtime](../../test/status/yuruna.common.js),
 [browser kernel](../../globalization/kernel/yuruna.i18n.js), and
@@ -59,7 +64,8 @@ coverage and domain ownership, required descriptions, lifecycle rules,
 placeholder contracts, matching message kinds, plural forms, and translation
 `sourceHash` values. The hash covers the whole en-US message contract, so editing
 a translator description also makes translations stale. Stale translations for
-supported locales fail compilation. `origin: machine` records translation
+supported locales fail compilation. The compiler derives both diagnostic
+locales from the en-US sources. `origin: machine` records translation
 provenance only; draft acceptance follows
 [Translating a source revision](../globalization.md#420b66d2-0004). The
 [catalog-set manifest](../../globalization/manifests/catalog-set.json) records
@@ -95,7 +101,7 @@ or expose a language selector.
 | --- | --- |
 | Config language | A nonempty value other than `auto` locks the decision. An unsupported lock resolves to the manifest default and still reports `config` as its source. |
 | User language | A supported explicit value wins when configuration is unlocked. An unsupported value falls through. |
-| `Accept-Language` | Highest-quality supported candidate wins. Zero quality, malformed quality, and a bare wildcard supply no candidate. Ties use ordinal resolved-tag and requested-tag ordering. |
+| `Accept-Language` | Highest-quality supported candidate wins. Zero quality, malformed quality, and a bare wildcard supply no candidate. A header longer than the manifest's 512-character bound supplies none. Ties use ordinal resolved-tag and requested-tag ordering. |
 | Process culture | A supported process UI culture wins if earlier inputs supplied no decision. |
 | Default | `en-US` is selected when nothing else wins. |
 
@@ -122,7 +128,10 @@ writes the language environment file; the
 [service unit](../../test/extension/caching-proxy-service/caching-proxy-service.service)
 passes it as startup options.
 Status opens diagnostic locales with `YURUNA_ALLOW_PSEUDO_LOCALE`; Go services
-use `--allow-pseudo-locale`. Ordinary negotiation excludes them.
+use `--allow-pseudo-locale`. Ordinary negotiation excludes them. No Yuruna
+boundary reads a language query parameter or cookie, and the browser runtimes
+do not read the browser's language setting; `Accept-Language` is the only
+client input.
 
 PowerShell contexts are read-only dictionaries, Go contexts are passed by
 value, and browser contexts are frozen. They carry requested and resolved tags,
@@ -132,8 +141,9 @@ The browser's separate wall-clock helpers use the reader's zone, so its context
 records `timeZone: local`. Typed arguments use the manifest's number and plural
 tables; operator messages carried over from composite formats still format those
 values with .NET culture data for the resolved tag. A missing key falls back to
-`en-US`, then to the key itself. Typed substitutions receive bidi isolation where
-needed; see [PowerShell formatting](../../test/modules/Test.Catalog.psm1),
+`en-US`, then to the key itself. The PowerShell HTML marker renderer is
+stricter: a marked key missing from the selected locale fails the render.
+Typed substitutions receive bidi isolation where needed; see [PowerShell formatting](../../test/modules/Test.Catalog.psm1),
 [Go formatting](../../test/extension/extension-sdk/i18n/format.go), and the browser
 kernel.
 
@@ -151,7 +161,11 @@ sequenceDiagram
     test-locale-psm1-->>start-status-service-ps1: Locale context
     start-status-service-ps1->>test-catalog-psm1: Render marked HTML
     test-catalog-psm1-->>start-status-service-ps1: Escaped localized slots
-    start-status-service-ps1-->>index-html: HTML and locale headers
+    alt Validator matches
+        start-status-service-ps1-->>index-html: 304 and locale headers
+    else Changed representation
+        start-status-service-ps1-->>index-html: HTML and locale headers
+    end
     opt Non-English locale
         index-html->>start-status-service-ps1: GET hashed catalog
         start-status-service-ps1-->>index-html: Immutable catalog script
@@ -164,7 +178,9 @@ sequenceDiagram
 
 The five participants show the PowerShell status surface. The server fills
 explicit text and presentation-attribute markers, writes `lang`, `dir`, and
-decision metadata, and sends UTF-8 HTML with escaped catalog text. English
+decision metadata, and sends UTF-8 HTML with escaped catalog text. Its ETag
+hashes those localized bytes, so a matching `If-None-Match` from one language
+cannot suppress another language's page. English
 catalog data is already in the runtime; another selected locale requires its
 generated catalog asset. Status refuses to send a selected non-English runtime
 page when that asset is missing.
@@ -246,6 +262,24 @@ headers but no ETag. See
 [page serving](../../test/extension/extension-sdk/i18n/page.go), and the status
 request handler.
 
+| Response | `Cache-Control` | Validator | Locale headers |
+| --- | --- | --- | --- |
+| Status HTML page | `public, max-age=60, must-revalidate`, with `Last-Modified` | Localized-byte ETag; 304 on match | Yes |
+| Status hashed catalog | `public,max-age=31536000,immutable` | Content-hash ETag; 304 on match | No |
+| Page-store page | `public, max-age=0, must-revalidate` | Localized-byte ETag; 304 on match | Yes |
+| Page-store catalog `locale.<hash>.js` | `public, max-age=31536000, immutable` | Content-hash ETag; 304 on match | No |
+| Pool-control page | None; `Vary` also names `Accept-Encoding` | Per-encoding ETag; 304 on match | Yes |
+| Pool-control catalog `<locale>.<hash>.pool.js` | `public,max-age=31536000,immutable` | Per-encoding ETag; 304 on match | No |
+| Caching-proxy landing page | `no-store` | None | Yes |
+| Localized messages and errors | `no-store` | Status file errors carry an ETag but never answer 304 | Yes |
+
+Sources: [status request handler](../../test/service/Start-StatusService.ps1),
+[SDK page store](../../test/extension/extension-sdk/i18n/page.go),
+[pool page serving](../../test/extension/pool-control-service/server/internal/httpsrv/handlers.go),
+[pool page assets](../../test/extension/pool-control-service/server/internal/httpsrv/assets.go),
+[caching-proxy landing](../../test/extension/caching-proxy-service/landing.go), and
+[aggregator diagnostics](../../test/extension/pool-aggregator-service/localization.go).
+
 Status validates a catalog URL against its current file hash and serves the
 same captured bytes used to calculate that hash. A concurrent catalog update
 therefore cannot replace the response with different bytes under an immutable
@@ -286,9 +320,14 @@ flowchart LR
 The six boxes group the default resource file and three translated `.resx`
 files. `Program.cs` supports `en-US`, `pt-BR`, `zh-CN`, and `he-IL`, defaults to
 `en-US`, and leaves the framework's request-culture provider collection in place.
-`ServiceMessages` selects text with `CurrentUICulture` and formats arguments
-with `CurrentCulture`. It does not use Yuruna's locale context or compiled
-message catalogs.
+That [default order](https://learn.microsoft.com/aspnet/core/fundamentals/localization/select-language-culture)
+is the `culture` and `ui-culture` query parameters, then the
+`.AspNetCore.Culture` cookie, then the first three `Accept-Language` values by
+quality; a request none of them matches gets `en-US`. There are no manifest
+aliases, so `pt-PT` does not select `pt-BR`, and the application sets neither
+`Content-Language` nor `Vary`. `ServiceMessages` selects text with
+`CurrentUICulture` and formats arguments with `CurrentCulture`. It does not use
+Yuruna's locale context or compiled message catalogs.
 
 Sources: companion text-to-SQL
 [Program.cs](https://github.com/alissonsol/yuruna-project/blob/main/example/text-to-sql/components/frontend/text-to-sql-ui/Program.cs),

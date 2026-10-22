@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.18.2
+.VERSION 2026.10.22
 .GUID 42b0f4a9-1c73-4e58-8d61-9a5207ebd3f4
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -281,7 +281,7 @@ function Test-CatalogFile {
         }
 
         $declared = @()
-        if ($msg.placeholders) { $declared = @($msg.placeholders.PSObject.Properties.Name) }
+        if ($msg.placeholders) { $declared = @($msg.placeholders.PSObject.Properties | ForEach-Object { $_.Name }) }
 
         $forms = Get-MessageForm -Message $msg
         if ($forms.Count -eq 0) {
@@ -595,7 +595,7 @@ function Get-PowerShellArtifact {
     $guid = Get-DerivedGuid -Seed "$Locale|$Domain"
     $header = @(
         '<#PSScriptInfo'
-        '.VERSION 2026.10.18.2'
+        '.VERSION 2026.10.22'
         ".GUID $guid"
         '.AUTHOR Alisson Sol et al.'
         '.COPYRIGHT (c) 2019-2026 by Alisson Sol et al.'
@@ -1021,7 +1021,7 @@ foreach ($translationKey in $translationProvenance.Keys) {
 }
 $setManifest = ConvertTo-CanonicalJson -Value ([ordered]@{
     schema          = 'yuruna.catalog-set/v1'
-    compilerVersion = '2026.10.18.2'
+    compilerVersion = '2026.10.22'
     catalogSchema   = 'yuruna.catalog/v1'
     localeManifest  = Get-Sha256 -Text ([IO.File]::ReadAllText($manifestPath))
     inputs           = $inputHash

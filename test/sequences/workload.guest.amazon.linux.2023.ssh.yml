@@ -28,6 +28,7 @@ component:
 
 # --- REGION: workload
 workload:
+  # See https://yuruna.link/42e220c4-0007
   - action: sshFetchAndExecute
     command: 'sudo dnf groupinstall -y "Desktop"'
     timeoutSeconds: 1800

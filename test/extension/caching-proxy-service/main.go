@@ -87,9 +87,11 @@ type daemon struct {
 	aggregatorURL string
 	grafanaURL    string
 	poolClient    *pool.Client
+	mirror        *mirrorRelay
 }
 
 func main() {
+	mirrorOptions := mirrorFlags()
 	httpAddr := flag.String("http-addr", "0.0.0.0:9310", "address to serve the management API on; empty disables it")
 	mode := flag.String("mode", string(modeLocal), "local (on the proxy VM) or remote (reads only, over the squid and registry APIs)")
 	squidAddr := flag.String("squid-addr", "127.0.0.1:3128", "host:port of the squid HTTP port whose manager pages are read")
@@ -105,6 +107,14 @@ func main() {
 	parserURL := flag.String("parser-url", "http://127.0.0.1:9302", "base URL of the caching-proxy-parser-service on this VM, whose recent-request tail this service republishes; empty disables it")
 	grafanaURL := flag.String("grafana-url", "http://127.0.0.1:3000", "base URL of Grafana on this VM, asked which dashboards exist for the landing page; empty lists them all as unavailable")
 	flag.Parse()
+	if mirrorOptions.Role != "management" {
+		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+		defer stop()
+		if err := runMirrorRole(ctx, *mirrorOptions, *httpAddr); err != nil {
+			log.Fatal(err)
+		}
+		return
+	}
 
 	d := &daemon{
 		mode:             runMode(*mode),
@@ -117,6 +127,7 @@ func main() {
 		parserURL:        strings.TrimRight(*parserURL, "/"),
 		aggregatorURL:    strings.TrimRight(*aggregatorURL, "/"),
 		grafanaURL:       strings.TrimRight(*grafanaURL, "/"),
+		mirror:           newMirrorRelay(*mirrorOptions),
 	}
 	// The same read client the other services use, so the landing page resolves
 	// an extension area exactly the way the dashboard's Extension hosts cell
@@ -213,6 +224,10 @@ func (d *daemon) routes() http.Handler {
 	// Mutations: the lab-token gate, and in remote mode a 501 underneath it.
 	mux.HandleFunc("POST /api/switches/offline", d.gate.Require(d.handleSetOffline))
 	mux.HandleFunc("POST /api/switches/no-upstream", d.gate.Require(d.handleSetNoUpstream))
+	mux.HandleFunc("GET /git-mirror/status.json", d.mirrorProxy)
+	mux.HandleFunc("GET /git-mirror/metrics", d.mirrorProxy)
+	mux.HandleFunc("POST /git-mirror/v1/resolve", d.mirrorProxy)
+	mux.HandleFunc("POST /api/git-mirror/repositories", d.gate.Require(d.mirrorRegister))
 
 	// MCP over the same surface, gated by the same gate. Not wrapped in
 	// gate.Require: the protocol decides per TOOL, because its read-only tools

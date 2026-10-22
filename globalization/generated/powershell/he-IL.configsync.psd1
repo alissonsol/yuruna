@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.18.2
+.VERSION 2026.10.22
 .GUID 42101596-b827-a50b-034a-8ed11dd7f37b
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -125,6 +125,7 @@
             )
         }
     }
+    'configsync.mirror_key_confirmation' = 'האם לקבל את רישום מפתחות האימות של שרת המראה?'
     'configsync.operator_03e72c207d4307ef' = @(
         '  מפתחות שהסכמה של מארח זה מגדירה ושאינם קיימים אצל '
         @{

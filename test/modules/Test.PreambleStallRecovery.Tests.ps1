@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.18.2
+.VERSION 2026.10.22
 .GUID 425d1ef1-c9ad-47cc-8b78-45a0c1156135
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -437,6 +437,23 @@ Describe 'Update-RunnerFaultStatus' {
 }
 
 Describe 'Get-RunnerPreambleStallStreak' {
+    It 'does not count an explicit configuration refusal as a preamble stall' {
+        $dir = Initialize-TempRuntimeDir
+        try {
+            $gate = @{
+                attemptGeneration = 'typed-gate:1'; passed = $false
+                startedAtUtc = [datetime]::UtcNow.ToString('o')
+                structuredResult = @{ failures = @(@{ class = 'network_timeout'; cause = 'git-transport-failed' }) }
+            }
+            [IO.File]::WriteAllText((Join-Path $dir 'runner.configGate.json'), ($gate | ConvertTo-Json -Depth 8))
+            $fault = Get-RunnerAttemptFault -RuntimeDir $dir -AttemptGeneration 'typed-gate:1' -ExitCode 78
+            $fault.FailureClass | Should -Be 'config_gate_failed'
+            $fault.IsCrash | Should -BeFalse
+            $fault.StalledPhase | Should -BeNullOrEmpty
+            (Get-RunnerPreambleStallStreak -RuntimeDir $dir -StalledPhase $fault.StalledPhase -Confirm:$false).Streak | Should -Be 0
+        } finally { Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction SilentlyContinue }
+    }
+
     It 'counts repeats in the same phase and widens the pause once they escalate' {
         $dir = Initialize-TempRuntimeDir
         try {

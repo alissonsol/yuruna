@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.18.2
+.VERSION 2026.10.22
 .GUID 42647c3a-19a7-4931-b638-07791d5f0b1b
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -24,6 +24,11 @@
     macOS `sudo -E` to bind :80), and the external-cache sources
     (vmStart.cachingProxyIp probed first, YURUNA_CACHING_PROXY_SERVICE_IP as
     fallback) that make this a no-op.
+.DESCRIPTION
+    Interactive starts offer an optional GitHub token with input hidden. Enter
+    keeps the stored token or anonymous access. Supplying a token saves it in
+    the host's authentication vault and selects a full VM rebuild to apply it.
+    Captured and noninteractive starts use the existing vault without prompting.
 
 .PARAMETER VMName
     Name for the cache VM. Default: yuruna-caching-proxy-service.
@@ -65,6 +70,7 @@ $global:InformationPreference = "Continue"
 $global:ProgressPreference    = "SilentlyContinue"
 
 # --- REGION: Initialize service runtime
+# See https://yuruna.link/42fffc2c-000b
 # See https://yuruna.link/42162449-0004
 # After the preference assignments above on purpose: an explicit level is the
 # operator's choice and replaces this script's own default.
@@ -162,6 +168,14 @@ if ($MacAddress) {
         exit 1
     }
     Write-Verbose "Cache VM NIC will use stable MAC $MacAddress (set a DHCP reservation for it to pin the cache IP)."
+}
+
+# --- REGION: Configure optional Git mirror authentication
+# The libvirt relaunch cannot prompt. Persist the answer before it, and carry
+# only the rebuild decision so a healthy VM cannot retain its old credential.
+if (Initialize-CachingProxyGitMirrorToken -Confirm:$false) {
+    $ForceRebuild = $true
+    $PSBoundParameters['ForceRebuild'] = $true
 }
 
 # Auto-relaunch under sg libvirt on host.ubuntu.kvm when this shell's
@@ -327,8 +341,8 @@ try {
 # --- REGION: Adopt a healthy VM
 # Load the host contract so Get-VMState / Test-CacheVMOnExternalNetwork /
 # Add-PortMap resolve for the probe + exposure re-assert. The Test.CachingProxyService
-# re-import afterward is mandatory, not redundant:
-# docs/workarounds.md#nested-non-global-import-evicts-a-callers-view-of-a-module
+# re-import afterward is mandatory, not redundant.
+# See https://yuruna.link/42aaf735-0006
 if (-not $ForceRebuild) {
     Import-Module (Join-Path $PSScriptRoot '../modules/Test.HostContract.psm1') -Force
     [void](Initialize-YurunaHost -RepoRoot (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)))
@@ -607,7 +621,6 @@ if (-not $newVmInvokeOk) {
 
 # --- REGION: Register and start the UTM VM
 # (Hyper-V's New-VM.ps1 already starts the VM and waits for :3128.)
-
 $cacheIp = $null
 # LAN-reachable address for the cache, and whether host forwarders are in
 # play. $cacheLanIp defaults (later) to the VM's own IP -- correct for
@@ -775,9 +788,8 @@ if ($IsMacOS) {
             } else {
                 Write-Warning "  Forwarder setup failed -- the cache is reachable from this host and Shared-NAT UTM guests at $cacheIp, but not from other LAN machines."
             }
-            # Re-import Test.CachingProxyService -Global -Force: Initialize-YurunaHost
-            # evicts this script's view via the host module's nested non-
-            # global import.
+            # Re-import: Initialize-YurunaHost evicts this script's view of Test.CachingProxyService.
+            # See https://yuruna.link/42aaf735-0006
             Import-Module (Join-Path $PSScriptRoot '../modules/Test.CachingProxyService.psm1') -Global -Force -Verbose:$false
             [void](Save-CachingProxyServiceState -IpAddress $cacheIp -Confirm:$false)
         }
@@ -838,8 +850,8 @@ if ($IsMacOS) {
     }
     }
 } elseif ($IsLinux) {
-    # See https://yuruna.link/42e5cdfd-0039
     # --- REGION: Linux -- re-query the cache VM IP for persistence + summary
+    # See https://yuruna.link/42e5cdfd-0039
     Write-Verbose ""
     Write-Verbose "== Step 4: re-query cache VM IP for persistence + summary =="
     Import-Module (Join-Path $RepoRoot 'host/ubuntu.kvm/modules/Yuruna.Host.psm1') -Force -DisableNameChecking
@@ -852,10 +864,8 @@ if ($IsMacOS) {
     } else {
         Write-Verbose "  Cache VM IP: $cacheIp"
         # Persist for guest provisioners + status service fast path.
-        # Re-import Test.CachingProxyService -Global -Force here for the same
-        # reason the macOS/Windows branches do (Initialize-YurunaHost
-        # via Test.HostContract.psm1 nested-imports Test.CachingProxyService without
-        # -Global, which evicts the script's view of the exports).
+        # Re-import: Initialize-YurunaHost evicts this script's view of Test.CachingProxyService.
+        # See https://yuruna.link/42aaf735-0006
         Import-Module (Join-Path $PSScriptRoot '../modules/Test.CachingProxyService.psm1') -Global -Force -Verbose:$false
         [void](Save-CachingProxyServiceState -IpAddress $cacheIp -Confirm:$false)
     }
@@ -918,9 +928,9 @@ if ($IsMacOS) {
 
     # Persist the cache VM's IP so Test-CachingProxyServiceAvailable's state-
     # file-only discovery path can find it next call. Mirrors the macOS
-    # branch above. Re-import Test.CachingProxyService -Global -Force here to
-    # work around the same nested-import shadowing trap documented in
-    # the macOS branch comment.
+    # branch above.
+    # Re-import: the host module import above evicts this script's view of Test.CachingProxyService.
+    # See https://yuruna.link/42aaf735-0006
     if ($cacheIp) {
         Import-Module (Join-Path $PSScriptRoot '../modules/Test.CachingProxyService.psm1') -Global -Force -Verbose:$false
         [void](Save-CachingProxyServiceState -IpAddress $cacheIp -Confirm:$false)
@@ -966,7 +976,6 @@ $serviceOpResult = 'confirmed'
 
 # --- REGION: Report the service state
 # See https://yuruna.link/42e5cdfd-003c
-
 Write-Verbose ""
 Write-Verbose "========"
 # Reached only when the cache answered -- the critical section exits before this

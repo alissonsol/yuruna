@@ -118,6 +118,17 @@ zot lines that belong to the sync extension rather than to a client request -- t
 upstream retry and failure record behind a slow manifest. Empty is the normal state;
 entries here explain the latency the panels above only measure.
 
+<a id="4227a895-0016"></a>
+
+### Apt index pairs out of step
+
+How many apt indexes this cache serves disagree with the `InRelease` that lists them,
+from the apt index self-test, which runs every 30 minutes. Green 'in step' at 0; red with
+the count otherwise. Every guest of that architecture fails `apt-get update` on such a
+pair until it is purged or the origin publishes again. 'Not run' until the first run.
+The `apt index pairs` line on `/cache-health` names each pair and the fix; see the
+[apt index pairs self-test](caching.md#42f6b05f-005b).
+
 <a id="4227a895-000e"></a>
 
 ## Caching-proxy dashboard (web path)
@@ -199,6 +210,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.18.1
+Last review: 2026.10.22
 
 Back to [Yuruna](../README.md)

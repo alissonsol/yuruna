@@ -1,0 +1,469 @@
+{
+  "schema": "yuruna.git-mirror.qualification-contract/v1",
+  "fixture": {
+    "release": "2026.10.18.2",
+    "commit": "160bbb0855b3c304ad61ab45c02b7ef7c042721d",
+    "manifestPath": "test/fixtures/git-mirror/public-2026.10.18.2.json",
+    "manifestSha256": "c7362636482bd47de72f6f2d67a8cce83c9f6cd6ba2272aef93087b4956539cb"
+  },
+  "requiredPhases": [
+    0,
+    1,
+    2,
+    3
+  ],
+  "nativeRecipePaths": [
+    "test/fixtures/git-mirror/native-service-recipes.json",
+    "test/fixtures/git-mirror/native-worker-recipes.json",
+    "test/fixtures/git-mirror/native-install-recipes.json",
+    "test/fixtures/git-mirror/native-route-recipes.json",
+    "test/fixtures/git-mirror/native-provision-recipes.json"
+  ],
+  "rows": [
+    {
+      "id": "GM-OUTAGE-6MIN-NO-CONTENT",
+      "phase": 0,
+      "platform": "linux-x64"
+    },
+    {
+      "id": "GM-OUTAGE-6MIN-NO-CONTENT",
+      "phase": 0,
+      "platform": "windows-x64"
+    },
+    {
+      "id": "GM-OUTAGE-6MIN-NO-CONTENT",
+      "phase": 0,
+      "platform": "windows-arm64"
+    },
+    {
+      "id": "GM-OUTAGE-6MIN-NO-CONTENT",
+      "phase": 0,
+      "platform": "macos-arm64"
+    },
+    {
+      "id": "GM-WORKER-KILL-MIDFETCH",
+      "phase": 1,
+      "platform": "linux-x64"
+    },
+    {
+      "id": "GM-POPULATION-LARGEST",
+      "phase": 1,
+      "platform": "linux-x64"
+    },
+    {
+      "id": "GM-NO-UPSTREAM-SWITCH",
+      "phase": 1,
+      "platform": "linux-x64"
+    },
+    {
+      "id": "GM-APACHE-SANDBOX",
+      "phase": 1,
+      "platform": "linux-x64"
+    },
+    {
+      "id": "GM-PROXY-OWNER-FIRST",
+      "phase": 2,
+      "platform": "linux-x64"
+    },
+    {
+      "id": "GM-PROXY-OWNER-FIRST",
+      "phase": 2,
+      "platform": "windows-x64"
+    },
+    {
+      "id": "GM-PROXY-OWNER-FIRST",
+      "phase": 2,
+      "platform": "windows-arm64"
+    },
+    {
+      "id": "GM-PROXY-OWNER-FIRST",
+      "phase": 2,
+      "platform": "macos-arm64"
+    },
+    {
+      "id": "GM-PROXY-OLD-CHECKOUT",
+      "phase": 2,
+      "platform": "linux-x64"
+    },
+    {
+      "id": "GM-PROXY-OLD-CHECKOUT",
+      "phase": 2,
+      "platform": "windows-x64"
+    },
+    {
+      "id": "GM-PROXY-OLD-CHECKOUT",
+      "phase": 2,
+      "platform": "windows-arm64"
+    },
+    {
+      "id": "GM-PROXY-OLD-CHECKOUT",
+      "phase": 2,
+      "platform": "macos-arm64"
+    },
+    {
+      "id": "GM-PROXY-NO-STATUS-SERVICE",
+      "phase": 2,
+      "platform": "linux-x64"
+    },
+    {
+      "id": "GM-PROXY-NO-STATUS-SERVICE",
+      "phase": 2,
+      "platform": "windows-x64"
+    },
+    {
+      "id": "GM-PROXY-NO-STATUS-SERVICE",
+      "phase": 2,
+      "platform": "windows-arm64"
+    },
+    {
+      "id": "GM-PROXY-NO-STATUS-SERVICE",
+      "phase": 2,
+      "platform": "macos-arm64"
+    },
+    {
+      "id": "GM-UPG-PUBLIC-MAIN",
+      "phase": 2,
+      "platform": "linux-x64"
+    },
+    {
+      "id": "GM-UPG-PUBLIC-MAIN",
+      "phase": 2,
+      "platform": "windows-x64"
+    },
+    {
+      "id": "GM-UPG-PUBLIC-MAIN",
+      "phase": 2,
+      "platform": "windows-arm64"
+    },
+    {
+      "id": "GM-UPG-PUBLIC-MAIN",
+      "phase": 2,
+      "platform": "macos-arm64"
+    },
+    {
+      "id": "GM-UPG-PUBLIC-PIN",
+      "phase": 2,
+      "platform": "linux-x64"
+    },
+    {
+      "id": "GM-UPG-PUBLIC-PIN",
+      "phase": 2,
+      "platform": "windows-x64"
+    },
+    {
+      "id": "GM-UPG-PUBLIC-PIN",
+      "phase": 2,
+      "platform": "windows-arm64"
+    },
+    {
+      "id": "GM-UPG-PUBLIC-PIN",
+      "phase": 2,
+      "platform": "macos-arm64"
+    },
+    {
+      "id": "GM-UPG-RECLONE-PRESERVE",
+      "phase": 2,
+      "platform": "linux-x64"
+    },
+    {
+      "id": "GM-UPG-RECLONE-PRESERVE",
+      "phase": 2,
+      "platform": "windows-x64"
+    },
+    {
+      "id": "GM-UPG-RECLONE-PRESERVE",
+      "phase": 2,
+      "platform": "windows-arm64"
+    },
+    {
+      "id": "GM-UPG-RECLONE-PRESERVE",
+      "phase": 2,
+      "platform": "macos-arm64"
+    },
+    {
+      "id": "GM-UPG-STOPPED-RUNNER",
+      "phase": 2,
+      "platform": "linux-x64"
+    },
+    {
+      "id": "GM-UPG-STOPPED-RUNNER",
+      "phase": 2,
+      "platform": "windows-x64"
+    },
+    {
+      "id": "GM-UPG-STOPPED-RUNNER",
+      "phase": 2,
+      "platform": "windows-arm64"
+    },
+    {
+      "id": "GM-UPG-STOPPED-RUNNER",
+      "phase": 2,
+      "platform": "macos-arm64"
+    },
+    {
+      "id": "GM-FRESH-LAB-JOIN",
+      "phase": 2,
+      "platform": "linux-x64"
+    },
+    {
+      "id": "GM-FRESH-LAB-JOIN",
+      "phase": 2,
+      "platform": "windows-x64"
+    },
+    {
+      "id": "GM-FRESH-LAB-JOIN",
+      "phase": 2,
+      "platform": "windows-arm64"
+    },
+    {
+      "id": "GM-FRESH-LAB-JOIN",
+      "phase": 2,
+      "platform": "macos-arm64"
+    },
+    {
+      "id": "GM-ROTATE-KEY",
+      "phase": 2,
+      "platform": "linux-x64"
+    },
+    {
+      "id": "GM-ROTATE-KEY",
+      "phase": 2,
+      "platform": "windows-x64"
+    },
+    {
+      "id": "GM-ROTATE-KEY",
+      "phase": 2,
+      "platform": "windows-arm64"
+    },
+    {
+      "id": "GM-ROTATE-KEY",
+      "phase": 2,
+      "platform": "macos-arm64"
+    },
+    {
+      "id": "GM-ROLLBACK",
+      "phase": 2,
+      "platform": "linux-x64"
+    },
+    {
+      "id": "GM-ROLLBACK",
+      "phase": 2,
+      "platform": "windows-x64"
+    },
+    {
+      "id": "GM-ROLLBACK",
+      "phase": 2,
+      "platform": "windows-arm64"
+    },
+    {
+      "id": "GM-ROLLBACK",
+      "phase": 2,
+      "platform": "macos-arm64"
+    },
+    {
+      "id": "GM-MIRROR-FIRST-HOST-OFFLINE",
+      "phase": 2,
+      "platform": "linux-x64"
+    },
+    {
+      "id": "GM-MIRROR-FIRST-HOST-OFFLINE",
+      "phase": 2,
+      "platform": "windows-x64"
+    },
+    {
+      "id": "GM-MIRROR-FIRST-HOST-OFFLINE",
+      "phase": 2,
+      "platform": "windows-arm64"
+    },
+    {
+      "id": "GM-MIRROR-FIRST-HOST-OFFLINE",
+      "phase": 2,
+      "platform": "macos-arm64"
+    },
+    {
+      "id": "GM-WORKER-OFFLINE",
+      "phase": 2,
+      "platform": "linux-x64"
+    },
+    {
+      "id": "GM-WORKER-OFFLINE",
+      "phase": 2,
+      "platform": "windows-x64"
+    },
+    {
+      "id": "GM-WORKER-OFFLINE",
+      "phase": 2,
+      "platform": "windows-arm64"
+    },
+    {
+      "id": "GM-WORKER-OFFLINE",
+      "phase": 2,
+      "platform": "macos-arm64"
+    },
+    {
+      "id": "GM-BOTH-ROUTES-OFFLINE",
+      "phase": 2,
+      "platform": "linux-x64"
+    },
+    {
+      "id": "GM-BOTH-ROUTES-OFFLINE",
+      "phase": 2,
+      "platform": "windows-x64"
+    },
+    {
+      "id": "GM-BOTH-ROUTES-OFFLINE",
+      "phase": 2,
+      "platform": "windows-arm64"
+    },
+    {
+      "id": "GM-BOTH-ROUTES-OFFLINE",
+      "phase": 2,
+      "platform": "macos-arm64"
+    },
+    {
+      "id": "GM-MIRROR-RECOVERY",
+      "phase": 2,
+      "platform": "linux-x64"
+    },
+    {
+      "id": "GM-MIRROR-RECOVERY",
+      "phase": 2,
+      "platform": "windows-x64"
+    },
+    {
+      "id": "GM-MIRROR-RECOVERY",
+      "phase": 2,
+      "platform": "windows-arm64"
+    },
+    {
+      "id": "GM-MIRROR-RECOVERY",
+      "phase": 2,
+      "platform": "macos-arm64"
+    },
+    {
+      "id": "GM-MISSING-TRUST",
+      "phase": 2,
+      "platform": "linux-x64"
+    },
+    {
+      "id": "GM-MISSING-TRUST",
+      "phase": 2,
+      "platform": "windows-x64"
+    },
+    {
+      "id": "GM-MISSING-TRUST",
+      "phase": 2,
+      "platform": "windows-arm64"
+    },
+    {
+      "id": "GM-MISSING-TRUST",
+      "phase": 2,
+      "platform": "macos-arm64"
+    },
+    {
+      "id": "GM-AUTH-DENIED",
+      "phase": 2,
+      "platform": "linux-x64"
+    },
+    {
+      "id": "GM-AUTH-DENIED",
+      "phase": 2,
+      "platform": "windows-x64"
+    },
+    {
+      "id": "GM-AUTH-DENIED",
+      "phase": 2,
+      "platform": "windows-arm64"
+    },
+    {
+      "id": "GM-AUTH-DENIED",
+      "phase": 2,
+      "platform": "macos-arm64"
+    },
+    {
+      "id": "GM-GUEST-RAW-FALLBACK",
+      "phase": 3,
+      "platform": "linux-x64"
+    },
+    {
+      "id": "GM-GUEST-RAW-FALLBACK",
+      "phase": 3,
+      "platform": "windows-x64"
+    },
+    {
+      "id": "GM-GUEST-RAW-FALLBACK",
+      "phase": 3,
+      "platform": "windows-arm64"
+    },
+    {
+      "id": "GM-GUEST-RAW-FALLBACK",
+      "phase": 3,
+      "platform": "macos-arm64"
+    },
+    {
+      "id": "GM-GUEST-TREE-FALLBACK",
+      "phase": 3,
+      "platform": "linux-x64"
+    },
+    {
+      "id": "GM-GUEST-TREE-FALLBACK",
+      "phase": 3,
+      "platform": "windows-x64"
+    },
+    {
+      "id": "GM-GUEST-TREE-FALLBACK",
+      "phase": 3,
+      "platform": "windows-arm64"
+    },
+    {
+      "id": "GM-GUEST-TREE-FALLBACK",
+      "phase": 3,
+      "platform": "macos-arm64"
+    },
+    {
+      "id": "GM-FRESH-SETUP-LINUX-X64",
+      "phase": 2,
+      "platform": "linux-x64"
+    },
+    {
+      "id": "GM-FRESH-SETUP-WINDOWS-X64",
+      "phase": 2,
+      "platform": "windows-x64"
+    },
+    {
+      "id": "GM-FRESH-SETUP-WINDOWS-ARM64",
+      "phase": 2,
+      "platform": "windows-arm64"
+    },
+    {
+      "id": "GM-FRESH-SETUP-MACOS-ARM64",
+      "phase": 2,
+      "platform": "macos-arm64"
+    },
+    {
+      "id": "GM-UTM-AQUA",
+      "phase": 2,
+      "platform": "macos-arm64"
+    },
+    {
+      "id": "GM-WIN-GUEST-OLD-SEED",
+      "phase": 3,
+      "platform": "windows-x64"
+    },
+    {
+      "id": "GM-WIN-GUEST-OLD-SEED",
+      "phase": 3,
+      "platform": "windows-arm64"
+    },
+    {
+      "id": "GM-WIN-GUEST-NEW-SEED",
+      "phase": 3,
+      "platform": "windows-x64"
+    },
+    {
+      "id": "GM-WIN-GUEST-NEW-SEED",
+      "phase": 3,
+      "platform": "windows-arm64"
+    }
+  ]
+}

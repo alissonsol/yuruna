@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.18.2
+.VERSION 2026.10.22
 .GUID 42e220c4-9472-4e35-bf37-59a7e003196b
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -352,6 +352,10 @@ Describe 'Ubuntu test-sequence parity' {
             $second.component[0] = $second.component[0].steps[0]
             $first.component[1].steps[2].action | Should -BeExactly 'waitForTextWithNudge'
             $second.component[1].steps[2].action | Should -BeExactly 'waitForTextWithNudge'
+            $first.component[1].restartVmBeforeRetry | Should -BeExactly 'coldPowerCycle'
+            $second.component[1].restartVmBeforeRetry | Should -BeExactly 'coldPowerCycle'
+            $first.workload[-1].restartVmBeforeRetry | Should -BeExactly 'coldPowerCycle'
+            $second.workload[-1].restartVmBeforeRetry | Should -BeExactly 'coldPowerCycle'
             $first.component[1].steps[2].timeoutSeconds | Should -Be 1800
             $second.component[1].steps[2].timeoutSeconds | Should -Be 2400
             $second.component[1].steps[2]['timeoutSeconds'] = 1800
@@ -680,8 +684,8 @@ Describe 'Shared source regions' {
                 ($observed -join '|') | Should -BeExactly ($phases -join '|') -Because "$hostKind/$guest shares the replacement order"
                 $source = Get-ConsistencyWorkflowSource -Path $path
                 if ($hostKind -eq 'ubuntu.kvm' -and $guest -ne 'windows.11') {
-                    [regex]::Matches($source, '(?m)^\$guestBinding = Resolve-GuestHostBinding\r?$').Count | Should -Be 1
-                    $source | Should -Not -Match '(?m)^\$(?:networkName|YurunaHostIp|hostIp)\s*=\s*Get-(?:ExternalNetwork|BestHostIp|GuestReachableHostIp)\b'
+                    [regex]::Matches($source, '(?m)^[ \t]*\$guestBinding = Resolve-GuestHostBinding\r?$').Count | Should -Be 1
+                    $source | Should -Not -Match '(?m)^[ \t]*\$(?:networkName|YurunaHostIp|hostIp)\s*=\s*Get-(?:ExternalNetwork|BestHostIp|GuestReachableHostIp)\b'
                 }
                 if ($guest -eq 'amazon.linux.2023') {
                     $seedPhases = @('Yuruna harness SSH key', 'Vault user password',
@@ -706,7 +710,7 @@ Describe 'Shared source regions' {
                 'Render user-data / meta-data',
                 'Create and configure the libvirt domain',
                 'Wait for VM IP')
-            'macos.utm' = @('Create and configure the UTM bundle (config.plist, QEMU backend)',
+            'macos.utm' = @('Create and configure the UTM bundle',
                 'Guidance', 'Restore operator file ownership')
         }
         foreach ($hostKind in 'windows.hyper-v', 'ubuntu.kvm', 'macos.utm') {
@@ -790,7 +794,7 @@ Describe 'Shared source regions' {
 
     It 'keeps the provider contract regions in the same order' {
         $names = @('Module setup', 'Image', 'VM lifecycle', 'VM I/O', 'Discovery',
-            'Networking', 'Caching-proxy service', 'Host config', 'Exports')
+            'Networking', 'Caching-proxy service', 'Host configuration', 'Exports')
         $expected = $null
         foreach ($hostKind in 'windows.hyper-v', 'macos.utm', 'ubuntu.kvm') {
             $text = Get-Content (Join-Path $script:RepoRoot "host/$hostKind/modules/Yuruna.Host.psm1") -Raw

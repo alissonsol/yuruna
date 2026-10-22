@@ -842,6 +842,21 @@
       "sourceHash": "a0b153ba81d5e39ad1edf6b83e5055b55997ea899c746373607b95405d75aa9e",
       "origin": "machine",
       "message": "当生命周期命令再次响应后恢复运行器；下一个周期会在构建任何内容之前探测控制通道"
+    },
+    "remediation.source_integrity_rationale": {
+      "sourceHash": "45447a5b7c3491544e1cc8846e649d814321c90d08a3278c630ae2d7c9ded6e0",
+      "origin": "machine",
+      "message": "source_integrity：来源验证失败。请保留已安装的检出目录，并在重试前检查证据。{detail}"
+    },
+    "remediation.source_integrity_action_identity": {
+      "sourceHash": "a859a21e2a027affa037fa212acfca323bdeb51a40d91d59afbaad79fb816fc8",
+      "origin": "machine",
+      "message": "将已登记的密钥 ID 与代理所有者导出的身份进行比较，并检查已签名的回执和所选 SHA。"
+    },
+    "remediation.source_integrity_action_evidence": {
+      "sourceHash": "1119e7416a9854e3111c91005788de244fc41633b6b681615c1f0ee0f61fb1cc",
+      "origin": "machine",
+      "message": "检查配置验证诊断中的 sourceSelections 和镜像状态；保持签名和提交验证启用。"
     }
   }
 }

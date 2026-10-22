@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.18.2
+.VERSION 2026.10.22
 .GUID 42f81d3c-9e04-4a72-b5c8-6d190af7be21
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -178,6 +178,22 @@ Describe 'the shipped catalogs compile and their artifacts are current' {
 }
 
 Describe 'the compiler generates the same bytes every time' {
+
+    It 'compiles a literal with an empty placeholder declaration alongside named placeholders' {
+        $json = $script:GoodCatalog.Replace(
+            '"description": "Shown when the queue is empty.",',
+            '"description": "Shown when the queue is empty.", "placeholders": {},')
+        $root = New-CatalogRoot -Name 'empty-placeholders' -DomainJson $json
+        $run = Invoke-Compile -Root $root -Update
+        Assert-Equal -Expected 1 -Actual $run.ExitCode -Because "the first pass writes artifacts:`n$($run.Output)"
+        Assert-False ($run.Output -match 'Catalog validation failed') 'an empty declaration names no unused placeholder'
+        $catalog = Import-PowerShellDataFile -LiteralPath (Join-Path $root 'generated/powershell/en-US.sample.psd1')
+        Assert-StringEqual 'Nothing is running.' $catalog['sample.plain'] 'a literal needs no placeholder metadata'
+        $count = $catalog['sample.counted'].variants.one[0]
+        Assert-StringEqual 'count' $count.arg 'the named placeholder still compiles'
+        Assert-StringEqual 'integer' $count.type 'the named placeholder keeps its declared type'
+        Assert-Equal -Expected 0 -Actual (Invoke-Compile -Root $root).ExitCode 'the generated set is current'
+    }
 
     It 'preserves generated artifacts when the catalog root is relative' {
         $root = New-CatalogRoot -Name 'relative-root' -DomainJson $script:GoodCatalog

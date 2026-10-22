@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.18.2
+.VERSION 2026.10.22
 .GUID 427227f6-5537-49d8-bd74-b53ec39ba8f9
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -226,7 +226,7 @@ Describe 'waitForTextWithNudge preserves one OCR deadline' {
         $coldRestart = $moduleAst.Find({
                 param($n)
                 $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and
-                $n.Name -eq 'Invoke-Arm64HyperVColdPowerCycle'
+                $n.Name -eq 'Invoke-SequenceColdPowerCycle'
             }, $true)
         Assert-True ($null -ne $coldRestart) 'the bounded cold-restart helper must exist'
         $ct = $coldRestart.Extent.Text
@@ -242,6 +242,13 @@ Describe 'waitForTextWithNudge preserves one OCR deadline' {
         # the three full cycles cover integration, while this pins call order
         # even when none of those cycles happens to reproduce the host wedge.
         . ([scriptblock]::Create($coldRestart.Extent.Text))
+        $legacyColdRestart = $moduleAst.Find({
+                param($n)
+                $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and
+                $n.Name -eq 'Invoke-Arm64HyperVColdPowerCycle'
+            }, $true)
+        Assert-True ($null -ne $legacyColdRestart) 'the legacy helper must remain available'
+        . ([scriptblock]::Create($legacyColdRestart.Extent.Text))
         $script:coldRestartCall = [Collections.Generic.List[string]]::new()
         Set-Item -LiteralPath Function:\Get-VMState -Value {
             param([string]$VMName)
@@ -301,7 +308,7 @@ Describe 'waitForTextWithNudge preserves one OCR deadline' {
                 -Because 'the guest must not start into a target that lacks its late-commands'
         } finally {
             foreach ($functionName in 'Get-VMState', 'Stop-VMForce', 'Start-VM', 'Restart-VMConsole', 'Repair-ScreenshotRing',
-                'Set-VMInstallerMediaFirstBoot', 'Invoke-Arm64HyperVColdPowerCycle') {
+                'Set-VMInstallerMediaFirstBoot', 'Invoke-Arm64HyperVColdPowerCycle', 'Invoke-SequenceColdPowerCycle') {
                 Remove-Item -LiteralPath "Function:\$functionName" -ErrorAction SilentlyContinue
             }
             Remove-Variable -Name coldRestartCall, installerBootResult -Scope Script -ErrorAction SilentlyContinue
@@ -543,6 +550,56 @@ Describe 'Test-GuestPayloadUnavailable (did anything actually run?)' {
     }
 }
 
+Describe 'Get-GuestAptIndexMismatch (which cached apt index disagreed with its InRelease)' {
+
+    BeforeAll { Import-Module $script:modulePath -Force -DisableNameChecking }
+
+    It 'names the index, the sizes, the proxy and what apt_retry did about it' {
+        # The shape the macOS UTM guests logged when the caching proxy held an
+        # InRelease beside an arm64 index from a later Docker publish.
+        $url = 'https://download.docker.com/linux/ubuntu/dists/noble/stable/binary-arm64/Packages.bz2'
+        $out = @(
+            "[   4.077] Err:7 https://download.docker.com/linux/ubuntu noble/stable arm64 Packages"
+            "[   4.512] E: Failed to fetch $url  File has unexpected size (68990 != 68750). Mirror sync in progress? [IP: 192.168.7.42 3129]"
+            "[   4.512]    Release file created at: Wed, 21 Oct 2026 08:17:00 +0000"
+            "[   4.520] !! apt_retry: proxy copy of ${url}: HTTP/1.1 200 OK;Age: 33000;X-Cache: HIT from cache"
+            "[   4.530] !! apt_retry: asked the caching proxy to PURGE ${url}: HTTP 200"
+            "[ 108.866] E: Failed to fetch $url  File has unexpected size (68994 != 68759). Mirror sync in progress? [IP: 192.168.7.42 3129]"
+            "[ 108.866]    Release file created at: Wed, 21 Oct 2026 08:17:46 +0000"
+        ) -join "`n"
+        $m = Get-GuestAptIndexMismatch -Output $out
+        Assert-Equal -Expected 'unexpected-size' -Actual $m.kind
+        Assert-Equal -Expected $url -Actual $m.url
+        # The last attempt is the one the step failed on.
+        Assert-Equal -Expected 68994 -Actual $m.receivedBytes
+        Assert-Equal -Expected 68759 -Actual $m.expectedBytes
+        Assert-Equal -Expected '192.168.7.42:3129' -Actual $m.server
+        Assert-Equal -Expected 'Wed, 21 Oct 2026 08:17:46 +0000' -Actual $m.releaseFileCreated
+        Assert-Equal -Expected 2 -Actual $m.occurrences
+        Assert-Equal -Expected 'HTTP/1.1 200 OK;Age: 33000;X-Cache: HIT from cache' -Actual $m.proxyCopy
+        Assert-Equal -Expected 200 -Actual $m.proxyPurgeStatus
+    }
+
+    It 'recognizes a hash mismatch, which names no sizes and often no server' {
+        $out = "E: Failed to fetch http://ports.ubuntu.com/ubuntu-ports/dists/noble/main/dep11/Components-arm64.yml.gz  Hash Sum mismatch`n   Hashes of expected file:"
+        $m = Get-GuestAptIndexMismatch -Output $out
+        Assert-Equal -Expected 'hash-sum-mismatch' -Actual $m.kind
+        Assert-Equal -Expected 'http://ports.ubuntu.com/ubuntu-ports/dists/noble/main/dep11/Components-arm64.yml.gz' -Actual $m.url
+        Assert-True ($null -eq $m.receivedBytes -and $null -eq $m.expectedBytes) 'a hash mismatch states no sizes'
+        Assert-Equal -Expected '' -Actual $m.server
+        Assert-True ($null -eq $m.proxyPurgeStatus) 'nothing was purged'
+    }
+
+    It 'returns nothing for an apt failure that is not an index mismatch' {
+        # A plain fetch failure is an outage, not a stale pair, and naming one
+        # would send the operator to the cache for nothing.
+        $out = "E: Failed to fetch https://download.docker.com/linux/ubuntu/dists/noble/InRelease  Could not connect to 192.168.7.42:3129"
+        Assert-True ($null -eq (Get-GuestAptIndexMismatch -Output $out)) 'a connect failure is not a mismatch'
+        Assert-True ($null -eq (Get-GuestAptIndexMismatch -Output '')) 'empty output names nothing'
+        Assert-True ($null -eq (Get-GuestAptIndexMismatch -Output $null)) 'no output names nothing'
+    }
+}
+
 Describe 'Initial ARM64 Hyper-V installer recovery' {
     BeforeAll {
         Import-Module $script:modulePath -Force -DisableNameChecking
@@ -737,6 +794,203 @@ Describe 'Initial ARM64 Hyper-V installer recovery' {
         $script:bootContext.Step.steps[0][$Field] = $Value
         (& $script:bootRetryHandler $script:bootContext) | Should -BeFalse
         $script:bootStub.Calls.Count | Should -Be 0
+    }
+}
+
+Describe 'Provider-neutral login-wait cold recovery' {
+    BeforeAll {
+        Import-Module $script:modulePath -Force -DisableNameChecking
+        $script:coldModule = Get-Module Test.SequenceHandler
+        $script:coldHandler = (Get-SequenceAction -Name retry).Handler
+        . $script:coldModule {
+            function Get-PollDelay { return 0 }
+            function Send-CycleEventSafely { param($EventRecord) $script:ColdStub.Events.Add($EventRecord) }
+            function Save-StepFailureEvidence {
+                [CmdletBinding(SupportsShouldProcess)]
+                [OutputType([string])]
+                param($VMName, $Label, $DiagnosticRecord)
+                $null = $Label, $PSCmdlet.ShouldProcess($VMName, 'Record fixture evidence')
+                $script:ColdStub.Diagnostic = $DiagnosticRecord
+                $script:ColdStub.Calls.Add('evidence')
+                if (-not $script:ColdStub.EvidenceAvailable) { return }
+                return 'failed-attempt'
+            }
+            function Get-VMState {
+                param($VMName)
+                $null = $VMName
+                if ($script:ColdStub.Failure -eq 'initial-state') { return 'unknown' }
+                return $script:ColdStub.State
+            }
+            function Stop-VMForce {
+                [CmdletBinding(SupportsShouldProcess)]
+                [OutputType([bool])]
+                param($VMName, $StopTimeoutSeconds)
+                $null = $PSCmdlet.ShouldProcess($VMName, 'Record fixture stop')
+                $script:ColdStub.StopBudget = $StopTimeoutSeconds
+                $script:ColdStub.Calls.Add('stop')
+                if ($script:ColdStub.Failure -eq 'stop') { return $false }
+                if ($script:ColdStub.Failure -ne 'stop-state') { $script:ColdStub.State = 'stopped' }
+                return $true
+            }
+            function Start-VM {
+                [CmdletBinding(SupportsShouldProcess)]
+                [OutputType([hashtable], [bool])]
+                param($VMName)
+                $null = $PSCmdlet.ShouldProcess($VMName, 'Record fixture start')
+                $script:ColdStub.Calls.Add('start')
+                if ($script:ColdStub.Failure -eq 'start') { return @{success=$false} }
+                if ($script:ColdStub.Failure -eq 'start-record') { return $true }
+                if ($script:ColdStub.Failure -ne 'start-state') { $script:ColdStub.State = 'running' }
+                return @{success=$true}
+            }
+            function Restart-VMConsole {
+                [CmdletBinding(SupportsShouldProcess)]
+                [OutputType([bool])]
+                param($VMName)
+                $null = $PSCmdlet.ShouldProcess($VMName, 'Record fixture refresh')
+                $script:ColdStub.Calls.Add('console')
+                return $script:ColdStub.Failure -ne 'console'
+            }
+            function Repair-ScreenshotRing {
+                [CmdletBinding(SupportsShouldProcess)]
+                [OutputType([bool])]
+                param($VMName)
+                $null = $PSCmdlet.ShouldProcess($VMName, 'Record fixture ring repair')
+                $script:ColdStub.Calls.Add('ring')
+                return $true
+            }
+            $script:ColdInvokeSteps = {
+                param($Steps)
+                if (-not @($Steps | Where-Object action -EQ waitForTextWithNudge).Count) {
+                    $script:ColdStub.Calls.Add('recovery'); return $true
+                }
+                $script:ColdStub.Calls.Add('attempt')
+                $script:ColdStub.Attempts++
+                if ($script:ColdStub.Attempts -ge $script:ColdStub.SuccessAttempt) { return $true }
+                $script:Fail.LastFailedAction = 'waitForTextWithNudge'
+                $script:Fail.LastFailureLabel = 'login timeout'
+                $script:Fail.WaitForTextOcrTail = $script:ColdStub.OcrTail
+                $script:Fail.WaitForTextMatchedFailurePattern = $script:ColdStub.Pattern
+                $script:Fail.WaitForTextConsoleFlood = $script:ColdStub.Flood
+                $script:Fail.WaitForTextConsoleSecondOpinion = if ($script:ColdStub.EmitOpinion) { @{Verdict='guest-wedged';VMState='running';CpuPercent=1080} } else { $null }
+                return $false
+            }
+        }
+    }
+    BeforeEach {
+        $script:coldStub = & $script:coldModule {
+            $script:ColdStub = @{Calls=[Collections.Generic.List[string]]::new();Events=[Collections.Generic.List[object]]::new();State='running';Failure='';Attempts=0;SuccessAttempt=2;OcrTail='Display output is not active.';Pattern=$null;Flood=$null;EmitOpinion=$true;EvidenceAvailable=$true}
+            return $script:ColdStub
+        }
+        $script:coldContext = @{
+            Step=@{maxAttempts=3;restartVmBeforeRetry='coldPowerCycle';steps=@(
+                @{action='pressKey';name='Enter'}, @{action='waitForSeconds';seconds=2},
+                @{action='waitForTextWithNudge';pattern='guest login:';nudgeKey='Enter';nudgeIntervalSeconds=60}
+            );stepsAfterVmRestart=@(@{action='waitForSeconds';seconds=15})}
+            InvokeStepBlock=(& $script:coldModule {$script:ColdInvokeSteps})
+            StepNum=2;StepCount=16;Description='installed login';VMName='test-vm';HostType='host.macos.utm'
+        }
+    }
+    AfterAll { Remove-Module Test.SequenceHandler -Force }
+
+    It 'cold-restarts <Provider> <Architecture> after preserving failure evidence' -ForEach @(
+        @{Provider='host.windows.hyper-v';Architecture='X64'}, @{Provider='host.windows.hyper-v';Architecture='Arm64'},
+        @{Provider='host.ubuntu.kvm';Architecture='X64'}, @{Provider='host.macos.utm';Architecture='Arm64'}
+    ) {
+        $script:coldContext.HostType = $Provider
+        (& $script:coldHandler $script:coldContext) | Should -BeTrue
+        ($script:coldStub.Calls -join ',') | Should -BeExactly 'attempt,evidence,stop,start,console,ring,recovery,attempt'
+        $script:coldStub.StopBudget | Should -Be 20
+        $script:coldStub.Diagnostic.consoleSecondOpinion.Verdict | Should -BeExactly 'guest-wedged'
+        $script:coldStub.Diagnostic.vmState | Should -BeExactly 'running'
+        $script:coldStub.Diagnostic.captureStartupSnapshot | Should -BeTrue
+        $script:coldStub.Events[0].consoleSecondOpinion.CpuPercent | Should -Be 1080
+        $script:coldContext.ColdPowerCycleResult.outcome | Should -BeExactly 'succeeded'
+        $script:coldContext.ColdPowerCycleResult.initialState | Should -BeExactly 'running'
+        $script:coldContext.ColdPowerCycleResult.stoppedState | Should -BeExactly 'stopped'
+        $script:coldContext.ColdPowerCycleResult.runningState | Should -BeExactly 'running'
+    }
+    It 'fails closed on <Failure> without replaying the attempt' -ForEach @(
+        @{Failure='initial-state';Calls='attempt,evidence';Phase='initial-state';Reason='vm-not-running'},
+        @{Failure='stop';Calls='attempt,evidence,stop';Phase='stop-request';Reason='force-stop-failed'},
+        @{Failure='stop-state';Calls='attempt,evidence,stop';Phase='stopped-state';Reason='stop-unconfirmed'},
+        @{Failure='start';Calls='attempt,evidence,stop,start';Phase='start-request';Reason='start-failed'},
+        @{Failure='start-record';Calls='attempt,evidence,stop,start';Phase='start-request';Reason='start-failed'},
+        @{Failure='start-state';Calls='attempt,evidence,stop,start';Phase='running-state';Reason='start-unconfirmed'},
+        @{Failure='console';Calls='attempt,evidence,stop,start,console';Phase='console';Reason='console-reconnect-failed'}
+    ) {
+        $script:coldStub.Failure = $Failure
+        (& $script:coldHandler $script:coldContext) | Should -BeFalse
+        ($script:coldStub.Calls -join ',') | Should -BeExactly $Calls
+        $script:coldStub.Attempts | Should -Be 1
+        $script:coldContext.ColdPowerCycleResult.outcome | Should -BeExactly 'failed'
+        $script:coldContext.ColdPowerCycleResult.phase | Should -BeExactly $Phase
+        $script:coldContext.ColdPowerCycleResult.reasonCode | Should -BeExactly $Reason
+        $script:coldStub.Events[-1].event | Should -BeExactly 'retry_vm_restart'
+        $script:coldStub.Events[-1].recovery.reasonCode | Should -BeExactly $Reason
+    }
+    It 'refuses unfinished installer recovery on <Provider> before touching the VM' -ForEach @(
+        @{Provider='host.macos.utm'}, @{Provider='host.ubuntu.kvm'}
+    ) {
+        $script:coldContext.HostType = $Provider
+        $script:coldStub.OcrTail = 'start: subiquity/Install/install/curtin_install'
+        (& $script:coldHandler $script:coldContext) | Should -BeFalse
+        ($script:coldStub.Calls -join ',') | Should -BeExactly 'attempt,evidence'
+        $script:coldStub.Events[-2].reason | Should -BeExactly 'installer-media-selection-unsupported'
+        $script:coldStub.Events[-2].requiredCommand | Should -BeExactly 'Set-VMInstallerMediaFirstBoot'
+    }
+    It 'does not restart or replay an explicit installer error' {
+        $script:coldStub.Pattern = 'install_fail.crash'
+        (& $script:coldHandler $script:coldContext) | Should -BeFalse
+        ($script:coldStub.Calls -join ',') | Should -BeExactly 'attempt,evidence'
+    }
+    It 'rejects credential replay before executing any step' {
+        $script:coldContext.Step.steps = @(@{action='passwdPrompt';pattern='Password:';text='not-a-real-password'}) + $script:coldContext.Step.steps
+        (& $script:coldHandler $script:coldContext) | Should -BeFalse
+        $script:coldStub.Calls.Count | Should -Be 0
+    }
+    It 'rejects unsafe recovery <Reason> before executing any step' -ForEach @(
+        @{Reason='credential input';Action='passwdPrompt';Sensitive=$false;Skips=@('Bahasa Indonesia','subiquity/Install/install/configure_apt','subiquity/Install/install/curtin_install')},
+        @{Reason='sensitive boot input';Action='waitForAndEnter';Sensitive=$true;Skips=@('Bahasa Indonesia','subiquity/Install/install/configure_apt','subiquity/Install/install/curtin_install')},
+        @{Reason='blind answer at a later installer stage';Action='waitForAndEnter';Sensitive=$false;Skips=@('Bahasa Indonesia')}
+    ) {
+        $script:coldContext.Step.stepsAfterVmRestart = @(@{
+            action=$Action;sensitive=$Sensitive;text='yes';noSegmentMatch=$true;blindAfterSeconds=120;blindSkipPattern=$Skips
+            pattern=@('Continue with autoinstall?','guest login:','subiquity/Install/install/configure_apt','subiquity/Install/install/curtin_install')
+            skipInputPattern=@('guest login:','subiquity/Install/install/configure_apt','subiquity/Install/install/curtin_install')
+        })
+        (& $script:coldHandler $script:coldContext) | Should -BeFalse
+        $script:coldStub.Calls.Count | Should -Be 0
+        $script:coldStub.Events[0].reason | Should -BeExactly 'cold-power-cycle-unsafe-step-shape'
+        $script:coldStub.Events[0].timestamp | Should -Not -BeNullOrEmpty
+    }
+    It 'caps provider-neutral recovery at three attempts' {
+        $script:coldContext.Step.maxAttempts = 99
+        $script:coldStub.SuccessAttempt = 99
+        (& $script:coldHandler $script:coldContext) | Should -BeFalse
+        $script:coldStub.Attempts | Should -Be 3
+        @($script:coldStub.Calls | Where-Object {$_ -eq 'stop'}).Count | Should -Be 2
+    }
+    It 'preserves ordinary retry capture without native startup diagnostics' {
+        $script:coldContext.Step.restartVmBeforeRetry = ''
+        $script:coldStub.EmitOpinion = $false
+        (& $script:coldHandler $script:coldContext) | Should -BeTrue
+        ($script:coldStub.Calls -join ',') | Should -BeExactly 'attempt,evidence,attempt'
+        $script:coldStub.Diagnostic | Should -BeNullOrEmpty
+    }
+    It 'retains an ordinary wait opinion without authorizing native startup capture' {
+        $script:coldContext.Step.restartVmBeforeRetry = ''
+        (& $script:coldHandler $script:coldContext) | Should -BeTrue
+        ($script:coldStub.Calls -join ',') | Should -BeExactly 'attempt,evidence,attempt'
+        $script:coldStub.Diagnostic.consoleSecondOpinion.Verdict | Should -BeExactly 'guest-wedged'
+        $script:coldStub.Diagnostic.captureStartupSnapshot | Should -BeFalse
+        $script:coldStub.Diagnostic.captureStartupSnapshot | Should -BeOfType ([bool])
+    }
+    It 'refuses a generic power cycle when failure evidence cannot be preserved' {
+        $script:coldStub.EvidenceAvailable = $false
+        (& $script:coldHandler $script:coldContext) | Should -BeFalse
+        ($script:coldStub.Calls -join ',') | Should -BeExactly 'attempt,evidence'
+        $script:coldStub.Events[-2].reason | Should -BeExactly 'startup-diagnostics-unavailable'
     }
 }
 

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.18.2
+.VERSION 2026.10.22
 .GUID 42b44044-9076-41c3-a573-d5fa643cd35e
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -339,6 +339,17 @@ Resolve-LogLevel
 
 # --- REGION: Pre-cycle config gate
 # See https://yuruna.link/4213a0b3-001a
+Import-Module (Join-Path $ModulesDir 'Test.SourceSelection.psm1') -Global -Force -DisableNameChecking
+$cycleSourceHandoff = $null
+if ($env:YURUNA_CYCLE_GENERATION -and $RefreshMode.Mode -ne 'preflight') {
+    $cycleSourceHandoff = Read-GitSourceHandoff -CycleGeneration $env:YURUNA_CYCLE_GENERATION -RepoRoot $RepoRoot -ConfigPath $ConfigPath
+    if (-not $cycleSourceHandoff) {
+        # A resident old runner can start the new inner immediately after its
+        # update. Record actual HEAD; no upstream attestation exists for it.
+        $installed = Get-InstalledGitSourceSelection -RepoRoot $RepoRoot
+        if (-not (Write-GitSourceHandoff -CycleGeneration $env:YURUNA_CYCLE_GENERATION -RepoRoot $RepoRoot -ConfigPath $ConfigPath -Framework $installed -Confirm:$false)) { throw 'source-handoff-write-failed' }
+    }
+}
 if ($RefreshMode.Mode -ne 'preflight') {
     Write-RunnerPhase -Phase 'config-gate'
     $gateSkipReason = if ($NoConfigGate) { '-NoConfigGate' } else { 'parent command already validated configuration' }
@@ -895,6 +906,9 @@ $cycleState = @{
     NoConfigGate=[bool]$NoConfigGate
     CachingProxyServiceUrl=$cachingProxyUrl; StartScript=$startScript; StepHeartbeatFile=$StepHeartbeatFile
     ShutdownState=$script:ShutdownState; RunnerCfgState=$script:RunnerCfgState; Config=$script:Config
+}
+if ($env:YURUNA_CYCLE_GENERATION -and $RefreshMode.Mode -ne 'preflight') {
+    $cycleState['SourceHandoff'] = Read-GitSourceHandoff -CycleGeneration $env:YURUNA_CYCLE_GENERATION -RepoRoot $RepoRoot -ConfigPath $ConfigPath
 }
 # Leave the guarded preamble. The cycle body contains work that is legitimately
 # long and unbounded -- the weekly base-image download most of all -- and from

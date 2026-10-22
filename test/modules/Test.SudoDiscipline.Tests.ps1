@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.18.2
+.VERSION 2026.10.22
 .GUID 42737e44-4d56-4bc8-a429-c72432343f1a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -193,9 +193,9 @@ LATER mount passwordless. The prompt is the point: this is the one moment an
 operator is asked to pay for elevation so the unattended cycles never are, and
 routing it through a capturing helper would hide the password prompt it needs.
 
-Safe only because the function refuses before reaching any of them when its
--NonInteractive switch is set. That makes the switch the real guard, so it is
-the CALLERS that have to be checked -- see the caller test below.
+With -NonInteractive the function uses bounded sudo -n calls instead of these
+terminal calls, reusing existing authorization or returning a manual remedy.
+The switch is the guard, so the CALLERS have to be checked -- see below.
 '@
     }
 )

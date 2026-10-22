@@ -111,6 +111,7 @@ const DataenUSconfigsync = `{
       ]
     }
   },
+  "configsync.mirror_key_confirmation": "Accept mirror verification key enrollment?",
   "configsync.operator_03e72c207d4307ef": [
     "  Keys this host's schema defines that ",
     {

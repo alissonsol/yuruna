@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.22
+.VERSION 2026.10.25
 .GUID 42fba995-7607-4a66-acfd-0149a2a9f06a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -526,6 +526,12 @@ if (-not $RefreshSafe -and (Test-Path $StatusFile)) {
 
 # --- REGION: Clean up leftovers from older layouts
 # See https://yuruna.link/42e5cdfd-0040
+# Credential copies under names that earlier releases wrote and nothing reads.
+# They are removed even on a refresh-safe start, because each one is a secret
+# the runtime directory should not hold.
+foreach ($legacyCredential in @('yuruna-caching-proxy.yml', 'yuruna-caching-proxy.yml.backup', 'caching-proxy.txt')) {
+    Remove-Item -LiteralPath (Join-Path $RuntimeDir $legacyCredential) -Force -ErrorAction SilentlyContinue
+}
 if (-not $RefreshSafe) {
     Remove-Item (Join-Path $StatusDir 'server.heartbeat') -Force -ErrorAction SilentlyContinue
     Remove-Item (Join-Path $RuntimeDir 'server.heartbeat') -Force -ErrorAction SilentlyContinue
@@ -897,6 +903,63 @@ Import-Module (Join-Path `$repoRoot 'test/modules/Test.StatusControlRoute.psm1')
     '*.handshake.json', '*.hop.json', '*.ack.json', '*.key', '*.credential', '*.cred', '*.pfx', '*.p12',
     '*-key', '*_key', '*_rsa', '*_ecdsa', '*_ed25519', '*_dsa', '*.ppk',
     'host-config-ca', 'host-config-ca/*', '*/host-config-ca', '*/host-config-ca/*')
+
+# --- REGION: Served source files
+# The repository mount serves source files: the ones git tracks, or would track
+# because they are not ignored, in the framework checkout and, under project/,
+# in the project checkout. Everything the harness writes into a checkout --
+# configuration, vault state, keys, caches, runtime records -- is ignored there,
+# so a list read from git cannot be outgrown by a file added later the way a
+# deny list of names is. The listing is kept for a short while and read again on
+# a miss at most every couple of seconds, so a file created a moment ago is
+# served without a restart. Where git cannot answer (not a checkout, no git),
+# the deny lists alone decide, as they did before.
+`$script:ServedSourceCache = @{}
+function Get-ServedSourceSet {
+    param([Parameter(Mandatory)][string]`$Root, [switch]`$Refresh)
+    if (-not `$script:ServedSourceCache) { `$script:ServedSourceCache = @{} }
+    `$cached = `$script:ServedSourceCache[`$Root]
+    if (`$cached) {
+        `$age = `$cached.Watch.Elapsed.TotalSeconds
+        if ((-not `$Refresh -and `$age -lt 30) -or (`$Refresh -and `$age -lt 2)) { return `$cached }
+    }
+    `$comparer = if (`$IsLinux) { [StringComparer]::Ordinal } else { [StringComparer]::OrdinalIgnoreCase }
+    `$set = [System.Collections.Generic.HashSet[string]]::new(`$comparer)
+    `$available = `$false
+    try {
+        `$psi = [System.Diagnostics.ProcessStartInfo]::new('git')
+        foreach (`$argument in @('-C', `$Root, 'ls-files', '-z', '--cached', '--others', '--exclude-standard')) { `$psi.ArgumentList.Add(`$argument) }
+        `$psi.RedirectStandardOutput = `$true
+        `$psi.RedirectStandardError = `$true
+        `$psi.UseShellExecute = `$false
+        `$psi.StandardOutputEncoding = [System.Text.UTF8Encoding]::new(`$false)
+        `$gitProcess = [System.Diagnostics.Process]::Start(`$psi)
+        `$listing = `$gitProcess.StandardOutput.ReadToEndAsync()
+        `$null = `$gitProcess.StandardError.ReadToEndAsync()
+        if (`$gitProcess.WaitForExit(10000) -and `$gitProcess.ExitCode -eq 0) {
+            foreach (`$name in `$listing.Result.Split([char]0)) { if (`$name) { `$null = `$set.Add(`$name) } }
+            `$available = `$true
+        } else {
+            try { `$gitProcess.Kill(`$true) } catch { `$null = `$_ }
+        }
+    } catch { `$available = `$false }
+    `$entry = @{ Set = `$set; Available = `$available; Watch = [System.Diagnostics.Stopwatch]::StartNew() }
+    `$script:ServedSourceCache[`$Root] = `$entry
+    return `$entry
+}
+function Test-ServedSourceFile {
+    # True or false when git answered for Root; null when the deny lists decide alone.
+    param([Parameter(Mandatory)][string]`$Root, [Parameter(Mandatory)][string]`$Relative)
+    `$entry = Get-ServedSourceSet -Root `$Root
+    if (-not `$entry.Available) { return `$null }
+    if (`$entry.Set.Contains(`$Relative)) { return `$true }
+    `$entry = Get-ServedSourceSet -Root `$Root -Refresh
+    if (-not `$entry.Available) { return `$null }
+    return `$entry.Set.Contains(`$Relative)
+}
+# Ignored files the repository mount still serves, each published there on
+# purpose: the project archive an AmisAd checkout publishes for manual runs.
+`$servedArtifacts = @('project-poc.tar.gz')
 `$stepPauseFile  = Join-Path `$runtimeDir 'control.step-pause'
 `$cyclePauseFile = Join-Path `$runtimeDir 'control.cycle-pause'
 # The lab hold is machine-initiated, not an operator pause: the cycle's
@@ -1672,31 +1735,42 @@ function Send-GitArchive {
     <#
     .SYNOPSIS
         Stream committed framework or project content with origin and revision sidecars.
+    .DESCRIPTION
+        ?commit=<40 hex> selects a commit the checkout holds, so a service VM
+        can ask for the exact commit its seed names and check the bytes against
+        the digest seeded beside it. Without it the checkout's HEAD is served.
+        Test.HostGit's Export-YurunaGitArchive builds the archive, the same
+        construction the seed renderer hashes.
     #>
     param(`$Response, `$Request, `$Context, [string]`$RepoDir, [string]`$ErrorLabel, [string[]]`$ExcludePath = @())
-    `$tmp        = [System.IO.Path]::GetTempFileName()
-    `$sidecarDir = `$null
+    `$tmp = [System.IO.Path]::GetTempFileName()
     try {
-        `$archiveArgs = @('-C', `$RepoDir, 'archive', '--format=tar.gz')
-        `$treeish     = 'HEAD'
-        `$sidecars    = [ordered]@{}
+        `$requested = [string]`$Request.QueryString['commit']
+        if (`$requested -and `$requested -cnotmatch '^[0-9a-f]{40}`$') {
+            `$Response.StatusCode = 400
+            `$body = [System.Text.Encoding]::UTF8.GetBytes('commit must be 40 lowercase hex characters')
+            `$Response.OutputStream.Write(`$body, 0, `$body.Length)
+            `$Response.OutputStream.Close()
+            return
+        }
+        if (-not (Import-RouteModule -ModuleRelativePath 'test/modules/Test.HostGit.psm1' -RequiredCommand 'Export-YurunaGitArchive')) {
+            `$Response.StatusCode = 503
+            `$body = [System.Text.Encoding]::UTF8.GetBytes('git archive unavailable')
+            `$Response.OutputStream.Write(`$body, 0, `$body.Length)
+            `$Response.OutputStream.Close()
+            return
+        }
+        `$commit = `$requested
+        if (-not `$commit) {
+            `$head = & git -C `$RepoDir rev-parse HEAD 2>`$null
+            `$commit = if (`$LASTEXITCODE -eq 0) { ([string]`$head).Trim() } else { '' }
+        }
         `$originUrl = & git -C `$RepoDir config --get remote.origin.url 2>`$null
-        if (`$LASTEXITCODE -eq 0 -and -not [string]::IsNullOrWhiteSpace(`$originUrl)) {
-            if (Import-RouteModule -ModuleRelativePath 'test/modules/Test.HostGit.psm1' -RequiredCommand 'Resolve-GitRemoteLink') {
-                `$publicOrigin = (Resolve-GitRemoteLink -Url ([string]`$originUrl)).Url
-                if (`$publicOrigin) { `$sidecars['.yuruna-origin'] = `$publicOrigin }
-            }
-        }
-        `$commit = & git -C `$RepoDir rev-parse HEAD 2>`$null
-        `$commit = if (`$LASTEXITCODE -eq 0) { ([string]`$commit).Trim() } else { '' }
-        if (`$commit -match '^[0-9a-f]{40}`$') {
-            `$sidecars['.yuruna-revision'] = `$commit
-            `$treeish = `$commit
-        }
-        `$archiveKey = `$commit + '|' + [string]`$sidecars['.yuruna-origin'] + '|' + (`$ExcludePath -join ',')
+        `$archiveKey = `$commit + '|' + [string]`$originUrl + '|' + (`$ExcludePath -join ',')
         if (-not (Get-Variable -Name GitArchiveCache -Scope Script -ErrorAction SilentlyContinue)) { `$script:GitArchiveCache = @{} }
-        if (`$commit -match '^[0-9a-f]{40}`$' -and `$script:GitArchiveCache.ContainsKey(`$RepoDir) -and `$script:GitArchiveCache[`$RepoDir].Key -ceq `$archiveKey) {
-            `$bytes = `$script:GitArchiveCache[`$RepoDir].Bytes
+        `$cacheSlot = `$RepoDir + '|' + `$commit
+        if (`$commit -match '^[0-9a-f]{40}`$' -and `$script:GitArchiveCache.ContainsKey(`$cacheSlot) -and `$script:GitArchiveCache[`$cacheSlot].Key -ceq `$archiveKey) {
+            `$bytes = `$script:GitArchiveCache[`$cacheSlot].Bytes
             `$Response.ContentType = 'application/gzip'
             `$Response.Headers.Add('Cache-Control', 'no-store')
             `$Response.ContentLength64 = `$bytes.Length
@@ -1704,33 +1778,19 @@ function Send-GitArchive {
             `$Response.OutputStream.Close()
             return
         }
-        if (`$sidecars.Count -gt 0) {
-            `$sidecarDir = New-Item -ItemType Directory -Path ([IO.Path]::Combine([IO.Path]::GetTempPath(), [Guid]::NewGuid().ToString('N'))) -Force
-            foreach (`$sidecarName in @(`$sidecars.Keys)) {
-                `$sidecarFile = Join-Path `$sidecarDir.FullName `$sidecarName
-                [IO.File]::WriteAllText(`$sidecarFile, `$sidecars[`$sidecarName])
-                `$archiveArgs += ('--add-file=' + `$sidecarFile)
-            }
-        }
-        `$archiveArgs += @('-o', `$tmp, `$treeish)
-        if (`$ExcludePath.Count) {
-            `$archiveArgs += '--'
-            `$archiveArgs += '.'
-            foreach (`$excluded in `$ExcludePath) { `$archiveArgs += (':(exclude)' + `$excluded) }
-        }
-        & git @archiveArgs 2>`$null
-        if (`$LASTEXITCODE -ne 0 -or -not (Test-Path `$tmp)) {
-            `$Response.StatusCode = 500
+        `$made = Export-YurunaGitArchive -RepoDir `$RepoDir -Commit `$commit -ExcludePath `$ExcludePath -OutFile `$tmp -Confirm:`$false
+        if (-not `$made.Ok) {
+            `$Response.StatusCode = if (`$requested) { 404 } else { 500 }
             `$body = [System.Text.Encoding]::UTF8.GetBytes('git archive failed')
             `$Response.OutputStream.Write(`$body, 0, `$body.Length)
             `$Response.OutputStream.Close()
             return
         }
         `$bytes = [System.IO.File]::ReadAllBytes(`$tmp)
-        if (`$commit -match '^[0-9a-f]{40}`$') {
-            if (`$script:GitArchiveCache.Count -ge 3 -and -not `$script:GitArchiveCache.ContainsKey(`$RepoDir)) { `$script:GitArchiveCache.Clear() }
-            `$script:GitArchiveCache[`$RepoDir] = @{ Key = `$archiveKey; Bytes = `$bytes }
-        }
+        # A few commits per repository: HEAD plus the commits the service VMs
+        # built from it ask for.
+        if (`$script:GitArchiveCache.Count -ge 6 -and -not `$script:GitArchiveCache.ContainsKey(`$cacheSlot)) { `$script:GitArchiveCache.Clear() }
+        `$script:GitArchiveCache[`$cacheSlot] = @{ Key = `$archiveKey; Bytes = `$bytes }
         `$Response.ContentType = 'application/gzip'
         `$Response.Headers.Add('Cache-Control', 'no-store')
         `$Response.ContentLength64 = `$bytes.Length
@@ -1741,21 +1801,17 @@ function Send-GitArchive {
         try { `$Context.Response.Abort() } catch { Write-Debug `$_ }
     } finally {
         Remove-Item `$tmp -Force -ErrorAction SilentlyContinue
-        if (`$sidecarDir) { Remove-Item -LiteralPath `$sidecarDir.FullName -Recurse -Force -ErrorAction SilentlyContinue }
     }
 }
 # --- REGION: Archived cycle results (poolStorage move mode)
 # See https://yuruna.link/42e5cdfd-0045
-`$script:ArchiveHostId = `$null
 function Get-ArchiveHostId {
-    # runtime/host.uuid cannot change while this server runs, so it is read once.
-    if (`$null -ne `$script:ArchiveHostId) { return `$script:ArchiveHostId }
-    `$script:ArchiveHostId = ''
+    # The listener may start before host.uuid exists, and host refresh can
+    # replace it. Read the small local identity file rather than retaining an
+    # empty or old audience that rejects correctly bound control proofs.
     try {
-        `$uuidFile = Join-Path `$runtimeDir 'host.uuid'
-        if (Test-Path -LiteralPath `$uuidFile) { `$script:ArchiveHostId = (Get-Content -Raw -LiteralPath `$uuidFile).Trim() }
-    } catch { `$script:ArchiveHostId = '' }
-    return `$script:ArchiveHostId
+        return [IO.File]::ReadAllText((Join-Path `$runtimeDir 'host.uuid')).Trim()
+    } catch { return '' }
 }
 
 function Get-ArchiveCycleRoot {
@@ -2005,13 +2061,16 @@ try {
                         # See https://yuruna.link/42e5cdfd-0045
                         `$ctlWire   = [string]`$req.Headers['X-Yuruna-Control']
                         `$ctlReason = ''
+                        # A pause-scoped proof (the pool-wide pause and continue)
+                        # opens the four pause and resume routes and no other.
+                        `$ctlScope = if (@('control/step-pause', 'control/step-resume', 'control/cycle-pause', 'control/cycle-resume') -contains `$path) { @('pause') } else { @() }
                         if (-not (Get-Command Test-YurunaControlProof -ErrorAction SilentlyContinue)) {
                             `$ctlReason = 'verifier-unavailable'
                         } elseif ([string]::IsNullOrWhiteSpace(`$ctlToken)) {
                             `$ctlReason = 'host-token-missing'
                         } elseif ([string]::IsNullOrWhiteSpace(`$ctlWire)) {
                             `$ctlReason = 'proof-missing'
-                        } elseif (-not (Test-YurunaControlProof -Token `$ctlToken -Wire `$ctlWire)) {
+                        } elseif (-not (Test-YurunaControlProof -Token `$ctlToken -Wire `$ctlWire -Audience (Get-ArchiveHostId) -AllowedScope `$ctlScope)) {
                             # Expired vs forged is decidable from the wire's own expiry
                             # segment without trusting it: a well-formed but past expiry is
                             # the routine case (the operator sat on the page too long).
@@ -2785,6 +2844,7 @@ try {
                 # See https://yuruna.link/42e5cdfd-0045
                 `$payload = @{
                     ok              = `$true
+                    hostId          = Get-ArchiveHostId
                     tokenConfigured = (-not [string]::IsNullOrWhiteSpace(`$csToken))
                     tokenTag        = `$csTag
                     utcNow          = [DateTime]::UtcNow.ToString('yyyy-MM-ddTHH:mm:ssZ', [Globalization.CultureInfo]::InvariantCulture)
@@ -3319,6 +3379,7 @@ try {
             # .git/) since it does not expose the repo internals.
             if (`$path -eq 'yuruna-archive.tar.gz') {
                 # See https://yuruna.link/42e5cdfd-0045
+                # The seed renderer hashes the same exclusions (Get-YurunaFrameworkArchiveExcludePath).
                 Send-GitArchive -Response `$res -Request `$req -Context `$ctx -RepoDir `$repoRoot -ErrorLabel 'yuruna-archive' -ExcludePath @('dev-only', 'docs')
                 continue
             }
@@ -3601,6 +3662,74 @@ try {
                 Send-StatusMessage -Request `$req -Response `$res -Key 'status.api_forbidden_78342a09'
                 continue
             }
+            # --- REGION: Runtime allow-list
+            # The runtime directory holds credentials, keys, proofs, journals and
+            # snapshots next to the few records that pages and pool services read.
+            # A deny list of names fails open for every file that is renamed or
+            # added later, so any request whose resolved file lies under the
+            # runtime directory -- through /runtime/, the repository mount or the
+            # status root -- is served only when it names one of these leaves.
+            # See https://yuruna.link/42e5cdfd-0045
+            `$runtimeRoot = [System.IO.Path]::GetFullPath(`$runtimeDir).TrimEnd([System.IO.Path]::DirectorySeparatorChar)
+            `$runtimeComparison = if (`$IsLinux) { [System.StringComparison]::Ordinal } else { [System.StringComparison]::OrdinalIgnoreCase }
+            if (`$file.StartsWith(`$runtimeRoot + [System.IO.Path]::DirectorySeparatorChar, `$runtimeComparison)) {
+                `$runtimeLeaf = [System.IO.Path]::GetRelativePath(`$runtimeRoot, `$file) -replace '\\', '/'
+                `$runtimeServedLeaves = @(
+                    'status.json', 'current-action.json', 'break-active.json', 'ipaddresses.txt',
+                    'caching-proxy-service.txt', 'host-network.txt', 'host-network.json',
+                    'host.registration.json', 'start-cycle.state.json', 'host-refresh.state.json',
+                    'runner.watchdog-kill.json'
+                )
+                `$runtimeServed = (`$runtimeServedLeaves -ccontains `$runtimeLeaf) -or
+                    (`$runtimeLeaf -cmatch '^runner-attempts/(index\.json|[A-Za-z0-9_-]+/(config-gate\.(json|log)|runner-fault\.json))`$')
+                if (-not `$runtimeServed) {
+                    `$res.StatusCode = 403
+                    Send-StatusMessage -Request `$req -Response `$res -Key 'status.api_forbidden_deny_list_1c7d1cfa'
+                    continue
+                }
+            }
+            # --- REGION: Served source allow-list
+            # See https://yuruna.link/42e5cdfd-0045
+            # The repository mount serves only source files (Test-ServedSourceFile);
+            # the status root serves the page files at its top level, the
+            # performance rows and the debug captures, and nothing from the other
+            # folders the harness keeps there (keys, hand-off files, extension
+            # state). Directories are left to the listing rules below.
+            if (-not (Test-Path -LiteralPath `$file -PathType Container)) {
+                `$sourceServed = `$null
+                if (`$path -like 'yuruna-repo/*') {
+                    if (`$relNorm -like 'project/*') {
+                        `$sourceServed = Test-ServedSourceFile -Root (Join-Path `$repoRoot 'project') -Relative `$relNorm.Substring(8)
+                    } elseif (`$servedArtifacts -ccontains `$relNorm) {
+                        `$sourceServed = `$true
+                    } else {
+                        `$sourceServed = Test-ServedSourceFile -Root `$repoRoot -Relative `$relNorm
+                    }
+                } elseif (`$root -ceq `$statusDir -and -not `$file.StartsWith(`$runtimeRoot + [System.IO.Path]::DirectorySeparatorChar, `$runtimeComparison)) {
+                    if (`$relNorm -like 'perf/*' -or `$relNorm -like 'captures/*') {
+                        `$sourceServed = `$true
+                    } elseif (`$relNorm.Contains('/')) {
+                        `$sourceServed = `$false
+                    } else {
+                        `$statusFull = [System.IO.Path]::GetFullPath(`$statusDir).TrimEnd([System.IO.Path]::DirectorySeparatorChar)
+                        `$repoStatus = [System.IO.Path]::GetFullPath((Join-Path `$repoRoot 'test/status')).TrimEnd([System.IO.Path]::DirectorySeparatorChar)
+                        if ([string]::Equals(`$statusFull, `$repoStatus, `$runtimeComparison)) {
+                            `$sourceServed = Test-ServedSourceFile -Root `$repoRoot -Relative ('test/status/' + `$relNorm)
+                        }
+                    }
+                }
+                if (`$sourceServed -eq `$false) {
+                    `$res.StatusCode = 403
+                    Send-StatusMessage -Request `$req -Response `$res -Key 'status.api_forbidden_not_served'
+                    continue
+                }
+            } elseif (`$root -ceq `$statusDir -and `$relNorm -cnotin @('perf', 'captures', 'log', 'runtime') -and `$relNorm -notlike 'perf/*' -and `$relNorm -notlike 'captures/*') {
+                # No other folder of the status root is listed: its names alone
+                # say which keys and hand-off files a host holds.
+                `$res.StatusCode = 403
+                Send-StatusMessage -Request `$req -Response `$res -Key 'status.api_forbidden_not_served'
+                continue
+            }
             if (`$path -like 'yuruna-repo/*') {
                 # Deny-list: secrets, vault state, the .git directory.
                 # Pattern-based so future credential / event-log files
@@ -3619,6 +3748,10 @@ try {
                     '*/transports.yml',
                     'test/status/extension/*',
                     'test/status/ssh/*',
+                    # Every subdirectory of test/status is untracked harness state
+                    # (runtime, log, perf, captures, extension, ssh); the repository
+                    # mount serves committed files, never that state.
+                    'test/status/*/*',
                     '*/yuruna-caching-proxy-service.yml',
                     'test/status/runtime/yuruna-caching-proxy-service.yml',
                     '*.events.log',

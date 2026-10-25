@@ -14707,6 +14707,106 @@
       "sourceHash": "1d24a4894abc4d52bf6bd71fd2194fecca373fde4a7cfac2660f8aad84c5edac",
       "origin": "machine",
       "message": "github-mirror-token ({vaultKey}): (אין אסימון שמור) -> (אסימון שסופק על ידי המפעיל)."
+    },
+    "runner.outer_poll_failed": {
+      "sourceHash": "cfd104a458c6aa44f28065d9c2b6ef68d03bbc3034a940cdbbcb5c4ada5dbe05",
+      "origin": "machine",
+      "message": "בדיקת {probe} של המריץ הקבוע נכשלה וטופלה כאילו לא התקבלה תשובה: {message}"
+    },
+    "runner.outer_loop_exception": {
+      "sourceHash": "9e7c86ccb9c5aa1ea6741530734895eac620a669cfde1f0b8f47e44fef78fbe8",
+      "origin": "machine",
+      "message": "לולאת המריץ הקבוע נעצרה בשל ⁦{type}⁩ לא צפוי ב-⁦{location}⁩: {message}. מופע {streak} בתוך שעה; הלולאה תתחיל מחדש בעוד {holdSeconds} s."
+    },
+    "runner.outer_loop_orphan_stopped": {
+      "sourceHash": "4be96b4caf4f3fadb2a9f1b1e55416d7b2cafe7b86032776cf43093fc31ea1a1",
+      "origin": "machine",
+      "message": "תהליך המחזור {id}, שלולאת המריץ שנקטעה השאירה פועל, נעצר."
+    },
+    "runner.framework_health_write_action": {
+      "sourceHash": "22286ce72fd16dfa80cdbcf5a3467607ec6cb2c065588063163ce1e10f4a2b88",
+      "origin": "machine",
+      "message": "רישום האם המסגרת הפיקה תוצאת מחזור"
+    },
+    "runner.framework_rescue_due": {
+      "sourceHash": "2b27a96ed66bbcaea7c295be4664e965b53f50967003e015f53434c35b2314e4",
+      "origin": "machine",
+      "message": "תהליך המחזור הסתיים ללא תוצאה {streak} פעמים ברציפות (⁦{outcome}⁩) ב-commit ⁦{sha}⁩ של המסגרת; ה-commit האחרון שהפיק תוצאה הוא ⁦{lastGoodSha}⁩. המריץ הקבוע מושך את המסגרת בעצמו."
+    },
+    "runner.framework_rescue_action": {
+      "sourceHash": "67984485af096392ab836ae1d0aebd032c49ae687bc43def431f8e5f727faa3f",
+      "origin": "machine",
+      "message": "משיכת המסגרת מהמריץ הקבוע"
+    },
+    "runner.framework_rescue_result": {
+      "sourceHash": "f9f790dc0d6b31cdef6911227aeaaf703e4f999a5ae26fdca23ae330c4bdb211",
+      "origin": "machine",
+      "message": "משיכת המסגרת על ידי המריץ הקבוע: ⁦{result}⁩; ה-commit של המסגרת הוא כעת ⁦{sha}⁩. {detail}"
+    },
+    "runner.max_cycle_seconds_invalid": {
+      "sourceHash": "5659a7b083189e492ba1dcfa4f736f53761b58aa00010f5d878774102166f862",
+      "origin": "machine",
+      "message": "הערך של ⁦testCycle.maxCycleSeconds⁩ הוא '{v}', שאינו מספר -- ייעשה שימוש ב-{defaultSeconds} s."
+    },
+    "runner.watchdog_lapse_seen": {
+      "sourceHash": "c57fab852a91159d183d150a618e8511f35781cfb671340eeea9b9713e2bb009",
+      "origin": "machine",
+      "message": "[מחזור חיצוני {cycle}] ה-watchdog של השלבים הפסיק לפעול; כעת רכיב ההרצה התושב עוצר מחזור זה כאשר פעימת השלב שלו ישנה מ-‏{stepSeconds} s ‏(‏{preambleSeconds} s לפני השלב הראשון), ו-⁦testCycle.maxCycleSeconds⁩ עדיין מגביל אותו (‏{ceilingSeconds} s, כאשר 0 פירושו ללא הגבלה)."
+    },
+    "runner.cycle_ceiling_reached": {
+      "sourceHash": "d220e65291dbf67608952badc2f51df7896d7931ddaadccd2a0cb436636916b5",
+      "origin": "machine",
+      "message": "[מחזור חיצוני {cycle}] תהליך המחזור {id} הגיע ל-⁦testCycle.maxCycleSeconds⁩ (‏{ceilingSeconds} s) ונעצר יחד עם עץ התהליכים שלו."
+    },
+    "runner.bump_ca_unreadable": {
+      "sourceHash": "59b6601d75de5dd7e0cf4d908ede8b3b7e02693272b77115c7cf1d00e0840c31",
+      "origin": "machine",
+      "message": "לא ניתן לקרוא את ה-CA של שרת ה-proxy המטמון השמור ב-⁦{path}⁩; לא ייכלל CA בזרע עד שיתוקן או יוסר."
+    },
+    "runner.bump_ca_create_action": {
+      "sourceHash": "482923e61f6067fb53143cfaf0a7988b030cc5fd91e73bc10d9b28862832ab35",
+      "origin": "machine",
+      "message": "יצירת ה-CA של ⁦ssl-bump⁩ עבור שרת ה-proxy המטמון, שמארח זה שומר בין בניות מחדש של ה-proxy"
+    },
+    "runner.bump_ca_unavailable": {
+      "sourceHash": "ca6bad113a0cf0a1c610591e5f98de4c64ab5ddbba26331803661e5afb8ed6e5",
+      "origin": "machine",
+      "message": "לא ניתן היה לקרוא או ליצור CA של ⁦ssl-bump⁩ עבור שרת ה-proxy המטמון במצב הפרטי של מארח זה; ה-proxy אינו נבנה בלעדיו."
+    },
+    "runner.proxy_ca_pin_mismatch": {
+      "sourceHash": "b4fa40605613012fe278aec3ad85f637f317146ef8ba276fdcae6a90d71941ae",
+      "origin": "machine",
+      "message": "שרת ה-proxy המטמון ב-⁦{cacheHost}⁩ מגיש CA עם ⁦sha256 {fetched}⁩, אך מארח זה סומך עליו בערך ⁦{expected}⁩; ה-CA המהימן נשמר. שמור את הקיבוע. במארח שבונה את ה-proxy, הפעל ⁦Start-CachingProxyServiceVM.ps1 -ForceRebuild -RepairPoolCaTrust⁩ כדי לרשום את מפתח החתימה המאומת שלו באמצעות בקרת מארחים מאומתת. מארח ללא מפתח רשום אינו יכול לאמת החלפת CA."
+    },
+    "runner.vm_storage_reconcile_failed": {
+      "sourceHash": "4958dfe6bb6a83121043751ff6a5eda1ac3d3fd3462cec469da93c6a31ba6220",
+      "origin": "machine",
+      "message": "לא ניתן היה להשלים שינויי שם של מכונות וירטואליות שנקטעו בתחילת המחזור ({message}). המחזור ממשיך, המחיקות ממשיכות לבדוק הפניות, והמחזור הבא ינסה שוב."
+    },
+    "runner.cycle_ceiling_scaled": {
+      "sourceHash": "326f62aa858eaae63456747f3ecdb1d70daeccce96934fa9aaa84b83b91bd919",
+      "origin": "machine",
+      "message": "[מחזור חיצוני {cycle}] המחזור מתכנן {count} הרצות; התקרה שלו עולה מ-⁦testCycle.maxCycleSeconds⁩ (‏{configuredSeconds} s) ל-‏{ceilingSeconds} s, שני זמני קצובה של שלב לכל הרצה."
+    },
+    "runner.resident_watchdog_kill_step": {
+      "sourceHash": "e0d83496f942649a13cdea9c54047b65ccdd3e0f560831e1bc7c741a95e67a14",
+      "origin": "machine",
+      "message": "[מחזור חיצוני {cycle}] ה-watchdog של השלבים הפסיק לפעול ופעימת השלב לא זזה במשך ‏{ageSeconds} s ‏(גבול ‏{boundSeconds} s); רכיב ההרצה התושב עצר את תהליך המחזור {id} יחד עם עץ התהליכים שלו."
+    },
+    "runner.resident_watchdog_kill_preamble": {
+      "sourceHash": "f191b52c0e443f4e402558aef6b519c96471a54d83908cbc72505191a8285027",
+      "origin": "machine",
+      "message": "[מחזור חיצוני {cycle}] ה-watchdog של השלבים הפסיק לפעול ופעימת השלב לא זזה במשך ‏{ageSeconds} s בשלב ההכנה '⁦{phase}⁩' ‏(גבול ‏{boundSeconds} s); רכיב ההרצה התושב עצר את תהליך המחזור {id} יחד עם עץ התהליכים שלו."
+    },
+    "runner.proxy_ca_statement_absent": {
+      "sourceHash": "3f8cb70447f5012321ffd278d849365456413f6b54d0c0bff663f5266c1160dc",
+      "origin": "machine",
+      "message": "ה-proxy לשמירת מטמון ב-⁦{cacheHost}⁩ מגיש את ה-CA עם sha256 ‏⁦{fetched}⁩ ללא הצהרה חתומה, ומארח זה רושם את מפתחות האימות של המראה של המעבדה, ולכן אינו סומך בשימוש ראשון על CA שלא הוצמד. בנו מחדש את ה-proxy לשמירת מטמון במארח שבבעלותו; ה-proxy הזה יגיש אז את ⁦yuruna-squid-ca.sig.json⁩."
+    },
+    "runner.proxy_ca_statement_refused": {
+      "sourceHash": "122fe9517c2c51dc6acc4f23ddb80e8b772eb893200dea32d7bb9b39220e94a8",
+      "origin": "machine",
+      "message": "ה-proxy לשמירת מטמון ב-⁦{cacheHost}⁩ מגיש את ה-CA עם sha256 ‏⁦{fetched}⁩ עם הצהרה שמארח זה אינו מקבל (⁦{reason}⁩), ולכן אין אמון ב-CA הזה."
     }
   }
 }

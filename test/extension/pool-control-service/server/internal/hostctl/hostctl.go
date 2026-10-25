@@ -88,6 +88,50 @@ func Mint(token string, ttl time.Duration) string {
 	return controlproof.Mint(token, ttl)
 }
 
+// ProofFor is the bound form of Proof, "<expiry>.<hostID>.<base64 HMAC>": it
+// opens hostID's /control/* routes and no other host's.
+func ProofFor(token, hostID string, expiry int64) string {
+	return controlproof.ProofFor(token, hostID, expiry)
+}
+
+// MintFor returns a proof bound to hostID and valid for ttl from now, or ""
+// when no token is held.
+func MintFor(token, hostID string, ttl time.Duration) string {
+	return controlproof.MintFor(token, hostID, ttl)
+}
+
+// ScopePause narrows a proof to a host's pause and resume routes, all a
+// pool-wide action calls.
+const ScopePause = controlproof.ScopePause
+
+// MintPause returns a proof bound to hostID that opens only its pause and resume
+// routes, valid for ttl from now, or "" when no token is held.
+func MintPause(token, hostID string, ttl time.Duration) string {
+	return controlproof.MintForScope(token, hostID, ScopePause, ttl)
+}
+
+// Bound reports whether a proof names the host it is for, scoped or not. An
+// aggregator that predates audiences hands out unbound proofs, one of which
+// opens every host.
+func Bound(proof string) bool {
+	n := strings.Count(proof, ".")
+	return n == 2 || n == 3
+}
+
+// Scoped reports whether a proof is narrowed to one class of a host's routes.
+// A host that predates scopes refuses one as proof-invalid, and the caller
+// then retries with the host's full proof.
+func Scoped(proof string) bool {
+	return strings.Count(proof, ".") == 3
+}
+
+// RefusedProof reports whether err is a host refusing the proof itself, the
+// answer a host that predates scoped proofs gives one.
+func RefusedProof(err error) bool {
+	var refusal *Error
+	return errors.As(err, &refusal) && refusal.Reason == "proof-invalid"
+}
+
 // KnownAction reports whether action is one this package can apply.
 func KnownAction(action string) bool {
 	_, ok := routesFor(action)
@@ -242,19 +286,25 @@ func (c *Client) State(ctx context.Context, baseURL string) (string, error) {
 
 // ProofFromAggregator asks the pool aggregator for a control proof through
 // /go/host -- the identical proof a browser receives when an operator follows a
-// dashboard host link, carried in the redirect's URL fragment.
+// dashboard host link, carried in the redirect's URL fragment. A non-empty
+// scope asks for a proof narrowed to it (an aggregator that predates scopes
+// ignores the parameter and mints the host's full proof).
 //
 // This is the fallback for a service that holds no internal authentication key of its own:
 // nothing bakes that file into a service VM's seed, so requiring it would leave
 // the pool-wide control unusable on a lab that never placed one by hand. The
 // fragment never reaches a server or an access log -- here it never leaves this
 // process either, because the redirect is read rather than followed.
-func (c *Client) ProofFromAggregator(ctx context.Context, aggregatorBase, hostID string) (string, error) {
+func (c *Client) ProofFromAggregator(ctx context.Context, aggregatorBase, hostID, scope string) (string, error) {
 	base := strings.TrimRight(strings.TrimSpace(aggregatorBase), "/")
 	if base == "" || strings.TrimSpace(hostID) == "" {
 		return "", ErrNoProof
 	}
-	resp, err := c.getFirstAnswer(ctx, base+"/go/host?host="+url.QueryEscape(hostID))
+	query := "/go/host?host=" + url.QueryEscape(hostID)
+	if scope != "" {
+		query += "&scope=" + url.QueryEscape(scope)
+	}
+	resp, err := c.getFirstAnswer(ctx, base+query)
 	if err != nil {
 		return "", fmt.Errorf("the pool aggregator did not answer: %w", err)
 	}

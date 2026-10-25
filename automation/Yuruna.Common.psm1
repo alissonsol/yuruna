@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.22
+.VERSION 2026.10.25
 .GUID 42fcd8c5-0a6a-4e17-b89b-9c4d030faa8e
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -1777,8 +1777,8 @@ function Get-UtmGuestSeedHostname {
     wrong string.
 
     The baked seed at <bundle>/Data/seed.iso is the only durable record of
-    that value on the host: the staging directory under
-    $HOME/yuruna/image/<image>/seed_temp/ is deleted at the end of New-VM.
+    that value on the host: New-VM removes its private staging workspace
+    on every exit.
     ISO9660 stores the file uncompressed, so the raw bytes can be searched
     directly -- no `hdiutil attach` and no mount point to clean up.
 
@@ -2362,6 +2362,9 @@ using System.Threading;
 using System.Threading.Tasks;
 namespace Yuruna {
     public static class NativeCleanup {
+        sealed class KillAttempt {
+            public long RequestedTicks;
+        }
         public static Task ObserveExit(Process process) {
             var source = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
             process.Exited += (sender, args) => source.TrySetResult(true);
@@ -2370,13 +2373,35 @@ namespace Yuruna {
             return source.Task;
         }
         public static Task<bool> KillTree(Process process) {
-            return Task.Run(() => {
-                try { process.Kill(true); return true; }
+            return KillTree(process, 0);
+        }
+        public static long KillRequestedTicks(Task task) {
+            var attempt = task == null ? null : task.AsyncState as KillAttempt;
+            return attempt == null ? 0 : Interlocked.Read(ref attempt.RequestedTicks);
+        }
+        public static Task<bool> KillTree(Process process, long deadlineTicks) {
+            // Cleanup must start even when native I/O and other callers have
+            // occupied every shared worker. A dedicated thread also keeps a
+            // blocked process-table walk off the caller's deadline.
+            return Task.Factory.StartNew(state => {
+                var attempt = (KillAttempt)state;
+                try {
+                    if (deadlineTicks > 0) {
+                        long ticks = deadlineTicks - Stopwatch.GetTimestamp();
+                        int remaining = ticks > 0 ? (int)Math.Ceiling(ticks * 1000.0 / Stopwatch.Frequency) : 0;
+                        if (remaining > 0) {
+                            if (process.WaitForExit(remaining)) return true;
+                        } else if (process.HasExited) { return true; }
+                    }
+                    Interlocked.Exchange(ref attempt.RequestedTicks, Stopwatch.GetTimestamp());
+                    process.Kill(true);
+                    return true;
+                }
                 catch {
                     try { return process.HasExited; }
                     catch { return false; }
                 }
-            });
+            }, new KillAttempt(), CancellationToken.None, TaskCreationOptions.LongRunning, TaskScheduler.Default);
         }
         public static Task DisposeAsync(Process process, CancellationTokenSource cancellation, Task kill) {
             return Task.Run(async () => {
@@ -2388,7 +2413,7 @@ namespace Yuruna {
             });
         }
         public static Task KillDirect(int id, long startTicks) {
-            return Task.Run(() => {
+            return Task.Factory.StartNew(() => {
                 try {
                     using (var process = Process.GetProcessById(id)) {
                         // A reused PID must never turn cleanup into a signal to
@@ -2397,7 +2422,7 @@ namespace Yuruna {
                             process.Kill();
                     }
                 } catch { }
-            });
+            }, CancellationToken.None, TaskCreationOptions.LongRunning, TaskScheduler.Default);
         }
     }
 }
@@ -2426,14 +2451,21 @@ function Invoke-BoundedNativeTreeKill {
     has stopped.
 .PARAMETER Process
     The started child process.
+.PARAMETER DeadlineTimestamp
+    Absolute Stopwatch timestamp at which to kill a still-running child.
+    Zero issues the kill immediately. Arming it before output handling keeps
+    the deadline independent of the supervising runspace.
 .OUTPUTS
     Task[bool], completed with whether the kill succeeded. It never waits for
     process-tree enumeration on the calling thread.
 #>
     [CmdletBinding()]
     [OutputType([System.Threading.Tasks.Task])]
-    param([Parameter(Mandatory)][System.Diagnostics.Process]$Process)
-    return [Yuruna.NativeCleanup]::KillTree($Process)
+    param(
+        [Parameter(Mandatory)][System.Diagnostics.Process]$Process,
+        [ValidateRange(0, [long]::MaxValue)][long]$DeadlineTimestamp = 0
+    )
+    return [Yuruna.NativeCleanup]::KillTree($Process, $DeadlineTimestamp)
 }
 
 function Invoke-BoundedNativeCleanup {
@@ -2506,7 +2538,8 @@ function Invoke-BoundedNativeCommand {
     when only a cleanup reserve of the cap is left -- a tenth of the cap, at
     least half a second and at most one second -- is killed, and the kill,
     the confirmation that the child exited and the last drain of both pipes
-    are only awaited inside that reserve. Cleanup delegates run independently
+    are only awaited inside that reserve. The kill is armed at launch, so a
+    scheduling pause or output observer cannot postpone it. Cleanup delegates run independently
     of the caller, so a stalled runtime cleanup cannot extend the cap. The
     floor is sized for the kill itself:
     Process.Kill($true) walks the whole process table to find descendants,
@@ -2577,7 +2610,8 @@ function Invoke-BoundedNativeCommand {
 .OUTPUTS
     [hashtable] @{ ExitCode; StdOut; StdErr; TimedOut; Started; DrainTimedOut;
     KillFailed; OutputTruncated; ElapsedMs; DeadlineExhausted; ProcessId;
-    StartError; CleanupPending }.
+    StartError; CleanupPending; KillRequestedAtMs; KillTaskStatus;
+    KillTaskSucceeded; ExitObserved }.
     Started is $false when the command could not be found or launched, or
     when the deadline left no time to issue it; ExitCode then stays -1 and
     both streams are empty. TimedOut with ExitCode 124 means the child was
@@ -2594,6 +2628,9 @@ function Invoke-BoundedNativeCommand {
     normally. Gate
     any reading of the output as a complete answer on
     Test-BoundedNativeResultComplete.
+    Kill timing fields distinguish delayed supervision or dispatch from a slow
+    process-tree kill. ExitObserved reports whether the direct child's exit
+    was confirmed.
 #>
     [CmdletBinding()]
     [OutputType([hashtable])]
@@ -2613,7 +2650,9 @@ function Invoke-BoundedNativeCommand {
         ExitCode = -1; StdOut = ''; StdErr = ''; TimedOut = $false; Started = $false
         DrainTimedOut = $false; KillFailed = $false; OutputTruncated = $false; ElapsedMs = 0
         DeadlineExhausted = $false; ProcessId = 0; StartError = ''; CleanupPending = $false; OutputHandlerError = ''
+        KillRequestedAtMs = -1L; KillTaskStatus = 'NotStarted'; KillTaskSucceeded = $false; ExitObserved = $false
     }
+    $startedAtTicks = [System.Diagnostics.Stopwatch]::GetTimestamp()
     $stopwatch = [System.Diagnostics.Stopwatch]::StartNew()
     $capMs = [long]$TimeoutSeconds * 1000
     if ($PSBoundParameters.ContainsKey('Deadline')) {
@@ -2709,26 +2748,28 @@ function Invoke-BoundedNativeCommand {
     $errTask  = $proc.StandardError.ReadAsync([Memory[char]]::new($errBuf), $cts.Token).AsTask()
     $exitTask = [Yuruna.NativeCleanup]::ObserveExit($proc)
 
+    $killDeadlineTicks = $startedAtTicks + [long]($execMs * [Diagnostics.Stopwatch]::Frequency / 1000.0)
+    try {
+        $killTask = Invoke-BoundedNativeTreeKill -Process $proc -DeadlineTimestamp $killDeadlineTicks
+    } catch {
+        $alreadyGone = $false
+        try { $alreadyGone = $proc.HasExited } catch { $alreadyGone = $false }
+        if (-not $alreadyGone) {
+            $killThrew = $true
+            Write-Verbose "Invoke-BoundedNativeCommand: arming cleanup for '$resolved' (pid $($result.ProcessId)) failed: $($_.Exception.Message)"
+        }
+    }
+
     # One loop covers execution and cleanup. Until the kill the loop runs to
     # the execution window; once the child has exited or been killed it runs
     # to the cap, pumping whichever of exit, stdout and stderr is still
     # pending, so the post-kill join is bounded by the same cap.
     while (-not ($outEof -and $errEof -and $exited)) {
         $elapsed = $stopwatch.ElapsedMilliseconds
+        if ([Yuruna.NativeCleanup]::KillRequestedTicks($killTask) -gt 0) { $killIssued = $true }
         if (-not $exited -and -not $killIssued -and $elapsed -ge $execMs) {
-            $killIssued = $true
-            try {
-                $killTask = Invoke-BoundedNativeTreeKill -Process $proc
-            } catch {
-                # A child that exited in the instant before the kill is not a
-                # failed kill; anything else is.
-                $alreadyGone = $false
-                try { $alreadyGone = $proc.HasExited } catch { $alreadyGone = $false }
-                if (-not $alreadyGone) {
-                    $killThrew = $true
-                    Write-Verbose "Invoke-BoundedNativeCommand: killing '$resolved' (pid $($result.ProcessId)) failed: $($_.Exception.Message)"
-                }
-            }
+            try { $exited = $exitTask.IsCompleted -or $proc.HasExited } catch { $null = $_ }
+            if (-not $exited) { $killIssued = $true; $result.KillRequestedAtMs = $elapsed }
             continue
         }
         $limit     = if ($exited -or $killIssued) { $capMs } else { $execMs }
@@ -2792,6 +2833,19 @@ function Invoke-BoundedNativeCommand {
         }
     }
 
+    # A scheduling pause can expire the cap while a read has already placed
+    # bytes in its buffer. Retain those bytes without another read, wait, or
+    # callback; an unfinished stream still reports an incomplete drain.
+    if (-not $outEof -and $outTask.IsCompletedSuccessfully) {
+        $n = $outTask.GetAwaiter().GetResult()
+        if ($n -le 0) { $outEof = $true }
+        else { Add-BoundedNativeChunk -Builder $outSb -Buffer $outBuf -Count $n -MaxChars $MaxCapturedChars -Truncated ([ref]$outTrunc) }
+    }
+    if (-not $errEof -and $errTask.IsCompletedSuccessfully) {
+        $n = $errTask.GetAwaiter().GetResult()
+        if ($n -le 0) { $errEof = $true }
+        else { Add-BoundedNativeChunk -Builder $errSb -Buffer $errBuf -Count $n -MaxChars $MaxCapturedChars -Truncated ([ref]$errTrunc) }
+    }
     $result.DrainTimedOut   = $readFault -or -not ($outEof -and $errEof)
     $result.OutputTruncated = ($outTrunc -or $errTrunc)
     $result.StdOut          = $outSb.ToString()
@@ -2801,6 +2855,11 @@ function Invoke-BoundedNativeCommand {
     # child that really is gone from being reported as a failed kill.
     if (-not $exited) {
         try { $exited = $exitTask.IsCompleted -or $proc.HasExited } catch { $null = $_ }
+    }
+    $requestedTicks = [Yuruna.NativeCleanup]::KillRequestedTicks($killTask)
+    if ($requestedTicks -gt 0) {
+        $killIssued = $true
+        $result.KillRequestedAtMs = [long](($requestedTicks - $startedAtTicks) * 1000.0 / [Diagnostics.Stopwatch]::Frequency)
     }
     if ($killIssued) {
         $result.TimedOut   = $true
@@ -2819,12 +2878,17 @@ function Invoke-BoundedNativeCommand {
     $cleanupRemaining = [int][Math]::Max(0, $capMs - $stopwatch.ElapsedMilliseconds)
     if ($cleanupRemaining -gt 0) { $null = $cleanupTask.Wait($cleanupRemaining) }
     $result.CleanupPending = -not $cleanupTask.IsCompleted
+    $result.ExitObserved = $exited
     if ($killIssued) {
         # The exit notification can beat the kill delegate's return. Assess
         # completion after the bounded cleanup join, not that earlier race.
         $killFinished = $null -ne $killTask -and $killTask.IsCompletedSuccessfully
         $killSucceeded = $killFinished -and $killTask.Result
+        $result.KillTaskSucceeded = $killSucceeded
         $result.KillFailed = ($killThrew -or -not $exited -or -not $killSucceeded)
+        if ($killTask) {
+            $result.KillTaskStatus = $killTask.Status.ToString()
+        }
     }
     $result.ElapsedMs = $stopwatch.ElapsedMilliseconds
     return $result
@@ -4637,26 +4701,6 @@ function Remove-YurunaOrphanedRuntimeIpc {
     return [pscustomobject]$summary
 }
 
-function New-YurunaSeedDirectory {
-    <#
-    .SYNOPSIS
-        A new, empty seed folder for one VM build, in the temp folder.
-    .DESCRIPTION
-        CreateTempSubdirectory creates the folder exclusively under a random
-        name (seed_<VMName>_ followed by an 8.3 random name on Windows), so a
-        folder or link planted at a predictable path is never reused. The
-        caller removes the folder once the seed ISO is built.
-    .OUTPUTS
-        [string] the full path of the folder.
-    #>
-    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
-        Justification = 'Creates a private temp folder that its caller removes in a finally block.')]
-    [CmdletBinding()]
-    [OutputType([string])]
-    param([Parameter(Mandatory)][string]$VMName)
-    return [System.IO.Directory]::CreateTempSubdirectory("seed_${VMName}_").FullName
-}
-
 # --- REGION: Stale harness temp entries
 # The temp names the harness and its tests create, each with the code that
 # creates it. Only these are ever removed, and only past their age: a broad
@@ -4668,9 +4712,6 @@ function New-YurunaSeedDirectory {
 # creating site that still exists.
 $script:YurunaStaleTempPattern = [ordered]@{
     # Production
-    # A seed folder ends in four digits or in the 8.3 random name that
-    # CreateTempSubdirectory gives on Windows; a host can hold either.
-    'seed'                  = @{ Pattern = '^seed_.+_(?:\d{4}|[a-z0-9]{8}\.[a-z0-9]{3})$'; Source = 'automation/Yuruna.Common.psm1'; Literal = 'seed_${VMName}_' }
     'serial-capture'        = @{ Pattern = '^yuruna-serial-.+\.(?:log|state\.json)$'; Source = 'host/windows.hyper-v/modules/Yuruna.Host.psm1'; Literal = 'yuruna-serial-' }
     'dhcp-capture'          = @{ Pattern = '^yuruna-dhcp-.+\.(?:etl|pcap)$'; Source = 'host/windows.hyper-v/modules/Yuruna.Host.psm1'; Literal = 'yuruna-dhcp-' }
     'squid-ca'              = @{ Pattern = '^yuruna-squid-ca(?:-[0-9a-f]{32})?\.pem$'; Source = 'host/modules/Yuruna.HostDownload.psm1'; Literal = 'yuruna-squid-ca-' }
@@ -5089,4 +5130,4 @@ function New-YurunaVirtualizationProbeRecord {
     }
 }
 
-Export-ModuleMember -Function New-YurunaVirtualizationProbeRecord, Save-YurunaHostProxyBackup, Read-YurunaHostProxyBackup, Remove-YurunaHostProxyBackup, ConvertFrom-YurunaPemCertificate, Test-Utf8TextByte, Test-YurunaServiceHealth, Invoke-YurunaTcpProbeSet, Get-YurunaProcessIdentityLiveness, Get-YurunaProcessStartUtc, Test-YurunaPidFileLockLive, Enter-YurunaPidFileLock, Exit-YurunaPidFileLock, Get-YurunaPlatformName, New-YurunaSeedDirectory, Format-YurunaVirtualizationProbeDiagnostic, New-YurunaVirtualizationStartAction, New-YurunaVirtualizationStartResult, New-YurunaTimestampedBackup, Get-HostProxyBackupPath, ConvertTo-ProxyHostPort, Get-PortMapStatePath, Test-IsAdministrator, Get-PwshApplicationPath, Get-SudoPwshArgumentList, Invoke-YurunaSudo, Test-YurunaSudoRefusal, Test-YurunaCanPrompt, Assert-YurunaPromptable, Get-CachingProxyServicePort, Get-CachingProxyMemoryProfile, Test-Ipv4Address, Test-Ipv6Address, Format-IpUrlHost, Test-IpAddress, Select-YurunaRoutableAddress, ConvertTo-Sha512CryptHash, ConvertTo-YurunaMacAddress, Get-YurunaHostMacSeed, Get-YurunaGuestMacAddress, Test-YurunaGuestMacMatchesName, ConvertTo-Ipv4UInt32, Get-HostIpv4Subnet, Get-Ipv4OnLinkVerdict, Get-PoolFacingIpv4Segment, Get-Ipv4PoolSegmentVerdict, Test-TcpConnectOutcome, Get-TcpOutcomeExplanation, Select-DhcpLeaseIpAddress, Select-StaleDhcpLeaseBlock, Remove-DhcpLeaseBlockText, Get-UtmGuestSeedHostname, ConvertTo-MemoryStartupBytes, Get-GuestBuilderMemoryMb, Get-ServiceVmMemoryMb, Select-SetupServiceVmKey, Get-ServiceVmMemoryVerdict, Get-HostPhysicalMemoryMb, Select-NameByPrefix, Get-YurunaServiceVmName, Invoke-BoundedNativeCommand, Get-BoundedNativeOutputLine, Test-BoundedNativeResultComplete, New-YurunaDeadline, New-YurunaDeadlineFromExpiry, Get-YurunaDeadlineRemainingMs, Test-YurunaDeadlineExpired, Get-YurunaDeadlineBoundedSeconds, Wait-YurunaDeadlineInterval, Get-YurunaIoFailureKind, Get-YurunaTempRoot, Get-YurunaRuntimeIpcEntry, Get-YurunaRuntimeIpcOwnerState, Test-YurunaProcessNameMatch, Remove-YurunaOrphanedRuntimeIpc, Test-YurunaPowerShellTranscriptFile, Remove-YurunaStaleTempEntry, Get-YurunaStaleTempPattern, Resolve-YurunaCanonicalPath, Get-YurunaPathDriveInfo, Get-YurunaPathOwnerId, Get-YurunaCurrentOwnerId, Get-YurunaPrivateStateRoot, Get-YurunaPrivateStatePath
+Export-ModuleMember -Function New-YurunaVirtualizationProbeRecord, Save-YurunaHostProxyBackup, Read-YurunaHostProxyBackup, Remove-YurunaHostProxyBackup, ConvertFrom-YurunaPemCertificate, Test-Utf8TextByte, Test-YurunaServiceHealth, Invoke-YurunaTcpProbeSet, Get-YurunaProcessIdentityLiveness, Get-YurunaProcessStartUtc, Test-YurunaPidFileLockLive, Enter-YurunaPidFileLock, Exit-YurunaPidFileLock, Get-YurunaPlatformName, Format-YurunaVirtualizationProbeDiagnostic, New-YurunaVirtualizationStartAction, New-YurunaVirtualizationStartResult, New-YurunaTimestampedBackup, Get-HostProxyBackupPath, ConvertTo-ProxyHostPort, Get-PortMapStatePath, Test-IsAdministrator, Get-PwshApplicationPath, Get-SudoPwshArgumentList, Invoke-YurunaSudo, Test-YurunaSudoRefusal, Test-YurunaCanPrompt, Assert-YurunaPromptable, Get-CachingProxyServicePort, Get-CachingProxyMemoryProfile, Test-Ipv4Address, Test-Ipv6Address, Format-IpUrlHost, Test-IpAddress, Select-YurunaRoutableAddress, ConvertTo-Sha512CryptHash, ConvertTo-YurunaMacAddress, Get-YurunaHostMacSeed, Get-YurunaGuestMacAddress, Test-YurunaGuestMacMatchesName, ConvertTo-Ipv4UInt32, Get-HostIpv4Subnet, Get-Ipv4OnLinkVerdict, Get-PoolFacingIpv4Segment, Get-Ipv4PoolSegmentVerdict, Test-TcpConnectOutcome, Get-TcpOutcomeExplanation, Select-DhcpLeaseIpAddress, Select-StaleDhcpLeaseBlock, Remove-DhcpLeaseBlockText, Get-UtmGuestSeedHostname, ConvertTo-MemoryStartupBytes, Get-GuestBuilderMemoryMb, Get-ServiceVmMemoryMb, Select-SetupServiceVmKey, Get-ServiceVmMemoryVerdict, Get-HostPhysicalMemoryMb, Select-NameByPrefix, Get-YurunaServiceVmName, Invoke-BoundedNativeCommand, Get-BoundedNativeOutputLine, Test-BoundedNativeResultComplete, New-YurunaDeadline, New-YurunaDeadlineFromExpiry, Get-YurunaDeadlineRemainingMs, Test-YurunaDeadlineExpired, Get-YurunaDeadlineBoundedSeconds, Wait-YurunaDeadlineInterval, Get-YurunaIoFailureKind, Get-YurunaTempRoot, Get-YurunaRuntimeIpcEntry, Get-YurunaRuntimeIpcOwnerState, Test-YurunaProcessNameMatch, Remove-YurunaOrphanedRuntimeIpc, Test-YurunaPowerShellTranscriptFile, Remove-YurunaStaleTempEntry, Get-YurunaStaleTempPattern, Resolve-YurunaCanonicalPath, Get-YurunaPathDriveInfo, Get-YurunaPathOwnerId, Get-YurunaCurrentOwnerId, Get-YurunaPrivateStateRoot, Get-YurunaPrivateStatePath

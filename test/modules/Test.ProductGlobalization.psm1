@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.22
+.VERSION 2026.10.25
 .GUID 428d1b23-c8e7-48f8-a3e7-5ef40beb397d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -16,7 +16,7 @@ function Invoke-ProductGlobalizationCheck {
     #>
     [CmdletBinding()]
     param(
-        [Parameter(Mandatory)][ValidateSet('Node', 'Go', 'Pester')][string]$Kind,
+        [Parameter(Mandatory)][ValidateSet('Node', 'Go', 'Pester', 'JsTest')][string]$Kind,
         [Parameter(Mandatory)][string]$Path,
         [string[]]$Argument = @()
     )
@@ -29,6 +29,8 @@ function Invoke-ProductGlobalizationCheck {
             $output = & node (Join-Path $root $Path) @Argument 2>&1 | Out-String
         } elseif ($Kind -eq 'Go') {
             $output = & $powerShell -NoProfile -File (Join-Path $root 'tools/Invoke-GoTest.ps1') -Path $Path 2>&1 | Out-String
+        } elseif ($Kind -eq 'JsTest') {
+            $output = & $powerShell -NoProfile -File (Join-Path $root 'tools/Invoke-JsTest.ps1') -Path $Path -Quiet 2>&1 | Out-String
         } else {
             $resultPath = Join-Path ([IO.Path]::GetTempPath()) ('yuruna-product-' + [guid]::NewGuid().ToString('N') + '.xml')
             $output = & $powerShell -NoProfile -File (Join-Path $root 'tools/_InvokeOneSuite.ps1') -Suite (Join-Path $root $Path) -Xml $resultPath 2>&1 | Out-String
@@ -46,4 +48,32 @@ function Invoke-ProductGlobalizationCheck {
         if ($resultPath -and (Test-Path -LiteralPath $resultPath)) { Remove-Item -LiteralPath $resultPath -Force }
     }
 }
-Export-ModuleMember -Function Invoke-ProductGlobalizationCheck
+function Invoke-ProductGlobalizationCheckSet {
+    <#
+    .SYNOPSIS
+        Execute several product checks at once and fail when any of them fails.
+    .DESCRIPTION
+        Each check already runs in processes of its own, so running them
+        together changes no verdict, only how long the set takes. Every check
+        runs to its end, and every failure is reported, in the order given.
+    .PARAMETER Check
+        Hashtables with the Kind and Path of each Invoke-ProductGlobalizationCheck call.
+    #>
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][hashtable[]]$Check)
+    $module = $PSCommandPath
+    $failures = @(0..($Check.Count - 1) | ForEach-Object -ThrottleLimit $Check.Count -Parallel {
+            $index = $_
+            $item = ($using:Check)[$index]
+            # A runspace of this pool starts without the module, so nothing is
+            # reloaded and no other importer loses it.
+            Import-Module $using:module -DisableNameChecking
+            try {
+                Invoke-ProductGlobalizationCheck -Kind $item.Kind -Path $item.Path
+            } catch { [pscustomobject]@{ Index = $index; Message = $_.Exception.Message } }
+        })
+    if ($failures.Count -gt 0) {
+        throw (($failures | Sort-Object Index | ForEach-Object Message) -join "`n")
+    }
+}
+Export-ModuleMember -Function Invoke-ProductGlobalizationCheck, Invoke-ProductGlobalizationCheckSet

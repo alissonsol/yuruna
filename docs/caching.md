@@ -323,7 +323,10 @@ Apt repository indexes under `packages.opentofu.org/.../dists/` would
 otherwise be frozen by the host-level pattern, but the
 `/InRelease|/Release|/Release.gpg|/Packages*` short-TTL
 `refresh_pattern` entries declared earlier in `yuruna.conf` match
-first and keep apt metadata fresh. A second class of provider zips
+first, and every `/dists/` path outside `by-hash/` is answered from the
+origin while upstream is allowed (see
+[Apt metadata under offline_mode](#42f6b05f-0057)).
+A second class of provider zips
 lives on the GitHub release CDN (`github.com/.../releases/download/`
 -> 302 -> `objects.githubusercontent.com/...`); both endpoints get the
 same year-long TTL via their own dedicated `refresh_pattern` entries.
@@ -1179,8 +1182,8 @@ reported. It runs 10 minutes after boot and every 30 minutes
 
 A pair that could not be read is listed as `unverified` with its reason. The
 verdict is the `apt index pairs` line on `/cache-health`, the
-`yuruna_apt_index_*` series in `/squid-meta`, and the "Apt index pairs" panel
-of the cache-health dashboard.
+`yuruna_apt_index_*` series in `/squid-meta`, and the "Apt index pairs out of
+step" panel of the cache-health dashboard.
 
 A `MISMATCH` that survives the re-read means one of three things:
 
@@ -1742,12 +1745,23 @@ rest stays on `:3128` with CONNECT tunneling (no caching).
 
 ### Key / cert material
 
-Generated once by cloud-init on first boot (idempotent -- re-runs do
-**not** rotate the CA, which would orphan trusted guests):
+The CA belongs to the host that builds the proxy. `Get-YurunaBumpCa` creates it once in
+that host's private state (`~/.yuruna/host-refresh/caching-proxy/bump-ca.pem` and the
+owner-only `bump-ca.key`), and every proxy build seeds it through the protected seed media;
+cloud-init installs it and deletes the seeded key copy. A rebuild therefore keeps the root
+every guest and host already trusts. When upgrading a proxy whose CA exists only in
+the VM, both the service entry point and the direct platform builders retrieve its
+certificate and matching private key through the existing harness SSH connection
+**before removing the VM**. The address comes from the local hypervisor, never
+from discovery of another host's proxy. Failed reads, mismatched pairs, expired
+certificates, and partial host storage preserve the VM and require recovery of
+the existing pair. An already owned pair takes precedence and is never replaced.
+A seed that carries no CA (one rendered by an older builder) still makes
+cloud-init generate one on first boot, idempotently:
 
 | Path                                 | Contents |
 |--------------------------------------|----------|
-| `/etc/squid/ssl_cert/ca.key`         | 2048-bit RSA key, `proxy:proxy 600`. VM-local only. |
+| `/etc/squid/ssl_cert/ca.key`         | 2048-bit RSA key, `proxy:proxy 600`. Seeded from the builder's private state. |
 | `/etc/squid/ssl_cert/ca.pem`         | Self-signed CA (10 years). CN: hostname + UTC timestamp. |
 | `/var/lib/squid/ssl_db/`             | `security_file_certgen` DB of per-SNI leaves. |
 | `/var/www/html/yuruna-squid-ca.crt`  | Public cert, served by Apache. |
@@ -1765,10 +1779,94 @@ forwarder serves only remote LAN hosts); bridged guests use the cache address.
 
 **Host pre-fetch + base64 in seed:** each Ubuntu Server builder derives the
 cache host from the resolved proxy URL and calls the shared CA helper. It
-fetches the CA directly from the cache's HTTP endpoint, validates it as X509,
-and persists a usable copy. After live-fetch retries are exhausted, it may
-reuse that copy only for the same cache host. The builder base64-encodes it and
-splices it into the seed as `CA_CERT_BASE64_PLACEHOLDER`. Guest
+fetches the CA from the cache's HTTP endpoint, validates it as X509, and
+accepts it only when it is a CA this host trusts for that address
+(`Resolve-YurunaPinnedProxyCa`): the CA this host seeds into the proxies it
+builds, the one pinned for it, the same one it cached
+for that address before pins carried a fingerprint, or one the proxy's builder
+signed. Each proxy builder signs its CA's SHA-256 with the lab's mirror
+signing key, and the proxy serves that statement at
+`http://<cache-vm-ip>/yuruna-squid-ca.sig.json`; a host that enrolls the
+matching key in `repositories.mirror.verificationPublicKeys` verifies it, so it
+never trusts a CA on first use, and a signed rotation replaces its pin. Only a
+host with no key enrolled still pins the first CA it sees for an address. A
+CA the host does not trust is not seeded: the builder stops with exit code 65,
+which the runner records as `source_integrity`, including the refusal reason,
+proxy address, expected and fetched fingerprints, and enrolled-key count.
+If that count is zero despite configured keys, look for
+`YURUNA_PROXY_CA_KEY_LOAD_ERROR` in the builder output. It identifies the
+configuration path and whether reading, importing the key validator, or key
+validation failed, without recording configuration values. The CA loader
+uses the exported mirror-key validator across a module boundary; fresh-process
+tests exercise real configuration loading as well as signature verification.
+Keep the existing pin when repairing a rotation. On the **proxy builder**, run:
+
+```powershell
+pwsh -NoProfile -File test/service/Start-CachingProxyServiceVM.ps1
+```
+
+The lab wrapper uses the same recovery by default:
+`pwsh test/lab/Start-Syzygy.ps1`. No recovery argument is needed. Both entry
+points rebuild the cache and attempt to enroll its signing key on every
+discovered host. Unavailable hosts remain pending with per-host diagnostics;
+they do not prevent a working proxy or the remaining lab services from starting.
+An empty inventory is reported while the first hosts register. Invalid CA
+statements still stop startup without changing host trust.
+
+The proxy launcher's `RepairPoolCaTrust` switch defaults to true and forces a
+full rebuild, including when the current proxy is healthy or
+`-ForceRebuild:$false` is supplied. Recovery uses the current builder and seed
+to publish the signed CA statement. Explicitly supplying `-RepairPoolCaTrust`
+also requires complete enrollment and a nonempty inventory; automatic recovery
+does not turn every remote host into a proxy startup prerequisite. To retain
+adopt-if-healthy startup, explicitly pass `-RepairPoolCaTrust:$false` to the proxy launcher: this retains
+adopt-if-healthy behavior and best-effort enrollment after a full rebuild.
+
+The rebuilt proxy reuses the builder's CA pair and publishes its signed CA
+statement. Recovery validates that statement against the builder's **local**
+`test/status/runtime/git-mirror-public-key.json` export, then adds that public
+key to each discovered pool host through audience-bound authenticated control
+requests using the builder's existing lab token. No key is learned from HTTP.
+The rebuild keeps the previous aggregator's host inventory in memory so stopped
+test cycles do not have to generate new traffic for recovery to find their hosts.
+Existing verification keys, mirror mode/URL, repository URLs, secrets, and CA
+pins remain intact. Each configuration replacement is reported before writing;
+the host retains `test.config.yml.backup`. Hosts explicitly using another proxy
+are skipped. Each failed host is reported with its stage and HTTP status, and
+partial recovery fails an explicitly requested recovery and is reported as
+pending during automatic startup. The next guest build verifies the signed
+rotation and persists the new CA normally; existing guests need a rebuild to
+receive it. Confirm that new cycles pass `New-VM` and no longer report exit 65.
+
+The host config service supplies its resolved NAS address with the credential
+over mutual TLS, so guest name resolution can differ from the host's hosts file
+or NetBIOS. A loopback NAS address means a share on the builder and uses the
+guest's reachable host address; a remote NAS keeps its resolved address. Cache
+rebuilds restart the config service to apply the current payload format.
+`/config-fetch-pool-status` reports the selected address and mount exit code on
+failure, and a failed mount does not record the credential version as current.
+
+If a host was unavailable during recovery, repeat either command above:
+it rebuilds the proxy again and preserves already enrolled keys. An empty host
+inventory is incomplete for explicitly requested recovery; retry after the
+aggregator has discovered the hosts. Do not delete pins
+or disable verification. Hosts must share the builder's lab control token and
+have a reachable status service for remote enrollment.
+
+A `host-config-write` refusal with `proof-invalid` can mean that a status
+listener started before its host identity was created. Compare the public
+`/control/control-status` token tags to establish whether the hosts share a
+control key; the reply also reports the listener's current `hostId`. The listener
+reads the current `runtime/host.uuid` for each audience check, including after
+initial creation or host refresh. Restart an older listener on the affected host
+with `pwsh test/service/Start-StatusService.ps1 -Restart`, then repeat enrollment
+on the proxy builder. Keep audience-bound proofs and existing CA pins intact.
+
+The builder base64-encodes the CA and splices it into the seed as
+`CA_CERT_BASE64_PLACEHOLDER`, and the renderer writes its SHA-256 (of the DER
+bytes) into the guest's `host.env` as `YURUNA_CA_SHA256`. The download agent
+receives the same CA in its seed rather than fetching it, and the pool push
+pins `pool-ca.crt`, which is the same certificate, the same way. Guest
 `late-commands`:
 
 1. `printf '%s' "<base64>" | base64 -d > /target/.../yuruna-squid-ca.crt`
@@ -1780,8 +1878,13 @@ splices it into the seed as `CA_CERT_BASE64_PLACEHOLDER`. Guest
 An empty CA placeholder omits the explicit HTTPS apt stanza, but the seed
 still sets the HTTPS proxy environment to `:3129`. Missing trust can therefore
 fail certificate verification rather than send HTTPS direct. The guest retry
-helper can repair trust from the host status service's CA endpoint; if that
-cannot provide a usable CA, the bumped HTTPS request remains a diagnosed failure.
+helper can repair trust from the host status service's CA endpoint, but only
+with the CA `YURUNA_CA_SHA256` names: that endpoint answers over plain HTTP, so a
+fetched CA with another fingerprint, or a guest whose `host.env` names none, is
+never installed. When the seeded CA is already trusted the helper leaves it, and
+when installing it does not make the bump trusted it restores the anchors that
+were there before. If that cannot provide a usable CA, the bumped HTTPS request
+remains a diagnosed failure.
 
 <a id="42f6b05f-0039"></a>
 
@@ -2083,8 +2186,9 @@ into the seed, resolved on the host at VM-creation time:
   normal early state.
 - **config service mTLS materials** -- a per-VM client leaf minted by
   THIS host's Config CA, baked with the CA cert + service port so the
-  cache VM can fetch ystash-nas (and ypool-nas) credentials at boot AND
-  hourly over mTLS, so a rotated NAS password reaches the running
+  cache VM fetches the ypool-nas credentials at boot AND hourly over mTLS
+  (its helper also handles ystash-nas, which the seed does not enable),
+  so a rotated NAS password reaches the running
   VM without a rebuild. The client leaf chains to this host's CA, so the
   service serves ONLY this host's VMs.
   PEMs are baked base64 so they survive the cloud-init `write_files`
@@ -2880,7 +2984,7 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.22
+Last review: 2026.10.25
 
 Back to [Yuruna](../README.md)
 

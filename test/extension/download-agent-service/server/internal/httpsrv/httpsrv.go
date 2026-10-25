@@ -85,6 +85,7 @@ func New(opts Options) *Server {
 		Language: opts.Language, AllowPseudoLocale: opts.AllowPseudoLocale,
 		AggregatorURL: opts.AggregatorURL,
 		BearerToken:   opts.AuthToken,
+		ProofAudience: "svc-download-agent-service",
 		CookieName:    sessionCookie,
 		Audit:         s.auditUnlock,
 	})

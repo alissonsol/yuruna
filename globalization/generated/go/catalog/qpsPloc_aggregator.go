@@ -204,6 +204,7 @@ const DataqpsPlocaggregator = `{
   "aggregator.host_not_known_to_the_pool": "[ħóšţ ñóţ ķñóŵñ ţó ţħé ƥóóļ ~~~~~~~~~~~]",
   "aggregator.hostid_must_be_a_42_prefixed_32_hex_id": "[ħóšţÍď ɱúšţ ƀé á 42-ƥřéƒíẋéď 32-ħéẋ íď ~~~~~~~~~~~~~~~~]",
   "aggregator.ingest_disabled": "[íñğéšţ ďíšáƀļéď ~~~~~~]",
+  "aggregator.invalid_control_scope": "[íñṽáļíď çóñţřóļ šçóƥé ~~~~~~~~~]",
   "aggregator.invalid_hostid": "[íñṽáļíď ħóšţÍď ~~~~~~]",
   "aggregator.invalid_hostid_or_area": "[íñṽáļíď ħóšţÍď óř ářéá ~~~~~~~~~]",
   "aggregator.invalid_statusport": "[íñṽáļíď šţáţúšƤóřţ ~~~~~~~~]",

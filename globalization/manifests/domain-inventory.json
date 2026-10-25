@@ -8,11 +8,11 @@
   "totals": {
     "domains": 16,
     "files": 560,
-    "candidates": 8268,
-    "fragments": 1807,
-    "catalogCalls": 5439,
+    "candidates": 8351,
+    "fragments": 1816,
+    "catalogCalls": 5500,
     "pages": 15,
-    "markdown": 136,
+    "markdown": 137,
     "yamlFields": 178
   },
   "projectScope": {
@@ -60,8 +60,8 @@
       "repository": "yuruna",
       "present": true,
       "files": 6,
-      "candidates": 591,
-      "fragments": 185,
+      "candidates": 597,
+      "fragments": 187,
       "catalogCalls": 90,
       "pages": 5,
       "markdown": 0,
@@ -69,11 +69,11 @@
       "topFiles": [
         {
           "file": "test/status/pt-BR.status.js",
-          "candidates": 286
+          "candidates": 289
         },
         {
           "file": "test/status/yuruna.common.js",
-          "candidates": 275
+          "candidates": 278
         },
         {
           "file": "test/status/he-IL.status.js",
@@ -94,7 +94,7 @@
       "repository": "yuruna",
       "present": true,
       "files": 16,
-      "candidates": 589,
+      "candidates": 599,
       "fragments": 283,
       "catalogCalls": 90,
       "pages": 0,
@@ -103,7 +103,7 @@
       "topFiles": [
         {
           "file": "test/service/Start-CachingProxyServiceVM.ps1",
-          "candidates": 165
+          "candidates": 173
         },
         {
           "file": "test/service/Move-CachingProxyService.ps1",
@@ -128,8 +128,8 @@
       "repository": "yuruna",
       "present": true,
       "files": 47,
-      "candidates": 936,
-      "fragments": 327,
+      "candidates": 941,
+      "fragments": 329,
       "catalogCalls": 198,
       "pages": 5,
       "markdown": 0,
@@ -137,7 +137,7 @@
       "topFiles": [
         {
           "file": "test/extension/pool-control-service/server/internal/httpsrv/web/assets/pt-BR.pool.js",
-          "candidates": 534
+          "candidates": 537
         },
         {
           "file": "test/extension/pool-control-service/server/internal/httpsrv/web/assets/common.js",
@@ -162,8 +162,8 @@
       "repository": "yuruna",
       "present": true,
       "files": 50,
-      "candidates": 663,
-      "fragments": 142,
+      "candidates": 666,
+      "fragments": 143,
       "catalogCalls": 66,
       "pages": 3,
       "markdown": 1,
@@ -171,7 +171,7 @@
       "topFiles": [
         {
           "file": "test/extension/stash-service/server/internal/httpsrv/web/assets/pt-BR.stash.js",
-          "candidates": 349
+          "candidates": 352
         },
         {
           "file": "test/extension/stash-service/server/internal/httpsrv/web/assets/common.js",
@@ -196,8 +196,8 @@
       "repository": "yuruna",
       "present": true,
       "files": 43,
-      "candidates": 563,
-      "fragments": 158,
+      "candidates": 566,
+      "fragments": 159,
       "catalogCalls": 79,
       "pages": 2,
       "markdown": 0,
@@ -205,7 +205,7 @@
       "topFiles": [
         {
           "file": "test/extension/download-agent-service/server/internal/httpsrv/web/assets/pt-BR.download.js",
-          "candidates": 351
+          "candidates": 354
         },
         {
           "file": "test/extension/download-agent-service/server/internal/httpsrv/web/assets/common.js",
@@ -298,8 +298,8 @@
       "repository": "yuruna",
       "present": true,
       "files": 30,
-      "candidates": 321,
-      "fragments": 82,
+      "candidates": 324,
+      "fragments": 83,
       "catalogCalls": 12,
       "pages": 0,
       "markdown": 1,
@@ -307,7 +307,7 @@
       "topFiles": [
         {
           "file": "test/extension/extension-sdk/webui/assets/yuruna.core.js",
-          "candidates": 256
+          "candidates": 259
         },
         {
           "file": "test/extension/extension-sdk/i18n/message.go",
@@ -350,16 +350,16 @@
       "repository": "yuruna",
       "present": true,
       "files": 135,
-      "candidates": 2167,
-      "fragments": 312,
-      "catalogCalls": 2373,
+      "candidates": 2206,
+      "fragments": 314,
+      "catalogCalls": 2399,
       "pages": 0,
       "markdown": 1,
       "yamlFields": 0,
       "topFiles": [
         {
           "file": "test/modules/Test.SequenceHandler.psm1",
-          "candidates": 117
+          "candidates": 125
         },
         {
           "file": "test/modules/Test.Ssh.psm1",
@@ -367,7 +367,7 @@
         },
         {
           "file": "test/modules/Test.CachingProxyService.psm1",
-          "candidates": 92
+          "candidates": 105
         },
         {
           "file": "test/modules/Test.Diagnostic.psm1",
@@ -384,20 +384,20 @@
       "repository": "yuruna",
       "present": true,
       "files": 84,
-      "candidates": 838,
+      "candidates": 851,
       "fragments": 121,
-      "catalogCalls": 1728,
+      "catalogCalls": 1763,
       "pages": 0,
       "markdown": 28,
       "yamlFields": 0,
       "topFiles": [
         {
           "file": "host/windows.hyper-v/modules/Yuruna.Host.psm1",
-          "candidates": 185
+          "candidates": 186
         },
         {
           "file": "host/ubuntu.kvm/modules/Yuruna.Host.psm1",
-          "candidates": 113
+          "candidates": 116
         },
         {
           "file": "host/macos.utm/modules/Yuruna.Host.psm1",
@@ -409,7 +409,7 @@
         },
         {
           "file": "host/modules/Yuruna.HostProvision.psm1",
-          "candidates": 30
+          "candidates": 32
         }
       ]
     },
@@ -418,7 +418,7 @@
       "repository": "yuruna",
       "present": true,
       "files": 39,
-      "candidates": 353,
+      "candidates": 354,
       "fragments": 16,
       "catalogCalls": 669,
       "pages": 0,
@@ -431,7 +431,7 @@
         },
         {
           "file": "automation/Yuruna.Common.psm1",
-          "candidates": 64
+          "candidates": 63
         },
         {
           "file": "automation/Yuruna.Validation.psm1",
@@ -490,7 +490,7 @@
       "fragments": 0,
       "catalogCalls": 0,
       "pages": 0,
-      "markdown": 83,
+      "markdown": 84,
       "yamlFields": 0,
       "topFiles": []
     },

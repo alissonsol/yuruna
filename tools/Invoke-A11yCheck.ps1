@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.22
+.VERSION 2026.10.25
 .GUID 420b9d4a-e9ff-472b-9afa-d978ada39114
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -79,6 +79,9 @@
     Focus every visible interactive control and fail when it cannot accept
     focus. This is a rendered focus-target check, not evidence of native Tab
     order or keyboard activation; those require the real-browser operator row.
+.PARAMETER Concurrency
+    Page-views measured at once, each in a browser tab of its own. Default: half
+    the logical processors, at least 1 and at most 16.
 .PARAMETER Quiet
     Print the summary only.
 .EXAMPLE
@@ -118,6 +121,8 @@ param(
     [ValidateSet('ltr', 'rtl')]
     [string]$ExpectedDirection,
     [switch]$CheckFocusTargets,
+    [ValidateRange(1, 64)]
+    [int]$Concurrency = [Math]::Clamp([int][Math]::Floor([Environment]::ProcessorCount / 2), 1, 16),
     [switch]$Quiet
 )
 
@@ -613,10 +618,14 @@ if ($roots.Count -gt 0) {
             } catch { $ctx.Response.StatusCode = 500 } finally { $ctx.Response.OutputStream.Close() }
         }
     }
-    $ps = [PowerShell]::Create()
-    $null = $ps.AddScript($serve).AddArgument($listener).AddArgument($rootPort)
-    $null = $ps.BeginInvoke()
-    $serverRunspace = $ps
+    # Several tabs load at once, so several runspaces take requests from the
+    # one listener; each only reads the port map.
+    $serverRunspace = @(foreach ($worker in 1..([Math]::Min($Concurrency, 4))) {
+            $ps = [PowerShell]::Create()
+            $null = $ps.AddScript($serve).AddArgument($listener).AddArgument($rootPort)
+            $null = $ps.BeginInvoke()
+            $ps
+        })
 }
 
 # --- REGION: CDP
@@ -711,56 +720,86 @@ try {
     }
     $browserReady = $true
 
-    foreach ($page in $pages) {
-        $pageUrl = if ($null -eq $page.Root) { $page.File } else {
-            "http://127.0.0.1:$($rootPort[$page.Root])/$($page.File)"
-        }
-        foreach ($w in $Width) {
-            foreach ($sch in $Scheme) {
+    # Page-views are measured a batch at a time, each in a tab of its own with
+    # its own viewport and color scheme, so the browser renders a batch in
+    # parallel. Each tab is probed only after its document finished loading and
+    # the batch then settled for the same 1.6 s a lone page-view waited after
+    # navigating, so no view is measured earlier in its life than before.
+    $views = @(foreach ($page in $pages) {
+            $pageUrl = if ($null -eq $page.Root) { $page.File } else {
+                "http://127.0.0.1:$($rootPort[$page.Root])/$($page.File)"
+            }
+            foreach ($w in $Width) {
+                foreach ($sch in $Scheme) {
+                    [pscustomobject]@{ Url = $pageUrl; Width = $w; Scheme = $sch; Tag = "$($page.Label) [$($w)px $sch]" }
+                }
+            }
+        })
+    for ($start = 0; $start -lt $views.Count; $start += $Concurrency) {
+        $batch = @($views[$start..([Math]::Min($start + $Concurrency, $views.Count) - 1)])
+        $open = [Collections.Generic.List[object]]::new()
+        try {
+            foreach ($view in $batch) {
                 $target = Send-Cdp -Method 'Target.createTarget' -Params @{ url = 'about:blank' }
-                $sid = (Send-Cdp -Method 'Target.attachToTarget' -Params @{ targetId = $target.targetId; flatten = $true }).sessionId
-                try {
-                    Send-Cdp -Method 'Emulation.setDeviceMetricsOverride' -SessionId $sid -Params @{
-                        width = $w; height = 900; deviceScaleFactor = 1; mobile = $false } | Out-Null
-                    Send-Cdp -Method 'Emulation.setEmulatedMedia' -SessionId $sid -Params @{
-                        features = @(@{ name = 'prefers-color-scheme'; value = $sch }) } | Out-Null
-                    Send-Cdp -Method 'Page.addScriptToEvaluateOnNewDocument' -SessionId $sid -Params @{
-                        source = @'
+                $tab = [pscustomobject]@{ View = $view; Target = $target; Session = $null }
+                $open.Add($tab)
+                $tab.Session = (Send-Cdp -Method 'Target.attachToTarget' -Params @{ targetId = $target.targetId; flatten = $true }).sessionId
+                Send-Cdp -Method 'Emulation.setDeviceMetricsOverride' -SessionId $tab.Session -Params @{
+                    width = $view.Width; height = 900; deviceScaleFactor = 1; mobile = $false } | Out-Null
+                Send-Cdp -Method 'Emulation.setEmulatedMedia' -SessionId $tab.Session -Params @{
+                    features = @(@{ name = 'prefers-color-scheme'; value = $view.Scheme }) } | Out-Null
+                Send-Cdp -Method 'Page.addScriptToEvaluateOnNewDocument' -SessionId $tab.Session -Params @{
+                    source = @'
 window.__yurunaCspViolations = [];
 window.addEventListener('securitypolicyviolation', function (event) {
   window.__yurunaCspViolations.push(
     'blocked ' + (event.blockedURI || 'inline') + ' by ' + (event.effectiveDirective || event.violatedDirective || 'unknown directive'));
 });
 '@
-                    } | Out-Null
-                    Send-Cdp -Method 'Page.navigate' -SessionId $sid -Params @{ url = $pageUrl } | Out-Null
-                    Start-Sleep -Milliseconds 1600
-                    $res = Send-Cdp -Method 'Runtime.evaluate' -SessionId $sid -Params @{
-                        expression = $probe; returnByValue = $true; awaitPromise = $false }
-                    if ($res.exceptionDetails) { throw "probe threw: $($res.exceptionDetails.text)" }
-                    $data = $res.result.value | ConvertFrom-Json
-                    $measured++
-                    $tag = "$($page.Label) [$($w)px $sch]"
-                    if ($data.findings.Count -eq 0) {
-                        if (-not $Quiet) { Write-Line "ok   $tag" }
-                    } else {
-                        # Printed even when quiet. -Quiet silences the passing
-                        # page-views, which are noise; a finding is the entire
-                        # reason this ran, and every caller that passes -Quiet
-                        # is the one whose operator has only this log to read.
-                        # Reporting the count alone sends them to reproduce the
-                        # run by hand to learn what it already knew.
-                        Write-Line "FAIL $tag"
-                        foreach ($f in $data.findings) {
-                            $line = "  {0,-22} {1}" -f $f.kind, $f.detail
-                            Write-Line $line
-                            $findings.Add("${tag}: $($f.kind): $($f.detail)")
-                        }
+                } | Out-Null
+                Send-Cdp -Method 'Page.navigate' -SessionId $tab.Session -Params @{ url = $view.Url } | Out-Null
+            }
+            # A tab still showing about:blank has not committed its navigation,
+            # and its blank document already reads complete.
+            foreach ($tab in $open) {
+                $loadDeadline = [DateTime]::UtcNow.AddSeconds(30)
+                do {
+                    $state = (Send-Cdp -Method 'Runtime.evaluate' -SessionId $tab.Session -Params @{
+                            expression = 'JSON.stringify([document.readyState, location.href])'; returnByValue = $true }).result.value |
+                        ConvertFrom-Json
+                    if ($state[0] -eq 'complete' -and $state[1] -ne 'about:blank') { break }
+                    Start-Sleep -Milliseconds 100
+                } while ([DateTime]::UtcNow -lt $loadDeadline)
+            }
+            Start-Sleep -Milliseconds 1600
+            foreach ($tab in $open) {
+                $res = Send-Cdp -Method 'Runtime.evaluate' -SessionId $tab.Session -Params @{
+                    expression = $probe; returnByValue = $true; awaitPromise = $false }
+                if ($res.exceptionDetails) { throw "probe threw: $($res.exceptionDetails.text)" }
+                $data = $res.result.value | ConvertFrom-Json
+                $measured++
+                $tag = $tab.View.Tag
+                if ($data.findings.Count -eq 0) {
+                    if (-not $Quiet) { Write-Line "ok   $tag" }
+                } else {
+                    # Printed even when quiet. -Quiet silences the passing
+                    # page-views, which are noise; a finding is the entire
+                    # reason this ran, and every caller that passes -Quiet
+                    # is the one whose operator has only this log to read.
+                    # Reporting the count alone sends them to reproduce the
+                    # run by hand to learn what it already knew.
+                    Write-Line "FAIL $tag"
+                    foreach ($f in $data.findings) {
+                        $line = "  {0,-22} {1}" -f $f.kind, $f.detail
+                        Write-Line $line
+                        $findings.Add("${tag}: $($f.kind): $($f.detail)")
                     }
-                } finally {
-                    try { Send-Cdp -Method 'Target.closeTarget' -Params @{ targetId = $target.targetId } | Out-Null }
-                    catch { Write-Verbose "closeTarget failed: $($_.Exception.Message)" }
                 }
+            }
+        } finally {
+            foreach ($tab in $open) {
+                try { Send-Cdp -Method 'Target.closeTarget' -Params @{ targetId = $tab.Target.targetId } | Out-Null }
+                catch { Write-Verbose "closeTarget failed: $($_.Exception.Message)" }
             }
         }
     }
@@ -797,7 +836,9 @@ window.addEventListener('securitypolicyviolation', function (event) {
     }
     if ($chromeProc) { try { $chromeProc.Dispose() } catch { Write-Verbose "chrome dispose: $($_.Exception.Message)" } }
     if ($listener) { try { $listener.Stop(); $listener.Close() } catch { Write-Verbose "listener stop: $($_.Exception.Message)" } }
-    if ($serverRunspace) { try { $serverRunspace.Dispose() } catch { Write-Verbose "runspace dispose: $($_.Exception.Message)" } }
+    foreach ($runspace in @($serverRunspace)) {
+        if ($runspace) { try { $runspace.Dispose() } catch { Write-Verbose "runspace dispose: $($_.Exception.Message)" } }
+    }
     foreach ($attempt in 1..10) {
         if (-not (Test-Path -LiteralPath $profileDir)) { break }
         Remove-Item -LiteralPath $profileDir -Recurse -Force -ErrorAction SilentlyContinue

@@ -210,18 +210,13 @@ and are never copied into this dashboard; the one way they travel is an operator
 *Share cycle results* on the timeline below, which packs one cycle folder for that
 operator to mail on.
 
-**A host can occupy two rows for a few minutes, and both are current.** Everything the
-table shows apart from Pass and Fail arrives as a Prometheus label on
-`yuruna_pool_host_info`, and a series is identified by its labels -- so the moment a
-host starts a cycle, changes status, or reports a new commit or version, that is a new
-series rather than a new value on the old one. The replaced series keeps its last
-sample and stays inside the staleness window an instant query reads, so for about five
-minutes the host answers twice. The two rows share a Host ID and differ in Status, Last
-cycle, Commit or Version, and the older one disappears on its own. It is worth knowing
-because the reflex -- that a repeated Host ID means a host registered twice -- is wrong
-here: the *Pool hosts* page the pool-control service serves is keyed by host id with
-these values as fields, so it never doubles, and disagreeing with this table is not a
-fault in either.
+**The table selects one current row per host.** Host metadata arrives as labels on
+`yuruna_pool_host_info`. Starting a cycle or changing status,
+commit, or version creates a new Prometheus series; the replaced series can remain
+inside the instant query's staleness window for about five minutes. The table uses
+`topk(1, ...) by (hostId)` to select the series with the newest last-seen timestamp,
+so those retained series do not become duplicate rows. The pool-control service's
+*Pool hosts* page also keeps one row per host, with these values stored as fields.
 
 Panel height tracks the host count (`yuruna-fit-pool-dashboard.timer`) so the table
 never scrolls -- the `gridPos.h` in the dashboard file is only the pre-collector
@@ -401,12 +396,9 @@ readings show `n/a`.
   its allocation meaning depends on the kernel's overcommit policy and the
   difference can be negative. It is not the Windows allocation guarantee.
   macOS has no equivalent counter, so its commit readings remain `n/a`, even
-  when **Exporter** is **Up**. The **Support** column shows **Unsupported** for
-  macOS, **Supported** for Windows and Ubuntu, and **Unknown** for other or
-  unreported platforms. Support comes from the host inventory, so a macOS host
-  remains **Unsupported** when it is unreachable. A supported host with missing
-  telemetry still shows `n/a` for its byte readings; support does not imply a
-  healthy exporter.
+  when **Exporter** is **Up**. Windows and Ubuntu hosts with missing telemetry
+  also show `n/a`; **Exporter** reports scrape health separately from the byte
+  readings.
 
 **Host ID** shows the first 8 characters, just as in *Pool hosts*. Click it to see the
 full GUID and open that host's status page. **Type** identifies the host platform.
@@ -547,6 +539,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.22
+Last review: 2026.10.25
 
 Back to [Yuruna](../README.md)

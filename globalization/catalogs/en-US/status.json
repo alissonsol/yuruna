@@ -3262,6 +3262,28 @@
       "message": "not.applicable",
       "description": "Git provenance display identifier beside a cycle commit. Keep not.applicable exactly in every locale; the underlying protocol value remains not-applicable.",
       "lifecycle": "active"
+    },
+    "status.banner_unguarded": {
+      "message": "Test in progress without the step watchdog; the runner bounds this cycle instead",
+      "description": "Status banner while a cycle runs after its step watchdog stood down (control/runner-status watchdogLapsed). The reported state decides behavior; this message is presentation only.",
+      "lifecycle": "active"
+    },
+    "status.banner_stalled": {
+      "message": "Test in progress, but no step has advanced within its {boundSeconds} s bound",
+      "description": "Status banner while the running cycle's step heartbeat is older than its bound (control/runner-status liveness stalled). It names the bound, not the live age, so the aria-live banner is not re-announced on every poll. The reported state decides behavior; this message is presentation only.",
+      "lifecycle": "active",
+      "placeholders": {
+        "boundSeconds": {
+          "type": "integer",
+          "trust": "internal",
+          "example": "3600"
+        }
+      }
+    },
+    "status.api_forbidden_not_served": {
+      "message": "Forbidden (not a served file)",
+      "description": "Host status HTTP refusal for a file the repository mount or the status root does not serve: not a source file of the checkout, or a folder of the status root other than the performance rows and captures.",
+      "lifecycle": "active"
     }
   }
 }

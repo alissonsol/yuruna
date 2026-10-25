@@ -249,7 +249,11 @@ func (s *Server) handleHostRefresh(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	controlProof, err := s.controlProof(ctx, []string{body.HostID}, map[string]string{body.HostID: host.BaseURL})
+	proofs, err := s.controlProofs(ctx, []string{body.HostID}, map[string]string{body.HostID: host.BaseURL}, "")
+	controlProof := proofs[body.HostID]
+	if err == nil && controlProof == "" {
+		err = &controlProofError{reason: controlProofAggregatorRefused, text: "no control proof for " + body.HostID}
+	}
 	if err != nil {
 		log.Printf("pool-control-service: host-refresh %s: %v", body.HostID, err)
 		s.recordHostRefresh(body, refreshOutcomeControlProofMissing, 0, "")

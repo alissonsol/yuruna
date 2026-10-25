@@ -548,24 +548,28 @@ host offers:
 
 | Choice | What each member does |
 | --- | --- |
-| **Continue** | carry on with whatever it was doing (both pause switches cleared) |
+| **Continue** | release a stored pool pause and clear both host pause switches |
 | **Pause after cycle** | finish the cycle in flight, then hold |
 | **Pause after step** | finish the step in flight, then hold |
 
 A host has two independent pause switches, and choosing one of the three here
-leaves **at most one** of them armed on every member &mdash; so the column always
-names something a host is really doing. The cell shows what the members report
-right now: one of the three when they all agree, **Mixed** when they differ or a
+leaves **at most one** of them armed on every member. The cell combines their
+reports with any stored pool pause: **Paused after cycle and step** means both
+holds apply. It shows **Mixed** when members differ or a
 member did not answer (the disagreeing hosts are then listed under the
 selector), `--` when none answered. Hosts stay individually controllable from
 their own status pages; this changes them all and then reads them back.
 
-This is **not** the pool's `configuredState` (`run`/`paused`/`drain`): that one
-is durable configuration in git, reconciled at a cycle
-boundary, and `drain` ends the runner process. Pool Status acts on the live
-pause switches instead &mdash; what "hold the lab now, then let it carry on"
-means mid-cycle. `configuredState` has no page of its own; write it with
-`Set-PoolConfiguredState.ps1` (table above).
+The selector also reflects a stored `configuredState: paused` hold. Hosts can
+report both live pause switches cleared while the outer runner is holding on
+that configuration, so those switches alone do not prove the pool can continue.
+**Continue** first publishes `paused -> run` through the pool configuration CLI,
+then clears the members' live switches. A failed publication fails the action;
+the page never reports a successful resume over a stored pause. The CLI reports
+the previous and new value, and configuration Git history retains the old value.
+The pause choices preserve an existing stored hold. `drain` remains a separate
+configured operation that ends the runner process; change it with
+`Set-PoolConfiguredState.ps1` and restart the runner when rejoining the pool.
 
 Driving another host's control routes needs a **control proof** (see
 [control-routes.md](control-routes.md)), which the service obtains one of two
@@ -1205,6 +1209,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.22
+Last review: 2026.10.25
 
 Back to [Yuruna](../README.md)

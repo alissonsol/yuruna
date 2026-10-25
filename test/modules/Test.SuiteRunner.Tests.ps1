@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.22
+.VERSION 2026.10.25
 .GUID 4201387d-cf87-45af-987c-08f11f4a809c
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -274,7 +274,10 @@ Describe 'the five conditions that must fail a run' {
             ($r.Result.problems -join ' ') | Should -Match 'failed'
 
             Set-FixtureSuite -Root $root -Name 'Bad' -Body "Describe 'background input' { It 'requests operator input' { Read-Host 'No operator can answer this' } }"
-            $prompt = Invoke-Runner -Root $root -TimeoutSeconds 5
+            # The timeout includes pwsh and Pester startup. Keep five seconds
+            # beyond the worker cost just measured under the same machine load.
+            $promptAllowance = 5 + [int][Math]::Ceiling($r.Result.suites[0].seconds)
+            $prompt = Invoke-Runner -Root $root -TimeoutSeconds $promptAllowance
             $prompt.ExitCode | Should -Be 1
             $prompt.Result.totals.incomplete | Should -Be 0 -Because 'an input request must fail before the suite timeout'
             $prompt.Result.totals.failed | Should -Be 1
@@ -966,5 +969,73 @@ Describe 'direct' {
             $diagnostics | Should -BeExactly '0'
             Test-Path -LiteralPath $folder | Should -BeFalse
         } finally { Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue }
+    }
+}
+
+Describe 'parallel suite workers avoid the shared startup JIT profile' {
+    It 'disables startup profile reads and writes in the suite and its descendants through <Launcher>' -ForEach @(
+        @{ Launcher = 'coordinator' }
+        @{ Launcher = 'direct shim' }
+    ) {
+        $root = New-FixtureTree
+        $savedProfile = [Environment]::GetEnvironmentVariable('DOTNET_MultiCoreJitProfile')
+        $savedCache = [Environment]::GetEnvironmentVariable('XDG_CACHE_HOME')
+        try {
+            # A surrounding runner must not supply the protection under test.
+            [Environment]::SetEnvironmentVariable('DOTNET_MultiCoreJitProfile', $null)
+            [Environment]::SetEnvironmentVariable('XDG_CACHE_HOME', (Join-Path $root 'runner-cache'))
+            Set-FixtureSuite -Root $root -Name 'Alpha' -Body @'
+Describe 'startup JIT profile containment' {
+    It 'disables shared profile playback and recording in the worker' {
+        $env:DOTNET_MultiCoreJitProfile | Should -BeExactly '(D)'
+    }
+    It 'does not create a startup profile in fresh descendant caches' {
+        $cache = Join-Path $TestDrive 'child-cache'
+        $null = New-Item -ItemType Directory -Path $cache
+        $info = [Diagnostics.ProcessStartInfo]::new([Environment]::ProcessPath)
+        $info.UseShellExecute = $false
+        $info.Environment['XDG_CACHE_HOME'] = $cache
+        foreach ($arg in @('-NoProfile', '-NonInteractive', '-Command',
+            '1..20 | ForEach-Object { [Math]::Sqrt($_) } | Out-Null')) {
+            $info.ArgumentList.Add($arg)
+        }
+        $child = [Diagnostics.Process]::Start($info)
+        try {
+            $child.WaitForExit(15000) | Should -BeTrue
+            $child.ExitCode | Should -Be 0
+        } finally {
+            if (-not $child.HasExited) { $child.Kill($true) }
+            $child.Dispose()
+        }
+        if (-not $IsWindows) { Test-Path -LiteralPath (Join-Path $cache 'powershell') | Should -BeTrue }
+        @(Get-ChildItem -LiteralPath $cache -Recurse -File | Where-Object Name -Like 'StartupProfileData-*').Count | Should -Be 0
+    }
+}
+'@
+            if ($Launcher -eq 'coordinator') {
+                $run = Invoke-Runner -Root $root
+                $run.ExitCode | Should -Be 0 -Because $run.Output
+                $run.Result.totals.tests | Should -Be 2
+                $run.Result.totals.failed | Should -Be 0
+            } else {
+                $shim = Join-Path (Split-Path -Parent $script:Runner) '_InvokeOneSuite.ps1'
+                $xmlPath = Join-Path $root 'direct.xml'
+                $savedTempRoot = [Environment]::GetEnvironmentVariable('YURUNA_TEST_TEMP_ROOT')
+                try {
+                    [Environment]::SetEnvironmentVariable('YURUNA_TEST_TEMP_ROOT', $null)
+                    $output = & ([Environment]::ProcessPath) -NoProfile -NonInteractive -File $shim `
+                        -Suite (Join-Path $root 'test/modules/Alpha.Tests.ps1') -Xml $xmlPath 2>&1 | Out-String
+                    $LASTEXITCODE | Should -Be 0 -Because $output
+                } finally { [Environment]::SetEnvironmentVariable('YURUNA_TEST_TEMP_ROOT', $savedTempRoot) }
+                $xml = [xml](Get-Content -LiteralPath $xmlPath -Raw)
+                $xml.'test-results'.total | Should -Be '2'
+                $xml.'test-results'.failures | Should -Be '0' -Because $xml.OuterXml
+            }
+            [Environment]::GetEnvironmentVariable('DOTNET_MultiCoreJitProfile') | Should -BeNullOrEmpty -Because 'child containment must leave the calling environment unchanged'
+        } finally {
+            [Environment]::SetEnvironmentVariable('DOTNET_MultiCoreJitProfile', $savedProfile)
+            [Environment]::SetEnvironmentVariable('XDG_CACHE_HOME', $savedCache)
+            Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue
+        }
     }
 }

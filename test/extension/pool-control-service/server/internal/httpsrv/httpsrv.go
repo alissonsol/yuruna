@@ -147,6 +147,7 @@ func New(api ConfigurationAPI, opts Options) *Server {
 		Language: opts.Language, AllowPseudoLocale: opts.AllowPseudoLocale,
 		AggregatorURL: opts.AggregatorURL,
 		BearerToken:   opts.AuthToken,
+		ProofAudience: "svc-pool-control-service",
 		CookieName:    sessionCookie,
 		Audit:         s.auditUnlock,
 	})

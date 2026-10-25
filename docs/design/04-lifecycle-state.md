@@ -6,7 +6,7 @@ This page maps runner telemetry, guest stages, diagnostic preservation, and reco
 
 ## Persistent outer lifecycle
 
-[Test.RunnerState.psm1](../../test/modules/Test.RunnerState.psm1) declares six states, their transition matrix, `runner.state.json`, and `runner_state_transition` events. [Start-TestRunner.ps1](../../test/Start-TestRunner.ps1) initializes state and enters [Test.RunnerOuterLoop.psm1](../../test/modules/Test.RunnerOuterLoop.psm1). The diagram shows the declared transition pairs with their common runtime causes; holds and dispatch outcomes are not additional enum values.
+[Test.RunnerState.psm1](../../test/modules/Test.RunnerState.psm1) declares six states, their transition matrix, `runner.state.json`, and `runner_state_transition` events. [Start-TestRunner.ps1](../../test/Start-TestRunner.ps1) initializes state and enters the loop in [Test.RunnerOuterLoop.psm1](../../test/modules/Test.RunnerOuterLoop.psm1) through `Invoke-RunnerOuterSupervisor`. The diagram shows the declared transition pairs with their common runtime causes; holds and dispatch outcomes are not additional enum values.
 
 ```mermaid
 stateDiagram-v2
@@ -23,7 +23,7 @@ stateDiagram-v2
     cycle_start --> fault: Archive space exhausted
     cycle_start --> paused: Pool, refresh, or pull
     in_cycle --> cycle_end: Zero, preflight, or held
-    in_cycle --> fault: Failure or watchdog
+    in_cycle --> fault: Failure, watchdog, or ceiling
     cycle_end --> idle: Close cycle
     fault --> paused: Backoff or preservation
     fault --> idle: Repair or handoff
@@ -33,9 +33,11 @@ stateDiagram-v2
 
 The persistent outer starts a fresh [Invoke-TestCycleRunner.ps1](../../test/modules/Invoke-TestCycleRunner.ps1), which starts a fresh [Invoke-TestRunnerInnerLoop.ps1](../../test/modules/Invoke-TestRunnerInnerLoop.ps1). The cycle worker reloads cycle code and owns inner supervision and end hooks; the inner owns guest work, finalization, boundary cleanup, and configured cycle delay. `idle` means the supervisor is ready, rather than describing a VM.
 
+`Invoke-RunnerOuterSupervisor` keeps the resident runner alive when an exception escapes the outer loop. It writes the exception type and location to `outer.log`, publishes a `script_error` `runnerFault` in `status.json`, counts it toward the crash alert, stops a cycle process that the escaped loop left running, and re-enters the loop after a hold that starts at 30 seconds and doubles with each escape within an hour, up to 15 minutes. The supervisor writes no enum transition, and the cycle counter continues; Ctrl+C and a shutdown request still end the runner.
+
 Startup with a different prior run ID and unfinished state emits a synthetic transition from that prior state to `fault`, followed by `idle`. The validator warns about unexpected transition pairs but still persists telemetry. A missing, malformed, or mismatched cycle-outcome record is reported separately from a completed test verdict; a zero process exit without its expected record is insufficient to declare success.
 
-A framework pull error moves `cycle-start` to `paused` and publishes a `runnerFault` with stage `FrameworkPull` before a short interruptible hold; with automatic remediation enabled, a pull error from a stale Git lock is repaired and retried immediately. The pull selects its source through [Test.SourceSelection.psm1](../../test/modules/Test.SourceSelection.psm1) and [Test.HostGit.psm1](../../test/modules/Test.HostGit.psm1) within one deadline; an unavailable mirror, or a mirror reply that is not a successful protocol response, falls back to the origin instead of failing the update. Process-creation failures and very early unexplained cycle-worker aborts use the same short hold without a state transition, so the next dispatch records an undeclared `cycle-start` or `in-cycle` to `cycle-start` pair that the validator warns about. Pool `paused` rechecks configuration after a short hold; `drain` stops at dispatch. Move-mode archive-space exhaustion can fault before an inner starts or change a passing inner's cycle verdict afterward. `refresh-gated` short-holds without ordinary verdict accounting: a hold before the pull changes no state, a hold before the wipe moves `cycle-start` to `paused`, and a hold inside the inner closes through `cycle-end` to `idle` with a refresh reason.
+A framework pull error moves `cycle-start` to `paused` and publishes a `runnerFault` with stage `FrameworkPull` before a short interruptible hold; with automatic remediation enabled, a pull error from a stale Git lock is repaired and retried immediately. The pull selects its source through [Test.SourceSelection.psm1](../../test/modules/Test.SourceSelection.psm1) and [Test.HostGit.psm1](../../test/modules/Test.HostGit.psm1) within one deadline; an unavailable mirror, or a mirror reply that is not a successful protocol response, falls back to the origin instead of failing the update. Process-creation failures use the same short hold. A very early unexplained cycle-worker abort holds 30 seconds, doubling with each consecutive abort at the same framework commit up to 15 minutes. Neither hold transitions state, so the next dispatch records an undeclared `cycle-start` or `in-cycle` to `cycle-start` pair that the validator warns about. `runner.framework-health.json` keeps the last framework commit whose cycle recorded an outcome and the streak of dispatches at the current commit that ended without one, aborted or unrecorded. From the second such dispatch the outer pulls the framework with the code it loaded at startup, because a commit that breaks the cycle process also stops the pull that process would make; for an abort it also publishes a `runnerFault` with stage `FrameworkRescue` and class `cycle_killed`, counted toward the crash alert. Pool `paused` rechecks configuration after a short hold; `drain` stops at dispatch. Move-mode archive-space exhaustion can fault before an inner starts or change a passing inner's cycle verdict afterward. `refresh-gated` short-holds without ordinary verdict accounting: a hold before the pull changes no state, a hold before the wipe moves `cycle-start` to `paused`, and a hold inside the inner closes through `cycle-end` to `idle` with a refresh reason.
 
 ## VM provisioning
 
@@ -220,7 +222,7 @@ stateDiagram-v2
     state "Disarm watchdog" as stop_watchdog
     [*] --> start_watchdog
     start_watchdog --> runner_step_heartbeat: Capture inner identity
-    start_watchdog --> stop_watchdog: Lapsed, cycle unguarded
+    start_watchdog --> stop_watchdog: Lapsed, resident guards the cycle
     runner_step_heartbeat --> runner_step_heartbeat: Heartbeat within bound
     runner_step_heartbeat --> get_watchdog_inner_identity_script: Heartbeat stale
     runner_step_heartbeat --> stop_watchdog: Inner exits
@@ -231,7 +233,9 @@ stateDiagram-v2
     stop_watchdog --> [*]: Supervisor cleanup
 ```
 
-Defaults in [Start-TestRunner.ps1](../../test/Start-TestRunner.ps1) are 2,700 seconds for steps, 600 seconds for preamble work, and 30-second polling. `runner.phase` selects the tighter preamble bound until the inner clears it on entering the cycle body; configuration can override or disable the tighter bound. Missing step heartbeats age from watchdog arming. Preamble phases include the configuration gate, host registration, host driver, stash address, host conditions, and VM admission; the cycle body briefly re-enters the `config-gate` phase for its project storage gate. Each phase write also appends an `[inner phase]` line with PID and generation to `outer.log`, so a kill stays attributable after `runner.phase` is overwritten. When no inner is found, the watchdog writes `runner.watchdog.lapsed` and the cycle worker reports the unguarded cycle.
+Defaults in [Start-TestRunner.ps1](../../test/Start-TestRunner.ps1) are 2,700 seconds for steps, 600 seconds for preamble work, and 30-second polling. `runner.phase` selects the tighter preamble bound until the inner clears it on entering the cycle body; configuration can override or disable the tighter bound. Missing step heartbeats age from watchdog arming. Preamble phases include the configuration gate, host registration, host driver, stash address, host conditions, and VM admission; the cycle body briefly re-enters the `config-gate` phase for its project storage gate. Each phase write also appends an `[inner phase]` line with PID and generation to `outer.log`, so a kill stays attributable after `runner.phase` is overwritten. When no inner is found, the watchdog writes `runner.watchdog.lapsed` with the bounds it would have applied, the resident outer guards the cycle with them, and the cycle worker reports the lapse when the inner returns.
+
+The resident outer also bounds the cycle process itself, independently of the watchdog that runs inside it. `testCycle.maxCycleSeconds`, 21,600 seconds by default and disabled by 0, is re-read for each cycle and measured on a monotonic stopwatch over working time: step pauses, cycle pauses, lab holds and debug breaks stop the clock, and once the cycle publishes its plan the bound rises to two step timeouts per planned run when that is more. At the bound the outer writes `runner.watchdog-kill.json` with class `cycle_killed`, stops the cycle process and its descendants, and reports the outcome as unrecorded with reason `cycle-ceiling`, which takes the in-cycle failure path to `fault`. When `runner.watchdog.lapsed` appears during a cycle, the outer logs it at once and guards the cycle with the bounds the watchdog recorded there; a step heartbeat older than its bound stops the cycle the same way, with the watchdog's class (`wait_timeout` or `preamble_stall`) and reason `resident-watchdog`.
 
 Completed pause polls and lab-health probes refresh the runspace step heartbeat.
 A deliberate hold can therefore outlast the step timeout, while a blocked probe

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.22
+.VERSION 2026.10.25
 .GUID 42976c27-d626-a135-b784-9fafd7012fc9
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -55,6 +55,17 @@
         }
         ' řúññéř řéçóřďš íţ çóúļď ñóţ ƥřóṽé šţáļé. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
     )
+    'runner.bump_ca_create_action' = '[Çřéáţé ţħé çáçħíñğ-ƥřóẋý ššļ-ƀúɱƥ ÇÁ ţħíš ħóšţ ķééƥš áçřóšš ƥřóẋý řéƀúíļďš ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    'runner.bump_ca_unavailable' = '[Ñó çáçħíñğ-ƥřóẋý ššļ-ƀúɱƥ ÇÁ çóúļď ƀé řéáď óř çřéáţéď íñ ţħíš ħóšţ''š ƥříṽáţé šţáţé; ţħé ƥřóẋý íš ñóţ ƀúíļţ ŵíţħóúţ óñé. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    'runner.bump_ca_unreadable' = @(
+        '[Ţħé çáçħíñğ-ƥřóẋý ÇÁ ķéƥţ áţ '
+        @{
+            'arg' = 'path'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' çáññóţ ƀé řéáď; ñó ÇÁ íš šééďéď úñţíļ íţ íš řéƥáířéď óř řéɱóṽéď. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    )
     'runner.config_gate_attempt_failed' = @(
         '[Ţħé řúññéř áţţéɱƥţ éẋíţéď '
         @{
@@ -95,6 +106,54 @@
         '. Ţħé ţéɱƥļáţé óṽéřļáý ɱúšţ ķééƥ éṽéřý ṽáļúé ýóú šéţ, šó ţħíš řéƥļáçéɱéñţ íš á ďéƒéçţ íñ ţħé óṽéřļáý, ñóţ á šçħéɱá çħáñğé; řéšţóřé ţħé ƥřéṽíóúš ṽáļúé ƀý ħáñď íƒ íţ ŵáš ñóţ íñţéñďéď áñď řéƥóřţ ţħé ďéƒéçţ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
     )
     'runner.critical_record_replace' = '[Řéƥļáçé á ƥříṽáţé çříţíçáļ řéçóřď ~~~~~~~~~~~~~~]'
+    'runner.cycle_ceiling_reached' = @(
+        '[[óúţéř çýçļé '
+        @{
+            'arg' = 'cycle'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        '] çýçļé ƥřóçéšš '
+        @{
+            'arg' = 'id'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        ' řéáçħéď testCycle.maxCycleSeconds ('
+        @{
+            'arg' = 'ceilingSeconds'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        ' š) áñď ŵáš šţóƥƥéď ŵíţħ íţš ƥřóçéšš ţřéé. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    )
+    'runner.cycle_ceiling_scaled' = @(
+        '[[óúţéř çýçļé '
+        @{
+            'arg' = 'cycle'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        '] ţħé çýçļé ƥļáñš '
+        @{
+            'arg' = 'count'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        ' řúñ(š); íţš çéíļíñğ říšéš ƒřóɱ testCycle.maxCycleSeconds ('
+        @{
+            'arg' = 'configuredSeconds'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        ' š) ţó '
+        @{
+            'arg' = 'ceilingSeconds'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        ' š, ţŵó šţéƥ ţíɱéóúţš ƒóř éáçħ řúñ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    )
     'runner.cycle_outcome_rejected_kept' = @(
         '[[óúţéř çýçļé '
         @{
@@ -303,6 +362,56 @@
             'trust' = 'external'
         }
         ' çħářáçţéřš áƒţéř ŵřáƥƥíñğ; Ŵíñďóŵš çáññóţ šţářţ íţ. Ğúéšţ éẋéçúţíóñ ŵáš ñóţ šţářţéď. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    )
+    'runner.framework_health_write_action' = '[Řéçóřď ŵħéţħéř ţħé ƒřáɱéŵóřķ ƥřóďúçéď á çýçļé óúţçóɱé ~~~~~~~~~~~~~~~~~~~~~~]'
+    'runner.framework_rescue_action' = '[Ƥúļļ ţħé ƒřáɱéŵóřķ ƒřóɱ ţħé řéšíďéñţ řúññéř ~~~~~~~~~~~~~~~~~~]'
+    'runner.framework_rescue_due' = @(
+        '[Ţħé çýçļé ƥřóçéšš éñďéď ŵíţħóúţ áñ óúţçóɱé '
+        @{
+            'arg' = 'streak'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        ' ţíɱéš íñ á řóŵ ('
+        @{
+            'arg' = 'outcome'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+        ') áţ ƒřáɱéŵóřķ çóɱɱíţ '
+        @{
+            'arg' = 'sha'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        '; ţħé ļášţ çóɱɱíţ ţħáţ ƥřóďúçéď áñ óúţçóɱé íš '
+        @{
+            'arg' = 'lastGoodSha'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        '. Ţħé řéšíďéñţ řúññéř ƥúļļš ţħé ƒřáɱéŵóřķ íţšéļƒ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    )
+    'runner.framework_rescue_result' = @(
+        '[Řéšíďéñţ ƒřáɱéŵóřķ ƥúļļ: '
+        @{
+            'arg' = 'result'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+        '; ţħé ƒřáɱéŵóřķ çóɱɱíţ íš ñóŵ '
+        @{
+            'arg' = 'sha'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        '. '
+        @{
+            'arg' = 'detail'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
     )
     'runner.gate_evidence_save_failed' = @(
         '[Çóñƒíğúřáţíóñ ğáţé éṽíďéñçé çóúļď ñóţ ƀé šáṽéď: '
@@ -1881,6 +1990,21 @@
             'trust' = 'internal'
         }
         ' ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    )
+    'runner.max_cycle_seconds_invalid' = @(
+        '[testCycle.maxCycleSeconds íš '''
+        @{
+            'arg' = 'v'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ''', ŵħíçħ íš ñóţ á ñúɱƀéř -- úšíñğ '
+        @{
+            'arg' = 'defaultSeconds'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        ' š. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
     )
     'runner.mb985d466db' = @(
         '[šţóƥṼɱ: ƒóřçíñğ '''
@@ -23009,6 +23133,63 @@
         }
         ' ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
     )
+    'runner.outer_loop_exception' = @(
+        '[Ţħé řéšíďéñţ řúññéř ļóóƥ šţóƥƥéď óñ áñ úñéẋƥéçţéď '
+        @{
+            'arg' = 'type'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ' áţ '
+        @{
+            'arg' = 'location'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ': '
+        @{
+            'arg' = 'message'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '. Óççúřřéñçé '
+        @{
+            'arg' = 'streak'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        ' ŵíţħíñ áñ ħóúř; ţħé ļóóƥ řéšţářţš íñ '
+        @{
+            'arg' = 'holdSeconds'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        ' š. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    )
+    'runner.outer_loop_orphan_stopped' = @(
+        '[Šţóƥƥéď çýçļé ƥřóçéšš '
+        @{
+            'arg' = 'id'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        ', ŵħíçħ ţħé íñţéřřúƥţéď řúññéř ļóóƥ ħáď ļéƒţ řúññíñğ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    )
+    'runner.outer_poll_failed' = @(
+        '[Á '
+        @{
+            'arg' = 'probe'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ' ƥóļļ ƀý ţħé řéšíďéñţ řúññéř ƒáíļéď áñď ŵáš ţřéáţéď áš ñó áñšŵéř: '
+        @{
+            'arg' = 'message'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    )
     'runner.pool_configuration_library_removed' = '[Řéɱóṽéď test-sets.yml ƒřóɱ ţħé çóñƒíğúřáţíóñ šţóřé; ñóţħíñğ řéáďš íţ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
     'runner.pool_configuration_schema_already_current' = @(
         '[Ƥóóļ çóñƒíğúřáţíóñ íš áļřéáďý áţ šçħéɱáṼéřšíóñ '
@@ -23144,6 +23325,63 @@
             'trust' = 'internal'
         }
         '. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    )
+    'runner.proxy_ca_pin_mismatch' = @(
+        '[Ţħé çáçħíñğ ƥřóẋý áţ '
+        @{
+            'arg' = 'cacheHost'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ' šéřṽéš ÇÁ šħá256 '
+        @{
+            'arg' = 'fetched'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        ', ƀúţ ţħíš ħóšţ ţřúšţš '
+        @{
+            'arg' = 'expected'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ' ƒóř íţ; ţħé ţřúšţéď ÇÁ íš ķéƥţ. Ķééƥ ţħé ƥíñ. Óñ ţħé ƥřóẋý ƀúíļďéř, řúñ Start-CachingProxyServiceVM.ps1 -ƑóřçéŘéƀúíļď -ŘéƥáířƤóóļÇáŢřúšţ ţó éñřóļļ íţš ṽéříƒíéď šíğñíñğ ķéý ţħřóúğħ áúţħéñţíçáţéď ħóšţ çóñţřóļ. Á ħóšţ ŵíţħóúţ áñ éñřóļļéď ķéý çáññóţ ṽéříƒý á ÇÁ řóţáţíóñ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    )
+    'runner.proxy_ca_statement_absent' = @(
+        '[Ţħé çáçħíñğ ƥřóẋý áţ '
+        @{
+            'arg' = 'cacheHost'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        ' šéřṽéš ţħé ÇÁ ŵíţħ šħá256 '
+        @{
+            'arg' = 'fetched'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        ' ŵíţħóúţ á šíğñéď šţáţéɱéñţ, áñď ţħíš ħóšţ éñřóļļš ţħé ļáƀ''š ɱířřóř ṽéříƒíçáţíóñ ķéýš, šó íţ ďóéš ñóţ ţřúšţ á ÇÁ íţ ħáš ñóţ ƥíññéď óñ ƒířšţ úšé. Řéƀúíļď ţħé çáçħíñğ ƥřóẋý óñ ţħé ħóšţ ţħáţ óŵñš íţ; ţħáţ ƥřóẋý ţħéñ šéřṽéš yuruna-squid-ca.sig.json. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    )
+    'runner.proxy_ca_statement_refused' = @(
+        '[Ţħé çáçħíñğ ƥřóẋý áţ '
+        @{
+            'arg' = 'cacheHost'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        ' šéřṽéš ţħé ÇÁ ŵíţħ šħá256 '
+        @{
+            'arg' = 'fetched'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        ' ŵíţħ á šţáţéɱéñţ ţħíš ħóšţ ďóéš ñóţ áççéƥţ ('
+        @{
+            'arg' = 'reason'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+        '), šó ţħáţ ÇÁ íš ñóţ ţřúšţéď. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
     )
     'runner.readiness_ack_remove_action' = '[Řéɱóṽé á šţáļé řéƒřéšħ řéáďíñéšš áçķñóŵļéďğɱéñţ ~~~~~~~~~~~~~~~~~~~]'
     'runner.readiness_ack_write_action' = '[Ŵříţé ţħé řéƒřéšħ řéáďíñéšš áçķñóŵļéďğɱéñţ ~~~~~~~~~~~~~~~~~]'
@@ -23558,6 +23796,66 @@
             'trust' = 'external'
         }
         ' ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    )
+    'runner.resident_watchdog_kill_preamble' = @(
+        '[[óúţéř çýçļé '
+        @{
+            'arg' = 'cycle'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        '] ţħé šţéƥ ŵáţçħďóğ ħáď šţóóď ďóŵñ áñď ţħé šţéƥ ħéářţƀéáţ ħáš ñóţ ɱóṽéď ƒóř '
+        @{
+            'arg' = 'ageSeconds'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        ' š íñ ƥřéáɱƀļé ƥħášé '''
+        @{
+            'arg' = 'phase'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+        ''' (ƀóúñď '
+        @{
+            'arg' = 'boundSeconds'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        ' š); ţħé řéšíďéñţ řúññéř šţóƥƥéď çýçļé ƥřóçéšš '
+        @{
+            'arg' = 'id'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        ' ŵíţħ íţš ƥřóçéšš ţřéé. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    )
+    'runner.resident_watchdog_kill_step' = @(
+        '[[óúţéř çýçļé '
+        @{
+            'arg' = 'cycle'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        '] ţħé šţéƥ ŵáţçħďóğ ħáď šţóóď ďóŵñ áñď ţħé šţéƥ ħéářţƀéáţ ħáš ñóţ ɱóṽéď ƒóř '
+        @{
+            'arg' = 'ageSeconds'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        ' š (ƀóúñď '
+        @{
+            'arg' = 'boundSeconds'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        ' š); ţħé řéšíďéñţ řúññéř šţóƥƥéď çýçļé ƥřóçéšš '
+        @{
+            'arg' = 'id'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        ' ŵíţħ íţš ƥřóçéšš ţřéé. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
     )
     'runner.runner_process_signal_action' = @(
         '[Šíğñáļ á ṽéříƒíéď řúññéř ƥřóçéšš ('
@@ -24475,6 +24773,15 @@
         }
         ' ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
     )
+    'runner.vm_storage_reconcile_failed' = @(
+        '[Çóúļď ñóţ ƒíñíšħ íñţéřřúƥţéď ṽířţúáļ ɱáçħíñé řéñáɱéš áţ çýçļé šţářţ ('
+        @{
+            'arg' = 'message'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '). Ţħé çýçļé çóñţíñúéš, ďéļéţéš šţáý řéƒéřéñçé-çħéçķéď, áñď ţħé ñéẋţ çýçļé ţříéš áğáíñ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    )
     'runner.warm_resume_declined_unverified' = @(
         '[  ŴÁŘⱮ-ŘÉŠÚⱮÉ ďéçļíñéď: '''
         @{
@@ -24501,5 +24808,32 @@
             'trust' = 'internal'
         }
         '). Ţħé óříğíñáļ ƒáíļúřé šţáñďš. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    )
+    'runner.watchdog_lapse_seen' = @(
+        '[[óúţéř çýçļé '
+        @{
+            'arg' = 'cycle'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        '] ţħé šţéƥ ŵáţçħďóğ šţóóď ďóŵñ; ţħé řéšíďéñţ řúññéř ñóŵ šţóƥš ţħíš çýçļé ŵħéñ íţš šţéƥ ħéářţƀéáţ íš óļďéř ţħáñ '
+        @{
+            'arg' = 'stepSeconds'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        ' š ('
+        @{
+            'arg' = 'preambleSeconds'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        ' š ƀéƒóřé ţħé ƒířšţ šţéƥ), áñď testCycle.maxCycleSeconds šţíļļ ƀóúñďš íţ ('
+        @{
+            'arg' = 'ceilingSeconds'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        ' š, ŵħéřé 0 ɱéáñš úñƀóúñďéď). ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
     )
 }

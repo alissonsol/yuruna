@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.22
+.VERSION 2026.10.25
 .GUID 42785eb2-7793-490d-933e-6ced2c275f4a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -686,7 +686,7 @@ Describe 'Runner startup order in resume mode (source)' {
     }
     It 'marks the launch record a clean exit before every startup refusal that follows it' {
         $written = Get-FirstCommandOffset 'Write-YurunaRunnerLaunchRecord'
-        $loop = Get-FirstCommandOffset 'Invoke-RunnerOuterLoop'
+        $loop = Get-FirstCommandOffset 'Invoke-RunnerOuterSupervisor'
         $exits = @($script:RunnerAst.FindAll({ param($n) $n -is [System.Management.Automation.Language.ExitStatementAst] }, $true) |
             Where-Object { $_.Extent.StartOffset -gt $written -and $_.Extent.StartOffset -lt $loop })
         Assert-True ($exits.Count -ge 3) "the yaml, elevation and config-gate refusals ($($exits.Count) exits)"

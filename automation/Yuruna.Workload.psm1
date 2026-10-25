@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.22
+.VERSION 2026.10.25
 .GUID 420897b3-ba3c-4550-ba93-63e8deebf8a9
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -111,11 +111,12 @@ function Invoke-WorkloadChartDeployment {
     $lintOutput = helm lint . *>&1
     $lintExit = $LASTEXITCODE
     Write-YurunaToolLogSection -LogFile $helmLogFile -Header "== helm lint (exit=$lintExit) ==" -Line @($lintOutput | ForEach-Object { [string]$_ })
-    $lintOutput | ForEach-Object { Write-Verbose "$_" }
+    $secretValues = Get-YurunaSecretValue
+    $lintOutput | ForEach-Object { Write-Verbose (Protect-YurunaSecretText -Text ([string]$_) -SecretValue $secretValues) }
     Set-Content -LiteralPath $helmRcFile -Value $lintExit -NoNewline
     if ($lintExit -ne 0) {
         Write-Information (Format-YurunaOperatorMessage -Key 'automation.operator_e1738c24bf654188' -Arguments @{ lintExit = "$lintExit"; installName = "$installName"; workFolder = "$workFolder" })
-        $lintOutput | ForEach-Object { Write-Information "$_" }
+        $lintOutput | ForEach-Object { Write-Information (Protect-YurunaSecretText -Text ([string]$_) -SecretValue $secretValues) }
         return (New-YurunaResultManifest -Success $false -ErrorMessage "helm lint failed for chart '$installName' in $workFolder" -FailureClass 'chart_invalid' -ExitCode $lintExit -DurationMs $sw.ElapsedMilliseconds)
     }
 
@@ -156,7 +157,7 @@ function Invoke-WorkloadChartDeployment {
     $installOutput = helm upgrade --install --atomic $installName . --debug *>&1
     $installExit = $LASTEXITCODE
     Write-YurunaToolLogSection -LogFile $helmLogFile -Header "== helm upgrade --install --atomic $installName --debug (exit=$installExit) ==" -Line @($installOutput | ForEach-Object { [string]$_ })
-    $installOutput | ForEach-Object { Write-Verbose "$_" }
+    $installOutput | ForEach-Object { Write-Verbose (Protect-YurunaSecretText -Text ([string]$_) -SecretValue $secretValues) }
     Set-Content -LiteralPath $helmRcFile -Value $installExit -NoNewline
     # Match only helm's terminal error shapes: a real error line starts at column
     # 0 with "Error: " (helm's stderr format), so an indented --debug / rendered
@@ -166,7 +167,7 @@ function Invoke-WorkloadChartDeployment {
     $installErrorLines = @($installOutput | Where-Object { $_ -match '^Error: ' -or $_ -match '(INSTALLATION|UPGRADE) FAILED' })
     if ($installExit -ne 0 -or $installErrorLines.Count -gt 0) {
         Write-Information (Format-YurunaOperatorMessage -Key 'automation.operator_ce3524d480509234' -Arguments @{ installName = "$installName"; installExit = "$installExit"; count = "$($installErrorLines.Count)"; workFolder = "$workFolder" })
-        $installOutput | ForEach-Object { Write-Information "$_" }
+        $installOutput | ForEach-Object { Write-Information (Protect-YurunaSecretText -Text ([string]$_) -SecretValue $secretValues) }
         return (New-YurunaResultManifest -Success $false -ErrorMessage "helm upgrade --install --atomic '$installName' failed in $workFolder (exit $installExit, $($installErrorLines.Count) Error: line(s))" -FailureClass 'tool_failed' -ExitCode $installExit -DurationMs $sw.ElapsedMilliseconds)
     }
     } finally { Pop-Location }
@@ -224,7 +225,11 @@ function Invoke-WorkloadToolDeployment {
     Push-Location $workFolder -ErrorAction Stop
     try {
     $expression = $ExecutionContext.InvokeCommand.ExpandString($expression)
-    Write-Debug "$expression"
+    # The expanded command carries every ${env:<name>} value, deployment
+    # secrets included; only the redacted form is ever written anywhere.
+    $secretValues = Get-YurunaSecretValue
+    $loggedExpression = Protect-YurunaSecretText -Text $expression -SecretValue $secretValues
+    Write-Debug "$loggedExpression"
     # Per-tool <tool>.stderr.log + <tool>.rc sidecar -- same convention as the
     # helm sidecar in Invoke-WorkloadChartDeployment (rationale there). Delta
     # here: multiple deployments of the same tool append to one log, ordered
@@ -252,16 +257,16 @@ function Invoke-WorkloadToolDeployment {
         $text = (@($info.Output) | ForEach-Object { [string]$_ }) -join "`n"
         return ($text -match $transientPattern)
     }.GetNewClosure()
-    $retry = Invoke-WithYurunaRetry -Label $expression -ScriptBlock $execBlock -LogPath $toolLogFile -ShouldRetry $shouldRetryTransient
+    $retry = Invoke-WithYurunaRetry -Label $loggedExpression -ScriptBlock $execBlock -LogPath $toolLogFile -ShouldRetry $shouldRetryTransient
     $output   = $retry.LastOutput
     $toolExit = $retry.LastExit
     Set-Content -LiteralPath $toolRcFile -Value $toolExit -NoNewline
     # Shell can Write-Information back to the user, so stream visibly
     if ($kind.Name -eq 'shell') {
-        $output | ForEach-Object { Write-Information ([string]$_) }
+        $output | ForEach-Object { Write-Information (Protect-YurunaSecretText -Text ([string]$_) -SecretValue $secretValues) }
     }
     else {
-        $output | ForEach-Object { Write-Verbose ([string]$_) }
+        $output | ForEach-Object { Write-Verbose (Protect-YurunaSecretText -Text ([string]$_) -SecretValue $secretValues) }
     }
     if (-Not (0 -eq $toolExit)) {
         # Always abort the cycle on a non-zero tool exit. A swallowed
@@ -269,9 +274,9 @@ function Invoke-WorkloadToolDeployment {
         # nothing to catch, so the next sequence step (e.g.
         # test-localhost.sh) runs into a missing ingress controller and
         # times out minutes later -- masking the real fault.
-        Write-Information (Format-YurunaOperatorMessage -Key 'automation.operator_796c5d30f7816aa9' -Arguments @{ toolExit = "$toolExit"; expression = "$expression" })
-        $output | ForEach-Object { Write-Information "$_" }
-        return (New-YurunaResultManifest -Success $false -ErrorMessage "$toolName exit $toolExit for: $expression" -FailureClass 'tool_failed' -ExitCode $toolExit -DurationMs $sw.ElapsedMilliseconds)
+        Write-Information (Format-YurunaOperatorMessage -Key 'automation.operator_796c5d30f7816aa9' -Arguments @{ toolExit = "$toolExit"; expression = "$loggedExpression" })
+        $output | ForEach-Object { Write-Information (Protect-YurunaSecretText -Text ([string]$_) -SecretValue $secretValues) }
+        return (New-YurunaResultManifest -Success $false -ErrorMessage "$toolName exit $toolExit for: $loggedExpression" -FailureClass 'tool_failed' -ExitCode $toolExit -DurationMs $sw.ElapsedMilliseconds)
     }
     } finally { Pop-Location }
 }

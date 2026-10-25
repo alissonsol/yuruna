@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.22
+.VERSION 2026.10.25
 .GUID 42e220c4-9472-4e35-bf37-59a7e003196b
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -705,7 +705,7 @@ Describe 'Shared source regions' {
             'Select the guest network', 'Yuruna host coordinates', 'Generate cloud-init seed ISO',
             'Clean up temporary files')
         $providerPhases = @{
-            'windows.hyper-v' = @('Create and configure the Hyper-V VM', 'Start VM and wait for IP')
+            'windows.hyper-v' = @('Create and configure the Hyper-V VM', 'Start the VM', 'Wait for VM IP')
             'ubuntu.kvm' = @('libvirt-qemu search ACL on $HOME',
                 'Render user-data / meta-data',
                 'Create and configure the libvirt domain',

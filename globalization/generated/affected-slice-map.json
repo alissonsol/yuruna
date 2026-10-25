@@ -4183,7 +4183,7 @@
       "path": "test/service/Start-StatusService.ps1",
       "code": "status.api_forbidden_deny_list_1c7d1cfa",
       "role": "producer",
-      "matchCount": 2
+      "matchCount": 3
     },
     {
       "id": "code:status.api_forbidden_directory_listing_disabled_5d107f5b:producer:test/service/Start-StatusService.ps1",
@@ -5123,8 +5123,8 @@
     {
       "wireCode": "host_refresh.failed",
       "path": "test/modules/Test.RunnerOuterLoop.psm1",
-      "matchCount": 1,
-      "reason": "Readiness acknowledgment (ready, failed) the outer loop writes for a refresh handoff; not a host-refresh verdict."
+      "matchCount": 2,
+      "reason": "Readiness acknowledgment (ready, failed) the outer loop writes for a refresh handoff, and the framework rescue pull result; not a host-refresh verdict."
     },
     {
       "wireCode": "host_refresh.failed",
@@ -5614,6 +5614,12 @@
     },
     {
       "wireCode": "host_refresh.refused",
+      "path": "test/modules/Test.CachingProxyService.psm1",
+      "matchCount": 1,
+      "reason": "Source of a caching-proxy CA that Resolve-YurunaPinnedProxyCa refused, returned to the guest builders; not a host-refresh state or verdict."
+    },
+    {
+      "wireCode": "host_refresh.refused",
       "path": "test/modules/Test.HostRefreshTrigger.psm1",
       "matchCount": 5,
       "reason": "Decision action of the automatic trigger (disabled, unavailable, below-threshold, refused) written to the outer log; not a request state or verdict."
@@ -5837,8 +5843,8 @@
     {
       "wireCode": "host_refresh.running",
       "path": "test/status/yuruna.common.js",
-      "matchCount": 7,
-      "reason": "Runner, guest and step status classes; the Config page reads no host-refresh request state other than recovery_pending, and the diagnostics page never branches on the worker phase."
+      "matchCount": 8,
+      "reason": "Runner, guest and step status classes; the Config page reads no host-refresh request state other than recovery_pending, and the diagnostics page never branches on the worker phase; the status banner also reads the running cycle status to show a cycle without its step watchdog."
     },
     {
       "wireCode": "host_refresh.spawned",
@@ -6371,13 +6377,13 @@
     {
       "wireCode": "host_refresh.unknown",
       "path": "test/modules/Test.RunnerOuterLoop.psm1",
-      "matchCount": 7,
-      "reason": "Runner overall status before a cycle starts, spawn-gate state, barrier request-id fallbacks and the unrecorded-outcome diagnostic; not the host-refresh state."
+      "matchCount": 8,
+      "reason": "Runner overall status before a cycle starts, spawn-gate state, barrier request-id fallbacks, the unrecorded-outcome diagnostic and the location of an exception the supervisor caught; not the host-refresh state."
     },
     {
       "wireCode": "host_refresh.unknown",
       "path": "test/modules/Test.SequenceAction.psm1",
-      "matchCount": 6,
+      "matchCount": 4,
       "reason": "Failure class and severity enumerations; not the host-refresh state."
     },
     {
@@ -6532,6 +6538,6 @@
     "displayOnlyCount": 10,
     "catalogBoundaryCount": 11,
     "consumerCount": 410,
-    "literalExclusionCount": 289
+    "literalExclusionCount": 290
   }
 }

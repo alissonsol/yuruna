@@ -77,7 +77,7 @@
       "source": "docs/pool-admin.md",
       "locale": "pt-BR",
       "translated": "docs/pt-BR/pool-admin.md",
-      "sourceHash": "0ad3e8d912a0880d21e500e458852fc5f65e39f2826f980acc636f911f571a55",
+      "sourceHash": "2d2e5880825c0128cbb9545cae92a1cc50bbbbeff75fad553fbf1e27bcec803a",
       "origin": "machine"
     },
     {
@@ -85,7 +85,7 @@
       "source": "docs/project-implementation-notes.md",
       "locale": "pt-BR",
       "translated": "docs/pt-BR/project-implementation-notes.md",
-      "sourceHash": "67648a1ac229004417627296c7099dc265f0f634f808f5e1a217831597c9c486",
+      "sourceHash": "afdb2a7c7a7b5f72bb779223839686c6eee8e30627631fbaac300a97373c682d",
       "origin": "machine"
     },
     {
@@ -93,7 +93,7 @@
       "source": "docs/test-harness.md",
       "locale": "pt-BR",
       "translated": "docs/pt-BR/test-harness.md",
-      "sourceHash": "d818ea23fa483c902fbfbc3eca83f3d02786f96a87a0787fa3951994ce6f329c",
+      "sourceHash": "84255e31386df759f7d2148a0aac45998af59e4b430322a7bf6e9543000180b1",
       "origin": "machine"
     },
     {
@@ -101,7 +101,7 @@
       "source": "docs/vmconfig.md",
       "locale": "pt-BR",
       "translated": "docs/pt-BR/vmconfig.md",
-      "sourceHash": "6da369580e7552f9b22edf2226260deda6aa9c8399b08c386eb07b50a7c170bb",
+      "sourceHash": "c6f7c7cf5db698ae85e5f1a0a580e7413716bdf58a5830aaa9878af4b32935be",
       "origin": "machine"
     },
     {

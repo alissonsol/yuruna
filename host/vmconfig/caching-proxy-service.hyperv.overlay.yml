@@ -2,8 +2,8 @@
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 # Hyper-V overlay for caching-proxy-service.base.user-data.
 # Anchor sections in base-file order. An empty section emits nothing at that anchor.
+# See https://yuruna.link/42e220c4-0006
 # === YURUNA_OVERLAY_HOST_AGENT_PKG ===
-  # See https://yuruna.link/42e220c4-0006
   # Install KVP best-effort in runcmd; a packages failure aborts provisioning.
 # === YURUNA_OVERLAY_NIC_OFFLOAD ===
 # === YURUNA_OVERLAY_RUNCMD_NET ===

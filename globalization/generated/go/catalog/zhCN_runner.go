@@ -43,6 +43,17 @@ const DatazhCNrunner = `{
     },
     "条无法确认已失效的运行器记录。"
   ],
+  "runner.bump_ca_create_action": "创建此主机在代理重建之间保留的缓存代理 ssl-bump CA",
+  "runner.bump_ca_unavailable": "无法在此主机的私有状态中读取或创建缓存代理 ssl-bump CA；没有它将不会构建代理。",
+  "runner.bump_ca_unreadable": [
+    "无法读取保存在 ",
+    {
+      "arg": "path",
+      "type": "detail",
+      "trust": "external"
+    },
+    " 的缓存代理 CA；在修复或删除之前不会在种子中包含任何 CA。"
+  ],
   "runner.config_gate_attempt_failed": [
     "运行器尝试因配置验证失败而退出，退出代码为 ",
     {
@@ -82,6 +93,54 @@ const DatazhCNrunner = `{
     "。模板叠加必须保留您设置的每个值，因此这次替换是叠加的缺陷，而不是架构变更；如果并非有意为之，请手动恢复先前的值并报告该缺陷。"
   ],
   "runner.critical_record_replace": "替换私有关键记录",
+  "runner.cycle_ceiling_reached": [
+    "[外层周期 ",
+    {
+      "arg": "cycle",
+      "type": "integer",
+      "trust": "internal"
+    },
+    "] 周期进程 ",
+    {
+      "arg": "id",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " 已达到 testCycle.maxCycleSeconds（",
+    {
+      "arg": "ceilingSeconds",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " s），已连同其进程树一起停止。"
+  ],
+  "runner.cycle_ceiling_scaled": [
+    "[外层周期 ",
+    {
+      "arg": "cycle",
+      "type": "integer",
+      "trust": "internal"
+    },
+    "] 本周期计划运行 ",
+    {
+      "arg": "count",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " 次；其上限从 testCycle.maxCycleSeconds（",
+    {
+      "arg": "configuredSeconds",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " s）提高到 ",
+    {
+      "arg": "ceilingSeconds",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " s，即每次运行两个步骤超时。"
+  ],
   "runner.cycle_outcome_rejected_kept": [
     "[外层周期",
     {
@@ -290,6 +349,55 @@ const DatazhCNrunner = `{
       "trust": "external"
     },
     "个字符，Windows无法启动该命令。尚未开始在客户机上执行。"
+  ],
+  "runner.framework_health_write_action": "记录框架是否产生了周期结果",
+  "runner.framework_rescue_action": "由常驻运行器拉取框架",
+  "runner.framework_rescue_due": [
+    "周期进程在框架提交 ",
+    {
+      "arg": "sha",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    " 上连续 ",
+    {
+      "arg": "streak",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " 次未产生结果（",
+    {
+      "arg": "outcome",
+      "type": "token",
+      "trust": "internal"
+    },
+    "）；最近一次产生结果的提交是 ",
+    {
+      "arg": "lastGoodSha",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "。常驻运行器将自行拉取框架。"
+  ],
+  "runner.framework_rescue_result": [
+    "常驻运行器拉取框架：",
+    {
+      "arg": "result",
+      "type": "token",
+      "trust": "internal"
+    },
+    "；框架提交现为 ",
+    {
+      "arg": "sha",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "。",
+    {
+      "arg": "detail",
+      "type": "detail",
+      "trust": "external"
+    }
   ],
   "runner.gate_evidence_save_failed": [
     "无法保存配置检查证据：",
@@ -1848,6 +1956,21 @@ const DatazhCNrunner = `{
       "type": "detail",
       "trust": "internal"
     }
+  ],
+  "runner.max_cycle_seconds_invalid": [
+    "testCycle.maxCycleSeconds的值为“",
+    {
+      "arg": "v",
+      "type": "detail",
+      "trust": "external"
+    },
+    "”，不是数字——将使用",
+    {
+      "arg": "defaultSeconds",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " s。"
   ],
   "runner.mb985d466db": [
     "stopVm：客户机忽略关机请求 ",
@@ -22437,6 +22560,62 @@ const DatazhCNrunner = `{
       "trust": "external"
     }
   ],
+  "runner.outer_loop_exception": [
+    "常驻运行器循环在 ",
+    {
+      "arg": "location",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    " 因意外的 ",
+    {
+      "arg": "type",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    " 而停止：",
+    {
+      "arg": "message",
+      "type": "detail",
+      "trust": "external"
+    },
+    "。这是一小时内第 ",
+    {
+      "arg": "streak",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " 次；循环将在 ",
+    {
+      "arg": "holdSeconds",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " s 后重新开始。"
+  ],
+  "runner.outer_loop_orphan_stopped": [
+    "已停止被中断的运行器循环遗留运行的周期进程 ",
+    {
+      "arg": "id",
+      "type": "integer",
+      "trust": "internal"
+    },
+    "。"
+  ],
+  "runner.outer_poll_failed": [
+    "常驻运行器的 ",
+    {
+      "arg": "probe",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    " 轮询失败，已按无应答处理：",
+    {
+      "arg": "message",
+      "type": "detail",
+      "trust": "external"
+    }
+  ],
   "runner.pool_configuration_library_removed": "已从配置存储中移除 test-sets.yml；没有任何内容读取它。",
   "runner.pool_configuration_schema_already_current": [
     "池配置已是 schemaVersion ",
@@ -22571,6 +22750,61 @@ const DatazhCNrunner = `{
       "trust": "internal"
     },
     "。"
+  ],
+  "runner.proxy_ca_pin_mismatch": [
+    "位于 ",
+    {
+      "arg": "cacheHost",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    " 的缓存代理提供的 CA 的 sha256 为 ",
+    {
+      "arg": "fetched",
+      "type": "identifier",
+      "trust": "external"
+    },
+    "，但此主机信任的是 ",
+    {
+      "arg": "expected",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "；保留受信任的 CA。请保留固定的证书。在构建代理的主机上运行 Start-CachingProxyServiceVM.ps1 -ForceRebuild -RepairPoolCaTrust，通过经过身份验证的主机控制注册其已验证的签名密钥。未注册密钥的主机无法验证 CA 轮换。"
+  ],
+  "runner.proxy_ca_statement_absent": [
+    {
+      "arg": "cacheHost",
+      "type": "identifier",
+      "trust": "external"
+    },
+    " 上的缓存代理提供 sha256 为 ",
+    {
+      "arg": "fetched",
+      "type": "identifier",
+      "trust": "external"
+    },
+    " 的 CA，但没有签名声明；而此主机登记了实验室的镜像验证密钥，因此不会在首次使用时信任未固定的 CA。请在拥有该缓存代理的主机上重新构建它；之后该代理会提供 yuruna-squid-ca.sig.json。"
+  ],
+  "runner.proxy_ca_statement_refused": [
+    {
+      "arg": "cacheHost",
+      "type": "identifier",
+      "trust": "external"
+    },
+    " 上的缓存代理提供 sha256 为 ",
+    {
+      "arg": "fetched",
+      "type": "identifier",
+      "trust": "external"
+    },
+    " 的 CA，并附带此主机不接受的声明（",
+    {
+      "arg": "reason",
+      "type": "token",
+      "trust": "internal"
+    },
+    "），因此不信任该 CA。"
   ],
   "runner.readiness_ack_remove_action": "删除过期的刷新就绪确认",
   "runner.readiness_ack_write_action": "写入刷新就绪确认",
@@ -22983,6 +23217,66 @@ const DatazhCNrunner = `{
       "type": "detail",
       "trust": "external"
     }
+  ],
+  "runner.resident_watchdog_kill_preamble": [
+    "[外层周期 ",
+    {
+      "arg": "cycle",
+      "type": "integer",
+      "trust": "internal"
+    },
+    "] 步骤看门狗已退出，且在前导阶段“",
+    {
+      "arg": "phase",
+      "type": "token",
+      "trust": "internal"
+    },
+    "”中步骤心跳已有 ",
+    {
+      "arg": "ageSeconds",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " s 未更新（上限 ",
+    {
+      "arg": "boundSeconds",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " s）；常驻运行器已连同进程树一起停止周期进程 ",
+    {
+      "arg": "id",
+      "type": "integer",
+      "trust": "internal"
+    },
+    "。"
+  ],
+  "runner.resident_watchdog_kill_step": [
+    "[外层周期 ",
+    {
+      "arg": "cycle",
+      "type": "integer",
+      "trust": "internal"
+    },
+    "] 步骤看门狗已退出，且步骤心跳已有 ",
+    {
+      "arg": "ageSeconds",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " s 未更新（上限 ",
+    {
+      "arg": "boundSeconds",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " s）；常驻运行器已连同进程树一起停止周期进程 ",
+    {
+      "arg": "id",
+      "type": "integer",
+      "trust": "internal"
+    },
+    "。"
   ],
   "runner.runner_process_signal_action": [
     "向已验证的运行器进程发送信号（",
@@ -23882,6 +24176,15 @@ const DatazhCNrunner = `{
       "trust": "external"
     }
   ],
+  "runner.vm_storage_reconcile_failed": [
+    "无法在周期开始时完成被中断的虚拟机重命名（",
+    {
+      "arg": "message",
+      "type": "detail",
+      "trust": "external"
+    },
+    "）。周期继续进行，删除操作仍会检查引用，下一个周期会再次尝试。"
+  ],
   "runner.warm_resume_declined_unverified": [
     "  WARM-RESUME被拒绝：'",
     {
@@ -23908,6 +24211,33 @@ const DatazhCNrunner = `{
       "trust": "internal"
     },
     "）。原始失败判定保持不变。"
+  ],
+  "runner.watchdog_lapse_seen": [
+    "[外层周期 ",
+    {
+      "arg": "cycle",
+      "type": "integer",
+      "trust": "internal"
+    },
+    "] 步骤看门狗已退出；现在当步骤心跳超过 ",
+    {
+      "arg": "stepSeconds",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " s（第一步之前为 ",
+    {
+      "arg": "preambleSeconds",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " s）未更新时，常驻运行器会停止本周期，testCycle.maxCycleSeconds 仍然约束它（",
+    {
+      "arg": "ceilingSeconds",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " s，0 表示不限）。"
   ]
 }
 `

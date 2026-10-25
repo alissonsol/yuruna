@@ -89,10 +89,11 @@ const (
 // of the lab's shared per-source attempts.
 var labTokenRE = regexp.MustCompile(`^[a-z0-9]{6}$`)
 
-// controlProofRE is the wire shape of a control proof, "<expiry>.<base64 HMAC>".
-// Checking it locally keeps a truncated fragment from costing a round trip, and
-// from spending one of the lab's shared per-source attempts.
-var controlProofRE = regexp.MustCompile(`^[0-9]{1,20}\.[A-Za-z0-9+/]{4,128}={0,2}$`)
+// controlProofRE is the wire shape of a control proof, "<expiry>.<base64 HMAC>"
+// or, bound to one target, "<expiry>.<audience>.<base64 HMAC>". Checking it
+// locally keeps a truncated fragment from costing a round trip, and from
+// spending one of the lab's shared per-source attempts.
+var controlProofRE = regexp.MustCompile(`^[0-9]{1,20}\.(?:[A-Za-z0-9_-]{1,80}\.)?[A-Za-z0-9+/]{4,128}={0,2}$`)
 
 // Options configures a Gate.
 type Options struct {
@@ -116,6 +117,11 @@ type Options struct {
 	// SessionTTL overrides DefaultSessionTTL.
 	SessionTTL time.Duration
 
+	// ProofAudience is the audience a control proof must name to unlock this
+	// service: "svc-<service>", the value the aggregator's /go/stash mints for
+	// the service's area. Empty accepts a proof bound to any target.
+	ProofAudience string
+
 	// Audit records one unlock attempt. Optional; the gate never depends on it.
 	// The aggregator's own audit cannot do this job: every operator reaches it
 	// THROUGH this service, so from there the whole lab is one source address.
@@ -135,6 +141,7 @@ type Gate struct {
 
 	aggregatorURL string
 	bearer        string
+	proofAudience string
 	cookieName    string
 	sessionTTL    time.Duration
 	audit         func(ip, outcome, detail string)
@@ -156,6 +163,7 @@ func New(opts Options) *Gate {
 		locale:        newAuthNegotiator(opts.Language, opts.AllowPseudoLocale),
 		aggregatorURL: strings.TrimRight(strings.TrimSpace(opts.AggregatorURL), "/"),
 		bearer:        strings.TrimSpace(opts.BearerToken),
+		proofAudience: strings.TrimSpace(opts.ProofAudience),
 		cookieName:    strings.TrimSpace(opts.CookieName),
 		sessionTTL:    opts.SessionTTL,
 		audit:         opts.Audit,
@@ -375,7 +383,7 @@ func verifyControlProof(token, wire string, now time.Time, maxTTL time.Duration)
 // follows: validation stays with the daemon that owns the secret.
 func (g *Gate) verifyProof(ctx context.Context, wire string) (Verdict, string) {
 	if g.bearer != "" {
-		if verifyControlProof(g.bearer, wire, time.Now(), ControlProofMaxTTL) {
+		if controlproof.VerifyFor(g.bearer, wire, g.proofAudience, time.Now(), ControlProofMaxTTL) {
 			return Valid, ""
 		}
 		return Rejected, ""
@@ -383,7 +391,13 @@ func (g *Gate) verifyProof(ctx context.Context, wire string) (Verdict, string) {
 	if g.aggregatorURL == "" {
 		return Unavailable, g.renderDetail(ctx, "auth.detail_unconfigured", nil)
 	}
-	body, err := json.Marshal(map[string]string{"proof": wire})
+	// The audience travels with the proof, so the aggregator checks the binding
+	// for a service that holds no key of its own.
+	request := map[string]string{"proof": wire}
+	if g.proofAudience != "" {
+		request["audience"] = g.proofAudience
+	}
+	body, err := json.Marshal(request)
 	if err != nil {
 		return Unavailable, g.renderDetail(ctx, "auth.detail_encoding", nil)
 	}

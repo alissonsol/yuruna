@@ -4,6 +4,10 @@ Yuruna uses [Calendar Versioning](https://calver.org/): `YYYY.MM.DD`.
 Tags are cut from the `main` branch; entries below summarize each
 tagged release.
 
+## 2026.10.25
+
+- **TBD.** To be defined.
+
 ## 2026.10.22
 
 - **Local Git mirror.** Caching proxy holds copy of
@@ -626,6 +630,6 @@ LICENSEURI <https://yuruna.link/license>
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.22
+Last review: 2026.10.25
 
 Back to [Yuruna](README.md)

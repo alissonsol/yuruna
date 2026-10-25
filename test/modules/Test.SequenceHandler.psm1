@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.22
+.VERSION 2026.10.25
 .GUID 4232820e-f96a-47ea-863b-f94b73f9c76f
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -132,6 +132,11 @@ $script:ShellRejectionWindowSeconds = 20
 # Include metadata, shell quoting, and assignment terminators
 # in this budget; see the linked sequence authoring guidance.
 $script:FetchExecuteTypedCharWarn = 400
+
+# How far apart a GUI fetch asks the guest whether its guard ran. Three answers
+# this far apart span several seconds after the guard's Enter, far longer than
+# bash takes to read a line whose characters it has already echoed.
+$script:GuiFetchSubmissionProbeSeconds = 3
 
 function Get-NonzeroScriptExitSentinel {
     <#
@@ -1842,6 +1847,7 @@ function Get-GuiFetchEnvelopeTransfer {
         lineLengths    = [int[]]@($Line | ForEach-Object { $_.Length })
         attempts       = 0
         rejections     = [System.Collections.Generic.List[object]]::new()
+        submissions    = [System.Collections.Generic.List[object]]::new()
     }
 }
 
@@ -1888,24 +1894,145 @@ function Get-GuiFetchPayloadState {
         The guard prepares a context under the command id and the launcher
         removes it when it takes the context to run the payload. So a guard that
         never ran leaves no context and no fetch process, while a guard that ran
-        leaves a context (not yet taken), or a running fetch process (taken).
-        Returns PREPARED, RUNNING or NOT_PREPARED, or $null when the guest did
-        not answer or the id is not one this module issues. Callers test for
-        NOT_PREPARED alone, so $null never reads as a confirmed state.
+        leaves a context (not yet taken), or a running fetch process (taken). A
+        launcher still unpacking a compact envelope counts as a running fetch.
+        Two optional readings cover a guard that ran and is already done: given
+        the step's invocation id, a payload that started reads STARTED, from the
+        header its guest log opens with; given the envelope digest, a launcher
+        that refused the envelope reads REJECTED, from the record it left, which
+        stays in place for Get-GuiFetchRejection.
+        Returns PREPARED, RUNNING, STARTED, REJECTED or NOT_PREPARED, or $null
+        when the guest did not answer or an id is not one this module issues.
+        Callers test for NOT_PREPARED alone, so $null never reads as a
+        confirmed state.
     #>
     [CmdletBinding()]
     [OutputType([string])]
-    param([string]$VMName, [string]$GuestKey, [string]$ContextId)
+    param([string]$VMName, [string]$GuestKey, [string]$ContextId, [string]$StepInvocationId, [string]$EnvelopeDigest)
     if ($ContextId -notmatch '^[0-9a-f]{11}$') { return $null }
+    if ($StepInvocationId -and $StepInvocationId -notmatch '^[A-Za-z0-9-]{1,64}$') { return $null }
+    if ($EnvelopeDigest -and $EnvelopeDigest -cnotmatch '^[0-9a-f]{64}$') { return $null }
+    $checks = [System.Collections.Generic.List[string]]::new()
+    if ($EnvelopeDigest) { $checks.Add('[ -f "$HOME/.local/state/yuruna/gui-rejection/' + $EnvelopeDigest + '" ]; then echo REJECTED') }
+    $checks.Add('[ -e "$HOME/.local/state/yuruna/fetch-context/' + $ContextId + '" ]; then echo PREPARED')
     # Bracketed first letters keep pgrep from matching this probe's own command line.
-    $probe = 'if [ -e "$HOME/.local/state/yuruna/fetch-context/' + $ContextId + '" ]; then echo PREPARED; ' +
-        'elif pgrep -f "[f]etch-and-execute|[y]uruna-fetch-context" >/dev/null 2>&1; then echo RUNNING; ' +
-        'else echo NOT_PREPARED; fi'
+    $checks.Add('pgrep -f "[f]etch-and-execute|[y]uruna-fetch-context|[y]fe --gui" >/dev/null 2>&1; then echo RUNNING')
+    if ($StepInvocationId) {
+        $checks.Add('grep -qxF "# stepInvocationId: ' + $StepInvocationId + '" /tmp/yuruna-last-fetch-and-execute.log 2>/dev/null; then echo STARTED')
+    }
+    $probe = 'if ' + ($checks -join '; elif ') + '; else echo NOT_PREPARED; fi'
     $result = Invoke-GuestSsh -VMName $VMName -GuestKey $GuestKey -Command $probe -TimeoutSeconds 30
     if (-not $result.success) { return $null }
     $state = ([string]$result.output).Trim()
-    if ($state -in @('PREPARED', 'RUNNING', 'NOT_PREPARED')) { return $state }
+    if ($state -in @('PREPARED', 'RUNNING', 'STARTED', 'REJECTED', 'NOT_PREPARED')) { return $state }
     return $null
+}
+
+function Get-GuiFetchGuardAnswer {
+    <#
+    .SYNOPSIS
+        Ask the guest up to three times, a probe interval apart, whether a GUI
+        fetch's guard ran, and stop at the first answer other than NOT_PREPARED.
+    .DESCRIPTION
+        Adds each answer to -Answers, prefixed with the -Clock reading when it
+        arrived. Returns the last answer, or $null when the guest did not answer.
+    #>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param(
+        [Parameter(Mandatory)][hashtable]$Context,
+        [Parameter(Mandatory)][string]$ContextId,
+        [Parameter(Mandatory)][Diagnostics.Stopwatch]$Clock,
+        [Parameter(Mandatory)][AllowEmptyCollection()][System.Collections.Generic.List[string]]$Answers
+    )
+    $answer = $null
+    for ($probe = 1; $probe -le 3; $probe++) {
+        if ($probe -gt 1) { Start-Sleep -Seconds $script:GuiFetchSubmissionProbeSeconds }
+        $answer = Get-GuiFetchPayloadState -VMName $Context.VMName -GuestKey $Context.GuestKey -ContextId $ContextId `
+            -StepInvocationId ([string]$Context.StepInvocationId) -EnvelopeDigest ([string]$Context.GuiTransfer.envelopeDigest)
+        $Answers.Add($Clock.Elapsed.TotalSeconds.ToString('0.0', [Globalization.CultureInfo]::InvariantCulture) + 's ' + ($answer ?? 'unanswered'))
+        if ($answer -ne 'NOT_PREPARED') { break }
+    }
+    return $answer
+}
+
+function Confirm-GuiFetchSubmission {
+    <#
+    .SYNOPSIS
+        Right after a GUI fetch's guard line, ask the guest whether the guard
+        ran, and press Enter once more when it plainly did not.
+    .DESCRIPTION
+        A key the host sent can still be lost before the guest reads it, and the
+        guard runs only once its Enter arrives. A lost Enter leaves the staged
+        subshell open with nothing running, and the completion wait could only
+        time out on it. The guest is asked three times, a few seconds apart,
+        because bash may still be reading the line. Enter is pressed again only
+        when every answer says the guard never ran -- no rejection record, no
+        context, no launcher or fetch process, no log for this step -- and the
+        console still shows the open subshell, so the key can only reach the
+        staged line. No answer, any other answer, or a console that shows
+        something else leaves the step as it is, and Enter is pressed again at
+        most once.
+        The record names each answer with its time since the guard's Enter, the
+        outcome, and the VNC connection events since the attempt began typing.
+    .OUTPUTS
+        [System.Collections.Specialized.OrderedDictionary]
+    #>
+    [CmdletBinding()]
+    [OutputType([System.Collections.Specialized.OrderedDictionary])]
+    param(
+        [Parameter(Mandatory)][hashtable]$Context,
+        [Parameter(Mandatory)][string]$ContextId,
+        [int]$Attempt = 1,
+        [DateTime]$TypingStartedUtc = [DateTime]::UtcNow
+    )
+    $clock = [Diagnostics.Stopwatch]::StartNew()
+    $record = [ordered]@{
+        attempt         = $Attempt
+        outcome         = ''
+        enterResent     = $false
+        probes          = [System.Collections.Generic.List[string]]::new()
+        transportEvents = [string[]]@()
+    }
+    $state = Get-GuiFetchGuardAnswer -Context $Context -ContextId $ContextId -Clock $clock -Answers $record.probes
+    if ($state -ne 'NOT_PREPARED') {
+        $record.outcome = if ($state) { $state.ToLowerInvariant() } else { 'unanswered' }
+    } else {
+        $frame = Save-GuestConsoleFrame -Context $Context -Label 'guard submission check'
+        if (-not $frame) { $record.outcome = 'console-unread' }
+        elseif (-not (Test-GuiFetchInputStalled -OcrTail ([string]$frame.Text))) { $record.outcome = 'console-not-staged' }
+        else {
+            $waited = $clock.Elapsed.TotalSeconds.ToString('0.0', [Globalization.CultureInfo]::InvariantCulture)
+            Write-Warning "      fetchAndExecute: the guard has not run $waited s after its Enter and the console still shows the staged input; pressing Enter once more."
+            if (Get-Command Send-CycleEventSafely -ErrorAction SilentlyContinue) {
+                Send-CycleEventSafely -EventRecord @{
+                    timestamp   = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", [Globalization.CultureInfo]::InvariantCulture)
+                    event       = 'retry_attempt'
+                    stack       = 'gui-submission'
+                    attempt     = 1
+                    maxAttempts = 1
+                    description = [string]$Context.Description
+                    vmName      = [string]$Context.VMName
+                    reason      = "guard not run $waited s after its Enter; staged input still on the console"
+                    ok          = $false
+                }
+            }
+            $record.enterResent = $true
+            if (-not (Test.SequenceEngine\Send-Key -HostType $Context.HostType -VMName $Context.VMName -KeyName 'Enter')) {
+                $record.outcome = 'resend-failed'
+            } else {
+                $state = Get-GuiFetchGuardAnswer -Context $Context -ContextId $ContextId -Clock $clock -Answers $record.probes
+                $record.outcome = 'resent-then-' + $(if ($state) { $state.ToLowerInvariant() } else { 'unanswered' })
+            }
+            Write-Warning "      fetchAndExecute: after Enter was pressed once more: $($record.outcome) ($($record.probes[-1]))."
+        }
+    }
+    if (Get-Command Get-VncConnectionEvent -ErrorAction SilentlyContinue) {
+        $record.transportEvents = [string[]]@(Get-VncConnectionEvent -VMName $Context.VMName -SinceUtc $TypingStartedUtc | ForEach-Object {
+            $_.Utc.ToString('HH:mm:ss.fff', [Globalization.CultureInfo]::InvariantCulture) + ' ' + $_.Kind + $(if ($_.Detail) { ' ' + $_.Detail })
+        })
+    }
+    return $record
 }
 
 function Get-FetchExecutionContext {
@@ -2201,6 +2328,7 @@ Register-SequenceAction -Name 'fetchAndExecute' -ReplaySafety 'state-changing' -
         $attemptLines = $typedCommands
         for ($attempt = 1; $attempt -le $attemptLimit; $attempt++) {
         if ($c.GuiTransfer) { $c.GuiTransfer.attempts = $attempt }
+        $typingStartedUtc = [DateTime]::UtcNow
         $inputIndex = 0
         foreach ($typedCommand in $attemptLines) {
             if ($typedCommand.Length -gt $script:FetchExecuteTypedCharWarn) {
@@ -2248,6 +2376,11 @@ Register-SequenceAction -Name 'fetchAndExecute' -ReplaySafety 'state-changing' -
         # reason to also give up the harness reading whether the command line
         # was accepted at all.
         Write-Debug "      fetchAndExecute: waiting for '$waitPattern' (timeout: ${timeout}s, freshMatch, tail ${tailLines} lines); failurePatterns=$($failPatterns -join ', '); shell-rejection window=${script:ShellRejectionWindowSeconds}s"
+        # A guard whose Enter was lost never runs, and the wait below could only
+        # time out on it; the guest says so within seconds.
+        if ($c.GuiTransfer) {
+            $c.GuiTransfer.submissions.Add((Confirm-GuiFetchSubmission -Context $c -ContextId ([string]$fetchContext.Id) -Attempt $attempt -TypingStartedUtc $typingStartedUtc))
+        }
         $remaining = $timeout - [int][Math]::Ceiling($executionClock.Elapsed.TotalSeconds)
         if ($remaining -le 0) {
             Write-Warning (Format-YurunaOperatorMessage -Key 'runner.fetch_context_deadline' -Arguments @{ timeoutSeconds = "$timeout" })

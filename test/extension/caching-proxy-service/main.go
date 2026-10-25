@@ -143,6 +143,7 @@ func main() {
 		Language: *pageLanguage, AllowPseudoLocale: *pageAllowPseudo,
 		AggregatorURL: *aggregatorURL,
 		BearerToken:   readTrimmedFile(*authTokenFile),
+		ProofAudience: "svc-caching-proxy-service",
 		CookieName:    "yuruna_caching_proxy_service",
 		Audit: func(ip, outcome, detail string) {
 			log.Printf("lab-token unlock from %s: %s %s", ip, outcome, detail)

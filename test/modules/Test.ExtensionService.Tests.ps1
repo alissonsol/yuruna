@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.22
+.VERSION 2026.10.25
 .GUID 42b86905-6f08-4020-9f8c-68c7b31b76ef
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -539,7 +539,7 @@ Describe 'the caching-proxy seed fetches the sources it builds' {
         $module = Import-Module (Join-Path $dir 'default.psm1') -Force -PassThru -DisableNameChecking
         $manifest = @( & $module { (Get-CachingProxyServiceInfo).SourceFiles } )
         $seed = Get-Content (Join-Path $script:RepoRoot 'host/vmconfig/caching-proxy-service.base.user-data') -Raw
-        $loop = [regex]::Match($seed, 'for f in (?<files>[^;]+); do\s+wget[^\n]*\$\{YR_BASE\}test/extension/caching-proxy-service/\$f')
+        $loop = [regex]::Match($seed, 'for f in (?<files>[^;]+); do\s+yr_fetch "test/extension/caching-proxy-service/\$f"')
         $loop.Success | Should -BeTrue
         $fetched = @($loop.Groups['files'].Value -split '\s+' | Where-Object { $_ })
         $runtime = @(Get-ChildItem -LiteralPath $dir -File | Where-Object {
@@ -565,7 +565,7 @@ Describe 'the caching-proxy seed fetches the sources it builds' {
     }
 
     It 'names every Go file on disk, and none that is not' {
-        # The seed fetches a NAMED list of files, one wget each, then runs
+        # The seed fetches a NAMED list of files, one yr_fetch each, then runs
         # `go build .` over whatever landed. A source file added to -- or
         # renamed in -- the repo and not added here is simply never fetched:
         # the build fails on a 404-emptied file, the daemon is never installed,
@@ -574,7 +574,7 @@ Describe 'the caching-proxy seed fetches the sources it builds' {
         $seed = [IO.Path]::Combine($script:RepoRoot, 'host', 'vmconfig', 'caching-proxy-service.base.user-data')
         $text = Get-Content -Raw -LiteralPath $seed
         $loops = [regex]::Matches($text,
-            'for f in (?<files>[^;]+); do\s+wget[^\n]*\$\{YR_BASE\}test/extension/(?<area>[A-Za-z0-9._-]+)/\$f')
+            'for f in (?<files>[^;]+); do\s+yr_fetch "test/extension/(?<area>[A-Za-z0-9._-]+)/\$f"')
         Assert-True ($loops.Count -ge 2) "expected the seed's per-service fetch loops, found $($loops.Count)"
 
         # What the daemons in this seed actually import from the shared SDK. The

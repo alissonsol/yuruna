@@ -2,8 +2,8 @@
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 # KVM/libvirt overlay for caching-proxy-service.base.user-data.
 # Anchor sections in base-file order. An empty section emits nothing at that anchor.
+# See https://yuruna.link/42e220c4-0006
 # === YURUNA_OVERLAY_HOST_AGENT_PKG ===
-  # See https://yuruna.link/42e220c4-0006
   # The persistent KVM guest exposes this agent to bridged-host discovery.
   - qemu-guest-agent
 # === YURUNA_OVERLAY_NIC_OFFLOAD ===

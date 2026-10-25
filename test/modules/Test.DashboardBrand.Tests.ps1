@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.22
+.VERSION 2026.10.25
 .GUID 42536ec8-4d7e-4727-b52e-55f7f0ca8688
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -118,23 +118,43 @@ $script:FitterPath = Join-Path $script:WorkRoot 'yuruna-fit-pool-dashboard.py'
     (Get-SeedFileContent -SeedPath $script:SeedPath -GuestPath '/usr/local/bin/yuruna-fit-pool-dashboard.py'))
 $script:FitDriverPath = Join-Path $script:WorkRoot 'drive-fitter.py'
 [System.IO.File]::WriteAllText($script:FitDriverPath, @'
-import importlib.util, sys
+import importlib.util, json, re, sys
 
 spec = importlib.util.spec_from_file_location("fit", sys.argv[1])
 fit = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(fit)
 fit.DASHBOARD = sys.argv[2]
 hosts = int(sys.argv[3])
-fit.query = lambda url, expr: hosts
+if len(sys.argv) > 4:
+    inventory = [(str(i), "default" if i % 3 == 0 else "assigned") for i in range(hosts)]
+    historical = inventory + [(host, "default") for host, pool in inventory if pool != "default"]
+    extensions = [("extension", "default")] * 4
+
+    def query(url, expr):
+        rows = extensions if "yuruna_pool_host_extension" in expr else historical if "yuruna_pool_host_status" in expr else inventory
+        selector = re.search(r'pool(=~|=)("(?:[^"\\]|\\.)*")', expr)
+        if not selector:
+            raise ValueError("the count must filter the dashboard's pool selection")
+        pattern = json.loads(selector[2])
+        rows = [(host, pool) for host, pool in rows if
+                (re.fullmatch(pattern, pool) if selector[1] == "=~" else pool == pattern)]
+        return len({host for host, pool in rows}) if "by (hostId)" in expr else len(rows)
+
+    fit.query = query
+else:
+    fit.query = lambda url, expr: hosts
 sys.exit(fit.main())
 '@)
 
 function Invoke-Fitter {
     param(
         [Parameter(Mandatory)][string]$DashboardPath,
-        [int]$Hosts = 3
+        [int]$Hosts = 3,
+        [switch]$SplitPools
     )
-    & $script:Python.Source $script:FitDriverPath $script:FitterPath $DashboardPath $Hosts 2>&1 | Out-String
+    $arguments = @($script:FitDriverPath, $script:FitterPath, $DashboardPath, "$Hosts")
+    if ($SplitPools) { $arguments += 'split-pools' }
+    & $script:Python.Source @arguments 2>&1 | Out-String
 }
 
 # Run the comparison embedded in the push script, not a duplicate of its rules.
@@ -158,7 +178,7 @@ function Invoke-Brander {
     param(
         [Parameter(Mandatory)][string]$DashboardDir,
         [string]$Name = 'Yurunadev',
-        [string]$Version = '2026.10.22',
+        [string]$Version = '2026.10.25',
         [switch]$NoEnvFile
     )
     $envFile = Join-Path $DashboardDir '..' | Join-Path -ChildPath 'brand.env'
@@ -302,7 +322,7 @@ Describe 'the brand banner is one line across the top of the dashboards this VM 
         # A line that broke would need a taller banner to be legible, which is
         # the whole cost the layout was chosen to avoid.
         $dir = Get-DashboardFixture -Dashboard $script:RealDashboards
-        Invoke-Brander -DashboardDir $dir -Name 'Yurunadev' -Version '2026.10.22' | Out-Null
+        Invoke-Brander -DashboardDir $dir -Name 'Yurunadev' -Version '2026.10.25' | Out-Null
 
         foreach ($name in $script:RealDashboards.Keys) {
             $doc = Get-Content -Raw (Join-Path $dir "$name.json") | ConvertFrom-Json
@@ -311,7 +331,7 @@ Describe 'the brand banner is one line across the top of the dashboards this VM 
             # nothing, so it is not part of the line being measured.
             $rendered = ($content -replace '(?s)^.*?-->\s*', '')
             Assert-True ($rendered -notmatch '[\r\n]') -Because "$name's banner must be a single line: got [$rendered]"
-            Assert-Equal -Expected ("**Yurunadev**" + $script:Separator + '`v2026.10.22`') -Actual $rendered `
+            Assert-Equal -Expected ("**Yurunadev**" + $script:Separator + '`v2026.10.25`') -Actual $rendered `
                 -Because "$name's banner must hold the name and version apart with non-breaking spaces"
         }
     }
@@ -414,7 +434,7 @@ Describe 'the brand banner is safe to re-run' {
         # The version is a variable, not a literal repeated in the assertion.
         # Written twice, the two copies drift the first time the version moves,
         # and the assertion then checks for a string the test never asked for.
-        $version = '2026.10.22'
+        $version = '2026.10.25'
 
         $dir = Get-DashboardFixture -Dashboard $script:RealDashboards
         Invoke-Brander -DashboardDir $dir -Name 'Yurunadev' -Version $version | Out-Null
@@ -529,6 +549,26 @@ Describe 'the brand banner leaves a layout it did not write alone' {
 }
 
 Describe 'the panel autofit stacks below the banner' {
+
+    It 'fits all <Hosts> inventory hosts without counting a historical pool row twice' -ForEach @(
+        @{ Hosts = 1 }, @{ Hosts = 13 }, @{ Hosts = 60 }, @{ Hosts = 61 }
+    ) {
+        if (-not $script:Python) { Set-ItResult -Skipped -Because 'python3 is not installed on this host'; return }
+        $dir = Get-DashboardFixture -Dashboard @{ 'pool' = $script:RealDashboards['pool'] }
+        $pool = Join-Path $dir 'pool.json'
+        Invoke-Brander -DashboardDir $dir | Out-Null
+        $fitOutput = Invoke-Fitter -DashboardPath $pool -Hosts $Hosts -SplitPools
+        Assert-Equal 0 $LASTEXITCODE $fitOutput
+        $rows = [Math]::Min(60, $Hosts)
+        Assert-Match "hosts=$rows extensions=4 timeline=$rows " $fitOutput
+        $doc = Get-Content -Raw $pool | ConvertFrom-Json
+        $table = @($doc.panels | Where-Object id -EQ 6)[0]
+        $timeline = @($doc.panels | Where-Object id -EQ 7)[0]
+        # Grafana grid pixels must cover every displayed row, header, and title.
+        Assert-True (($table.gridPos.h * 38 - 8) -ge (52 + 36 + 36 * $rows + 8))
+        Assert-True (($timeline.gridPos.h * 38 - 8) -ge (119 + 32 * $rows))
+        Assert-Equal 0 @(Get-GridOverlap -Dashboard $doc).Count
+    }
 
     It 'sizes the per-host panels without climbing into the banner or the tiles' {
         if (-not $script:Python) { Set-ItResult -Skipped -Because 'python3 is not installed on this host'; return }

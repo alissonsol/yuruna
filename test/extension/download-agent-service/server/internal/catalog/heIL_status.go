@@ -133,6 +133,7 @@ const DataheILstatus = `{
   "status.api_forbidden_deny_list_1c7d1cfa": "הגישה אסורה (רשימת חסימה)",
   "status.api_forbidden_directory_listing_disabled_5d107f5b": "הגישה אסורה (הצגת תוכן התיקייה מושבתת)",
   "status.api_forbidden_missing_x_yuruna_request_header_cross_site_r_c47c4ea5": "הגישה אסורה: כותרת הבקשה X-Yuruna חסרה (הגנה מפני בקשות בין אתרים)",
+  "status.api_forbidden_not_served": "אסור (אינו קובץ שמוגש)",
   "status.api_forbidden_probe_target_must_be_a_private_loopback_rfc1_2c763dac": "אסור: יעד הבדיקה חייב להיות כתובת פרטית (loopback⁦/RFC1918/link-local⁩) או כתובת IP המוגדרת עבור המטמון",
   "status.api_host_refresh_authorization_refused": [
     "ההרשאה לרענון נדחתה (",
@@ -286,7 +287,17 @@ const DataheILstatus = `{
   "status.banner_incident_details": "זוהה אירוע — עיינו בפרטים להלן",
   "status.banner_pass": "כל האורחים פועלים כראוי",
   "status.banner_running": "בדיקה מתבצעת",
+  "status.banner_stalled": [
+    "בדיקה מתבצעת, אך אף שלב לא התקדם בתוך הגבול של ‏",
+    {
+      "arg": "boundSeconds",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " s"
+  ],
   "status.banner_stopped": "מריץ הבדיקות נעצר",
+  "status.banner_unguarded": "בדיקה מתבצעת ללא ה-watchdog של השלבים; רכיב ההרצה מגביל את המחזור הזה במקומו",
   "status.cache_caching_proxy_service_306beb37": "שירות מתווך עם מטמון:",
   "status.cache_caching_proxy_service_configured_at_address_not_answer_df71d10d": [
     "שירות מתווך עם מטמון: מוגדר בכתובת ",

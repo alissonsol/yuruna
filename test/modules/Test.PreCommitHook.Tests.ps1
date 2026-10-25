@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.22
+.VERSION 2026.10.25
 .GUID 42cf4f7f-3c33-488c-8cc6-1cb70b8f8836
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -205,6 +205,19 @@ AfterAll {
 }
 
 Describe 'the commit hook' {
+
+    It 'disables shared startup JIT profiles in every parallel hook gate' {
+        $fixture = New-HookRepository -Name 'startup-profile'
+        Set-EnglishCatalog -Fixture $fixture
+        foreach ($name in 'Test-AsciiNoBom','Test-SourceMetadata','Invoke-CatalogCompile','Invoke-CatalogEmbed','Invoke-DomainInventory') {
+            $path = Join-Path $fixture.Root "tools/$name.ps1"
+            $body = [IO.File]::ReadAllText($path)
+            [IO.File]::WriteAllText($path, "if (`$env:DOTNET_MultiCoreJitProfile -cne '(D)') { exit 79 }`n" + $body)
+        }
+        $null = Invoke-FixtureGit -Repository $fixture.Root -Argument @('add','-A')
+        $run = Invoke-HookCommit -Fixture $fixture -Environment @{ DOTNET_MultiCoreJitProfile = 'unsafe-fixture-profile' }
+        $run.Code | Should -Be 0 -Because $run.Text
+    }
 
     It 'still runs every later pass when dev-only is absent' {
         $fixture = New-HookRepository -Name 'public-mirror'

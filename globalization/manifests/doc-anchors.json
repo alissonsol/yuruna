@@ -8460,6 +8460,11 @@
           "slug": "recovery-after-a-failed-cycle"
         },
         {
+          "id": "42f909ad-002a",
+          "heading": "When the resident runner itself is the problem",
+          "slug": "when-the-resident-runner-itself-is-the-problem"
+        },
+        {
           "id": "42f909ad-0011",
           "heading": "Watchdog and heartbeat protocol",
           "slug": "watchdog-and-heartbeat-protocol"

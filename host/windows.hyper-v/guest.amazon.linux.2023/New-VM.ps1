@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.22
+.VERSION 2026.10.25
 .GUID 4209caff-b7ce-46f6-896a-1d6710c120e8
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -135,11 +135,19 @@ foreach ($f in @($baseUserData, $overlayUserData, $MetaDataTemplate)) {
 Import-Module (Join-Path $repoRoot 'automation/Yuruna.CloudInitTemplate.psm1') -Force
 
 # --- REGION: Stage the cloud-init seed directory
-# New-YurunaSeedDirectory creates the folder exclusively under a random name,
-# so nothing planted at a predictable %TEMP% path is ever reused.
+# The seed carries the guest password in plaintext and the harness key. It is
+# staged in a private workspace beside the disk (owner, SYSTEM and
+# Administrators only), published as an image only the new VM may read, and
+# removed on every exit by the finally below.
 Import-Module (Join-Path $PSScriptRoot '../../../automation/Yuruna.Common.psm1') -DisableNameChecking
+Import-Module (Join-Path $PSScriptRoot '../../modules/Yuruna.SeedMedia.psm1') -Force
+# A plaintext source an older builder left in the temp folder goes first.
+Get-ChildItem -LiteralPath ([IO.Path]::GetTempPath()) -Directory -Filter "seed_${VMName}_*" -ErrorAction SilentlyContinue |
+    Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
+$seedWorkspace = $null
 try {
-    $SeedDir = New-YurunaSeedDirectory -VMName $VMName
+    $seedWorkspace = New-SeedMediaWorkspace -ParentPath $vmDir
+    $SeedDir = $seedWorkspace.Source
 
     $MetaData = (Get-Content -Raw $MetaDataTemplate) `
         -replace 'INSTANCE_ID_PLACEHOLDER', $VMName `
@@ -202,7 +210,8 @@ try {
     # --- REGION: Generate cloud-init seed ISO
     $SeedIso = Join-Path $vmDir "seed.iso"
     $VolumeId = "cidata"
-    CreateIso -SourceDir $SeedDir -OutputFile $SeedIso -VolumeId $VolumeId
+    CreateIso -SourceDir $SeedDir -OutputFile $seedWorkspace.Image -VolumeId $VolumeId
+    Publish-SeedMediaImage -Workspace $seedWorkspace -Path $SeedIso -Confirm:$false
 
     # --- REGION: Create and configure the Hyper-V VM
     Write-Verbose "Creating new VM '$VMName' on switch '$switchName'..."
@@ -218,6 +227,7 @@ try {
     Set-VMMemory -VMName $VMName -DynamicMemoryEnabled $false
     Set-VMFirmware -VMName $VMName -EnableSecureBoot Off | Out-Null
     Add-VMDvdDrive -VMName $VMName -Path $SeedIso | Out-Null
+    Grant-SeedMediaVmRead -Path $SeedIso -VMId (Hyper-V\Get-VM -Name $VMName -ErrorAction Stop).Id -Confirm:$false
     # --- REGION: https://yuruna.link/42fa6f45-0015
     $vmCores = [math]::Max(4, [math]::Floor($hostCores / 2))
     Set-VMProcessor -VMName $VMName -Count $vmCores | Out-Null
@@ -231,7 +241,7 @@ try {
 } finally {
     # The seed holds the guest's admin credentials; it must not outlive this
     # script on any path, an early exit or a throw included.
-    Remove-Item -LiteralPath $SeedDir -Recurse -Force -ErrorAction SilentlyContinue
+    Remove-SeedMediaWorkspace -Workspace $seedWorkspace -Confirm:$false
 }
 
 # --- REGION: Guidance

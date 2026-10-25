@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.22
+.VERSION 2026.10.25
 .GUID 428d0026-4579-4914-a98d-4a8df192c465
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -97,7 +97,7 @@ $text
     Headers         = [System.Net.WebHeaderCollection]::new()
     OutputStream    = `$stream
 }
-`$request = [pscustomobject]@{ HttpMethod = 'GET' }
+`$request = [pscustomobject]@{ HttpMethod = 'GET'; QueryString = [System.Collections.Specialized.NameValueCollection]::new() }
 `$context = [pscustomobject]@{ Response = [pscustomobject]@{} }
 `$context.Response | Add-Member -MemberType ScriptMethod -Name Abort -Value { }
 Send-GitArchive -Response `$response -Request `$request -Context `$context ``

@@ -197,6 +197,7 @@ const DataptBRaggregator = `{
   "aggregator.host_not_known_to_the_pool": "hospedeiro desconhecido do grupo",
   "aggregator.hostid_must_be_a_42_prefixed_32_hex_id": "hostId deve ser um id 32-hex de 42 prefixos",
   "aggregator.ingest_disabled": "ingerir desativado",
+  "aggregator.invalid_control_scope": "escopo de controle inválido",
   "aggregator.invalid_hostid": "hostId inválido",
   "aggregator.invalid_hostid_or_area": "hostId ou área inválida",
   "aggregator.invalid_statusport": "status inválidoPort",

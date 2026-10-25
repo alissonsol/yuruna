@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.22
+.VERSION 2026.10.25
 .GUID 4264d5c7-e082-4c67-a5f9-915f2f84141e
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -75,6 +75,7 @@ function Get-Ast {
     if ($errs) { throw "Parse errors in $($Path): $($errs[0].Message)" }
     return $ast
 }
+
 
 function Get-WhileConditionText {
     param($Ast)
@@ -153,6 +154,156 @@ function Get-HookCapture {
     }
 }
 
+}
+
+Describe 'proxy CA preparation and recovery entry points' {
+    It 'enables recovery and selects a rebuild without any recovery argument' {
+        $ast = Get-Ast $script:startCp
+        $decision = @($ast.EndBlock.Statements | Where-Object {
+            $_ -is [Management.Automation.Language.IfStatementAst] -and $_.Clauses[0].Item1.Extent.Text -eq '$RepairPoolCaTrust'
+        })[0]
+        $fixture = [scriptblock]::Create($ast.ParamBlock.Extent.Text + "`n" + $decision.Extent.Text +
+            "`n" + '[pscustomobject]@{Repair=[bool]$RepairPoolCaTrust;Rebuild=[bool]$ForceRebuild;Forwarded=[bool]$PSBoundParameters["ForceRebuild"]}')
+        $result = & $fixture
+        $result.Repair | Should -BeTrue
+        $result.Rebuild | Should -BeTrue
+        $result.Forwarded | Should -BeTrue
+    }
+
+    It 'enrolls trust after a rebuild: repair=<Strict>, result=<Case>' -ForEach @(
+        @{Strict=$false;Case='success';Success=$true;Count=1;Raises=$false;ExpectedThrow=$false;Warnings=0}
+        @{Strict=$true;Case='success';Success=$true;Count=1;Raises=$false;ExpectedThrow=$false;Warnings=0}
+        @{Strict=$false;Case='partial';Success=$false;Count=1;Raises=$false;ExpectedThrow=$false;Warnings=1}
+        @{Strict=$false;Case='empty inventory';Success=$false;Count=0;Raises=$false;ExpectedThrow=$false;Warnings=0}
+        @{Strict=$true;Case='partial';Success=$false;Count=1;Raises=$false;ExpectedThrow=$true;Warnings=0}
+        @{Strict=$true;Case='empty inventory';Success=$false;Count=0;Raises=$false;ExpectedThrow=$true;Warnings=0}
+        @{Strict=$false;Case='invalid statement';Success=$false;Count=0;Raises=$true;ExpectedThrow=$false;Warnings=1}
+        @{Strict=$true;Case='invalid statement';Success=$false;Count=0;Raises=$true;ExpectedThrow=$true;Warnings=0}
+    ) {
+        $source = Get-Content -LiteralPath $script:startCp -Raw
+        $begin = $source.IndexOf('# --- REGION: Confirm caching proxy readiness')
+        $end = $source.IndexOf("`$serviceOpResult = 'confirmed'", $begin)
+        $complete = [scriptblock]::Create('param([bool]$RepairPoolCaTrust)' + "`n" +
+            '$cacheIp = "192.0.2.42"; $ModulesDir = "fixture"; $poolRepairArgs = @{}' + "`n" + $source.Substring($begin, $end - $begin))
+        function Repair-CachingProxyPoolCaTrust {
+            [CmdletBinding(SupportsShouldProcess)]
+            [OutputType([hashtable])]
+            param([string]$CacheHost, [object[]]$HostRecord)
+            if ($PSCmdlet.ShouldProcess($CacheHost, 'Fixture enrollment')) { @{Success=$true;Hosts=$HostRecord;Proxy=$CacheHost} }
+        }
+        Mock Repair-CachingProxyPoolCaTrust {
+            if ($Raises) { throw 'fixture-invalid-statement' }
+            @{Success=$Success;Hosts=@(1..$Count | Where-Object { $Count -gt 0 } | ForEach-Object { @{Success=$Success} })}
+        }
+        Mock Import-Module { }
+        Mock Write-Warning { }
+        if ($ExpectedThrow) { { & $complete -RepairPoolCaTrust $Strict } | Should -Throw }
+        else { & $complete -RepairPoolCaTrust $Strict }
+        Should -Invoke Repair-CachingProxyPoolCaTrust -Times 1 -Exactly -ParameterFilter { $CacheHost -eq '192.0.2.42' }
+        Should -Invoke Write-Warning -Times $Warnings -Exactly
+    }
+    It 'keeps a working proxy available during automatic enrollment with <Case>' -ForEach @(
+        @{Case='an offline pool host';Count=1;Warnings=1;Raises=$false}
+        @{Case='no registered hosts yet';Count=0;Warnings=0;Raises=$false}
+        @{Case='an invalid signed CA statement';Count=0;Warnings=0;Raises=$true}
+    ) {
+        $source = Get-Content -LiteralPath $script:startCp -Raw
+        $begin = $source.IndexOf('# --- REGION: Confirm caching proxy readiness')
+        $end = $source.IndexOf("`$serviceOpResult = 'confirmed'", $begin)
+        $complete = [scriptblock]::Create('param([switch]$RepairPoolCaTrust = $true)' + "`n" +
+            '$cacheIp = "192.0.2.42"; $ModulesDir = "fixture"; $poolRepairArgs = @{}' + "`n" + $source.Substring($begin, $end - $begin))
+        function Repair-CachingProxyPoolCaTrust {
+            [CmdletBinding(SupportsShouldProcess)]
+            [OutputType([hashtable])]
+            param([string]$CacheHost)
+            if ($PSCmdlet.ShouldProcess($CacheHost, 'Fixture enrollment')) { @{Success=$false;Hosts=@()} }
+        }
+        Mock Repair-CachingProxyPoolCaTrust { if ($Raises) { throw 'fixture-invalid-statement' }; @{Success=$false;Hosts=@(1..$Count | Where-Object { $Count -gt 0 } | ForEach-Object { @{HostId=('a'*32);Success=$false;Reason='host-config-read';HttpStatus=0} })} }
+        Mock Import-Module { }
+        Mock Write-Warning { }
+        if ($Raises) { { & $complete } | Should -Throw '*fixture-invalid-statement*' }
+        else { { & $complete } | Should -Not -Throw }
+        Should -Invoke Repair-CachingProxyPoolCaTrust -Times 1 -Exactly
+        Should -Invoke Write-Warning -Times $Warnings -Exactly
+    }
+
+    It 'persists the existing CA before any entry-point VM deletion' {
+        $ast = Get-Ast $script:startCp
+        $ca = @($ast.FindAll({param($n) $n -is [Management.Automation.Language.CommandAst] -and $n.GetCommandName() -eq 'Get-YurunaBumpCa'}, $true))
+        $remove = @($ast.FindAll({param($n) $n -is [Management.Automation.Language.CommandAst] -and $n.GetCommandName() -eq 'Remove-VM'}, $true))
+        $ca.Count | Should -Be 1
+        $remove.Count | Should -BeGreaterThan 0
+        foreach ($call in $remove) { $ca[0].Extent.StartOffset | Should -BeLessThan $call.Extent.StartOffset }
+        $ca[0].Extent.Text | Should -Match '-ReadExistingCa'
+    }
+    It 'repairs trust only after building the proxy' {
+        $ast = Get-Ast $script:startCp
+        (Get-ScriptParameterName $ast) | Should -Contain 'RepairPoolCaTrust'
+        $repairs = @($ast.FindAll({param($n) $n -is [Management.Automation.Language.CommandAst] -and $n.GetCommandName() -eq 'Repair-CachingProxyPoolCaTrust'}, $true))
+        $repairs.Count | Should -Be 1
+        $build = @($ast.FindAll({param($n) $n -is [Management.Automation.Language.CommandAst] -and $n.CommandElements[0].Extent.Text -eq '$NewVMScript'}, $true))
+        $build.Count | Should -Be 1
+        $repairs[0].Extent.StartOffset | Should -BeGreaterThan $build[0].Extent.StartOffset
+    }
+    It 'restarts the credential service for a rebuild while keeping adoption inexpensive' {
+        $ast = Get-Ast $script:startCp
+        $calls = @($ast.FindAll({param($n) $n -is [Management.Automation.Language.CommandAst] -and $n.GetCommandName() -eq 'Start-YurunaConfigServiceIfEnabled'}, $true))
+        $calls.Count | Should -Be 2
+        $calls[0].Extent.Text | Should -Not -Match '-Restart'
+        $calls[1].Extent.Text | Should -Match '-Restart'
+    }
+    It 'selects rebuild=<Expected> for repair=<Repair> and explicit rebuild=<Force>' -ForEach @(
+        @{Repair=$true;Force=$false;Expected=$true}
+        @{Repair=$true;Force=$true;Expected=$true}
+        @{Repair=$false;Force=$false;Expected=$false}
+        @{Repair=$false;Force=$true;Expected=$true}
+    ) {
+        $ast = Get-Ast $script:startCp
+        $decision = @($ast.EndBlock.Statements | Where-Object {
+            $_ -is [Management.Automation.Language.IfStatementAst] -and $_.Clauses[0].Item1.Extent.Text -eq '$RepairPoolCaTrust'
+        })
+        $decision.Count | Should -Be 1
+        $relaunch = @($ast.EndBlock.Statements | Where-Object { $_.Extent.Text.StartsWith('Invoke-LibvirtGroupReExecIfNeeded ') })[0]
+        $decision[0].Extent.StartOffset | Should -BeLessThan $relaunch.Extent.StartOffset
+        $adopt = @($ast.FindAll({param($n) $n -is [Management.Automation.Language.IfStatementAst] -and $n.Extent.Text.StartsWith('if (-not $ForceRebuild)')}, $true))[0]
+        $fixture = [scriptblock]::Create('param([bool]$RepairPoolCaTrust, [bool]$ForceRebuild)' + "`n" +
+            $decision[0].Extent.Text + "`n" + '[pscustomobject]@{Rebuild=[bool]$ForceRebuild;Forwarded=[bool]$PSBoundParameters["ForceRebuild"];AdoptAllowed=(' + $adopt.Clauses[0].Item1.Extent.Text + ')}')
+        $result = & $fixture -RepairPoolCaTrust $Repair -ForceRebuild $Force
+        $result.Rebuild | Should -Be $Expected
+        $result.Forwarded | Should -Be $Expected
+        $result.AdoptAllowed | Should -Be (-not $Expected)
+    }
+    It 'retains the old pool inventory before teardown for hosts whose test cycles are stopped' {
+        $ast = Get-Ast $script:startCp
+        $snapshot = @($ast.FindAll({param($n) $n -is [Management.Automation.Language.AssignmentStatementAst] -and $n.Left.Extent.Text -eq '$poolRepairArgs.HostRecord'}, $true))
+        $remove = @($ast.FindAll({param($n) $n -is [Management.Automation.Language.CommandAst] -and $n.GetCommandName() -eq 'Remove-VM'}, $true))
+        $snapshot.Count | Should -Be 1
+        foreach ($call in $remove) { $snapshot[0].Extent.StartOffset | Should -BeLessThan $call.Extent.StartOffset }
+        $repair = @($ast.FindAll({param($n) $n -is [Management.Automation.Language.CommandAst] -and $n.GetCommandName() -eq 'Repair-CachingProxyPoolCaTrust'}, $true))[-1]
+        $repair.Extent.Text | Should -Match '@poolRepairArgs'
+    }
+    It 'captures stopped hosts from the existing proxy at <Address>' -ForEach @(
+        @{Address='192.0.2.42';Url='http://192.0.2.42:9400/api/v1/pool-status'}
+        @{Address='2001:db8::42';Url='http://[2001:db8::42]:9400/api/v1/pool-status'}
+    ) {
+        Import-Module (Join-Path $script:repoRoot 'automation/Yuruna.Common.psm1') -Global -DisableNameChecking
+        $ast = Get-Ast $script:startCp
+        $capture = @($ast.FindAll({param($n) $n -is [Management.Automation.Language.IfStatementAst] -and
+            $n.Clauses[0].Item1.Extent.Text -eq "(Get-VMState -VMName `$VMName) -ne 'absent'" -and $n.Extent.Text.Contains('$previousPool')}, $true))[0]
+        function Get-VMState { 'running' }
+        function Get-VMIp { $Address }
+        Mock Invoke-RestMethod {
+            $script:SnapshotUrl = [string]$Uri
+            @{hosts=@(@{hostId=('a'*32);baseUrl='http://192.0.2.7:8080'})}
+        }
+        $runCapture = [scriptblock]::Create('param([switch]$RepairPoolCaTrust, [string]$VMName)' + "`n" +
+            '$poolRepairArgs = @{}' + "`n" + $capture.Extent.Text + "`n" + 'return ,$poolRepairArgs')
+        $poolRepairArgs = & $runCapture -RepairPoolCaTrust -VMName 'owned-proxy'
+        $poolRepairArgs.ContainsKey('HostRecord') | Should -BeTrue
+        @($poolRepairArgs.HostRecord).Count | Should -Be 1
+        $poolRepairArgs.HostRecord[0].hostId | Should -BeExactly ('a'*32)
+        $script:SnapshotUrl | Should -BeExactly $Url
+    }
 }
 
 Describe 'Start-CachingProxyServiceVM.ps1 bounds the UTM waits by wall-clock' {
@@ -321,5 +472,59 @@ Describe 'the cache VM RAM and squid cache_mem are chosen as one pair' {
         $declared = Get-ScriptParameterName -Ast (Get-Ast $script:startCp)
         Assert-True ($declared -contains 'Lab') 'the launcher takes -Lab'
         Assert-True ($declared -notcontains 'Standalone') 'and no longer asks the ordinary host to opt in'
+    }
+}
+
+
+Describe 'Syzygy uses proxy recovery defaults and reports its failures' {
+    BeforeAll {
+        function New-SyzygyFixture {
+            [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '', Justification='Creates only disposable test fixtures under TestDrive.')]
+            [CmdletBinding()]
+            [OutputType([string])]
+            param()
+            $root = Join-Path $TestDrive ([guid]::NewGuid().ToString('N'))
+            $null = New-Item -ItemType Directory -Path (Join-Path $root 'lab'), (Join-Path $root 'service')
+            Copy-Item (Join-Path $script:repoRoot 'test/lab/Start-Syzygy.ps1') (Join-Path $root 'lab/Start-Syzygy.ps1')
+            $child = @'
+[CmdletBinding(SupportsShouldProcess)]
+param([string]$MacAddress, [switch]$AllowPseudoLocale, [switch]$RepairPoolCaTrust = $true)
+$row = @{Name=[IO.Path]::GetFileName($PSCommandPath);Mac=$MacAddress;Pseudo=[bool]$AllowPseudoLocale;Repair=[bool]$RepairPoolCaTrust;RepairBound=$PSBoundParameters.ContainsKey('RepairPoolCaTrust');Preview=[bool]$PSBoundParameters['WhatIf'];ConfirmBound=$PSBoundParameters.ContainsKey('Confirm')}
+[IO.File]::AppendAllText((Join-Path $PSScriptRoot '../calls.jsonl'), ($row | ConvertTo-Json -Compress) + "`n")
+'@
+            foreach ($name in 'CachingProxy', 'Stash', 'PoolControl', 'DownloadAgent') {
+                Set-Content -LiteralPath (Join-Path $root "service/Start-${name}ServiceVM.ps1") -Value $child
+            }
+            return $root
+        }
+    }
+    It 'uses recovery defaults with preview=<Preview> and confirmation=<Confirmation>' -ForEach @(
+        @{Preview=$false;Confirmation=$false}
+        @{Preview=$false;Confirmation=$true}
+        @{Preview=$true;Confirmation=$false}
+        @{Preview=$true;Confirmation=$true}
+    ) {
+        $root = New-SyzygyFixture
+        & (Join-Path $root 'lab/Start-Syzygy.ps1') -WhatIf:$Preview -Confirm:$Confirmation
+        $rows = @(Get-Content -LiteralPath (Join-Path $root 'calls.jsonl') | ConvertFrom-Json)
+        @($rows.Name) -join ',' | Should -BeExactly 'Start-CachingProxyServiceVM.ps1,Start-StashServiceVM.ps1,Start-PoolControlServiceVM.ps1,Start-DownloadAgentServiceVM.ps1'
+        $rows[0].Mac | Should -BeExactly '42:42:42:42:42:42'
+        $rows[0].Repair | Should -BeTrue
+        $rows[0].RepairBound | Should -BeFalse
+        foreach ($row in $rows) {
+            $row.Pseudo | Should -BeTrue
+            $row.Preview | Should -Be $Preview
+            $row.ConfirmBound | Should -BeTrue
+        }
+        foreach ($row in $rows[1..3]) { $row.RepairBound | Should -BeFalse }
+    }
+    It 'stops before other service starts when proxy recovery <Failure>' -ForEach @(
+        @{Failure='throws';Body="throw 'fixture-recovery-failed'"}
+        @{Failure='exits unsuccessfully';Body='exit 7'}
+    ) {
+        $root = New-SyzygyFixture
+        Set-Content -LiteralPath (Join-Path $root 'service/Start-CachingProxyServiceVM.ps1') -Value $Body
+        { & (Join-Path $root 'lab/Start-Syzygy.ps1') -Confirm:$false } | Should -Throw
+        Test-Path -LiteralPath (Join-Path $root 'calls.jsonl') | Should -BeFalse
     }
 }

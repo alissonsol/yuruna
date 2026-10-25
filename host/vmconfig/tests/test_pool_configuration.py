@@ -8,6 +8,7 @@ import json
 import os
 from pathlib import Path
 import socket
+import shlex
 import subprocess
 import tempfile
 import threading
@@ -228,7 +229,7 @@ $pool.configuredState | ConvertTo-Json -Compress
         state = json.loads((self.root / 'runtime/pool.state.json').read_text())
         self.assertFalse(state['configurationOk'])
 
-    def test_pool_mount_grants_apache_read_access_and_keeps_credentials_private(self):
+    def fetch_pool(self, network_ip="192.0.2.25", mount_exit=0, resolve=False, mounted=False, unmount_exit=0, complete=True):
         body = TOOL.seed_file_body(SEED, '/usr/local/bin/yuruna-config-fetch.sh')
         host = self.root / 'host-config'
         host.mkdir()
@@ -239,17 +240,79 @@ $pool.configuredState | ConvertTo-Json -Compress
         body = body.replace('/etc/yuruna/host.env', str(self.root / 'host.env'))
         body = body.replace('/mnt/ypool-nas', str(self.mount))
         body = body.replace('/var/www/html/config-fetch-', str(self.root / 'config-fetch-'))
-        self.stub('curl', "printf '%s' '{\"networkPath\":\"//nas/pool\",\"username\":\"fixture\",\"password\":\"secret\",\"version\":\"1\"}'")
-        self.stub('mountpoint', 'exit 1')
-        self.stub('mount', 'printf "%s\\n" "$@" > "' + str(self.root / 'mount-args') + '"')
+        payload = dict(networkPath="//nas/pool", networkIp=network_ip,
+                       username="fixture", password="secret", version="1")
+        if not complete:
+            payload = {"ok": False, "error": "NAS is not configured"}
+        self.stub('curl', "printf '%s' " + shlex.quote(json.dumps(payload)))
+        if mounted:
+            (self.root / 'mounted').touch()
+            (host / 'pool.version').write_text('previous-version')
+        self.stub('mountpoint', 'test -e ' + shlex.quote(str(self.root / 'mounted')))
+        self.stub('umount', ('rm -f ' + shlex.quote(str(self.root / 'mounted'))) if unmount_exit == 0 else 'exit ' + str(unmount_exit))
+        self.stub('getent', 'exit ' + ('0' if resolve else '1'))
+        self.stub('mount', 'printf "%s\\n" "$@" > "' + str(self.root / 'mount-args') + '"\n'
+                  + ('touch ' + shlex.quote(str(self.root / 'mounted')) if mount_exit == 0 else 'exit ' + str(mount_exit)))
         result = subprocess.run(['sh', '-c', body, 'fetch', 'pool'], env=dict(self.env, YURUNA_STATUS_SERVICE_IP='192.0.2.1'),
                                 capture_output=True, text=True, timeout=10)
+        return result
+
+    def test_pool_mount_grants_apache_read_access_and_keeps_credentials_private(self):
+        result = self.fetch_pool()
         self.assertEqual(result.returncode, 0, result.stderr)
         args = (self.root / 'mount-args').read_text()
         for option in ('gid=', 'forceuid', 'forcegid', 'file_mode=0640', 'dir_mode=0750', 'nounix'):
             self.assertIn(option, args)
         self.assertEqual((self.root / 'credentials').stat().st_mode & 0o777, 0o600)
         self.assertEqual((self.root / 'config-fetch-pool-status').stat().st_mode & 0o777, 0o644)
+
+    def test_remote_nas_address_is_not_replaced_with_the_builder_address(self):
+        result = self.fetch_pool()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        args = (self.root / 'mount-args').read_text()
+        self.assertIn('ip=192.0.2.25', args)
+        self.assertNotIn('ip=192.0.2.1', args)
+
+    def test_local_nas_loopback_is_mapped_to_the_guest_reachable_builder(self):
+        result = self.fetch_pool(network_ip='127.0.0.1')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        args = (self.root / 'mount-args').read_text()
+        self.assertIn('ip=192.0.2.1', args)
+        self.assertNotIn('ip=127.0.0.1', args)
+
+    def test_a_guest_resolvable_name_keeps_working_with_an_older_config_service(self):
+        result = self.fetch_pool(network_ip='', resolve=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn(',ip=', (self.root / 'mount-args').read_text())
+
+    def test_missing_credentials_are_not_misreported_as_an_address_problem(self):
+        result = self.fetch_pool(complete=False)
+        self.assertFalse((self.root / 'mount-args').exists())
+        status = (self.root / 'config-fetch-pool-status').read_text()
+        self.assertIn('incomplete-payload', status)
+        self.assertNotIn('nas-address-unresolved', status)
+
+    def test_unresolved_remote_nas_does_not_guess_the_builder_as_storage(self):
+        result = self.fetch_pool(network_ip='')
+        self.assertNotEqual(result.returncode, 0)
+        self.assertFalse((self.root / 'mount-args').exists())
+        self.assertIn('nas-address-unresolved', (self.root / 'config-fetch-pool-status').read_text())
+
+    def test_failed_unmount_preserves_the_previous_version_and_does_not_stack_mounts(self):
+        result = self.fetch_pool(mounted=True, unmount_exit=32)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual((self.root / 'host-config/pool.version').read_text(), 'previous-version')
+        self.assertFalse((self.root / 'mount-args').exists())
+        self.assertIn('unmount-failed', (self.root / 'config-fetch-pool-status').read_text())
+
+    def test_failed_mount_reports_the_address_and_exit_without_marking_the_version_current(self):
+        result = self.fetch_pool(mount_exit=32)
+        self.assertNotEqual(result.returncode, 0)
+        status = (self.root / 'config-fetch-pool-status').read_text()
+        self.assertIn('192.0.2.25', status)
+        self.assertIn('exit=32', status)
+        self.assertNotIn('secret', status + result.stdout + result.stderr)
+        self.assertFalse((self.root / 'host-config/pool.version').exists())
 
 
 if __name__ == '__main__':

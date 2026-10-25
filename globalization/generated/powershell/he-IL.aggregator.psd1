@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.22
+.VERSION 2026.10.25
 .GUID 423d0049-66c7-0030-82c2-71d35a16ab27
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -209,6 +209,7 @@
     'aggregator.host_not_known_to_the_pool' = 'המארח אינו מוכר למאגר'
     'aggregator.hostid_must_be_a_42_prefixed_32_hex_id' = 'hostId חייב להיות מזהה בן 32 ספרות הקסדצימליות המתחיל ב-42'
     'aggregator.ingest_disabled' = 'הקליטה מושבתת'
+    'aggregator.invalid_control_scope' = 'היקף בקרה לא חוקי'
     'aggregator.invalid_hostid' = 'hostId אינו תקין'
     'aggregator.invalid_hostid_or_area' = 'hostId או אזור אינם תקינים'
     'aggregator.invalid_statusport' = 'statusPort אינו תקין'

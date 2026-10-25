@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.22
+.VERSION 2026.10.25
 .GUID 422ef01b-468d-4c38-ab4c-8337b8a3ccd5
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -191,7 +191,15 @@ function Save-CachingProxyServiceState {
     # Merge: only update keys the caller actually passed.
     if ($PSBoundParameters.ContainsKey('Secret'))    { $state.password  = [string]$Secret }
     if ($PSBoundParameters.ContainsKey('IpAddress')) { $state.ipAddress = [string]$IpAddress }
-    if ($PSBoundParameters.ContainsKey('CaCert'))    { $state.caCert    = [string]$CaCert }
+    if ($PSBoundParameters.ContainsKey('CaCert')) {
+        $state.caCert = [string]$CaCert
+        # The fingerprint is what makes the cached CA a pin; see Resolve-YurunaPinnedProxyCa.
+        $state.caCertSha256 = ''
+        if ($CaCert) {
+            try { $state.caCertSha256 = Get-YurunaCertificateSha256 -Pem ([Text.Encoding]::UTF8.GetString([Convert]::FromBase64String([string]$CaCert))) }
+            catch { $state.caCertSha256 = '' }
+        }
+    }
     if ($PSBoundParameters.ContainsKey('CaCertSourceHost')) { $state.caCertSourceHost = [string]$CaCertSourceHost }
     if (-not $PSCmdlet.ShouldProcess($path, (Format-YurunaOperatorMessage -Key 'runner.operator_4fca99e95d9dedef'))) { return $path }
     if (-not (Get-Module powershell-yaml)) {
@@ -1716,6 +1724,407 @@ function Test-CachingProxyServiceCaPem {
     }
 }
 
+function Get-YurunaCertificateSha256 {
+    <#
+    .SYNOPSIS
+        Lowercase SHA-256 of a PEM certificate's DER bytes, or '' when the text
+        is not one certificate.
+    .DESCRIPTION
+        The fingerprint guests compare with `openssl x509 -outform DER |
+        sha256sum`, so a pin computed here matches one computed there whatever
+        line endings or wrapping the PEM text carries.
+    #>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param([AllowNull()][AllowEmptyString()][string]$Pem)
+    if (-not (Test-CachingProxyServiceCaPem -Pem $Pem)) { return '' }
+    $m = [regex]::Match($Pem, '-----BEGIN CERTIFICATE-----(.+?)-----END CERTIFICATE-----', 'Singleline')
+    $der = [Convert]::FromBase64String(($m.Groups[1].Value -replace '\s', ''))
+    return [Convert]::ToHexString([System.Security.Cryptography.SHA256]::HashData($der)).ToLowerInvariant()
+}
+
+function Get-YurunaBumpCa {
+    <#
+    .SYNOPSIS
+        The ssl-bump CA this host seeds into the caching proxy it builds, as
+        @{ CertPem; KeyPem; Sha256 }, or $null when there is none (and -Create
+        was not given).
+    .DESCRIPTION
+        A CA generated per build would change the root every guest and host
+        trusts on each rebuild, and trust could then follow only by fetching
+        the new root over HTTP from whatever answered. The CA lives in this
+        host's private state (owner-only) and is seeded into every proxy it
+        builds, so the fingerprint guests and hosts pin never changes across
+        rebuilds. -Create generates it once: RSA 2048, SHA-256, ten
+        years, CA:true and keyCertSign, the profile the proxy's own openssl
+        command produced.
+    #>
+    [CmdletBinding(SupportsShouldProcess)]
+    [OutputType([hashtable])]
+    param(
+        [switch]$Create,
+        # Test seam: the home directory, as for Get-YurunaPrivateStatePath.
+        [string]$HomePath,
+        # Called only on the first creation, before the builder removes its VM.
+        [scriptblock]$ReadExistingCa
+    )
+    $stateArgs = @{ Subdirectory = 'caching-proxy'; NoCreate = (-not $Create) }
+    if ($HomePath) { $stateArgs.HomePath = $HomePath }
+    $certInfo = Get-YurunaPrivateStatePath -Name 'bump-ca.pem' @stateArgs
+    $keyInfo  = Get-YurunaPrivateStatePath -Name 'bump-ca.key' @stateArgs
+    if (-not $certInfo.Path -or -not $keyInfo.Path) { return $null }
+    if ((Test-Path -LiteralPath $certInfo.Path -PathType Leaf) -and (Test-Path -LiteralPath $keyInfo.Path -PathType Leaf)) {
+        $certPem = [IO.File]::ReadAllText($certInfo.Path)
+        $keyPem  = [IO.File]::ReadAllText($keyInfo.Path)
+        $sha = Get-YurunaCertificateSha256 -Pem $certPem
+        if ($sha -and $keyPem -match '-----BEGIN (?:RSA )?PRIVATE KEY-----') {
+            try {
+                $pair = [Security.Cryptography.X509Certificates.X509Certificate2]::CreateFromPem($certPem, $keyPem)
+                $pair.Dispose()
+                return @{ CertPem = $certPem; KeyPem = $keyPem; Sha256 = $sha }
+            } catch { Write-Verbose 'bump-ca-key-mismatch' }
+        }
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.bump_ca_unreadable' -Arguments @{ path = "$($certInfo.Path)" })
+        return $null
+    }
+    if ((Test-Path -LiteralPath $certInfo.Path) -or (Test-Path -LiteralPath $keyInfo.Path)) {
+        throw 'bump-ca-incomplete: restore the existing certificate and private key before rebuilding'
+    }
+    if (-not $Create -or -not $PSCmdlet.ShouldProcess($certInfo.Path, (Format-YurunaOperatorMessage -Key 'runner.bump_ca_create_action'))) { return $null }
+    $existing = if ($ReadExistingCa) { & $ReadExistingCa } else { $null }
+    if ($existing) {
+        $certPem = [string]$existing.CertPem
+        $keyPem = [string]$existing.KeyPem
+        # CreateFromPem proves the private key belongs to this certificate.
+        $pair = [Security.Cryptography.X509Certificates.X509Certificate2]::CreateFromPem($certPem, $keyPem)
+        try {
+            $constraints = $pair.Extensions | Where-Object { $_.Oid.Value -eq '2.5.29.19' }
+            if (-not $constraints.CertificateAuthority -or $pair.NotAfter.ToUniversalTime() -le [DateTime]::UtcNow) { throw 'bump-ca-migration-invalid' }
+            $rsaKey = [Security.Cryptography.X509Certificates.RSACertificateExtensions]::GetRSAPrivateKey($pair)
+            try { $keyPem = $rsaKey.ExportPkcs8PrivateKeyPem() + "`n" } finally { $rsaKey.Dispose() }
+        } finally { $pair.Dispose() }
+        Write-Information "proxy CA migration: $(Get-YurunaCertificateSha256 -Pem $certPem) -> $($certInfo.Path)" -InformationAction Continue
+    } else {
+        $rsa = [System.Security.Cryptography.RSA]::Create(2048)
+        try {
+            $cn = ('yuruna caching proxy {0} {1}' -f [Environment]::MachineName, [DateTime]::UtcNow.ToString("yyyyMMdd'T'HHmmss'Z'", [Globalization.CultureInfo]::InvariantCulture))
+            if ($cn.Length -gt 64) { $cn = $cn.Substring(0, 64) }
+            $request = [System.Security.Cryptography.X509Certificates.CertificateRequest]::new(
+                [System.Security.Cryptography.X509Certificates.X500DistinguishedName]::new("CN=$cn"), $rsa,
+                [System.Security.Cryptography.HashAlgorithmName]::SHA256, [System.Security.Cryptography.RSASignaturePadding]::Pkcs1)
+            $request.CertificateExtensions.Add([System.Security.Cryptography.X509Certificates.X509BasicConstraintsExtension]::new($true, $false, 0, $true))
+            $request.CertificateExtensions.Add([System.Security.Cryptography.X509Certificates.X509KeyUsageExtension]::new(
+                [System.Security.Cryptography.X509Certificates.X509KeyUsageFlags]'DigitalSignature, CrlSign, KeyCertSign', $true))
+            $request.CertificateExtensions.Add([System.Security.Cryptography.X509Certificates.X509SubjectKeyIdentifierExtension]::new($request.PublicKey, $false))
+            $cert = $request.CreateSelfSigned([DateTimeOffset]::UtcNow.AddDays(-1), [DateTimeOffset]::UtcNow.AddDays(3650))
+            try {
+                $certPem = $cert.ExportCertificatePem() + "`n"
+                $keyPem  = $rsa.ExportPkcs8PrivateKeyPem() + "`n"
+            } finally { $cert.Dispose() }
+        } finally { $rsa.Dispose() }
+    }
+    # The key first, owner-only, so no reader ever sees a certificate whose key is absent.
+    $keyTemp = $keyInfo.Path + '.' + [Guid]::NewGuid().ToString('N') + '.tmp'
+    if ($IsWindows) { [IO.File]::WriteAllText($keyTemp, $keyPem) }
+    else {
+        $stream = [IO.FileStream]::new($keyTemp, [IO.FileMode]::CreateNew, [IO.FileAccess]::Write, [IO.FileShare]::None, 4096,
+            [IO.FileOptions]::None)
+        try { [IO.File]::SetUnixFileMode($keyTemp, [IO.UnixFileMode]'UserRead, UserWrite'); $bytes = [Text.Encoding]::ASCII.GetBytes($keyPem); $stream.Write($bytes, 0, $bytes.Length) }
+        finally { $stream.Dispose() }
+    }
+    [IO.File]::Move($keyTemp, $keyInfo.Path, $true)
+    [IO.File]::WriteAllText($certInfo.Path, $certPem)
+    return @{ CertPem = $certPem; KeyPem = $keyPem; Sha256 = (Get-YurunaCertificateSha256 -Pem $certPem) }
+}
+
+function Get-CachingProxyServiceLegacyCa {
+    <# .SYNOPSIS
+        Read the CA pair from this builder's existing VM before its disk is replaced.
+    .DESCRIPTION
+        Address must come from the local hypervisor's VM lookup, never proxy
+        discovery: another builder's proxy key must stay on its owning host.
+        The private key remains in memory and owner-only storage; never relay
+        SSH output or exceptions into the transcript.
+    #>
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param([Parameter(Mandatory)][string]$VMName, [Parameter(Mandatory)][string]$Address)
+    Import-Module (Join-Path $PSScriptRoot 'Test.Ssh.psm1') -DisableNameChecking
+    $result = Invoke-GuestSsh -VMName $VMName -ResolvedAddress $Address -GuestKey 'guest.caching-proxy-service' `
+        -User 'caching-proxy-service-admin' -AddressWaitSeconds 0 -TimeoutSeconds 20 -MaxCapturedChars 16384 `
+        -Command 'sudo -n cat /etc/squid/ssl_cert/ca.pem /etc/squid/ssl_cert/ca.key'
+    if (-not $result.success) { throw 'bump-ca-migration-read-failed: existing proxy preserved; recover its CA pair before rebuilding' }
+    $cert = [regex]::Match([string]$result.output, '-----BEGIN CERTIFICATE-----[\s\S]+?-----END CERTIFICATE-----')
+    $key = [regex]::Match([string]$result.output, '-----BEGIN (?:RSA )?PRIVATE KEY-----[\s\S]+?-----END (?:RSA )?PRIVATE KEY-----')
+    if (-not $cert.Success -or -not $key.Success) { throw 'bump-ca-migration-pair-missing: existing proxy preserved' }
+    $state = Read-CachingProxyServiceState
+    $sha = Get-YurunaCertificateSha256 -Pem $cert.Value
+    if ([string]$state.caCertSourceHost -eq $Address -and $state.caCertSha256 -and [string]$state.caCertSha256 -cne $sha) {
+        throw 'bump-ca-migration-pin-mismatch: existing proxy preserved'
+    }
+    return @{ CertPem = $cert.Value + "`n"; KeyPem = $key.Value + "`n" }
+}
+
+function ConvertTo-YurunaProxyCaStatement {
+    <#
+    .SYNOPSIS
+        Sign a proxy CA's fingerprint with the lab's mirror signing key, as the
+        envelope JSON the proxy serves beside its CA, or '' without a key.
+    .DESCRIPTION
+        A host that did not build the proxy can learn which CA it bumps with only
+        from the proxy itself, over plain HTTP. A statement signed with the key
+        each consuming host explicitly enrolls to verify mirror receipts
+        (repositories.mirror.verificationPublicKeys) lets such a host trust that
+        CA without trusting the first answer it receives, and accept a rotation
+        the same way. The envelope and signature are the mirror receipt's:
+        {keyId, payload, signature}, RSA PKCS#1 v1.5 over SHA-256 of the exact
+        payload bytes.
+    #>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param(
+        [Parameter(Mandatory)][AllowEmptyString()][string]$SigningKeyBase64,
+        [Parameter(Mandatory)][string]$CaPem,
+        [datetime]$IssuedAtUtc = [DateTime]::UtcNow
+    )
+    $caSha = Get-YurunaCertificateSha256 -Pem $CaPem
+    if (-not $SigningKeyBase64 -or -not $caSha) { return '' }
+    $rsa = [Security.Cryptography.RSA]::Create()
+    try {
+        $rsa.ImportFromPem([Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($SigningKeyBase64)))
+        $keyId = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($rsa.ExportSubjectPublicKeyInfo())).ToLowerInvariant()
+        $payload = [ordered]@{
+            schemaVersion = 1; kind = 'proxy-ca'; keyId = $keyId; caSha256 = $caSha
+            issuedAt = $IssuedAtUtc.ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", [Globalization.CultureInfo]::InvariantCulture)
+        }
+        $payloadBytes = [Text.UTF8Encoding]::new($false).GetBytes(($payload | ConvertTo-Json -Compress))
+        $signature = $rsa.SignData($payloadBytes, [Security.Cryptography.HashAlgorithmName]::SHA256, [Security.Cryptography.RSASignaturePadding]::Pkcs1)
+        return ([ordered]@{ keyId = $keyId; payload = [Convert]::ToBase64String($payloadBytes); signature = [Convert]::ToBase64String($signature) } | ConvertTo-Json -Compress)
+    } catch {
+        Write-Verbose "ConvertTo-YurunaProxyCaStatement: $($_.Exception.Message)"
+        return ''
+    } finally { $rsa.Dispose() }
+}
+
+function Test-YurunaProxyCaStatement {
+    <#
+    .SYNOPSIS
+        Verify a proxy CA statement against the enrolled keys, as
+        @{ Valid; Reason; CaSha256 }.
+    .DESCRIPTION
+        Reasons: valid, statement-invalid (malformed, wrong kind, or a signature
+        that does not verify) and statement-key-not-enrolled (signed by a key
+        this host has not enrolled). The key ID in the envelope only selects an
+        enrolled key; nothing in an unverified payload is read.
+    #>
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param(
+        [Parameter(Mandatory)][AllowEmptyString()][string]$Statement,
+        [Parameter(Mandatory)][hashtable]$VerificationKeys
+    )
+    $result = @{ Valid = $false; Reason = 'statement-invalid'; CaSha256 = '' }
+    try {
+        if ($Statement.Length -gt 16384) { return $result }
+        $envelope = ConvertFrom-Json -InputObject $Statement -AsHashtable -ErrorAction Stop
+        if ($envelope -isnot [System.Collections.IDictionary] -or $envelope.Count -ne 3 -or
+            $envelope['keyId'] -isnot [string] -or $envelope['keyId'] -cnotmatch '^[0-9a-f]{64}$' -or
+            $envelope['payload'] -isnot [string] -or $envelope['payload'] -cnotmatch '^[A-Za-z0-9+/]+={0,2}$' -or
+            $envelope['signature'] -isnot [string] -or $envelope['signature'] -cnotmatch '^[A-Za-z0-9+/]+={0,2}$') { return $result }
+        if (-not $VerificationKeys.ContainsKey($envelope['keyId'])) { $result.Reason = 'statement-key-not-enrolled'; return $result }
+        $payloadBytes = [Convert]::FromBase64String($envelope['payload'])
+        $signature = [Convert]::FromBase64String($envelope['signature'])
+        if ($payloadBytes.Length -gt 4096 -or $signature.Length -gt 1024) { return $result }
+        $rsa = [Security.Cryptography.RSA]::Create()
+        try {
+            $read = 0
+            $rsa.ImportSubjectPublicKeyInfo([byte[]]$VerificationKeys[$envelope['keyId']], [ref]$read)
+            if (-not $rsa.VerifyData($payloadBytes, $signature, [Security.Cryptography.HashAlgorithmName]::SHA256,
+                    [Security.Cryptography.RSASignaturePadding]::Pkcs1)) { return $result }
+        } finally { $rsa.Dispose() }
+        $payload = ConvertFrom-Json -InputObject ([Text.UTF8Encoding]::new($false, $true).GetString($payloadBytes)) -AsHashtable -ErrorAction Stop
+        if ($payload -isnot [System.Collections.IDictionary] -or $payload['schemaVersion'] -ne 1 -or $payload['kind'] -cne 'proxy-ca' -or
+            $payload['keyId'] -cne $envelope['keyId'] -or $payload['caSha256'] -isnot [string] -or $payload['caSha256'] -cnotmatch '^[0-9a-f]{64}$') { return $result }
+        return @{ Valid = $true; Reason = 'valid'; CaSha256 = [string]$payload['caSha256'] }
+    } catch {
+        Write-Verbose "Test-YurunaProxyCaStatement: $($_.Exception.Message)"
+        return $result
+    }
+}
+
+function Get-YurunaProxyCaVerificationKey {
+    <#
+    .SYNOPSIS
+        The mirror verification keys this host enrolls, by key ID, or an empty
+        map when none are enrolled or the configuration cannot be read.
+    #>
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param()
+    $configPath = $env:YURUNA_CONFIG_PATH
+    if ([string]::IsNullOrWhiteSpace($configPath)) { $configPath = Join-Path (Split-Path -Parent $PSScriptRoot) 'test.config.yml' }
+    $stage = 'configuration-read'
+    try {
+        if (-not (Test-Path -LiteralPath $configPath)) { return @{} }
+        if (-not (Get-Command Read-TestConfig -ErrorAction SilentlyContinue)) {
+            Import-Module (Join-Path $PSScriptRoot 'Test.Config.psm1') -Global -Force -DisableNameChecking -Verbose:$false
+        }
+        $cfg = Read-TestConfig -Path $configPath -ThrowOnError
+        $keys = $null
+        if ($cfg -and $cfg.repositories -is [System.Collections.IDictionary] -and $cfg.repositories.mirror -is [System.Collections.IDictionary]) {
+            $keys = $cfg.repositories.mirror['verificationPublicKeys']
+        }
+        if (-not $keys) { return @{} }
+        $stage = 'key-validator-import'
+        if (-not (Get-Command Get-GitMirrorVerificationKey -ErrorAction SilentlyContinue)) {
+            Import-Module (Join-Path $PSScriptRoot 'Test.HostGit.psm1') -DisableNameChecking -Verbose:$false
+        }
+        $stage = 'key-validation'
+        return Get-GitMirrorVerificationKey -PublicKeys @($keys)
+    } catch {
+        Write-Verbose "Get-YurunaProxyCaVerificationKey: $($_.Exception.Message)"
+        # Keep raw parser/validation exceptions out of the retained diagnostic:
+        # they can include configuration values and enrolled key material.
+        Write-Information ('YURUNA_PROXY_CA_KEY_LOAD_ERROR=' + (@{stage=$stage;configPath=$configPath} | ConvertTo-Json -Compress)) -InformationAction Continue
+        return @{}
+    }
+}
+
+function Get-CachingProxyServiceCaStatement {
+    <#
+    .SYNOPSIS
+        The signed CA statement a proxy serves beside its CA, or '' when it
+        serves none (a proxy built before statements existed answers 404).
+    #>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param([Parameter(Mandatory)][string]$CacheHost, [int]$TimeoutSec = 5)
+    try {
+        $urlHost = ConvertTo-CachingProxyUrlHost -Address $CacheHost
+        $reply = Invoke-WebRequest -Uri "http://$urlHost/yuruna-squid-ca.sig.json" -UseBasicParsing -NoProxy -TimeoutSec $TimeoutSec -ErrorAction Stop
+        if ($reply.StatusCode -ne 200 -or $reply.RawContentLength -le 0 -or $reply.RawContentLength -gt 16384) { return '' }
+        if ($reply.Content -is [byte[]]) { return [Text.UTF8Encoding]::new($false, $true).GetString($reply.Content) }
+        return [string]$reply.Content
+    } catch {
+        Write-Verbose "Get-CachingProxyServiceCaStatement: $($_.Exception.Message)"
+        return ''
+    }
+}
+
+function Resolve-YurunaPinnedProxyCa {
+    <#
+    .SYNOPSIS
+        Decide whether a proxy CA fetched over HTTP may be trusted, as
+        @{ Accepted; Pem; Sha256; Expected; Reason }.
+    .DESCRIPTION
+        Four things make a fetched root trusted, in this order:
+          owned      the CA this host seeds into every proxy it builds
+                     (Get-YurunaBumpCa), matched, never assumed: the recorded
+                     proxy address can be a proxy another host built.
+          pinned     the CA already accepted for that address and persisted in
+                     the proxy state file with its fingerprint (caCertSha256).
+          last-good  the same root as a caCert cached for that address before
+                     fingerprints were recorded. Such a copy is not a pin: it
+                     refuses no other root.
+          signed     a statement the proxy serves beside its CA
+                     (Test-YurunaProxyCaStatement), signed with a mirror
+                     verification key this host enrolls, naming this CA. A
+                     signed statement also accepts a rotation over a different
+                     pin.
+        A host that enrolls verification keys never trusts a CA on first use:
+        without a valid statement a root it has not trusted before is refused
+        (statement-absent), and a root other than the pinned one is accepted
+        only with a statement that verifies and names it (otherwise
+        statement-invalid, statement-key-not-enrolled or
+        statement-ca-mismatch). A host with no key enrolled has nothing to
+        verify a statement with, so an unpinned root is still accepted as its
+        first use (first-use) and a different root from a pinned address is
+        refused (pin-mismatch). On every refusal Pem carries the pinned CA, if
+        any, so callers keep serving the root they trust.
+    .PARAMETER Statement
+        The statement the proxy served (Get-CachingProxyServiceCaStatement), or
+        '' when it served none.
+    .PARAMETER VerificationKeys
+        The enrolled keys by key ID; read from the configuration when omitted.
+    #>
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param(
+        [Parameter(Mandatory)][AllowEmptyString()][string]$Pem,
+        [Parameter(Mandatory)][AllowEmptyString()][string]$CacheHost,
+        [AllowEmptyString()][string]$Statement = '',
+        [AllowNull()][hashtable]$VerificationKeys = $null
+    )
+    $fetchedSha = Get-YurunaCertificateSha256 -Pem $Pem
+    $state = Read-CachingProxyServiceState
+    $owned = $null
+    try { $owned = Get-YurunaBumpCa } catch { $owned = $null }
+    $ownedSha = if ($owned) { Get-YurunaCertificateSha256 -Pem ([string]$owned.CertPem) } else { '' }
+    $cachedPem = ''
+    if ($CacheHost -and $state.caCert -and [string]$state.caCertSourceHost -eq $CacheHost) {
+        try { $cachedPem = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String([string]$state.caCert)) } catch { $cachedPem = '' }
+    }
+    $cachedSha = Get-YurunaCertificateSha256 -Pem $cachedPem
+    $pinnedPem = ''; $pinnedSha = ''
+    if ($cachedSha -and $cachedSha -ceq [string]$state.caCertSha256) { $pinnedPem = $cachedPem; $pinnedSha = $cachedSha }
+    $refuse = { param([string]$Why) @{ Accepted = $false; Pem = $pinnedPem; Sha256 = $fetchedSha; Expected = $pinnedSha; Reason = $Why; EnrolledKeyCount = $VerificationKeys.Count } }
+    if (-not $fetchedSha) { return @{ Accepted = $false; Pem = $pinnedPem; Sha256 = ''; Expected = $pinnedSha; Reason = 'not-a-certificate' } }
+    if ($ownedSha -and $fetchedSha -ceq $ownedSha) { return @{ Accepted = $true; Pem = $Pem; Sha256 = $fetchedSha; Expected = $ownedSha; Reason = 'owned' } }
+    # A root already pinned stays trusted whatever its statement says: a lab
+    # that rotates its signing key would otherwise lose every host that has
+    # not enrolled the new key yet, over a CA that did not change.
+    if ($pinnedSha -and $fetchedSha -ceq $pinnedSha) { return @{ Accepted = $true; Pem = $Pem; Sha256 = $fetchedSha; Expected = $pinnedSha; Reason = 'pinned' } }
+    # The same root as a copy cached before fingerprints were recorded is one
+    # this host already seeded into guests, so trusting it again adds no trust;
+    # Get-CachingProxyServiceCaCertBase64 then records its fingerprint, which
+    # makes it the pin.
+    if (-not $pinnedSha -and $cachedSha -and $fetchedSha -ceq $cachedSha) { return @{ Accepted = $true; Pem = $Pem; Sha256 = $fetchedSha; Expected = $cachedSha; Reason = 'last-good' } }
+    if (-not $PSBoundParameters.ContainsKey('VerificationKeys') -or $null -eq $VerificationKeys) { $VerificationKeys = Get-YurunaProxyCaVerificationKey }
+    if ($Statement -and $VerificationKeys.Count -gt 0) {
+        $verdict = Test-YurunaProxyCaStatement -Statement $Statement -VerificationKeys $VerificationKeys
+        if (-not $verdict.Valid) { return (& $refuse $verdict.Reason) }
+        if ($verdict.CaSha256 -cne $fetchedSha) { return (& $refuse 'statement-ca-mismatch') }
+        return @{ Accepted = $true; Pem = $Pem; Sha256 = $fetchedSha; Expected = $verdict.CaSha256; Reason = 'signed' }
+    }
+    if ($pinnedSha) { return (& $refuse 'pin-mismatch') }
+    if ($VerificationKeys.Count -gt 0) { return (& $refuse 'statement-absent') }
+    return @{ Accepted = $true; Pem = $Pem; Sha256 = $fetchedSha; Expected = ''; Reason = 'first-use' }
+}
+
+function Get-YurunaSourceIntegrityExitCode {
+    <#
+    .SYNOPSIS
+        The exit code a guest builder uses when it refuses an input whose origin
+        it cannot verify, such as a caching-proxy CA this host does not trust.
+    .DESCRIPTION
+        65 is EX_DATAERR in sysexits.h, outside the codes the runner already
+        gives meaning to (1 failure, 2 cannot run, 70 unrecorded, 78 config).
+    #>
+    [CmdletBinding()]
+    [OutputType([int])]
+    param()
+    return 65
+}
+
+function Write-YurunaProxyCaRefusal {
+    <#
+    .SYNOPSIS
+        Warn, once per refusal, why a fetched proxy CA is not trusted.
+    #>
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][string]$CacheHost, [Parameter(Mandatory)][hashtable]$Verdict)
+    # A stable machine-readable record survives the child process boundary;
+    # localized warning text is for the transcript, not a parsing contract.
+    $detail = [ordered]@{ reason = [string]$Verdict.Reason; cacheHost = $CacheHost; fetched = [string]$Verdict.Sha256
+        expected = [string]$Verdict.Expected; enrolledKeyCount = [int]$Verdict.EnrolledKeyCount }
+    Write-Information ('YURUNA_PROXY_CA_REFUSAL=' + ($detail | ConvertTo-Json -Compress)) -InformationAction Continue
+    switch -Exact ([string]$Verdict.Reason) {
+        'pin-mismatch'     { Write-Warning (Format-YurunaOperatorMessage -Key 'runner.proxy_ca_pin_mismatch' -Arguments @{ cacheHost = "$CacheHost"; fetched = "$($Verdict.Sha256)"; expected = "$($Verdict.Expected)" }) }
+        'statement-absent' { Write-Warning (Format-YurunaOperatorMessage -Key 'runner.proxy_ca_statement_absent' -Arguments @{ cacheHost = "$CacheHost"; fetched = "$($Verdict.Sha256)" }) }
+        default            { Write-Warning (Format-YurunaOperatorMessage -Key 'runner.proxy_ca_statement_refused' -Arguments @{ cacheHost = "$CacheHost"; fetched = "$($Verdict.Sha256)"; reason = "$($Verdict.Reason)" }) }
+    }
+}
+
 function Get-CachingProxyServiceCaCertBase64 {
     <#
     .SYNOPSIS
@@ -1734,8 +2143,13 @@ function Get-CachingProxyServiceCaCertBase64 {
         Exhausted=$true means neither source yielded a usable CA; the caller
         (New-VM) treats "proxy URL present => CA mandatory" as a hard-fail rather
         than booting a guest that would hit curl rc=60 on every HTTPS.
+        A fetched CA this host does not trust (Resolve-YurunaPinnedProxyCa) is
+        not seeded at all: the guest would reach a proxy that bumps with a
+        different root. The result then carries Refused=$true with the reason,
+        and the builder stops with the source_integrity exit code.
     .OUTPUTS
-        [hashtable] @{ CaCertBase64 [string]; Source 'live'|'persisted'|'none'; Exhausted [bool] }
+        [hashtable] @{ CaCertBase64 [string]; Source 'live'|'persisted'|'refused'|'none'; Exhausted [bool];
+                       Refused [bool]; Reason [string]; Fetched [string]; Expected [string] }
     #>
     [CmdletBinding()]
     [OutputType([hashtable])]
@@ -1761,9 +2175,17 @@ function Get-CachingProxyServiceCaCertBase64 {
     }
     if ($caFetch.Success) {
         $b64 = [string]($caFetch.LastOutput | Select-Object -Last 1)
+        # A root fetched over HTTP is seeded only when it is the one trusted for
+        # this proxy; see Resolve-YurunaPinnedProxyCa.
+        $statement = Get-CachingProxyServiceCaStatement -CacheHost $CacheHost
+        $pin = Resolve-YurunaPinnedProxyCa -Pem ([Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($b64))) -CacheHost $CacheHost -Statement $statement
+        if (-not $pin.Accepted) {
+            Write-YurunaProxyCaRefusal -CacheHost $CacheHost -Verdict $pin
+            return @{ CaCertBase64 = ''; Source = 'refused'; Exhausted = $false; Refused = $true; Reason = [string]$pin.Reason; Fetched = [string]$pin.Sha256; Expected = [string]$pin.Expected }
+        }
         try { $null = Save-CachingProxyServiceState -CaCert $b64 -CaCertSourceHost $CacheHost -Confirm:$false }
         catch { Write-Verbose "Get-CachingProxyServiceCaCertBase64: persist failed (non-fatal): $($_.Exception.Message)" }
-        return @{ CaCertBase64 = $b64; Source = 'live'; Exhausted = $false }
+        return @{ CaCertBase64 = $b64; Source = 'live'; Exhausted = $false; Refused = $false; Reason = [string]$pin.Reason; Fetched = [string]$pin.Sha256; Expected = [string]$pin.Expected }
     }
     # Live fetch exhausted -- try the last-good persisted CA, but only for the
     # same cache host and only if it still parses.
@@ -1797,7 +2219,7 @@ function Resolve-CachingProxyServiceCaCertPem {
         when neither yields a usable CA -- the endpoint then 404s so the guest
         degrades to a diagnosed rc=60 rather than a silent 443 relaxation.
     .OUTPUTS
-        [hashtable] @{ Pem [string]; Source 'live'|'persisted'|'none' }
+        [hashtable] @{ Pem [string]; Source 'live'|'pinned'|'persisted'|'none' }
     #>
     [CmdletBinding()]
     [OutputType([hashtable])]
@@ -1808,7 +2230,15 @@ function Resolve-CachingProxyServiceCaCertPem {
         $urlHost = ConvertTo-CachingProxyUrlHost -Address $cacheHost
         try {
             $pem = Get-CachingProxyServiceCaPem -Url "http://$urlHost/yuruna-squid-ca.crt" -TimeoutSec $LiveTimeoutSeconds
-            if ($pem -and (Test-CachingProxyServiceCaPem -Pem $pem)) { return @{ Pem = $pem; Source = 'live' } }
+            if ($pem -and (Test-CachingProxyServiceCaPem -Pem $pem)) {
+                # Guests install what this route serves, so only the trusted root
+                # leaves it; a changed one is refused here as on every other path.
+                $pin = Resolve-YurunaPinnedProxyCa -Pem $pem -CacheHost $cacheHost -Statement (Get-CachingProxyServiceCaStatement -CacheHost $cacheHost -TimeoutSec $LiveTimeoutSeconds)
+                if ($pin.Accepted) { return @{ Pem = $pem; Source = 'live' } }
+                Write-Verbose "Resolve-CachingProxyServiceCaCertPem: $cacheHost serves CA $($pin.Sha256), pinned $($pin.Expected); serving the pinned CA."
+                if ($pin.Pem) { return @{ Pem = $pin.Pem; Source = 'pinned' } }
+                return @{ Pem = ''; Source = 'none' }
+            }
         } catch { Write-Verbose "Resolve-CachingProxyServiceCaCertPem: live read of $urlHost failed: $($_.Exception.Message)" }
     }
     $persistedHost = [string]$state.caCertSourceHost
@@ -1856,6 +2286,112 @@ function Set-CachingProxyGitMirrorEnrollment {
     if ($previousIp -cne $ProxyIp) { Write-Information "vmStart.cachingProxyIp: $previousIp -> $ProxyIp (backup: $ConfigPath.backup)" -InformationAction Continue }
     foreach ($change in $changes) { Write-Information "$($change.Path): $($change.Previous) -> $($change.Current) (backup: $ConfigPath.backup)" -InformationAction Continue }
     return (Write-DocumentedTestConfig -ConfigPath $ConfigPath -Config $config -TemplatePath $templatePath -Confirm:$false)
+}
+
+function Repair-CachingProxyPoolCaTrust {
+    <# .SYNOPSIS
+        Enroll this proxy builder's public signing identity on its pool hosts.
+    .DESCRIPTION
+        Run on the builder after rebuild. The public export is local,
+        not fetched from the proxy. Verify its key ID and the served CA statement
+        before any write. Authenticated, audience-bound host control preserves
+        disk secrets and backs up configuration. Existing pins stay in place;
+        the next CA fetch accepts the signed rotation and records its fingerprint.
+        Each host has a separate result so an unreachable host cannot hide partial
+        recovery. Repeating the operation preserves enrolled keys and other settings.
+    #>
+    [CmdletBinding(SupportsShouldProcess)]
+    [OutputType([hashtable])]
+    param(
+        [Parameter(Mandatory)][string]$CacheHost,
+        [string]$PublicKeyPath,
+        [object[]]$HostRecord,
+        [string]$ControlToken
+    )
+    Import-Module (Join-Path $PSScriptRoot 'Test.ConfigServiceSync.psm1') -DisableNameChecking
+    if (-not $PublicKeyPath) { $PublicKeyPath = Join-Path (Split-Path -Parent (Get-CachingProxyServiceStatePath)) 'git-mirror-public-key.json' }
+    $export = Get-Content -LiteralPath $PublicKeyPath -Raw -ErrorAction Stop | ConvertFrom-Json -AsHashtable -ErrorAction Stop
+    $keyId = Get-ConfigMirrorKeyId -Value ([string]$export.publicKey)
+    if (-not $keyId -or $keyId -cne [string]$export.keyId) { throw 'proxy-ca-repair-public-export-invalid' }
+    $keys = @{ $keyId = [Convert]::FromBase64String([string]$export.publicKey) }
+    $proxyUrl = 'http://' + (ConvertTo-CachingProxyUrlHost -Address $CacheHost)
+    $pem = Get-CachingProxyServiceCaPem -Url "$proxyUrl/yuruna-squid-ca.crt"
+    $statement = Get-CachingProxyServiceCaStatement -CacheHost $CacheHost
+    $verdict = Test-YurunaProxyCaStatement -Statement $statement -VerificationKeys $keys
+    $sha = Get-YurunaCertificateSha256 -Pem $pem
+    if (-not $sha -or -not $verdict.Valid -or $verdict.CaSha256 -cne $sha) { throw 'proxy-ca-repair-statement-invalid: no hosts changed' }
+    if (-not $ControlToken) {
+        Import-Module (Join-Path $PSScriptRoot 'Test.Extension.psm1') -DisableNameChecking
+        $null = Import-Extension -Area 'authentication' -RequireSingle
+        $ControlToken = Get-InternalAuthKeyValue
+    }
+    if (-not $ControlToken) { throw 'proxy-ca-repair-control-token-missing: no hosts changed' }
+    if (-not $PSBoundParameters.ContainsKey('HostRecord')) {
+        $inventory = Invoke-RestMethod -Uri "${proxyUrl}:9400/api/v1/pool-status" -NoProxy -TimeoutSec 15 -MaximumRedirection 0 -ErrorAction Stop
+        $HostRecord = @($inventory.hosts)
+    }
+    $results = [Collections.Generic.List[object]]::new()
+    foreach ($hostRow in $HostRecord) {
+        $hostId = [string]$hostRow.hostId
+        $baseUrl = ([string]$hostRow.baseUrl).TrimEnd('/')
+        $stage = 'host-record'
+        try {
+            $uri = [uri]$baseUrl
+            if ($hostId -notmatch '^[a-fA-F0-9]{32}$' -or -not $uri.IsAbsoluteUri -or $uri.Scheme -notin @('http','https') -or $uri.UserInfo -or $uri.Query -or $uri.Fragment -or $uri.AbsolutePath -ne '/') { throw 'host-record-invalid' }
+            $configUrl = "$baseUrl/control/test-config"
+            $stage = 'host-config-read'
+            $doc = Invoke-RestMethod -Uri $configUrl -NoProxy -TimeoutSec 15 -MaximumRedirection 0 -ErrorAction Stop
+            $doc = $doc | ConvertTo-Json -Depth 40 | ConvertFrom-Json -AsHashtable
+            $configuredProxy = [string]$doc.vmStart.cachingProxyIp
+            if ($configuredProxy -and $configuredProxy -ne $CacheHost) {
+                $results.Add(@{HostId=$hostId;Success=$true;Reason='other-proxy'})
+                continue
+            }
+            if (-not $doc.repositories) { $doc.repositories = @{} }
+            if (-not $doc.repositories.mirror) { $doc.repositories.mirror = @{} }
+            $oldKeys = @($doc.repositories.mirror.verificationPublicKeys | Where-Object { $_ })
+            if ($oldKeys -ccontains [string]$export.publicKey) {
+                $results.Add(@{HostId=$hostId;Success=$true;Reason='already-enrolled'})
+                continue
+            }
+            if (-not $PSCmdlet.ShouldProcess($baseUrl, "Enroll proxy CA signing key $keyId")) {
+                $results.Add(@{HostId=$hostId;Success=$true;Reason='preview'})
+                continue
+            }
+            $previous = @($oldKeys | ForEach-Object { Get-ConfigMirrorKeyId -Value ([string]$_) }) -join ','
+            Write-Information "$hostId repositories.mirror.verificationPublicKeys: [$previous] -> [$previous,$keyId] (backup on host: test.config.yml.backup)" -InformationAction Continue
+            $doc.repositories.mirror.verificationPublicKeys = @($oldKeys) + @([string]$export.publicKey)
+            $proof = Get-YurunaControlProof -Token $ControlToken -Audience $hostId -ExpiryUnixSeconds ([DateTimeOffset]::UtcNow.AddMinutes(2).ToUnixTimeSeconds())
+            $stage = 'host-config-write'
+            $reply = Invoke-RestMethod -Uri $configUrl -Method POST -Headers @{'X-Yuruna'='1';'X-Yuruna-Control'=$proof} `
+                -Body ($doc | ConvertTo-Json -Depth 40 -Compress) -ContentType 'application/json' -NoProxy -TimeoutSec 20 -MaximumRedirection 0 -ErrorAction Stop
+            if (-not $reply.ok) { throw 'host-config-write-refused' }
+            $stage = 'host-config-verification'
+            $check = Invoke-RestMethod -Uri $configUrl -NoProxy -TimeoutSec 15 -MaximumRedirection 0 -ErrorAction Stop
+            if (@($check.repositories.mirror.verificationPublicKeys) -cnotcontains [string]$export.publicKey) { throw 'host-enrollment-not-persisted' }
+            $results.Add(@{HostId=$hostId;Success=$true;Reason='enrolled'})
+            Write-Information "$hostId proxy CA trust enrolled; CA sha256=$sha; signing key=$keyId" -InformationAction Continue
+        } catch {
+            # HTTP/provider exceptions can contain authentication headers. Keep
+            # only the status and the protocol's allowlisted refusal reason.
+            $failure = $_
+            $status = 0
+            $controlReason = ''
+            try { $status = [int]$failure.Exception.Response.StatusCode } catch { $status = 0 }
+            try {
+                $reply = $failure.ErrorDetails.Message | ConvertFrom-Json -ErrorAction Stop
+                if ([string]$reply.reason -cin @('host-token-missing', 'proof-missing', 'proof-invalid', 'proof-expired', 'verifier-unavailable')) {
+                    $controlReason = [string]$reply.reason
+                }
+            } catch { $controlReason = '' }
+            $results.Add(@{HostId=$hostId;Success=$false;Reason=$stage;HttpStatus=$status;ControlReason=$controlReason})
+            Write-Warning "$hostId proxy CA trust recovery failed at $baseUrl ($stage; HTTP $status; control=$controlReason); check the target listener's host identity, clock, and control token. Restart its status service after updating it, then retry on the proxy builder."
+
+        }
+    }
+    $failed = @($results | Where-Object { -not $_.Success }).Count
+    Write-Information "proxy CA recovery: $($results.Count - $failed)/$($results.Count) hosts processed; $failed failed" -InformationAction Continue
+    return @{Success=($failed -eq 0 -and $results.Count -gt 0);Hosts=$results.ToArray()}
 }
 
 function Initialize-CachingProxyGitMirrorToken {
@@ -2032,4 +2568,4 @@ function Get-CachingProxyGitMirrorSeedSetting {
     }
 }
 
-Export-ModuleMember -Function Initialize-CachingProxyGitMirrorToken, Set-CachingProxyGitMirrorEnrollment, Get-CachingProxyGitMirrorSeedSetting, Get-CachingProxyServiceStateIp, Get-CachingProxyServiceStatePath, Read-CachingProxyServiceState, Save-CachingProxyServiceState, Test-TcpPortReachable, Invoke-CachingProxyServiceProbe, Test-SequenceRequiresCacheRegistry, Test-CachingProxyRegistryReady, Wait-CachingProxyServiceSettled, Resolve-CachingProxyZotOverride, Get-CachingProxyZotSelfTestReport, Wait-CachingProxyZotSelfTest, Resolve-CachingProxyServiceEndpoint, Get-PoolAggregatorServiceSeedUrl, Wait-YurunaAggregatorReady, Get-PoolConfigurationSeedUrl, Sync-PoolConfigurationAliasOnProxy, Test-CachingProxyServiceCaPem, Get-CachingProxyServiceCaCertBase64, Resolve-CachingProxyServiceCaCertPem
+Export-ModuleMember -Function Repair-CachingProxyPoolCaTrust, Initialize-CachingProxyGitMirrorToken, Set-CachingProxyGitMirrorEnrollment, Get-CachingProxyGitMirrorSeedSetting, Get-CachingProxyServiceStateIp, Get-CachingProxyServiceStatePath, Read-CachingProxyServiceState, Save-CachingProxyServiceState, Test-TcpPortReachable, Invoke-CachingProxyServiceProbe, Test-SequenceRequiresCacheRegistry, Test-CachingProxyRegistryReady, Wait-CachingProxyServiceSettled, Resolve-CachingProxyZotOverride, Get-CachingProxyZotSelfTestReport, Wait-CachingProxyZotSelfTest, Resolve-CachingProxyServiceEndpoint, Get-PoolAggregatorServiceSeedUrl, Wait-YurunaAggregatorReady, Get-PoolConfigurationSeedUrl, Sync-PoolConfigurationAliasOnProxy, Test-CachingProxyServiceCaPem, Get-CachingProxyServiceCaCertBase64, Resolve-CachingProxyServiceCaCertPem, Get-YurunaCertificateSha256, Get-YurunaBumpCa, Get-CachingProxyServiceLegacyCa, Resolve-YurunaPinnedProxyCa, ConvertTo-YurunaProxyCaStatement, Test-YurunaProxyCaStatement, Get-YurunaProxyCaVerificationKey, Get-CachingProxyServiceCaStatement, Write-YurunaProxyCaRefusal, Get-YurunaSourceIntegrityExitCode

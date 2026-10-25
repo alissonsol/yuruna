@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.22
+.VERSION 2026.10.25
 .GUID 42ebb62d-e1a8-4c57-811c-f982498db617
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -79,7 +79,7 @@ function New-ArchiveInvoker {
     $routeImport = Get-FunctionFromServer -Name 'Import-RouteModule'
     if (-not $text) { throw 'Send-GitArchive is not in the emitted server' }
     return [scriptblock]::Create(@"
-param([string]`$RepoDir, [string]`$Method)
+param([string]`$RepoDir, [string]`$Method, [string]`$Commit)
 `$script:ServerErr = @()
 function Write-ServerErr { param([string]`$Message) `$script:ServerErr += `$Message }
 `$repoRoot = '$($script:RepoRoot.Replace("'", "''"))'
@@ -93,7 +93,9 @@ $text
     Headers         = [System.Net.WebHeaderCollection]::new()
     OutputStream    = `$stream
 }
-`$request = [pscustomobject]@{ HttpMethod = `$Method }
+`$query = [System.Collections.Specialized.NameValueCollection]::new()
+if (`$Commit) { `$query['commit'] = `$Commit }
+`$request = [pscustomobject]@{ HttpMethod = `$Method; QueryString = `$query }
 `$context = [pscustomobject]@{ Response = [pscustomobject]@{} }
 `$context.Response | Add-Member -MemberType ScriptMethod -Name Abort -Value { }
 Send-GitArchive -Response `$response -Request `$request -Context `$context ``
@@ -212,8 +214,46 @@ Describe 'the committed-content tarball names the commit it was cut from' {
             'the streamer never resolves the commit it is about to archive'
         Assert-True ($text -match "'\^\[0-9a-f\]\{40\}\`$'") `
             'the resolved revision is used without proving it is a full object name'
-        Assert-True ($text -match "@\('-o',\s*\`$tmp,\s*\`$treeish\)") `
+        Assert-True ($text -match 'Export-YurunaGitArchive -RepoDir \$RepoDir -Commit \$commit') `
+            'the streamer no longer hands the resolved commit to the shared archive construction'
+        $hostGit = [Management.Automation.Language.Parser]::ParseFile(
+            (Join-Path $script:RepoRoot 'test/modules/Test.HostGit.psm1'), [ref]$null, [ref]$null)
+        $export = (Get-YurunaTestFunctionAst -Ast $hostGit -Name 'Export-YurunaGitArchive').Extent.Text
+        Assert-True ($export -match "@\('-o',\s*\`$OutFile,\s*\`$Commit\)") `
             'the archive is still taken of HEAD, so a commit landing mid-request destroys the match'
+    }
+
+    It 'serves the commit a request names after HEAD has moved, as the bytes the seed digest describes' {
+        $repo = New-ArchiveFixtureRepo
+        try {
+            [IO.File]::WriteAllText((Join-Path $repo.Path 'VERSION'), "0.0.1`n")
+            & git -C $repo.Path -c user.name=suite -c user.email=suite@example.invalid commit --quiet -am next 2>&1 | Out-Null
+            $result = & $script:InvokeArchive $repo.Path 'GET' $repo.Head
+            Assert-NoFinding @($result.ServerErr) 'the streamer reported an error'
+            Assert-Equal -Expected 200 -Actual $result.StatusCode 'the named commit was not served'
+            $entries = Read-TarGzEntry -Bytes $result.Bytes
+            Assert-StringEqual -Expected $repo.Head -Actual ($entries['.yuruna-revision'].Trim()) `
+                'the archive is of HEAD, not of the commit the request named'
+            Assert-StringEqual -Expected "0.0.0`n" -Actual $entries['VERSION'] 'the archive carries the moved tree'
+            Import-Module (Join-Path $script:RepoRoot 'test/modules/Test.HostGit.psm1') -Force -DisableNameChecking
+            $seeded = Get-YurunaGitArchiveDigest -RepoDir $repo.Path -Commit $repo.Head
+            $served = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($result.Bytes)).ToLowerInvariant()
+            Assert-StringEqual -Expected $seeded -Actual $served `
+                'the served bytes differ from the digest a seed carries for that commit'
+        } finally { Remove-YurunaTestTempDir -Path $repo.Path }
+    }
+
+    It 'answers <Status> for a commit the request names that <Why>' -TestCases @(
+        @{ Commit = 'HEAD'; Status = 400; Why = 'is not a full lowercase object name' }
+        @{ Commit = ('0' * 40); Status = 404; Why = 'the checkout does not hold' }
+    ) {
+        param($Commit, $Status)
+        $repo = New-ArchiveFixtureRepo
+        try {
+            $result = & $script:InvokeArchive $repo.Path 'GET' $Commit
+            Assert-Equal -Expected $Status -Actual $result.StatusCode 'the request named a commit the route must not serve'
+            Assert-False ($result.ContentType -eq 'application/gzip') 'an archive was served for the refused commit'
+        } finally { Remove-YurunaTestTempDir -Path $repo.Path }
     }
 
     It 'carries both sidecars for a repository that has an origin' {

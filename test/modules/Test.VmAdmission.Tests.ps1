@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.22
+.VERSION 2026.10.25
 .GUID 421ee60b-7cf9-4ac6-8c6b-77960d28d454
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -230,6 +230,47 @@ Describe 'Invoke-HostVmAdmission' {
     It 'still returns a verdict when there is nowhere to record it' {
         $a = Invoke-HostVmAdmission -HostType 'host.ubuntu.kvm' -ProbeDelaySeconds 0 -RuntimeDir (Join-Path $script:Runtime 'missing') 6>$null
         $a.State | Should -Be 'clear'
+    }
+
+    Context 'storage left by an interrupted snapshot promotion' {
+        BeforeEach {
+            $global:__vmHost.Repairs = 0
+            $global:__vmHost.RepairThrows = $false
+            function global:Repair-VMStorageLocation {
+                [CmdletBinding(SupportsShouldProcess)]
+                [OutputType([string[]])]
+                param()
+                if ($PSCmdlet.ShouldProcess('host', 'repair')) {
+                    $global:__vmHost.Repairs++
+                    if ($global:__vmHost.RepairThrows) { throw 'virsh list timed out' }
+                }
+                return [string[]]@()
+            }
+        }
+        AfterEach { Remove-Item -Path Function:\Repair-VMStorageLocation -ErrorAction SilentlyContinue }
+
+        # Finishing the rename here, while no guest runs, is what keeps the cycle's
+        # sweep and builds from meeting the promoted VM's disks under the old name.
+        It 'is finished through the driver on a clear host' {
+            $a = Invoke-HostVmAdmission -HostType 'host.ubuntu.kvm' -ProbeDelaySeconds 0 -RuntimeDir $script:Runtime 6>$null
+            $a.State | Should -Be 'clear'
+            $global:__vmHost.Repairs | Should -Be 1
+        }
+        It 'is left alone on a host that is refused' {
+            $global:__vmHost.Names = @('stubborn')
+            $global:__vmHost.States = @{ 'stubborn' = 'running' }
+            $global:__vmHost.StopWorks = $false
+            $a = Invoke-HostVmAdmission -HostType 'host.windows.hyper-v' -ProbeDelaySeconds 0 -RuntimeDir $script:Runtime 6>$null
+            $a.State | Should -Be 'occupied'
+            $global:__vmHost.Repairs | Should -Be 0 -Because 'a storage move under a running guest is not this check''s to make'
+        }
+        It 'does not change the verdict when the repair fails' {
+            $global:__vmHost.RepairThrows = $true
+            $a = Invoke-HostVmAdmission -HostType 'host.ubuntu.kvm' -ProbeDelaySeconds 0 -RuntimeDir $script:Runtime 6>$null
+            $a.State | Should -Be 'clear'
+            (Get-Content -LiteralPath $script:Record -Raw | ConvertFrom-Json).state | Should -Be 'clear'
+            Should -Invoke -CommandName Write-Warning -ModuleName Test.HostContract -Scope It -ParameterFilter { $Message -match 'virsh list timed out' }
+        }
     }
 }
 

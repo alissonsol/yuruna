@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.22
+.VERSION 2026.10.25
 .GUID 42d93b11-69e5-4250-b84e-294562b68efd
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -258,6 +258,21 @@ function Get-CacheProxyForHostDownload {
         }
     } catch {
         Write-Verbose "Get-CacheProxyForHostDownload: CA fetch from $caUrl failed after retries: $($_.Exception.Message); HTTPS goes direct."
+        Remove-Item -LiteralPath $caPem -Force -ErrorAction SilentlyContinue
+        return $null
+    }
+    # The CA came over plain HTTP, so a download trusts it only when it is a root
+    # this host trusts for that proxy; anything else sends HTTPS direct, which
+    # is slower but cannot be intercepted through the proxy.
+    $verdict = $null
+    try {
+        if (-not (Get-Command Resolve-YurunaPinnedProxyCa -ErrorAction SilentlyContinue)) {
+            Import-Module (Join-Path $PSScriptRoot '../../test/modules/Test.CachingProxyService.psm1') -Global -DisableNameChecking -WarningAction SilentlyContinue
+        }
+        $verdict = Resolve-YurunaPinnedProxyCa -Pem ([IO.File]::ReadAllText($caPem)) -CacheHost $cacheIp -Statement (Get-CachingProxyServiceCaStatement -CacheHost $cacheIp)
+    } catch { Write-Verbose "Get-CacheProxyForHostDownload: CA trust check failed: $($_.Exception.Message)" }
+    if (-not $verdict -or -not $verdict.Accepted) {
+        if ($verdict) { Write-YurunaProxyCaRefusal -CacheHost $cacheIp -Verdict $verdict }
         Remove-Item -LiteralPath $caPem -Force -ErrorAction SilentlyContinue
         return $null
     }

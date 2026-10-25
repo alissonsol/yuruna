@@ -8,6 +8,21 @@
     "controlTag": "cCF1hq19qKkDIatix94HUWPtVrMYO3lw5YZetYYqLF4=",
     "verifyAtUnix": 1899999940
   },
+  "bound": {
+    "token": "yuruna-net1-golden-token",
+    "audience": "42aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "expiryUnix": 1900000000,
+    "wire": "1900000000.42aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.a0Wqks0pmYUhAAvAhd5PpFiumw9ZOnS++xnPkqO8ylI=",
+    "verifyAtUnix": 1899999940
+  },
+  "scoped": {
+    "token": "yuruna-net1-golden-token",
+    "audience": "42aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "scope": "pause",
+    "expiryUnix": 1900000000,
+    "wire": "1900000000.42aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.pause.kgVL7yBFnM42HvobAL1Po4z3MTLIZYYbJC31D+6eBZk=",
+    "verifyAtUnix": 1899999940
+  },
   "versioned": {
     "authorityText": "yuruna-net1-golden-token",
     "hostId": "42aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",

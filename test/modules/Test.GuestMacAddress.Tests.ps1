@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.22
+.VERSION 2026.10.25
 .GUID 42b98737-f5a4-45fd-a853-c26c9d97ec84
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -356,7 +356,11 @@ Describe 'a rename releases the name it vacates, and nothing else' {
     }
 
     It 'is applied by the libvirt rename, in the same define as the disk paths' {
-        $body = [regex]::Match($KvmText, '(?ms)^function Rename-VM\b.*?\n\}').Value
+        # Rename-VM hands everything after domrename to Complete-KvmDomainRename,
+        # the step a repair of an interrupted rename also runs.
+        $rename = [regex]::Match($KvmText, '(?ms)^function Rename-VM\b.*?\n\}').Value
+        Assert-True ($rename.IndexOf('Complete-KvmDomainRename') -gt $rename.IndexOf("'domrename'")) 'the rename completes after domrename'
+        $body = [regex]::Match($KvmText, '(?ms)^function Complete-KvmDomainRename\b.*?\n\}').Value
         Assert-True ($body -match 'Set-GuestMacInDomainXml') 'the rename re-pins the NIC'
         $rewriteAt = $body.IndexOf('Set-GuestMacInDomainXml')
         $defineAt  = $body.IndexOf("'define'", $rewriteAt)
@@ -387,8 +391,9 @@ Describe 'a rename releases the name it vacates, and nothing else' {
         # a no-op that reads like a fix.
         foreach ($m in @($KvmModule, $script:UtmModule, $script:HyperVModule)) {
             $ast = [Management.Automation.Language.Parser]::ParseFile($m, [ref]$null, [ref]$null)
+            $renameName = if ($m -eq $KvmModule) { 'Complete-KvmDomainRename' } else { 'Rename-VM' }
             $rename = $ast.Find({ param($node)
-                    $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq 'Rename-VM'
+                    $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq $renameName
                 }, $true)
             $commands = @($rename.FindAll({ param($node)
                     $node -is [Management.Automation.Language.CommandAst] -and
@@ -417,7 +422,8 @@ Describe 'a rename releases the name it vacates, and nothing else' {
         # whose in-guest state records the address it currently answers on.
         foreach ($m in @($KvmModule, $script:UtmModule, $script:HyperVModule)) {
             $where = Split-Path -Leaf (Split-Path -Parent (Split-Path -Parent $m))
-            $body  = [regex]::Match((Get-Content -Raw -LiteralPath $m), '(?ms)^function Rename-VM\b.*?\n\}').Value
+            $renameName = if ($m -eq $KvmModule) { 'Complete-KvmDomainRename' } else { 'Rename-VM' }
+            $body  = [regex]::Match((Get-Content -Raw -LiteralPath $m), "(?ms)^function $renameName\b.*?\n\}").Value
             $guardAt = $body.IndexOf('Test-YurunaGuestMacMatchesName')
             Assert-True ($guardAt -ge 0) "in ${where}: the rename must ask before it rewrites"
             $guardLine = @($body -split "`n" | Where-Object { $_ -match 'Test-YurunaGuestMacMatchesName' })[0]

@@ -197,6 +197,7 @@ const DataheILaggregator = `{
   "aggregator.host_not_known_to_the_pool": "המארח אינו מוכר למאגר",
   "aggregator.hostid_must_be_a_42_prefixed_32_hex_id": "hostId חייב להיות מזהה בן 32 ספרות הקסדצימליות המתחיל ב-42",
   "aggregator.ingest_disabled": "הקליטה מושבתת",
+  "aggregator.invalid_control_scope": "היקף בקרה לא חוקי",
   "aggregator.invalid_hostid": "hostId אינו תקין",
   "aggregator.invalid_hostid_or_area": "hostId או אזור אינם תקינים",
   "aggregator.invalid_statusport": "statusPort אינו תקין",

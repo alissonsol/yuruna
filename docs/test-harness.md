@@ -498,6 +498,15 @@ debugger pipes or diagnostic socket behind. `tools/_InvokeOneSuite.ps1` does the
 same for itself when it runs directly. After the last suite, the runner applies
 the same temp housekeeping a test cycle does.
 
+**Parallel PowerShell startup profiles are disabled in suite workers.** Before
+launching a worker, the runner sets `DOTNET_MultiCoreJitProfile=(D)` for that
+process and its descendants. This .NET switch disables startup JIT profile
+playback and recording; it prevents concurrent shells from corrupting the shared
+`StartupProfileData-*` cache and subsequently crashing with exit 134 or 139
+([upstream runtime issue](https://github.com/dotnet/runtime/issues/121977)).
+The direct single-suite shim sets the same switch for its descendants. The
+operator's cache files and calling shell environment remain unchanged.
+
 **On Windows, run the suites from an elevated PowerShell that has Git for Windows'
 `usr\bin` on `PATH`.** Elevation: some suites create symbolic links or rewrite the
 owner of a file, and a non-elevated token lacks the privileges for both (the
@@ -508,14 +517,16 @@ Windows test-cycle host runs elevated as well. Git tools: several suites run
 `chmod` and `openssl` are not found at all; Git for Windows ships all three under
 `usr\bin`. The private suites under `dev-only/test` follow the same rule.
 
-**Plan for the time.** Half the logical processors, at least 8 and at most 16,
-run suite processes at once (`-ThrottleLimit`). Past 16 the longest suite slows
-under the load faster than the extra workers finish the rest. A full run of the
+**Plan for the time.** Three quarters of the logical processors, at least 8 and
+at most 24, run suite processes at once (`-ThrottleLimit`). Suites spend much of
+their time waiting on child processes, timers and the disk, so fewer workers
+leave processors idle; past this the processors are saturated and the longest
+suites slow down faster than the extra workers finish the rest. A full run of the
 tracked suites takes about 8 minutes on the Ubuntu KVM host the baseline is
 recorded on, about 7 minutes on macOS and 17 to 20 minutes on Windows. A suite
-runs beside up to fifteen others, so a timing bound inside a suite has to hold
-on a busy machine, and a test that needs a free port must not assume that a port
-it just released stays free.
+runs beside up to twenty-three others, so a timing bound inside a suite has to
+hold on a busy machine, and a test that needs a free port must not assume that a
+port it just released stays free.
 
 **Recorded passes.** On Linux with `strace` and `python3`, `-Record` traces each
 suite the run executes (`tools/suite_impact.py`) and keeps, for each suite that
@@ -551,12 +562,17 @@ Git directory (`.git/yuruna/test-impact`); removing that folder only means the
 next run reuses nothing.
 
 `tools/Start-TestWatcher.ps1` keeps the records current. It fingerprints the
-workspace every few seconds and, once the workspace has been quiet for a while,
-runs the public and private suites with `-Background`: recording at idle
-priority, and launching no further suite while a foreground run is active on the
-clone. Start it from the same kind of shell that runs the gates, because the
-environment is part of every record's context. `-Once` records every suite that
-has no reusable pass, then exits.
+workspace every second and starts after two quiet seconds. Public and private
+suites run together with `-Background`, sharing one concurrency budget, at idle
+priority. They launch no further suite while a foreground run is active on the
+clone. A failed or interrupted round is reported and remains pending, so the
+watcher revisits it even if no file changes. An old report cannot substitute for
+one a child failed to publish. Start it from the same kind of shell that runs
+the gates, because the environment is part of every record's context. `-Once`
+records every suite that has no reusable pass, then exits with that round's
+result. Start the watcher while editing; an immediate foreground run validates
+and reuses only records whose inputs still match. Changed or unrecordable suites
+still execute, so a change cannot have a passing result before it is tested.
 
 **The exit code of a single suite is not a pass/fail signal.** Pester's
 standalone path does not propagate a failing run through the call operator: a
@@ -1392,6 +1408,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.22
+Last review: 2026.10.25
 
 Back to [Yuruna](../README.md)

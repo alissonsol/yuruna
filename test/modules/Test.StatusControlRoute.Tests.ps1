@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.22
+.VERSION 2026.10.25
 .GUID 42798304-85e4-4102-8026-ce168ff64fd3
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -30,9 +30,8 @@
     documented reply, and a worker vector must bind against the script it
     launches before anything is started.
 
-    Reads use real loopback sockets, the transport the listener reads from,
-    so a pending read is genuinely pending and a trickled body genuinely
-    arrives byte by byte. Worker-directory cases run in a child process with a
+    Reads use real loopback sockets for pending and trickled bodies, and a
+    controlled failing stream for I/O errors. Worker-directory cases run in a child process with a
     scratch HOME, because $HOME cannot be rebound in this one. The generated
     server is expanded from the launcher exactly as the launcher expands it.
 #>
@@ -56,6 +55,19 @@ $script:ServerText = Get-GeneratedServerText
 $parseErrors = $null
 $script:ServerAst = [System.Management.Automation.Language.Parser]::ParseInput($script:ServerText, [ref]$null, [ref]$parseErrors)
 $script:ServerParseErrors = @($parseErrors)
+
+if (-not ('Yuruna.TestFixtures.FailingStatusBodyStream' -as [type])) {
+    Add-Type -TypeDefinition @'
+namespace Yuruna.TestFixtures {
+    public sealed class FailingStatusBodyStream : System.IO.MemoryStream {
+        public override System.Threading.Tasks.Task<int> ReadAsync(byte[] buffer, int offset, int count,
+                System.Threading.CancellationToken cancellationToken) {
+            return System.Threading.Tasks.Task.FromException<int>(new System.IO.IOException("fixture read failure"));
+        }
+    }
+}
+'@
+}
 
 function Get-ServerFunctionText {
     [CmdletBinding()]
@@ -150,6 +162,44 @@ function ConvertTo-BodyByte {
 }
 }
 
+Describe 'control proofs use the current host identity' {
+    BeforeAll {
+        Import-Module (Join-Path $here 'Test.ConfigServiceSync.psm1') -Global -DisableNameChecking
+    }
+    It 'observes an identity created after the listener first checked' {
+        $runtimeDir = Join-Path $TestDrive 'late-host-identity'
+        $null = New-Item -ItemType Directory -Path $runtimeDir
+        $null = $runtimeDir
+        $script:ArchiveHostId = $null
+        . ([scriptblock]::Create((Get-ServerFunctionText -Name 'Get-ArchiveHostId')))
+        Get-ArchiveHostId | Should -BeNullOrEmpty
+        $id = '42' + ('a' * 30)
+        [IO.File]::WriteAllText((Join-Path $runtimeDir 'host.uuid'), $id)
+        $proof = Get-YurunaControlProof -Token fixture -Audience $id -ExpiryUnixSeconds ([DateTimeOffset]::UtcNow.AddMinutes(2).ToUnixTimeSeconds())
+        Test-YurunaControlProof -Token fixture -Wire $proof -Audience (Get-ArchiveHostId) | Should -BeTrue
+    }
+    It 'rejects a stale audience and accepts the replacement identity' {
+        $runtimeDir = Join-Path $TestDrive 'changed-host-identity'
+        $null = New-Item -ItemType Directory -Path $runtimeDir
+        $null = $runtimeDir
+        $script:ArchiveHostId = $null
+        . ([scriptblock]::Create((Get-ServerFunctionText -Name 'Get-ArchiveHostId')))
+        $file = Join-Path $runtimeDir 'host.uuid'
+        $old = '42' + ('b' * 30)
+        $current = '42' + ('c' * 30)
+        [IO.File]::WriteAllText($file, $old)
+        Get-ArchiveHostId | Should -BeExactly $old
+        [IO.File]::WriteAllText($file, $current)
+        $expiry = [DateTimeOffset]::UtcNow.AddMinutes(2).ToUnixTimeSeconds()
+        $oldProof = Get-YurunaControlProof -Token fixture -Audience $old -ExpiryUnixSeconds $expiry
+        $currentProof = Get-YurunaControlProof -Token fixture -Audience $current -ExpiryUnixSeconds $expiry
+        Test-YurunaControlProof -Token fixture -Wire $oldProof -Audience (Get-ArchiveHostId) | Should -BeFalse
+        Test-YurunaControlProof -Token fixture -Wire $currentProof -Audience (Get-ArchiveHostId) | Should -BeTrue
+        Remove-Item -LiteralPath $file
+        Get-ArchiveHostId | Should -BeNullOrEmpty
+    }
+}
+
 Describe 'a body read never parks the caller' {
 
     It 'completes a small body that arrived in one piece' {
@@ -229,20 +279,33 @@ Describe 'a body read never parks the caller' {
     }
 
     It 'reports a stream that fails as error, and closes without throwing' {
-        $pair = New-SocketPair
+        # Closing a socket locally can finish an outstanding read with zero
+        # bytes instead of an exception. Supply an actual asynchronous fault
+        # so scheduler timing cannot turn the failure fixture into clean EOF.
+        $stream = [Yuruna.TestFixtures.FailingStatusBodyStream]::new()
         try {
-            $read = New-StatusBoundedBodyRead -Stream $pair.ReaderStream -NowMs 0
-            $pair.Reader.Dispose()
-            Wait-TaskSettled -BodyRead $read -Milliseconds 2000
+            $read = New-StatusBoundedBodyRead -Stream $stream -NowMs 0
+            $read.Status | Should -BeExactly 'reading'
+            $read.Task.IsFaulted | Should -BeTrue
             Assert-StringEqual 'error' (Update-StatusBoundedBodyRead -BodyRead $read -NowMs 1)
             Close-StatusBoundedBodyRead -BodyRead $read
             Close-StatusBoundedBodyRead -BodyRead $read
             Close-StatusBoundedBodyRead -BodyRead $null
-        } finally { Close-SocketPair $pair }
+        } finally { $stream.Dispose() }
         $disposed = [System.IO.MemoryStream]::new()
         $disposed.Dispose()
         $unusable = New-StatusBoundedBodyRead -Stream $disposed -NowMs 0
         Assert-StringEqual 'error' (Update-StatusBoundedBodyRead -BodyRead $unusable -NowMs 1) 'a read on an unusable stream is an error, not a throw'
+    }
+
+    It 'accepts an empty stream as clean EOF rather than an I/O error' {
+        $stream = [IO.MemoryStream]::new()
+        try {
+            $read = New-StatusBoundedBodyRead -Stream $stream -NowMs 0
+            Assert-StringEqual 'complete' (Update-StatusBoundedBodyRead -BodyRead $read -NowMs 1)
+            $read.Bytes.Length | Should -Be 0
+            Close-StatusBoundedBodyRead -BodyRead $read
+        } finally { $stream.Dispose() }
     }
 
     It 'waits until the earliest deadline, or indefinitely with nothing pending' {

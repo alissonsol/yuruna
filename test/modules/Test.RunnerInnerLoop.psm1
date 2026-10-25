@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.22
+.VERSION 2026.10.25
 .GUID 42479415-ffbe-4fef-9daa-15edda547208
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -3760,7 +3760,9 @@ function Invoke-GuestProvisionIteration {
     } else {
         Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_639093862d564ee8' -Arguments @{ guestKey = "$GuestKey"; errorMessage = "$($r.errorMessage)" })
         Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_229f581dd7c7aad2' -Arguments @{ dIR = "$env:YURUNA_LOG_DIR" })
-        Complete-GuestStepFailure -IterState $IterState -GuestKey $GuestKey -VMName $VMName -StepName 'New-VM' -ErrorMessage $r.errorMessage -HostType $HostType -RepoRoot $RepoRoot -ModulesDir $ModulesDir -LogFile $LogFile -StopOnFailure:$StopOnFailure -FailureClass 'provisioning_failure'
+        # A builder that refused an unverifiable input says so through its result.
+        $newVmClass = if ($r -is [System.Collections.IDictionary] -and $r['failureClass']) { [string]$r['failureClass'] } else { 'provisioning_failure' }
+        Complete-GuestStepFailure -IterState $IterState -GuestKey $GuestKey -VMName $VMName -StepName 'New-VM' -ErrorMessage $r.errorMessage -HostType $HostType -RepoRoot $RepoRoot -ModulesDir $ModulesDir -LogFile $LogFile -StopOnFailure:$StopOnFailure -FailureClass $newVmClass
         return
     }
 

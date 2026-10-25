@@ -111,6 +111,12 @@ testCycle:
     maxHoldAttempts: 999
     # Extra areas to probe even where this host has never seen them healthy.
     require: []
+  # Bound on one cycle process's working time, enforced by the resident runner
+  # even when the step watchdog stands down; 0 disables it. Pauses, lab holds
+  # and debug breaks do not count, and a cycle that plans more runs than this
+  # covers at two step timeouts each gets that longer bound.
+  # See https://yuruna.link/42f909ad-002a
+  maxCycleSeconds: 21600
   # Per-step performance log: one JSONL row per step under status/perf/cycles/,
   # which is what the status page's Perf chart renders. Collection is automatic;
   # this knob only turns it off for a host. Deliberately host-level, not per

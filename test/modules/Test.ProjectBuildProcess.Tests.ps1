@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.22
+.VERSION 2026.10.25
 .GUID 42a42fc4-3899-4caf-9b13-53b48db992a8
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -181,6 +181,36 @@ Describe 'Bundled example Docker process contract' -Skip:(-not $script:ProjectAv
         $script:PriorConsoleEncoding = [Console]::OutputEncoding
         [Console]::OutputEncoding = [Text.UTF8Encoding]::new($false)
         $script:NativePowerShell = (Get-Process -Id $PID).Path
+        if (-not ('Yuruna.TestFixtures.OrphanReaper' -as [type])) {
+            Add-Type -TypeDefinition @'
+namespace Yuruna.TestFixtures {
+    public static class OrphanReaper {
+        [System.Runtime.InteropServices.DllImport("libc", EntryPoint = "prctl", SetLastError = true)]
+        static extern int Get(int option, out int value, System.IntPtr a, System.IntPtr b, System.IntPtr c);
+        [System.Runtime.InteropServices.DllImport("libc", EntryPoint = "prctl", SetLastError = true)]
+        static extern int Set(int option, System.IntPtr value, System.IntPtr a, System.IntPtr b, System.IntPtr c);
+        [System.Runtime.InteropServices.DllImport("libc", SetLastError = true)]
+        static extern int waitpid(int id, out int status, int options);
+        public static int Enable() {
+            int previous;
+            if (Get(37, out previous, System.IntPtr.Zero, System.IntPtr.Zero, System.IntPtr.Zero) != 0)
+                throw new System.InvalidOperationException("Cannot read fixture subreaper state.");
+            Restore(1);
+            return previous;
+        }
+        public static void Restore(int previous) {
+            if (Set(36, new System.IntPtr(previous), System.IntPtr.Zero, System.IntPtr.Zero, System.IntPtr.Zero) != 0)
+                throw new System.InvalidOperationException("Cannot set fixture subreaper state.");
+        }
+        public static int Reap(int id) {
+            if (id <= 0) throw new System.ArgumentOutOfRangeException("id");
+            int status;
+            return waitpid(id, out status, 1);
+        }
+    }
+}
+'@
+        }
         & $script:BuildModule {
             param($NativePath)
             $script:FixtureDocker = $NativePath
@@ -308,7 +338,32 @@ $null = [Diagnostics.Process]::Start($start)
         }
     }
 
+    It 'rejects a nonspecific child PID <ChildId>' -TestCases @(@{ ChildId = 0 }, @{ ChildId = -1 }) {
+        param($ChildId)
+        $invalidChildId = $ChildId
+        { [Yuruna.TestFixtures.OrphanReaper]::Reap($invalidChildId) } | Should -Throw '*id*'
+    }
+
+    It 'does not reap a child that is still running' {
+        $start = [Diagnostics.ProcessStartInfo]::new($script:NativePowerShell)
+        $start.UseShellExecute = $false
+        foreach ($argument in @('-NoProfile', '-Command', 'Start-Sleep 30')) { $start.ArgumentList.Add($argument) }
+        $child = [Diagnostics.Process]::Start($start)
+        try {
+            if ($IsLinux) { [Yuruna.TestFixtures.OrphanReaper]::Reap($child.Id) | Should -Be 0 }
+            $child.WaitForExit(1) | Should -BeFalse
+            $child.HasExited | Should -BeFalse
+        } finally {
+            if (-not $child.HasExited) { $child.Kill() }
+            $child.WaitForExit()
+            $child.Dispose()
+        }
+    }
+
     It 'terminates an attached descendant when its native parent times out' {
+        # Adopt this fixture's orphan so PID 1's asynchronous reaping cannot
+        # change the assertion. Only the recorded descendant PID is reaped.
+        $previousReaper = $null
         $pidFile = Join-Path $TestDrive 'tree-child.pid'
         $parentPidFile = Join-Path $TestDrive 'tree-parent.pid'
         $child = Write-ProjectDockerFixture -Body 'Set-Content -LiteralPath $args[0] -Value $PID; Start-Sleep -Seconds 30'
@@ -321,16 +376,36 @@ $null = [Diagnostics.Process]::Start($start)
 Start-Sleep -Seconds 30
 '@
         try {
+            if ($IsLinux) { $previousReaper = [Yuruna.TestFixtures.OrphanReaper]::Enable() }
+            $clock = [Diagnostics.Stopwatch]::StartNew()
             $result = Invoke-ProjectDockerFixture -Arguments @('-NoProfile', '-File', $fixture, $child, $pidFile, $parentPidFile) -TimeoutSeconds 3
             $result.Codes[0] | Should -Be 124
             $result.ElapsedSeconds | Should -BeLessThan 6
             foreach ($path in $pidFile, $parentPidFile) {
                 Test-Path -LiteralPath $path | Should -BeTrue
-                Get-Process -Id ([int](Get-Content -LiteralPath $path -Raw)) -ErrorAction SilentlyContinue | Should -BeNullOrEmpty
+                $fixtureProcessId = [int](Get-Content -LiteralPath $path -Raw)
+                do {
+                    if ($IsLinux -and $path -eq $pidFile) { $null = [Yuruna.TestFixtures.OrphanReaper]::Reap($fixtureProcessId) }
+                    $visible = Get-Process -Id $fixtureProcessId -ErrorAction SilentlyContinue
+                    if (-not $visible) { break }
+                    $visible.Dispose()
+                    Start-Sleep -Milliseconds 10
+                } while ($clock.Elapsed.TotalSeconds -lt 6)
+                $remaining = Get-Process -Id $fixtureProcessId -ErrorAction SilentlyContinue
+                $state = if ($remaining -and $IsLinux) {
+                    try { ([IO.File]::ReadAllText("/proc/$fixtureProcessId/stat") -replace '^.*\) (\S).*$', '$1').Trim() }
+                    catch { 'gone' }
+                } else { 'unavailable' }
+                $remaining | Should -BeNullOrEmpty -Because "fixture PID $fixtureProcessId must be reaped within 6s (state: $state; elapsed: $($clock.Elapsed.TotalSeconds)s)"
             }
+            $clock.Elapsed.TotalSeconds | Should -BeLessThan 6
         } finally {
             foreach ($path in $pidFile, $parentPidFile) {
                 if (Test-Path -LiteralPath $path) { Stop-Process -Id ([int](Get-Content -LiteralPath $path -Raw)) -Force -ErrorAction SilentlyContinue }
+            }
+            if ($IsLinux -and $null -ne $previousReaper) {
+                if (Test-Path -LiteralPath $pidFile) { $null = [Yuruna.TestFixtures.OrphanReaper]::Reap([int](Get-Content -LiteralPath $pidFile -Raw)) }
+                [Yuruna.TestFixtures.OrphanReaper]::Restore($previousReaper)
             }
         }
     }

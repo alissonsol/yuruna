@@ -29,6 +29,21 @@ const DatazhCNhost = `{
     },
     "秒内报告Hyper-V功能状态；功能状态未知。"
   ],
+  "host.hyperv_rename_destination_dir_occupied": [
+    "无法重命名为“",
+    {
+      "arg": "newName",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "”：目录 ",
+    {
+      "arg": "newDir",
+      "type": "detail",
+      "trust": "external"
+    },
+    " 中已有文件，将存储移入其中会在重命名之后失败，使重命名只完成一半。"
+  ],
   "host.hyperv_rename_source_not_stopped": [
     "Rename-VM：“",
     {
@@ -112,6 +127,21 @@ const DatazhCNhost = `{
       "trust": "internal"
     },
     "发送信号；请为/bin/kill安装sudoers规则，或手动停止该域。"
+  ],
+  "host.kvm_rename_destination_dir_exists": [
+    "无法重命名为“",
+    {
+      "arg": "newName",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "”：目录 ",
+    {
+      "arg": "newDir",
+      "type": "detail",
+      "trust": "external"
+    },
+    " 已存在，将存储移入其中可能会覆盖磁盘。"
   ],
   "host.kvm_rename_source_not_stopped": [
     "Rename-VM：“",
@@ -8614,6 +8644,27 @@ const DatazhCNhost = `{
     },
     "秒内完成，因此UTM注册情况未知；未删除任何内容。请在UTM恢复响应后重新运行。"
   ],
+  "host.proxy_ca_refused_build": [
+    "未构建“",
+    {
+      "arg": "vMName",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "”：",
+    {
+      "arg": "cacheHost",
+      "type": "identifier",
+      "trust": "external"
+    },
+    " 上的缓存代理提供了此主机不信任的 CA（",
+    {
+      "arg": "reason",
+      "type": "token",
+      "trust": "internal"
+    },
+    "）。不会绕过它为来宾准备种子，该失败归类为 source_integrity。"
+  ],
   "host.rename_vm_inventory_unavailable": [
     "Rename-VM：无法读取正在运行的虚拟机列表（",
     {
@@ -9126,6 +9177,112 @@ const DatazhCNhost = `{
       "trust": "internal"
     },
     "s内返回，已被停止；在重新读取虚拟机状态前，其实际效果未知。"
+  ],
+  "host.vm_build_storage_in_use": [
+    "未重建“",
+    {
+      "arg": "vMName",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "”：",
+    {
+      "arg": "vmDir",
+      "type": "detail",
+      "trust": "external"
+    },
+    " 中仍有另一台虚拟机正在使用的磁盘，或者无法读取其使用情况。其中的内容均未更改。"
+  ],
+  "host.vm_storage_delete_refused": [
+    "已保留 ",
+    {
+      "arg": "vmDir",
+      "type": "detail",
+      "trust": "external"
+    },
+    "：其中仍有已注册虚拟机正在使用的磁盘（",
+    {
+      "arg": "owners",
+      "type": "detail",
+      "trust": "external"
+    },
+    "）。"
+  ],
+  "host.vm_storage_reconcile_action": "完成被中断的快照提升遗留下的未完成重命名",
+  "host.vm_storage_reference_unknown": [
+    "已保留 ",
+    {
+      "arg": "vmDir",
+      "type": "detail",
+      "trust": "external"
+    },
+    "：无法读取哪些虚拟机在使用其中的磁盘（",
+    {
+      "arg": "message",
+      "type": "detail",
+      "trust": "external"
+    },
+    "）。"
+  ],
+  "host.vm_storage_relocate_action": [
+    "将留在“",
+    {
+      "arg": "fromName",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "”下的存储移到此虚拟机自己的名称下"
+  ],
+  "host.vm_storage_relocated": [
+    "已完成一次中断的重命名：“",
+    {
+      "arg": "vMName",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "”的存储已移出“",
+    {
+      "arg": "fromName",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "”的目录。"
+  ],
+  "host.vm_storage_relocation_failed": [
+    "无法将“",
+    {
+      "arg": "vMName",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "”的存储移出“",
+    {
+      "arg": "fromName",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "”的目录：",
+    {
+      "arg": "reason",
+      "type": "detail",
+      "trust": "external"
+    },
+    "。"
+  ],
+  "host.vm_storage_repair_unknown": [
+    "无法检查“",
+    {
+      "arg": "vMName",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "”是否仍有存储位于另一个名称下（",
+    {
+      "arg": "message",
+      "type": "detail",
+      "trust": "external"
+    },
+    "）；其存储保持原样，下一个周期会再次检查。"
   ],
   "host.windows_installer_boot_key_timeout": [
     "虚拟机“",

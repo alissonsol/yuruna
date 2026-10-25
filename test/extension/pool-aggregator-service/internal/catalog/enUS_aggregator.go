@@ -197,6 +197,7 @@ const DataenUSaggregator = `{
   "aggregator.host_not_known_to_the_pool": "host not known to the pool",
   "aggregator.hostid_must_be_a_42_prefixed_32_hex_id": "hostId must be a 42-prefixed 32-hex id",
   "aggregator.ingest_disabled": "ingest disabled",
+  "aggregator.invalid_control_scope": "invalid control scope",
   "aggregator.invalid_hostid": "invalid hostId",
   "aggregator.invalid_hostid_or_area": "invalid hostId or area",
   "aggregator.invalid_statusport": "invalid statusPort",

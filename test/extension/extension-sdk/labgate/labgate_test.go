@@ -16,6 +16,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"yuruna.com/test/extension/extension-sdk/controlproof"
 )
 
 // labCode is a code shaped exactly like one the dashboard tile shows.
@@ -59,9 +61,10 @@ type fakeAggregator struct {
 	mu sync.Mutex
 	// asked and proofsAsked are kept apart so a test can assert that a service
 	// holding the lab auth token judged a proof WITHOUT a round trip.
-	asked       []string
-	proofsAsked []string
-	accept      string
+	asked          []string
+	proofsAsked    []string
+	audiencesAsked []string
+	accept         string
 	// proofToken is the lab auth token this stand-in verifies proofs against,
 	// i.e. what the real aggregator would be holding.
 	proofToken string
@@ -103,11 +106,13 @@ func newFakeAggregator(t *testing.T, accept string) *fakeAggregator {
 			}
 		case controlProofPath:
 			var req struct {
-				Proof string `json:"proof"`
+				Proof    string `json:"proof"`
+				Audience string `json:"audience"`
 			}
 			_ = json.Unmarshal(b, &req)
 			a.mu.Lock()
 			a.proofsAsked = append(a.proofsAsked, req.Proof)
+			a.audiencesAsked = append(a.audiencesAsked, req.Audience)
 			forced, token := a.status, a.proofToken
 			a.mu.Unlock()
 
@@ -116,7 +121,7 @@ func newFakeAggregator(t *testing.T, accept string) *fakeAggregator {
 				http.Error(w, "forced", forced)
 			case token == "":
 				http.Error(w, "control-proof verification disabled", http.StatusServiceUnavailable)
-			case !verifyControlProof(token, req.Proof, time.Now(), ControlProofMaxTTL):
+			case !controlproof.VerifyFor(token, req.Proof, req.Audience, time.Now(), ControlProofMaxTTL):
 				http.Error(w, "unauthorized", http.StatusUnauthorized)
 			default:
 				w.Header().Set("Content-Type", "application/json")
@@ -638,5 +643,47 @@ func TestAuditSeesEveryUnlockAttempt(t *testing.T) {
 	defer mu.Unlock()
 	if len(outcomes) != 2 || outcomes[0] != "refused" || outcomes[1] != "ok" {
 		t.Fatalf("audited outcomes = %v, want [refused ok]", outcomes)
+	}
+}
+
+// A proof bound to one service opens only that service: the key is pool-wide,
+// so the binding is what keeps a proof lifted from one UI's address bar from
+// unlocking every other service and host for its lifetime.
+func TestABoundProofOpensOnlyItsOwnService(t *testing.T) {
+	srv, _ := gated(t, Options{BearerToken: labAuthToken, ProofAudience: "svc-stash-service"})
+	expiry := time.Now().Add(time.Minute).Unix()
+	for _, tc := range []struct {
+		name  string
+		proof string
+		want  int
+	}{
+		{"its own service", controlproof.ProofFor(labAuthToken, "svc-stash-service", expiry), http.StatusOK},
+		{"another service", controlproof.ProofFor(labAuthToken, "svc-pool-control-service", expiry), http.StatusUnauthorized},
+		{"a host", controlproof.ProofFor(labAuthToken, "42aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", expiry), http.StatusUnauthorized},
+		{"an unbound proof from an aggregator that predates audiences", mintProof(labAuthToken, expiry), http.StatusOK},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if r := unlockProof(t, srv, tc.proof); r.StatusCode != tc.want {
+				t.Fatalf("unlock = %d, want %d", r.StatusCode, tc.want)
+			}
+		})
+	}
+}
+
+func TestTheGateAsksTheAggregatorAboutItsOwnAudience(t *testing.T) {
+	agg := newFakeAggregator(t, labCode)
+	agg.verifiesProofsFor(labAuthToken)
+	srv, _ := gated(t, Options{AggregatorURL: agg.srv.URL, ProofAudience: "svc-stash-service"})
+	expiry := time.Now().Add(time.Minute).Unix()
+	if r := unlockProof(t, srv, controlproof.ProofFor(labAuthToken, "svc-stash-service", expiry)); r.StatusCode != http.StatusOK {
+		t.Fatalf("own audience = %d, want 200", r.StatusCode)
+	}
+	if r := unlockProof(t, srv, controlproof.ProofFor(labAuthToken, "svc-download-agent-service", expiry)); r.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("other audience = %d, want 401", r.StatusCode)
+	}
+	agg.mu.Lock()
+	defer agg.mu.Unlock()
+	if len(agg.audiencesAsked) != 2 || agg.audiencesAsked[0] != "svc-stash-service" || agg.audiencesAsked[1] != "svc-stash-service" {
+		t.Fatalf("audiences asked = %v", agg.audiencesAsked)
 	}
 }

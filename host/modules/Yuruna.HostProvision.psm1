@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.22
+.VERSION 2026.10.25
 .GUID 429be071-3a67-44e5-91dc-fd9c3fe536b4
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -50,8 +50,11 @@ function Invoke-PerGuestNewVm {
         caching-proxy-service, macos.26) that do not consume them. A bound argument the
         script does not declare is surfaced on the Verbose stream so the operator
         notices a dropped planner cascade.
+        A builder that refuses the caching proxy's CA exits with
+        Get-YurunaSourceIntegrityExitCode, which is reported with failureClass
+        source_integrity rather than as an ordinary provisioning failure.
     .OUTPUTS
-        [hashtable] @{ success = [bool]; errorMessage = [string] }
+        [hashtable] @{ success = [bool]; errorMessage = [string]; failureClass = [string] }
     #>
     [CmdletBinding(SupportsShouldProcess)]
     [OutputType([hashtable])]
@@ -125,11 +128,26 @@ function Invoke-PerGuestNewVm {
             Write-Information $text
         }
     }
+    if ((Get-Command Get-YurunaSourceIntegrityExitCode -ErrorAction SilentlyContinue) -and $exitCode -eq (Get-YurunaSourceIntegrityExitCode)) {
+        $detail = ''
+        foreach ($line in $output) {
+            if ([string]$line -notmatch '^YURUNA_PROXY_CA_REFUSAL=(.{1,4096})$') { continue }
+            try {
+                $record = $Matches[1] | ConvertFrom-Json -AsHashtable -ErrorAction Stop
+                if ($record.reason -notmatch '^[a-z-]{1,80}$' -or $record.cacheHost -notmatch '^[a-zA-Z0-9.:_-]{1,255}$' -or
+                    $record.fetched -notmatch '^(?:[a-f0-9]{64})?$' -or $record.expected -notmatch '^(?:[a-f0-9]{64})?$' -or
+                    [string]$record.enrolledKeyCount -notmatch '^\d{1,5}$') { continue }
+                $detail = ": $($record.reason); proxy=$($record.cacheHost); expected=$($record.expected); fetched=$($record.fetched); enrolledKeys=$($record.enrolledKeyCount)"
+            } catch { continue }
+        }
+        return @{ success = $false; errorMessage = "New-VM.ps1 refused the caching proxy's CA$detail (exit $exitCode)"; failureClass = 'source_integrity' }
+    }
     if ($exitCode -ne 0) {
         return @{ success = $false; errorMessage = "New-VM.ps1 exited with code $exitCode" }
     }
     return @{ success = $true; errorMessage = $null }
 }
+
 
 function Write-GetImageLine {
     <#

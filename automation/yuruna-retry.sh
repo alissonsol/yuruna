@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.10.22
+# Version: 2026.10.25
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 #
@@ -241,18 +241,56 @@ _yuruna_bump_trusted() {
 
 # --- REGION: https://yuruna.link/4220a755-0015
 # Install the cache CA using the trust-store path and refresh command for this OS.
+# YURUNA_CA_ANCHOR_FILE overrides the anchor path for fixtures; production never sets it.
 _yuruna_ca_trust() {
+    local anchor
     if command -v update-ca-certificates >/dev/null 2>&1; then
-        sudo install -d -m 0755 /usr/local/share/ca-certificates \
-            && sudo install -m 0644 "$1" /usr/local/share/ca-certificates/yuruna-squid-ca.crt \
+        anchor=${YURUNA_CA_ANCHOR_FILE:-/usr/local/share/ca-certificates/yuruna-squid-ca.crt}
+        sudo install -d -m 0755 "${anchor%/*}" \
+            && sudo install -m 0644 "$1" "$anchor" \
             && sudo update-ca-certificates >/dev/null 2>&1
     elif command -v update-ca-trust >/dev/null 2>&1; then
-        sudo install -d -m 0755 /etc/pki/ca-trust/source/anchors \
-            && sudo install -m 0644 "$1" /etc/pki/ca-trust/source/anchors/yuruna-squid-ca.crt \
+        anchor=${YURUNA_CA_ANCHOR_FILE:-/etc/pki/ca-trust/source/anchors/yuruna-squid-ca.crt}
+        sudo install -d -m 0755 "${anchor%/*}" \
+            && sudo install -m 0644 "$1" "$anchor" \
             && sudo update-ca-trust extract >/dev/null 2>&1
     else
         echo "CA self-heal: no update-ca-certificates or update-ca-trust on PATH; cannot add a trust anchor here." >&2
         return 1
+    fi
+}
+
+# --- REGION: https://yuruna.link/4220a755-0015
+# The anchor path _yuruna_ca_trust writes, for this OS; empty where it has none.
+_yuruna_ca_anchor_path() {
+    if [ -n "${YURUNA_CA_ANCHOR_FILE:-}" ]; then
+        echo "$YURUNA_CA_ANCHOR_FILE"
+    elif command -v update-ca-certificates >/dev/null 2>&1; then
+        echo /usr/local/share/ca-certificates/yuruna-squid-ca.crt
+    elif command -v update-ca-trust >/dev/null 2>&1; then
+        echo /etc/pki/ca-trust/source/anchors/yuruna-squid-ca.crt
+    fi
+}
+
+# --- REGION: https://yuruna.link/4220a755-0015
+# Rebuild the trust store after an anchor changed.
+_yuruna_ca_refresh() {
+    if command -v update-ca-certificates >/dev/null 2>&1; then
+        sudo update-ca-certificates --fresh >/dev/null 2>&1
+    elif command -v update-ca-trust >/dev/null 2>&1; then
+        sudo update-ca-trust extract >/dev/null 2>&1
+    fi
+}
+
+# --- REGION: https://yuruna.link/4220a755-0015
+# SHA-256 of a PEM certificate's DER bytes: the fingerprint the host seeds as
+# YURUNA_CA_SHA256, whatever line endings the PEM text carries.
+_yuruna_ca_sha256() {
+    command -v openssl >/dev/null 2>&1 || return 1
+    if command -v sha256sum >/dev/null 2>&1; then
+        openssl x509 -in "$1" -outform DER 2>/dev/null | sha256sum | cut -d' ' -f1
+    else
+        openssl x509 -in "$1" -outform DER 2>/dev/null | shasum -a 256 | cut -d' ' -f1
     fi
 }
 
@@ -262,26 +300,56 @@ yuruna_ca_selfheal() {
     # https_proxy) or a proxy on some other port is a hard no-op.
     printf '%s' "${https_proxy:-}" | grep -qE ':3129/?($|[^0-9])' || return 1
     _yuruna_bump_trusted && return 1
-    if [ -r /etc/yuruna/host.env ]; then
-        # shellcheck disable=SC1091
-        . /etc/yuruna/host.env
+    # YURUNA_HOST_ENV_FILE is the override yuruna-host-locate.sh honors for fixtures.
+    local host_env="${YURUNA_HOST_ENV_FILE:-/etc/yuruna/host.env}"
+    if [ -r "$host_env" ]; then
+        # shellcheck disable=SC1090
+        . "$host_env"
     fi
     if [ -z "${YURUNA_STATUS_SERVICE_IP:-}" ] || [ -z "${YURUNA_STATUS_SERVICE_PORT:-}" ]; then
         echo "CA self-heal: bump HTTPS untrusted and no host.env coordinates; cannot recover CA." >&2
         return 2
     fi
+    # The CA arrives over plain HTTP from whatever answers the host address, so
+    # it becomes a trust anchor only when it is the CA the seed named.
+    local pin
+    pin=$(printf '%s' "${YURUNA_CA_SHA256:-}" | tr 'A-F' 'a-f')
+    if ! printf '%s' "$pin" | grep -Eq '^[0-9a-f]{64}$'; then
+        echo "CA self-heal: bump HTTPS untrusted, and host.env names no CA fingerprint; a CA fetched over HTTP is not installed without one." >&2
+        return 2
+    fi
     echo "CA self-heal: bump HTTPS untrusted; fetching CA from host status service ..." >&2
-    local ca_tmp rc=2
+    local ca_tmp rc=2 got anchor backup=''
     ca_tmp=$(mktemp) || return 2
     if wget --no-proxy --timeout=10 --tries=2 -qO "$ca_tmp" \
             "http://${YURUNA_STATUS_SERVICE_IP}:${YURUNA_STATUS_SERVICE_PORT}/ca.crt" \
        && [ -s "$ca_tmp" ] && grep -q 'BEGIN CERTIFICATE' "$ca_tmp"; then
-        _yuruna_ca_trust "$ca_tmp" || true
-        if _yuruna_bump_trusted; then
-            echo "CA self-heal: OK -- bump HTTPS now trusted." >&2
-            rc=0
+        got=$(_yuruna_ca_sha256 "$ca_tmp")
+        anchor=$(_yuruna_ca_anchor_path)
+        if [ "$got" != "$pin" ]; then
+            echo "CA self-heal: the host served CA sha256 ${got:-unreadable}, not the CA this guest was seeded to trust ($pin); not installed." >&2
+        elif [ -n "$anchor" ] && [ -f "$anchor" ] && [ "$(_yuruna_ca_sha256 "$anchor")" = "$pin" ]; then
+            echo "CA self-heal: the seeded CA is already trusted; bump HTTPS fails for another reason (cache unreachable?)." >&2
         else
-            echo "CA self-heal: CA installed but bump still untrusted (stale/wrong CA, or cache unreachable); HTTPS through the bump will still fail." >&2
+            if [ -n "$anchor" ] && [ -f "$anchor" ]; then
+                backup=$(mktemp) && cp "$anchor" "$backup" || backup=''
+            fi
+            _yuruna_ca_trust "$ca_tmp" || true
+            if _yuruna_bump_trusted; then
+                echo "CA self-heal: OK -- bump HTTPS now trusted." >&2
+                rc=0
+            else
+                # A root that did not help is not left trusted: restore the
+                # anchor that was there before, or remove the new one.
+                if [ -n "$backup" ]; then
+                    sudo install -m 0644 "$backup" "$anchor"
+                elif [ -n "$anchor" ]; then
+                    sudo rm -f "$anchor"
+                fi
+                _yuruna_ca_refresh
+                echo "CA self-heal: CA installed but bump still untrusted (cache unreachable?); the previous trust anchors are restored." >&2
+            fi
+            [ -n "$backup" ] && rm -f "$backup"
         fi
     else
         echo "CA self-heal: host status service served no usable CA (cache may still be unreachable); HTTPS through the bump will still fail." >&2
@@ -741,7 +809,8 @@ export -f _yuruna_retry _yuruna_retry_positive_integer _yuruna_retry_record _yur
     apt_retry _yuruna_classify_apt_update _yuruna_apt_index_heal \
     dnf_retry curl_retry wget_try pwsh_retry _yuruna_pwsh_attempt \
     _yuruna_http_status_class _yuruna_classify_curl _yuruna_classify_wget \
-    yuruna_ca_selfheal _yuruna_bump_trusted _yuruna_ca_trust
+    yuruna_ca_selfheal _yuruna_bump_trusted _yuruna_ca_trust \
+    _yuruna_ca_anchor_path _yuruna_ca_refresh _yuruna_ca_sha256
 
 # See https://yuruna.link/4220a755-0008
 # Load exported dependency pins for callers and child Bash payloads.

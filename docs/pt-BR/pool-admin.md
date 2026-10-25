@@ -594,24 +594,30 @@ hospedeiro oferece:
 
 | Opção | O que cada membro faz |
 | --- | --- |
-| **Continue** | continua o que estava fazendo (ambos os sinalizadores de pausa são desativados) |
+| **Continue** | libera uma pausa persistente do grupo e desativa ambos os sinalizadores de pausa dos hospedeiros |
 | **Pause after cycle** | conclui o ciclo em andamento e aguarda |
 | **Pause after step** | conclui a etapa em andamento e aguarda |
 
 Um hospedeiro tem dois sinalizadores independentes de pausa, e escolher uma das três opções aqui
-deixa **no máximo um** deles ativado em cada membro &mdash; portanto a coluna sempre
-identifica algo que um hospedeiro realmente está fazendo. A célula mostra o que os membros informam
-neste momento: uma das três opções quando todos concordam, **Mixed** quando divergem ou um
+deixa **no máximo um** deles ativado em cada membro. A célula combina os estados
+informados com qualquer pausa persistente do grupo: **Paused after cycle and step**
+significa que ambas as pausas se aplicam. Ela mostra **Mixed** quando os membros divergem ou um
 membro não respondeu (os hospedeiros divergentes são listados abaixo do
 seletor), `--` quando nenhum respondeu. Os hospedeiros continuam podendo ser controlados individualmente por
 suas próprias páginas de status; esta ação altera todos e depois lê o estado deles novamente.
 
-Isso **não** é o `configuredState` do grupo (`run`/`paused`/`drain`): esse
-é uma configuração persistente no Git, aplicada em um limite de
-ciclo, e `drain` encerra o processo executor. Pool Status atua nos sinalizadores de pausa
-ativos &mdash; o significado de "pare o laboratório agora e depois deixe-o continuar"
-no meio do ciclo. `configuredState` não tem página própria; grave-o com
-`Set-PoolConfiguredState.ps1` (tabela acima).
+O seletor também reflete uma pausa persistente `configuredState: paused`.
+Os hospedeiros podem informar que ambos os sinalizadores de pausa estão desativados
+enquanto o laço externo aguarda essa configuração; portanto, esses sinalizadores
+isoladamente não comprovam que o grupo pode continuar. **Continue** primeiro publica
+`paused -> run` pela CLI de configuração do grupo e depois desativa os sinalizadores
+de pausa dos membros. Uma falha na publicação faz a ação falhar; a página nunca
+informa uma retomada bem-sucedida enquanto a pausa persistente permanece. A CLI
+informa os valores anterior e novo, e o histórico Git da configuração preserva o
+valor anterior. As opções de pausa preservam uma pausa persistente existente.
+`drain` continua sendo uma operação de configuração separada que encerra o processo
+executor; altere-a com `Set-PoolConfiguredState.ps1` e reinicie o executor ao
+reintegrar o hospedeiro ao grupo.
 
 Controlar as rotas de controle de outro hospedeiro exige uma **prova de controle** (veja
 [control-routes.md](../control-routes.md)), que o serviço obtém de uma das duas
@@ -1288,6 +1294,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.22
+Last review: 2026.10.25
 
 Voltar para [Yuruna](../../README.md)

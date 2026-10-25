@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -239,7 +240,7 @@ func TestProofFromAggregatorReadsTheFragment(t *testing.T) {
 	}))
 	defer agg.Close()
 
-	got, err := New(Options{}).ProofFromAggregator(context.Background(), agg.URL, "42aa")
+	got, err := New(Options{}).ProofFromAggregator(context.Background(), agg.URL, "42aa", "")
 	if err != nil {
 		t.Fatalf("ProofFromAggregator: %v", err)
 	}
@@ -257,7 +258,7 @@ func TestProofFromAggregatorWithoutAFragment(t *testing.T) {
 	}))
 	defer agg.Close()
 
-	if _, err := New(Options{}).ProofFromAggregator(context.Background(), agg.URL, "42aa"); err == nil ||
+	if _, err := New(Options{}).ProofFromAggregator(context.Background(), agg.URL, "42aa", ""); err == nil ||
 		!strings.Contains(err.Error(), "no internal authentication key") {
 		t.Fatalf("error = %v, want one naming the missing internal authentication key", err)
 	}
@@ -668,5 +669,54 @@ func TestUnusableHostAddressIsTyped(t *testing.T) {
 	}
 	if err := c.Apply(context.Background(), "gopher://host.example/x", "continue", "proof"); err == nil || !strings.Contains(err.Error(), "gopher://host.example/x") {
 		t.Errorf("the operator text lost the address: %v", err)
+	}
+}
+
+// A pool-wide action asks the aggregator for a pause-scoped proof, and asks
+// for nothing narrower when the caller names no scope.
+func TestProofFromAggregatorAsksForTheScope(t *testing.T) {
+	var asked []string
+	agg := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		asked = append(asked, r.URL.Query().Get("scope"))
+		http.Redirect(w, r, "http://192.0.2.7:8080#yctl=1900000000.42aa.pause.abc=", http.StatusFound)
+	}))
+	defer agg.Close()
+	c := New(Options{})
+	if _, err := c.ProofFromAggregator(context.Background(), agg.URL, "42aa", ScopePause); err != nil {
+		t.Fatalf("ProofFromAggregator: %v", err)
+	}
+	if _, err := c.ProofFromAggregator(context.Background(), agg.URL, "42aa", ""); err != nil {
+		t.Fatalf("ProofFromAggregator: %v", err)
+	}
+	if len(asked) != 2 || asked[0] != "pause" || asked[1] != "" {
+		t.Fatalf("scope parameters = %q", asked)
+	}
+}
+
+// The forms a caller has to tell apart: unbound opens every host, bound opens
+// one, scoped opens one host's pause and resume routes, and a host that
+// predates scopes answers proof-invalid to the scoped form.
+func TestProofFormsAndRefusals(t *testing.T) {
+	scoped := MintPause("tok", "42aa", time.Minute)
+	if !Bound(scoped) || !Scoped(scoped) || !strings.Contains(scoped, ".42aa.pause.") {
+		t.Fatalf("pause proof %q", scoped)
+	}
+	full := MintFor("tok", "42aa", time.Minute)
+	if !Bound(full) || Scoped(full) {
+		t.Fatalf("bound proof %q", full)
+	}
+	if Bound(Mint("tok", time.Minute)) {
+		t.Fatal("an unbound proof read as bound")
+	}
+	if MintPause("", "42aa", time.Minute) != "" {
+		t.Fatal("minted a pause proof without a token")
+	}
+	if !RefusedProof(fmt.Errorf("apply: %w", &Error{Status: 403, Reason: "proof-invalid"})) {
+		t.Fatal("a wrapped proof-invalid refusal was not recognized")
+	}
+	for _, err := range []error{&Error{Status: 403, Reason: "proof-expired"}, errors.New("proof-invalid"), nil} {
+		if RefusedProof(err) {
+			t.Fatalf("%v read as a refused proof", err)
+		}
 	}
 }

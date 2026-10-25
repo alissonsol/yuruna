@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.22
+.VERSION 2026.10.25
 .GUID 429e89fa-f380-4a1b-8768-7b52c7f86767
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -65,6 +65,7 @@ if (-not $open.Ok) { Write-Error $open.Error -ErrorAction Continue; exit $ExitFa
 $doc  = Read-YurunaPoolsDoc -ConfigurationDir $t.ConfigurationDir
 $pool = Get-YurunaPoolFromDoc -Doc $doc -PoolId $PoolId
 if (-not $pool) { Write-Error (Format-YurunaOperatorMessage -Key 'runner.operator_945821c2fef42ae6' -Arguments @{ poolId = "$PoolId" }) -ErrorAction Continue; exit $ExitFailure }
+Write-Information "pools.$PoolId.configuredState: $($pool['configuredState']) -> $State"
 $pool['configuredState'] = $State
 
 # --- REGION: Save, commit and push

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.22
+.VERSION 2026.10.25
 .GUID 42547b68-a60f-4a35-be1d-21d02f08f7bf
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -154,15 +154,17 @@ function Start-Watchdog {
         $phaseFile  = Join-Path $runtimeDir 'runner.phase'
         $pidFile    = Join-Path $runtimeDir 'inner.pid'
         $outerLog   = Join-Path $runtimeDir 'outer.log'
-        # Any early exit below leaves the cycle running UNGUARDED, and the
-        # outer is already blocked on the call-op with no live view of this
-        # job -- so every lapse must leave a durable sentinel the outer
-        # surfaces when it regains control, in addition to the log line.
+        # Any early exit below leaves this job unable to guard the cycle, and
+        # the outer is already blocked on the call-op with no live view of it
+        # -- so every lapse leaves a durable sentinel, in addition to the log
+        # line. The resident runner reads it while the cycle runs and applies
+        # these bounds itself; they ride in the sentinel because the pool's
+        # overrides that shaped them are resolved only in this cycle process.
         $lapseFile = Join-Path $runtimeDir 'runner.watchdog.lapsed'
         $reportLapse = {
             param([string]$Why)
-            Add-Content -LiteralPath $outerLog -Value "$((Get-Date).ToString('o')) [watchdog] $Why; exiting watchdog without action -- CYCLE RUNS UNGUARDED."
-            Set-Content -LiteralPath $lapseFile -Value "$((Get-Date).ToString('o')) $Why" -ErrorAction SilentlyContinue
+            Add-Content -LiteralPath $outerLog -Value "$((Get-Date).ToString('o')) [watchdog] $Why; exiting watchdog without action -- the resident runner guards the cycle."
+            Set-Content -LiteralPath $lapseFile -Value "$((Get-Date).ToString('o')) $Why [stepSeconds=$thresholdSeconds preambleSeconds=$preambleSeconds]" -ErrorAction SilentlyContinue
         }
         # See https://yuruna.link/4213a0b3-011c
         $waitUntil = (Get-Date).AddSeconds(180)

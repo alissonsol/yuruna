@@ -160,11 +160,16 @@ Sources and aggregate membership:
 | OCR and diagnostics | [Test.OcrEngine](../../test/modules/Test.OcrEngine.psm1), [Test.OcrMatch](../../test/modules/Test.OcrMatch.psm1), [Test.Tesseract](../../test/modules/Test.Tesseract.psm1), [Test.Diagnostic](../../test/modules/Test.Diagnostic.psm1), [Test.DiagnosticPreservation](../../test/modules/Test.DiagnosticPreservation.psm1), the [guest](../../test/Invoke-GuestDiagnosticWorker.ps1) and [host](../../test/modules/Invoke-HostDiagnosticWorker.ps1) diagnostic workers, [Get-SystemDiagnostic](../../automation/Get-SystemDiagnostic.ps1), and the [guest stall sampler](../../automation/guest-performance-snapshot.sh). |
 | Status and configuration | [Start-StatusService](../../test/service/Start-StatusService.ps1), [Start-ConfigService](../../test/service/Start-ConfigService.ps1), [Repair-PrivateState.py](../../test/service/Repair-PrivateState.py), [Test.HostMemoryMetrics](../../test/modules/Test.HostMemoryMetrics.psm1), and [status/](../../test/status/). |
 | Pool coordination | [Test.PoolWorker](../../test/modules/Test.PoolWorker.psm1), [Test.PoolSync](../../test/modules/Test.PoolSync.psm1), [Test.PoolPush](../../test/modules/Test.PoolPush.psm1), [Test.PoolStorage](../../test/modules/Test.PoolStorage.psm1), [Test.PoolPlanner](../../test/modules/Test.PoolPlanner.psm1), and [Test.PoolAdmin](../../test/modules/Test.PoolAdmin.psm1). |
-| Extension services | [extension/](../../test/extension/) holds authentication, digest, cache management/parser, download-agent, pool aggregator/control, stash, notification, and the shared SDK. The [caching-proxy extension](../../test/extension/caching-proxy-service/) also holds the Git mirror. |
+| Extension services | [extension/](../../test/extension/) holds authentication, digest, cache management/parser, download-agent, pool aggregator/control, stash, notification, and the shared SDK. The [caching-proxy extension](../../test/extension/caching-proxy-service/) also holds the Git mirror, and [Test.ServiceVm](../../test/modules/Test.ServiceVm.psm1) holds the start pipeline the service launchers share. |
 | Notifications | [Test.Notify](../../test/modules/Test.Notify.psm1), [Test.PoolNotifier](../../test/modules/Test.PoolNotifier.psm1), and configured providers in [notification/](../../test/extension/notification/). |
 
 The outer runner supervises a fresh cycle process, which launches an inner
-sequence process. Each cycle starts with the Test-Config gate; its verdict and
+sequence process. The outer re-enters its loop after an exception escapes it,
+bounds each cycle process's working time with `testCycle.maxCycleSeconds`,
+applies the step watchdog's bounds itself when that watchdog stands down, and
+pulls the framework with its own loaded code when cycle processes keep ending
+without an outcome; [Lifecycle state](04-lifecycle-state.md) shows these paths. Each cycle
+starts with the Test-Config gate; its verdict and
 transcript are kept per attempt in a bounded attempt history, so the outer
 runner separates gate refusals from watchdog kills and unexpected exits. The
 gate resolves the framework and project revisions once through
@@ -194,7 +199,10 @@ static frames ends the wait as a livelock. The host status listener also runs
 when testing is idle, and serves the native Linux and macOS memory gauges
 from Test.HostMemoryMetrics on its metrics endpoint. The
 caching-proxy launcher starts the host status and configuration services through
-[Test.Prelude](../../test/modules/Test.Prelude.psm1).
+[Test.Prelude](../../test/modules/Test.Prelude.psm1), and the shared service-VM
+start pipeline in [Test.ServiceVm](../../test/modules/Test.ServiceVm.psm1)
+ensures the configuration service before it builds a stash, download-agent, or
+pool-control guest, which fetches its NAS credential there at first boot.
 
 The extension family contains more than seven implementations and remains one
 aggregate here. Sequence steps call PowerShell extension methods through
@@ -254,7 +262,10 @@ contract verb. It dispatches per-guest image and VM builders and implements
 lifecycle, console input, screenshots, discovery, and networking. `Stop-VM` takes
 `-ShutdownTimeoutSeconds` and `-NoForce` on all three drivers, so a sequence can
 request a graceful shutdown and observe it through the host; Hyper-V also captures
-the COM1 serial console during a cycle. The Hyper-V and UTM drivers also export
+the COM1 serial console during a cycle. The KVM and Hyper-V drivers delete a VM
+directory only when no registered VM uses a file in it, after first finishing a
+rename that stopped between the registration and the storage move; the KVM
+orphan sweep likewise skips referenced disks. The Hyper-V and UTM drivers also export
 `Get-VMConsoleSecondOpinion`, outside the contract, which reads the framebuffer
 independently of the screenshot path. Each provider folder also holds the
 Enable/Disable-TestAutomation, Sync-HostConfiguration, and
@@ -271,10 +282,21 @@ carries a Zot sync self-test, and
 [caching-proxy-service.zot-qualified.json](../../host/vmconfig/caching-proxy-service.zot-qualified.json)
 records the release [Test-ZotRelease.py](../../tools/Test-ZotRelease.py) qualified.
 The caching-proxy seed also installs the Git mirror worker and reader units and
-their HTTP routes. The three caching-proxy builders stage its secret-bearing
-seed media, including the mirror signing key and any GitHub token, through
-[Yuruna.CachingProxySeed](../../host/modules/Yuruna.CachingProxySeed.psm1) in
-the host/modules box.
+their HTTP routes, and the ssl-bump CA that the building host keeps in its
+private state, so a rebuilt proxy keeps its root, and a statement of that CA's
+SHA-256 signed with the mirror signing key, which hosts that did not build the
+proxy verify. Every service and test-guest builder stages its secret-bearing
+seed media, including that CA key, the proxy's mirror signing key, a guest's
+password or password hash, and any GitHub token, through
+[Yuruna.SeedMedia](../../host/modules/Yuruna.SeedMedia.psm1) in the
+host/modules box. The renderer also seeds integrity data: the stash,
+download-agent, and pool-control seeds carry the SHA-256 of the framework
+archive for the seeded commit, the caching-proxy seed carries a per-file SHA-256
+manifest of the sources it builds, and the Linux guest and service seeds name
+the proxy CA's fingerprint in `host.env`. The stash, download-agent, and
+pool-control seeds carry configuration-service client certificates and
+[yuruna-nas-credential.sh](../../automation/yuruna-nas-credential.sh) instead of
+a NAS password.
 Guest edges identify the scripts selected for the guest, not a requirement that
 every driver execute every script.
 
@@ -355,6 +377,7 @@ Sources:
 [yuruna-retry.sh](../../automation/yuruna-retry.sh),
 [yuruna-service-bringup.sh](../../automation/yuruna-service-bringup.sh),
 [yuruna-host-locate.sh](../../automation/yuruna-host-locate.sh),
+[yuruna-nas-credential.sh](../../automation/yuruna-nas-credential.sh),
 [Yuruna.Result](../../automation/Yuruna.Result.psm1),
 [Yuruna.Log](../../automation/Yuruna.Log.psm1),
 [Yuruna.LogLevel](../../automation/Yuruna.LogLevel.psm1),
@@ -372,15 +395,19 @@ in Yuruna.Common is shared by the
 Guest shell helpers group the scripts that guest seeds and
 guest scripts install or source: fetch-and-execute.sh, yuruna-fetch-context.sh,
 yuruna-retry.sh, yuruna-run.sh, yuruna-network.sh, yuruna-versions.sh,
-yuruna-service-bringup.sh, the yuruna-host-locate pair, Test-YurunaHost.ps1, and
-windows-guest-bootstrap.ps1. When the host status service is unreachable,
-fetch-and-execute.sh reads a pinned commit's files from the caching-proxy Git
-mirror before GitHub, and yuruna-retry.sh provides the pinned Git materializer
-that the guest update scripts also embed. Results and logging include
+yuruna-service-bringup.sh, yuruna-nas-credential.sh, the yuruna-host-locate pair,
+Test-YurunaHost.ps1, and windows-guest-bootstrap.ps1. When the host status
+service is unreachable, fetch-and-execute.sh reads a pinned commit's files from
+the caching-proxy Git mirror before GitHub, and yuruna-retry.sh provides the
+pinned Git materializer that the guest update scripts also embed, plus the CA
+self-heal that installs a proxy CA only when it matches the seeded fingerprint.
+Results and logging include
 completion manifests, log levels, and entry-point root and transcript resolution in Yuruna.LogLevel.
 Validation, requirement, and deployment-kind modules are imported only by
 deploy-engine code and appear in its checks family. Retry and credentials group the
-transient-operation helper and registry authentication provider catalog.
+transient-operation helper, the secret redaction that retry labels, workload
+logs, and component output share, and the registry authentication provider
+catalog.
 Global contains config, component, and workload roots; global/resources appears
 under External services. The globalization aggregate includes
 [Yuruna.Globalization](../../automation/Yuruna.Globalization.psm1), the
@@ -389,7 +416,10 @@ under External services. The globalization aggregate includes
 [Globalization](07-globalization.md) expands its language contract.
 Tools include [Invoke-TestSuite](../../tools/Invoke-TestSuite.ps1) and its
 [worker](../../tools/_InvokeOneSuite.ps1), which run isolated Pester suites and
-retain validation evidence independently of the continuous VM runner, and
+retain validation evidence independently of the continuous VM runner; on Linux,
+a selective run can reuse a suite's recorded pass when
+[suite_impact.py](../../tools/suite_impact.py) shows every input it read is
+unchanged. The tools also include
 [Gate.Scope](../../tools/Gate.Scope.psm1), the scope resolver shared by the lint
 and shellcheck gates. The Git mirror release qualification tools also belong
 to this box: [Invoke-GitMirrorQualification](../../tools/Invoke-GitMirrorQualification.ps1)
@@ -434,7 +464,8 @@ worker refreshes, with the optional token described under Provisioning.
 The localhost registry template checks a registry already started by the caller,
 and context-copy copies an existing local Kubernetes context under the configured
 destination name. Image and package upstreams include the container registries
-the cache's Zot mirror syncs from, which the Zot sync self-test probes. The
+the cache's Zot mirror syncs from, which the Zot sync self-test probes, and the
+apt repositories whose metadata pairs the cache's apt index self-test reads. The
 registry providers authenticate the component phase's push; cluster pull access
 comes from project workload configuration, such as the Azure website's
 `docker-registry` secret.

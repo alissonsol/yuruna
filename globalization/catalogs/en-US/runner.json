@@ -32898,6 +32898,373 @@
           "example": "{\"attempts\":[]}"
         }
       }
+    },
+    "runner.outer_poll_failed": {
+      "message": "A {probe} poll by the resident runner failed and was treated as no answer: {message}",
+      "description": "Whole Write-OuterLog message in test/modules/Test.RunnerOuterLoop.psm1 when a probe made during the failure pause or by the supervisor throws; the runner continues.",
+      "lifecycle": "active",
+      "placeholders": {
+        "probe": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "framework"
+        },
+        "message": {
+          "type": "detail",
+          "trust": "external",
+          "example": "mirror-key-invalid"
+        }
+      }
+    },
+    "runner.outer_loop_exception": {
+      "message": "The resident runner loop stopped on an unexpected {type} at {location}: {message}. Occurrence {streak} within an hour; the loop restarts in {holdSeconds} s.",
+      "description": "Write-Warning and outer.log line from Invoke-RunnerOuterSupervisor in test/modules/Test.RunnerOuterLoop.psm1 when an exception escapes the resident loop; the same text becomes the runner fault reason and the alert description.",
+      "lifecycle": "active",
+      "placeholders": {
+        "type": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "System.Management.Automation.RuntimeException"
+        },
+        "location": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "Test.SourceSelection.psm1:27"
+        },
+        "message": {
+          "type": "detail",
+          "trust": "external",
+          "example": "mirror-key-invalid"
+        },
+        "streak": {
+          "type": "integer",
+          "trust": "internal",
+          "example": "1"
+        },
+        "holdSeconds": {
+          "type": "integer",
+          "trust": "internal",
+          "example": "30"
+        }
+      }
+    },
+    "runner.outer_loop_orphan_stopped": {
+      "message": "Stopped cycle process {id}, which the interrupted runner loop had left running.",
+      "description": "outer.log line from Invoke-RunnerOuterSupervisor in test/modules/Test.RunnerOuterLoop.psm1 before it re-enters the loop, so two cycles never run at once.",
+      "lifecycle": "active",
+      "placeholders": {
+        "id": {
+          "type": "integer",
+          "trust": "internal",
+          "example": "41234"
+        }
+      }
+    },
+    "runner.framework_health_write_action": {
+      "message": "Record whether the framework produced a cycle outcome",
+      "description": "ShouldProcess action for Update-OuterFrameworkHealth in test/modules/Test.RunnerOuterLoop.psm1.",
+      "lifecycle": "active"
+    },
+    "runner.framework_rescue_due": {
+      "message": "The cycle process ended without an outcome {streak} times in a row ({outcome}) at framework commit {sha}; the last commit that produced an outcome is {lastGoodSha}. The resident runner pulls the framework itself.",
+      "description": "Write-Warning and outer.log line from Invoke-OuterFrameworkRescue in test/modules/Test.RunnerOuterLoop.psm1; also the runner fault reason and alert description for cycle-aborted. outcome is a stable token.",
+      "lifecycle": "active",
+      "placeholders": {
+        "streak": {
+          "type": "integer",
+          "trust": "internal",
+          "example": "2"
+        },
+        "outcome": {
+          "type": "token",
+          "trust": "internal",
+          "example": "cycle-aborted"
+        },
+        "sha": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "bf936c8910d0"
+        },
+        "lastGoodSha": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "1561964fb3a2"
+        }
+      }
+    },
+    "runner.framework_rescue_action": {
+      "message": "Pull the framework from the resident runner",
+      "description": "ShouldProcess action for Invoke-OuterFrameworkRescue in test/modules/Test.RunnerOuterLoop.psm1.",
+      "lifecycle": "active"
+    },
+    "runner.framework_rescue_result": {
+      "message": "Resident framework pull: {result}; the framework commit is now {sha}. {detail}",
+      "description": "outer.log line from Invoke-OuterFrameworkRescue in test/modules/Test.RunnerOuterLoop.psm1. result is one of updated, unchanged or failed and stays untranslated; detail is the redacted pull failure or empty.",
+      "lifecycle": "active",
+      "placeholders": {
+        "result": {
+          "type": "token",
+          "trust": "internal",
+          "example": "updated"
+        },
+        "sha": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "bf936c8910d0"
+        },
+        "detail": {
+          "type": "detail",
+          "trust": "external",
+          "example": "fetch timed out"
+        }
+      }
+    },
+    "runner.max_cycle_seconds_invalid": {
+      "message": "testCycle.maxCycleSeconds is '{v}', which is not a number -- using {defaultSeconds} s.",
+      "description": "Whole Write-Warning message in test/modules/Test.RunnerOuterLoop.psm1 (Get-OuterMaxCycleSeconds); preserve the configuration key.",
+      "lifecycle": "active",
+      "placeholders": {
+        "v": {
+          "type": "detail",
+          "trust": "external",
+          "example": "6h"
+        },
+        "defaultSeconds": {
+          "type": "integer",
+          "trust": "internal",
+          "example": "21600"
+        }
+      }
+    },
+    "runner.watchdog_lapse_seen": {
+      "message": "[outer cycle {cycle}] the step watchdog stood down; the resident runner now stops this cycle when its step heartbeat is older than {stepSeconds} s ({preambleSeconds} s before the first step), and testCycle.maxCycleSeconds still bounds it ({ceilingSeconds} s, where 0 means unbounded).",
+      "description": "Write-Warning and outer.log line from Invoke-OuterCycleDispatch in test/modules/Test.RunnerOuterLoop.psm1 when runner.watchdog.lapsed appears during the cycle; the bounds are the ones the watchdog recorded in that sentinel.",
+      "lifecycle": "active",
+      "placeholders": {
+        "cycle": {
+          "type": "integer",
+          "trust": "internal",
+          "example": "12"
+        },
+        "stepSeconds": {
+          "type": "integer",
+          "trust": "internal",
+          "example": "3600"
+        },
+        "preambleSeconds": {
+          "type": "integer",
+          "trust": "internal",
+          "example": "600"
+        },
+        "ceilingSeconds": {
+          "type": "integer",
+          "trust": "internal",
+          "example": "21600"
+        }
+      }
+    },
+    "runner.cycle_ceiling_reached": {
+      "message": "[outer cycle {cycle}] cycle process {id} reached testCycle.maxCycleSeconds ({ceilingSeconds} s) and was stopped with its process tree.",
+      "description": "Write-Warning and outer.log line from Invoke-OuterCycleDispatch in test/modules/Test.RunnerOuterLoop.psm1; also the description in runner.watchdog-kill.json and the runner fault reason.",
+      "lifecycle": "active",
+      "placeholders": {
+        "cycle": {
+          "type": "integer",
+          "trust": "internal",
+          "example": "12"
+        },
+        "id": {
+          "type": "integer",
+          "trust": "internal",
+          "example": "41234"
+        },
+        "ceilingSeconds": {
+          "type": "integer",
+          "trust": "internal",
+          "example": "21600"
+        }
+      }
+    },
+    "runner.bump_ca_unreadable": {
+      "message": "The caching-proxy CA kept at {path} cannot be read; no CA is seeded until it is repaired or removed.",
+      "description": "Write-Warning from Get-YurunaBumpCa in test/modules/Test.CachingProxyService.psm1 when the persisted ssl-bump CA certificate or key does not parse.",
+      "lifecycle": "active",
+      "placeholders": {
+        "path": {
+          "type": "detail",
+          "trust": "external",
+          "example": "/home/user/.yuruna/host-refresh/caching-proxy/bump-ca.pem"
+        }
+      }
+    },
+    "runner.bump_ca_create_action": {
+      "message": "Create the caching-proxy ssl-bump CA this host keeps across proxy rebuilds",
+      "description": "ShouldProcess action for Get-YurunaBumpCa -Create in test/modules/Test.CachingProxyService.psm1.",
+      "lifecycle": "active"
+    },
+    "runner.bump_ca_unavailable": {
+      "message": "No caching-proxy ssl-bump CA could be read or created in this host's private state; the proxy is not built without one.",
+      "description": "Write-Error in the caching-proxy-service New-VM.ps1 builders when Get-YurunaBumpCa -Create returns nothing.",
+      "lifecycle": "active"
+    },
+    "runner.proxy_ca_pin_mismatch": {
+      "message": "The caching proxy at {cacheHost} serves CA sha256 {fetched}, but this host trusts {expected} for it; the trusted CA is kept. Keep the pin. On the proxy builder, run Start-CachingProxyServiceVM.ps1 -ForceRebuild -RepairPoolCaTrust to enroll its verified signing key through authenticated host control. A host without an enrolled key cannot verify a CA rotation.",
+      "description": "Write-Warning from Get-CachingProxyServiceCaCertBase64 and Get-PoolCaCertPath when a CA fetched over HTTP does not match the pinned one.",
+      "lifecycle": "active",
+      "placeholders": {
+        "cacheHost": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "192.168.7.42"
+        },
+        "fetched": {
+          "type": "identifier",
+          "trust": "external",
+          "example": "3f2a"
+        },
+        "expected": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "69d1"
+        }
+      }
+    },
+    "runner.vm_storage_reconcile_failed": {
+      "message": "Could not finish interrupted virtual machine renames at cycle start ({message}). The cycle continues, deletes stay reference-checked, and the next cycle tries again.",
+      "description": "Whole Write-Warning message in test/modules/Test.HostContract.psm1 (Invoke-HostVmAdmission) when the driver's Repair-VMStorageLocation throws, for example because the VM list cannot be read.",
+      "lifecycle": "active",
+      "placeholders": {
+        "message": {
+          "type": "detail",
+          "trust": "external",
+          "example": "virsh list timed out"
+        }
+      }
+    },
+    "runner.cycle_ceiling_scaled": {
+      "message": "[outer cycle {cycle}] the cycle plans {count} run(s); its ceiling rises from testCycle.maxCycleSeconds ({configuredSeconds} s) to {ceilingSeconds} s, two step timeouts for each run.",
+      "description": "outer.log line from Invoke-OuterCycleDispatch in test/modules/Test.RunnerOuterLoop.psm1 when the plan the cycle published in status.json raises the cycle ceiling above the configured value.",
+      "lifecycle": "active",
+      "placeholders": {
+        "cycle": {
+          "type": "integer",
+          "trust": "internal",
+          "example": "12"
+        },
+        "count": {
+          "type": "integer",
+          "trust": "internal",
+          "example": "6"
+        },
+        "configuredSeconds": {
+          "type": "integer",
+          "trust": "internal",
+          "example": "21600"
+        },
+        "ceilingSeconds": {
+          "type": "integer",
+          "trust": "internal",
+          "example": "43200"
+        }
+      }
+    },
+    "runner.resident_watchdog_kill_step": {
+      "message": "[outer cycle {cycle}] the step watchdog had stood down and the step heartbeat has not moved for {ageSeconds} s (bound {boundSeconds} s); the resident runner stopped cycle process {id} with its process tree.",
+      "description": "Write-Warning and outer.log line from Invoke-OuterCycleDispatch in test/modules/Test.RunnerOuterLoop.psm1; also the description in runner.watchdog-kill.json and the runner fault reason.",
+      "lifecycle": "active",
+      "placeholders": {
+        "cycle": {
+          "type": "integer",
+          "trust": "internal",
+          "example": "12"
+        },
+        "ageSeconds": {
+          "type": "integer",
+          "trust": "internal",
+          "example": "3605"
+        },
+        "boundSeconds": {
+          "type": "integer",
+          "trust": "internal",
+          "example": "3600"
+        },
+        "id": {
+          "type": "integer",
+          "trust": "internal",
+          "example": "41234"
+        }
+      }
+    },
+    "runner.resident_watchdog_kill_preamble": {
+      "message": "[outer cycle {cycle}] the step watchdog had stood down and the step heartbeat has not moved for {ageSeconds} s in preamble phase '{phase}' (bound {boundSeconds} s); the resident runner stopped cycle process {id} with its process tree.",
+      "description": "Write-Warning and outer.log line from Invoke-OuterCycleDispatch in test/modules/Test.RunnerOuterLoop.psm1 for a stall before the first step; also the description in runner.watchdog-kill.json and the runner fault reason. phase is a runner phase token and stays untranslated.",
+      "lifecycle": "active",
+      "placeholders": {
+        "cycle": {
+          "type": "integer",
+          "trust": "internal",
+          "example": "12"
+        },
+        "ageSeconds": {
+          "type": "integer",
+          "trust": "internal",
+          "example": "605"
+        },
+        "boundSeconds": {
+          "type": "integer",
+          "trust": "internal",
+          "example": "600"
+        },
+        "phase": {
+          "type": "token",
+          "trust": "internal",
+          "example": "caching-proxy-gate"
+        },
+        "id": {
+          "type": "integer",
+          "trust": "internal",
+          "example": "41234"
+        }
+      }
+    },
+    "runner.proxy_ca_statement_absent": {
+      "message": "The caching proxy at {cacheHost} serves the CA with sha256 {fetched} without a signed statement, and this host enrolls the lab's mirror verification keys, so it does not trust a CA it has not pinned on first use. Rebuild the caching proxy on the host that owns it; that proxy then serves yuruna-squid-ca.sig.json.",
+      "description": "Write-Warning from Write-YurunaProxyCaRefusal in test/modules/Test.CachingProxyService.psm1 when Resolve-YurunaPinnedProxyCa refuses an unpinned proxy CA with reason statement-absent. Preserve the file name.",
+      "lifecycle": "active",
+      "placeholders": {
+        "cacheHost": {
+          "type": "identifier",
+          "trust": "external",
+          "example": "192.168.7.20"
+        },
+        "fetched": {
+          "type": "identifier",
+          "trust": "external",
+          "example": "5abd3f08"
+        }
+      }
+    },
+    "runner.proxy_ca_statement_refused": {
+      "message": "The caching proxy at {cacheHost} serves the CA with sha256 {fetched} with a statement this host does not accept ({reason}), so that CA is not trusted.",
+      "description": "Write-Warning from Write-YurunaProxyCaRefusal in test/modules/Test.CachingProxyService.psm1. reason is one of the stable tokens statement-invalid, statement-key-not-enrolled, statement-ca-mismatch or not-a-certificate and stays untranslated.",
+      "lifecycle": "active",
+      "placeholders": {
+        "cacheHost": {
+          "type": "identifier",
+          "trust": "external",
+          "example": "192.168.7.20"
+        },
+        "fetched": {
+          "type": "identifier",
+          "trust": "external",
+          "example": "5abd3f08"
+        },
+        "reason": {
+          "type": "token",
+          "trust": "internal",
+          "example": "statement-key-not-enrolled"
+        }
+      }
     }
   }
 }

@@ -395,8 +395,8 @@ func TestRefreshCarriesBothProofsToTheHost(t *testing.T) {
 	}
 	legacy := hdr.Get("X-Yuruna-Control")
 	dot := strings.IndexByte(legacy, '.')
-	if dot <= 0 || hostctl.Proof(testBearer, mustInt(t, legacy[:dot])) != legacy || hdr.Get("X-Yuruna") != "1" {
-		t.Fatalf("the legacy transport proof is wrong: %q", legacy)
+	if dot <= 0 || hostctl.ProofFor(testBearer, rfHost, mustInt(t, legacy[:dot])) != legacy || hdr.Get("X-Yuruna") != "1" {
+		t.Fatalf("the control proof is not bound to the target host: %q", legacy)
 	}
 	if hdr.Get(hostrefresh.CredentialHeader) != "" || hdr.Get("Authorization") != "" {
 		t.Fatal("the operator's credentials were forwarded to the host")
@@ -792,7 +792,7 @@ func TestRefreshFailureTokens(t *testing.T) {
 	// Without the internal key and without an aggregator to ask, the error
 	// keeps its operator text for the pool-wide route and names its token.
 	s := New(ctlConfiguration(rfHost), Options{AuthTokenFile: "/etc/yuruna/token-file-marker"})
-	_, err = s.controlProof(context.Background(), []string{rfHost}, map[string]string{})
+	_, err = s.controlProofs(context.Background(), []string{rfHost}, map[string]string{}, "")
 	if err == nil || !strings.Contains(err.Error(), "token-file-marker") {
 		t.Fatalf("controlProof error text: %v", err)
 	}

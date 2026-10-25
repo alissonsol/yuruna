@@ -104,6 +104,16 @@ for OpenTofu. The resource writer removes its obsolete `terraform.tfvars` file;
 quotes, backslashes, newlines, and Unicode survive serialization. Workload helpers
 restore the caller's working directory even when a tool or log write throws.
 
+Deployment secrets are published to the environment and expanded into tool command
+strings, so every phase logs through one redaction rule: `Protect-YurunaSecretText`
+in `automation/Yuruna.Retry.psm1` replaces the value of every environment variable
+whose name contains password, passwd, passphrase, secret, token, credential, api key,
+private key or access key with `<redacted>`. It covers the retry log headers and
+captured output, the retry events, the console lines and the result manifest of the
+workload and component phases. Values shorter than four characters and the literals
+true, false, null, none, yes and no are left alone. The standalone system diagnostic
+applies the same name rule to the tool logs it prints.
+
 The test coordinator and workers select the highest installed Pester 6.x version.
 A host without a 6.x copy is rejected before running suites; the baseline
 records the Pester version of the full run that produced it. UTF-8 directory
@@ -298,6 +308,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.22
+Last review: 2026.10.25
 
 Back to [Yuruna](../README.md)

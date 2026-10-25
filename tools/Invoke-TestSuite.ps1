@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.22
+.VERSION 2026.10.25
 .GUID 42859ca6-4a84-417f-b9e8-f2a3a4dd84a5
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -94,9 +94,11 @@
 .PARAMETER Filter
     Wildcard applied to the suite file's base name, e.g. 'Test.Pool*'.
 .PARAMETER ThrottleLimit
-    Concurrent suite processes. Default: half the logical processors, at least 8
-    and at most 16. Past 16 the longest suite slows under the load faster than
-    the extra workers finish the rest, so the run takes longer, not less.
+    Concurrent suite processes. Default: three quarters of the logical
+    processors, at least 8 and at most 24. Suites spend much of their time
+    waiting on child processes, timers and the disk, so fewer workers leave
+    processors idle; past this the processors are saturated and the longest
+    suites slow down faster than the extra workers finish the rest.
 .PARAMETER TimeoutSeconds
     Per-suite wall-clock limit before the process is killed. Default 300, added
     to the suite's recorded cost. A baseline row's `timeoutSeconds` raises the
@@ -168,7 +170,7 @@ param(
     [string]$Root,
     [string[]]$Path = @('test/modules', 'host/modules'),
     [string]$Filter,
-    [int]$ThrottleLimit = [Math]::Clamp([int][Math]::Floor([Environment]::ProcessorCount / 2), 8, 16),
+    [int]$ThrottleLimit = [Math]::Clamp([int][Math]::Floor([Environment]::ProcessorCount * 3 / 4), 8, 24),
     [int]$TimeoutSeconds = 300,
     [string]$ResultsPath,
     [string]$BaselinePath,
@@ -392,7 +394,7 @@ function Assert-SuiteBaselineRefresh {
 # files and the environment. The environment leaves out the variables the
 # runner sets for each suite and the ones that only name a process, session,
 # socket or token, which differ in every shell and that no suite branches on.
-$script:ImpactVolatileVariable = '^(_|PWD|OLDPWD|SHLVL|COLUMNS|LINES|TMPDIR|TMP|TEMP|YURUNA_TEST_TEMP_ROOT|DOTNET_EnableDiagnostics|' +
+$script:ImpactVolatileVariable = '^(_|PWD|OLDPWD|SHLVL|COLUMNS|LINES|TMPDIR|TMP|TEMP|YURUNA_TEST_TEMP_ROOT|DOTNET_EnableDiagnostics|DOTNET_MultiCoreJitProfile|' +
     'CLAUDE_PID|CLAUDE_CODE_SESSION_ID|CLAUDE_CODE_MESSAGING_SOCKET|CLAUDE_CODE_MESSAGING_TOKEN|CLAUDE_CODE_SSE_PORT|' +
     'VSCODE_PID|VSCODE_IPC_HOOK.*|VSCODE_GIT_IPC_HANDLE|GIO_LAUNCHED_DESKTOP_FILE_PID|INVOCATION_ID|JOURNAL_STREAM|MANAGERPID|' +
     'SYSTEMD_EXEC_PID|SSH_AUTH_SOCK|SSH_AGENT_PID|GPG_AGENT_INFO|DBUS_SESSION_BUS_ADDRESS|SESSION_MANAGER|XAUTHORITY|WINDOWID|' +
@@ -429,15 +431,20 @@ function Get-SuiteImpactSetting {
     param([Parameter(Mandatory)][string]$Root, [Parameter(Mandatory)][string]$ToolDirectory, [Parameter(Mandatory)][string]$PesterVersion,
         [switch]$Reuse, [switch]$Record)
     $setting = @{ Reuse = $false; Record = $false; Note = $null; ImpactRoot = $null; Cache = $null }
+    # Full runs still take a foreground lease so background recording yields.
+    try {
+        $commonDirectory = git -C $Root rev-parse --path-format=absolute --git-common-dir 2>$null
+        if ($LASTEXITCODE -eq 0 -and $commonDirectory) {
+            $setting.ImpactRoot = Join-Path ([string]$commonDirectory) 'yuruna/test-impact'
+        }
+    } catch { $setting.ImpactRoot = $null }
     if (-not ($Reuse -or $Record)) { return $setting }
     $tool = Join-Path $ToolDirectory 'suite_impact.py'
     if (-not $IsLinux) { $setting.Note = 'recorded passes need strace, which runs only on Linux'; return $setting }
     if (-not (Test-Path -LiteralPath $tool)) { $setting.Note = "recorded passes need $tool"; return $setting }
     $python = Get-Command python3 -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
     if (-not $python) { $setting.Note = 'recorded passes need python3'; return $setting }
-    $commonDirectory = git -C $Root rev-parse --path-format=absolute --git-common-dir 2>$null
-    if ($LASTEXITCODE -ne 0 -or -not $commonDirectory) { $setting.Note = 'recorded passes need a Git work tree to keep them in'; return $setting }
-    $setting.ImpactRoot = Join-Path ([string]$commonDirectory) 'yuruna/test-impact'
+    if (-not $setting.ImpactRoot) { $setting.Note = 'recorded passes need a Git work tree to keep them in'; return $setting }
     # Worktrees share one Git directory; each root keeps records of its own.
     $rootKey = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData([Text.Encoding]::UTF8.GetBytes($Root))).Substring(0, 16).ToLowerInvariant()
     $setting.Cache = Join-Path $setting.ImpactRoot $rootKey
@@ -852,6 +859,10 @@ try {
             $psi.WorkingDirectory       = $root
             foreach ($name in 'TMPDIR', 'TMP', 'TEMP', 'YURUNA_TEST_TEMP_ROOT') { $psi.Environment[$name] = $suiteTemp }
             $psi.Environment['DOTNET_EnableDiagnostics'] = '0'
+            # .NET's startup JIT profile is shared by concurrent pwsh processes.
+            # Disable both playback and recording before startup, including in
+            # nested shells: https://github.com/dotnet/runtime/issues/121977.
+            $psi.Environment['DOTNET_MultiCoreJitProfile'] = '(D)'
             # NonInteractive is process-local; every nested launcher must set it so
             # an unexpected host prompt fails instead of waiting on the operator.
             foreach ($a in @('-NoProfile', '-NonInteractive', '-File', $shim, '-Suite', (Join-Path $root $rel), '-Xml', $xml)) {

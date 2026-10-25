@@ -1,7 +1,7 @@
 /*
   LICENSEURI https://yuruna.link/license
   Copyright (c) 2019-2026 by Alisson Sol et al.
-  Version: 2026.10.22
+  Version: 2026.10.25
   See https://yuruna.link/42fa6f45-0018
   See https://yuruna.link/42fa6f45-001d
   See https://yuruna.link/42fa6f45-0019
@@ -479,6 +479,8 @@ button {
 #banner.fail    { background: var(--banner-fail-bg); color: var(--fg-header); }
 #banner.preflight-failed { background: #eab308; color: #1c1917; }
 #banner.preflight-failed a, #banner.preflight-failed #banner-dash-noproxy { color: inherit; }
+#banner.degraded { background: #eab308; color: #1c1917; }
+#banner.degraded a, #banner.degraded #banner-dash-noproxy { color: inherit; }
 #banner.paused  { background: var(--banner-paused-bg); color: var(--fg-header); }
 #banner.stopped { background: var(--banner-stopped-bg); color: var(--fg-header); }
 #banner .dot {

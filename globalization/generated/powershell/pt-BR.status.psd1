@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.22
+.VERSION 2026.10.25
 .GUID 4253ddeb-5580-1ecb-1ae9-590969e1bd2e
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -146,6 +146,7 @@
     'status.api_forbidden_deny_list_1c7d1cfa' = 'Proibido (lista de recusa)'
     'status.api_forbidden_directory_listing_disabled_5d107f5b' = 'Proibido (a listagem do diretório está desactivada)'
     'status.api_forbidden_missing_x_yuruna_request_header_cross_site_r_c47c4ea5' = 'proibido: faltando o cabeçalho de solicitação X-Yuruna (guarda de requisição entre locais)'
+    'status.api_forbidden_not_served' = 'Proibido (não é um arquivo servido)'
     'status.api_forbidden_probe_target_must_be_a_private_loopback_rfc1_2c763dac' = 'proibido: o alvo da sonda deve ser um endereço privado (loopback/RFC1918/link-local) ou o IP de cache configurado'
     'status.api_host_refresh_authorization_refused' = @(
         'autorização de atualização recusada ('
@@ -299,7 +300,17 @@
     'status.banner_incident_details' = 'Incidente detectado — ver detalhes abaixo'
     'status.banner_pass' = 'Todos os convidados operacionais'
     'status.banner_running' = 'Teste em curso'
+    'status.banner_stalled' = @(
+        'Teste em andamento, mas nenhuma etapa avançou dentro do limite de '
+        @{
+            'arg' = 'boundSeconds'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        ' s'
+    )
     'status.banner_stopped' = 'O corredor de teste parou'
+    'status.banner_unguarded' = 'Teste em andamento sem o watchdog de etapas; o executor limita este ciclo em seu lugar'
     'status.cache_caching_proxy_service_306beb37' = 'Serviço de cache-proxy:'
     'status.cache_caching_proxy_service_configured_at_address_not_answer_df71d10d' = @(
         'Serviço de cache-proxy: configurado no '

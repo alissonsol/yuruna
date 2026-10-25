@@ -3,17 +3,12 @@
   "recordedUtc": "2026-10-21T13:44:45.0925658Z",
   "pesterVersion": "6.2.0",
   "totals": {
-    "suites": 423,
-    "tests": 10629,
+    "suites": 432,
+    "tests": 10709,
     "failed": 0,
     "skipped": 36
   },
   "suites": {
-    "host/modules/Yuruna.CachingProxySeed.Tests.ps1": {
-      "total": 9,
-      "skipped": 0,
-      "seconds": 1.63
-    },
     "host/modules/Yuruna.GuestBootstrap.Tests.ps1": {
       "total": 11,
       "skipped": 0,
@@ -38,6 +33,11 @@
       "total": 22,
       "skipped": 0,
       "seconds": 6.37
+    },
+    "host/modules/Yuruna.SeedMedia.Tests.ps1": {
+      "total": 9,
+      "skipped": 0,
+      "seconds": 1.63
     },
     "host/modules/Yuruna.TransferLifetime.Tests.ps1": {
       "total": 5,
@@ -165,9 +165,19 @@
       "seconds": 2.18
     },
     "test/modules/Test.CatalogCompiler.Tests.ps1": {
-      "total": 61,
+      "total": 31,
       "skipped": 0,
-      "seconds": 115.88
+      "seconds": 41.24
+    },
+    "test/modules/Test.CatalogCompilerLocale.Tests.ps1": {
+      "total": 13,
+      "skipped": 0,
+      "seconds": 45.75
+    },
+    "test/modules/Test.CatalogCompilerOutput.Tests.ps1": {
+      "total": 17,
+      "skipped": 0,
+      "seconds": 35.98
     },
     "test/modules/Test.CatalogTriage.Tests.ps1": {
       "total": 16,
@@ -553,9 +563,21 @@
       "seconds": 11.32
     },
     "test/modules/Test.GlobalizationGates.Tests.ps1": {
-      "total": 75,
+      "total": 64,
       "skipped": 0,
-      "seconds": 253.92,
+      "seconds": 40.2,
+      "timeoutSeconds": 1800
+    },
+    "test/modules/Test.GlobalizationGatesArtifacts.Tests.ps1": {
+      "total": 8,
+      "skipped": 0,
+      "seconds": 49.75,
+      "timeoutSeconds": 1800
+    },
+    "test/modules/Test.GlobalizationGatesProduct.Tests.ps1": {
+      "total": 3,
+      "skipped": 0,
+      "seconds": 46.36,
       "timeoutSeconds": 1800
     },
     "test/modules/Test.GuestAddressChurn.Tests.ps1": {
@@ -1205,6 +1227,11 @@
       "skipped": 0,
       "seconds": 6.92
     },
+    "test/modules/Test.NasCredential.Tests.ps1": {
+      "total": 18,
+      "skipped": 0,
+      "seconds": 1.64
+    },
     "test/modules/Test.NonzeroExitSentinel.Tests.ps1": {
       "total": 8,
       "skipped": 0,
@@ -1651,6 +1678,11 @@
         "linux": 1
       }
     },
+    "test/modules/Test.RunnerSelfRescue.Tests.ps1": {
+      "total": 24,
+      "skipped": 0,
+      "seconds": 7.7
+    },
     "test/modules/Test.RunnerState.Tests.ps1": {
       "total": 46,
       "skipped": 0,
@@ -1695,6 +1727,11 @@
         "windows": 0,
         "macos": 2
       }
+    },
+    "test/modules/Test.SecretRedaction.Tests.ps1": {
+      "total": 5,
+      "skipped": 0,
+      "seconds": 2.27
     },
     "test/modules/Test.SequenceActionFailureLabel.Tests.ps1": {
       "total": 5,
@@ -1780,6 +1817,11 @@
       "total": 22,
       "skipped": 0,
       "seconds": 3.37
+    },
+    "test/modules/Test.ServiceVmIntegrity.Tests.ps1": {
+      "total": 22,
+      "skipped": 0,
+      "seconds": 6.4
     },
     "test/modules/Test.ServiceVmPolicy.Tests.ps1": {
       "total": 41,
@@ -2123,6 +2165,11 @@
       "skipped": 0,
       "seconds": 2.77
     },
+    "test/modules/Test.VMStorageReference.Tests.ps1": {
+      "total": 11,
+      "skipped": 0,
+      "seconds": 3.33
+    },
     "test/modules/Test.VncDisplay.Tests.ps1": {
       "total": 14,
       "skipped": 6,
@@ -2220,6 +2267,42 @@
       "tests": 10,
       "sourceSha256": {
         "test/modules/Test.SuiteImpact.Tests.ps1": "FA8B21A533681884D16EC8B2FDFC87903D84A85C6D340D50D1274B655A2EB4AD"
+      }
+    },
+    {
+      "registeredUtc": "2026-10-22T15:58:14.625863Z",
+      "pesterVersion": "6.2.0",
+      "suites": [
+        "test/modules/Test.CatalogCompilerLocale.Tests.ps1",
+        "test/modules/Test.CatalogCompilerOutput.Tests.ps1",
+        "test/modules/Test.GlobalizationGatesArtifacts.Tests.ps1",
+        "test/modules/Test.GlobalizationGatesProduct.Tests.ps1"
+      ],
+      "tests": 41,
+      "sourceSha256": {
+        "test/modules/Test.CatalogCompilerLocale.Tests.ps1": "0C28672CD46AEC70A239A8D00C351BB392061501AD3A78EABC97526B1941DE69",
+        "test/modules/Test.CatalogCompilerOutput.Tests.ps1": "944830DC2A8D209A860A206ABD72B61A931E09396ACF4B1FFE9616A9BC77D9CA",
+        "test/modules/Test.GlobalizationGatesArtifacts.Tests.ps1": "35274C7B14F9979ACD0FBAB3C4E7660F714247D04D395C6452C622A04743A751",
+        "test/modules/Test.GlobalizationGatesProduct.Tests.ps1": "71CF88E7C08F104D9EBC1A869EFD1C6A178431D783B9418F0290BE1ED0C8C919"
+      }
+    },
+    {
+      "registeredUtc": "2026-10-24T19:40:43.7972210Z",
+      "pesterVersion": "6.2.0",
+      "suites": [
+        "test/modules/Test.NasCredential.Tests.ps1",
+        "test/modules/Test.RunnerSelfRescue.Tests.ps1",
+        "test/modules/Test.SecretRedaction.Tests.ps1",
+        "test/modules/Test.ServiceVmIntegrity.Tests.ps1",
+        "test/modules/Test.VMStorageReference.Tests.ps1"
+      ],
+      "tests": 80,
+      "sourceSha256": {
+        "test/modules/Test.NasCredential.Tests.ps1": "B52CA4F09A0A009785F225FF2F04A55C18F5D5312C7B956607C7ECCFD7180ACE",
+        "test/modules/Test.RunnerSelfRescue.Tests.ps1": "5136FF738A73CFB4948CAB589885DA3FA4933027AE355DECE1A33290EC230DEF",
+        "test/modules/Test.SecretRedaction.Tests.ps1": "E2125E4664EC1ADA19A8A635404F018A7BDC23B6F745647CB36DAE15AF06F5A5",
+        "test/modules/Test.ServiceVmIntegrity.Tests.ps1": "D97AC89ABA0ECBF6724A35568C1E67F2FCFF1BB6DA5CBE3EBE74C2526D2B408F",
+        "test/modules/Test.VMStorageReference.Tests.ps1": "E63B122EF46DC57E19374760B7B86023BC7FFE93242AF7C5AA2E41BB0543ACB1"
       }
     }
   ]

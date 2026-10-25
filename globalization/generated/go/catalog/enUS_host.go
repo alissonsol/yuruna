@@ -29,6 +29,21 @@ const DataenUShost = `{
     },
     " seconds; the feature state is unknown."
   ],
+  "host.hyperv_rename_destination_dir_occupied": [
+    "Cannot rename to '",
+    {
+      "arg": "newName",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "': the directory ",
+    {
+      "arg": "newDir",
+      "type": "detail",
+      "trust": "external"
+    },
+    " already holds files, and moving storage into it would fail after the rename and leave it half done."
+  ],
   "host.hyperv_rename_source_not_stopped": [
     "Rename-VM: '",
     {
@@ -112,6 +127,21 @@ const DataenUShost = `{
       "trust": "internal"
     },
     "'; install a sudoers rule for /bin/kill or stop the domain by hand."
+  ],
+  "host.kvm_rename_destination_dir_exists": [
+    "Cannot rename to '",
+    {
+      "arg": "newName",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "': the directory ",
+    {
+      "arg": "newDir",
+      "type": "detail",
+      "trust": "external"
+    },
+    " already exists, and moving storage into it could overwrite disks."
   ],
   "host.kvm_rename_source_not_stopped": [
     "Rename-VM: '",
@@ -8601,6 +8631,27 @@ const DataenUShost = `{
     },
     " seconds, so the UTM registrations are unknown; nothing was deleted. Run this again once UTM answers."
   ],
+  "host.proxy_ca_refused_build": [
+    "Did not build '",
+    {
+      "arg": "vMName",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "': the caching proxy at ",
+    {
+      "arg": "cacheHost",
+      "type": "identifier",
+      "trust": "external"
+    },
+    " serves a CA this host does not trust (",
+    {
+      "arg": "reason",
+      "type": "token",
+      "trust": "internal"
+    },
+    "). The guest is not seeded around it, and the failure is classified source_integrity."
+  ],
   "host.rename_vm_inventory_unavailable": [
     "Rename-VM: the running VM list could not be read (",
     {
@@ -9112,6 +9163,112 @@ const DataenUShost = `{
       "trust": "internal"
     },
     "s and was stopped; its effect is unknown until the VM state is read again."
+  ],
+  "host.vm_build_storage_in_use": [
+    "Did not rebuild '",
+    {
+      "arg": "vMName",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "': ",
+    {
+      "arg": "vmDir",
+      "type": "detail",
+      "trust": "external"
+    },
+    " still holds disks that another virtual machine uses, or their use could not be read. Nothing in it was changed."
+  ],
+  "host.vm_storage_delete_refused": [
+    "Kept ",
+    {
+      "arg": "vmDir",
+      "type": "detail",
+      "trust": "external"
+    },
+    ": it still holds disks that a registered virtual machine uses (",
+    {
+      "arg": "owners",
+      "type": "detail",
+      "trust": "external"
+    },
+    ")."
+  ],
+  "host.vm_storage_reconcile_action": "Finish the renames that an interrupted snapshot promotion left half done",
+  "host.vm_storage_reference_unknown": [
+    "Kept ",
+    {
+      "arg": "vmDir",
+      "type": "detail",
+      "trust": "external"
+    },
+    ": could not read which virtual machines use disks in it (",
+    {
+      "arg": "message",
+      "type": "detail",
+      "trust": "external"
+    },
+    ")."
+  ],
+  "host.vm_storage_relocate_action": [
+    "Move the storage left under '",
+    {
+      "arg": "fromName",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "' to this virtual machine's own name"
+  ],
+  "host.vm_storage_relocated": [
+    "Finished an interrupted rename: the storage of '",
+    {
+      "arg": "vMName",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "' moved out of the directory of '",
+    {
+      "arg": "fromName",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "'."
+  ],
+  "host.vm_storage_relocation_failed": [
+    "Could not move the storage of '",
+    {
+      "arg": "vMName",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "' out of the directory of '",
+    {
+      "arg": "fromName",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "': ",
+    {
+      "arg": "reason",
+      "type": "detail",
+      "trust": "external"
+    },
+    "."
+  ],
+  "host.vm_storage_repair_unknown": [
+    "Could not check whether '",
+    {
+      "arg": "vMName",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "' still has storage under another name (",
+    {
+      "arg": "message",
+      "type": "detail",
+      "trust": "external"
+    },
+    "); its storage was left as it is, and the next cycle checks again."
   ],
   "host.windows_installer_boot_key_timeout": [
     "VM '",

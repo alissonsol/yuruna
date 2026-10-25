@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.22
+.VERSION 2026.10.25
 .GUID 42f463f6-e84a-4c17-b6df-5f7f46b59e05
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -167,7 +167,7 @@ Describe 'Installer evidence privilege and read states' {
         $prefixLog=Join-Path $TestDrive 'privilege.calls'
         [IO.File]::WriteAllText($prefix, 'printf "called\n" >> "'+$prefixLog+'"'+"`n"+'exec "$@"'+"`n")
         $module=New-Module -ScriptBlock ([scriptblock]::Create(
-            (Get-ObservationFunction $script:diagnosticAst 'Invoke-PrivProbe')+"`n"+(Get-ObservationFunction $script:diagnosticAst 'Read-LinuxDiagnosticFile')))
+            (Get-ObservationFunction $script:diagnosticAst 'Invoke-PrivProbe')+"`n"+(Get-ObservationFunction $script:diagnosticAst 'Protect-DiagnosticSecretText')+"`n"+(Get-ObservationFunction $script:diagnosticAst 'Read-LinuxDiagnosticFile')))
         & $module {param($p) $script:LinuxPriv=@('bash',$p)} $prefix
         $file=Join-Path $TestDrive 'curtin-install.log'
         [IO.File]::WriteAllText($file,"Retrying package download`nGH_TOKEN=fixture-seed-token")

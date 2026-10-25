@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.22
+.VERSION 2026.10.25
 .GUID 421b43ea-86ef-4745-ba78-cc02250870e2
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -429,19 +429,39 @@ rm -rf "$d"
     ) {
         param($Shell)
         if (-not $script:bash) { Set-ItResult -Skipped -Because 'bash is not available on this host'; return }
+        if (-not (Get-Command openssl -ErrorAction SilentlyContinue)) { Set-ItResult -Skipped -Because 'openssl is not available on this host'; return }
         # A stale bump CA is the only cert failure a retry can survive, and only
         # after the anchor has actually been replaced. The stub stands in for the
         # trust store: TRUSTED tracks what a spider probe would see, and the
-        # stubbed trust refresh flips it only when the served CA matches.
+        # stubbed trust refresh flips it only when the served CA matches. The
+        # served CA is a real certificate whose fingerprint the seed names, so
+        # the pin check runs as it does on a guest.
+        $rsa = [Security.Cryptography.RSA]::Create(2048)
+        try {
+            $request = [Security.Cryptography.X509Certificates.CertificateRequest]::new(
+                'CN=retry-lib fixture CA', $rsa, [Security.Cryptography.HashAlgorithmName]::SHA256,
+                [Security.Cryptography.RSASignaturePadding]::Pkcs1)
+            $certificate = $request.CreateSelfSigned([DateTimeOffset]::UtcNow.AddMinutes(-5), [DateTimeOffset]::UtcNow.AddDays(1))
+        } finally { $rsa.Dispose() }
+        $caPem = $certificate.ExportCertificatePem()
+        $caSha = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($certificate.RawData)).ToLowerInvariant()
+        $certificate.Dispose()
         $driver = @'
 
 r=""
 TRUSTED=no; CA_SERVED=yes; HEAL_WORKS=yes
+CA_PEM=$(mktemp)
+cat > "$CA_PEM" <<'FIXTURE_PEM'
+__CA_PEM__
+FIXTURE_PEM
+YURUNA_CA_SHA256=__CA_SHA__
+YURUNA_CA_ANCHOR_FILE="$CA_PEM.anchor"
+YURUNA_HOST_ENV_FILE="$CA_PEM.host.env"
 wget() {
   case "$*" in
     *--spider*) [ "$TRUSTED" = yes ] && return 0 || return 1 ;;
     *ca.crt*)   [ "$CA_SERVED" = yes ] || return 1
-                prev=""; for a in "$@"; do [ "$prev" = "-qO" ] && echo "-----BEGIN CERTIFICATE-----" > "$a"; prev="$a"; done
+                prev=""; for a in "$@"; do [ "$prev" = "-qO" ] && cp "$CA_PEM" "$a"; prev="$a"; done
                 return 0 ;;
   esac; return 1
 }
@@ -475,13 +495,24 @@ yuruna_ca_selfheal >/dev/null 2>&1; r="$r$? "                       # 2
 # the ladder stops on the first attempt once the anchor cannot be repaired
 _c60() { return 60; }
 a=$(YURUNA_RETRY_CLASSIFY=_yuruna_classify_curl YURUNA_RETRY_MAX_ATTEMPTS=5 YURUNA_RETRY_DELAY_SECONDS=1 _yuruna_retry t _c60 2>&1 | grep -c 'attempt .* failed')
-r="$r$a"
+r="$r$a "
+# a served CA that is not the one the seed names -> never installed
+TRUSTED=no; CA_SERVED=yes; HEAL_WORKS=yes
+YURUNA_CA_SHA256=0000000000000000000000000000000000000000000000000000000000000000
+yuruna_ca_selfheal >/dev/null 2>&1; r="$r$? "                       # 2
+[ "$TRUSTED" = no ] && r="${r}untouched " || r="${r}refreshed "     # untouched
+# no fingerprint in host.env -> nothing fetched over HTTP becomes an anchor
+YURUNA_CA_SHA256=""
+yuruna_ca_selfheal >/dev/null 2>&1; r="$r$? "                       # 2
+[ "$TRUSTED" = no ] && r="${r}untouched" || r="${r}refreshed"       # untouched
+rm -f "$CA_PEM"
 echo "$r"
 '@
+        $driver = $driver.Replace('__CA_PEM__', $caPem.Trim()).Replace('__CA_SHA__', $caSha)
         if ($Shell -eq 'child') {
             $driver = "bash <<'YURUNA_CHILD_BASH'`n" + $driver + "`nYURUNA_CHILD_BASH`n"
         }
         $out = Invoke-RetryLibDriver -Driver $driver
-        Assert-StringEqual -Actual $out -Expected '1 1 1 1 0 0 0 2 1 2 1' -Because "cert-failure re-anchor result was: '$out'"
+        Assert-StringEqual -Actual $out -Expected '1 1 1 1 0 0 0 2 1 2 1 2 untouched 2 untouched' -Because "cert-failure re-anchor result was: '$out'"
     }
 }

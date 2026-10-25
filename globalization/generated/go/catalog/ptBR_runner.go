@@ -43,6 +43,17 @@ const DataptBRrunner = `{
     },
     " registros do runner que não pôde provar que estavam obsoletos."
   ],
+  "runner.bump_ca_create_action": "Criar a CA de ssl-bump do proxy de cache que este hospedeiro mantém entre reconstruções do proxy",
+  "runner.bump_ca_unavailable": "Nenhuma CA de ssl-bump do proxy de cache pôde ser lida ou criada no estado privado deste hospedeiro; o proxy não é construído sem ela.",
+  "runner.bump_ca_unreadable": [
+    "A CA do proxy de cache guardada em ",
+    {
+      "arg": "path",
+      "type": "detail",
+      "trust": "external"
+    },
+    " não pode ser lida; nenhuma CA é incluída na semente até que seja reparada ou removida."
+  ],
   "runner.config_gate_attempt_failed": [
     "A tentativa do executor terminou com código ",
     {
@@ -82,6 +93,54 @@ const DataptBRrunner = `{
     ". A sobreposição do modelo deve manter todos os valores que você definiu, portanto esta substituição é um defeito na sobreposição, não uma mudança de esquema; restaure o valor anterior manualmente se não foi intencional e relate o defeito."
   ],
   "runner.critical_record_replace": "Substituir um registro crítico privado",
+  "runner.cycle_ceiling_reached": [
+    "[ciclo externo ",
+    {
+      "arg": "cycle",
+      "type": "integer",
+      "trust": "internal"
+    },
+    "] o processo de ciclo ",
+    {
+      "arg": "id",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " atingiu testCycle.maxCycleSeconds (",
+    {
+      "arg": "ceilingSeconds",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " s) e foi encerrado com sua árvore de processos."
+  ],
+  "runner.cycle_ceiling_scaled": [
+    "[ciclo externo ",
+    {
+      "arg": "cycle",
+      "type": "integer",
+      "trust": "internal"
+    },
+    "] o ciclo planeja ",
+    {
+      "arg": "count",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " execução(ões); seu teto sobe de testCycle.maxCycleSeconds (",
+    {
+      "arg": "configuredSeconds",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " s) para ",
+    {
+      "arg": "ceilingSeconds",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " s, dois tempos limite de etapa por execução."
+  ],
   "runner.cycle_outcome_rejected_kept": [
     "[ciclo externo ",
     {
@@ -290,6 +349,55 @@ const DataptBRrunner = `{
       "trust": "external"
     },
     " caracteres após o empacotamento; o Windows não consegue iniciá-lo. A execução no convidado não foi iniciada."
+  ],
+  "runner.framework_health_write_action": "Registrar se o framework produziu um resultado de ciclo",
+  "runner.framework_rescue_action": "Atualizar o framework a partir do executor residente",
+  "runner.framework_rescue_due": [
+    "O processo de ciclo terminou sem resultado ",
+    {
+      "arg": "streak",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " vezes seguidas (",
+    {
+      "arg": "outcome",
+      "type": "token",
+      "trust": "internal"
+    },
+    ") no commit ",
+    {
+      "arg": "sha",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    " do framework; o último commit que produziu resultado é ",
+    {
+      "arg": "lastGoodSha",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    ". O executor residente atualiza o framework por conta própria."
+  ],
+  "runner.framework_rescue_result": [
+    "Atualização do framework pelo executor residente: ",
+    {
+      "arg": "result",
+      "type": "token",
+      "trust": "internal"
+    },
+    "; o commit do framework agora é ",
+    {
+      "arg": "sha",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    ". ",
+    {
+      "arg": "detail",
+      "type": "detail",
+      "trust": "external"
+    }
   ],
   "runner.gate_evidence_save_failed": [
     "Não foi possível salvar as evidências da verificação de configuração: ",
@@ -1841,6 +1949,21 @@ const DataptBRrunner = `{
       "type": "detail",
       "trust": "internal"
     }
+  ],
+  "runner.max_cycle_seconds_invalid": [
+    "testCycle.maxCycleSeconds é '",
+    {
+      "arg": "v",
+      "type": "detail",
+      "trust": "external"
+    },
+    "', que não é um número -- usando ",
+    {
+      "arg": "defaultSeconds",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " s."
   ],
   "runner.mb985d466db": [
     "stopVm: forçando o desligamento de '",
@@ -22358,6 +22481,62 @@ const DataptBRrunner = `{
       "trust": "external"
     }
   ],
+  "runner.outer_loop_exception": [
+    "O laço do executor residente parou em uma ",
+    {
+      "arg": "type",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    " inesperada em ",
+    {
+      "arg": "location",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    ": ",
+    {
+      "arg": "message",
+      "type": "detail",
+      "trust": "external"
+    },
+    ". Ocorrência ",
+    {
+      "arg": "streak",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " em uma hora; o laço reinicia em ",
+    {
+      "arg": "holdSeconds",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " s."
+  ],
+  "runner.outer_loop_orphan_stopped": [
+    "O processo de ciclo ",
+    {
+      "arg": "id",
+      "type": "integer",
+      "trust": "internal"
+    },
+    ", que o laço interrompido do executor deixou em execução, foi encerrado."
+  ],
+  "runner.outer_poll_failed": [
+    "Uma consulta ",
+    {
+      "arg": "probe",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    " do executor residente falhou e foi tratada como sem resposta: ",
+    {
+      "arg": "message",
+      "type": "detail",
+      "trust": "external"
+    }
+  ],
   "runner.pool_configuration_library_removed": "test-sets.yml removido do repositório de configuração; nada o lê.",
   "runner.pool_configuration_schema_already_current": [
     "A configuração do grupo já está em schemaVersion ",
@@ -22492,6 +22671,63 @@ const DataptBRrunner = `{
       "trust": "internal"
     },
     "."
+  ],
+  "runner.proxy_ca_pin_mismatch": [
+    "O proxy de cache em ",
+    {
+      "arg": "cacheHost",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    " serve a CA com sha256 ",
+    {
+      "arg": "fetched",
+      "type": "identifier",
+      "trust": "external"
+    },
+    ", mas este hospedeiro confia em ",
+    {
+      "arg": "expected",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    " para ele; a CA confiável é mantida. Mantenha a fixação. No hospedeiro que cria o proxy, execute Start-CachingProxyServiceVM.ps1 -ForceRebuild -RepairPoolCaTrust para registrar sua chave de assinatura verificada por meio do controle autenticado dos hospedeiros. Um hospedeiro sem uma chave registrada não pode verificar uma rotação de CA."
+  ],
+  "runner.proxy_ca_statement_absent": [
+    "O proxy de cache em ",
+    {
+      "arg": "cacheHost",
+      "type": "identifier",
+      "trust": "external"
+    },
+    " serve a CA com sha256 ",
+    {
+      "arg": "fetched",
+      "type": "identifier",
+      "trust": "external"
+    },
+    " sem uma declaração assinada, e este hospedeiro registra as chaves de verificação de espelho do laboratório, então não confia no primeiro uso de uma CA que não fixou. Reconstrua o proxy de cache no hospedeiro que é dono dele; esse proxy então serve yuruna-squid-ca.sig.json."
+  ],
+  "runner.proxy_ca_statement_refused": [
+    "O proxy de cache em ",
+    {
+      "arg": "cacheHost",
+      "type": "identifier",
+      "trust": "external"
+    },
+    " serve a CA com sha256 ",
+    {
+      "arg": "fetched",
+      "type": "identifier",
+      "trust": "external"
+    },
+    " com uma declaração que este hospedeiro não aceita (",
+    {
+      "arg": "reason",
+      "type": "token",
+      "trust": "internal"
+    },
+    "), então essa CA não é confiável."
   ],
   "runner.readiness_ack_remove_action": "Remover uma confirmação de prontidão de atualização obsoleta",
   "runner.readiness_ack_write_action": "Gravar a confirmação de prontidão da atualização",
@@ -22904,6 +23140,66 @@ const DataptBRrunner = `{
       "type": "detail",
       "trust": "external"
     }
+  ],
+  "runner.resident_watchdog_kill_preamble": [
+    "[ciclo externo ",
+    {
+      "arg": "cycle",
+      "type": "integer",
+      "trust": "internal"
+    },
+    "] o watchdog de etapas tinha desistido e o heartbeat de etapa não se move há ",
+    {
+      "arg": "ageSeconds",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " s na fase preliminar '",
+    {
+      "arg": "phase",
+      "type": "token",
+      "trust": "internal"
+    },
+    "' (limite ",
+    {
+      "arg": "boundSeconds",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " s); o executor residente encerrou o processo de ciclo ",
+    {
+      "arg": "id",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " com sua árvore de processos."
+  ],
+  "runner.resident_watchdog_kill_step": [
+    "[ciclo externo ",
+    {
+      "arg": "cycle",
+      "type": "integer",
+      "trust": "internal"
+    },
+    "] o watchdog de etapas tinha desistido e o heartbeat de etapa não se move há ",
+    {
+      "arg": "ageSeconds",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " s (limite ",
+    {
+      "arg": "boundSeconds",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " s); o executor residente encerrou o processo de ciclo ",
+    {
+      "arg": "id",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " com sua árvore de processos."
   ],
   "runner.runner_process_signal_action": [
     "Enviar sinal a um processo de runner verificado (",
@@ -23802,6 +24098,15 @@ const DataptBRrunner = `{
       "trust": "external"
     }
   ],
+  "runner.vm_storage_reconcile_failed": [
+    "Não foi possível concluir renomeações interrompidas de máquinas virtuais no início do ciclo (",
+    {
+      "arg": "message",
+      "type": "detail",
+      "trust": "external"
+    },
+    "). O ciclo continua, as exclusões continuam verificando referências, e o próximo ciclo tenta de novo."
+  ],
   "runner.warm_resume_declined_unverified": [
     "  WARM-RESUME recusado: '",
     {
@@ -23828,6 +24133,33 @@ const DataptBRrunner = `{
       "trust": "internal"
     },
     "). A falha original permanece."
+  ],
+  "runner.watchdog_lapse_seen": [
+    "[ciclo externo ",
+    {
+      "arg": "cycle",
+      "type": "integer",
+      "trust": "internal"
+    },
+    "] o watchdog de etapas desistiu; agora o executor residente encerra este ciclo quando o heartbeat de etapa tiver mais de ",
+    {
+      "arg": "stepSeconds",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " s (",
+    {
+      "arg": "preambleSeconds",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " s antes da primeira etapa), e testCycle.maxCycleSeconds continua a limitá-lo (",
+    {
+      "arg": "ceilingSeconds",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " s, em que 0 significa sem limite)."
   ]
 }
 `

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.22
+.VERSION 2026.10.25
 .GUID 4250adff-0991-409e-81bf-56dfdf1149db
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -444,6 +444,9 @@ Describe 'Windows first-logon bootstrap transport on every host family' {
                 $vmDir = Join-Path $FixtureRoot $Family
                 $SeedDir = Join-Path $vmDir 'seed'
                 $null = New-Item -ItemType Directory -Path $SeedDir -Force
+                # The KVM builder renders into the protected workspace's source,
+                # which it opens before this code runs.
+                $autoSrc = $SeedDir
                 $AnswerFileTemplate = Join-Path $BuilderRoot "host/$Family/guest.windows.11/vmconfig/autounattend.xml"
                 $autoTemplate = $AnswerFileTemplate
                 $VMName = 'fixture-windows'
@@ -451,7 +454,7 @@ Describe 'Windows first-logon bootstrap transport on every host family' {
                 $YurunaHostId = '00000000-0000-0000-0000-000000000001'; $YurunaCacheIp = '192.0.2.20'
                 $ghSource = @{ Token = 'fixture-token'; FrameworkUrl = 'https://github.com/example/framework'; ProjectUrl = 'https://github.com/example/project' }
                 function Get-YurunaGitHubSource { param($RepoRoot) $null = $RepoRoot; @{ Token = 'fixture-token'; FrameworkUrl = 'https://github.com/example/framework'; ProjectUrl = 'https://github.com/example/project' } }
-                $null = $_utmRepoRoot, $_kvmRepoRoot, $autoTemplate, $VMName, $YurunaHostIp, $YurunaHostPort, $YurunaHostId, $YurunaCacheIp, $ghSource
+                $null = $_utmRepoRoot, $_kvmRepoRoot, $autoTemplate, $VMName, $YurunaHostIp, $YurunaHostPort, $YurunaHostId, $YurunaCacheIp, $ghSource, $autoSrc
                 . $Code
                 if ($Family -eq 'ubuntu.kvm') { $autoSrc } else { $SeedDir }
             } $seedCode $TestDrive $script:SeedRepoRoot $family

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.22
+.VERSION 2026.10.25
 .GUID 429e4813-bf0c-4e56-8d42-899a9859af6b
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -123,11 +123,15 @@ if (-not (Expand-ExtensionVmDisk -Path $vhdxFile -SizeBytes 256GB -Format 'vhdx'
 # --- REGION: Stage the cloud-init seed directory
 # meta-data is shared under host/vmconfig/ (byte-identical across all 3 host platforms).
 $hostVmConfigDir = Join-Path (Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSScriptRoot))) 'host/vmconfig'
-# New-YurunaSeedDirectory creates the folder exclusively under a random name,
-# so nothing planted at a predictable %TEMP% path is ever reused.
+# The seed carries the admin password. It is staged in a private workspace
+# beside the disk (owner, SYSTEM and Administrators only), published as an
+# image only the new VM may read, and removed on every exit by the finally below.
 Import-Module (Join-Path $PSScriptRoot '../../../automation/Yuruna.Common.psm1') -DisableNameChecking
+Import-Module (Join-Path $PSScriptRoot '../../modules/Yuruna.SeedMedia.psm1') -Force
+$seedWorkspace = $null
 try {
-    $SeedDir = New-YurunaSeedDirectory -VMName $VMName
+    $seedWorkspace = New-SeedMediaWorkspace -ParentPath $vmDir
+    $SeedDir = $seedWorkspace.Source
 
     Copy-Item -Path (Join-Path $hostVmConfigDir 'pool-control-service.meta-data') -Destination "$SeedDir/meta-data"
 
@@ -186,6 +190,10 @@ try {
     # pool-control-service.*). New-CloudInitUserData resolves placeholders with literal
     # .Replace(), so values carrying regex-special chars are safe.
     Import-Module (Join-Path $_repoRoot 'automation/Yuruna.CloudInitTemplate.psm1') -Force
+    # The NAS password is fetched by the guest over mutual TLS; the seed carries
+    # only this VM's client leaf for the host config service.
+    Import-Module (Join-Path $PSScriptRoot '../../../test/modules/Test.ConfigServiceCA.psm1') -Force
+    $configSeed = Get-YurunaConfigServiceSeedMaterial -VMName $VMName -HostId ([string]$poolNas.HostId) -Config $tc
     $UserData = New-CloudInitUserData `
         -BasePath    (Join-Path $_repoRoot 'host/vmconfig/pool-control-service.base.user-data') `
         -OverlayPath (Join-Path $_repoRoot 'host/vmconfig/pool-control-service.hyperv.overlay.yml') `
@@ -203,7 +211,10 @@ try {
             POOL_NAS_NETWORK_PATH_PLACEHOLDER  = $poolNas.NetworkPath
             POOL_NAS_NETWORK_IP_PLACEHOLDER    = $poolNas.NetworkIp
             POOL_NAS_NETWORK_USER_PLACEHOLDER  = $poolNas.NetworkUser
-            POOL_NAS_PASSWORD_PLACEHOLDER      = $poolNas.Password
+            YURUNA_CONFIG_SERVICE_PORT_PLACEHOLDER               = $configSeed.Port
+            YURUNA_CONFIG_SERVICE_CA_CERT_BASE64_PLACEHOLDER     = $configSeed.CaCertBase64
+            YURUNA_CONFIG_SERVICE_CLIENT_CERT_BASE64_PLACEHOLDER = $configSeed.ClientCertBase64
+            YURUNA_CONFIG_SERVICE_CLIENT_KEY_BASE64_PLACEHOLDER  = $configSeed.ClientKeyBase64
             POOL_NAS_HOST_ID_PLACEHOLDER       = $poolNas.HostId
         } -Confirm:$false
     Set-Content -Path "$SeedDir/user-data" -Value $UserData -NoNewline
@@ -213,7 +224,8 @@ try {
     # --- REGION: Generate cloud-init seed ISO
     $SeedIso = Join-Path $vmDir "seed.iso"
     Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_5f1478be62ab5e8d')
-    CreateIso -SourceDir $SeedDir -OutputFile $SeedIso -VolumeId "cidata"
+    CreateIso -SourceDir $SeedDir -OutputFile $seedWorkspace.Image -VolumeId "cidata"
+    Publish-SeedMediaImage -Workspace $seedWorkspace -Path $SeedIso -Confirm:$false
 
     Write-Output ""
     Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_fa53e475b2cdd39b')
@@ -225,18 +237,21 @@ try {
 
     # --- REGION: Create and configure the Hyper-V VM
     New-HyperVServiceGuest -VMName $VMName -SwitchName $switchName -DiskPath $vhdxFile -SeedPath $SeedIso -HostCores $hostCores -MemoryMb 2048 -Confirm:$false
+    $createdVm = Hyper-V\Get-VM -Name $VMName -ErrorAction Stop
+    Grant-SeedMediaVmRead -Path $SeedIso -VMId $createdVm.Id -Confirm:$false
 
     # --- REGION: Clean up temporary files
 } finally {
     # The seed holds the guest's admin credentials; it must not outlive this
     # script on any path, an early exit or a throw included.
-    Remove-Item -LiteralPath $SeedDir -Recurse -Force -ErrorAction SilentlyContinue
+    Remove-SeedMediaWorkspace -Workspace $seedWorkspace -Confirm:$false
 }
 
-# --- REGION: Start VM and wait for IP
+# --- REGION: Start the VM
 Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_44a010f47f51d941' -Arguments @{ vMName = "$VMName" })
 Hyper-V\Start-VM -Name $VMName
 
+# --- REGION: Wait for VM IP
 Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_2c8ff2df499f232c')
 Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_b93b853caa0a1c89')
 

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.22
+.VERSION 2026.10.25
 .GUID 4224d5e4-9d07-4231-afd5-1a7a005a431d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -157,113 +157,123 @@ if ($LASTEXITCODE -ne 0) {
 
 # --- REGION: Render the autounattend.xml + build a CD with it
 # Generate autounattend seed ISO (Windows Setup scans all drives for autounattend.xml)
-$SeedDir = Join-Path $downloadDir "seed_temp/$VMName"
-if (Test-Path -LiteralPath $SeedDir) { Remove-Item -LiteralPath $SeedDir -Recurse -Force }
-New-Item -ItemType Directory -Force -Path $SeedDir | Out-Null
+# The answer file and the bootstrap carry the repository token. They are staged
+# in a private (0700) workspace inside the bundle and published as an
+# owner-only image, and the finally below removes the workspace on every exit,
+# a failed build included.
+Import-Module (Join-Path $PSScriptRoot '../../modules/Yuruna.SeedMedia.psm1') -Force
+# A plaintext source an older builder left in the image directory goes first.
+Remove-Item -LiteralPath (Join-Path $downloadDir "seed_temp/$VMName") -Recurse -Force -ErrorAction SilentlyContinue
+$seedWorkspace = $null
+try {
+    $seedWorkspace = New-SeedMediaWorkspace -ParentPath $DataDir
+    $SeedDir = $seedWorkspace.Source
 
-$VmConfigDir = Join-Path $ScriptDir "vmconfig"
-$AnswerFileTemplate = Join-Path $VmConfigDir "autounattend.xml"
-if (-not (Test-Path $AnswerFileTemplate)) {
-    Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_659701d157b56883' -Arguments @{ answerFileTemplate = "$AnswerFileTemplate" })
-    exit 1
-}
-
-# --- REGION: https://yuruna.link/4220a755-002d
-# Shared NAT has a stable host gateway; bridged host addresses may need resolver repair.
-$_utmRepoRoot = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSScriptRoot))
-Import-Module (Join-Path (Split-Path -Parent $ScriptDir) 'modules/Yuruna.Host.psm1') -Force
-Import-Module (Join-Path $_utmRepoRoot 'automation/Yuruna.GitHubSource.psm1') -Force -DisableNameChecking
-Import-Module (Join-Path $_utmRepoRoot 'automation/Yuruna.GuestSeed.psm1') -Force -DisableNameChecking
-Import-Module (Join-Path $_utmRepoRoot 'test/modules/Test.Config.psm1') -Global -Force
-Import-Module (Join-Path $PSScriptRoot '../../../automation/Yuruna.Common.psm1') -Force -DisableNameChecking
-$YurunaHostIp = Get-GuestReachableHostIp -NetworkMode $NetworkMode
-if (-not $YurunaHostIp) { $YurunaHostIp = '' }
-$_statusSeed = Get-YurunaStatusServiceSeed -RepoRoot $_utmRepoRoot
-$YurunaHostPort = $_statusSeed.Port
-$ghSource = Get-YurunaGitHubSource -RepoRoot $_utmRepoRoot
-$_utmBootstrap = New-WindowsGuestBootstrap -RepoRoot $_utmRepoRoot `
-    -StatusServiceIp $YurunaHostIp -StatusServicePort $YurunaHostPort `
-    -GhToken $ghSource.Token `
-    -FrameworkUrl $ghSource.FrameworkUrl -ProjectUrl $ghSource.ProjectUrl
-
-foreach ($seedFile in $_utmBootstrap.Files.Keys) {
-    [IO.File]::WriteAllText((Join-Path $SeedDir $seedFile), $_utmBootstrap.Files[$seedFile], [Text.UTF8Encoding]::new($true))
-}
-
-$AnswerFile = (Get-Content -Raw $AnswerFileTemplate) `
-    -replace 'COMPUTERNAME_PLACEHOLDER', $VMName `
-    -replace 'GUEST_BOOTSTRAP_B64_PLACEHOLDER', $_utmBootstrap.EncodedCommand
-Set-Content -Path "$SeedDir/autounattend.xml" -Value $AnswerFile -NoNewline
-
-$SeedIso = "$DataDir/seed.iso"
-Write-Verbose "Generating seed.iso with autounattend configuration..."
-# OEMDRV volume label causes Windows Setup to automatically pick up autounattend.xml
-& hdiutil makehybrid -o "$SeedIso" -joliet -iso -default-volume-name OEMDRV "$SeedDir" 2>&1 | ForEach-Object { Write-Verbose $_ }
-if ($LASTEXITCODE -ne 0) {
-    Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_fea701fd46026b88')
-    exit 1
-}
-
-# --- REGION: Create and configure the UTM bundle
-# config.plist selects the QEMU backend.
-$TemplatePath = Join-Path $ScriptDir "config.plist.template"
-if (-not (Test-Path $TemplatePath)) {
-    Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_603b5ff75924a72c' -Arguments @{ templatePath = "$TemplatePath" })
-    exit 1
-}
-
-$VmUuid = [guid]::NewGuid().ToString().ToUpper()
-$DiskId = [guid]::NewGuid().ToString().ToUpper()
-$IsoId = [guid]::NewGuid().ToString().ToUpper()
-$SeedId = [guid]::NewGuid().ToString().ToUpper()
-# Deterministic per (host, VM name): a rebuilt guest presents the SAME MAC,
-# so the DHCP server returns the SAME lease instead of consuming a new one.
-$MacAddress = Get-YurunaGuestMacAddress -VMName $VMName
-
-# --- REGION: https://yuruna.link/42fa6f45-0015
-$hostCores = [int](& /usr/sbin/sysctl -n hw.physicalcpu)
-if ($hostCores -lt 4) {
-    Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_b35de16dca777b44' -Arguments @{ hostCores = "$hostCores" })
-    exit 1
-}
-$vmCores = [math]::Max(4, [math]::Floor($hostCores / 2))
-
-$plistValues = @{
-    '__VM_NAME__' = $VMName
-    '__VM_UUID__' = $VmUuid
-    '__MAC_ADDRESS__' = $MacAddress
-    '__DISK_IDENTIFIER__' = $DiskId
-    '__DISK_IMAGE_NAME__' = 'disk.qcow2'
-    '__ISO_IDENTIFIER__' = $IsoId
-    '__ISO_IMAGE_NAME__' = "$VMName.iso"
-    '__SEED_IDENTIFIER__' = $SeedId
-    '__SEED_IMAGE_NAME__' = 'seed.iso'
-    '__VNC_DISPLAY__' = "$(Get-VncDisplayForVm -VMName $VMName)"
-    '__CPU_COUNT__' = "$vmCores"
-    '__MEMORY_SIZE__' = '12288'
-}
-Write-UtmBundleConfiguration -TemplatePath $TemplatePath -BundlePath $UtmDir -Replacement $plistValues -Confirm:$false
-
-
-if ($NetworkMode -eq "Bridged") {
-    # Each plutil call needs its own exit-code test: a failed -replace leaves
-    # Mode at Shared, and only the -insert result would be seen otherwise, so
-    # the VM would come up on the wrong network while the script reports success.
-    & plutil -replace "Network.0.Mode" -string "Bridged" "$UtmDir/config.plist"
-    if ($LASTEXITCODE -ne 0) {
-        Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_b488eb4173bc6e6b')
+    $VmConfigDir = Join-Path $ScriptDir "vmconfig"
+    $AnswerFileTemplate = Join-Path $VmConfigDir "autounattend.xml"
+    if (-not (Test-Path $AnswerFileTemplate)) {
+        Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_659701d157b56883' -Arguments @{ answerFileTemplate = "$AnswerFileTemplate" })
         exit 1
     }
-    & plutil -insert "Network.0.BridgedInterface" -string $BridgeInterface "$UtmDir/config.plist"
+
+    # --- REGION: https://yuruna.link/4220a755-002d
+    # Shared NAT has a stable host gateway; bridged host addresses may need resolver repair.
+    $_utmRepoRoot = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSScriptRoot))
+    Import-Module (Join-Path (Split-Path -Parent $ScriptDir) 'modules/Yuruna.Host.psm1') -Force
+    Import-Module (Join-Path $_utmRepoRoot 'automation/Yuruna.GitHubSource.psm1') -Force -DisableNameChecking
+    Import-Module (Join-Path $_utmRepoRoot 'automation/Yuruna.GuestSeed.psm1') -Force -DisableNameChecking
+    Import-Module (Join-Path $_utmRepoRoot 'test/modules/Test.Config.psm1') -Global -Force
+    Import-Module (Join-Path $PSScriptRoot '../../../automation/Yuruna.Common.psm1') -Force -DisableNameChecking
+    $YurunaHostIp = Get-GuestReachableHostIp -NetworkMode $NetworkMode
+    if (-not $YurunaHostIp) { $YurunaHostIp = '' }
+    $_statusSeed = Get-YurunaStatusServiceSeed -RepoRoot $_utmRepoRoot
+    $YurunaHostPort = $_statusSeed.Port
+    $ghSource = Get-YurunaGitHubSource -RepoRoot $_utmRepoRoot
+    $_utmBootstrap = New-WindowsGuestBootstrap -RepoRoot $_utmRepoRoot `
+        -StatusServiceIp $YurunaHostIp -StatusServicePort $YurunaHostPort `
+        -GhToken $ghSource.Token `
+        -FrameworkUrl $ghSource.FrameworkUrl -ProjectUrl $ghSource.ProjectUrl
+
+    foreach ($seedFile in $_utmBootstrap.Files.Keys) {
+        [IO.File]::WriteAllText((Join-Path $SeedDir $seedFile), $_utmBootstrap.Files[$seedFile], [Text.UTF8Encoding]::new($true))
+    }
+
+    $AnswerFile = (Get-Content -Raw $AnswerFileTemplate) `
+        -replace 'COMPUTERNAME_PLACEHOLDER', $VMName `
+        -replace 'GUEST_BOOTSTRAP_B64_PLACEHOLDER', $_utmBootstrap.EncodedCommand
+    Set-Content -Path "$SeedDir/autounattend.xml" -Value $AnswerFile -NoNewline
+
+    $SeedIso = "$DataDir/seed.iso"
+    Write-Verbose "Generating seed.iso with autounattend configuration..."
+    # OEMDRV volume label causes Windows Setup to automatically pick up autounattend.xml
+    & hdiutil makehybrid -o "$($seedWorkspace.Image)" -joliet -iso -default-volume-name OEMDRV "$SeedDir" 2>&1 | ForEach-Object { Write-Verbose $_ }
     if ($LASTEXITCODE -ne 0) {
-        Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_cd34e65cd33797fc')
+        Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_fea701fd46026b88')
         exit 1
     }
-    Write-Verbose "Network patched to Bridged (interface: $BridgeInterface)."
-}
+    Publish-SeedMediaImage -Workspace $seedWorkspace -Path $SeedIso -Confirm:$false
 
-# --- REGION: Clean up temporary files
-Remove-Item -LiteralPath $SeedDir -Recurse -Force -ErrorAction SilentlyContinue
+    # --- REGION: Create and configure the UTM bundle
+    # config.plist selects the QEMU backend.
+    $TemplatePath = Join-Path $ScriptDir "config.plist.template"
+    if (-not (Test-Path $TemplatePath)) {
+        Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_603b5ff75924a72c' -Arguments @{ templatePath = "$TemplatePath" })
+        exit 1
+    }
+
+    $VmUuid = [guid]::NewGuid().ToString().ToUpper()
+    $DiskId = [guid]::NewGuid().ToString().ToUpper()
+    $IsoId = [guid]::NewGuid().ToString().ToUpper()
+    $SeedId = [guid]::NewGuid().ToString().ToUpper()
+    # Deterministic per (host, VM name): a rebuilt guest presents the SAME MAC,
+    # so the DHCP server returns the SAME lease instead of consuming a new one.
+    $MacAddress = Get-YurunaGuestMacAddress -VMName $VMName
+
+    # --- REGION: https://yuruna.link/42fa6f45-0015
+    $hostCores = [int](& /usr/sbin/sysctl -n hw.physicalcpu)
+    if ($hostCores -lt 4) {
+        Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_b35de16dca777b44' -Arguments @{ hostCores = "$hostCores" })
+        exit 1
+    }
+    $vmCores = [math]::Max(4, [math]::Floor($hostCores / 2))
+
+    $plistValues = @{
+        '__VM_NAME__' = $VMName
+        '__VM_UUID__' = $VmUuid
+        '__MAC_ADDRESS__' = $MacAddress
+        '__DISK_IDENTIFIER__' = $DiskId
+        '__DISK_IMAGE_NAME__' = 'disk.qcow2'
+        '__ISO_IDENTIFIER__' = $IsoId
+        '__ISO_IMAGE_NAME__' = "$VMName.iso"
+        '__SEED_IDENTIFIER__' = $SeedId
+        '__SEED_IMAGE_NAME__' = 'seed.iso'
+        '__VNC_DISPLAY__' = "$(Get-VncDisplayForVm -VMName $VMName)"
+        '__CPU_COUNT__' = "$vmCores"
+        '__MEMORY_SIZE__' = '12288'
+    }
+    Write-UtmBundleConfiguration -TemplatePath $TemplatePath -BundlePath $UtmDir -Replacement $plistValues -Confirm:$false
+
+
+    if ($NetworkMode -eq "Bridged") {
+        # Each plutil call needs its own exit-code test: a failed -replace leaves
+        # Mode at Shared, and only the -insert result would be seen otherwise, so
+        # the VM would come up on the wrong network while the script reports success.
+        & plutil -replace "Network.0.Mode" -string "Bridged" "$UtmDir/config.plist"
+        if ($LASTEXITCODE -ne 0) {
+            Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_b488eb4173bc6e6b')
+            exit 1
+        }
+        & plutil -insert "Network.0.BridgedInterface" -string $BridgeInterface "$UtmDir/config.plist"
+        if ($LASTEXITCODE -ne 0) {
+            Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_cd34e65cd33797fc')
+            exit 1
+        }
+        Write-Verbose "Network patched to Bridged (interface: $BridgeInterface)."
+    }
+} finally {
+    # --- REGION: Clean up temporary files
+    Remove-SeedMediaWorkspace -Workspace $seedWorkspace -Confirm:$false
+}
 
 # --- REGION: Start Windows installer
 # UTM can power on the guest before its startup call returns. Arm a separate

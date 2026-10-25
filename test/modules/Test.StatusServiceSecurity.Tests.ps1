@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.22
+.VERSION 2026.10.25
 .GUID 427642c0-6914-46fa-a327-c4a7e4ddc547
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -61,9 +61,19 @@ BeforeAll {
             'test/status/handoff/amisad-demo-key', 'test/status/ssh/foo_ed25519',
             'test/status/x/y/id_rsa', 'test/status/x/y/id_ecdsa', 'test/status/runtime/deploy_key',
             'test/status/runtime/operator.ppk',
-            # The public halves and ordinary hand-off files that must keep being served.
+            # The public halves and ordinary hand-off files, which the status root
+            # does not serve either; guests read the hand-off from the log root.
             'test/status/handoff/amisad-demo-key.pub', 'test/status/ssh/yuruna_ed25519.pub',
-            'test/status/handoff/edge.ip.txt')) {
+            'test/status/handoff/edge.ip.txt',
+            # Runtime files no page or pool service reads, under names no deny
+            # pattern ever matched, beside the records that are served.
+            'test/status/runtime/yuruna-caching-proxy.yml', 'test/status/runtime/yuruna-caching-proxy.yml.backup',
+            'test/status/runtime/yuruna-caching-proxy-service.yml', 'test/status/runtime/caching-proxy.txt',
+            'test/status/runtime/.caching-proxy-service.env.json', 'test/status/runtime/host.uuid',
+            'test/status/runtime/outer.log', 'test/status/runtime/.status-service.ps1',
+            'test/status/runtime/runner-attempts/index.json', 'test/status/runtime/runner-attempts/0a1b2c/runner-fault.json',
+            'test/status/runtime/runner-attempts/0a1b2c/transcript.log', 'test/status/runtime/current-action.json',
+            'test/status/index.html', 'test/status/log/cycle-copy.txt', 'test/status/perf/row.jsonl')) {
         $file = Join-Path $script:Roots.Repo $relative
         $null = [IO.Directory]::CreateDirectory((Split-Path -Parent $file))
         [IO.File]::WriteAllText($file, 'synthetic-fixture')
@@ -78,6 +88,13 @@ BeforeAll {
     Assert-True ($start -ge 0 -and $end -gt $start) 'the file authorization block must exist'
     $dispatch = $script:ServerText.Substring($start, $end - $start) + "`n}`n"
     $messageWriter = (Get-YurunaTestFunctionAst -Ast $ast -Name 'Send-StatusMessage').Extent.Text
+    $messageWriter += "`n" + ((@('Get-ServedSourceSet', 'Test-ServedSourceFile') | ForEach-Object { (Get-YurunaTestFunctionAst -Ast $ast -Name $_).Extent.Text }) -join "`n")
+    $artifactAssignment = $ast.FindAll({
+        param($node)
+        $node -is [System.Management.Automation.Language.AssignmentStatementAst] -and $node.Left.Extent.Text -eq '$servedArtifacts'
+    }, $true) | Select-Object -First 1
+    Assert-NotNull $artifactAssignment 'the published artifacts must exist'
+    $messageWriter += "`n" + $artifactAssignment.Extent.Text
     $script:FileHarness = [scriptblock]::Create(@'
 param([hashtable]$Roots, [string]$RequestPath, [string]$Method = 'GET')
 $repoRoot = $Roots.Repo; $statusDir = $Roots.Status; $runtimeDir = $Roots.Runtime; $logDir = $Roots.Log
@@ -204,17 +221,78 @@ Describe 'status file authorization uses the resolved path' {
         @{ Path = '/runtime//host-refresh.state.json' }
         @{ Path = '/yuruna-repo/README.md' }
         @{ Path = '/log/cycle.txt' }
-        # The public halves of keys and the hand-off files the lab reads back.
-        @{ Path = '/handoff/edge.ip.txt' }
+        # The hand-off files the lab reads back.
         @{ Path = '/log/handoff/edge.ip.txt' }
-        @{ Path = '/handoff/amisad-demo-key.pub' }
-        @{ Path = '/ssh/yuruna_ed25519.pub' }
     ) {
         param($Path)
         $result = & $script:FileHarness $script:Roots $Path
         Assert-Equal 200 $result.Status $Path
         Assert-True $result.Allowed $Path
         Assert-True (Test-Path -LiteralPath $result.File -PathType Leaf) $Path
+    }
+
+    # The status root keeps keys, hand-off files and extension state in folders
+    # beside its pages. Those used to be served unless a name rule caught them,
+    # and a hand-off folder there once held a private key; nothing reads them
+    # over HTTP, so none of them is served, public halves included.
+    It 'serves no folder of the status root but the performance rows and captures: <Path>' -TestCases @(
+        @{ Path = '/handoff/edge.ip.txt' }
+        @{ Path = '/handoff/amisad-demo-key.pub' }
+        @{ Path = '/ssh/yuruna_ed25519.pub' }
+        @{ Path = '/status/ssh/yuruna_ed25519.pub' }
+        @{ Path = '/ssh/' }
+        @{ Path = '/handoff/' }
+        @{ Path = '/./' }
+    ) {
+        param($Path)
+        $result = & $script:FileHarness $script:Roots $Path
+        Assert-Equal 403 $result.Status $Path
+        Assert-False $result.Allowed $Path
+    }
+
+    It 'serves from the runtime directory only the records pages and pool services read: <Path>' -TestCases @(
+        @{ Path = '/runtime/current-action.json' }
+        @{ Path = '/runtime/runner-attempts/index.json' }
+        @{ Path = '/runtime/runner-attempts/0a1b2c/runner-fault.json' }
+    ) {
+        param($Path)
+        $result = & $script:FileHarness $script:Roots $Path
+        Assert-Equal 200 $result.Status $Path
+        Assert-True $result.Allowed $Path
+    }
+
+    # The legacy proxy credential file was served for months because the deny
+    # list named only the file's newer name. Every spelling below exists on disk.
+    It 'refuses a runtime file that is not on the allow-list, by any route: <Path>' -TestCases @(
+        @{ Path = '/runtime/yuruna-caching-proxy.yml' }
+        @{ Path = '/runtime/yuruna-caching-proxy.yml.backup' }
+        @{ Path = '/runtime/yuruna-caching-proxy-service.yml' }
+        @{ Path = '/runtime/caching-proxy.txt' }
+        @{ Path = '/runtime/.caching-proxy-service.env.json' }
+        @{ Path = '/runtime/host.uuid' }
+        @{ Path = '/runtime/outer.log' }
+        @{ Path = '/runtime/.status-service.ps1' }
+        @{ Path = '/runtime/runner-attempts/0a1b2c/transcript.log' }
+        @{ Path = '//runtime/yuruna-caching-proxy.yml' }
+        @{ Path = '/status/runtime/yuruna-caching-proxy.yml' }
+        @{ Path = '/status//runtime/yuruna-caching-proxy.yml' }
+        @{ Path = '/yuruna-repo/test/status/runtime/yuruna-caching-proxy.yml' }
+        @{ Path = '/yuruna-repo/test/status/runtime/status.json' }
+    ) {
+        param($Path)
+        $result = & $script:FileHarness $script:Roots $Path
+        Assert-Equal 403 $result.Status $Path
+        Assert-False $result.Allowed $Path
+    }
+
+    It 'serves committed status pages through the repository mount but never harness state: <Path>' -TestCases @(
+        @{ Path = '/yuruna-repo/test/status/index.html'; Status = 200 }
+        @{ Path = '/yuruna-repo/test/status/log/cycle-copy.txt'; Status = 403 }
+        @{ Path = '/yuruna-repo/test/status/perf/row.jsonl'; Status = 403 }
+    ) {
+        param($Path, $Status)
+        $result = & $script:FileHarness $script:Roots $Path
+        Assert-Equal $Status $result.Status $Path
     }
 
     It 'does not enumerate runtime secrets through either runtime mount' -TestCases @(
@@ -247,6 +325,100 @@ Describe 'status file authorization uses the resolved path' {
             $matched = @($shapes | Where-Object { $name -like $_ })
             Assert-Equal 0 $matched.Count "$name must not match a secret name shape ($($matched -join ', '))"
         }
+    }
+}
+
+# A deny list of names fails open for every file added under a name it did not
+# foresee. The repository mount now serves what git tracks or would track, so
+# an ignored file is refused whatever it is called.
+Describe 'the repository mount serves source files only' -Skip:(-not (Get-Command git -ErrorAction SilentlyContinue)) {
+    BeforeAll {
+        $script:GitRoots = @{
+            Repo = (Join-Path $script:Work 'gitrepo')
+            Status = (Join-Path $script:Work 'gitrepo/test/status')
+            Runtime = (Join-Path $script:Work 'gitrepo/test/status/runtime')
+            Log = (Join-Path $script:Work 'gitlogs')
+        }
+        foreach ($dir in $script:GitRoots.Values) { $null = [IO.Directory]::CreateDirectory($dir) }
+        $repo = $script:GitRoots.Repo
+        function Write-Fixture { param([string]$Root, [string]$Relative) $file = Join-Path $Root $Relative; $null = [IO.Directory]::CreateDirectory((Split-Path -Parent $file)); [IO.File]::WriteAllText($file, 'synthetic-fixture') }
+        [IO.File]::WriteAllText((Join-Path $repo '.gitignore'), "test/test.config.yml`ntest/status/*/`nprivate/`nproject/`n*.secret`nproject-poc.tar.gz`n")
+        foreach ($relative in @('README.md', 'automation/fetch-and-execute.sh', 'test/status/index.html', 'test/status/yuruna.common.js',
+                'notes/new-script.sh', 'private/notes.txt', 'creds.secret', 'project-poc.tar.gz', 'test/test.config.yml',
+                'test/status/perf/row.jsonl', 'test/status/captures/shot.png', 'test/status/ssh/yuruna_ed25519.pub',
+                'test/status/handoff/edge.ip.txt', 'test/status/extension/authentication/users.yml', 'test/status/runtime/status.json')) {
+            Write-Fixture -Root $repo -Relative $relative
+        }
+        $null = & git -C $repo init -q 2>&1
+        $null = & git -C $repo add README.md automation test/status/index.html test/status/yuruna.common.js .gitignore 2>&1
+        $project = Join-Path $repo 'project'
+        foreach ($relative in @('poc/db/schema.sql', '.cache/token')) { Write-Fixture -Root $project -Relative $relative }
+        [IO.File]::WriteAllText((Join-Path $project '.gitignore'), ".cache/`n")
+        $null = & git -C $project init -q 2>&1
+        $null = & git -C $project add poc .gitignore 2>&1
+    }
+
+    It 'serves <Path> with <Status>' -TestCases @(
+        @{ Path = '/yuruna-repo/README.md'; Status = 200 }
+        @{ Path = '/yuruna-repo/automation/fetch-and-execute.sh'; Status = 200 }
+        @{ Path = '/yuruna-repo/notes/new-script.sh'; Status = 200 }
+        @{ Path = '/yuruna-repo/private/notes.txt'; Status = 403 }
+        @{ Path = '/yuruna-repo/creds.secret'; Status = 403 }
+        @{ Path = '/yuruna-repo/test/test.config.yml'; Status = 403 }
+        @{ Path = '/yuruna-repo/project-poc.tar.gz'; Status = 200 }
+        @{ Path = '/yuruna-repo/project/poc/db/schema.sql'; Status = 200 }
+        @{ Path = '/yuruna-repo/project/.cache/token'; Status = 403 }
+        @{ Path = '/yuruna-repo/test/status/index.html'; Status = 200 }
+        @{ Path = '/yuruna-repo/test/status/perf/row.jsonl'; Status = 403 }
+        @{ Path = '/index.html'; Status = 200 }
+        @{ Path = '/status/yuruna.common.js'; Status = 200 }
+        @{ Path = '/perf/row.jsonl'; Status = 200 }
+        @{ Path = '/captures/shot.png'; Status = 200 }
+        @{ Path = '/ssh/yuruna_ed25519.pub'; Status = 403 }
+        @{ Path = '/handoff/edge.ip.txt'; Status = 403 }
+        @{ Path = '/extension/authentication/users.yml'; Status = 403 }
+        @{ Path = '/extension/'; Status = 403 }
+        @{ Path = '/runtime/status.json'; Status = 200 }
+    ) {
+        param($Path, $Status)
+        $result = & $script:FileHarness $script:GitRoots $Path
+        Assert-Equal $Status $result.Status $Path
+    }
+    It 'serves a source file created after the listing was read, without a restart' {
+        $before = & $script:FileHarness $script:GitRoots '/yuruna-repo/automation/later.sh'
+        Assert-Equal 403 $before.Status 'a file git does not list yet is not served'
+        [IO.File]::WriteAllText((Join-Path $script:GitRoots.Repo 'automation/later.sh'), 'synthetic-fixture')
+        Start-Sleep -Milliseconds 2200
+        $after = & $script:FileHarness $script:GitRoots '/yuruna-repo/automation/later.sh'
+        Assert-Equal 200 $after.Status 'the listing is read again on a miss'
+    }
+}
+
+Describe 'control routes accept the scope that covers them' {
+    # A pause-scoped proof is what the pool-wide pause and continue carries; it
+    # must open the four pause and resume routes and none of the others.
+    BeforeAll {
+        $line = @($script:ServerText -split "`r?`n" | Where-Object { $_ -match '^\s*\$ctlScope = ' })
+        Assert-Equal 1 $line.Count 'the route scope rule must exist once'
+        $script:ScopeRule = [scriptblock]::Create("param([string]`$path)`n" + $line[0].Trim() + "`nreturn ,`$ctlScope")
+    }
+    It 'gives <Route> the scopes <Expected>' -TestCases @(
+        @{ Route = 'control/step-pause'; Expected = 'pause' }
+        @{ Route = 'control/step-resume'; Expected = 'pause' }
+        @{ Route = 'control/cycle-pause'; Expected = 'pause' }
+        @{ Route = 'control/cycle-resume'; Expected = 'pause' }
+        @{ Route = 'control/start-cycle'; Expected = '' }
+        @{ Route = 'control/test-config'; Expected = '' }
+        @{ Route = 'control/host-refresh'; Expected = '' }
+        @{ Route = 'control/break-continue'; Expected = '' }
+        @{ Route = 'control/lab-hold-release'; Expected = '' }
+        @{ Route = 'control/host-diagnostic'; Expected = '' }
+    ) {
+        param($Route, $Expected)
+        ((& $script:ScopeRule -path $Route) -join ',') | Should -BeExactly $Expected
+    }
+    It 'hands the route''s scopes to the verifier' {
+        $script:ServerText | Should -Match ([regex]::Escape('Test-YurunaControlProof -Token $ctlToken -Wire $ctlWire -Audience (Get-ArchiveHostId) -AllowedScope $ctlScope'))
     }
 }
 

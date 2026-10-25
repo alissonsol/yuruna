@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.22
+.VERSION 2026.10.25
 .GUID 421acc52-385e-488d-859e-c51ce10fdcdc
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -51,6 +51,28 @@ $script:ServicePath = Join-Path $script:RepoRoot 'test/service/Start-StatusServi
 $script:Pwsh = (Get-Process -Id $PID).Path
 $script:HarnessReady = $false
 $script:HarnessSkipReason = ''
+
+if (-not ('Yuruna.TestFixtures.HarnessResponseTiming' -as [type])) {
+    Add-Type -TypeDefinition @'
+namespace Yuruna.TestFixtures {
+    public sealed class HarnessResponseTiming {
+        public System.Threading.Tasks.Task<System.Net.Http.HttpResponseMessage> Task { get; private set; }
+        public long ElapsedMs { get; private set; }
+        public HarnessResponseTiming(System.Threading.Tasks.Task<System.Net.Http.HttpResponseMessage> response,
+                System.Diagnostics.Stopwatch clock) {
+            // Capture completion on the HTTP completion thread. A delayed
+            // PowerShell observer must not add its own scheduling latency.
+            Task = response.ContinueWith(completed => {
+                ElapsedMs = clock.ElapsedMilliseconds;
+                return completed.GetAwaiter().GetResult();
+            }, System.Threading.CancellationToken.None,
+                System.Threading.Tasks.TaskContinuationOptions.ExecuteSynchronously,
+                System.Threading.Tasks.TaskScheduler.Default);
+        }
+    }
+}
+'@
+}
 
 $script:StubHostRefresh = @'
 function Get-VirtualizationRepairRung { [CmdletBinding()] param([string]$HostType) $null = $HostType
@@ -228,13 +250,14 @@ function Invoke-HarnessRequest {
     $watch = [System.Diagnostics.Stopwatch]::StartNew()
     $cts = [System.Threading.CancellationTokenSource]::new($TimeoutMs)
     try {
-        $response = $script:Client.SendAsync($message, $cts.Token).GetAwaiter().GetResult()
+        $timing = [Yuruna.TestFixtures.HarnessResponseTiming]::new($script:Client.SendAsync($message, $cts.Token), $watch)
+        $response = $timing.Task.GetAwaiter().GetResult()
         $text = $response.Content.ReadAsStringAsync().GetAwaiter().GetResult()
         $watch.Stop()
         $json = $null
         try { $json = ConvertFrom-Json -InputObject $text } catch { $json = $null }
         $retryAfter = if ($response.Headers.RetryAfter) { [string]$response.Headers.RetryAfter } else { '' }
-        return [pscustomobject]@{ Status = [int]$response.StatusCode; Text = $text; Json = $json; ElapsedMs = $watch.ElapsedMilliseconds; RetryAfter = $retryAfter; ContentType = [string]$response.Content.Headers.ContentType }
+        return [pscustomobject]@{ Status = [int]$response.StatusCode; Text = $text; Json = $json; ElapsedMs = $timing.ElapsedMs; RetryAfter = $retryAfter; ContentType = [string]$response.Content.Headers.ContentType }
     } finally { $cts.Dispose(); $message.Dispose() }
 }
 
@@ -535,6 +558,28 @@ Describe 'a live listener stays responsive around bodies and workers' {
         Assert-Equal 404 $missing.Status
     }
 
+    It 'records HTTP completion time even when the observer is delayed (completed before tracking: <CompleteBeforeTracking>)' -TestCases @(
+        @{ CompleteBeforeTracking = $true }, @{ CompleteBeforeTracking = $false }
+    ) {
+        param($CompleteBeforeTracking)
+        $response = [Net.Http.HttpResponseMessage]::new([Net.HttpStatusCode]::OK)
+        try {
+            $clock = [Diagnostics.Stopwatch]::StartNew()
+            $source = [Threading.Tasks.TaskCompletionSource[Net.Http.HttpResponseMessage]]::new()
+            if ($CompleteBeforeTracking) { $source.SetResult($response) }
+            $timing = [Yuruna.TestFixtures.HarnessResponseTiming]::new($source.Task, $clock)
+            if (-not $CompleteBeforeTracking) {
+                $timing.Task.IsCompleted | Should -BeFalse
+                $source.SetResult($response)
+            }
+            $completedBeforeDelay = $clock.ElapsedMilliseconds
+            Start-Sleep -Milliseconds 50
+            $timing.Task.IsCompletedSuccessfully | Should -BeTrue
+            [object]::ReferenceEquals($timing.Task.Result, $response) | Should -BeTrue
+            $timing.ElapsedMs | Should -BeLessOrEqual $completedBeforeDelay
+        } finally { $response.Dispose() }
+    }
+
     It 'answers concurrent refresh, start-cycle and diagnostic requests quickly while the read-only routes keep answering' {
         Assert-True $script:HarnessReady $script:HarnessSkipReason
         Reset-HarnessJournal -Journal $null
@@ -550,28 +595,28 @@ Describe 'a live listener stays responsive around bodies and workers' {
                 $message.Content = [System.Net.Http.StringContent]::new($spec.Body, [System.Text.UTF8Encoding]::new($false))
                 $message.Content.Headers.ContentType = [System.Net.Http.Headers.MediaTypeHeaderValue]::Parse('application/json')
             }
-            $tasks[$spec.Name] = $script:Client.SendAsync($message)
+            $tasks[$spec.Name] = [Yuruna.TestFixtures.HarnessResponseTiming]::new($script:Client.SendAsync($message), $watch)
         }
         $elapsed = @{}
         while ($elapsed.Count -lt $tasks.Count -and $watch.ElapsedMilliseconds -lt 10000) {
             foreach ($name in @($tasks.Keys)) {
-                if (-not $elapsed.ContainsKey($name) -and $tasks[$name].IsCompleted) { $elapsed[$name] = $watch.ElapsedMilliseconds }
+                if (-not $elapsed.ContainsKey($name) -and $tasks[$name].Task.IsCompleted) { $elapsed[$name] = $tasks[$name].ElapsedMs }
             }
             Start-Sleep -Milliseconds 10
         }
         $findings = @()
         foreach ($name in @($tasks.Keys)) {
             if (-not $elapsed.ContainsKey($name)) { $findings += "$name never answered"; continue }
-            $status = [int]$tasks[$name].Result.StatusCode
+            $status = [int]$tasks[$name].Task.Result.StatusCode
             if ($status -notin @(200, 202, 409)) { $findings += "$name answered $status" }
-            if ($elapsed[$name] -gt 1500) { $findings += "$name took $($elapsed[$name]) ms" }
+            if ($elapsed[$name] -gt 1500) { $findings += "$name completed after $($elapsed[$name]) ms (observer finished at $($watch.ElapsedMilliseconds) ms)" }
         }
         Assert-NoFinding $findings 'a concurrent control request was slow or undocumented'
         # Refresh and start-cycle exclude each other: whichever the loop admits
         # first is launched and the other is told busy, never both.
-        $admitted = @(@('refresh', 'start-cycle') | Where-Object { [int]$tasks[$_].Result.StatusCode -eq 202 })
+        $admitted = @(@('refresh', 'start-cycle') | Where-Object { [int]$tasks[$_].Task.Result.StatusCode -eq 202 })
         Assert-Equal 1 $admitted.Count 'exactly one of refresh and start-cycle is admitted'
-        Assert-Equal 202 ([int]$tasks['diagnostic'].Result.StatusCode) 'the diagnostic answers pending while its worker runs'
+        Assert-Equal 202 ([int]$tasks['diagnostic'].Task.Result.StatusCode) 'the diagnostic answers pending while its worker runs'
         $deadline = [DateTime]::UtcNow.AddSeconds(10)
         while ([DateTime]::UtcNow -lt $deadline -and ((Get-StandInPid -Kind $admitted[0]).Count -lt 1 -or (Get-StandInPid -Kind 'diagnostic').Count -lt 1)) { Start-Sleep -Milliseconds 100 }
         Assert-True ((Get-StandInPid -Kind $admitted[0]).Count -ge 1) "the $($admitted[0]) stand-in worker is running"

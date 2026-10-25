@@ -2085,9 +2085,9 @@ Cada intervalo solicita ao NetworkManager que refaça DHCP na ponte. A mudança
 real do endereço ainda cabe ao servidor — o script não pode fabricar um novo
 endereço, apenas provocar uma nova negociação de concessão —; por isso relata
 o que observou, não o que pretendia. Um servidor que devolva o mesmo endereço
-produz uma linha honesta de "no change", em vez de sucesso silencioso.
-
---- REGION: https://yuruna.link/4220a755-0048
+produz uma linha honesta de "no change", em vez de sucesso silencioso. A
+justificativa está em [Por que a rotatividade é provocada em vez de
+aguardada](../network.md#4220a755-0048).
 
 <a id="42010605-0070"></a>
 

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.22
+.VERSION 2026.10.25
 .GUID 429b56f1-0d8f-43a6-a6dc-445eb58c952f
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -28,14 +28,14 @@
 
       ~/yuruna/vms/<vmname>/<vmname>.qcow2
       ~/yuruna/vms/<vmname>/seed.iso
-      ~/yuruna/vms/<vmname>/seed.src/
+      ~/yuruna/vms/<vmname>/.yuruna-seed-<id>/   (only while New-VM runs)
 
     Base images live under ~/yuruna/image/<guest>/, so this scan never
     needs a protected-image list -- only the vms/ tree is touched.
 
     A directory is orphaned iff `virsh list --all --name` does not list
-    a domain by the same name. Registered VMs (running, stopped, paused)
-    are left strictly alone.
+    a domain by the same name and no defined domain uses a disk inside it.
+    Registered VMs (running, stopped, paused) are left strictly alone.
 
 .PARAMETER Force
     Skip the YES confirmation. Used by test/Remove-TestVMFiles.ps1.
@@ -139,6 +139,33 @@ if ($registered.Count -gt 0) {
     }
 }
 
+# --- REGION: Collect the disks registered domains use
+# A directory named after no domain can still hold a defined domain's disks:
+# a snapshot promotion interrupted between domrename and the storage move
+# leaves the promoted domain's disks under the old name. Those paths are read
+# from every domain's definition, and a domain that cannot be read keeps every
+# directory, because deleting on an unanswered query is how a baseline is lost.
+$referencedDisk = [System.Collections.Generic.List[string]]::new()
+$referenceError = ''
+foreach ($vmName in ($registered.Keys | Sort-Object)) {
+    $priorAll = $env:LC_ALL
+    $priorMessages = $env:LC_MESSAGES
+    try {
+        $env:LC_ALL = $null
+        $env:LC_MESSAGES = 'C'
+        $blockOutput = & virsh --connect $virshUri domblklist --details $vmName 2>&1
+        $blockExit = $LASTEXITCODE
+    } finally {
+        $env:LC_ALL = $priorAll
+        $env:LC_MESSAGES = $priorMessages
+    }
+    if ($blockExit -ne 0) { $referenceError = "${vmName}: $(@($blockOutput) -join '; ')"; break }
+    foreach ($line in @($blockOutput)) {
+        $cols = "$line".Trim() -split '\s+', 4
+        if ($cols.Count -ge 4 -and $cols[0] -ceq 'file' -and $cols[3] -ne '-') { $referencedDisk.Add([System.IO.Path]::GetFullPath($cols[3])) }
+    }
+}
+
 # --- REGION: Identify orphaned VM artifacts
 $orphanedItems = [System.Collections.Generic.List[hashtable]]::new()
 $dirs = @(Get-ChildItem -LiteralPath $vmRoot -Directory -ErrorAction SilentlyContinue)
@@ -208,6 +235,17 @@ foreach ($item in $orphanedItems) {
         if ($dominfoText -notmatch 'Domain not found|failed to get domain') {
             Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_725ce223025976c2' -Arguments @{ path = "$($item.Path)"; name = "$($item.Name)"; dominfoExit = "${dominfoExit}"; trim = "$($dominfoText.Trim())" })
             $errors++
+            continue
+        }
+        if ($referenceError) {
+            Write-Warning (Format-YurunaOperatorMessage -Key 'host.vm_storage_reference_unknown' -Arguments @{ vmDir = "$($item.Path)"; message = "$referenceError" })
+            $errors++
+            continue
+        }
+        $itemRoot = [System.IO.Path]::GetFullPath($item.Path).TrimEnd('/') + '/'
+        $inUse = @($referencedDisk | Where-Object { $_ -and ([string]$_).StartsWith($itemRoot, [System.StringComparison]::Ordinal) })
+        if ($inUse.Count -gt 0) {
+            Write-Warning (Format-YurunaOperatorMessage -Key 'host.vm_storage_delete_refused' -Arguments @{ vmDir = "$($item.Path)"; owners = "$($inUse -join ', ')" })
             continue
         }
         Remove-Item -LiteralPath $item.Path -Recurse -Force -ErrorAction Stop

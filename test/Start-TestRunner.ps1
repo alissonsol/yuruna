@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.22
+.VERSION 2026.10.25
 .GUID 4246a89e-2ebb-49a1-87a4-31d719f44bf1
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -110,6 +110,9 @@ $script:StepTimeoutSecondsDefault = 2700        # watchdog: kill inner when hear
 # is a wedged runner, not long work. testCycle.preambleTimeoutSeconds overrides;
 # 0 opts out, applying stepTimeoutSeconds everywhere.
 $script:PreambleTimeoutSecondsDefault = 600
+# Absolute per-cycle bound the resident enforces; testCycle.maxCycleSeconds
+# overrides and 0 disables it (see Get-OuterMaxCycleSeconds).
+$script:MaxCycleSecondsDefault = 21600
 $script:WatchdogPollSeconds       = 30        # how often the watchdog re-checks the heartbeat file
 
 # --- REGION: https://yuruna.link/42d69dfa-000d
@@ -458,7 +461,8 @@ if (-not (Test-Path -LiteralPath $CycleScript)) {
     $CycleScript = ''
 }
 
-Invoke-RunnerOuterLoop -State @{
+# The supervisor re-enters the loop after an escaped exception; see its help.
+Invoke-RunnerOuterSupervisor -State @{
     CycleScript               = $CycleScript
     RepoRoot                  = $RepoRoot
     ConfigPath                = $ConfigPath
@@ -485,6 +489,7 @@ Invoke-RunnerOuterLoop -State @{
     InnerSpawnErrorSleepSeconds   = $script:InnerSpawnErrorSleepSeconds
     StepTimeoutSecondsDefault = $script:StepTimeoutSecondsDefault
     PreambleTimeoutSecondsDefault = $script:PreambleTimeoutSecondsDefault
+    MaxCycleSecondsDefault    = $script:MaxCycleSecondsDefault
     WatchdogPollSeconds       = $script:WatchdogPollSeconds
     # A resumed runner's first dispatch is the preflight chain of its handoff.
     RefreshHandoff            = if ($RefreshResume) {

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.22
+.VERSION 2026.10.25
 .GUID 426b5e54-fbb6-4398-849c-4e49eda31278
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -143,7 +143,18 @@ function Resolve-YurunaNasPayload {
     $pw = $null
     try { $pw = Get-Password -Username $user } catch { Write-Verbose "Get-Password: $($_.Exception.Message)" }
     if ([string]::IsNullOrEmpty($pw)) { return $null }
-    $verSrc = "$Name|$($nasCfg.NetworkPath)|$user|$pw"
+    $networkPath = Get-PoolStorageUncPath -Path $nasCfg.NetworkPath -Style unix
+    $networkIp = ''
+    try {
+        # Hosts-file and NetBIOS aliases known to the host may not resolve in
+        # a Linux guest. Send the resolved address over the same mTLS channel.
+        $server = Get-PoolStorageServerName -NetworkPath $networkPath
+        $addresses = @([System.Net.Dns]::GetHostAddresses($server))
+        $address = $addresses | Where-Object { $_.AddressFamily -eq 'InterNetwork' } | Select-Object -First 1
+        if (-not $address) { $address = $addresses | Select-Object -First 1 }
+        if ($address) { $networkIp = $address.ToString() }
+    } catch { Write-Verbose "NAS address resolution unavailable for $Name" }
+    $verSrc = "$Name|$networkPath|$networkIp|$user|$pw"
     $sha = [System.Security.Cryptography.SHA256]::Create()
     try {
         $verBytes = $sha.ComputeHash([System.Text.Encoding]::UTF8.GetBytes($verSrc))
@@ -151,7 +162,8 @@ function Resolve-YurunaNasPayload {
     } finally { $sha.Dispose() }
     return @{
         name        = $Name
-        networkPath = $nasCfg.NetworkPath
+        networkPath = $networkPath
+        networkIp   = $networkIp
         username    = $user
         password    = $pw
         localPath   = $nasCfg.LocalPath
@@ -382,10 +394,18 @@ if (Test-Path -LiteralPath $PidFile) { Remove-Item -LiteralPath $PidFile -Force 
 [void](Initialize-YurunaConfigCA -Confirm:$false)
 [void](New-YurunaConfigServerCertificate -Confirm:$false)
 
-# --- REGION: Open the host firewall (Windows, best-effort)
-# Best-effort: open the host firewall for the config port on Windows (the raw
-# TcpListener needs no urlacl/sslcert, but Defender's inbound filter still
-# applies). Start-CachingProxyServiceVM already runs elevated. Idempotent.
+# --- REGION: Open the host firewall (best-effort)
+# Best-effort: open the host firewall for the config port (the raw TcpListener
+# needs no urlacl/sslcert, but an inbound filter still applies, and service
+# guests fetch their NAS credential here). Windows: Start-CachingProxyServiceVM
+# already runs elevated. Linux: the shared ufw helper, without a sudo prompt;
+# when it cannot read ufw, an active ufw needs 'ufw allow <port>/tcp' from
+# an elevated operator. Idempotent.
+if ($IsLinux) {
+    Import-Module (Join-Path $PSScriptRoot '../modules/Test.StatusFirewall.psm1') -Force
+    $fw = Set-YurunaStatusFirewallRule -Port $Port -NonInteractive
+    Write-Verbose "config port firewall: $($fw.Message)"
+}
 if ($IsWindows) {
     try {
         $ruleName = 'Yuruna config service'

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.22
+.VERSION 2026.10.25
 .GUID 42e7a0f2-fce5-47f4-aa02-059ecae18abf
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -87,6 +87,13 @@ Describe 'Assert-FailureTaxonomyInSync' {
 }
 
 Describe 'taxonomy single-source invariant (the three lists are identical)' {
+    It 'imports the sequence registry repeatedly without a false taxonomy warning' {
+        $path = (Join-Path $PSScriptRoot 'Test.SequenceAction.psm1').Replace("'", "''")
+        $command = "foreach (`$attempt in 1..3) { Import-Module '$path' -Force -DisableNameChecking }"
+        $output = & ([Environment]::ProcessPath) -NoProfile -NonInteractive -Command $command *>&1 | Out-String
+        $LASTEXITCODE | Should -Be 0 -Because $output
+        $output.Trim() | Should -BeExactly ''
+    }
     It 'EventSchema enum == canonical' {
         Assert-Equal -Expected ((Get-FailureClassEnum) -join '|') -Actual ((Get-CycleEventSchemaDescriptor).FailureClassEnum -join '|') -Because 'EventSchema must derive from the canonical set'
         Assert-Equal -Expected ((Get-SeverityEnum) -join '|') -Actual ((Get-CycleEventSchemaDescriptor).SeverityEnum -join '|') -Because 'EventSchema severity must derive from the canonical set'

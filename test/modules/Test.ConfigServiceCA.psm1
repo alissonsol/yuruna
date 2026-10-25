@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.22
+.VERSION 2026.10.25
 .GUID 4233151b-e2c8-4ea3-ba1b-6cdcb3e630f4
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -388,7 +388,49 @@ function Test-YurunaConfigClientCertificate {
     }
 }
 
+<#
+.SYNOPSIS
+    The config-service values a service seed carries: the port, and base64 of
+    the PEM of this host's Config CA certificate and of a client leaf minted
+    for the VM.
+.DESCRIPTION
+    A service guest uses them to fetch its NAS credential over mutual TLS at
+    first boot (automation/yuruna-nas-credential.sh), so the seed media never
+    holds the NAS password. When the CA cannot issue, the certificate values
+    are empty and a warning says why; the guest helper then reports that its
+    material is absent, and the share mount fails the way an unconfigured one
+    does instead of the build stopping.
+.OUTPUTS
+    [hashtable] @{ Port; CaCertBase64; ClientCertBase64; ClientKeyBase64 }
+#>
+function Get-YurunaConfigServiceSeedMaterial {
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param(
+        [Parameter(Mandatory)][string]$VMName,
+        [AllowEmptyString()][string]$HostId = '',
+        [AllowNull()]$Config
+    )
+    $port = '8443'
+    try { if ($Config -and $Config.configService -and $Config.configService.port) { $port = "$($Config.configService.port)" } }
+    catch { Write-Verbose "configService.port is unreadable: $($_.Exception.Message)" }
+    $material = @{ Port = $port; CaCertBase64 = ''; ClientCertBase64 = ''; ClientKeyBase64 = '' }
+    try {
+        $leafArgs = @{ SubjectName = $VMName }
+        if ($HostId) { $leafArgs.HostId = $HostId }
+        $pem = New-YurunaConfigClientCertificate @leafArgs
+        $utf8NoBom = [System.Text.UTF8Encoding]::new($false)
+        $material.ClientCertBase64 = [Convert]::ToBase64String($utf8NoBom.GetBytes($pem.CertificatePem))
+        $material.ClientKeyBase64  = [Convert]::ToBase64String($utf8NoBom.GetBytes($pem.PrivateKeyPem))
+        $material.CaCertBase64     = [Convert]::ToBase64String($utf8NoBom.GetBytes($pem.CaCertificatePem))
+    } catch {
+        Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_d4180c81874e5196' -Arguments @{ message = "$($_.Exception.Message)" })
+    }
+    return $material
+}
+
 Export-ModuleMember -Function `
+    Get-YurunaConfigServiceSeedMaterial, `
     Get-YurunaConfigCaDir, `
     Initialize-YurunaConfigCA, `
     Get-YurunaConfigCaCertificatePem, `

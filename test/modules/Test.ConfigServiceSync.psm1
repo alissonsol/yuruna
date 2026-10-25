@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.22
+.VERSION 2026.10.25
 .GUID 42523d00-1e52-4f07-92e7-2f54c6fa62da
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -325,21 +325,40 @@ function Test-ConfigSyncProof {
 <#
 .SYNOPSIS
     Mint the wire proof the status service's mutating /control/* routes accept:
-    "<expiryUnixSeconds>.<base64 HMAC>". The pool-aggregator service's /go/host mints the
-    identical value in Go so a Grafana deep-link can carry it to the browser UI.
+    "<expiryUnixSeconds>.<base64 HMAC>", or with -Audience the bound form
+    "<expiryUnixSeconds>.<audience>.<base64 HMAC>". The pool-aggregator service's
+    /go/host mints the identical value in Go so a Grafana deep-link can carry it to the
+    browser UI.
 .DESCRIPTION
-    proof = base64( HMAC-SHA256(internal-auth-key, "yuruna-control|proof|<expiry>") ).
-    Bound to the expiry only: the internal authentication key is pool-wide, so a valid proof means
-    "authorized within the TTL". The raw token never leaves the minting host (only the
-    HMAC + the plaintext expiry travel, in a URL fragment).
+    Unbound proof = base64( HMAC-SHA256(internal-auth-key, "yuruna-control|proof|<expiry>") ).
+    Bound proof   = base64( HMAC-SHA256(internal-auth-key, "yuruna-control|proof|v2|<audience>|<expiry>") ).
+    Scoped proof  = base64( HMAC-SHA256(internal-auth-key, "yuruna-control|proof|v3|<audience>|<scope>|<expiry>") ).
+    The internal authentication key is pool-wide, so an unbound proof means "authorized
+    within the TTL" on every host; a bound one names the one host (its host id) or
+    service ("svc-<service>") it opens, and a scoped one also names the one class of
+    that target's routes it opens ("pause": the four pause and resume routes). The raw
+    token never leaves the minting host (only the HMAC, the audience, the scope and the
+    plaintext expiry travel).
 #>
 function Get-YurunaControlProof {
     [CmdletBinding()]
     [OutputType([string])]
     param(
         [Parameter(Mandatory)][string]$Token,
-        [Parameter(Mandatory)][long]$ExpiryUnixSeconds
+        [Parameter(Mandatory)][long]$ExpiryUnixSeconds,
+        [ValidatePattern('^[A-Za-z0-9_-]{1,80}$')][string]$Audience,
+        # Only with -Audience: a scope narrows a bound proof to one class of routes.
+        [ValidatePattern('^[a-z][a-z0-9-]{0,31}$')][string]$Scope
     )
+    if ($Scope) {
+        if (-not $Audience) { throw 'A scoped control proof needs an audience.' }
+        $scoped = [Convert]::ToBase64String((Get-ConfigSyncHmac -Token $Token -Data "yuruna-control|proof|v3|$Audience|$Scope|$ExpiryUnixSeconds"))
+        return "$ExpiryUnixSeconds.$Audience.$Scope.$scoped"
+    }
+    if ($Audience) {
+        $bound = [Convert]::ToBase64String((Get-ConfigSyncHmac -Token $Token -Data "yuruna-control|proof|v2|$Audience|$ExpiryUnixSeconds"))
+        return "$ExpiryUnixSeconds.$Audience.$bound"
+    }
     $proof = [Convert]::ToBase64String((Get-ConfigSyncHmac -Token $Token -Data "yuruna-control|proof|$ExpiryUnixSeconds"))
     return "$ExpiryUnixSeconds.$proof"
 }
@@ -381,9 +400,18 @@ function Get-YurunaControlTag {
     Constant-time verify of a control proof from Get-YurunaControlProof (or the
     aggregator's Go mint). Returns $false on any malformed / expired / mismatched input.
 .DESCRIPTION
-    Parses "<expiry>.<base64 HMAC>", requires now <= expiry <= now + MaxTtlSeconds
-    (rejects a far-future proof so a captured token cannot mint an eternal pass),
-    recomputes the HMAC over the given expiry, and FixedTimeEquals-compares.
+    Parses "<expiry>.<base64 HMAC>", the bound "<expiry>.<audience>.<base64 HMAC>" or
+    the scoped "<expiry>.<audience>.<scope>.<base64 HMAC>", requires now <= expiry <=
+    now + MaxTtlSeconds (rejects a far-future proof so a captured token cannot mint an
+    eternal pass), recomputes the HMAC, and FixedTimeEquals-compares. A bound or scoped
+    proof must name -Audience (ignoring case); the status service passes this host's
+    id, so a proof minted for another host is refused here. Without -Audience a bound
+    proof is refused, because then nothing says which target this verifier is. A
+    scoped proof is accepted only when its scope is one of -AllowedScope: the route
+    being called names the scopes that cover it, and a route that names none takes
+    only the bound and unbound forms. An unbound proof is accepted while minters that
+    predate audiences remain in the pool. The same rules as controlproof.VerifyFor
+    and controlproof.VerifyScoped in the Go extension SDK.
 #>
 function Test-YurunaControlProof {
     [CmdletBinding()]
@@ -398,18 +426,34 @@ function Test-YurunaControlProof {
         # grace on this window, so an equal bound would reject a freshly minted
         # proof on any host whose clock trails the proxy; the surplus is that
         # tolerance, not a longer replay window (the minted expiry still governs).
-        [int]$MaxTtlSeconds = 1200
+        [int]$MaxTtlSeconds = 1200,
+        # The target this verifier is: the host id on the status service.
+        [AllowEmptyString()][string]$Audience = '',
+        # The scopes that cover the route being called; empty refuses every scoped proof.
+        [AllowEmptyCollection()][string[]]$AllowedScope = @()
     )
     if ([string]::IsNullOrWhiteSpace($Token) -or [string]::IsNullOrWhiteSpace($Wire)) { return $false }
-    $dot = $Wire.IndexOf('.')
-    if ($dot -le 0 -or $dot -ge ($Wire.Length - 1)) { return $false }
+    $parts = $Wire.Split('.')
+    if ($parts.Count -eq 4) {
+        if ($parts[1] -cnotmatch '^[A-Za-z0-9_-]{1,80}$' -or $parts[2] -cnotmatch '^[a-z][a-z0-9-]{0,31}$' -or -not $Audience -or
+            -not [string]::Equals($parts[1], $Audience, [StringComparison]::OrdinalIgnoreCase) -or
+            @($AllowedScope) -cnotcontains $parts[2]) { return $false }
+        $expiryText = $parts[0]; $macText = $parts[3]; $data = "yuruna-control|proof|v3|$($parts[1])|$($parts[2])|"
+    } elseif ($parts.Count -eq 3) {
+        if ($parts[1] -cnotmatch '^[A-Za-z0-9_-]{1,80}$' -or -not $Audience -or
+            -not [string]::Equals($parts[1], $Audience, [StringComparison]::OrdinalIgnoreCase)) { return $false }
+        $expiryText = $parts[0]; $macText = $parts[2]; $data = "yuruna-control|proof|v2|$($parts[1])|"
+    } elseif ($parts.Count -eq 2) {
+        $expiryText = $parts[0]; $macText = $parts[1]; $data = 'yuruna-control|proof|'
+    } else { return $false }
+    if (-not $expiryText -or -not $macText) { return $false }
     [long]$expiry = 0
-    if (-not [long]::TryParse($Wire.Substring(0, $dot), [ref]$expiry)) { return $false }
+    if (-not [long]::TryParse($expiryText, [ref]$expiry)) { return $false }
     $now = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
     if ($expiry -lt $now -or $expiry -gt ($now + $MaxTtlSeconds)) { return $false }
     [byte[]]$given = $null
-    try { $given = [Convert]::FromBase64String($Wire.Substring($dot + 1)) } catch { return $false }
-    [byte[]]$expected = Get-ConfigSyncHmac -Token $Token -Data "yuruna-control|proof|$expiry"
+    try { $given = [Convert]::FromBase64String($macText) } catch { return $false }
+    [byte[]]$expected = Get-ConfigSyncHmac -Token $Token -Data "$data$expiry"
     if ($given.Length -ne $expected.Length) { return $false }
     return [System.Security.Cryptography.CryptographicOperations]::FixedTimeEquals($expected, $given)
 }

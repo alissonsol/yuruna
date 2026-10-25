@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.22
+.VERSION 2026.10.25
 .GUID 42647c3a-19a7-4931-b638-07791d5f0b1b
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -44,8 +44,16 @@
     distinct per host -- two hosts on one LAN must not share a MAC.
 .PARAMETER AllowPseudoLocale
     Enable developer pseudo locales for the rebuilt service VM. Disabled by default.
+.PARAMETER RepairPoolCaTrust
+    Enabled by default. Force a full rebuild, then enroll this builder's verified
+    public signing key on pool hosts through authenticated control requests after
+    readiness. Keeps existing CA pins and settings. Automatic recovery reports
+    pending hosts without blocking a ready proxy; explicitly supplying this switch
+    requires every discovered host to succeed. Explicitly pass
+    -RepairPoolCaTrust:$false to retain adopt-if-healthy startup and best-effort enrollment.
 #>
 
+[Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidDefaultValueSwitchParameter', '', Justification='Recovery is the default; the switch preserves existing explicit opt-in and opt-out calls.')]
 [CmdletBinding(SupportsShouldProcess)]
 param(
     [Parameter(Position = 0)]
@@ -53,13 +61,14 @@ param(
     [Parameter()]
     [string]$MacAddress,
     # Force a full destroy+rebuild even when a healthy proxy already exists.
-    # Default (adopt-if-healthy) skips the ~15-min rebuild when the current VM
-    # is running and its squid / ssl-bump / CA probe passes. Pass this after a
+    # With -RepairPoolCaTrust:$false, adopt-if-healthy skips the rebuild
+    # when the current VM is running and its squid / ssl-bump / CA probe passes. Pass this after a
     # base-image or config change to guarantee a fresh build.
     [switch]$ForceRebuild,
     # See https://yuruna.link/42e220c4-0008
     [switch]$Lab,
-    [switch]$AllowPseudoLocale
+    [switch]$AllowPseudoLocale,
+    [switch]$RepairPoolCaTrust = $true
 )
 
 # --- REGION: Confirm the service operation
@@ -174,6 +183,13 @@ if ($MacAddress) {
 # The libvirt relaunch cannot prompt. Persist the answer before it, and carry
 # only the rebuild decision so a healthy VM cannot retain its old credential.
 if (Initialize-CachingProxyGitMirrorToken -Confirm:$false) {
+    $ForceRebuild = $true
+    $PSBoundParameters['ForceRebuild'] = $true
+}
+
+# Recovery must publish a statement from the current seed and builder, even
+# when the old VM still passes its ordinary proxy health checks.
+if ($RepairPoolCaTrust) {
     $ForceRebuild = $true
     $PSBoundParameters['ForceRebuild'] = $true
 }
@@ -418,6 +434,32 @@ try {
 } catch {
     Write-Warning "  Remove-HostProxy failed: $($_.Exception.Message). Cleanup will continue."
 }
+# The entry point also removes the VM, before the platform builder runs.
+# Capture its only CA key here so the builder can reuse the persisted pair.
+Import-Module (Join-Path $ModulesDir 'Test.CachingProxyService.psm1') -Global -Force -DisableNameChecking
+$preservedCa = Get-YurunaBumpCa -Create -ReadExistingCa {
+    if ((Get-VMState -VMName $VMName) -ne 'absent') {
+        $existingAddress = Get-VMIp -VMName $VMName
+        if (-not $existingAddress) { throw 'bump-ca-migration-address-unavailable: existing proxy preserved' }
+        Get-CachingProxyServiceLegacyCa -VMName $VMName -Address $existingAddress
+    }
+} -Confirm:$false
+if (-not $preservedCa) { throw 'bump-ca-unavailable: existing proxy preserved' }
+$poolRepairArgs = @{}
+if ((Get-VMState -VMName $VMName) -ne 'absent') {
+    # A new aggregator has not yet rediscovered stopped hosts. Keep the old
+    # inventory in memory across teardown so recovery can reach those hosts.
+    $previousProxyAddress = Get-VMIp -VMName $VMName
+    if ($previousProxyAddress) {
+        try {
+            $previousProxyUrl = 'http://' + (Format-IpUrlHost $previousProxyAddress)
+            $previousPool = Invoke-RestMethod -Uri "${previousProxyUrl}:9400/api/v1/pool-status" -NoProxy -TimeoutSec 15 -MaximumRedirection 0 -ErrorAction Stop
+            if (@($previousPool.hosts).Count -gt 0) { $poolRepairArgs.HostRecord = @($previousPool.hosts) }
+        } catch {
+            Write-Warning 'Could not retain the previous pool inventory; recovery will use the rebuilt aggregator inventory.'
+        }
+    }
+}
 if ($IsMacOS) {
     # See https://yuruna.link/42e5cdfd-0033
     try {
@@ -555,10 +597,9 @@ if ($cpStatusDecision.ShouldStart) {
 # See https://yuruna.link/42e5cdfd-0035
 Write-Verbose ""
 Write-Verbose "== Step 2.6: config service (serves NAS creds to this host's VMs over mTLS) =="
-# Shares the runner's lifecycle gate (Test.Prelude) so enabled / port / the
-# idempotent skip-if-healthy ensure behave identically here and on every runner
-# cycle -- the config service is no longer started ONLY by this one-shot script.
-$cpConfigDecision = Start-YurunaConfigServiceIfEnabled -Config $cpConfig -StartScript (Join-Path $PSScriptRoot 'Start-ConfigService.ps1')
+# Rebuilt guests need the current credential payload and NAS address resolver,
+# even when an older config-service process still answers on the same port.
+$cpConfigDecision = Start-YurunaConfigServiceIfEnabled -Config $cpConfig -StartScript (Join-Path $PSScriptRoot 'Start-ConfigService.ps1') -Restart
 if ($cpConfigDecision.ShouldStart) {
     # See https://yuruna.link/42e5cdfd-0036
     $cpConfigUp = Test-TcpEndpointOpen -Address '127.0.0.1' -Port ([int]$cpConfigDecision.Port) -TimeoutMilliseconds 3000
@@ -963,6 +1004,24 @@ if ($IsMacOS) {
 if (-not $cacheIp) {
     Write-Output "== caching-proxy-service is NOT READY -- '$VMName' =="
     exit 1
+}
+try {
+    Import-Module (Join-Path $ModulesDir 'Test.CachingProxyService.psm1') -Global -Force -DisableNameChecking
+    $repair = Repair-CachingProxyPoolCaTrust -CacheHost $cacheIp @poolRepairArgs -Confirm:$false
+    if (-not $repair.Success) {
+        $pending = @($repair.Hosts | Where-Object { -not $_.Success } | ForEach-Object { "$($_.HostId): $($_.Reason) (HTTP $($_.HttpStatus); $($_.ControlReason))" }) -join '; '
+        if ($RepairPoolCaTrust -and $PSBoundParameters.ContainsKey('RepairPoolCaTrust')) {
+            throw "proxy-ca-pool-repair-incomplete: $pending; see per-host results and retry on this builder"
+        }
+        if (@($repair.Hosts).Count -gt 0) {
+            Write-Warning "Proxy is ready, but pool CA enrollment remains pending: $pending. Keep existing CA pins; restore host control connectivity/authentication and retry on this builder."
+        } else {
+            Write-Information 'Proxy CA enrollment: no pool hosts discovered yet. After hosts register, run Start-Syzygy.ps1 on this builder.' -InformationAction Continue
+        }
+    }
+} catch {
+    if ($RepairPoolCaTrust) { throw }
+    Write-Warning 'Proxy rebuilt, but its signing key could not be enrolled on pool hosts. Run Start-Syzygy.ps1 on this builder to diagnose and complete recovery.'
 }
 $serviceOpResult = 'confirmed'
 

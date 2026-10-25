@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.22
+.VERSION 2026.10.25
 .GUID 42f72b91-c2a2-af97-ae5e-91f746c12317
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -216,6 +216,7 @@
     'aggregator.host_not_known_to_the_pool' = '[!‮ħóšţ ñóţ ķñóŵñ ţó ţħé ƥóóļ‬ ~~~~~~~~~~~]'
     'aggregator.hostid_must_be_a_42_prefixed_32_hex_id' = '[!‮ħóšţÍď ɱúšţ ƀé á 42-ƥřéƒíẋéď 32-ħéẋ íď‬ ~~~~~~~~~~~~~~~~]'
     'aggregator.ingest_disabled' = '[!‮íñğéšţ ďíšáƀļéď‬ ~~~~~~]'
+    'aggregator.invalid_control_scope' = '[!‮íñṽáļíď çóñţřóļ šçóƥé‬ ~~~~~~~~~]'
     'aggregator.invalid_hostid' = '[!‮íñṽáļíď ħóšţÍď‬ ~~~~~~]'
     'aggregator.invalid_hostid_or_area' = '[!‮íñṽáļíď ħóšţÍď óř ářéá‬ ~~~~~~~~~]'
     'aggregator.invalid_statusport' = '[!‮íñṽáļíď šţáţúšƤóřţ‬ ~~~~~~~~]'

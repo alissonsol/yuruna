@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.22
+.VERSION 2026.10.25
 .GUID 425315a1-f9bf-4a7b-98ca-d7dfb8a509a4
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -113,9 +113,11 @@ function Get-PoolCaCertPath {
     <#
     .SYNOPSIS
         Fetch + cache the published pool CA (http://<proxy>/yuruna-pool-ca.crt) to
-        runtime/pool-ca.crt for pinning the aggregator's TLS leaf. Trust-on-first-use over
-        HTTP on the trusted LAN (the same model guests use to fetch the squid CA at install).
-        Returns the cached path, or $null when unfetchable (the caller then cannot push).
+        runtime/pool-ca.crt for pinning the aggregator's TLS leaf. The pool CA is the
+        proxy's ssl-bump CA, so the fetched copy is accepted only when it matches the CA
+        this host trusts for that proxy (Resolve-YurunaPinnedProxyCa); a different one is
+        refused and the trusted copy is kept. Returns the cached path, or $null when
+        unfetchable (the caller then cannot push).
     #>
     [CmdletBinding(SupportsShouldProcess)]
     [OutputType([string])]
@@ -133,6 +135,15 @@ function Get-PoolCaCertPath {
         if ($resp.StatusCode -ne 200) { return $null }
         $content = [string]$resp.Content
         if ($content -notmatch 'BEGIN CERTIFICATE') { return $null }
+        if (-not (Get-Command Resolve-YurunaPinnedProxyCa -ErrorAction SilentlyContinue)) {
+            Import-Module (Join-Path $PSScriptRoot 'Test.CachingProxyService.psm1') -Global -DisableNameChecking -WarningAction SilentlyContinue
+        }
+        $pin = Resolve-YurunaPinnedProxyCa -Pem $content -CacheHost $ProxyIp -Statement (Get-CachingProxyServiceCaStatement -CacheHost $ProxyIp -TimeoutSec $TimeoutSeconds)
+        if (-not $pin.Accepted) {
+            Write-YurunaProxyCaRefusal -CacheHost $ProxyIp -Verdict $pin
+            if (-not $pin.Pem) { return $null }
+            $content = $pin.Pem
+        }
         [System.IO.File]::WriteAllText($path, $content, [System.Text.UTF8Encoding]::new($false))
         return $path
     } catch { Write-Verbose "Get-PoolCaCertPath: $($_.Exception.Message)"; return $null }
@@ -249,8 +260,9 @@ function Invoke-PoolEventPush {
             if (($code -lt 200 -or $code -ge 300) -and -not $refreshed) {
                 # A cached CA that no longer matches the aggregator's leaf (the pool CA was
                 # rotated on a proxy rebuild) makes pinning fail. Re-fetch the published CA
-                # ONCE and retry this batch before giving up. (A first-fetch TOFU poisoning
-                # is the documented residual of trust-on-first-use over HTTP.)
+                # ONCE and retry this batch before giving up. (A host with no mirror
+                # verification key enrolled still trusts a first fetch on first use; see
+                # Resolve-YurunaPinnedProxyCa.)
                 $refreshed = $true
                 $fresh = Get-PoolCaCertPath -ProxyIp $ProxyIp -RuntimeDir $RuntimeDir -TimeoutSeconds $TimeoutSeconds -Refresh -Confirm:$false
                 if ($fresh) {

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.22
+.VERSION 2026.10.25
 .GUID 42b0f4a9-1c73-4e58-8d61-9a5207ebd3f4
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -90,8 +90,35 @@ param(
     [switch]$Check,
     [switch]$Update,
     [string]$Root,
-    [switch]$Quiet
+    [switch]$Quiet,
+    [Parameter(DontShow)][switch]$ServerCollector
 )
+
+# The entries compile in parallel runspaces of one process, and the
+# workstation collector stops all of them for every collection: under the
+# server collector the shipped catalogs compile in about two thirds of the
+# time, on less processor time in total. A process chooses its collector when
+# it starts, so a run under the workstation collector hands its arguments to a
+# process that starts under the server one. Four heaps bound the memory, and
+# no affinity keeps compiles that run at once off each other's processors. The
+# caller's environment is put back, for a caller that ran this in its session.
+if (-not $ServerCollector -and -not [Runtime.GCSettings]::IsServerGC) {
+    $relaunch = @('-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', $PSCommandPath, '-ServerCollector')
+    if ($Check) { $relaunch += '-Check' }
+    if ($Update) { $relaunch += '-Update' }
+    if ($PSBoundParameters.ContainsKey('Root')) { $relaunch += @('-Root', $Root) }
+    if ($Quiet) { $relaunch += '-Quiet' }
+    $collector = [ordered]@{ DOTNET_gcServer = '1'; DOTNET_GCHeapCount = '4'; DOTNET_GCNoAffinitize = '1' }
+    $saved = @{}
+    foreach ($name in $collector.Keys) { $saved[$name] = [Environment]::GetEnvironmentVariable($name) }
+    try {
+        foreach ($name in $collector.Keys) { [Environment]::SetEnvironmentVariable($name, $collector[$name]) }
+        & (Get-Process -Id $PID).Path @relaunch
+    } finally {
+        foreach ($name in $saved.Keys) { [Environment]::SetEnvironmentVariable($name, $saved[$name]) }
+    }
+    exit $LASTEXITCODE
+}
 
 Import-Module (Join-Path $PSScriptRoot '../test/modules/Test.LocalizationExchange.psm1') -DisableNameChecking
 
@@ -595,7 +622,7 @@ function Get-PowerShellArtifact {
     $guid = Get-DerivedGuid -Seed "$Locale|$Domain"
     $header = @(
         '<#PSScriptInfo'
-        '.VERSION 2026.10.22'
+        '.VERSION 2026.10.25'
         ".GUID $guid"
         '.AUTHOR Alisson Sol et al.'
         '.COPYRIGHT (c) 2019-2026 by Alisson Sol et al.'
@@ -928,33 +955,65 @@ $generatedRoot = Join-Path $Root 'generated'
 $wanted = [ordered]@{}
 $inventory = [System.Collections.Generic.List[object]]::new()
 
-foreach ($entry in ($catalogs | Sort-Object { $_.Locale }, { $_.Domain })) {
-    # A planned locale is validated above but emits nothing: no runtime can
-    # load it, and the orphan sweep below removes anything an earlier run left.
-    if ([string]$manifest.locales.$($entry.Locale).status -eq 'planned') { continue }
-    $compiled = [ordered]@{}
-    $activeCount = 0
-    foreach ($p in ($entry.Parsed.messages.PSObject.Properties | Sort-Object Name)) {
-        if ($p.Value.lifecycle -eq 'tombstone') { continue }
-        $compiled[$p.Name] = ConvertTo-CompiledMessage -Message $p.Value
-        $activeCount++
-    }
+# Each entry compiles from its own catalog alone, so the entries compile in
+# parallel runspaces running these same functions, under this thread's
+# cultures, and their results are taken back in the sorted order: the
+# artifacts and the inventory are the bytes a one-at-a-time loop writes.
+# A planned locale is validated above but emits nothing: no runtime can load
+# it, and the orphan sweep below removes anything an earlier run left.
+$emitEntries = @($catalogs | Sort-Object { $_.Locale }, { $_.Domain } |
+        Where-Object { [string]$manifest.locales.$($_.Locale).status -ne 'planned' })
+$emitFunctions = [ordered]@{}
+foreach ($name in @('ConvertTo-CompiledForm', 'ConvertTo-CompiledMessage', 'ConvertTo-CanonicalJson', 'Get-Sha256',
+        'Get-DerivedGuid', 'ConvertTo-PowerShellLiteral', 'Get-PowerShellArtifact', 'ConvertTo-JsLiteral',
+        'Get-BrowserArtifact', 'Get-GoArtifact')) {
+    $emitFunctions[$name] = (Get-Item -LiteralPath "function:$name").ScriptBlock.ToString()
+}
+$emitCulture = [Globalization.CultureInfo]::CurrentCulture
+$emitUiCulture = [Globalization.CultureInfo]::CurrentUICulture
+$emitBanner = $script:Banner
+$emitted = @(@(0..($emitEntries.Count - 1)) | Where-Object { $emitEntries.Count } |
+        ForEach-Object -ThrottleLimit ([Math]::Clamp([Environment]::ProcessorCount, 1, 32)) -Parallel {
+            $ErrorActionPreference = 'Stop'
+            [Globalization.CultureInfo]::CurrentCulture = $using:emitCulture
+            [Globalization.CultureInfo]::CurrentUICulture = $using:emitUiCulture
+            ($using:emitFunctions).GetEnumerator() | ForEach-Object {
+                Set-Item -LiteralPath "function:$($_.Key)" -Value $_.Value
+            }
+            $script:Banner = $using:emitBanner
+            $index = $_
+            $entry = ($using:emitEntries)[$index]
+            $compiled = [ordered]@{}
+            $activeCount = 0
+            foreach ($p in ($entry.Parsed.messages.PSObject.Properties | Sort-Object Name)) {
+                if ($p.Value.lifecycle -eq 'tombstone') { continue }
+                $compiled[$p.Name] = ConvertTo-CompiledMessage -Message $p.Value
+                $activeCount++
+            }
+            $json = ConvertTo-CanonicalJson -Value $compiled
+            $psText = Get-PowerShellArtifact -Locale $entry.Locale -Domain $entry.Domain -Compiled $compiled
+            # Import-PowerShellDataFile rejects the whole file on one bad literal, so
+            # a data file the parser refuses would break every lookup in its locale.
+            $parseErrors = $null
+            $null = [Management.Automation.Language.Parser]::ParseInput($psText, [ref]$null, [ref]$parseErrors)
+            [pscustomobject]@{
+                Index = $index; Json = $json; PowerShell = $psText; ActiveCount = $activeCount
+                ParseError = if ($parseErrors.Count) { $parseErrors[0].Message } else { $null }
+                Browser = Get-BrowserArtifact -Locale $entry.Locale -Domain $entry.Domain -Compiled $compiled
+                Go = Get-GoArtifact -Locale $entry.Locale -Domain $entry.Domain -Json $json
+                CompiledHash = Get-Sha256 -Text $json
+            }
+        } | Sort-Object Index)
+if ($emitted.Count -ne $emitEntries.Count) { throw "Compiled $($emitted.Count) of $($emitEntries.Count) catalog entries." }
 
-    $json = ConvertTo-CanonicalJson -Value $compiled
-    $psText = Get-PowerShellArtifact -Locale $entry.Locale -Domain $entry.Domain -Compiled $compiled
-    # Import-PowerShellDataFile rejects the whole file on one bad literal, so
-    # a data file the parser refuses would break every lookup in its locale.
-    $parseErrors = $null
-    $null = [Management.Automation.Language.Parser]::ParseInput($psText, [ref]$null, [ref]$parseErrors)
-    if ($parseErrors.Count) {
-        Add-Problem "generated/powershell/$($entry.Locale).$($entry.Domain).psd1 does not parse: $($parseErrors[0].Message)"
+foreach ($result in $emitted) {
+    $entry = $emitEntries[$result.Index]
+    if ($result.ParseError) {
+        Add-Problem "generated/powershell/$($entry.Locale).$($entry.Domain).psd1 does not parse: $($result.ParseError)"
     }
-    $jsText = Get-BrowserArtifact -Locale $entry.Locale -Domain $entry.Domain -Compiled $compiled
-    $goText = Get-GoArtifact -Locale $entry.Locale -Domain $entry.Domain -Json $json
-
-    $wanted[(Join-Path $generatedRoot "powershell/$($entry.Locale).$($entry.Domain).psd1")] = $psText
-    $wanted[(Join-Path $generatedRoot "browser/$($entry.Locale).$($entry.Domain).js")] = $jsText
-    $wanted[(Join-Path $generatedRoot "go/catalog/$($entry.Locale -replace '[^A-Za-z0-9]', '')_$($entry.Domain).go")] = $goText
+    $wanted[(Join-Path $generatedRoot "powershell/$($entry.Locale).$($entry.Domain).psd1")] = $result.PowerShell
+    $wanted[(Join-Path $generatedRoot "browser/$($entry.Locale).$($entry.Domain).js")] = $result.Browser
+    $wanted[(Join-Path $generatedRoot "go/catalog/$($entry.Locale -replace '[^A-Za-z0-9]', '')_$($entry.Domain).go")] = $result.Go
 
     $inventory.Add([ordered]@{
         locale       = $entry.Locale
@@ -962,9 +1021,9 @@ foreach ($entry in ($catalogs | Sort-Object { $_.Locale }, { $_.Domain })) {
         source       = $entry.SourcePath
         inputHash    = $entry.InputHash
         generatedFrom = if ($entry.GeneratedFrom) { $entry.GeneratedFrom } else { $null }
-        activeKeys   = $activeCount
-        compiledHash = Get-Sha256 -Text $json
-        bytes        = [Text.UTF8Encoding]::new($false).GetByteCount($json)
+        activeKeys   = $result.ActiveCount
+        compiledHash = $result.CompiledHash
+        bytes        = [Text.UTF8Encoding]::new($false).GetByteCount($result.Json)
     })
 }
 
@@ -1021,7 +1080,7 @@ foreach ($translationKey in $translationProvenance.Keys) {
 }
 $setManifest = ConvertTo-CanonicalJson -Value ([ordered]@{
     schema          = 'yuruna.catalog-set/v1'
-    compilerVersion = '2026.10.22'
+    compilerVersion = '2026.10.25'
     catalogSchema   = 'yuruna.catalog/v1'
     localeManifest  = Get-Sha256 -Text ([IO.File]::ReadAllText($manifestPath))
     inputs           = $inputHash

@@ -28,6 +28,11 @@
 # and the runtime copies embedding them; the sixth regenerates the
 # translation-surface census when both checkouts are clean enough, and stages it.
 
+# Parallel PowerShell gates must not play or update a shared .NET startup
+# profile. The setting is inherited by generators and nested gate processes.
+DOTNET_MultiCoreJitProfile='(D)'
+export DOTNET_MultiCoreJitProfile
+
 repo_root=$(git rev-parse --show-toplevel 2>/dev/null) || exit 0
 # --- REGION: run_sbom
 # See https://yuruna.link/sbom

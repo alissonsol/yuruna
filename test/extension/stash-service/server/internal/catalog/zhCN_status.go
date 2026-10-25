@@ -95,6 +95,7 @@ const DatazhCNstatus = `{
   "status.api_forbidden_deny_list_1c7d1cfa": "禁止访问（拒绝列表）",
   "status.api_forbidden_directory_listing_disabled_5d107f5b": "禁止访问（已禁用目录列表）",
   "status.api_forbidden_missing_x_yuruna_request_header_cross_site_r_c47c4ea5": "禁止访问：缺少X-Yuruna请求头（跨站请求防护）",
+  "status.api_forbidden_not_served": "禁止（不是提供的文件）",
   "status.api_forbidden_probe_target_must_be_a_private_loopback_rfc1_2c763dac": "禁止访问：探测目标必须是私有地址（loopback/RFC1918/link-local）或配置的缓存IP",
   "status.api_host_refresh_authorization_refused": [
     "刷新授权被拒绝（",
@@ -249,7 +250,17 @@ const DatazhCNstatus = `{
   "status.banner_incident_details": "检测到故障——请查看以下详情",
   "status.banner_pass": "所有客户机均运行正常",
   "status.banner_running": "测试正在进行中",
+  "status.banner_stalled": [
+    "测试正在进行，但在 ",
+    {
+      "arg": "boundSeconds",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " s 上限内没有任何步骤推进"
+  ],
   "status.banner_stopped": "测试运行程序已停止",
+  "status.banner_unguarded": "测试正在进行，但没有步骤看门狗；由运行器代为约束本周期",
   "status.cache_caching_proxy_service_306beb37": "缓存代理服务：",
   "status.cache_caching_proxy_service_configured_at_address_not_answer_df71d10d": [
     "缓存代理服务：已配置为",

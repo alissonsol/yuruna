@@ -113,6 +113,7 @@ const DataenUSstatus = `{
   "status.api_forbidden_deny_list_1c7d1cfa": "Forbidden (deny-list)",
   "status.api_forbidden_directory_listing_disabled_5d107f5b": "Forbidden (directory listing disabled)",
   "status.api_forbidden_missing_x_yuruna_request_header_cross_site_r_c47c4ea5": "forbidden: missing X-Yuruna request header (cross-site request guard)",
+  "status.api_forbidden_not_served": "Forbidden (not a served file)",
   "status.api_forbidden_probe_target_must_be_a_private_loopback_rfc1_2c763dac": "forbidden: probe target must be a private (loopback/RFC1918/link-local) address or the configured cache IP",
   "status.api_host_refresh_authorization_refused": [
     "refresh authorization refused (",
@@ -266,7 +267,17 @@ const DataenUSstatus = `{
   "status.banner_incident_details": "Incident detected — see details below",
   "status.banner_pass": "All guests operational",
   "status.banner_running": "Test in progress",
+  "status.banner_stalled": [
+    "Test in progress, but no step has advanced within its ",
+    {
+      "arg": "boundSeconds",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " s bound"
+  ],
   "status.banner_stopped": "Test runner stopped",
+  "status.banner_unguarded": "Test in progress without the step watchdog; the runner bounds this cycle instead",
   "status.cache_caching_proxy_service_306beb37": "Caching-proxy service:",
   "status.cache_caching_proxy_service_configured_at_address_not_answer_df71d10d": [
     "Caching-proxy service: configured at ",

@@ -2066,7 +2066,7 @@ The `install -d` for /var/lib/squid is NOT redundant: on Ubuntu the squid-openss
 
 ### Publish squid CA cert
 
-Publish the CA public cert at http://<cache>/yuruna-squid-ca.crt so guests can fetch and trust it during install. Only the public cert is copied -- ca.key stays in /etc/squid/ssl_cert/. Mode 644 is deliberate: RFC1918 reachability is enforced at the network layer (the host switch/bridge/NAT), so trust distribution works without an extra cachemgr-style `Require ip` drop-in.
+Publish the CA public cert at http://<cache>/yuruna-squid-ca.crt so guests can fetch and trust it during install. Only the public cert is copied -- ca.key stays in /etc/squid/ssl_cert/. Mode 644 is deliberate: RFC1918 reachability is enforced at the network layer (the host switch/bridge/NAT), so trust distribution works without an extra cachemgr-style `Require ip` drop-in. Beside it, http://<cache>/yuruna-squid-ca.sig.json carries the building host's statement of the CA's SHA-256, signed with the lab's mirror signing key, so a host that did not build this proxy can trust the CA without trusting the first answer it receives. The statement is published only while squid bumps with the seeded CA it names; a proxy that had to generate its own CA serves none.
 
 <a id="429f3d06-0068"></a>
 
@@ -2629,6 +2629,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.22
+Last review: 2026.10.25
 
 Back to [Yuruna](../README.md)

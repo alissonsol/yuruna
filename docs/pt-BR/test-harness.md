@@ -523,6 +523,17 @@ depurador nem soquete de diagnóstico do .NET. `tools/_InvokeOneSuite.ps1` faz o
 por conta própria quando é executado diretamente. Depois da última suíte, o executor aplica a
 mesma limpeza de arquivos temporários que um ciclo de teste.
 
+**Os perfis de inicialização do PowerShell são desativados nos processos das
+suítes paralelas.** Antes de iniciar um processo de suíte, o executor define
+`DOTNET_MultiCoreJitProfile=(D)` para ele e seus descendentes. Essa opção do .NET
+desativa a leitura e a gravação do perfil JIT de inicialização; ela impede que
+shells concorrentes corrompam o cache compartilhado `StartupProfileData-*` e
+depois falhem com os códigos de saída 134 ou 139
+([problema no runtime](https://github.com/dotnet/runtime/issues/121977)).
+O shim de suíte única executado diretamente define a mesma opção para seus
+descendentes. Os arquivos de cache do operador e o ambiente do shell que chama
+o executor permanecem inalterados.
+
 **No Windows, execute as suítes em um PowerShell elevado que tenha o `usr\bin`
 do Git for Windows em `PATH`.** Elevação: algumas suítes criam links simbólicos ou regravam o
 proprietário de um arquivo, e um token não elevado não tem os privilégios para as duas ações (o
@@ -533,15 +544,17 @@ hospedeiro de ciclos de teste Windows também executa elevado. Ferramentas Git: 
 `chmod` e `openssl` não são encontrados; o Git for Windows inclui os três em
 `usr\bin`. As suítes privadas em `dev-only/test` seguem a mesma regra.
 
-**Planeje o tempo.** Metade dos processadores lógicos, no mínimo 8 e no máximo 16,
-executa processos de suíte ao mesmo tempo (`-ThrottleLimit`). Acima de 16, a suíte
-mais longa fica mais lenta sob a carga mais depressa do que os trabalhadores extras
-terminam as demais. Uma execução completa das suítes versionadas leva cerca de 8
-minutos no hospedeiro Ubuntu KVM em que o baseline é registrado, cerca de 7 minutos
-no macOS e de 17 a 20 minutos no Windows. Uma suíte executa ao lado de até quinze
-outras, portanto um limite de tempo dentro de uma suíte precisa ser atendido em uma
-máquina ocupada, e um teste que precisa de uma porta livre não deve presumir que uma
-porta que acabou de liberar continuará livre.
+**Planeje o tempo.** Três quartos dos processadores lógicos, no mínimo 8 e no máximo
+24, executam processos de suíte ao mesmo tempo (`-ThrottleLimit`). As suítes passam
+boa parte do tempo esperando processos filhos, temporizadores e o disco, então menos
+trabalhadores deixam processadores ociosos; acima disso os processadores ficam
+saturados e as suítes mais longas ficam mais lentas mais depressa do que os
+trabalhadores extras terminam as demais. Uma execução completa das suítes
+versionadas leva cerca de 8 minutos no hospedeiro Ubuntu KVM em que o baseline é
+registrado, cerca de 7 minutos no macOS e de 17 a 20 minutos no Windows. Uma suíte
+executa ao lado de até vinte e três outras, portanto um limite de tempo dentro de
+uma suíte precisa ser atendido em uma máquina ocupada, e um teste que precisa de uma
+porta livre não deve presumir que uma porta que acabou de liberar continuará livre.
 
 **Aprovações registradas.** No Linux, com `strace` e `python3`, `-Record` rastreia
 cada suíte que a execução roda (`tools/suite_impact.py`) e guarda, para cada suíte
@@ -582,12 +595,20 @@ da execução sem rastreamento. Os registros ficam no diretório Git do clone
 reutilizar nada.
 
 `tools/Start-TestWatcher.ps1` mantém os registros atualizados. Ele calcula a
-impressão digital do espaço de trabalho a cada poucos segundos e, quando o espaço de
-trabalho fica sem mudanças por um tempo, executa as suítes públicas e privadas com
-`-Background`: registrando em prioridade ociosa e sem iniciar outra suíte enquanto
-uma execução em primeiro plano estiver ativa no clone. Inicie-o no mesmo tipo de
-shell que executa os gates, porque o ambiente faz parte do contexto de cada
-registro. `-Once` registra cada suíte que não tem aprovação reutilizável e termina.
+impressão digital do espaço de trabalho a cada segundo e inicia após dois
+segundos sem mudanças. As suítes públicas e privadas executam juntas com
+`-Background`, compartilhando um único limite de concorrência, em prioridade
+ociosa. Elas não iniciam outra suíte enquanto uma execução em primeiro plano
+estiver ativa no clone. Uma rodada com falha ou interrompida é informada e
+permanece pendente, de modo que o observador volta a ela mesmo sem mudanças nos
+arquivos. Um relatório antigo não substitui aquele que um processo filho deixou
+de publicar. Inicie-o no mesmo tipo de shell que executa os gates, porque o
+ambiente faz parte do contexto de cada registro. `-Once` registra cada suíte que
+não tem aprovação reutilizável e termina com o resultado dessa rodada. Inicie o
+observador durante a edição; uma execução imediata em primeiro plano valida e
+reutiliza somente registros cujas entradas ainda correspondem. Suítes alteradas
+ou não registráveis continuam executando, portanto uma mudança não pode ter um
+resultado aprovado antes de ser testada.
 
 **O código de saída de uma suíte isolada não indica aprovação/falha.** O caminho
 independente do Pester não propaga uma execução com falha pelo operador de chamada: uma
@@ -1489,6 +1510,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.22
+Last review: 2026.10.25
 
 Voltar para [Yuruna](../../README.md)

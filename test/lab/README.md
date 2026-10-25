@@ -61,6 +61,14 @@ The Syzygy scripts resolve their sibling `../service` directory from their own
 location, so an absolute invocation works from any working directory. Common
 parameters such as `-WhatIf` and `-Confirm` are passed to each service script.
 
+A caching-proxy rebuild enrolls its verified signing key on discovered pool
+hosts through authenticated host control. To repair existing hosts through the
+same lab entry point, run `pwsh test/lab/Start-Syzygy.ps1`.
+The proxy launcher enables recovery by default: it rebuilds the cache and
+reports pending hosts without blocking the remaining service starts. Invalid
+CA statements still stop startup. Existing CA pins remain in place until a
+signed rotation verifies.
+
 Walk-through: [Lab operator](../../docs/lab-operator.md).
 
 ## Path base

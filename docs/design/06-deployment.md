@@ -45,7 +45,10 @@ controls the guest through its native hypervisor interface, including console
 input, screenshots, and the VM state used to observe shutdown; Hyper-V also
 captures COM1 through a named pipe. The status service is another host process,
 serving operator pages, controls, runtime evidence, repository script fetches,
-and bounded guest diagnostic and log uploads.
+and bounded guest diagnostic and log uploads. A file under its runtime directory
+is served only when it is one of the allow-listed status records, whichever path
+names it, so credentials, keys, and other private state there answer 403;
+harness state under `test/status/` is refused through the repository mount.
 Sequences selecting SSH connect directly from the runner to the guest. Console
 fetches also use SSH for launcher capability checks, refusal records, payload
 state, and execution evidence when the guest is reachable; the payload itself
@@ -96,15 +99,29 @@ Sources: [host download client](../../host/modules/Yuruna.HostDownload.psm1),
 [image publishers](../../host/modules/Yuruna.Image.psm1),
 [agent refresh](../../test/extension/download-agent-service/server/internal/imagestore/refresh.go),
 [cache seed](../../host/vmconfig/caching-proxy-service.base.user-data),
+[CA trust](../../test/modules/Test.CachingProxyService.psm1),
+[guest CA self-heal](../../automation/yuruna-retry.sh),
 [stash client](../../test/extension/stash-service/default.psm1),
 [stash server](../../test/extension/stash-service/server/main.go), and the companion
 [example workload helper](https://github.com/alissonsol/yuruna-project/blob/main/tools/example-workload.sh).
 
 Squid handles package/file requests, and Zot handles OCI pulls on the cache VM.
-Hosts and the download agent also fetch the cache CA from Apache on port 80. The
-download-agent serves shared OS images from its own VM and fetches origin bytes
-through the cache. Its freshness and checksum requests bypass the cache, and
-its byte downloads can fall back to direct origin access. Hosts can fall back
+Hosts also fetch the cache CA from Apache on port 80. The copy a host seeds
+into guests, serves at its status service's `/ca.crt`, pins for pool event
+push and trusts for its own HTTPS downloads is accepted only when it is a root
+the host trusts for that proxy: the CA it seeds into the proxies it builds, the
+root pinned for that address, or a root the proxy's builder signed with the
+lab's mirror signing key (`yuruna-squid-ca.sig.json` beside the CA). A host
+that enrolls that key never trusts a CA on first use; one that enrolls none
+pins the first root it sees. A builder that is handed an untrusted root stops
+with the `source_integrity` class, and a host download sends HTTPS direct. The
+download agent receives the CA in its seed instead. The cache builders seed an ssl-bump CA that
+the building host keeps in its private state, so a rebuilt proxy keeps its root,
+and the Linux guest and service seeds name that root's SHA-256 in `host.env`; a
+guest's CA self-heal installs a CA from the host's `/ca.crt` only when it
+matches. The download-agent serves shared OS images from its own VM and fetches
+origin bytes through the cache. Its freshness and checksum requests bypass the
+cache, and its byte downloads can fall back to direct origin access. Hosts can fall back
 to their ordinary image download path when the agent cannot supply an image.
 The seventh frame groups the configured image, package, and registry publishers;
 each URL selects an independent external endpoint. Stash runs its SCP/SFTP listener on port
@@ -187,6 +204,8 @@ Sources: [source selection](../../test/modules/Test.SourceSelection.psm1),
 [shared guest updater](../../guest/shared/ubuntu.update.sh),
 [download-agent seed](../../host/vmconfig/download-agent-service.base.user-data),
 [cache seed](../../host/vmconfig/caching-proxy-service.base.user-data),
+[archive construction](../../test/modules/Test.HostGit.psm1),
+[seed digests](../../automation/Yuruna.CloudInitTemplate.psm1),
 [mirror roles](../../test/extension/caching-proxy-service/gitmirror.go), and
 [mirror Git client](../../test/extension/caching-proxy-service/gitmirror_git.go).
 
@@ -211,14 +230,22 @@ the mirror only after a network timeout; `off` uses the configured origin.
 Setup enrolls the key of the host's own cache, and configuration sync asks the
 operator before accepting a reference host's key.
 
-Guests and the download-agent, pool-control, and stash seeds take source from
-the building host's status service first: the tree under `/yuruna-repo/` or
-`/yuruna-archive.tar.gz`. When it does not answer, they read a pinned commit from
-the mirror and then from GitHub. `fetch-and-execute.sh` reads files from
-`/git-raw/`, while guest updaters and service seeds make a shallow `/git/` fetch.
-The cache seed builds its own daemons from the status service and falls back to
-GitHub raw content at the build commit, because its mirror is not yet running.
-The service-VM frame aggregates those three VMs, whose seeds share this order.
+Guests take source from the building host's status service first:
+`fetch-and-execute.sh` reads files under `/yuruna-repo/` against a
+runner-supplied digest, and guest updaters extract `/yuruna-archive.tar.gz`. The
+download-agent, pool-control, and stash seeds request
+`/yuruna-archive.tar.gz?commit=<sha>` for the commit the seed names and extract
+it only when its bytes match the SHA-256 seeded beside that commit; a seed
+without the digest skips the host archive. When the host supplies no source,
+guests read the pinned commit from the mirror and then from GitHub:
+`fetch-and-execute.sh` from `/git-raw/`, and guest updaters through a shallow
+`/git/` fetch. The service seeds make the same pinned `/git/` fetch, then clone
+the public GitHub repository, whose code can be older than the host's. The cache
+seed builds its own daemons from the status service and falls back to GitHub raw
+content at the build commit, because its mirror is not yet running; every file
+it fetches must match the seeded per-file SHA-256 manifest, and a missing or
+different file skips that daemon's build. The service-VM frame aggregates those
+three VMs, whose seeds share this order.
 
 ## Pool coordination endpoints
 
@@ -275,8 +302,23 @@ macOS hosts; see [Test.HostMetricsExporter](../../test/modules/Test.HostMetricsE
 and [Test.HostMemoryMetrics](../../test/modules/Test.HostMemoryMetrics.psm1).
 
 Pool-control sweeps for hosts every 15 minutes by default, reads their status and
-host facts, and sends proof-gated pause and resume controls; see
-[hostctl.go](../../test/extension/pool-control-service/server/internal/hostctl/hostctl.go).
+host facts, and sends pause and resume controls, each carrying a control proof
+bound to the host it targets and scoped to its pause and resume routes:
+pool-control mints it from the internal authentication key when it holds that
+key, or asks the aggregator's `/go/host` for each member otherwise, and resends
+a host that predates scoped proofs its full proof; see
+[hostctl.go](../../test/extension/pool-control-service/server/internal/hostctl/hostctl.go)
+and [hostcontrol.go](../../test/extension/pool-control-service/server/internal/httpsrv/hostcontrol.go).
+Dashboard links reach a host or an extension service through the aggregator's
+`/go/host` and `/go/stash` redirects, which mint a short-lived proof bound to
+that host id or to `svc-<area>` for the service area they open, `stash-service`
+by default; these redirects are unauthenticated because the LAN is the trust
+boundary. Hosts verify the binding through
+[Test.ConfigServiceSync](../../test/modules/Test.ConfigServiceSync.psm1) and
+services through the SDK's
+[controlproof](../../test/extension/extension-sdk/controlproof/controlproof.go)
+package; both still accept unbound proofs from an aggregator that predates
+audiences.
 
 Pool-control's remote refresh path is optional. Its separate authority and
 operator credential checks are implemented in
@@ -334,7 +376,7 @@ operations, rather than a claim that every byte is synchronously on the share.
 ```mermaid
 flowchart TB
     subgraph caching-proxy-service["Caching proxy VM"]
-        squid-zot["Squid, Zot, self-test"]
+        squid-zot["Squid, Zot, self-tests"]
         caching-proxy-parser-service["Cache parser"]
         pool-aggregator-service["Pool aggregator"]
         prometheus-loki["Metrics and logs"]
@@ -359,14 +401,20 @@ Sources: the [cache seed](../../host/vmconfig/caching-proxy-service.base.user-da
 and the [qualified Zot release](../../host/vmconfig/caching-proxy-service.zot-qualified.json).
 
 One VM frame and six child families total seven boxes. The first family groups
-Squid, Zot, the Zot prewarm, and `zot-sync-selftest.py`. Zot is a pinned,
+Squid, Zot, the Zot prewarm, `zot-sync-selftest.py`, and
+`yuruna-apt-index-selftest.py`, which every 30 minutes reads each probe
+repository's apt metadata pair through the local Squid and reports any pair that
+disagrees. Squid answers mutable apt metadata from the origin and still stores
+it, so a stored `InRelease` cannot sit beside an index from a later publish.
+Zot is a pinned,
 SHA-256-checked release with `http.compat` enabling Docker manifests, and its
 upstream sync leaves through the local Squid 3129 listener. The self-test syncs
 one probe image per upstream through Zot when Zot is installed and after each
 warm run, blames Zot only when the upstream serves the image, and can add an
 `http.compat` mode and restart Zot. Metrics and logs group Prometheus, Loki,
-Alloy, and exporters; the Zot metadata exporter publishes the self-test verdict
-on Apache's `/zot-meta` and `/cache-health`. Apache and management group the web
+Alloy, and exporters; the Zot metadata exporter publishes the Zot self-test
+verdict on Apache's `/zot-meta` and `/cache-health`, and the apt index verdict
+appears on `/squid-meta` and `/cache-health`. Apache and management group the web
 server with the Go caching-proxy-service daemon and that binary's Git mirror
 roles: the [worker unit](../../test/extension/caching-proxy-service/git-mirror-worker.service)
 refreshes and signs over a private Unix socket, the
@@ -382,7 +430,7 @@ processes communicate locally inside this VM.
 | Squid 3128/3129 | HTTP proxy/CONNECT and the TLS inspection path. The latter needs the cache CA trusted by the client. |
 | Squid 3138/3139 | PROXY-header twins of 3128/3129; macOS Shared NAT forwarders target them to keep the client address. |
 | Zot 5000 | OCI registry API and on-demand pull-through sync; upstream fetches go through Squid 3129. |
-| Apache 80 | Landing page, CA certificates, `/squid-meta`, `/zot-meta`, `/cache-health` with the Zot self-test verdict, pool configuration, and the Git mirror's `/git/`, `/git-raw/`, and `/git-mirror/` paths. |
+| Apache 80 | Landing page, CA certificates, `/squid-meta`, `/zot-meta`, `/cache-health` with the Zot and apt index self-test verdicts, pool configuration, and the Git mirror's `/git/`, `/git-raw/`, and `/git-mirror/` paths. |
 | Management 9310 | Go management API and Git mirror relay; Apache proxies its landing page and mirror status and resolution. |
 | Mirror reader 9311 | Loopback-only pinned file reads behind Apache's `/git-raw/`. |
 | Parser 9302 | Recent Squid requests held in memory. |
@@ -392,11 +440,13 @@ processes communicate locally inside this VM.
 A responding dashboard does not establish the health of an independent
 collector, parser, or cache fetch.
 
-## Cache credential channel
+## Service credential channel
 
 ```mermaid
 flowchart LR
     subgraph caching-proxy-service["Caching proxy VM"]
+    end
+    subgraph extension-service-vms["Extension service VMs"]
     end
     subgraph host["Hypervisor host"]
         start-config-service-ps1["Config service"]
@@ -405,6 +455,8 @@ flowchart LR
     end
     %% optional: enabled ConfigService and configured pool replication.
     caching-proxy-service -.->|mutual TLS 8443| start-config-service-ps1
+    %% optional: enabled ConfigService and configured stash or pool storage.
+    extension-service-vms -.->|mutual TLS 8443| start-config-service-ps1
     start-config-service-ps1 -->|local settings read| test-config-yml
     start-config-service-ps1 -->|local password resolution| authentication
 ```
@@ -413,28 +465,40 @@ Sources: [Start-ConfigService](../../test/service/Start-ConfigService.ps1),
 [ConfigServiceCA](../../test/modules/Test.ConfigServiceCA.psm1),
 [authentication provider](../../test/extension/authentication/default.psm1),
 [configuration template](../../test/test.config.yml.template),
-[cache builder](../../host/ubuntu.kvm/guest.caching-proxy-service/New-VM.ps1), and
-[cache seed](../../host/vmconfig/caching-proxy-service.base.user-data).
+[cache builder](../../host/ubuntu.kvm/guest.caching-proxy-service/New-VM.ps1),
+[cache seed](../../host/vmconfig/caching-proxy-service.base.user-data),
+[stash seed](../../host/vmconfig/stash-service.base.user-data),
+[credential helper](../../automation/yuruna-nas-credential.sh), and the
+[service-VM start pipeline](../../test/modules/Test.ServiceVm.psm1).
 
 The configuration listener is a host process distinct from the HTTP status
-service. ConfigService is enabled in the template, and each provider's cache
-builder can bake the host CA and a cache client certificate. When pool replication
-is configured, the cache seed fetches /v1/nas/pool at boot and before replication,
-then rewrites its root-only CIFS credential and remounts on a credential version
-change. The listener rereads current host settings and resolves the current vault
-password for each request. Its configuration and vault edges are local reads.
+service. ConfigService is enabled in the template, and each provider's service
+builders bake the host CA and a client certificate for the VM they build. The
+shared service-VM start pipeline ensures the listener before it builds a stash,
+download-agent, or pool-control guest. When pool replication is configured, the
+cache seed fetches /v1/nas/pool at boot and before replication, then rewrites its
+root-only CIFS credential and remounts on a credential version change. The
+service-VM frame aggregates the stash, download-agent, and pool-control VMs: the
+stash fetches /v1/nas/stash and the other two fetch /v1/nas/pool once at first
+boot through `yuruna-nas-credential.sh`, which writes the 0600 CIFS credentials
+file their share mount reads. Their seeds carry no NAS password, so a later
+password rotation reaches them only through a rebuild or a re-run of that
+helper. The listener rereads current host settings and resolves the current
+vault password for each request. Its configuration and vault edges are local
+reads.
 
-The listener also implements /v1/nas/stash, and the cache helper can fetch that
-name, but the current cache seed does not activate a stash mount. Stash,
-download-agent, and pool-control instead have CIFS credentials baked into their
-own seeds. Their current provisioning does not include this mTLS refresh client,
-so the cache rotation path must not be assumed for those VMs. The cache seed also
-bakes the internal authentication key, an optional Docker Hub token for Zot
-sync, and the Git mirror's signing key and optional GitHub token from the host's
-vault. A host synchronizing configuration from a reference pool host can fetch a
-missing storage credential from that host's status service at
-`/control/vault-credential`; the route is gated by the internal authentication
-key and returns the password encrypted with a key derived from it. See
+On Linux the listener tries to allow its port through an active ufw without a
+sudo prompt. Where that cannot act, an operator allows the port, or service
+guests cannot reach the listener and their shares do not mount. The listener
+implements /v1/nas/stash for the cache helper as well, but the current cache
+seed does not activate a stash mount. The cache seed also bakes the internal
+authentication key, an optional Docker Hub token for Zot sync, the Git mirror's
+signing key and optional GitHub token from the host's vault, and the ssl-bump
+CA from the host's private state. A host synchronizing configuration from a
+reference pool host can fetch a missing storage credential from that host's
+status service at `/control/vault-credential`; the route is gated by the
+internal authentication key and returns the password encrypted with a key
+derived from it. See
 [Test.ConfigServiceSync](../../test/modules/Test.ConfigServiceSync.psm1).
 
 ## Local deployment target

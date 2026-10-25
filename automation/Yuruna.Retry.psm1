@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.22
+.VERSION 2026.10.25
 .GUID 4257205b-1908-49c3-840b-b2b3559b3337
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -183,6 +183,56 @@ function Write-YurunaToolLogSection {
 
 <#
 .SYNOPSIS
+    The values of environment variables whose names mark them as secrets,
+    longest first.
+.DESCRIPTION
+    Deployment variables such as dockerPassword or registryToken are published
+    to the environment and reach tool command strings through ${env:<name>}
+    expansion, so their values appear in every log line a command string or its
+    output is written to. A name counts as a secret when it contains password,
+    passwd, passphrase, secret, token, credential, api key, private key or
+    access key in any spelling. Values shorter than four characters and the
+    literals true, false, null, none, yes and no are left alone: replacing
+    "true" everywhere would wreck the log without protecting anything. Longest
+    first, so a value that contains another is replaced whole.
+#>
+function Get-YurunaSecretValue {
+    [CmdletBinding()]
+    [OutputType([string[]])]
+    param()
+    $namePattern = '(?i)pass(word|wd|phrase)|secret|token|credential|api[_-]?key|private[_-]?key|access[_-]?key'
+    $values = foreach ($entry in [Environment]::GetEnvironmentVariables().GetEnumerator()) {
+        $value = [string]$entry.Value
+        if ([string]$entry.Key -notmatch $namePattern) { continue }
+        if ($value.Length -lt 4 -or $value -in @('true', 'false', 'null', 'none', 'yes', 'no')) { continue }
+        $value
+    }
+    return [string[]]@($values | Select-Object -Unique | Sort-Object -Property Length -Descending)
+}
+
+<#
+.SYNOPSIS
+    Replace every secret value in a text with <redacted>.
+.DESCRIPTION
+    -SecretValue takes a list from Get-YurunaSecretValue so a caller that
+    redacts many lines reads the environment once; without it the current
+    environment is read for this call.
+#>
+function Protect-YurunaSecretText {
+    [CmdletBinding()]
+    [OutputType([string])]
+    param(
+        [Parameter(Position = 0)][AllowNull()][AllowEmptyString()][string]$Text,
+        [AllowNull()][AllowEmptyCollection()][string[]]$SecretValue
+    )
+    if ([string]::IsNullOrEmpty($Text)) { return $Text }
+    $values = if ($PSBoundParameters.ContainsKey('SecretValue')) { @($SecretValue) } else { Get-YurunaSecretValue }
+    foreach ($value in $values) { if ($value) { $Text = $Text.Replace($value, '<redacted>') } }
+    return $Text
+}
+
+<#
+.SYNOPSIS
     Runs a scriptblock under capped exponential backoff with optional jitter,
     retrying on non-zero exit (or per the -ShouldRetry predicate) and returning
     a result object describing the outcome.
@@ -212,6 +262,10 @@ function Invoke-WithYurunaRetry {
     }
     if ($MaxDelaySeconds -le 0)     { $MaxDelaySeconds  = $script:RetryDefaults.MaxDelaySeconds }
     if ($JitterFraction  -lt 0)     { $JitterFraction   = $script:RetryDefaults.JitterFraction }
+    # The label is often the expanded command itself. Redacted once here, it is
+    # safe in the log header, the console lines, the events and the result.
+    $secretValues = Get-YurunaSecretValue
+    $Label = Protect-YurunaSecretText -Text $Label -SecretValue $secretValues
 
     $delay      = [int]$InitialDelaySeconds
     $attempt    = 1
@@ -246,8 +300,8 @@ function Invoke-WithYurunaRetry {
                 # The attempt is one section: its output can run to thousands
                 # of lines, and each separate append would open the log again.
                 $lines = @(
-                    foreach ($line in $lastOutput) { [string]$line }
-                    if ($lastError) { "[exception] " + $lastError.Exception.Message }
+                    foreach ($line in $lastOutput) { Protect-YurunaSecretText -Text ([string]$line) -SecretValue $secretValues }
+                    if ($lastError) { "[exception] " + (Protect-YurunaSecretText -Text $lastError.Exception.Message -SecretValue $secretValues) }
                 )
                 Write-YurunaToolLogSection -LogFile $LogPath -Header $header -Line $lines
             } catch { $null = $_ }
@@ -357,4 +411,4 @@ function Invoke-TofuInitWithRetry {
     } -MaxAttempts $MaxAttempts -InitialDelaySeconds $InitialDelaySeconds -LogPath $LogPath -RcFile $RcFile
 }
 
-Export-ModuleMember -Function 'Invoke-WithYurunaRetry','Invoke-TofuInitWithRetry','Get-YurunaRetryBackoff','Get-YurunaRetryDefault','Get-YurunaTransientPattern','Test-YurunaTransientFailure','Write-YurunaToolLogSection'
+Export-ModuleMember -Function 'Invoke-WithYurunaRetry','Invoke-TofuInitWithRetry','Get-YurunaRetryBackoff','Get-YurunaRetryDefault','Get-YurunaTransientPattern','Test-YurunaTransientFailure','Write-YurunaToolLogSection','Get-YurunaSecretValue','Protect-YurunaSecretText'

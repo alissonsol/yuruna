@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.22
+.VERSION 2026.10.25
 .GUID 42bb2613-9d4e-4ac0-aeb2-0784a83e7a8a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -2390,4 +2390,100 @@ function Install-PSScriptAnalyzerIfMissing {
     return Install-YurunaGalleryModuleIfMissing -Name 'PSScriptAnalyzer' @PSBoundParameters
 }
 
-Export-ModuleMember -Function Get-GitMirrorRepository, Resolve-GitSourceSelection, Test-GitSourceSelection, Test-GitMirrorReceipt, Invoke-GitPull, Invoke-GitRepositoryUpdate, Get-GitRepositoryUpdateTarget, Get-LastGitUpdateFailure, Get-GitUpstreamStatus, Get-GitUnmergedPath, Test-GitWorktreeMerged, Get-CurrentGitCommit, Get-FileLockingProcess, Update-ProjectClone, Restore-ProjectCloneSwap, Test-ProjectCloneHealth, Remove-ProjectCloneDirectory, Resolve-GitRepositoryWebUrl, Resolve-GitRemoteLink, Get-ProjectGitCommitReference, Get-GitRepositoryName, Test-GitRemoteAccess, Get-HostRepositoryAccess, Install-PowerShellYamlIfMissing, Install-PSScriptAnalyzerIfMissing, Test-GitRemoteAuthFailure, Get-GitFirstOutputLine, Get-GitAuthRefreshRemedy, Write-GitAuthRefreshBanner, Invoke-GitNetworkCommand, Get-YurunaGitCredentialArg, Get-YurunaGhCliCredentialArg, Get-YurunaGitAuthAttemptList
+function Get-YurunaFrameworkArchiveExcludePath {
+    <#
+    .SYNOPSIS
+        The paths the framework archive leaves out, shared by the status
+        service's /yuruna-archive.tar.gz route and the seed renderer's digest
+        so both describe the same bytes.
+    #>
+    [CmdletBinding()]
+    [OutputType([string[]])]
+    param()
+    return [string[]]@('dev-only', 'docs')
+}
+
+function Export-YurunaGitArchive {
+    <#
+    .SYNOPSIS
+        Write the committed content of one commit as a tar.gz with its origin
+        and revision sidecars. Returns @{ Ok; Commit; Error }.
+    .DESCRIPTION
+        The one construction of a framework or project archive. The status
+        service streams what it writes, and Get-YurunaGitArchiveDigest hashes
+        it, so a digest seeded into a service VM matches the bytes the host
+        later serves for that commit: git archive is deterministic for a commit
+        (entries carry the commit time, and gzip runs with -n), and the
+        sidecars hold only the commit and the public origin URL.
+    .PARAMETER Commit
+        A 40-character commit id, or empty for the checkout's HEAD.
+    #>
+    [CmdletBinding(SupportsShouldProcess)]
+    [OutputType([hashtable])]
+    param(
+        [Parameter(Mandatory)][string]$RepoDir,
+        [AllowEmptyString()][string]$Commit = '',
+        [string[]]$ExcludePath = @(),
+        [Parameter(Mandatory)][string]$OutFile
+    )
+    if (-not $Commit) {
+        $head = & git -C $RepoDir rev-parse HEAD 2>$null
+        $Commit = if ($LASTEXITCODE -eq 0) { ([string]$head).Trim() } else { '' }
+    }
+    if ($Commit -cnotmatch '^[0-9a-f]{40}$') { return @{ Ok = $false; Commit = ''; Error = 'no commit to archive' } }
+    & git -C $RepoDir cat-file -e "$Commit^{commit}" 2>$null
+    if ($LASTEXITCODE -ne 0) { return @{ Ok = $false; Commit = $Commit; Error = "commit $Commit is not in $RepoDir" } }
+    if (-not $PSCmdlet.ShouldProcess($OutFile, "Write the archive of $Commit")) { return @{ Ok = $false; Commit = $Commit; Error = 'declined' } }
+    $sidecars = [ordered]@{}
+    $originUrl = & git -C $RepoDir config --get remote.origin.url 2>$null
+    if ($LASTEXITCODE -eq 0 -and -not [string]::IsNullOrWhiteSpace($originUrl)) {
+        $publicOrigin = (Resolve-GitRemoteLink -Url ([string]$originUrl)).Url
+        if ($publicOrigin) { $sidecars['.yuruna-origin'] = $publicOrigin }
+    }
+    $sidecars['.yuruna-revision'] = $Commit
+    $sidecarDir = Join-Path ([IO.Path]::GetTempPath()) ('yuruna-archive-' + [Guid]::NewGuid().ToString('N'))
+    try {
+        $null = New-Item -ItemType Directory -Path $sidecarDir -Force
+        $archiveArgs = @('-C', $RepoDir, 'archive', '--format=tar.gz')
+        foreach ($name in @($sidecars.Keys)) {
+            $file = Join-Path $sidecarDir $name
+            [IO.File]::WriteAllText($file, [string]$sidecars[$name])
+            $archiveArgs += ('--add-file=' + $file)
+        }
+        $archiveArgs += @('-o', $OutFile, $Commit)
+        if ($ExcludePath.Count) {
+            $archiveArgs += @('--', '.')
+            foreach ($excluded in $ExcludePath) { $archiveArgs += (':(exclude)' + $excluded) }
+        }
+        & git @archiveArgs 2>$null
+        if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $OutFile)) { return @{ Ok = $false; Commit = $Commit; Error = 'git archive failed' } }
+        return @{ Ok = $true; Commit = $Commit; Error = '' }
+    } finally {
+        Remove-Item -LiteralPath $sidecarDir -Recurse -Force -ErrorAction SilentlyContinue
+    }
+}
+
+function Get-YurunaGitArchiveDigest {
+    <#
+    .SYNOPSIS
+        Lowercase SHA-256 of the archive Export-YurunaGitArchive writes for a
+        commit, or '' when it cannot be built.
+    #>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param(
+        [Parameter(Mandatory)][string]$RepoDir,
+        [Parameter(Mandatory)][AllowEmptyString()][string]$Commit,
+        [string[]]$ExcludePath = @()
+    )
+    $tmp = Join-Path ([IO.Path]::GetTempPath()) ('yuruna-archive-' + [Guid]::NewGuid().ToString('N') + '.tar.gz')
+    try {
+        $made = Export-YurunaGitArchive -RepoDir $RepoDir -Commit $Commit -ExcludePath $ExcludePath -OutFile $tmp -Confirm:$false
+        if (-not $made.Ok) { Write-Verbose "framework archive digest: $($made.Error)"; return '' }
+        return (Get-FileHash -LiteralPath $tmp -Algorithm SHA256).Hash.ToLowerInvariant()
+    } finally {
+        Remove-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue
+    }
+}
+
+Export-ModuleMember -Function Get-YurunaFrameworkArchiveExcludePath, Export-YurunaGitArchive, Get-YurunaGitArchiveDigest, Get-GitMirrorRepository, Get-GitMirrorVerificationKey, Resolve-GitSourceSelection, Test-GitSourceSelection, Test-GitMirrorReceipt, Invoke-GitPull, Invoke-GitRepositoryUpdate, Get-GitRepositoryUpdateTarget, Get-LastGitUpdateFailure, Get-GitUpstreamStatus, Get-GitUnmergedPath, Test-GitWorktreeMerged, Get-CurrentGitCommit, Get-FileLockingProcess, Update-ProjectClone, Restore-ProjectCloneSwap, Test-ProjectCloneHealth, Remove-ProjectCloneDirectory, Resolve-GitRepositoryWebUrl, Resolve-GitRemoteLink, Get-ProjectGitCommitReference, Get-GitRepositoryName, Test-GitRemoteAccess, Get-HostRepositoryAccess, Install-PowerShellYamlIfMissing, Install-PSScriptAnalyzerIfMissing, Test-GitRemoteAuthFailure, Get-GitFirstOutputLine, Get-GitAuthRefreshRemedy, Write-GitAuthRefreshBanner, Invoke-GitNetworkCommand, Get-YurunaGitCredentialArg, Get-YurunaGhCliCredentialArg, Get-YurunaGitAuthAttemptList

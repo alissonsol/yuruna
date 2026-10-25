@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.22
+.VERSION 2026.10.25
 .GUID 4234ea6a-ddae-4da7-be02-26d47d418045
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -171,8 +171,8 @@ function Get-YurunaGuestScriptBase64 {
     .SYNOPSIS
         Read the guest-side shell scripts every cloud-init seed bakes in via
         base64 -- yuruna-retry.sh, yuruna-versions.sh, fetch-and-execute.sh,
-        yuruna-fetch-context.sh, yuruna-network.sh, and yuruna-host-locate.sh -- and return them as a
-        hashtable keyed by purpose.
+        yuruna-fetch-context.sh, yuruna-network.sh, yuruna-host-locate.sh and
+        yuruna-nas-credential.sh -- and return them as a hashtable keyed by purpose.
     .DESCRIPTION
         Centralizes the `[Convert]::ToBase64String([File]::ReadAllBytes(...))`
         read otherwise duplicated in every per-guest New-VM.ps1 that
@@ -200,7 +200,10 @@ function Get-YurunaGuestScriptBase64 {
     # fetches code from, so it must arrive over the same trusted channel as
     # the seed itself rather than over the network it is meant to repair.
     $locatePath    = Join-Path $automationDir 'yuruna-host-locate.sh'
-    foreach ($p in @($retryPath, $versionsPath, $faePath, $fetchContextPath, $networkPath, $locatePath)) {
+    # Seeded for the same reason: it fetches the NAS credential, which the seed
+    # does not carry, over mutual TLS from the building host.
+    $nasCredentialPath = Join-Path $automationDir 'yuruna-nas-credential.sh'
+    foreach ($p in @($retryPath, $versionsPath, $faePath, $fetchContextPath, $networkPath, $locatePath, $nasCredentialPath)) {
         if (-not (Test-Path -LiteralPath $p)) {
             throw (Format-YurunaOperatorMessage -Key 'automation.operator_ed6c4bcd982b86b4' -Arguments @{ p = "$p" })
         }
@@ -212,6 +215,7 @@ function Get-YurunaGuestScriptBase64 {
         FetchContext    = [Convert]::ToBase64String([System.IO.File]::ReadAllBytes($fetchContextPath))
         NetworkLib      = [Convert]::ToBase64String([System.IO.File]::ReadAllBytes($networkPath))
         HostLocate      = [Convert]::ToBase64String([System.IO.File]::ReadAllBytes($locatePath))
+        NasCredential   = [Convert]::ToBase64String([System.IO.File]::ReadAllBytes($nasCredentialPath))
     }
 }
 
@@ -311,6 +315,42 @@ function ConvertTo-ProvisionedCatalogHtml {
     }.GetNewClosure())
 }
 
+function Get-YurunaSourceDigestManifest {
+    <#
+    .SYNOPSIS
+        "<sha256>  <repo-relative path>" lines, ordinally sorted, for every file
+        under -Path that a service build fetches.
+    .DESCRIPTION
+        A service VM that builds from the host's working tree (/yuruna-repo/) or
+        from GitHub checks each fetched file against this list before it
+        compiles anything, so neither the LAN nor a stale or substituted file
+        reaches a root-owned binary. The working tree is hashed because that is
+        what /yuruna-repo/ serves. Go tests, testdata and files above 4 MB are
+        left out: no build fetches them.
+    #>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param(
+        [Parameter(Mandatory)][string]$RepoRoot,
+        [Parameter(Mandatory)][string[]]$Path
+    )
+    $lines = [System.Collections.Generic.List[string]]::new()
+    foreach ($rel in $Path) {
+        $full = Join-Path $RepoRoot $rel
+        $files = if (Test-Path -LiteralPath $full -PathType Leaf) { @(Get-Item -LiteralPath $full) }
+                 elseif (Test-Path -LiteralPath $full -PathType Container) { @(Get-ChildItem -LiteralPath $full -Recurse -File) }
+                 else { @() }
+        foreach ($file in $files) {
+            $relative = [System.IO.Path]::GetRelativePath($RepoRoot, $file.FullName) -replace '\\', '/'
+            if ($relative -like '*_test.go' -or $relative -match '(^|/)testdata/' -or $file.Length -gt 4MB) { continue }
+            $lines.Add(('{0}  {1}' -f (Get-FileHash -LiteralPath $file.FullName -Algorithm SHA256).Hash.ToLowerInvariant(), $relative))
+        }
+    }
+    $sorted = $lines.ToArray()
+    [Array]::Sort($sorted, [StringComparer]::Ordinal)
+    return (($sorted -join "`n") + "`n")
+}
+
 function New-CloudInitUserData {
     <#
     .SYNOPSIS
@@ -330,7 +370,7 @@ function New-CloudInitUserData {
         checkout at $RepoRoot:
           YURUNA_RETRY_LIB_BASE64_PLACEHOLDER, YURUNA_VERSIONS_BASE64_PLACEHOLDER,
           YURUNA_FAE_BASE64_PLACEHOLDER, YURUNA_FETCH_CONTEXT_BASE64_PLACEHOLDER,
-          YURUNA_NETWORK_BASE64_PLACEHOLDER,
+          YURUNA_NETWORK_BASE64_PLACEHOLDER, YURUNA_NAS_CREDENTIAL_BASE64_PLACEHOLDER,
           YURUNA_HOST_LOCATE_BASE64_PLACEHOLDER, YURUNA_HOST_ID_PLACEHOLDER,
           YURUNA_CACHING_PROXY_SERVICE_IP_PLACEHOLDER, YURUNA_GITHUB_REPO_PLACEHOLDER,
           YURUNA_GITHUB_REF_PLACEHOLDER, GH_TOKEN_PLACEHOLDER,
@@ -400,6 +440,9 @@ function New-CloudInitUserData {
     if (-not $fullReplacement.ContainsKey('YURUNA_HOST_LOCATE_BASE64_PLACEHOLDER')) {
         $fullReplacement['YURUNA_HOST_LOCATE_BASE64_PLACEHOLDER'] = $b64.HostLocate
     }
+    if (-not $fullReplacement.ContainsKey('YURUNA_NAS_CREDENTIAL_BASE64_PLACEHOLDER')) {
+        $fullReplacement['YURUNA_NAS_CREDENTIAL_BASE64_PLACEHOLDER'] = $b64.NasCredential
+    }
     # --- REGION: https://yuruna.link/4220a755-002d
     # See https://yuruna.link/4213a0b3-0009
     if (-not $fullReplacement.ContainsKey('YURUNA_HOST_ID_PLACEHOLDER')) {
@@ -438,6 +481,43 @@ function New-CloudInitUserData {
     if (-not $fullReplacement.ContainsKey('YURUNA_PROJECT_URL_PLACEHOLDER')) {
         $fullReplacement['YURUNA_PROJECT_URL_PLACEHOLDER'] = $ghSource.ProjectUrl
     }
+    # A service seed names the commit its framework comes from (YURUNA_GITHUB_REF);
+    # the digest of that commit's archive is what the guest checks the host's
+    # answer against before it extracts anything.
+    if ($merged.Contains('YURUNA_FRAMEWORK_ARCHIVE_SHA256_PLACEHOLDER') -and -not $fullReplacement.ContainsKey('YURUNA_FRAMEWORK_ARCHIVE_SHA256_PLACEHOLDER')) {
+        $archiveDigest = ''
+        try {
+            Import-Module (Join-Path $RepoRoot 'test/modules/Test.HostGit.psm1') -DisableNameChecking
+            $archiveDigest = Get-YurunaGitArchiveDigest -RepoDir $RepoRoot -Commit ([string]$fullReplacement['YURUNA_GITHUB_REF_PLACEHOLDER']) -ExcludePath (Get-YurunaFrameworkArchiveExcludePath)
+        } catch { Write-Verbose "framework archive digest: $($_.Exception.Message)" }
+        $fullReplacement['YURUNA_FRAMEWORK_ARCHIVE_SHA256_PLACEHOLDER'] = $archiveDigest
+    }
+    # The fingerprint of the proxy CA this guest trusts, from the CA the builder
+    # seeds (the proxy's own bump CA, or the proxy CA a guest is given) or, for a
+    # seed that carries none, the CA this host has pinned for its proxy. The
+    # guest's CA self-heal installs only a certificate that matches it.
+    if ($merged.Contains('YURUNA_CA_SHA256_PLACEHOLDER') -and -not $fullReplacement.ContainsKey('YURUNA_CA_SHA256_PLACEHOLDER')) {
+        $caSha = ''
+        try {
+            Import-Module (Join-Path $RepoRoot 'test/modules/Test.CachingProxyService.psm1') -DisableNameChecking -WarningAction SilentlyContinue
+            $caB64 = [string]$fullReplacement['YURUNA_BUMP_CA_CERT_BASE64_PLACEHOLDER']
+            if (-not $caB64) { $caB64 = [string]$fullReplacement['CA_CERT_BASE64_PLACEHOLDER'] }
+            if (-not $caB64) { $caB64 = [string]$fullReplacement['YURUNA_CACHE_CA_CERT_BASE64_PLACEHOLDER'] }
+            $cacheIp = [string]$fullReplacement['YURUNA_CACHING_PROXY_SERVICE_IP_PLACEHOLDER']
+            if (-not $caB64 -and $cacheIp) {
+                $urlHost = if ($cacheIp.Contains(':')) { "[$cacheIp]" } else { $cacheIp }
+                $caB64 = (Get-CachingProxyServiceCaCertBase64 -CacheCaUrl "http://$urlHost/yuruna-squid-ca.crt" -CacheHost $cacheIp -MaxAttempts 2).CaCertBase64
+            }
+            if ($caB64) { $caSha = Get-YurunaCertificateSha256 -Pem ([Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($caB64))) }
+        } catch { Write-Verbose "proxy CA fingerprint: $($_.Exception.Message)" }
+        $fullReplacement['YURUNA_CA_SHA256_PLACEHOLDER'] = $caSha
+    }
+    # The caching proxy compiles Go sources it fetches file by file.
+    if ($merged.Contains('YURUNA_SOURCE_MANIFEST_BASE64_PLACEHOLDER') -and -not $fullReplacement.ContainsKey('YURUNA_SOURCE_MANIFEST_BASE64_PLACEHOLDER')) {
+        $manifest = Get-YurunaSourceDigestManifest -RepoRoot $RepoRoot -Path @('VERSION', 'test/extension/extension-sdk',
+            'test/extension/pool-aggregator-service', 'test/extension/caching-proxy-parser-service', 'test/extension/caching-proxy-service')
+        $fullReplacement['YURUNA_SOURCE_MANIFEST_BASE64_PLACEHOLDER'] = [Convert]::ToBase64String([System.Text.UTF8Encoding]::new($false).GetBytes($manifest))
+    }
     $resolved = Resolve-CloudInitPlaceholder -TemplateContent $merged -Replacement $fullReplacement -AllowedUnresolved $AllowedUnresolved
     if ($resolved.Contains('data-yuruna-static-locale')) {
         $resolved = ConvertTo-ProvisionedCatalogHtml -Content $resolved -RepoRoot $RepoRoot `
@@ -452,4 +532,4 @@ function New-CloudInitUserData {
     return $resolved
 }
 
-Export-ModuleMember -Function ConvertTo-ProvisionedCatalogHtml, Merge-CloudInitUserData, Read-OverlaySection, Get-YurunaGuestScriptBase64, Resolve-CloudInitPlaceholder, New-CloudInitUserData
+Export-ModuleMember -Function ConvertTo-ProvisionedCatalogHtml, Merge-CloudInitUserData, Read-OverlaySection, Get-YurunaGuestScriptBase64, Get-YurunaSourceDigestManifest, Resolve-CloudInitPlaceholder, New-CloudInitUserData

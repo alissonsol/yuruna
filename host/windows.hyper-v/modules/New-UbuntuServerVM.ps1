@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.22
+.VERSION 2026.10.25
 .GUID 42aeab54-8f84-4752-b632-c84283524072
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -181,10 +181,18 @@ if (-not (Test-Path -LiteralPath $vhdxFile)) {
 }
 
 # --- REGION: Stage the cloud-init seed directory
-# New-YurunaSeedDirectory creates the folder exclusively under a random name,
-# so nothing planted at a predictable %TEMP% path is ever reused.
+# The seed carries the autoinstall password hash and the harness key. It is
+# staged in a private workspace beside the disk (owner, SYSTEM and
+# Administrators only), published as an image only the new VM may read, and
+# removed on every exit by the finally below.
+Import-Module (Join-Path $GuestScriptRoot '../../modules/Yuruna.SeedMedia.psm1') -Force
+# A plaintext source an older builder left in the temp folder goes first.
+Get-ChildItem -LiteralPath ([IO.Path]::GetTempPath()) -Directory -Filter "seed_${VMName}_*" -ErrorAction SilentlyContinue |
+    Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
+$seedWorkspace = $null
 try {
-    $SeedDir = New-YurunaSeedDirectory -VMName $VMName
+    $seedWorkspace = New-SeedMediaWorkspace -ParentPath $vmDir
+    $SeedDir = $seedWorkspace.Source
 
     # user-data AND meta-data are shared under host/vmconfig/ (the meta-data is
     # byte-identical across the three host platforms; ubuntu.server.24 and .26
@@ -315,6 +323,12 @@ To intentionally skip the cache:
         if ($ca.Exhausted) {
             Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_f2bb24df290cd0c1')
         }
+        if ($ca.Refused) {
+            # A guest seeded with another root would meet a proxy that bumps with
+            # this one; the refusal is reported as source_integrity, not built around.
+            Write-Error (Format-YurunaOperatorMessage -Key 'host.proxy_ca_refused_build' -Arguments @{ vMName = "$VMName"; cacheHost = "$($uri.IdnHost)"; reason = "$($ca.Reason)" }) -ErrorAction Continue
+            exit (Get-YurunaSourceIntegrityExitCode)
+        }
     }
 
     # --- REGION: Render user-data / meta-data
@@ -349,7 +363,8 @@ To intentionally skip the cache:
     # --- REGION: Generate cloud-init seed ISO
     $SeedIso = Join-Path $vmDir "seed.iso"
     Write-Verbose "Generating seed.iso with autoinstall configuration..."
-    CreateIso -SourceDir $SeedDir -OutputFile $SeedIso -VolumeId "cidata"
+    CreateIso -SourceDir $SeedDir -OutputFile $seedWorkspace.Image -VolumeId "cidata"
+    Publish-SeedMediaImage -Workspace $seedWorkspace -Path $SeedIso -Confirm:$false
 
     # --- REGION: Create and configure the Hyper-V VM
     # See https://yuruna.link/42fa6f45-0016
@@ -409,6 +424,7 @@ To intentionally skip the cache:
     if ($prunedAce -gt 0) { Write-Verbose "Pruned $prunedAce stale per-VM ACE(s) from base image before attach." }
     Add-VMDvdDrive -VMName $VMName -Path $baseImageFile | Out-Null
     Add-VMDvdDrive -VMName $VMName -Path $SeedIso | Out-Null
+    Grant-SeedMediaVmRead -Path $SeedIso -VMId (Hyper-V\Get-VM -Name $VMName -ErrorAction Stop).Id -Confirm:$false
 
     $dvdDrive = Get-VMDvdDrive -VMName $VMName | Where-Object { $_.Path -eq $baseImageFile }
     Set-VMFirmware -VMName $VMName -FirstBootDevice $dvdDrive
@@ -452,7 +468,7 @@ To intentionally skip the cache:
 } finally {
     # The seed holds the guest's admin credentials; it must not outlive this
     # script on any path, an early exit or a throw included.
-    Remove-Item -LiteralPath $SeedDir -Recurse -Force -ErrorAction SilentlyContinue
+    Remove-SeedMediaWorkspace -Workspace $seedWorkspace -Confirm:$false
 }
 
 # --- REGION: Guidance

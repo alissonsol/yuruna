@@ -346,8 +346,10 @@ Registry login uses [credential-provider dispatch](../../automation/Yuruna.Compo
 and [CLI or environment credentials](../../automation/Yuruna.CredentialProvider.psm1),
 rather than implicitly reading the test vault. Kubernetes Secrets are created by
 configured workload commands. The [config service](../../test/service/Start-ConfigService.ps1)
-separately reads harness-vault credentials for pool and stash storage; their
-runtime exchange is shown in the [cache credential channel](06-deployment.md#cache-credential-channel).
+separately reads harness-vault credentials for pool and stash storage and
+serves them to the caching proxy and the stash, download-agent, and pool-control
+VMs over mutual TLS; that exchange is shown in the
+[service credential channel](06-deployment.md#service-credential-channel).
 
 ---
 

@@ -399,16 +399,16 @@ func TestRefreshGaugeCardinalityIsBounded(t *testing.T) {
 	}
 }
 
-// The redirects keep minting only legacy proofs, nothing here mints or serves a
-// refresh proof, and the lab-token exchange still hands out only the legacy
-// key.
+// The redirects mint only control proofs (bound to their target), nothing here
+// mints or serves a refresh proof, and the lab-token exchange still hands out
+// only the legacy key.
 func TestTheAggregatorMintsNoRefreshAuthority(t *testing.T) {
 	s := newPoolState("default", 8080)
 	s.authToken = proofToken
 	s.hosts[refreshHostID] = &hostView{HostId: refreshHostID, BaseURL: "http://192.0.2.10:8080", CurrentIP: "192.0.2.10",
 		Reachable: true, LastSeenUnixMs: time.Now().UnixMilli(), ExtensionTargets: map[string]string{"stash-service": "http://192.0.2.12"}}
 	seedExtensionHealth(s, refreshHostID, stashArea, "http://192.0.2.12")
-	fragment := regexp.MustCompile(`#yctl=[0-9]+\.[A-Za-z0-9+/]+=*$`)
+	fragment := regexp.MustCompile(`#yctl=[0-9]+\.(?:[A-Za-z0-9_-]+\.)?[A-Za-z0-9+/]+=*$`)
 	for _, target := range []string{"/go/host?host=" + refreshHostID, "/go/stash?host=" + refreshHostID} {
 		rec := httptest.NewRecorder()
 		if strings.HasPrefix(target, "/go/host") {
@@ -421,8 +421,8 @@ func TestTheAggregatorMintsNoRefreshAuthority(t *testing.T) {
 			t.Fatalf("%s: %d Location %q", target, rec.Code, loc)
 		}
 		_, proof, _ := strings.Cut(loc, "#yctl=")
-		if !verifyControlProof(proofToken, proof, time.Now(), controlProofMaxTTL) {
-			t.Fatalf("%s: the fragment is not a legacy proof this daemon accepts", target)
+		if !verifyControlProof(proofToken, proof, "", time.Now(), controlProofMaxTTL) {
+			t.Fatalf("%s: the fragment is not a control proof this daemon accepts", target)
 		}
 	}
 
@@ -477,10 +477,10 @@ func TestLegacyVerifierRefusesTheSharedRefreshVector(t *testing.T) {
 		t.Fatalf("the legacy mint drifted from the shared vector: %s", got)
 	}
 	at := time.Unix(v.Legacy.VerifyAtUnix, 0)
-	if !verifyControlProof(v.Legacy.Token, v.Legacy.Wire, at, controlProofMaxTTL) {
+	if !verifyControlProof(v.Legacy.Token, v.Legacy.Wire, "", at, controlProofMaxTTL) {
 		t.Fatal("the shared legacy vector must verify here")
 	}
-	if verifyControlProof(v.Legacy.Token, v.Versioned.Wire, at, controlProofMaxTTL) {
+	if verifyControlProof(v.Legacy.Token, v.Versioned.Wire, "", at, controlProofMaxTTL) {
 		t.Fatal("the legacy verifier accepted a refresh proof")
 	}
 }

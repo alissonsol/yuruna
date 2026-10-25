@@ -12739,6 +12739,186 @@
           "example": "30"
         }
       }
+    },
+    "host.kvm_rename_destination_dir_exists": {
+      "message": "Cannot rename to '{newName}': the directory {newDir} already exists, and moving storage into it could overwrite disks.",
+      "description": "Write-Warning in host/ubuntu.kvm/modules/Yuruna.Host.psm1 (Rename-VM before domrename, and Complete-KvmDomainRename) when the destination VM directory is already present.",
+      "lifecycle": "active",
+      "placeholders": {
+        "newName": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "website-ubuntu24-k8s"
+        },
+        "newDir": {
+          "type": "detail",
+          "trust": "external",
+          "example": "/home/user/yuruna/vms/website-ubuntu24-k8s"
+        }
+      }
+    },
+    "host.vm_storage_reference_unknown": {
+      "message": "Kept {vmDir}: could not read which virtual machines use disks in it ({message}).",
+      "description": "Write-Warning in the KVM and Hyper-V drivers and the KVM orphan sweep when the disk-reference check gets no complete answer; the directory is not deleted.",
+      "lifecycle": "active",
+      "placeholders": {
+        "vmDir": {
+          "type": "detail",
+          "trust": "external",
+          "example": "/home/user/yuruna/vms/test-01"
+        },
+        "message": {
+          "type": "detail",
+          "trust": "external",
+          "example": "error: failed to connect to the hypervisor"
+        }
+      }
+    },
+    "host.vm_storage_delete_refused": {
+      "message": "Kept {vmDir}: it still holds disks that a registered virtual machine uses ({owners}).",
+      "description": "Write-Warning in the KVM and Hyper-V drivers and the KVM orphan sweep when a directory named after an absent VM still holds another VM's disks; owners lists the VMs or the disk paths.",
+      "lifecycle": "active",
+      "placeholders": {
+        "vmDir": {
+          "type": "detail",
+          "trust": "external",
+          "example": "/home/user/yuruna/vms/test-01"
+        },
+        "owners": {
+          "type": "detail",
+          "trust": "external",
+          "example": "website-ubuntu24-k8s"
+        }
+      }
+    },
+    "host.vm_storage_relocate_action": {
+      "message": "Move the storage left under '{fromName}' to this virtual machine's own name",
+      "description": "ShouldProcess action for Repair-KvmVMStorageLocation and Repair-HyperVVMStorageLocation.",
+      "lifecycle": "active",
+      "placeholders": {
+        "fromName": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "test-01"
+        }
+      }
+    },
+    "host.vm_storage_relocation_failed": {
+      "message": "Could not move the storage of '{vMName}' out of the directory of '{fromName}': {reason}.",
+      "description": "Write-Warning in Repair-KvmVMStorageLocation and Repair-HyperVVMStorageLocation; the directory is then kept.",
+      "lifecycle": "active",
+      "placeholders": {
+        "vMName": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "website-ubuntu24-k8s"
+        },
+        "fromName": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "test-01"
+        },
+        "reason": {
+          "type": "detail",
+          "trust": "external",
+          "example": "domain state 'running'"
+        }
+      }
+    },
+    "host.vm_storage_relocated": {
+      "message": "Finished an interrupted rename: the storage of '{vMName}' moved out of the directory of '{fromName}'.",
+      "description": "Write-Information in Repair-KvmVMStorageLocation and Repair-HyperVVMStorageLocation after a successful repair.",
+      "lifecycle": "active",
+      "placeholders": {
+        "vMName": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "website-ubuntu24-k8s"
+        },
+        "fromName": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "test-01"
+        }
+      }
+    },
+    "host.vm_build_storage_in_use": {
+      "message": "Did not rebuild '{vMName}': {vmDir} still holds disks that another virtual machine uses, or their use could not be read. Nothing in it was changed.",
+      "description": "Exception text thrown by Remove-KvmDomainDefinition (KVM) and Remove-HyperVGuestDefinition (Hyper-V) when a builder's VM directory still holds another VM's disks after any interrupted rename was finished; the build stops before it replaces a file.",
+      "lifecycle": "active",
+      "placeholders": {
+        "vMName": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "test-01"
+        },
+        "vmDir": {
+          "type": "detail",
+          "trust": "external",
+          "example": "/home/user/yuruna/vms/test-01"
+        }
+      }
+    },
+    "host.hyperv_rename_destination_dir_occupied": {
+      "message": "Cannot rename to '{newName}': the directory {newDir} already holds files, and moving storage into it would fail after the rename and leave it half done.",
+      "description": "Write-Warning in host/windows.hyper-v/modules/Yuruna.Host.psm1 (Rename-VM) before Hyper-V renames the VM, when the destination directory below VirtualHardDiskPath holds files or cannot be listed.",
+      "lifecycle": "active",
+      "placeholders": {
+        "newName": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "snap-base"
+        },
+        "newDir": {
+          "type": "detail",
+          "trust": "external",
+          "example": "C:\\VHD\\snap-base"
+        }
+      }
+    },
+    "host.vm_storage_reconcile_action": {
+      "message": "Finish the renames that an interrupted snapshot promotion left half done",
+      "description": "ShouldProcess action for Repair-VMStorageLocation in the KVM and Hyper-V drivers.",
+      "lifecycle": "active"
+    },
+    "host.vm_storage_repair_unknown": {
+      "message": "Could not check whether '{vMName}' still has storage under another name ({message}); its storage was left as it is, and the next cycle checks again.",
+      "description": "Write-Warning in Repair-VMStorageLocation (KVM and Hyper-V drivers) when one VM's disks cannot be read or its repair throws; the other VMs are still checked.",
+      "lifecycle": "active",
+      "placeholders": {
+        "vMName": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "snap-base"
+        },
+        "message": {
+          "type": "detail",
+          "trust": "external",
+          "example": "virsh domblklist timed out"
+        }
+      }
+    },
+    "host.proxy_ca_refused_build": {
+      "message": "Did not build '{vMName}': the caching proxy at {cacheHost} serves a CA this host does not trust ({reason}). The guest is not seeded around it, and the failure is classified source_integrity.",
+      "description": "Write-Error in the Ubuntu Server and download-agent New-VM builders on every host, before the builder exits with the source_integrity exit code. reason is a stable token from Resolve-YurunaPinnedProxyCa and stays untranslated; preserve source_integrity.",
+      "lifecycle": "active",
+      "placeholders": {
+        "vMName": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "test-guest.ubuntu.server.24-01"
+        },
+        "cacheHost": {
+          "type": "identifier",
+          "trust": "external",
+          "example": "192.168.7.20"
+        },
+        "reason": {
+          "type": "token",
+          "trust": "internal",
+          "example": "statement-absent"
+        }
+      }
     }
   }
 }

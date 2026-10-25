@@ -29,6 +29,21 @@ const DataptBRhost = `{
     },
     " segundos; o estado do recurso é desconhecido."
   ],
+  "host.hyperv_rename_destination_dir_occupied": [
+    "Não é possível renomear para '",
+    {
+      "arg": "newName",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "': o diretório ",
+    {
+      "arg": "newDir",
+      "type": "detail",
+      "trust": "external"
+    },
+    " já contém arquivos, e mover o armazenamento para ele falharia depois da renomeação e a deixaria pela metade."
+  ],
   "host.hyperv_rename_source_not_stopped": [
     "Rename-VM: o estado de '",
     {
@@ -112,6 +127,21 @@ const DataptBRhost = `{
       "trust": "internal"
     },
     "'; instale uma regra do sudoers para /bin/kill ou pare o domínio manualmente."
+  ],
+  "host.kvm_rename_destination_dir_exists": [
+    "Não é possível renomear para '",
+    {
+      "arg": "newName",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "': o diretório ",
+    {
+      "arg": "newDir",
+      "type": "detail",
+      "trust": "external"
+    },
+    " já existe, e mover o armazenamento para ele poderia sobrescrever discos."
   ],
   "host.kvm_rename_source_not_stopped": [
     "Rename-VM: o estado de '",
@@ -8598,6 +8628,27 @@ const DataptBRhost = `{
     },
     " segundos, então os registros do UTM são desconhecidos; nada foi excluído. Execute novamente quando o UTM responder."
   ],
+  "host.proxy_ca_refused_build": [
+    "'",
+    {
+      "arg": "vMName",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "' não foi criada: o proxy de cache em ",
+    {
+      "arg": "cacheHost",
+      "type": "identifier",
+      "trust": "external"
+    },
+    " serve uma CA na qual este hospedeiro não confia (",
+    {
+      "arg": "reason",
+      "type": "token",
+      "trust": "internal"
+    },
+    "). O convidado não é semeado contornando isso, e a falha é classificada como source_integrity."
+  ],
   "host.rename_vm_inventory_unavailable": [
     "Rename-VM: não foi possível ler a lista de VMs em execução (",
     {
@@ -9109,6 +9160,110 @@ const DataptBRhost = `{
       "trust": "internal"
     },
     "s e foi interrompido; o efeito é desconhecido até que o estado da VM seja lido novamente."
+  ],
+  "host.vm_build_storage_in_use": [
+    "'",
+    {
+      "arg": "vMName",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "' não foi recriada: ",
+    {
+      "arg": "vmDir",
+      "type": "detail",
+      "trust": "external"
+    },
+    " ainda contém discos que outra máquina virtual usa, ou não foi possível ler quem os usa. Nada nele foi alterado."
+  ],
+  "host.vm_storage_delete_refused": [
+    {
+      "arg": "vmDir",
+      "type": "detail",
+      "trust": "external"
+    },
+    " foi mantido: ele ainda contém discos que uma máquina virtual registrada usa (",
+    {
+      "arg": "owners",
+      "type": "detail",
+      "trust": "external"
+    },
+    ")."
+  ],
+  "host.vm_storage_reconcile_action": "Concluir as renomeações que uma promoção de snapshot interrompida deixou pela metade",
+  "host.vm_storage_reference_unknown": [
+    {
+      "arg": "vmDir",
+      "type": "detail",
+      "trust": "external"
+    },
+    " foi mantido: não foi possível ler quais máquinas virtuais usam discos nele (",
+    {
+      "arg": "message",
+      "type": "detail",
+      "trust": "external"
+    },
+    ")."
+  ],
+  "host.vm_storage_relocate_action": [
+    "Mover o armazenamento deixado em '",
+    {
+      "arg": "fromName",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "' para o nome desta máquina virtual"
+  ],
+  "host.vm_storage_relocated": [
+    "Uma renomeação interrompida foi concluída: o armazenamento de '",
+    {
+      "arg": "vMName",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "' saiu do diretório de '",
+    {
+      "arg": "fromName",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "'."
+  ],
+  "host.vm_storage_relocation_failed": [
+    "Não foi possível mover o armazenamento de '",
+    {
+      "arg": "vMName",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "' para fora do diretório de '",
+    {
+      "arg": "fromName",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "': ",
+    {
+      "arg": "reason",
+      "type": "detail",
+      "trust": "external"
+    },
+    "."
+  ],
+  "host.vm_storage_repair_unknown": [
+    "Não foi possível verificar se '",
+    {
+      "arg": "vMName",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "' ainda tem armazenamento sob outro nome (",
+    {
+      "arg": "message",
+      "type": "detail",
+      "trust": "external"
+    },
+    "); o armazenamento foi mantido como está, e o próximo ciclo verifica de novo."
   ],
   "host.windows_installer_boot_key_timeout": [
     "A VM '",

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.22
+.VERSION 2026.10.25
 .GUID 42228108-7cf2-409b-8ae4-1bb3028f378f
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -178,11 +178,19 @@ function Stop-YurunaProcessTree {
         Best-effort throughout: every signal is advisory, a process may exit
         between the check and the signal, and a takeover that cannot kill
         something must still continue to the VM cleanup.
+
+        -IncludeDescendants extends the POSIX sweep from direct children to every
+        descendant, read from one ps snapshot before the first signal and
+        signaled deepest first. A cycle stopped at its ceiling is wedged
+        somewhere below the inner runner (a capture, an OCR engine, an ssh), and
+        those grandchildren would otherwise outlive the kill. The caller's own
+        process is never signaled.
     #>
     [CmdletBinding(SupportsShouldProcess)]
     param(
         [Parameter(Mandatory)][int]$ProcessId,
-        [int]$GraceMilliseconds = 2000
+        [int]$GraceMilliseconds = 2000,
+        [switch]$IncludeDescendants
     )
     if ($ProcessId -le 0 -or $ProcessId -eq $PID) { return }
     if (-not $PSCmdlet.ShouldProcess("PID $ProcessId", (Format-YurunaOperatorMessage -Key 'runner.operator_ed5c9d2fcb476c82'))) { return }
@@ -195,6 +203,34 @@ function Stop-YurunaProcessTree {
         # Full path for kill: `kill` is also a PowerShell alias for Stop-Process,
         # which would target the wrong thing wherever the alias wins name
         # resolution.
+        $descendants = @()
+        if ($IncludeDescendants) {
+            $childrenOf = @{}
+            foreach ($row in @(& /bin/ps -eo pid=,ppid= 2>$null)) {
+                $cols = ([string]$row).Trim() -split '\s+'
+                if ($cols.Count -lt 2) { continue }
+                $childPid = 0; $parentPid = 0
+                if (-not [int]::TryParse($cols[0], [ref]$childPid) -or -not [int]::TryParse($cols[1], [ref]$parentPid)) { continue }
+                if (-not $childrenOf.ContainsKey($parentPid)) { $childrenOf[$parentPid] = [System.Collections.Generic.List[int]]::new() }
+                $childrenOf[$parentPid].Add($childPid)
+            }
+            # Breadth-first from the root; reversed below so leaves are signaled first.
+            $queue = [System.Collections.Generic.Queue[int]]::new()
+            $queue.Enqueue($ProcessId)
+            $seen = @{ $ProcessId = $true }
+            while ($queue.Count -gt 0) {
+                $current = $queue.Dequeue()
+                if (-not $childrenOf.ContainsKey($current)) { continue }
+                foreach ($child in $childrenOf[$current]) {
+                    if ($seen.ContainsKey($child) -or $child -eq $PID) { continue }
+                    $seen[$child] = $true
+                    $descendants += $child
+                    $queue.Enqueue($child)
+                }
+            }
+            [array]::Reverse($descendants)
+        }
+        foreach ($descendant in $descendants) { & '/bin/kill' -TERM $descendant 2>&1 | Out-Null }
         & pkill -TERM -P $ProcessId 2>&1 | Out-Null
         & '/bin/kill' -TERM $ProcessId 2>&1 | Out-Null
         $waited = 0
@@ -203,6 +239,7 @@ function Stop-YurunaProcessTree {
             Start-Sleep -Milliseconds 250
             $waited += 250
         }
+        foreach ($descendant in $descendants) { & '/bin/kill' -KILL $descendant 2>&1 | Out-Null }
         & pkill -KILL -P $ProcessId 2>&1 | Out-Null
         & '/bin/kill' -KILL $ProcessId 2>&1 | Out-Null
     } catch {

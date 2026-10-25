@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.22
+.VERSION 2026.10.25
 .GUID 42f81a2e-d65b-4d01-a8b1-3eb5638207d8
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -103,135 +103,144 @@ if ($LASTEXITCODE -ne 0) {
 }
 
 # --- REGION: Stage the cloud-init seed directory
-$SeedDir = Join-Path $downloadDir "seed_temp/$VMName"
-if (Test-Path -LiteralPath $SeedDir) { Remove-Item -LiteralPath $SeedDir -Recurse -Force }
-New-Item -ItemType Directory -Force -Path $SeedDir | Out-Null
+# The seed carries the guest password in plaintext and the harness key. It is
+# staged in a private (0700) workspace inside the bundle and published as an
+# owner-only image, and the finally below removes the workspace on every exit,
+# a failed build included.
+Import-Module (Join-Path $PSScriptRoot '../../modules/Yuruna.SeedMedia.psm1') -Force
+# A plaintext source an older builder left in the image directory goes first.
+Remove-Item -LiteralPath (Join-Path $downloadDir "seed_temp/$VMName") -Recurse -Force -ErrorAction SilentlyContinue
+$seedWorkspace = $null
+try {
+    $seedWorkspace = New-SeedMediaWorkspace -ParentPath $DataDir
+    $SeedDir = $seedWorkspace.Source
 
-# user-data AND meta-data are shared under host/vmconfig/ (the meta-data is
-# byte-identical across the three host platforms). Anchor contract:
-# automation/Yuruna.CloudInitTemplate.psm1.
-$repoRoot        = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $ScriptDir))
-$hostVmConfigDir = Join-Path $repoRoot 'host/vmconfig'
-$baseUserData    = Join-Path $hostVmConfigDir 'amazon.linux.2023.base.user-data'
-$overlayUserData = Join-Path $hostVmConfigDir 'amazon.linux.2023.utm.overlay.yml'
-$MetaDataTemplate = Join-Path $hostVmConfigDir 'amazon.linux.2023.meta-data'
-foreach ($f in @($baseUserData, $overlayUserData, $MetaDataTemplate)) {
-    if (-not (Test-Path -LiteralPath $f)) {
-        Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_9a1ef2a7551102d0' -Arguments @{ f = "$f" })
+    # user-data AND meta-data are shared under host/vmconfig/ (the meta-data is
+    # byte-identical across the three host platforms). Anchor contract:
+    # automation/Yuruna.CloudInitTemplate.psm1.
+    $repoRoot        = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $ScriptDir))
+    $hostVmConfigDir = Join-Path $repoRoot 'host/vmconfig'
+    $baseUserData    = Join-Path $hostVmConfigDir 'amazon.linux.2023.base.user-data'
+    $overlayUserData = Join-Path $hostVmConfigDir 'amazon.linux.2023.utm.overlay.yml'
+    $MetaDataTemplate = Join-Path $hostVmConfigDir 'amazon.linux.2023.meta-data'
+    foreach ($f in @($baseUserData, $overlayUserData, $MetaDataTemplate)) {
+        if (-not (Test-Path -LiteralPath $f)) {
+            Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_9a1ef2a7551102d0' -Arguments @{ f = "$f" })
+            exit 1
+        }
+    }
+    Import-Module (Join-Path $repoRoot 'automation/Yuruna.CloudInitTemplate.psm1') -Force
+
+    $MetaData = (Get-Content -Raw $MetaDataTemplate) `
+        -replace 'INSTANCE_ID_PLACEHOLDER', $VMName `
+        -replace 'HOSTNAME_PLACEHOLDER', $GuestHostname
+
+    # --- REGION: Yuruna harness SSH key
+    # See https://yuruna.link/42e220c4-0004
+    # Seed the shared harness key so guest provisioning and failure diagnostics agree.
+    $TestSshModule = Join-Path (Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $ScriptDir))) "test/modules/Test.Ssh.psm1"
+    Import-Module $TestSshModule -Force
+    $SshAuthorizedKey = Get-YurunaSshPublicKey
+    if (-not $SshAuthorizedKey) { Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_6424990f88c7f7bc' -Arguments @{ testSshModule = "$TestSshModule" }); exit 1 }
+
+    # --- REGION: Vault user password
+    # See https://yuruna.link/42e220c4-0004
+    # Read the persistent authentication vault; a new cycle must not reset credentials.
+    $_repoRootForExt = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $ScriptDir))
+    Import-Module (Join-Path $_repoRootForExt 'test/modules/Test.Extension.psm1') -Global -Force -Verbose:$false
+    $_authActiveName = @(Import-Extension -Area 'authentication' -RequireSingle)[0]
+    $Password = Get-LocalOsPassword -Username $Username
+    if (-not $Password) { Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_a8c8c2c47e517a44' -Arguments @{ username = "$Username" }); exit 1 }
+    Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_762658980a25b8fb' -Arguments @{ authActiveName = "$_authActiveName" })
+    Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_c427eb2402415f42' -Arguments @{ authentication = "$(Resolve-ExtensionAreaDir -Area 'authentication')" })
+
+    # --- REGION: Yuruna host coordinates
+    # See https://yuruna.link/4220a755-001b
+    # Bake the status-service address reachable through the selected guest network.
+    Import-Module (Join-Path (Split-Path -Parent $ScriptDir) "modules/Yuruna.Host.psm1") -Force
+    Import-Module (Join-Path $PSScriptRoot '../../../automation/Yuruna.Common.psm1') -Force -DisableNameChecking
+    $YurunaHostIp = Get-GuestReachableHostIp
+    Import-Module (Join-Path (Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $ScriptDir))) 'test/modules/Test.Config.psm1') -Global -Force
+    $_statusSeed = Get-YurunaStatusServiceSeed -RepoRoot (Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $ScriptDir)))
+    $YurunaHostPort = $_statusSeed.Port
+
+    # --- REGION: Render user-data / meta-data
+    # New-CloudInitUserData merges base+overlay, auto-bakes yuruna-retry.sh /
+    # fetch-and-execute.sh / yuruna-network.sh from $repoRoot/automation/ as base64
+    # write_files entries, then resolves the per-cycle placeholders below.
+    $UserData = New-CloudInitUserData `
+        -BasePath    $baseUserData `
+        -OverlayPath $overlayUserData `
+        -RepoRoot    $repoRoot `
+        -Replacement @{
+            USERNAME_PLACEHOLDER           = $Username
+            PLAINTEXT_PASSWORD_PLACEHOLDER = $Password
+            SSH_AUTHORIZED_KEY_PLACEHOLDER = $SshAuthorizedKey
+            YURUNA_STATUS_SERVICE_IP_PLACEHOLDER     = $YurunaHostIp
+            YURUNA_STATUS_SERVICE_PORT_PLACEHOLDER   = $YurunaHostPort
+        } -Confirm:$false
+
+    Set-Content -Path "$SeedDir/meta-data" -Value $MetaData -NoNewline
+    Set-Content -Path "$SeedDir/user-data" -Value $UserData -NoNewline
+    # --- REGION: https://yuruna.link/4220a755-000b
+    # Amazon Linux preserves cloud-init fallback networking; pin DHCP identity in user-data.
+
+    # --- REGION: Generate cloud-init seed ISO
+    $SeedIso = "$DataDir/seed.iso"
+    Write-Verbose "Generating seed.iso with cloud-init configuration..."
+    & hdiutil makehybrid -o "$($seedWorkspace.Image)" -joliet -iso -default-volume-name cidata "$SeedDir" 2>&1 | ForEach-Object { Write-Verbose $_ }
+    if ($LASTEXITCODE -ne 0) {
+        Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_fea701fd46026b88')
         exit 1
     }
+    Publish-SeedMediaImage -Workspace $seedWorkspace -Path $SeedIso -Confirm:$false
+
+    # --- REGION: Create and configure the UTM bundle
+    # config.plist selects the QEMU backend.
+    $TemplatePath = Join-Path $ScriptDir "config.plist.template"
+    if (-not (Test-Path $TemplatePath)) {
+        Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_603b5ff75924a72c' -Arguments @{ templatePath = "$TemplatePath" })
+        exit 1
+    }
+
+    $VmUuid = [guid]::NewGuid().ToString().ToUpper()
+    $DiskId = [guid]::NewGuid().ToString().ToUpper()
+    $SeedId = [guid]::NewGuid().ToString().ToUpper()
+    # --- REGION: https://yuruna.link/42e220c4-0004
+    # Key the MAC by durable guest identity so rebuilds and VM renames keep the DHCP lease.
+    $MacAddress = Get-YurunaGuestMacAddress -VMName $GuestHostname
+
+    # Per-VM VNC display number (Get-VncDisplayForVm hashes the name into
+    # 10..89). Get-VncPortForVm in the harness derives the same value from
+    # $VMName, so the producer (this plist) and the consumers (capture,
+    # keystrokes) agree without a sidecar file.
+    $VncDisplay = Get-VncDisplayForVm -VMName $VMName
+
+    # --- REGION: https://yuruna.link/42fa6f45-0015
+    $hostCores = [int](& /usr/sbin/sysctl -n hw.physicalcpu)
+    if ($hostCores -lt 4) {
+        Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_b35de16dca777b44' -Arguments @{ hostCores = "$hostCores" })
+        exit 1
+    }
+    $vmCores = [math]::Max(4, [math]::Floor($hostCores / 2))
+
+    $plistValues = @{
+        '__VM_NAME__' = $VMName
+        '__VM_UUID__' = $VmUuid
+        '__MAC_ADDRESS__' = $MacAddress
+        '__DISK_IDENTIFIER__' = $DiskId
+        '__DISK_IMAGE_NAME__' = 'disk.qcow2'
+        '__SEED_IDENTIFIER__' = $SeedId
+        '__SEED_IMAGE_NAME__' = 'seed.iso'
+        '__VNC_DISPLAY__' = "$VncDisplay"
+        '__CPU_COUNT__' = "$vmCores"
+        '__MEMORY_SIZE__' = '12288'
+    }
+    Write-UtmBundleConfiguration -TemplatePath $TemplatePath -BundlePath $UtmDir -Replacement $plistValues -Confirm:$false
+} finally {
+    # --- REGION: Clean up temporary files
+    Remove-SeedMediaWorkspace -Workspace $seedWorkspace -Confirm:$false
 }
-Import-Module (Join-Path $repoRoot 'automation/Yuruna.CloudInitTemplate.psm1') -Force
-
-$MetaData = (Get-Content -Raw $MetaDataTemplate) `
-    -replace 'INSTANCE_ID_PLACEHOLDER', $VMName `
-    -replace 'HOSTNAME_PLACEHOLDER', $GuestHostname
-
-# --- REGION: Yuruna harness SSH key
-# See https://yuruna.link/42e220c4-0004
-# Seed the shared harness key so guest provisioning and failure diagnostics agree.
-$TestSshModule = Join-Path (Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $ScriptDir))) "test/modules/Test.Ssh.psm1"
-Import-Module $TestSshModule -Force
-$SshAuthorizedKey = Get-YurunaSshPublicKey
-if (-not $SshAuthorizedKey) { Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_6424990f88c7f7bc' -Arguments @{ testSshModule = "$TestSshModule" }); exit 1 }
-
-# --- REGION: Vault user password
-# See https://yuruna.link/42e220c4-0004
-# Read the persistent authentication vault; a new cycle must not reset credentials.
-$_repoRootForExt = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $ScriptDir))
-Import-Module (Join-Path $_repoRootForExt 'test/modules/Test.Extension.psm1') -Global -Force -Verbose:$false
-$_authActiveName = @(Import-Extension -Area 'authentication' -RequireSingle)[0]
-$Password = Get-LocalOsPassword -Username $Username
-if (-not $Password) { Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_a8c8c2c47e517a44' -Arguments @{ username = "$Username" }); exit 1 }
-Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_762658980a25b8fb' -Arguments @{ authActiveName = "$_authActiveName" })
-Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_c427eb2402415f42' -Arguments @{ authentication = "$(Resolve-ExtensionAreaDir -Area 'authentication')" })
-
-# --- REGION: Yuruna host coordinates
-# See https://yuruna.link/4220a755-001b
-# Bake the status-service address reachable through the selected guest network.
-Import-Module (Join-Path (Split-Path -Parent $ScriptDir) "modules/Yuruna.Host.psm1") -Force
-Import-Module (Join-Path $PSScriptRoot '../../../automation/Yuruna.Common.psm1') -Force -DisableNameChecking
-$YurunaHostIp = Get-GuestReachableHostIp
-Import-Module (Join-Path (Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $ScriptDir))) 'test/modules/Test.Config.psm1') -Global -Force
-$_statusSeed = Get-YurunaStatusServiceSeed -RepoRoot (Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $ScriptDir)))
-$YurunaHostPort = $_statusSeed.Port
-
-# --- REGION: Render user-data / meta-data
-# New-CloudInitUserData merges base+overlay, auto-bakes yuruna-retry.sh /
-# fetch-and-execute.sh / yuruna-network.sh from $repoRoot/automation/ as base64
-# write_files entries, then resolves the per-cycle placeholders below.
-$UserData = New-CloudInitUserData `
-    -BasePath    $baseUserData `
-    -OverlayPath $overlayUserData `
-    -RepoRoot    $repoRoot `
-    -Replacement @{
-        USERNAME_PLACEHOLDER           = $Username
-        PLAINTEXT_PASSWORD_PLACEHOLDER = $Password
-        SSH_AUTHORIZED_KEY_PLACEHOLDER = $SshAuthorizedKey
-        YURUNA_STATUS_SERVICE_IP_PLACEHOLDER     = $YurunaHostIp
-        YURUNA_STATUS_SERVICE_PORT_PLACEHOLDER   = $YurunaHostPort
-    } -Confirm:$false
-
-Set-Content -Path "$SeedDir/meta-data" -Value $MetaData -NoNewline
-Set-Content -Path "$SeedDir/user-data" -Value $UserData -NoNewline
-# --- REGION: https://yuruna.link/4220a755-000b
-# Amazon Linux preserves cloud-init fallback networking; pin DHCP identity in user-data.
-
-# --- REGION: Generate cloud-init seed ISO
-$SeedIso = "$DataDir/seed.iso"
-Write-Verbose "Generating seed.iso with cloud-init configuration..."
-& hdiutil makehybrid -o "$SeedIso" -joliet -iso -default-volume-name cidata "$SeedDir" 2>&1 | ForEach-Object { Write-Verbose $_ }
-if ($LASTEXITCODE -ne 0) {
-    Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_fea701fd46026b88')
-    exit 1
-}
-
-# --- REGION: Create and configure the UTM bundle
-# config.plist selects the QEMU backend.
-$TemplatePath = Join-Path $ScriptDir "config.plist.template"
-if (-not (Test-Path $TemplatePath)) {
-    Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_603b5ff75924a72c' -Arguments @{ templatePath = "$TemplatePath" })
-    exit 1
-}
-
-$VmUuid = [guid]::NewGuid().ToString().ToUpper()
-$DiskId = [guid]::NewGuid().ToString().ToUpper()
-$SeedId = [guid]::NewGuid().ToString().ToUpper()
-# --- REGION: https://yuruna.link/42e220c4-0004
-# Key the MAC by durable guest identity so rebuilds and VM renames keep the DHCP lease.
-$MacAddress = Get-YurunaGuestMacAddress -VMName $GuestHostname
-
-# Per-VM VNC display number (Get-VncDisplayForVm hashes the name into
-# 10..89). Get-VncPortForVm in the harness derives the same value from
-# $VMName, so the producer (this plist) and the consumers (capture,
-# keystrokes) agree without a sidecar file.
-$VncDisplay = Get-VncDisplayForVm -VMName $VMName
-
-# --- REGION: https://yuruna.link/42fa6f45-0015
-$hostCores = [int](& /usr/sbin/sysctl -n hw.physicalcpu)
-if ($hostCores -lt 4) {
-    Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_b35de16dca777b44' -Arguments @{ hostCores = "$hostCores" })
-    exit 1
-}
-$vmCores = [math]::Max(4, [math]::Floor($hostCores / 2))
-
-$plistValues = @{
-    '__VM_NAME__' = $VMName
-    '__VM_UUID__' = $VmUuid
-    '__MAC_ADDRESS__' = $MacAddress
-    '__DISK_IDENTIFIER__' = $DiskId
-    '__DISK_IMAGE_NAME__' = 'disk.qcow2'
-    '__SEED_IDENTIFIER__' = $SeedId
-    '__SEED_IMAGE_NAME__' = 'seed.iso'
-    '__VNC_DISPLAY__' = "$VncDisplay"
-    '__CPU_COUNT__' = "$vmCores"
-    '__MEMORY_SIZE__' = '12288'
-}
-Write-UtmBundleConfiguration -TemplatePath $TemplatePath -BundlePath $UtmDir -Replacement $plistValues -Confirm:$false
-
-
-# --- REGION: Clean up temporary files
-Remove-Item -LiteralPath $SeedDir -Recurse -Force -ErrorAction SilentlyContinue
 
 # --- REGION: Guidance
 Write-Verbose ""

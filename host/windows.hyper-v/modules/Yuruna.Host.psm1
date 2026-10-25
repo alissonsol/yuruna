@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.22
+.VERSION 2026.10.25
 .GUID 425e6973-60a5-43b1-90b8-194b4331c1f8
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -1773,6 +1773,150 @@ function Stop-HyperVVMForce {
     return $false
 }
 
+# --- REGION: Storage references
+function Get-HyperVDirectoryDiskOwner {
+    <#
+    .SYNOPSIS
+        The registered VMs that use a virtual disk under a directory, their
+        checkpoints included, as @{ VMName; Path } rows. THROWS when Hyper-V
+        cannot be queried.
+    #>
+    [CmdletBinding()]
+    [OutputType([hashtable[]])]
+    param([Parameter(Mandatory)][string]$Directory)
+    $root = $Directory.TrimEnd('\', '/') + '\'
+    $owners = foreach ($vm in @(Hyper-V\Get-VM -ErrorAction Stop)) {
+        $paths = @(Hyper-V\Get-VMHardDiskDrive -VMName $vm.Name -ErrorAction Stop | ForEach-Object { $_.Path })
+        foreach ($checkpoint in @(Hyper-V\Get-VMSnapshot -VMName $vm.Name -ErrorAction Stop)) {
+            $paths += @(Hyper-V\Get-VMHardDiskDrive -VMCheckpoint $checkpoint -ErrorAction Stop | ForEach-Object { $_.Path })
+        }
+        foreach ($path in $paths) {
+            if ($path -and ([string]$path).StartsWith($root, [System.StringComparison]::OrdinalIgnoreCase)) { @{ VMName = [string]$vm.Name; Path = [string]$path } }
+        }
+    }
+    return [hashtable[]]@($owners)
+}
+
+function Repair-HyperVVMStorageLocation {
+    <#
+    .SYNOPSIS
+        Finish an interrupted rename for a VM whose disks still live under
+        another name's directory below VirtualHardDiskPath. $true when its
+        storage is under its own name afterwards (or already was).
+    .DESCRIPTION
+        Rename-VM renames the registration first and moves the storage last, so
+        a failure or kill between the two leaves the renamed VM's VHDX under
+        <VirtualHardDiskPath>\<old name>. That directory then looks like the
+        remains of a removed VM. The state to resume is read from Hyper-V itself:
+        the first path segment of the VM's disks names the rename that did not
+        finish. The NIC is re-pinned under the same guard Rename-VM uses (only
+        an address derived from the vacated name moves, and only while the VM is
+        off), then the storage is moved. Refused while the old directory also
+        holds another VM's disks, because then it is not this rename's to move.
+    #>
+    [CmdletBinding(SupportsShouldProcess)]
+    [OutputType([bool])]
+    param([Parameter(Mandatory)][string]$VMName)
+    $vhdRoot = (Hyper-V\Get-VMHost -ErrorAction Stop).VirtualHardDiskPath
+    if (-not $vhdRoot) { return $true }
+    $prefix = ([string]$vhdRoot).TrimEnd('\', '/') + '\'
+    $foreign = $null
+    foreach ($path in @(Hyper-V\Get-VMHardDiskDrive -VMName $VMName -ErrorAction Stop | ForEach-Object { [string]$_.Path })) {
+        if (-not $path.StartsWith($prefix, [System.StringComparison]::OrdinalIgnoreCase)) { continue }
+        $leaf = $path.Substring($prefix.Length).Split([char[]]@('\', '/'))[0]
+        if ($leaf -and -not [string]::Equals($leaf, $VMName, [System.StringComparison]::OrdinalIgnoreCase)) { $foreign = $leaf; break }
+    }
+    if (-not $foreign) { return $true }
+    if (-not $PSCmdlet.ShouldProcess($VMName, (Format-YurunaOperatorMessage -Key 'host.vm_storage_relocate_action' -Arguments @{ fromName = "$foreign" }))) { return $false }
+    $others = @(Get-HyperVDirectoryDiskOwner -Directory ($prefix + $foreign) | Where-Object { -not [string]::Equals($_.VMName, $VMName, [System.StringComparison]::OrdinalIgnoreCase) })
+    if ($others.Count -gt 0) {
+        Write-Warning (Format-YurunaOperatorMessage -Key 'host.vm_storage_relocation_failed' -Arguments @{ vMName = "$VMName"; fromName = "$foreign"; reason = "also used by $(@($others | ForEach-Object { $_.VMName } | Select-Object -Unique) -join ', ')" })
+        return $false
+    }
+    try {
+        $vm = Hyper-V\Get-VM -Name $VMName -ErrorAction Stop
+        if ([string]$vm.State -eq 'Off') {
+            $adapter = Hyper-V\Get-VMNetworkAdapter -VMName $VMName -ErrorAction Stop | Select-Object -First 1
+            if ($adapter -and (Test-YurunaGuestMacMatchesName -MacAddress ([string]$adapter.MacAddress) -VMName $foreign)) {
+                $adapter | Hyper-V\Set-VMNetworkAdapter -StaticMacAddress ((Get-YurunaGuestMacAddress -VMName $VMName) -replace ':', '') -ErrorAction Stop
+            }
+        }
+        Hyper-V\Move-VMStorage -VMName $VMName -DestinationStoragePath ($prefix + $VMName) -Confirm:$false -ErrorAction Stop
+    } catch {
+        Write-Warning (Format-YurunaOperatorMessage -Key 'host.vm_storage_relocation_failed' -Arguments @{ vMName = "$VMName"; fromName = "$foreign"; reason = "$($_.Exception.Message)" })
+        return $false
+    }
+    Write-Information (Format-YurunaOperatorMessage -Key 'host.vm_storage_relocated' -Arguments @{ vMName = "$VMName"; fromName = "$foreign" }) -InformationAction Continue
+    return $true
+}
+
+function Test-HyperVDirectoryFreeToDelete {
+    <#
+    .SYNOPSIS
+        $true when no registered VM uses a disk under a VM directory, after
+        finishing any interrupted rename that left one there.
+    .DESCRIPTION
+        A directory named after a VM that no longer exists is not proof that its
+        disks are abandoned; see Repair-HyperVVMStorageLocation. Owners are
+        repaired first; anything still referenced, or a reference check that
+        cannot be answered, keeps the directory.
+    #>
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param([Parameter(Mandatory)][string]$Directory)
+    try {
+        $owners = @(Get-HyperVDirectoryDiskOwner -Directory $Directory)
+        foreach ($owner in @($owners | ForEach-Object { $_.VMName } | Select-Object -Unique)) {
+            $null = Repair-HyperVVMStorageLocation -VMName $owner -Confirm:$false
+        }
+        if ($owners.Count -gt 0) { $owners = @(Get-HyperVDirectoryDiskOwner -Directory $Directory) }
+    } catch {
+        Write-Warning (Format-YurunaOperatorMessage -Key 'host.vm_storage_reference_unknown' -Arguments @{ vmDir = "$Directory"; message = "$($_.Exception.Message)" })
+        return $false
+    }
+    if ($owners.Count -gt 0) {
+        Write-Warning (Format-YurunaOperatorMessage -Key 'host.vm_storage_delete_refused' -Arguments @{ vmDir = "$Directory"; owners = "$(@($owners | ForEach-Object { $_.VMName } | Select-Object -Unique) -join ', ')" })
+        return $false
+    }
+    return $true
+}
+
+# --- REGION: Repair-VMStorageLocation
+function Repair-VMStorageLocation {
+    <#
+    .SYNOPSIS
+        Finish every rename an interrupted snapshot promotion left half done,
+        before a sweep, a build or a delete reaches the directory it vacated.
+    .DESCRIPTION
+        Repair-HyperVVMStorageLocation for each registered VM, so the repair no
+        longer waits for a delete to reach the old directory. The state comes
+        from Hyper-V, as for one VM: a disk under another name's directory below
+        VirtualHardDiskPath names the rename that did not finish. A VM that
+        cannot be repaired now (its old directory is shared, its move fails, or
+        its disks cannot be read) keeps its storage, is warned about and named in
+        the result, and the next call tries again. THROWS when the VM list
+        cannot be read.
+    .OUTPUTS
+        [string[]] the VMs whose storage is still under another name.
+    #>
+    [CmdletBinding(SupportsShouldProcess)]
+    [OutputType([string[]])]
+    param()
+    $vhdRoot = (Hyper-V\Get-VMHost -ErrorAction Stop).VirtualHardDiskPath
+    if (-not $vhdRoot) { return [string[]]@() }
+    if (-not $PSCmdlet.ShouldProcess($vhdRoot, (Format-YurunaOperatorMessage -Key 'host.vm_storage_reconcile_action'))) { return [string[]]@() }
+    $unrepaired = foreach ($vm in @(Hyper-V\Get-VM -ErrorAction Stop)) {
+        $name = [string]$vm.Name
+        try {
+            if (-not (Repair-HyperVVMStorageLocation -VMName $name -Confirm:$false)) { $name }
+        } catch {
+            Write-Warning (Format-YurunaOperatorMessage -Key 'host.vm_storage_repair_unknown' -Arguments @{ vMName = "$name"; message = "$($_.Exception.Message)" })
+            $name
+        }
+    }
+    return [string[]]@($unrepaired)
+}
+
 <#
 .SYNOPSIS
 Force-stop and delete a Hyper-V VM along with its disk directory.
@@ -1832,7 +1976,9 @@ function Remove-HyperVTestVM {
     $vhdPath = (Hyper-V\Get-VMHost -ErrorAction SilentlyContinue).VirtualHardDiskPath
     if ($vhdPath) {
         $vmDir = Join-Path $vhdPath $VMName
-        if (Test-Path $vmDir) {
+        # The directory is deleted only when no registered VM still uses a disk
+        # in it; see Test-HyperVDirectoryFreeToDelete.
+        if ((Test-Path $vmDir) -and (Test-HyperVDirectoryFreeToDelete -Directory $vmDir)) {
             try {
                 Remove-Item -LiteralPath $vmDir -Recurse -Force -ErrorAction Stop 6>$null
                 Write-Verbose "Removed VM disk directory: $vmDir"
@@ -4176,6 +4322,23 @@ function Rename-VM {
     if ($destination.Presence -ne 'absent') {
         Write-Warning (Format-YurunaOperatorMessage -Key 'host.hyperv_vm_state_unknown' -Arguments @{ operation = 'Rename-VM'; vMName = "$NewName" })
         return $false
+    }
+    # The storage move below fails on a file already under the destination
+    # name, and by then the registration carries the new name: the half-renamed
+    # state that Repair-HyperVVMStorageLocation has to finish later. A
+    # destination directory holding any file, or one that cannot be listed, is
+    # refused while nothing has changed yet.
+    $renameRoot = (Hyper-V\Get-VMHost -ErrorAction SilentlyContinue).VirtualHardDiskPath
+    if ($renameRoot) {
+        $renameDir = Join-Path $renameRoot $NewName
+        if (Test-Path -LiteralPath $renameDir) {
+            $occupied = $true
+            try { $occupied = @(Get-ChildItem -LiteralPath $renameDir -Recurse -File -Force -ErrorAction Stop).Count -gt 0 } catch { $occupied = $true }
+            if ($occupied) {
+                Write-Warning (Format-YurunaOperatorMessage -Key 'host.hyperv_rename_destination_dir_occupied' -Arguments @{ newName = "$NewName"; newDir = "$renameDir" })
+                return $false
+            }
+        }
     }
     try {
         Hyper-V\Rename-VM -Name $VMName -NewName $NewName -Confirm:$false -ErrorAction Stop
@@ -6867,25 +7030,40 @@ function Remove-HyperVGuestDefinition {
     <#
     .SYNOPSIS
         Replace a known VM definition while leaving disk cleanup to the builder.
+    .DESCRIPTION
+        The builder that calls this replaces the files in the VM's directory by
+        name, so the directory must not hold another VM's disks: a snapshot
+        promotion interrupted before its storage move leaves the promoted VM's
+        disks there, whether or not a VM of this name still exists. Such a
+        rename is finished first, and a directory that something still uses, or
+        whose use cannot be read, THROWS before the builder touches a file in it.
     #>
     [CmdletBinding(SupportsShouldProcess)]
     param([Parameter(Mandatory)][string]$VMName)
     $existing = Resolve-HyperVVM -VMName $VMName
     if ($existing.Presence -eq 'unknown') { throw "Cannot determine whether VM '$VMName' exists; no VM or disk changes were made." }
-    if ($existing.Presence -eq 'absent') { return }
     if (-not $PSCmdlet.ShouldProcess($VMName, 'Remove existing VM definition')) { return }
-    Write-Information (Format-YurunaOperatorMessage -Key 'host.operator_96658c0e8ad547f3' -Arguments @{ vMName = "$VMName" }) -InformationAction Continue
-    Hyper-V\Stop-VM -VM $existing.VM -Force -ErrorAction SilentlyContinue -WarningAction SilentlyContinue
-    try { Hyper-V\Remove-VM -VM $existing.VM -Force -ErrorAction Stop }
-    catch {
-        $diag = $existing.VM | Format-List Name, State, Status, Generation, Path | Out-String
-        throw (Format-YurunaOperatorMessage -Key 'exceptions.host_1c714189825ec0e2' -Arguments @{ vMName = "$VMName"; message = "$($_.Exception.Message)"; diag = "$diag" })
+    if ($existing.Presence -eq 'present') {
+        Write-Information (Format-YurunaOperatorMessage -Key 'host.operator_96658c0e8ad547f3' -Arguments @{ vMName = "$VMName" }) -InformationAction Continue
+        Hyper-V\Stop-VM -VM $existing.VM -Force -ErrorAction SilentlyContinue -WarningAction SilentlyContinue
+        try { Hyper-V\Remove-VM -VM $existing.VM -Force -ErrorAction Stop }
+        catch {
+            $diag = $existing.VM | Format-List Name, State, Status, Generation, Path | Out-String
+            throw (Format-YurunaOperatorMessage -Key 'exceptions.host_1c714189825ec0e2' -Arguments @{ vMName = "$VMName"; message = "$($_.Exception.Message)"; diag = "$diag" })
+        }
+        $after = Resolve-HyperVVM -VMName $VMName
+        if ($after.Presence -ne 'absent') {
+            throw (Format-YurunaOperatorMessage -Key 'exceptions.host_634b857addaa8df5' -Arguments @{ vMName = "$VMName" })
+        }
+        Write-Information (Format-YurunaOperatorMessage -Key 'host.operator_86f314067f7955de' -Arguments @{ vMName = "$VMName" }) -InformationAction Continue
     }
-    $after = Resolve-HyperVVM -VMName $VMName
-    if ($after.Presence -ne 'absent') {
-        throw (Format-YurunaOperatorMessage -Key 'exceptions.host_634b857addaa8df5' -Arguments @{ vMName = "$VMName" })
+    $vhdRoot = (Hyper-V\Get-VMHost -ErrorAction Stop).VirtualHardDiskPath
+    if ($vhdRoot) {
+        $vmDir = Join-Path $vhdRoot $VMName
+        if ((Test-Path -LiteralPath $vmDir) -and -not (Test-HyperVDirectoryFreeToDelete -Directory $vmDir)) {
+            throw (Format-YurunaOperatorMessage -Key 'host.vm_build_storage_in_use' -Arguments @{ vMName = "$VMName"; vmDir = "$vmDir" })
+        }
     }
-    Write-Information (Format-YurunaOperatorMessage -Key 'host.operator_86f314067f7955de' -Arguments @{ vMName = "$VMName" }) -InformationAction Continue
 }
 
 # --- REGION: Resolve-HyperVGuestSwitch
@@ -6982,7 +7160,7 @@ function Wait-HyperVServiceGuestAddress {
 }
 
 # --- REGION: Exports
-Export-ModuleMember -Function Remove-HyperVGuestDefinition, Resolve-HyperVGuestSwitch, New-HyperVServiceGuest, Wait-HyperVServiceGuestAddress, `
+Export-ModuleMember -Function Remove-HyperVGuestDefinition, Repair-VMStorageLocation, Resolve-HyperVGuestSwitch, New-HyperVServiceGuest, Wait-HyperVServiceGuestAddress, `
     New-VM, Start-VM, Stop-VM, Stop-VMForce, Remove-VM, Rename-VM, Get-VMState, Get-VMName, Test-VirtualizationResponsive, Start-VirtualizationServiceIfStopped, `
     Save-VMDiskSnapshot, Restore-VMDiskSnapshot, Test-VMDiskSnapshot, `
     Test-VMConsoleOpen, Restart-VMConsole, Set-VMInstallerMediaFirstBoot, `

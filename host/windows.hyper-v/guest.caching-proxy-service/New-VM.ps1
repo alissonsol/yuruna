@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.22
+.VERSION 2026.10.25
 .GUID 4242f187-1ce6-46a5-a5a4-7c2435ed1ac1
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -138,6 +138,17 @@ Write-BaseImageProvenance -BaseImagePath $baseImageFile
 # See https://yuruna.link/42e220c4-0004
 # Runs AFTER the base image is confirmed so a failed image fetch never
 # destroys a working VM.
+# Preserve a deployed root before replacing the only disk that holds its key.
+Import-Module (Join-Path $PSScriptRoot '../../../test/modules/Test.CachingProxyService.psm1') -Global -Force -DisableNameChecking
+$bumpCa = Get-YurunaBumpCa -Create -ReadExistingCa {
+    if ((Get-VMState -VMName $VMName) -ne 'absent') {
+        $existingAddress = Get-VMIp -VMName $VMName
+        if (-not $existingAddress) { throw 'bump-ca-migration-address-unavailable: existing proxy preserved' }
+        Get-CachingProxyServiceLegacyCa -VMName $VMName -Address $existingAddress
+    }
+} -Confirm:$false
+if (-not $bumpCa) { throw 'bump-ca-unavailable: existing proxy preserved' }
+
 Remove-HyperVGuestDefinition -VMName $VMName -Confirm:$false
 
 # --- REGION: Create copies and files for VM
@@ -163,10 +174,10 @@ if (-not (Expand-ExtensionVmDisk -Path $vhdxFile -SizeBytes 512GB -Format 'vhdx'
 # meta-data is shared under host/vmconfig/ (byte-identical across all 3 host platforms).
 $hostVmConfigDir = Join-Path (Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSScriptRoot))) 'host/vmconfig'
 # Seed-only staging has an explicit protected ACL before any secret is written.
-Import-Module (Join-Path $PSScriptRoot '../../modules/Yuruna.CachingProxySeed.psm1') -Force
+Import-Module (Join-Path $PSScriptRoot '../../modules/Yuruna.SeedMedia.psm1') -Force
 $seedWorkspace = $null
 try {
-    $seedWorkspace = New-CachingProxySeedWorkspace -ParentPath $vmDir
+    $seedWorkspace = New-SeedMediaWorkspace -ParentPath $vmDir
     $SeedDir = $seedWorkspace.Source
 
     Copy-Item -Path (Join-Path $hostVmConfigDir 'caching-proxy-service.meta-data') -Destination "$SeedDir/meta-data"
@@ -361,6 +372,14 @@ try {
         Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_d4180c81874e5196' -Arguments @{ message = "$($_.Exception.Message)" })
     }
 
+    # --- REGION: ssl-bump CA
+    # The proxy bumps HTTPS with a CA this host keeps across rebuilds, so the
+    # fingerprint every guest and host pins stays the same; see Get-YurunaBumpCa.
+    Import-Module (Join-Path $PSScriptRoot '../../../test/modules/Test.CachingProxyService.psm1') -Global -Force
+    if (-not $bumpCa) { Write-Error (Format-YurunaOperatorMessage -Key 'runner.bump_ca_unavailable'); exit 1 }
+    $bumpCaCertB64 = [Convert]::ToBase64String([System.Text.UTF8Encoding]::new($false).GetBytes($bumpCa.CertPem))
+    $bumpCaKeyB64  = [Convert]::ToBase64String([System.Text.UTF8Encoding]::new($false).GetBytes($bumpCa.KeyPem))
+
     # --- REGION: Dashboard brand identity
     # The Grafana dashboards this VM serves name the enlistment that built it --
     # the same pair the host's status pages carry in their header. Resolved here
@@ -369,6 +388,11 @@ try {
     Import-Module (Join-Path $_repoRootForExt 'test/modules/Test.FrameworkSource.psm1') -Force
     $brand = Get-YurunaBrandIdentity -RepoRoot $_repoRootForExt -Config $tc
     $gitMirrorSeed = Get-CachingProxyGitMirrorSeedSetting -RepoRoot $_repoRootForExt -Config $tc
+    # A host that did not build this proxy trusts its CA through this statement,
+    # signed with the key lab hosts enroll to verify mirror receipts; see
+    # Resolve-YurunaPinnedProxyCa. No signing key means no statement.
+    $proxyCaStatement = ConvertTo-YurunaProxyCaStatement -SigningKeyBase64 ([string]$gitMirrorSeed.SigningKeyBase64) -CaPem $bumpCa.CertPem
+    $proxyCaStatementB64 = [Convert]::ToBase64String([System.Text.UTF8Encoding]::new($false).GetBytes($proxyCaStatement))
 
     # --- REGION: Render user-data / meta-data
     # Render user-data from the shared base + Hyper-V overlay
@@ -398,6 +422,9 @@ try {
             YURUNA_CONFIG_SERVICE_PORT_PLACEHOLDER               = $configPort
             YURUNA_CONFIG_SERVICE_CLIENT_CERT_BASE64_PLACEHOLDER = $configClientCertB64
             YURUNA_CONFIG_SERVICE_CLIENT_KEY_BASE64_PLACEHOLDER  = $configClientKeyB64
+            YURUNA_BUMP_CA_CERT_BASE64_PLACEHOLDER               = $bumpCaCertB64
+            YURUNA_BUMP_CA_KEY_BASE64_PLACEHOLDER                = $bumpCaKeyB64
+            YURUNA_PROXY_CA_STATEMENT_BASE64_PLACEHOLDER = $proxyCaStatementB64
             YURUNA_CONFIG_SERVICE_CA_CERT_BASE64_PLACEHOLDER     = $configCaCertB64
             YURUNA_BRAND_NAME_PLACEHOLDER    = $brand.Name
             YURUNA_BRAND_VERSION_PLACEHOLDER = $brand.Version
@@ -421,7 +448,7 @@ try {
     $SeedIso = Join-Path $vmDir "seed.iso"
     Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_5f1478be62ab5e8d')
     CreateIso -SourceDir $SeedDir -OutputFile $seedWorkspace.Image -VolumeId "cidata"
-    Publish-CachingProxySeedImage -Workspace $seedWorkspace -Path $SeedIso -Confirm:$false
+    Publish-SeedMediaImage -Workspace $seedWorkspace -Path $SeedIso -Confirm:$false
 
     # Surface credentials BEFORE the long VM-create/boot/cloud-init wait.
     # If anything in those 20-35 minutes fails (cloud-init stall, apt rate-
@@ -440,17 +467,20 @@ try {
     New-HyperVServiceGuest -VMName $VMName -SwitchName $switchName -DiskPath $vhdxFile -SeedPath $SeedIso -HostCores $hostCores -MemoryMb $MemoryMb -MacAddress $MacAddress -Confirm:$false
 
     $createdVm = Hyper-V\Get-VM -Name $VMName -ErrorAction Stop
-    Grant-CachingProxySeedVmRead -Path $SeedIso -VMId $createdVm.Id -Confirm:$false
+    Grant-SeedMediaVmRead -Path $SeedIso -VMId $createdVm.Id -Confirm:$false
+
+    # --- REGION: Clean up temporary files
 } finally {
     # The seed holds the guest's admin credentials; it must not outlive this
     # script on any path, an early exit or a throw included.
-    Remove-CachingProxySeedWorkspace -Workspace $seedWorkspace -Confirm:$false
+    Remove-SeedMediaWorkspace -Workspace $seedWorkspace -Confirm:$false
 }
 
-# --- REGION: Start VM and wait for IP
+# --- REGION: Start the VM
 Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_44a010f47f51d941' -Arguments @{ vMName = "$VMName" })
 Hyper-V\Start-VM -Name $VMName
 
+# --- REGION: Wait for VM IP
 Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_2c8ff2df499f232c')
 Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_f257239b1955c535')
 Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_e6346c74a10ae90e')

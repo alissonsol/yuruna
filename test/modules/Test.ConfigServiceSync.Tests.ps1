@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.22
+.VERSION 2026.10.25
 .GUID 424a2e17-dfe4-4ca3-ae90-6837265945f9
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -274,6 +274,46 @@ Describe 'Yuruna control proof (status-service control-route auth)' {
         Assert-True (Test-YurunaControlProof -Token 'tok-1' -Wire $atMint) 'proof minted at the aggregator TTL is accepted'
         $beyondCap = Get-YurunaControlProof -Token 'tok-1' -ExpiryUnixSeconds ($now + 1800)
         Assert-True (-not (Test-YurunaControlProof -Token 'tok-1' -Wire $beyondCap)) 'proof beyond the acceptance cap is still rejected'
+    }
+    It 'mints the shared bound golden wire (the Go controlproof.ProofFor vector)' {
+        $vectors = ConvertFrom-Json -InputObject ([IO.File]::ReadAllText([IO.Path]::Combine($PSScriptRoot, '..', 'extension', 'extension-sdk', 'hostrefresh', 'testdata', 'vectors.json')))
+        $b = $vectors.bound
+        Assert-Equal -Expected $b.wire -Actual (Get-YurunaControlProof -Token $b.token -ExpiryUnixSeconds $b.expiryUnix -Audience $b.audience)
+    }
+    It 'opens only the host a bound proof names, and still accepts an unbound one during the transition' {
+        $now = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
+        $hostA = '42aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
+        $bound = Get-YurunaControlProof -Token 'tok-1' -ExpiryUnixSeconds ($now + 120) -Audience $hostA
+        Assert-True (Test-YurunaControlProof -Token 'tok-1' -Wire $bound -Audience $hostA) 'its own host'
+        Assert-True (Test-YurunaControlProof -Token 'tok-1' -Wire $bound -Audience $hostA.ToUpperInvariant()) 'case is not significant'
+        Assert-True (-not (Test-YurunaControlProof -Token 'tok-1' -Wire $bound -Audience '42bbbbbbbbbbbbbbbbbbbbbbbbbbbbbb')) 'another host refuses it'
+        Assert-True (-not (Test-YurunaControlProof -Token 'tok-1' -Wire $bound)) 'a verifier that names no target refuses a bound proof'
+        Assert-True (-not (Test-YurunaControlProof -Token 'tok-1' -Wire $bound.Replace($hostA, '42bbbbbbbbbbbbbbbbbbbbbbbbbbbbbb') -Audience '42bbbbbbbbbbbbbbbbbbbbbbbbbbbbbb')) 'a swapped audience fails the MAC'
+        Assert-True (Test-YurunaControlProof -Token 'tok-1' -Wire (Get-YurunaControlProof -Token 'tok-1' -ExpiryUnixSeconds ($now + 120)) -Audience $hostA) 'unbound proof accepted'
+        Assert-True (-not (Test-YurunaControlProof -Token 'tok-1' -Wire ("$($now + 120).a.b.c") -Audience $hostA)) 'four fields rejected'
+    }
+    It 'mints the shared scoped golden wire (the Go controlproof.ProofForScope vector)' {
+        $vectors = ConvertFrom-Json -InputObject ([IO.File]::ReadAllText([IO.Path]::Combine($PSScriptRoot, '..', 'extension', 'extension-sdk', 'hostrefresh', 'testdata', 'vectors.json')))
+        $s = $vectors.scoped
+        Assert-Equal -Expected $s.wire -Actual (Get-YurunaControlProof -Token $s.token -ExpiryUnixSeconds $s.expiryUnix -Audience $s.audience -Scope $s.scope)
+    }
+    # The pool-wide pause and continue sends a host a proof that opens only its
+    # pause and resume routes, so a captured one cannot save that host's
+    # configuration or start a cycle there.
+    It 'opens only the routes a scoped proof covers, on the host it names' {
+        $now = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
+        $hostA = '42aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
+        $scoped = Get-YurunaControlProof -Token 'tok-1' -ExpiryUnixSeconds ($now + 120) -Audience $hostA -Scope 'pause'
+        Assert-True (Test-YurunaControlProof -Token 'tok-1' -Wire $scoped -Audience $hostA -AllowedScope @('pause')) 'a pause route on its own host'
+        Assert-True (-not (Test-YurunaControlProof -Token 'tok-1' -Wire $scoped -Audience $hostA)) 'a route that names no scope refuses it'
+        Assert-True (-not (Test-YurunaControlProof -Token 'tok-1' -Wire $scoped -Audience $hostA -AllowedScope @('config'))) 'a route covered by another scope refuses it'
+        Assert-True (-not (Test-YurunaControlProof -Token 'tok-1' -Wire $scoped -Audience '42bbbbbbbbbbbbbbbbbbbbbbbbbbbbbb' -AllowedScope @('pause'))) 'another host refuses it'
+        Assert-True (-not (Test-YurunaControlProof -Token 'tok-1' -Wire $scoped -AllowedScope @('pause'))) 'a verifier that names no target refuses it'
+        Assert-True (-not (Test-YurunaControlProof -Token 'tok-1' -Wire $scoped.Replace('.pause.', '.config.') -Audience $hostA -AllowedScope @('config'))) 'a swapped scope fails the MAC'
+        Assert-True (-not (Test-YurunaControlProof -Token 'tok-2' -Wire $scoped -Audience $hostA -AllowedScope @('pause'))) 'another key refuses it'
+        $bound = Get-YurunaControlProof -Token 'tok-1' -ExpiryUnixSeconds ($now + 120) -Audience $hostA
+        Assert-True (Test-YurunaControlProof -Token 'tok-1' -Wire $bound -Audience $hostA -AllowedScope @('pause')) 'the full proof still opens a pause route'
+        Assert-Throw { Get-YurunaControlProof -Token 'tok-1' -ExpiryUnixSeconds ($now + 120) -Scope 'pause' } -Match 'needs an audience' -Because 'a scope narrows a bound proof'
     }
     It 'rejects an expired proof and a far-future (beyond MaxTtl) proof' {
         $now = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()

@@ -2800,6 +2800,7 @@ write_files:
       YURUNA_STATUS_SERVICE_IP=YURUNA_STATUS_SERVICE_IP_PLACEHOLDER
       YURUNA_STATUS_SERVICE_PORT=YURUNA_STATUS_SERVICE_PORT_PLACEHOLDER
       YURUNA_CACHING_PROXY_SERVICE_IP=127.0.0.1
+      YURUNA_CA_SHA256=YURUNA_CA_SHA256_PLACEHOLDER
       YURUNA_GITHUB_REPO=YURUNA_GITHUB_REPO_PLACEHOLDER
       YURUNA_GITHUB_REF=YURUNA_GITHUB_REF_PLACEHOLDER
   # --- REGION: https://yuruna.link/429f3d06-002a
@@ -2866,6 +2867,34 @@ write_files:
     owner: root:root
     encoding: b64
     content: 'YURUNA_CONFIG_SERVICE_CLIENT_KEY_BASE64_PLACEHOLDER'
+  # --- REGION: https://yuruna.link/429f3d06-0060
+  # The ssl-bump CA the building host keeps across rebuilds; runcmd installs it
+  # for squid and removes the key copy.
+  - path: /etc/yuruna/bump-ca/ca.pem
+    permissions: '0644'
+    owner: root:root
+    encoding: b64
+    content: 'YURUNA_BUMP_CA_CERT_BASE64_PLACEHOLDER'
+  - path: /etc/yuruna/bump-ca/ca.key
+    permissions: '0600'
+    owner: root:root
+    encoding: b64
+    content: 'YURUNA_BUMP_CA_KEY_BASE64_PLACEHOLDER'
+  # The building host's signed statement naming that CA, so hosts that did not
+  # build this proxy can trust it without trusting the first answer they get.
+  - path: /etc/yuruna/bump-ca/ca.sig.json
+    permissions: '0644'
+    owner: root:root
+    encoding: b64
+    content: 'YURUNA_PROXY_CA_STATEMENT_BASE64_PLACEHOLDER'
+  # --- REGION: https://yuruna.link/429f3d06-0070
+  # SHA-256 of every file the service builds below fetch, computed by the host
+  # that rendered this seed; a fetched file that does not match is not built.
+  - path: /etc/yuruna/build-source.sha256
+    permissions: '0644'
+    owner: root:root
+    encoding: b64
+    content: 'YURUNA_SOURCE_MANIFEST_BASE64_PLACEHOLDER'
   - path: /usr/local/bin/yuruna-config-fetch.sh
     permissions: '0755'
     owner: root:root
@@ -2930,18 +2959,24 @@ write_files:
         exit 0
       fi
       NETPATH="$(printf '%s' "$JSON" | jq -r '.networkPath // empty')"
-      # A NAS name only the host can resolve (New-LocalLabStorage points ypool-nas
-      # at the host's loopback) fails the mount with cifs_mount -111; fall back to
-      # the known-good host IP the config service just answered on.
-      IPOPT=""
-      NAS_HOST="$(printf '%s' "$NETPATH" | sed -nE 's#^//([^/]+)/.*#\1#p')"
-      if [ -n "$NAS_HOST" ] && ! getent hosts "$NAS_HOST" >/dev/null 2>&1 && [ -n "$HOST_IP" ]; then
-        IPOPT=",ip=$HOST_IP"
-      fi
       NAS_USER="$(printf '%s' "$JSON" | jq -r '.username // empty')"
       NAS_PASS="$(printf '%s' "$JSON" | jq -r '.password // empty')"
       VERSION="$(printf '%s' "$JSON" | jq -r '.version // empty')"
       [ -n "$NETPATH" ] && [ -n "$NAS_USER" ] && [ -n "$NAS_PASS" ] && [ -n "$VERSION" ] || { note "incomplete-payload (NAS not configured or vault credential unset)"; exit 0; }
+      # Use the host's authenticated resolution of a hosts-file/NetBIOS alias.
+      # An unresolved remote NAS must never be mistaken for the building host.
+      IPOPT=""
+      NAS_HOST="$(printf '%s' "$NETPATH" | sed -nE 's#^//([^/]+)/.*#\1#p')"
+      NAS_IP="$(printf '%s' "$JSON" | jq -r '.networkIp // empty')"
+      if [ -n "$NAS_IP" ]; then
+        # A host-local share is reached through the guest's baked host address.
+        case "$NAS_IP" in 127.*|::1) NAS_IP="$HOST_IP" ;; esac
+        case "$NAS_IP" in *[!0-9a-fA-F:.]*) note 'nas-address-invalid'; exit 1 ;; esac
+        IPOPT=",ip=$NAS_IP"
+      elif [ -z "$NAS_HOST" ] || ! getent hosts "$NAS_HOST" >/dev/null 2>&1; then
+        note 'nas-address-unresolved (restart the host config service to publish its NAS address)'
+        exit 1
+      fi
       umask 077
       # printf %s writes the password literally -- no shell re-parsing -- so vault
       # special characters survive into the cifs credentials file intact.
@@ -2952,17 +2987,29 @@ write_files:
       [ -r "$VERF" ] && PREV="$(cat "$VERF" 2>/dev/null)"
       mkdir -p "$MOUNT" 2>/dev/null || true
       CHANGED=0
+      mount_rc=0
       [ "$VERSION" != "$PREV" ] && CHANGED=1
       mountpoint -q "$MOUNT" 2>/dev/null || CHANGED=1
       if [ "$CHANGED" = "1" ]; then
-        mountpoint -q "$MOUNT" 2>/dev/null && timeout 30 umount "$MOUNT" >/dev/null 2>&1
+        if mountpoint -q "$MOUNT" 2>/dev/null; then
+          timeout 30 umount "$MOUNT" >/dev/null 2>&1 || mount_rc=$?
+          if [ "$mount_rc" -ne 0 ]; then
+            note "unmount-failed (server=${NAS_IP:-dns} exit=$mount_rc; previous mount and credential version retained)"
+            exit 1
+          fi
+        fi
         # MODEOPT is ,ro for stash (read-only scan) and empty (read-write) for pool.
         # NO iocharset=utf8: nls_utf8 is absent on the minimal cloud kernel and the
         # mount fails with error(79); the on-disk names are ASCII.
-        timeout 60 mount -t cifs "$NETPATH" "$MOUNT" -o "credentials=$CRED,vers=3.0,$OWNEROPT,nofail$MODEOPT$IPOPT" >/dev/null 2>&1 || true
-        printf '%s' "$VERSION" > "$VERF" 2>/dev/null || true
+        timeout 60 mount -t cifs "$NETPATH" "$MOUNT" -o "credentials=$CRED,vers=3.0,$OWNEROPT,nofail$MODEOPT$IPOPT" >/dev/null 2>&1 || mount_rc=$?
       fi
-      if mountpoint -q "$MOUNT" 2>/dev/null; then note "mounted (credential current)"; else note "mount-failed (NAS unreachable or wrong credential)"; fi
+      if [ "$mount_rc" -eq 0 ] && mountpoint -q "$MOUNT" 2>/dev/null; then
+        printf '%s' "$VERSION" > "$VERF" 2>/dev/null || true
+        note "mounted (server=${NAS_IP:-dns}; credential current)"
+      else
+        note "mount-failed (server=${NAS_IP:-dns} exit=$mount_rc; check NAS reachability, share, and credential)"
+        exit 1
+      fi
       exit 0
   - path: /etc/systemd/system/yuruna-config-fetch@.service
     permissions: '0644'
@@ -3448,7 +3495,7 @@ write_files:
             "gridPos": { "h": 9, "w": 24, "x": 0, "y": 4 },
             "datasource": { "type": "prometheus", "uid": "yuruna-prometheus" },
             "targets": [
-              { "refId": "A", "expr": "yuruna_pool_host_status{pool=~\"$pool\", hostname=\"\"}", "legendFormat": "{{hostId}}", "range": true, "datasource": { "type": "prometheus", "uid": "yuruna-prometheus" } }
+              { "refId": "A", "expr": "max by (hostId, hostIdDashed) (yuruna_pool_host_status{pool=~\"$pool\", hostname=\"\"} and topk by (hostId) (1, timestamp(yuruna_pool_host_status{pool=~\"$pool\", hostname=\"\"})))", "legendFormat": "{{hostId}}", "range": true, "datasource": { "type": "prometheus", "uid": "yuruna-prometheus" } }
             ],
             "transformations": [
               { "id": "renameByRegex", "options": { "regex": ".*?([0-9a-fA-F]{8})[0-9a-fA-F]{24}.*", "renamePattern": "$1" } }
@@ -3793,13 +3840,13 @@ write_files:
                 "id": 24,
                 "type": "table",
                 "title": "Commit headroom per host",
-                "description": "Commit limit minus committed bytes for Windows and Ubuntu. Windows measures memory it can still promise; Ubuntu reports CommitLimit minus Committed_AS, whose allocation meaning depends on the kernel overcommit policy and can be negative. Support identifies Windows and Ubuntu as Supported, macOS as Unsupported, and unrecognized platforms as Unknown. macOS has no equivalent commit counter, so its byte readings stay n/a even when Exporter is Up. Minimum and Latest summarize the selected window; the sparkline preserves its history. Every current host is listed; n/a means no reading, not zero; Support distinguishes an unsupported platform from a supported host with missing telemetry. Exporter reports scrape health at the window end: Up, Down, or Not scraped. A historical reading may remain when the exporter is now Down. Host ID opens the same full-ID and status-page menu as Pool hosts.",
+                "description": "Commit limit minus committed bytes for Windows and Ubuntu. Windows measures memory it can still promise; Ubuntu reports CommitLimit minus Committed_AS, whose allocation meaning depends on the kernel overcommit policy and can be negative. macOS has no equivalent commit counter, so its byte readings stay n/a even when Exporter is Up. Minimum and Latest summarize the selected window; the sparkline preserves its history. Every current host is listed; n/a means no reading, not zero. Exporter reports scrape health at the window end: Up, Down, or Not scraped. A historical reading may remain when the exporter is now Down. Host ID opens the same full-ID and status-page menu as Pool hosts.",
                 "gridPos": {"h": 15, "w": 12, "x": 12, "y": 28},
                 "datasource": {"type": "prometheus", "uid": "yuruna-prometheus"},
                 "targets": [
                   {
                     "refId": "A",
-                    "expr": "label_replace(label_replace(label_replace(topk(1, yuruna_pool_host_info{pool=~\"$pool\"}) by (hostId) unless on(hostId) yuruna_pool_host_retired, \"headroomSupport\", \"Unknown\", \"hostType\", \".*\"), \"headroomSupport\", \"Supported\", \"hostType\", \"host[.](windows|ubuntu)[.].+\"), \"headroomSupport\", \"Unsupported\", \"hostType\", \"host[.]macos[.].+\")",
+                    "expr": "topk(1, yuruna_pool_host_info{pool=~\"$pool\"}) by (hostId) unless on(hostId) yuruna_pool_host_retired",
                     "instant": true,
                     "format": "table",
                     "datasource": {"type": "prometheus", "uid": "yuruna-prometheus"}
@@ -3847,7 +3894,6 @@ write_files:
                         }
                       ]
                     },
-                    {"matcher": {"id": "byName", "options": "Support"}, "properties": [{"id": "unit", "value": "none"}, {"id": "noValue", "value": "Unknown"}, {"id": "custom.width", "value": 110}]},
                     {"matcher": {"id": "byName", "options": "Minimum"}, "properties": [{"id": "custom.width", "value": 100}]},
                     {
                       "matcher": {"id": "byName", "options": "Latest"},
@@ -3871,13 +3917,13 @@ write_files:
                   {"id": "timeSeriesTable", "options": {"B": {"stat": "lastNotNull"}}, "filter": {"id": "byRefId", "options": "B"}},
                   {"id": "joinByField", "options": {"byField": "hostId", "mode": "outerTabular"}},
                   {"id": "filterByValue", "options": {"filters": [{"config": {"id": "isNotNull", "options": {}}, "fieldName": "hostIdDashed"}], "match": "all", "type": "include"}},
-                  {"id": "filterFieldsByName", "options": {"include": {"names": ["hostId", "hostIdDashed", "hostType", "headroomSupport", "Trend #B", "Value #C", "Value #D"]}}},
+                  {"id": "filterFieldsByName", "options": {"include": {"names": ["hostId", "hostIdDashed", "hostType", "Trend #B", "Value #C", "Value #D"]}}},
                   {
                     "id": "organize",
                     "options": {
                       "excludeByName": {},
-                      "renameByName": {"hostId": "Host ID", "hostType": "Type", "headroomSupport": "Support", "Value #C": "Minimum", "Trend #B": "Latest", "Value #D": "Exporter"},
-                      "indexByName": {"hostId": 0, "hostType": 1, "headroomSupport": 2, "Value #C": 3, "Trend #B": 4, "Value #D": 5, "hostIdDashed": 6}
+                      "renameByName": {"hostId": "Host ID", "hostType": "Type", "Value #C": "Minimum", "Trend #B": "Latest", "Value #D": "Exporter"},
+                      "indexByName": {"hostId": 0, "hostType": 1, "Value #C": 2, "Trend #B": 3, "Value #D": 4, "hostIdDashed": 5}
                     }
                   }
                 ]
@@ -3899,7 +3945,8 @@ write_files:
       Grafana restart.
 
       The Pool hosts table groups old Loki IDs into the current Prometheus host row,
-      so its size follows the live host count. The timeline retains historical rows.
+      so its size follows the live host count. The timeline retains historical
+      hosts, with one row across pool changes.
 
       Grid geometry, the round-UP rule, the 24h-window caveat and the zero-count no-op:
       https://yuruna.link/429f3d06-0056
@@ -3917,7 +3964,7 @@ write_files:
           "YURUNA_POOL_DASHBOARD", "/var/lib/grafana/dashboards/pool.json"
       )
       PROMETHEUS = "http://127.0.0.1:9090/api/v1/query"
-      POOL = os.environ.get("YURUNA_POOL", "default")
+      POOL = os.environ.get("YURUNA_POOL", ".+")
       WINDOW = "24h"  # the dashboard's default time range
       TIMEOUT = 10
 
@@ -4006,7 +4053,7 @@ write_files:
       def main():
           prom_hosts = query(
               PROMETHEUS,
-              'count(topk(1, yuruna_pool_host_info{pool="%s"}) by (hostId) '
+              'count(topk(1, yuruna_pool_host_info{pool=~"%s"}) by (hostId) '
               'unless on(hostId) yuruna_pool_host_retired)' % POOL,
           )
           if not prom_hosts:
@@ -4014,11 +4061,11 @@ write_files:
               return 0
 
           extensions = query(
-              PROMETHEUS, 'count(yuruna_pool_host_extension{pool="%s"})' % POOL
+              PROMETHEUS, 'count(yuruna_pool_host_extension{pool=~"%s"})' % POOL
           )
           timeline = query(
               PROMETHEUS,
-              'count(count_over_time(yuruna_pool_host_status{pool="%s", hostname=""}[%s]))'
+              'count(group by (hostId) (count_over_time(yuruna_pool_host_status{pool=~"%s", hostname=""}[%s])))'
               % (POOL, WINDOW),
           )
 
@@ -5303,6 +5350,17 @@ runcmd:
     (
     set -e
     CA_DIR=/etc/squid/ssl_cert
+    # The seeded CA is the one guests and hosts pin; generating a new one is the
+    # fallback for a seed that carries none.
+    if [ ! -f "$CA_DIR/ca.pem" ] && [ -s /etc/yuruna/bump-ca/ca.pem ] && [ -s /etc/yuruna/bump-ca/ca.key ]; then
+      mkdir -p "$CA_DIR"
+      install -m 0644 /etc/yuruna/bump-ca/ca.pem "$CA_DIR/ca.pem"
+      install -m 0600 /etc/yuruna/bump-ca/ca.key "$CA_DIR/ca.key"
+      chown -R proxy:proxy "$CA_DIR"
+      chmod 700 "$CA_DIR"
+      echo "yuruna: squid ssl-bump CA installed from the seed"
+    fi
+    rm -f /etc/yuruna/bump-ca/ca.key
     if [ ! -f "$CA_DIR/ca.pem" ]; then
       mkdir -p "$CA_DIR"
       # -addext, not -extensions v3_ca: the latter silently yields a non-CA cert.
@@ -5386,6 +5444,9 @@ runcmd:
   # Ubuntu 26.04. Apache still serves the CA cert + pool-configuration.
   # --- REGION: https://yuruna.link/429f3d06-0067
   - install -m 0644 /etc/squid/ssl_cert/ca.pem /var/www/html/yuruna-squid-ca.crt
+  # The statement names the seeded CA, so it is published only while squid bumps
+  # with that CA; a proxy that generated its own serves none.
+  - if [ -s /etc/yuruna/bump-ca/ca.sig.json ] && cmp -s /etc/squid/ssl_cert/ca.pem /etc/yuruna/bump-ca/ca.pem; then install -m 0644 /etc/yuruna/bump-ca/ca.sig.json /var/www/html/yuruna-squid-ca.sig.json; fi
   # --- REGION: https://yuruna.link/429f3d06-0068
   - install -m 0644 /etc/squid/ssl_cert/ca.pem /var/www/html/yuruna-pool-ca.crt
   # --- REGION: https://yuruna.link/42f6b05f-0016
@@ -5485,12 +5546,26 @@ runcmd:
     else
       echo "== YURUNA: /etc/yuruna/host.env absent -- no host coordinates in the seed; falling back to github for source fetch =="
     fi
+    # Every source file is checked against the digest the building host seeded,
+    # whichever base served it: the host's working tree arrives over plain HTTP
+    # and becomes root-owned binaries. A missing or different file is removed
+    # and its build is skipped, the same outcome as a file that never arrived.
+    yr_fetch() {
+      wget $YR_FLAGS --no-cache --timeout=15 --tries=3 -q -O "$2" "${YR_BASE}$1" || { rm -f "$2"; return 1; }
+      yr_want=$(awk -v p="$1" '$2 == p { print $1; exit }' /etc/yuruna/build-source.sha256 2>/dev/null)
+      yr_have=$(sha256sum "$2" 2>/dev/null | cut -d' ' -f1)
+      if [ -z "$yr_want" ] || [ "$yr_want" != "$yr_have" ]; then
+        echo "== YURUNA: $1 from ${YR_BASE} does not match the digest in the seed; it is not built (source=${YR_SRC}) =="
+        rm -f "$2"
+        return 1
+      fi
+    }
     # --- REGION: https://yuruna.link/429f3d06-0070
     mkdir -p /opt/pool-aggregator-service/internal/catalog /opt/extension-sdk/beacon /opt/extension-sdk/controlproof /opt/extension-sdk/hostinfo /opt/extension-sdk/labgate /opt/extension-sdk/internal/catalog /opt/extension-sdk/pool /opt/extension-sdk/mcp /opt/extension-sdk/i18n /opt/extension-sdk/servicecfg /opt/extension-sdk/internal/gatethrottle /opt/extension-sdk/jsonbody
     cd /opt/pool-aggregator-service
     PA_OK=1
     for f in go.mod beacon/beacon.go controlproof/controlproof.go hostinfo/addresses.go labgate/labgate.go labgate/localization.go internal/catalog/registry.go pool/pool.go mcp/mcp.go i18n/catalog.go i18n/format.go i18n/http.go i18n/locale.go i18n/localedata.go i18n/message.go i18n/page.go servicecfg/config.go internal/gatethrottle/throttle.go jsonbody/decode.go; do
-      wget $YR_FLAGS --no-cache --timeout=15 --tries=3 -q -O "/opt/extension-sdk/$f" "${YR_BASE}test/extension/extension-sdk/$f" || PA_OK=0
+      yr_fetch "test/extension/extension-sdk/$f" "/opt/extension-sdk/$f" || PA_OK=0
       if [ ! -s "/opt/extension-sdk/$f" ]; then PA_OK=0; echo "== YURUNA: extension-sdk source '$f' empty/missing from ${YR_BASE}test/extension/extension-sdk/$f (source=${YR_SRC}) =="; fi
     done
     # caching-proxy-parser-service: in-memory tail-and-serve on :9302, independent of
@@ -5499,7 +5574,7 @@ runcmd:
     cd /opt/caching-proxy-parser-service
     CPP_OK=1
     for f in parse.go requestadapter.go localization.go internal/catalog/registry.go main_linux.go main_other.go go.mod caching-proxy-parser-service.service; do
-      wget $YR_FLAGS --no-cache --timeout=15 --tries=3 -q -O "$f" "${YR_BASE}test/extension/caching-proxy-parser-service/$f" || CPP_OK=0
+      yr_fetch "test/extension/caching-proxy-parser-service/$f" "$f" || CPP_OK=0
       if [ ! -s "$f" ]; then CPP_OK=0; echo "== YURUNA: caching-proxy-parser-service source '$f' empty/missing from ${YR_BASE}test/extension/caching-proxy-parser-service/$f (source=${YR_SRC}) =="; fi
     done
     if [ "$CPP_OK" -eq 1 ] && /usr/bin/go build -o caching-proxy-parser-service . ; then
@@ -5511,14 +5586,15 @@ runcmd:
     fi
     cd /opt/pool-aggregator-service
     for f in main.go handover.go mcp.go localization.go backfill.go backfill_index.go backfill_loki.go backfill_prom.go backfill_record.go backfill_source.go backfill_state.go internal/catalog/registry.go go.mod pool-aggregator-service.service pool-history-backfill.service; do
-      wget $YR_FLAGS --no-cache --timeout=15 --tries=3 -q -O "$f" "${YR_BASE}test/extension/pool-aggregator-service/$f" || PA_OK=0
+      yr_fetch "test/extension/pool-aggregator-service/$f" "$f" || PA_OK=0
       # An empty file (404 from the chosen source, or a stale/incomplete mirror)
       # is caught here so the cause is obvious in /var/log/cloud-init-output.log
       # instead of a generic "build failed".
       if [ ! -s "$f" ]; then PA_OK=0; echo "== YURUNA: pool-aggregator-service source '$f' empty/missing from ${YR_BASE}test/extension/pool-aggregator-service/$f (source=${YR_SRC}) =="; fi
     done
     # Keep the inline Yuruna hosts dashboard independent of this collector build and host-repo access.
-    PA_VERSION="$(wget $YR_FLAGS --no-cache --timeout=15 --tries=3 -q -O - "${YR_BASE}VERSION" 2>/dev/null | head -n1 | tr -d '[:space:]' || true)"
+    PA_VERSION=''
+    yr_fetch VERSION /opt/pool-aggregator-service/VERSION && PA_VERSION="$(head -n1 /opt/pool-aggregator-service/VERSION | tr -d '[:space:]')"
     [ -n "$PA_VERSION" ] || PA_VERSION=dev
     if [ "$PA_OK" -eq 1 ] && /usr/bin/go build -ldflags "-X main.version=$PA_VERSION" -o pool-aggregator-service . ; then
         install -m 0755 pool-aggregator-service /usr/local/bin/pool-aggregator-service
@@ -5572,7 +5648,7 @@ runcmd:
     cd /opt/caching-proxy-service
     CPS_OK=1
     for f in go.mod main.go squid.go switches.go registry.go mcp.go ui.go requestadapter.go landing.go localization.go internal/catalog/registry.go gitmirror.go gitmirror_types.go gitmirror_receipt.go gitmirror_registry.go gitmirror_coordinator.go gitmirror_git.go gitmirror_stream.go gitmirror_platform_unix.go gitmirror_platform_windows.go git-mirror-worker.service git-mirror-reader.service git-mirror-http-backend.sh caching-proxy-service.service; do
-      wget $YR_FLAGS --no-cache --timeout=15 --tries=3 -q -O "$f" "${YR_BASE}test/extension/caching-proxy-service/$f" || CPS_OK=0
+      yr_fetch "test/extension/caching-proxy-service/$f" "$f" || CPS_OK=0
       if [ ! -s "$f" ]; then CPS_OK=0; echo "== YURUNA: caching-proxy-service source '$f' empty/missing from ${YR_BASE}test/extension/caching-proxy-service/$f (source=${YR_SRC}) =="; fi
     done
     # The SDK was staged by the aggregator block above, which runs first.
@@ -5582,7 +5658,8 @@ runcmd:
     # VERSION_STR the way every other service derives it: first line, whitespace
     # stripped, "dev" when absent. A CRLF or a trailing newline would otherwise
     # embed a control character in the linker flag.
-    CPS_VERSION="$(wget $YR_FLAGS --no-cache --timeout=15 --tries=3 -q -O - "${YR_BASE}VERSION" 2>/dev/null | head -n1 | tr -d '[:space:]' || true)"
+    CPS_VERSION=''
+    yr_fetch VERSION /opt/caching-proxy-service/VERSION && CPS_VERSION="$(head -n1 /opt/caching-proxy-service/VERSION | tr -d '[:space:]')"
     [ -n "$CPS_VERSION" ] || CPS_VERSION=dev
     if [ "$CPS_OK" -eq 1 ] && /usr/bin/go build -ldflags "-X main.version=$CPS_VERSION" -o caching-proxy-service . ; then
         install -m 0755 caching-proxy-service /usr/local/bin/caching-proxy-service

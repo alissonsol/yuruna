@@ -1840,9 +1840,8 @@ address actually changes is still the server's decision -- this cannot
 manufacture a new address, only a new lease negotiation -- so the script
 reports what it observed rather than what it intended, and a server that
 hands back the same address produces an honest "no change" line rather than
-a silent success.
-
---- REGION: https://yuruna.link/4220a755-0048
+a silent success. The rationale is in [Why churn is injected rather than
+waited for](network.md#4220a755-0048).
 
 <a id="42010605-0070"></a>
 

@@ -12107,6 +12107,106 @@
       "sourceHash": "1d24a4894abc4d52bf6bd71fd2194fecca373fde4a7cfac2660f8aad84c5edac",
       "origin": "machine",
       "message": "github-mirror-token ({vaultKey}): (nenhum token armazenado) -> (token fornecido pelo operador)."
+    },
+    "runner.outer_poll_failed": {
+      "sourceHash": "cfd104a458c6aa44f28065d9c2b6ef68d03bbc3034a940cdbbcb5c4ada5dbe05",
+      "origin": "machine",
+      "message": "Uma consulta {probe} do executor residente falhou e foi tratada como sem resposta: {message}"
+    },
+    "runner.outer_loop_exception": {
+      "sourceHash": "9e7c86ccb9c5aa1ea6741530734895eac620a669cfde1f0b8f47e44fef78fbe8",
+      "origin": "machine",
+      "message": "O laço do executor residente parou em uma {type} inesperada em {location}: {message}. Ocorrência {streak} em uma hora; o laço reinicia em {holdSeconds} s."
+    },
+    "runner.outer_loop_orphan_stopped": {
+      "sourceHash": "4be96b4caf4f3fadb2a9f1b1e55416d7b2cafe7b86032776cf43093fc31ea1a1",
+      "origin": "machine",
+      "message": "O processo de ciclo {id}, que o laço interrompido do executor deixou em execução, foi encerrado."
+    },
+    "runner.framework_health_write_action": {
+      "sourceHash": "22286ce72fd16dfa80cdbcf5a3467607ec6cb2c065588063163ce1e10f4a2b88",
+      "origin": "machine",
+      "message": "Registrar se o framework produziu um resultado de ciclo"
+    },
+    "runner.framework_rescue_due": {
+      "sourceHash": "2b27a96ed66bbcaea7c295be4664e965b53f50967003e015f53434c35b2314e4",
+      "origin": "machine",
+      "message": "O processo de ciclo terminou sem resultado {streak} vezes seguidas ({outcome}) no commit {sha} do framework; o último commit que produziu resultado é {lastGoodSha}. O executor residente atualiza o framework por conta própria."
+    },
+    "runner.framework_rescue_action": {
+      "sourceHash": "67984485af096392ab836ae1d0aebd032c49ae687bc43def431f8e5f727faa3f",
+      "origin": "machine",
+      "message": "Atualizar o framework a partir do executor residente"
+    },
+    "runner.framework_rescue_result": {
+      "sourceHash": "f9f790dc0d6b31cdef6911227aeaaf703e4f999a5ae26fdca23ae330c4bdb211",
+      "origin": "machine",
+      "message": "Atualização do framework pelo executor residente: {result}; o commit do framework agora é {sha}. {detail}"
+    },
+    "runner.max_cycle_seconds_invalid": {
+      "sourceHash": "5659a7b083189e492ba1dcfa4f736f53761b58aa00010f5d878774102166f862",
+      "origin": "machine",
+      "message": "testCycle.maxCycleSeconds é '{v}', que não é um número -- usando {defaultSeconds} s."
+    },
+    "runner.watchdog_lapse_seen": {
+      "sourceHash": "c57fab852a91159d183d150a618e8511f35781cfb671340eeea9b9713e2bb009",
+      "origin": "machine",
+      "message": "[ciclo externo {cycle}] o watchdog de etapas desistiu; agora o executor residente encerra este ciclo quando o heartbeat de etapa tiver mais de {stepSeconds} s ({preambleSeconds} s antes da primeira etapa), e testCycle.maxCycleSeconds continua a limitá-lo ({ceilingSeconds} s, em que 0 significa sem limite)."
+    },
+    "runner.cycle_ceiling_reached": {
+      "sourceHash": "d220e65291dbf67608952badc2f51df7896d7931ddaadccd2a0cb436636916b5",
+      "origin": "machine",
+      "message": "[ciclo externo {cycle}] o processo de ciclo {id} atingiu testCycle.maxCycleSeconds ({ceilingSeconds} s) e foi encerrado com sua árvore de processos."
+    },
+    "runner.bump_ca_unreadable": {
+      "sourceHash": "59b6601d75de5dd7e0cf4d908ede8b3b7e02693272b77115c7cf1d00e0840c31",
+      "origin": "machine",
+      "message": "A CA do proxy de cache guardada em {path} não pode ser lida; nenhuma CA é incluída na semente até que seja reparada ou removida."
+    },
+    "runner.bump_ca_create_action": {
+      "sourceHash": "482923e61f6067fb53143cfaf0a7988b030cc5fd91e73bc10d9b28862832ab35",
+      "origin": "machine",
+      "message": "Criar a CA de ssl-bump do proxy de cache que este hospedeiro mantém entre reconstruções do proxy"
+    },
+    "runner.bump_ca_unavailable": {
+      "sourceHash": "ca6bad113a0cf0a1c610591e5f98de4c64ab5ddbba26331803661e5afb8ed6e5",
+      "origin": "machine",
+      "message": "Nenhuma CA de ssl-bump do proxy de cache pôde ser lida ou criada no estado privado deste hospedeiro; o proxy não é construído sem ela."
+    },
+    "runner.proxy_ca_pin_mismatch": {
+      "sourceHash": "b4fa40605613012fe278aec3ad85f637f317146ef8ba276fdcae6a90d71941ae",
+      "origin": "machine",
+      "message": "O proxy de cache em {cacheHost} serve a CA com sha256 {fetched}, mas este hospedeiro confia em {expected} para ele; a CA confiável é mantida. Mantenha a fixação. No hospedeiro que cria o proxy, execute Start-CachingProxyServiceVM.ps1 -ForceRebuild -RepairPoolCaTrust para registrar sua chave de assinatura verificada por meio do controle autenticado dos hospedeiros. Um hospedeiro sem uma chave registrada não pode verificar uma rotação de CA."
+    },
+    "runner.vm_storage_reconcile_failed": {
+      "sourceHash": "4958dfe6bb6a83121043751ff6a5eda1ac3d3fd3462cec469da93c6a31ba6220",
+      "origin": "machine",
+      "message": "Não foi possível concluir renomeações interrompidas de máquinas virtuais no início do ciclo ({message}). O ciclo continua, as exclusões continuam verificando referências, e o próximo ciclo tenta de novo."
+    },
+    "runner.cycle_ceiling_scaled": {
+      "sourceHash": "326f62aa858eaae63456747f3ecdb1d70daeccce96934fa9aaa84b83b91bd919",
+      "origin": "machine",
+      "message": "[ciclo externo {cycle}] o ciclo planeja {count} execução(ões); seu teto sobe de testCycle.maxCycleSeconds ({configuredSeconds} s) para {ceilingSeconds} s, dois tempos limite de etapa por execução."
+    },
+    "runner.resident_watchdog_kill_step": {
+      "sourceHash": "e0d83496f942649a13cdea9c54047b65ccdd3e0f560831e1bc7c741a95e67a14",
+      "origin": "machine",
+      "message": "[ciclo externo {cycle}] o watchdog de etapas tinha desistido e o heartbeat de etapa não se move há {ageSeconds} s (limite {boundSeconds} s); o executor residente encerrou o processo de ciclo {id} com sua árvore de processos."
+    },
+    "runner.resident_watchdog_kill_preamble": {
+      "sourceHash": "f191b52c0e443f4e402558aef6b519c96471a54d83908cbc72505191a8285027",
+      "origin": "machine",
+      "message": "[ciclo externo {cycle}] o watchdog de etapas tinha desistido e o heartbeat de etapa não se move há {ageSeconds} s na fase preliminar '{phase}' (limite {boundSeconds} s); o executor residente encerrou o processo de ciclo {id} com sua árvore de processos."
+    },
+    "runner.proxy_ca_statement_absent": {
+      "sourceHash": "3f8cb70447f5012321ffd278d849365456413f6b54d0c0bff663f5266c1160dc",
+      "origin": "machine",
+      "message": "O proxy de cache em {cacheHost} serve a CA com sha256 {fetched} sem uma declaração assinada, e este hospedeiro registra as chaves de verificação de espelho do laboratório, então não confia no primeiro uso de uma CA que não fixou. Reconstrua o proxy de cache no hospedeiro que é dono dele; esse proxy então serve yuruna-squid-ca.sig.json."
+    },
+    "runner.proxy_ca_statement_refused": {
+      "sourceHash": "122fe9517c2c51dc6acc4f23ddb80e8b772eb893200dea32d7bb9b39220e94a8",
+      "origin": "machine",
+      "message": "O proxy de cache em {cacheHost} serve a CA com sha256 {fetched} com uma declaração que este hospedeiro não aceita ({reason}), então essa CA não é confiável."
     }
   }
 }

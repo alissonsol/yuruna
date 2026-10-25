@@ -20,6 +20,8 @@ import (
 	"pool-control-service/internal/configuration"
 	"pool-control-service/internal/hostctl"
 	"pool-control-service/internal/state"
+
+	"yuruna.com/test/extension/extension-sdk/controlproof"
 )
 
 // Pool-wide host control. What a wrong implementation gets subtly wrong: it
@@ -200,14 +202,14 @@ func TestApplyPresentsAProofFromTheServiceToken(t *testing.T) {
 	wire := h.lastProof()
 	expiry, _, found := strings.Cut(wire, ".")
 	if !found {
-		t.Fatalf("proof %q is not <expiry>.<hmac>", wire)
+		t.Fatalf("proof %q is not <expiry>.<host>.<hmac>", wire)
 	}
 	exp, err := strconv.ParseInt(expiry, 10, 64)
 	if err != nil {
 		t.Fatalf("proof expiry %q: %v", expiry, err)
 	}
-	if want := hostctl.Proof(testBearer, exp); wire != want {
-		t.Errorf("proof = %q, want one signed by this service's token (%q)", wire, want)
+	if want := controlproof.ProofForScope(testBearer, "42aa", hostctl.ScopePause, exp); wire != want {
+		t.Errorf("proof = %q, want one signed by this service's token for this host's pause routes (%q)", wire, want)
 	}
 	if exp <= time.Now().Unix() {
 		t.Errorf("proof expiry %d is already past", exp)
@@ -409,7 +411,7 @@ func TestApplyRefusesRefreshOverMCPRegardlessOfKnownAction(t *testing.T) {
 	}
 }
 
-// An empty pool is not an error: it accepts the call and changes nothing.
+// An empty pool without a configured hold accepts the call and changes nothing.
 func TestApplyToAnEmptyPool(t *testing.T) {
 	agg := ctlAggregator(t, map[string]string{}, "")
 	srv := ctlServer(t, ctlConfiguration("42aa"), agg.URL, testBearer)
@@ -419,6 +421,122 @@ func TestApplyToAnEmptyPool(t *testing.T) {
 	}
 	if applied, _ := m["applied"].(float64); applied != 0 {
 		t.Errorf("applied = %v, want 0", m["applied"])
+	}
+}
+
+func TestControlStateIncludesConfiguredPause(t *testing.T) {
+	for _, tc := range []struct{ configured, host, want string }{
+		{"paused", `{"cyclePaused":false,"stepPaused":false}`, hostctl.ActionPauseAfterCycle},
+		{"paused", `{"cyclePaused":false,"stepPaused":true}`, hostctl.StateBoth},
+		{"run", `{"cyclePaused":false,"stepPaused":false}`, hostctl.ActionContinue},
+	} {
+		t.Run(tc.configured+tc.want, func(t *testing.T) {
+			h := newCtlHost(t, tc.host)
+			agg := ctlAggregator(t, map[string]string{"42aa": h.srv.URL}, "")
+			f := ctlConfiguration("42aa")
+			f.stateRes.Stdout = strings.Replace(f.stateRes.Stdout, `"poolId":"lab"`, `"configuredState":"`+tc.configured+`","poolId":"lab"`, 1)
+			srv := ctlServer(t, f, agg.URL, testBearer)
+			resp, m := do(t, "GET", srv.URL+"/api/pool/host-control", "")
+			if resp.StatusCode != http.StatusOK {
+				t.Fatalf("read: %d %v", resp.StatusCode, m)
+			}
+			view := m["pools"].(map[string]any)["lab"].(map[string]any)
+			if view["state"] != tc.want || view["configuredState"] != tc.configured {
+				t.Fatalf("view = %v, want state %s and configuredState %s", view, tc.want, tc.configured)
+			}
+		})
+	}
+}
+
+func TestContinueReleasesConfiguredPause(t *testing.T) {
+	for _, empty := range []bool{false, true} {
+		t.Run(fmt.Sprint("empty=", empty), func(t *testing.T) {
+			h := newCtlHost(t, "")
+			agg := ctlAggregator(t, map[string]string{"42aa": h.srv.URL}, "")
+			f := ctlConfiguration("42aa")
+			id := "lab"
+			if empty {
+				id = "empty"
+			}
+			f.stateRes.Stdout = strings.Replace(f.stateRes.Stdout, `"poolId":"`+id+`"`, `"configuredState":"paused","poolId":"`+id+`"`, 1)
+			f.ret = configuration.Result{OK: true}
+			srv := ctlServer(t, f, agg.URL, testBearer)
+			resp, m := do(t, "POST", srv.URL+"/api/pool/host-control", `{"poolId":"`+id+`","action":"continue"}`)
+			if resp.StatusCode != http.StatusOK || m["ok"] != true {
+				t.Fatalf("continue: %d %v", resp.StatusCode, m)
+			}
+			if f.lastCall != "SetConfiguredState" || strings.Join(f.lastArgs, " ") != id+" run" {
+				t.Fatalf("stored hold not released: %s %v", f.lastCall, f.lastArgs)
+			}
+			if !empty && strings.Join(h.recorded(), ",") != "cycle-resume,step-resume" {
+				t.Fatalf("host switches not cleared: %v", h.recorded())
+			}
+		})
+	}
+}
+
+func TestContinueRefusesWhenConfiguredPauseCannotBeReleased(t *testing.T) {
+	h := newCtlHost(t, "")
+	agg := ctlAggregator(t, map[string]string{"42aa": h.srv.URL}, "")
+	f := ctlConfiguration("42aa")
+	f.stateRes.Stdout = strings.Replace(f.stateRes.Stdout, `"poolId":"lab"`, `"configuredState":"paused","poolId":"lab"`, 1)
+	f.ret = configuration.Result{OK: false, Error: "configuration push refused"}
+	srv := ctlServer(t, f, agg.URL, testBearer)
+	resp, m := do(t, "POST", srv.URL+"/api/pool/host-control", `{"poolId":"lab","action":"continue"}`)
+	if resp.StatusCode != http.StatusInternalServerError || !strings.Contains(fmt.Sprint(m["error"]), "configuration push refused") {
+		t.Fatalf("failed publication reported as success: %d %v", resp.StatusCode, m)
+	}
+	if len(h.recorded()) != 0 {
+		t.Fatalf("host switches changed despite failed configuration publication: %v", h.recorded())
+	}
+}
+
+func TestPauseActionsPreserveConfiguredHold(t *testing.T) {
+	for _, action := range []string{hostctl.ActionPauseAfterCycle, hostctl.ActionPauseAfterStep} {
+		t.Run(action, func(t *testing.T) {
+			h := newCtlHost(t, "")
+			agg := ctlAggregator(t, map[string]string{"42aa": h.srv.URL}, "")
+			f := ctlConfiguration("42aa")
+			f.stateRes.Stdout = strings.Replace(f.stateRes.Stdout, `"poolId":"lab"`, `"configuredState":"paused","poolId":"lab"`, 1)
+			srv := ctlServer(t, f, agg.URL, testBearer)
+			resp, m := do(t, "POST", srv.URL+"/api/pool/host-control", `{"poolId":"lab","action":"`+action+`"}`)
+			if resp.StatusCode != http.StatusOK || m["ok"] != true || f.lastCall != "State" {
+				t.Fatalf("pause changed configured state: %d %v %s", resp.StatusCode, m, f.lastCall)
+			}
+		})
+	}
+}
+
+func TestContinuePreservesOtherConfiguredStates(t *testing.T) {
+	for _, configured := range []string{"run", "drain", ""} {
+		t.Run(configured, func(t *testing.T) {
+			h := newCtlHost(t, "")
+			agg := ctlAggregator(t, map[string]string{"42aa": h.srv.URL}, "")
+			f := ctlConfiguration("42aa")
+			f.stateRes.Stdout = strings.Replace(f.stateRes.Stdout, `"poolId":"lab"`, `"configuredState":"`+configured+`","poolId":"lab"`, 1)
+			srv := ctlServer(t, f, agg.URL, testBearer)
+			resp, m := do(t, "POST", srv.URL+"/api/pool/host-control", `{"poolId":"lab","action":"continue"}`)
+			if resp.StatusCode != http.StatusOK || m["ok"] != true || f.lastCall != "State" {
+				t.Fatalf("continue rewrote unrelated configuration: %d %v %s", resp.StatusCode, m, f.lastCall)
+			}
+		})
+	}
+}
+
+func TestConfiguredPauseReleaseIsAudited(t *testing.T) {
+	f := ctlConfiguration()
+	f.stateRes.Stdout = strings.Replace(f.stateRes.Stdout, `"poolId":"lab"`, `"configuredState":"paused","poolId":"lab"`, 1)
+	f.ret = configuration.Result{OK: true}
+	store := state.New(filepath.Join(t.TempDir(), "pc"), time.Now())
+	srv := httptest.NewServer(New(f, Options{AuthToken: testBearer, Store: store}).Handler())
+	defer srv.Close()
+	resp, m := do(t, "POST", srv.URL+"/api/pool/host-control", `{"poolId":"lab","action":"continue"}`)
+	if resp.StatusCode != http.StatusOK || m["ok"] != true {
+		t.Fatalf("continue: %d %v", resp.StatusCode, m)
+	}
+	status := store.Health()
+	if status.Writes != 1 || !status.LastPublishOK {
+		t.Fatalf("configuration publication was not recorded: %+v", status)
 	}
 }
 
@@ -567,5 +685,145 @@ func TestHostControlGating(t *testing.T) {
 	}
 	if got := h.recorded(); len(got) != 0 {
 		t.Errorf("an uncredentialed write drove hosts: %v", got)
+	}
+}
+
+// A proof names the host it opens, so the fan-out sends each member its own.
+func TestApplyBindsEachMembersProofToThatMember(t *testing.T) {
+	a, b := newCtlHost(t, ""), newCtlHost(t, "")
+	agg := ctlAggregator(t, map[string]string{"42aa": a.srv.URL, "42bb": b.srv.URL}, "")
+	srv := ctlServer(t, ctlConfiguration("42aa", "42bb"), agg.URL, testBearer)
+	if _, m := do(t, "POST", srv.URL+"/api/pool/host-control", `{"poolId":"lab","action":"continue"}`); m["ok"] != true {
+		t.Fatalf("apply: %v", m)
+	}
+	for id, h := range map[string]*ctlHost{"42aa": a, "42bb": b} {
+		wire := h.lastProof()
+		expiry, _, _ := strings.Cut(wire, ".")
+		exp, err := strconv.ParseInt(expiry, 10, 64)
+		if err != nil || wire != controlproof.ProofForScope(testBearer, id, hostctl.ScopePause, exp) {
+			t.Errorf("%s received %q, want a pause proof bound to %s", id, wire, id)
+		}
+	}
+	if a.lastProof() == b.lastProof() {
+		t.Error("two members received the same proof")
+	}
+}
+
+// bindingAggregator mints the way an aggregator with audiences does: one proof
+// per /go/host call, bound to the host asked about, and narrowed to the scope
+// asked for when scopes is set. bound=false answers the way an aggregator that
+// predates audiences does, with one unbound proof; scopes=false the way one
+// that predates scopes does, ignoring the parameter.
+func bindingAggregator(t *testing.T, addr map[string]string, bound, scopes bool) (*httptest.Server, *int) {
+	t.Helper()
+	asked := new(int)
+	var mu sync.Mutex
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case strings.HasSuffix(r.URL.Path, "/pool-status"):
+			hosts := make([]map[string]any, 0, len(addr))
+			for id, base := range addr {
+				hosts = append(hosts, map[string]any{"hostId": id, "baseUrl": base, "control": "ready"})
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{"hosts": hosts})
+		case r.URL.Path == "/go/host":
+			mu.Lock()
+			*asked++
+			mu.Unlock()
+			proof := hostctl.Mint("aggregator-token", time.Minute)
+			if bound {
+				proof = hostctl.MintFor("aggregator-token", r.URL.Query().Get("host"), time.Minute)
+				if scope := r.URL.Query().Get("scope"); scope != "" && scopes {
+					proof = controlproof.MintForScope("aggregator-token", r.URL.Query().Get("host"), scope, time.Minute)
+				}
+			}
+			http.Redirect(w, r, "http://192.0.2.9:8080#yctl="+proof, http.StatusFound)
+		case r.URL.Path == "/api/v1/lab-token":
+			w.WriteHeader(http.StatusOK)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	t.Cleanup(srv.Close)
+	return srv, asked
+}
+
+func TestApplyAsksTheAggregatorPerMemberAndReusesAnUnboundProof(t *testing.T) {
+	for _, tc := range []struct {
+		name          string
+		bound, scopes bool
+		wantAsked     int
+	}{
+		{"an aggregator that scopes proofs is asked once per member", true, true, 2},
+		{"an aggregator that binds but predates scopes is asked once per member", true, false, 2},
+		{"an unbound proof from an older aggregator serves the whole fan-out", false, false, 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			a, b := newCtlHost(t, ""), newCtlHost(t, "")
+			agg, asked := bindingAggregator(t, map[string]string{"42aa": a.srv.URL, "42bb": b.srv.URL}, tc.bound, tc.scopes)
+			srv := httptest.NewServer(New(ctlConfiguration("42aa", "42bb"), Options{AggregatorURL: agg.URL}).Handler())
+			defer srv.Close()
+			req, _ := http.NewRequest("POST", srv.URL+"/api/pool/host-control", strings.NewReader(`{"poolId":"lab","action":"continue"}`))
+			req.AddCookie(sessionCookieFor(t, srv.URL))
+			resp, err := http.DefaultClient.Do(req)
+			if err != nil {
+				t.Fatalf("apply: %v", err)
+			}
+			resp.Body.Close()
+			if *asked != tc.wantAsked {
+				t.Fatalf("aggregator asked %d times, want %d", *asked, tc.wantAsked)
+			}
+			for id, h := range map[string]*ctlHost{"42aa": a, "42bb": b} {
+				if hostctl.Bound(h.lastProof()) != tc.bound || (tc.bound && !strings.Contains(h.lastProof(), "."+id+".")) ||
+					hostctl.Scoped(h.lastProof()) != tc.scopes {
+					t.Errorf("%s received %q", id, h.lastProof())
+				}
+			}
+		})
+	}
+}
+
+// A host that predates scoped proofs answers proof-invalid to the pause-scoped
+// one; the fan-out then sends that host its full proof once, so mixing old and
+// new hosts in a pool keeps pool-wide pause working.
+func TestApplyRetriesAHostThatPredatesScopedProofsWithItsFullProof(t *testing.T) {
+	var mu sync.Mutex
+	var seen []string
+	old := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		proof := r.Header.Get("X-Yuruna-Control")
+		mu.Lock()
+		seen = append(seen, proof)
+		mu.Unlock()
+		if hostctl.Scoped(proof) {
+			w.WriteHeader(http.StatusForbidden)
+			_, _ = w.Write([]byte(`{"ok":false,"reason":"proof-invalid"}`))
+			return
+		}
+		_, _ = w.Write([]byte(`{"ok":true}`))
+	}))
+	defer old.Close()
+	agg := ctlAggregator(t, map[string]string{"42aa": old.URL}, "")
+	srv := ctlServer(t, ctlConfiguration("42aa"), agg.URL, testBearer)
+	if _, m := do(t, "POST", srv.URL+"/api/pool/host-control", `{"poolId":"lab","action":"continue"}`); m["ok"] != true || m["applied"] != float64(1) {
+		t.Fatalf("apply: %v", m)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if len(seen) != 3 || !hostctl.Scoped(seen[0]) || hostctl.Scoped(seen[1]) || !hostctl.Bound(seen[1]) || seen[1] != seen[2] {
+		t.Fatalf("proofs presented = %q, want the pause proof once, then the host's full proof for both routes", seen)
+	}
+}
+
+// A refusal for any other reason is the host's answer, not a version gap:
+// nothing is retried.
+func TestApplyDoesNotRetryAnotherRefusal(t *testing.T) {
+	h := newCtlHost(t, "")
+	h.status = http.StatusForbidden
+	h.body = `{"ok":false,"reason":"proof-expired"}`
+	agg := ctlAggregator(t, map[string]string{"42aa": h.srv.URL}, "")
+	srv := ctlServer(t, ctlConfiguration("42aa"), agg.URL, testBearer)
+	_, _ = do(t, "POST", srv.URL+"/api/pool/host-control", `{"poolId":"lab","action":"continue"}`)
+	if calls := h.recorded(); len(calls) != 1 {
+		t.Fatalf("calls = %q, want the one refused call", calls)
 	}
 }

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.22
+.VERSION 2026.10.25
 .GUID 4241a322-99ef-c7cf-96e0-a7d07ed683f0
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -40,6 +40,21 @@
             'trust' = 'internal'
         }
         ' שניות; מצב התכונה אינו ידוע.'
+    )
+    'host.hyperv_rename_destination_dir_occupied' = @(
+        'לא ניתן לשנות את השם ל-''⁦'
+        @{
+            'arg' = 'newName'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        '⁩'': התיקייה ⁦'
+        @{
+            'arg' = 'newDir'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '⁩ כבר מכילה קבצים, והעברת האחסון אליה תיכשל לאחר שינוי השם ותשאיר אותו חלקי.'
     )
     'host.hyperv_rename_source_not_stopped' = @(
         '⁦Rename-VM⁩: המכונה '''
@@ -124,6 +139,21 @@
             'trust' = 'internal'
         }
         '''; התקינו כלל sudoers עבור ⁦/bin/kill⁩ או עצרו את התחום ידנית.'
+    )
+    'host.kvm_rename_destination_dir_exists' = @(
+        'לא ניתן לשנות את השם ל-''⁦'
+        @{
+            'arg' = 'newName'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        '⁩'': התיקייה ⁦'
+        @{
+            'arg' = 'newDir'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '⁩ כבר קיימת, והעברת האחסון אליה עלולה לדרוס דיסקים.'
     )
     'host.kvm_rename_source_not_stopped' = @(
         '⁦Rename-VM⁩: המכונה '''
@@ -8619,6 +8649,27 @@
         }
         ' שניות, ולכן הרישומים של UTM אינם ידועים; דבר לא נמחק. הריצו שוב לאחר קבלת מענה מאת UTM.'
     )
+    'host.proxy_ca_refused_build' = @(
+        '''⁦'
+        @{
+            'arg' = 'vMName'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        '⁩'' לא נבנתה: ה-proxy לשמירת מטמון ב-⁦'
+        @{
+            'arg' = 'cacheHost'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        '⁩ מגיש CA שמארח זה אינו סומך עליו (⁦'
+        @{
+            'arg' = 'reason'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+        '⁩). האורח אינו מוזרע תוך עקיפה של זה, והכשל מסווג כ-⁦source_integrity⁩.'
+    )
     'host.rename_vm_inventory_unavailable' = @(
         '⁦Rename-VM⁩: לא ניתן לקרוא את רשימת המכונות הווירטואליות הפועלות ('
         @{
@@ -9130,6 +9181,112 @@
             'trust' = 'internal'
         }
         's ונעצרה; השפעתה אינה ידועה עד שמצב המכונה הווירטואלית ייקרא שוב.'
+    )
+    'host.vm_build_storage_in_use' = @(
+        '''⁦'
+        @{
+            'arg' = 'vMName'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        '⁩'' לא נבנתה מחדש: ⁦'
+        @{
+            'arg' = 'vmDir'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '⁩ עדיין מכיל דיסקים שמכונה וירטואלית אחרת משתמשת בהם, או שלא ניתן היה לקרוא מי משתמש בהם. שום דבר בו לא שונה.'
+    )
+    'host.vm_storage_delete_refused' = @(
+        '⁦'
+        @{
+            'arg' = 'vmDir'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '⁩ נשמר: הוא עדיין מכיל דיסקים שמכונה וירטואלית רשומה משתמשת בהם ('
+        @{
+            'arg' = 'owners'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ').'
+    )
+    'host.vm_storage_reconcile_action' = 'השלמת שינויי השם שקידום תמונת מצב שנקטע השאיר חלקיים'
+    'host.vm_storage_reference_unknown' = @(
+        '⁦'
+        @{
+            'arg' = 'vmDir'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '⁩ נשמר: לא ניתן היה לקרוא אילו מכונות וירטואליות משתמשות בדיסקים שבו ('
+        @{
+            'arg' = 'message'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ').'
+    )
+    'host.vm_storage_relocate_action' = @(
+        'העברת האחסון שנשאר תחת ''⁦'
+        @{
+            'arg' = 'fromName'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        '⁩'' לשם של מכונה וירטואלית זו'
+    )
+    'host.vm_storage_relocated' = @(
+        'שינוי שם שנקטע הושלם: האחסון של ''⁦'
+        @{
+            'arg' = 'vMName'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        '⁩'' הועבר מחוץ לתיקייה של ''⁦'
+        @{
+            'arg' = 'fromName'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        '⁩''.'
+    )
+    'host.vm_storage_relocation_failed' = @(
+        'לא ניתן היה להעביר את האחסון של ''⁦'
+        @{
+            'arg' = 'vMName'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        '⁩'' מחוץ לתיקייה של ''⁦'
+        @{
+            'arg' = 'fromName'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        '⁩'': '
+        @{
+            'arg' = 'reason'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '.'
+    )
+    'host.vm_storage_repair_unknown' = @(
+        'לא ניתן היה לבדוק אם ל-''⁦'
+        @{
+            'arg' = 'vMName'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        '⁩'' עדיין יש אחסון תחת שם אחר ('
+        @{
+            'arg' = 'message'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '); האחסון שלה נשאר כפי שהוא, והמחזור הבא יבדוק שוב.'
     )
     'host.windows_installer_boot_key_timeout' = @(
         'המכונה הווירטואלית '''

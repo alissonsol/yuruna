@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.22
+.VERSION 2026.10.25
 .GUID 42c1c329-52af-4255-9e3b-0caf47235605
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -184,15 +184,11 @@ function Register-SequenceAction {
 # still matches Test.FailureTaxonomy (warn-only, never throws). Get-Command guard
 # so a standalone import without the taxonomy module degrades to no-check.
 if (Get-Command Assert-FailureTaxonomyInSync -ErrorAction SilentlyContinue) {
+    $parameters = (Get-Command Register-SequenceAction).Parameters
+    $failureClassSet = $parameters['FailureClass'].Attributes | Where-Object { $_ -is [System.Management.Automation.ValidateSetAttribute] }
+    $severitySet = $parameters['Severity'].Attributes | Where-Object { $_ -is [System.Management.Automation.ValidateSetAttribute] }
     $null = Assert-FailureTaxonomyInSync -Source 'Test.SequenceAction Register-SequenceAction ValidateSet' `
-        -FailureClass @('ocr_timeout','console_flooded','network_timeout','credential_expired',
-            'host_io_blocked','pattern_matched_failure','retry_exhausted',
-            'snapshot_restore_failed','script_error','wait_timeout',
-            'extension_error','instrumentation_failure','provisioning_failure',
-            'bootstrap_sync','plan_invalid','elevation_required','project_access_denied',
-            'host_network_degraded','ip_not_discovered','payload_unavailable',
-            'pool_storage_full','dhcp_identity_unbounded','lab_dependency_down','input_lost','hypervisor_unresponsive','unknown') `
-        -Severity @('hard','soft','unknown')
+        -FailureClass $failureClassSet.ValidValues -Severity $severitySet.ValidValues
 }
 
 function Test-SequenceActionHasHandler {

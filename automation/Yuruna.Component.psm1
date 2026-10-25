@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.22
+.VERSION 2026.10.25
 .GUID 42eaea7b-b54f-495c-bbdc-838c8758fced
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -34,6 +34,8 @@ Import-Module (Join-Path $PSScriptRoot 'Yuruna.VariableExpansion.psm1') -Global 
 # Registry-login dispatch wiring for the component-push pipeline --
 # see docs/authentication.md#component-registry-login.
 Import-Module (Join-Path $PSScriptRoot 'Yuruna.Component.Registry.psm1') -Global -Force
+# Protect-YurunaSecretText: the one redaction rule every deployment phase logs through.
+Import-Module (Join-Path $PSScriptRoot 'Yuruna.Retry.psm1') -Global -Force
 Remove-Item Env:DOCKER_BUILDKIT -Force -ErrorAction SilentlyContinue
 
 function Publish-ComponentList {
@@ -93,10 +95,7 @@ function Publish-ComponentList {
 
     function Protect-ComponentCommandText {
         param([string]$Text)
-        foreach ($entry in Get-ChildItem Env: | Where-Object { $_.Name -match '(?i)password|token|secret' -and $_.Value }) {
-            $Text = $Text.Replace($entry.Value, '<redacted>')
-        }
-        return $Text
+        return (Protect-YurunaSecretText -Text $Text)
     }
 
     function Invoke-ComponentCommand {
@@ -105,12 +104,10 @@ function Publish-ComponentList {
         # preserves environment changes made by PowerShell preprocessors.
         param([string]$Phase, [string]$Command, [switch]$Sensitive)
         $phaseWatch = [Diagnostics.Stopwatch]::StartNew()
-        $secrets = @(Get-ChildItem Env: | Where-Object { $_.Name -match '(?i)password|token|secret' -and $_.Value } |
-            Select-Object -ExpandProperty Value -Unique | Sort-Object { $_.Length } -Descending)
+        $secrets = Get-YurunaSecretValue
         function Protect-ComponentText {
             param([string]$Text)
-            foreach ($secret in $secrets) { $Text = $Text.Replace($secret, '<redacted>') }
-            return $Text
+            return (Protect-YurunaSecretText -Text $Text -SecretValue $secrets)
         }
         function Write-ComponentRecord {
             param([string]$Text)

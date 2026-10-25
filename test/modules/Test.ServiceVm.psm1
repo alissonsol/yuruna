@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.22
+.VERSION 2026.10.25
 .GUID 426c2f81-86df-422e-8db7-a94bd7ff61fe
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -1535,6 +1535,17 @@ function Invoke-YurunaServiceVmBuild {
     if (-not (Test-Path -LiteralPath $BuilderPath)) { return @{ Ok = $false; ExitCode = 1; Error = "VM builder missing: $BuilderPath" } }
     if (-not $PSCmdlet.ShouldProcess($VMName, 'Build and start service VM')) { return @{ Ok = $false; ExitCode = 1; Error = 'Build declined.' } }
     if (-not (Test-YurunaServiceOperationCurrent -Context $OperationContext)) { return @{ Ok = $false; ExitCode = 1; Error = 'The service start intent changed before build.' } }
+    # A service guest fetches its NAS credential from this host's config service
+    # at first boot, so the service is ensured before the guest is built.
+    if (Get-Command Start-YurunaConfigServiceIfEnabled -ErrorAction SilentlyContinue) {
+        $repoRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
+        $configPath = Join-Path $repoRoot 'test/test.config.yml'
+        $config = $null
+        if ((Test-Path -LiteralPath $configPath) -and (Get-Command Read-TestConfig -ErrorAction SilentlyContinue)) {
+            try { $config = Read-TestConfig -Path $configPath } catch { Write-Verbose "test.config.yml read: $($_.Exception.Message)" }
+        }
+        $null = Start-YurunaConfigServiceIfEnabled -Config $config -StartScript (Join-Path $repoRoot 'test/service/Start-ConfigService.ps1')
+    }
     $arguments = @('-NoProfile', '-File', $BuilderPath, '-VMName', $VMName)
     if ($AllowPseudoLocale) { $arguments += '-AllowPseudoLocale' }
     & (Get-PwshApplicationPath) @arguments | ForEach-Object { Write-Information ([string]$_) -InformationAction Continue }

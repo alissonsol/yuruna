@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.22
+.VERSION 2026.10.25
 .GUID 42791443-b111-06db-2e8f-da567ccaa7e7
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -134,6 +134,7 @@
     'status.api_forbidden_deny_list_1c7d1cfa' = '[!‮Ƒóřƀíďďéñ (ďéñý-ļíšţ)‬ ~~~~~~~~~]'
     'status.api_forbidden_directory_listing_disabled_5d107f5b' = '[!‮Ƒóřƀíďďéñ (ďířéçţóřý ļíšţíñğ ďíšáƀļéď)‬ ~~~~~~~~~~~~~~~~]'
     'status.api_forbidden_missing_x_yuruna_request_header_cross_site_r_c47c4ea5' = '[!‮ƒóřƀíďďéñ: ɱíššíñğ Ẋ-Ýúřúñá řéʠúéšţ ħéáďéř (çřóšš-šíţé řéʠúéšţ ğúářď)‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    'status.api_forbidden_not_served' = '[!‮Ƒóřƀíďďéñ (ñóţ á šéřṽéď ƒíļé)‬ ~~~~~~~~~~~~]'
     'status.api_forbidden_probe_target_must_be_a_private_loopback_rfc1_2c763dac' = '[!‮ƒóřƀíďďéñ: ƥřóƀé ţářğéţ ɱúšţ ƀé á ƥříṽáţé (ļóóƥƀáçķ/RFC1918/link-local) áďďřéšš óř ţħé çóñƒíğúřéď çáçħé ÍƤ‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
     'status.api_host_refresh_authorization_refused' = @(
         '[!‮řéƒřéšħ áúţħóřížáţíóñ řéƒúšéď ('
@@ -291,7 +292,17 @@
     'status.banner_incident_details' = '[!‮Íñçíďéñţ ďéţéçţéď — šéé ďéţáíļš ƀéļóŵ‬ ~~~~~~~~~~~~~~~]'
     'status.banner_pass' = '[!‮Áļļ ğúéšţš óƥéřáţíóñáļ‬ ~~~~~~~~~]'
     'status.banner_running' = '[!‮Ţéšţ íñ ƥřóğřéšš‬ ~~~~~~~]'
+    'status.banner_stalled' = @(
+        '[!‮Ţéšţ íñ ƥřóğřéšš, ƀúţ ñó šţéƥ ħáš áďṽáñçéď ŵíţħíñ íţš '
+        @{
+            'arg' = 'boundSeconds'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        ' š ƀóúñď‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    )
     'status.banner_stopped' = '[!‮Ţéšţ řúññéř šţóƥƥéď‬ ~~~~~~~~]'
+    'status.banner_unguarded' = '[!‮Ţéšţ íñ ƥřóğřéšš ŵíţħóúţ ţħé šţéƥ ŵáţçħďóğ; ţħé řúññéř ƀóúñďš ţħíš çýçļé íñšţéáď‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
     'status.cache_caching_proxy_service_306beb37' = '[!‮Çáçħíñğ-ƥřóẋý šéřṽíçé:‬ ~~~~~~~~~]'
     'status.cache_caching_proxy_service_configured_at_address_not_answer_df71d10d' = @(
         '[!‮Çáçħíñğ-ƥřóẋý šéřṽíçé: çóñƒíğúřéď áţ '

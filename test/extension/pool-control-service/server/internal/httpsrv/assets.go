@@ -67,6 +67,19 @@ type assetStore struct {
 // it larger.
 const gzipWorthwhile = 512
 
+// gzipCopy is the compressed representation of one body; a nil body records
+// that compressing did not help.
+type gzipCopy struct {
+	body []byte
+	etag string
+}
+
+// gzipCopies maps a body's strong validator to its gzipCopy. Compression at a
+// fixed level is a pure function of the bytes, so every Server built in the
+// same process, as each handler test builds one, reuses the copy instead of
+// compressing every page and catalog again. Responses only read the slices.
+var gzipCopies sync.Map
+
 func newAsset(body []byte, contentType string) *asset {
 	a := &asset{
 		body:        body,
@@ -76,6 +89,11 @@ func newAsset(body []byte, contentType string) *asset {
 		etag: assetETag(body),
 	}
 	if len(body) >= gzipWorthwhile {
+		if prior, ok := gzipCopies.Load(a.etag); ok {
+			copied := prior.(gzipCopy)
+			a.gzipBody, a.gzipETag = copied.body, copied.etag
+			return a
+		}
 		var buf bytes.Buffer
 		zw, err := gzip.NewWriterLevel(&buf, gzip.BestCompression)
 		if err == nil {
@@ -87,6 +105,7 @@ func newAsset(body []byte, contentType string) *asset {
 					a.gzipBody = append([]byte(nil), buf.Bytes()...)
 					a.gzipETag = assetETag(a.gzipBody)
 				}
+				gzipCopies.Store(a.etag, gzipCopy{body: a.gzipBody, etag: a.gzipETag})
 			}
 		}
 	}

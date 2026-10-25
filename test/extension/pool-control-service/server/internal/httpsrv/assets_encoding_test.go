@@ -4,6 +4,10 @@
 package httpsrv
 
 import (
+	"bytes"
+	"compress/gzip"
+	"crypto/sha256"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -128,5 +132,40 @@ func TestAssetValidatorsAreSpecificToTheSelectedEncoding(t *testing.T) {
 	}
 	if got := identityCrossing.Header().Get("Content-Encoding"); got != "" {
 		t.Fatalf("identity response Content-Encoding = %q", got)
+	}
+}
+
+func TestRepeatedBodiesReuseTheirExactGzipCopy(t *testing.T) {
+	// The name makes the body one no other test prepares, so the first call
+	// below is the one that compresses it.
+	body := []byte(strings.Repeat("reused compressible body "+t.Name()+" ", 80))
+	first := newAsset(body, "text/html; charset=utf-8")
+	second := newAsset(append([]byte(nil), body...), "text/javascript; charset=utf-8")
+	if first.gzipBody == nil || first.gzipETag == "" {
+		t.Fatal("fixture did not produce a gzip representation")
+	}
+	if &second.gzipBody[0] != &first.gzipBody[0] || second.gzipETag != first.gzipETag {
+		t.Fatal("a repeated body was compressed again instead of reusing its copy")
+	}
+	if second.contentType != "text/javascript; charset=utf-8" || second.etag != first.etag {
+		t.Fatalf("reused copy changed the asset's own fields: %q %q", second.contentType, second.etag)
+	}
+	reader, err := gzip.NewReader(bytes.NewReader(second.gzipBody))
+	if err != nil {
+		t.Fatalf("reused copy is not gzip: %v", err)
+	}
+	if plain, err := io.ReadAll(reader); err != nil || !bytes.Equal(plain, body) {
+		t.Fatalf("reused copy does not decompress to the body (err %v)", err)
+	}
+
+	// A body gzip cannot shrink keeps no copy, the first time or the next.
+	noisy := make([]byte, 0, 2*gzipWorthwhile)
+	for sum := sha256.Sum256(body); len(noisy) < 2*gzipWorthwhile; sum = sha256.Sum256(sum[:]) {
+		noisy = append(noisy, sum[:]...)
+	}
+	for attempt := 1; attempt <= 2; attempt++ {
+		if prepared := newAsset(noisy, "application/octet-stream"); prepared.gzipBody != nil || prepared.gzipETag != "" {
+			t.Fatalf("attempt %d gave an incompressible body a gzip copy", attempt)
+		}
 	}
 }

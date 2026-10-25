@@ -858,6 +858,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Última revisão: 2026.10.22
+Última revisão: 2026.10.25
 
 Voltar para [Yuruna](../../README.md)

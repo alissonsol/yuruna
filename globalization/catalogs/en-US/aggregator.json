@@ -988,6 +988,11 @@
           "example": "value"
         }
       }
+    },
+    "aggregator.invalid_control_scope": {
+      "message": "invalid control scope",
+      "description": "Operator-facing HTTP failure from pool-aggregator /go/host when the scope parameter is not a well-formed control scope. HTTP status and X-Yuruna-Message-Code remain stable; error text is display only.",
+      "lifecycle": "active"
     }
   }
 }

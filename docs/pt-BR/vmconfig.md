@@ -2273,7 +2273,7 @@ O `install -d` para /var/lib/squid NÃO é redundante: no Ubuntu, o postinst de 
 
 ### Publicar o certificado da CA do squid
 
-Publique o certificado público da CA em http://<cache>/yuruna-squid-ca.crt, para que os convidados possam obtê-lo e confiar nele durante a instalação. Apenas o certificado público é copiado -- ca.key permanece em /etc/squid/ssl_cert/. O modo 644 é deliberado: a acessibilidade RFC1918 é imposta na camada de rede (switch/bridge/NAT do hospedeiro), para que a distribuição de confiança funcione sem um arquivo complementar adicional `Require ip` no estilo cachemgr.
+Publique o certificado público da CA em http://<cache>/yuruna-squid-ca.crt, para que os convidados possam obtê-lo e confiar nele durante a instalação. Apenas o certificado público é copiado -- ca.key permanece em /etc/squid/ssl_cert/. O modo 644 é deliberado: a acessibilidade RFC1918 é imposta na camada de rede (switch/bridge/NAT do hospedeiro), para que a distribuição de confiança funcione sem um arquivo complementar adicional `Require ip` no estilo cachemgr. Ao lado dele, http://<cache>/yuruna-squid-ca.sig.json traz a declaração do hospedeiro que construiu o proxy sobre o SHA-256 da CA, assinada com a chave de assinatura de espelho do laboratório, para que um hospedeiro que não construiu este proxy possa confiar na CA sem confiar na primeira resposta que recebe. A declaração só é publicada enquanto o squid usa, no bump, a CA semeada que ela nomeia; um proxy que precisou gerar a própria CA não serve nenhuma.
 
 <a id="429f3d06-0068"></a>
 
@@ -2943,6 +2943,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.22
+Last review: 2026.10.25
 
 Back to [Yuruna](../../README.md)

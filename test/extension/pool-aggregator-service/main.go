@@ -1705,7 +1705,7 @@ func fetchCurrentAction(client *http.Client, base string) (bool, error) {
 // served by the status service at /yuruna-repo/VERSION -- the SAME source the
 // host's own status pages read for their header (their getHostInfo() fetches
 // yuruna-repo/VERSION via JS, so the version is not embedded in the HTML). A tiny
-// plain-text file (one CalVer line, e.g. "2026.10.22"), so it is lighter than any
+// plain-text file (one CalVer line, e.g. "2026.10.25"), so it is lighter than any
 // status HTML page and fetchable server-side without a JS engine. Returns
 // ("", err) on any failure; the caller keeps the prior version on a transient
 // miss (the version is stable across polls). The value is capped + first-line
@@ -4276,12 +4276,15 @@ func controlProofFor(token string, expiry int64) string {
 	return controlproof.Proof(token, expiry)
 }
 
-// mintControlProof mints a control proof valid for ttl from now, or "" when no
-// internal authentication key is configured (the host then only accepts loopback control). The
-// operator reaches the host through Grafana -> /go/host, so this rides the proof to the
-// browser in the redirect fragment; the host revalidates it (expiry window + HMAC).
-func mintControlProof(token string, ttl time.Duration) string {
-	return controlproof.Mint(token, ttl)
+// mintControlProof mints a control proof bound to audience and valid for ttl from now,
+// or "" when no internal authentication key is configured (the host then only accepts
+// loopback control). The operator reaches the host through Grafana -> /go/host, so this
+// rides the proof to the browser in the redirect fragment; the host revalidates it
+// (audience, expiry window, HMAC). The audience is the host id for /go/host and
+// "svc-<area>" for /go/stash: the key is pool-wide, and the binding is what keeps a
+// proof lifted from one address bar from unlocking every host and service.
+func mintControlProof(token, audience string, ttl time.Duration) string {
+	return controlproof.MintFor(token, audience, ttl)
 }
 
 // verifyControlProof is the Go twin of Test.ConfigServiceSync\Test-YurunaControlProof:
@@ -4290,8 +4293,12 @@ func mintControlProof(token string, ttl time.Duration) string {
 // expiry is refused, so a captured token cannot mint an eternal pass), recomputes the
 // HMAC over that same expiry and compares in constant time. Any malformed, expired or
 // mismatched input is false -- never an error a caller could mistake for a verdict.
-func verifyControlProof(token, wire string, now time.Time, maxTTL time.Duration) bool {
-	return controlproof.Verify(token, wire, now, maxTTL)
+//
+// audience is the target the caller is: a bound proof must name it, and an empty
+// audience (a service that predates audiences) accepts a bound proof for any target.
+// An unbound proof is accepted while minters that predate audiences remain.
+func verifyControlProof(token, wire, audience string, now time.Time, maxTTL time.Duration) bool {
+	return controlproof.VerifyFor(token, wire, audience, now, maxTTL)
 }
 
 // handleControlProof answers one question for an extension service: was this proof
@@ -4324,7 +4331,8 @@ func (s *poolState) handleControlProof(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req struct {
-		Proof string `json:"proof"`
+		Proof    string `json:"proof"`
+		Audience string `json:"audience"`
 	}
 	if err := json.Unmarshal(body, &req); err != nil {
 		localizedHTTPError(w, r, "aggregator.malformed_request", http.StatusBadRequest)
@@ -4332,7 +4340,7 @@ func (s *poolState) handleControlProof(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("Content-Type", "application/json")
-	if !verifyControlProof(s.authToken, strings.TrimSpace(req.Proof), time.Now(), controlProofMaxTTL) {
+	if !verifyControlProof(s.authToken, strings.TrimSpace(req.Proof), strings.TrimSpace(req.Audience), time.Now(), controlProofMaxTTL) {
 		w.WriteHeader(http.StatusUnauthorized)
 		_, _ = io.WriteString(w, `{"ok":false}`+"\n")
 		return
@@ -4722,6 +4730,13 @@ func (s *poolState) handleGoHost(w http.ResponseWriter, r *http.Request) {
 		localizedHTTPError(w, r, "aggregator.missing_host", http.StatusBadRequest)
 		return
 	}
+	// pool-control asks with scope=pause for the pool-wide pause and continue: that
+	// proof opens the host's pause and resume routes and nothing else on it.
+	scope := strings.TrimSpace(q.Get("scope"))
+	if scope != "" && !controlproof.ValidScope(scope) {
+		localizedHTTPError(w, r, "aggregator.invalid_control_scope", http.StatusBadRequest)
+		return
+	}
 	base, _ := s.resolveHostBase(hostID, strings.TrimSpace(q.Get("pool")))
 	if base == "" {
 		localizedHTTPError(w, r, "aggregator.host_not_known_to_the_pool", http.StatusNotFound)
@@ -4734,7 +4749,11 @@ func (s *poolState) handleGoHost(w http.ResponseWriter, r *http.Request) {
 	// the (to-be-authenticated) Grafana dashboard, without the host trusting the whole LAN.
 	// No token configured -> no fragment -> the host accepts only loopback control.
 	dest := strings.TrimRight(base, "/")
-	if proof := mintControlProof(s.authToken, controlProofTTL); proof != "" {
+	proof := mintControlProof(s.authToken, hostID, controlProofTTL)
+	if scope != "" {
+		proof = controlproof.MintForScope(s.authToken, hostID, scope, controlProofTTL)
+	}
+	if proof != "" {
 		dest += "#yctl=" + proof
 	}
 	http.Redirect(w, r, dest, http.StatusFound)
@@ -4784,7 +4803,7 @@ func (s *poolState) handleGoStash(w http.ResponseWriter, r *http.Request) {
 	// revalidates it, here if it holds no token of its own. No token configured -> no
 	// fragment -> the UI prompts for the lab token exactly as before.
 	dest := strings.TrimRight(target, "/")
-	if proof := mintControlProof(s.authToken, controlProofTTL); proof != "" {
+	if proof := mintControlProof(s.authToken, "svc-"+area, controlProofTTL); proof != "" {
 		dest += "#yctl=" + proof
 	}
 	http.Redirect(w, r, dest, http.StatusFound)

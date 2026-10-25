@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.22
+.VERSION 2026.10.25
 .GUID 428fe362-c96d-4c08-9308-f0535686fefc
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -215,6 +215,7 @@ BeforeAll {
     # The first, third and fifth: forwarded and withheld values interleave.
     Write-GuestScript -GuestKey 'guest.alternate' -Declare @('CachingProxyServiceUrl', 'Hostname', 'Cores')
     Write-GuestScript -GuestKey 'guest.exit3' -Declare $script:Optional -ExitCode 3
+    Write-GuestScript -GuestKey 'guest.integrity' -ExitCode 65
     Write-GuestScript -GuestKey 'guest.anycase' -Body ((@('param([string]$vmname, [string]$USERNAME = '''', [string]$hostName = '''')') + $script:ReportLines) -join "`n")
     # An unclosed parameter list: the file exists and is a script, but has no
     # readable parameters.
@@ -443,11 +444,42 @@ Describe 'per-guest New-VM dispatch -- the result a caller branches on' {
         $run.Received | Should -BeExactly "VMName=$($script:VMName)`nUsername=alice" -Because 'the child ran with its arguments before it failed'
     }
 
+    # A builder that refused the caching proxy's CA exits with the source-integrity
+    # code, and the inner records the guest's failure under that class rather
+    # than as an ordinary provisioning failure.
+    It 'maps the source-integrity exit to a source_integrity failure' {
+        $run = Invoke-Dispatch -GuestKey 'guest.integrity'
+        $run.Errors | Should -BeExactly ''
+        $run.Result.Count | Should -Be 1
+        $result = $run.Result[0]
+        (@($result.Keys | Sort-Object) -join ',') | Should -BeExactly 'errorMessage,failureClass,success'
+        $result.success | Should -BeFalse
+        $result.failureClass | Should -BeExactly 'source_integrity'
+        [string]$result.errorMessage | Should -MatchExactly '\(exit 65\)$'
+    }
+
     It 'previews without running the child' {
         $run = Invoke-Dispatch -GuestKey 'guest.all' -Bind $script:Truthy -Preview
         Confirm-Outcome -Run $run -Success $false -ErrorPattern '^WhatIf$' -ExitCodePattern "^$($script:UntouchedExitCode)`$"
         $run.ChildRan | Should -BeFalse -Because '-WhatIf must not create anything'
         $run.Narration | Should -BeExactly ''
+    }
+    It 'records the CA refusal reason, fingerprints and missing enrollment from the child' {
+        $payload = @{reason='pin-mismatch';cacheHost='192.0.2.42';fetched=('b'*64);expected=('a'*64);enrolledKeyCount=0} | ConvertTo-Json -Compress
+        Write-GuestScript -GuestKey 'guest.ca-detail' -Body ("param([string]`$VMName)`nWrite-Information 'YURUNA_PROXY_CA_REFUSAL=$payload' -InformationAction Continue`nexit 65")
+        $run = Invoke-Dispatch -GuestKey 'guest.ca-detail'
+        $result = $run.Result[0]
+        $result.failureClass | Should -BeExactly 'source_integrity'
+        $result.errorMessage | Should -Match 'pin-mismatch'
+        $result.errorMessage | Should -Match ('expected=' + ('a'*64))
+        $result.errorMessage | Should -Match ('fetched=' + ('b'*64))
+        $result.errorMessage | Should -Match 'enrolledKeys=0'
+    }
+    It 'keeps the exit classification when a child emits malformed refusal metadata' {
+        Write-GuestScript -GuestKey 'guest.ca-malformed' -Body 'param([string]$VMName); Write-Output "YURUNA_PROXY_CA_REFUSAL=invalid"; exit 65'
+        $run = Invoke-Dispatch -GuestKey 'guest.ca-malformed'
+        $run.Result[0].failureClass | Should -BeExactly 'source_integrity'
+        $run.Result[0].errorMessage | Should -Match '\(exit 65\)$'
     }
 }
 

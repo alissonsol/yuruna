@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.22
+.VERSION 2026.10.25
 .GUID 42f9ba9c-c42d-40ac-831a-41f654880e31
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -131,6 +131,100 @@ sys.exit(code)
     $script:Passing = "Describe 'ok' { It 'a' { 1 | Should -Be 1 }; It 'b' { 2 | Should -Be 2 } }"
 }
 
+Describe 'background watcher scheduling' {
+    It 'revisits an unchanged workspace after a failed or interrupted round' {
+        $source = [IO.File]::ReadAllText((Join-Path $script:RepoRoot 'tools/Start-TestWatcher.ps1'))
+        $loop = [scriptblock]::Create($source.Substring($source.IndexOf('$recordedState = $null')))
+        $script:WatcherRounds = 0
+        $script:WatcherSleeps = 0
+        $QuietSeconds = 0
+        $IntervalSeconds = 1
+        $ThrottleLimit = 2
+        $foregroundDirectory = $null
+        $null = $QuietSeconds, $IntervalSeconds, $ThrottleLimit, $foregroundDirectory
+        function Test-ForegroundRun { $false }
+        function Get-WorkspaceState { 'unchanged-fixture' }
+        function Invoke-Round { $script:WatcherRounds++; return ($script:WatcherRounds -gt 1) }
+        Mock Start-Sleep {
+            $script:WatcherSleeps++
+            if ($script:WatcherSleeps -ge 3) { throw 'fixture-watch-finished' }
+        }
+        { & $loop } | Should -Throw '*fixture-watch-finished*'
+        $script:WatcherRounds | Should -Be 2
+    }
+
+    It 'waits for foreground work before starting a recording round' {
+        $source = [IO.File]::ReadAllText((Join-Path $script:RepoRoot 'tools/Start-TestWatcher.ps1'))
+        $loop = [scriptblock]::Create($source.Substring($source.IndexOf('$recordedState = $null')))
+        $script:WatcherStarts = [Collections.Generic.List[int]]::new()
+        $script:WatcherSleeps = 0
+        $QuietSeconds = 0
+        $IntervalSeconds = 1
+        $ThrottleLimit = 2
+        $foregroundDirectory = $null
+        $null = $QuietSeconds, $IntervalSeconds, $ThrottleLimit, $foregroundDirectory
+        function Get-WorkspaceState { 'unchanged-fixture' }
+        function Test-ForegroundRun { return ($script:WatcherSleeps -lt 2) }
+        function Invoke-Round { $script:WatcherStarts.Add($script:WatcherSleeps); return $true }
+        Mock Start-Sleep {
+            $script:WatcherSleeps++
+            if ($script:WatcherSleeps -ge 4) { throw 'fixture-watch-finished' }
+        }
+        { & $loop } | Should -Throw '*fixture-watch-finished*'
+        $script:WatcherStarts.Count | Should -Be 1
+        $script:WatcherStarts[0] | Should -Be 2
+    }
+
+    It 'refuses a stale success report when the child publishes nothing' {
+        $root = Join-Path $TestDrive 'watcher-stale-report'
+        $reports = Join-Path $root '.test-results/background'
+        $null = New-Item -ItemType Directory -Path $reports
+        [IO.File]::WriteAllText((Join-Path $reports 'suite-results.json'), '{"impact":{"reused":1,"recorded":0},"suites":[{}],"problems":[]}')
+        $Runner = Join-Path $root 'runner.ps1'
+        [IO.File]::WriteAllText($Runner, 'exit 0')
+        $DevOnlyRunner = Join-Path $root 'absent.ps1'
+        $RepoRoot = $root
+        $null = $Runner, $DevOnlyRunner
+        $ast = [Management.Automation.Language.Parser]::ParseFile((Join-Path $script:RepoRoot 'tools/Start-TestWatcher.ps1'), [ref]$null, [ref]$null)
+        $round = $ast.Find({param($node) $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq 'Invoke-Round'}, $false)
+        . ([scriptblock]::Create($round.Extent.Text))
+        Invoke-Round -Throttle 1 | Should -BeFalse
+        Test-Path (Join-Path $reports 'suite-results.json') | Should -BeFalse
+    }
+
+    It 'overlaps the public and private rounds and forwards their concurrency budgets' {
+        $root = Join-Path $TestDrive 'watcher-overlap'
+        $null = New-Item -ItemType Directory -Path $root
+        $child = @'
+param([switch]$Background, [switch]$Quiet, [string]$ResultsPath, [int]$ThrottleLimit)
+$root = $PSScriptRoot
+$name = [IO.Path]::GetFileNameWithoutExtension($PSCommandPath)
+[IO.File]::WriteAllText((Join-Path $root "$name.started"), [string]$ThrottleLimit)
+$other = if ($name -eq 'public') { 'private' } else { 'public' }
+$clock = [Diagnostics.Stopwatch]::StartNew()
+while (-not (Test-Path (Join-Path $root "$other.started")) -and $clock.Elapsed.TotalSeconds -lt 30) { Start-Sleep -Milliseconds 20 }
+if (-not (Test-Path (Join-Path $root "$other.started"))) { exit 8 }
+$null = New-Item -ItemType Directory -Force -Path $ResultsPath
+@{impact=@{reused=0;recorded=1};suites=@(@{});problems=@()} | ConvertTo-Json -Depth 5 | Set-Content (Join-Path $ResultsPath 'suite-results.json')
+exit 0
+'@
+        foreach ($name in 'public','private') { [IO.File]::WriteAllText((Join-Path $root "$name.ps1"), $child) }
+        $ast = [Management.Automation.Language.Parser]::ParseFile((Join-Path $script:RepoRoot 'tools/Start-TestWatcher.ps1'), [ref]$null, [ref]$null)
+        $round = $ast.Find({param($node) $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq 'Invoke-Round'}, $false)
+        $RepoRoot = $root
+        $Runner = Join-Path $root 'public.ps1'
+        $DevOnlyRunner = Join-Path $root 'private.ps1'
+        $null = $Runner, $DevOnlyRunner
+        . ([scriptblock]::Create($round.Extent.Text))
+        Invoke-Round -Throttle 8 | Should -BeTrue
+        $public = [int][IO.File]::ReadAllText((Join-Path $root 'public.started'))
+        $private = [int][IO.File]::ReadAllText((Join-Path $root 'private.started'))
+        $public | Should -BeGreaterThan 0
+        $private | Should -BeGreaterThan 0
+        ($public + $private) | Should -Be 8
+    }
+}
+
 Describe 'the recorder' {
     It 'passes its Python regressions' {
         if (-not $script:Python) { throw 'Python 3 is required: the pre-commit hook and the SBOM tools already need it' }
@@ -245,6 +339,36 @@ Describe 'recorded passes in the suite runner' {
         if (-not $script:CanRecord) { Confirm-NothingReused $run; return }
         $run.Result.impact.note | Should -Match 'cannot trace here'
         $run.Output | Should -Match 'WARNING: Invoke-TestSuite: nothing is recorded'
+    }
+
+    It 'keeps full runs available when Git cannot provide a coordination directory' {
+        $ast = [Management.Automation.Language.Parser]::ParseFile((Join-Path $script:RepoRoot 'tools/Invoke-TestSuite.ps1'), [ref]$null, [ref]$null)
+        $function = $ast.Find({param($node) $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq 'Get-SuiteImpactSetting'}, $false)
+        . ([scriptblock]::Create($function.Extent.Text))
+        function git { throw [Management.Automation.CommandNotFoundException]::new('fixture: git is unavailable') }
+        { Get-SuiteImpactSetting -Root $TestDrive -ToolDirectory (Join-Path $script:RepoRoot 'tools') -PesterVersion '6.2.0' } | Should -Not -Throw
+    }
+
+    It 'registers a full run as foreground work even when recording and reuse are disabled' {
+        $suite = @'
+Describe 'foreground scheduling' {
+    It 'holds a foreground lease while the suite runs' {
+        $root = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../..'))
+        $directory = Join-Path $root '.git/yuruna/test-impact/foreground'
+        $held = 0
+        foreach ($lock in Get-ChildItem -LiteralPath $directory -Filter '*.lock' -ErrorAction SilentlyContinue) {
+            try { ([IO.File]::Open($lock.FullName, [IO.FileMode]::Open, [IO.FileAccess]::ReadWrite, [IO.FileShare]::None)).Dispose() }
+            catch [IO.IOException] { $held++ }
+        }
+        $held | Should -BeGreaterThan 0
+    }
+}
+'@
+        $root = New-ImpactFixture -Suite @{ Alpha = $suite }
+        $run = Invoke-ImpactRunner -Root $root -Argument '-All'
+        $run.ExitCode | Should -Be 0 -Because $run.Output
+        $run.Result.impact.reused | Should -Be 0
+        $run.Result.impact.recorded | Should -Be 0
     }
 
     It 'launches nothing in the background while a foreground run is active' {

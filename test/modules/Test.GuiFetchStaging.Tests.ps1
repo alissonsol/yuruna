@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.22
+.VERSION 2026.10.25
 .GUID 42dc2c8b-375c-4869-8113-cd1b1b7a0e53
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -642,6 +642,54 @@ Describe 'GUI fetch input stall detection' {
         }
     }
 
+    It 'asks about a started payload and a refused envelope only when given their ids' {
+        & $script:stallModule {
+            function Invoke-GuestSsh { param($VMName,$GuestKey,$Command,$TimeoutSeconds) $null=$VMName;$null=$GuestKey;$null=$TimeoutSeconds; $script:probeCommand = [string]$Command; return $script:probeResult }
+            $script:probeResult = @{success=$true;output="NOT_PREPARED`n"}
+            Get-GuiFetchPayloadState -VMName 'v' -GuestKey 'g' -ContextId '7c4e2a91b80' | Should -Be 'NOT_PREPARED'
+            $script:probeCommand | Should -Not -Match 'stepInvocationId|gui-rejection'
+            # A launcher still unpacking the envelope is a guard that ran.
+            $script:probeCommand | Should -Match '\[y\]fe --gui'
+            $script:probeResult = @{success=$true;output="STARTED`n"}
+            Get-GuiFetchPayloadState -VMName 'v' -GuestKey 'g' -ContextId '7c4e2a91b80' -StepInvocationId '9dd7e79e0e404f0b8aa334f1337540e9' -EnvelopeDigest ('a' * 64) | Should -Be 'STARTED'
+            $script:probeCommand | Should -Match ([regex]::Escape('grep -qxF "# stepInvocationId: 9dd7e79e0e404f0b8aa334f1337540e9" /tmp/yuruna-last-fetch-and-execute.log'))
+            $script:probeCommand | Should -Match ([regex]::Escape('[ -f "$HOME/.local/state/yuruna/gui-rejection/' + ('a' * 64) + '" ]; then echo REJECTED'))
+            $script:probeCommand | Should -Not -Match 'rm '
+            $script:probeResult = @{success=$true;output='REJECTED'}
+            Get-GuiFetchPayloadState -VMName 'v' -GuestKey 'g' -ContextId '7c4e2a91b80' -EnvelopeDigest ('a' * 64) | Should -Be 'REJECTED'
+            $script:probeCommand = ''
+            Get-GuiFetchPayloadState -VMName 'v' -GuestKey 'g' -ContextId '7c4e2a91b80' -StepInvocationId 'a b' | Should -BeNullOrEmpty
+            Get-GuiFetchPayloadState -VMName 'v' -GuestKey 'g' -ContextId '7c4e2a91b80' -EnvelopeDigest ('A' * 64) | Should -BeNullOrEmpty
+            $script:probeCommand | Should -BeNullOrEmpty
+        }
+    }
+
+    It 'answers from the files a real shell finds for a refused or a prepared guard' -Skip:(-not $script:localShellAvailable) {
+        $guestHome = Join-Path $TestDrive 'guest-home'
+        $state = Join-Path $guestHome '.local/state/yuruna'
+        New-Item -ItemType Directory -Force -Path (Join-Path $state 'gui-rejection'), (Join-Path $state 'fetch-context') | Out-Null
+        & $script:stallModule {param($guestHome, $state)
+            $script:guestHome = $guestHome
+            function Invoke-GuestSsh {
+                param($VMName,$GuestKey,$Command,$TimeoutSeconds) $null=$VMName;$null=$GuestKey;$null=$TimeoutSeconds
+                $start = [Diagnostics.ProcessStartInfo]::new('bash')
+                $start.ArgumentList.Add('-c'); $start.ArgumentList.Add([string]$Command)
+                $start.Environment['HOME'] = $script:guestHome
+                $start.UseShellExecute = $false; $start.RedirectStandardOutput = $true
+                $shell = [Diagnostics.Process]::Start($start)
+                try { $output = $shell.StandardOutput.ReadToEnd(); $shell.WaitForExit(); return @{success = $shell.ExitCode -eq 0; output = $output} }
+                finally { $shell.Dispose() }
+            }
+            $digest = 'a' * 64
+            Set-Content -LiteralPath (Join-Path $state "gui-rejection/$digest") -Value 'code=YFE_GUI_DIGEST'
+            Set-Content -LiteralPath (Join-Path $state 'fetch-context/7c4e2a91b80') -Value 'YFE1'
+            Get-GuiFetchPayloadState -VMName 'v' -GuestKey 'g' -ContextId '7c4e2a91b80' -StepInvocationId 'step-1' -EnvelopeDigest $digest | Should -Be 'REJECTED'
+            Test-Path -LiteralPath (Join-Path $state "gui-rejection/$digest") | Should -BeTrue
+            Remove-Item -LiteralPath (Join-Path $state "gui-rejection/$digest")
+            Get-GuiFetchPayloadState -VMName 'v' -GuestKey 'g' -ContextId '7c4e2a91b80' -StepInvocationId 'step-1' -EnvelopeDigest $digest | Should -Be 'PREPARED'
+        } $guestHome $state
+    }
+
     It 'does not report input the launcher answered even when OCR misreads the returning prompt' {
         # The sentinel is the launcher's own answer; the typed echo never carries it.
         & $script:stallModule { param($t) Test-GuiFetchInputStalled -OcrTail $t } $script:RefusedEnvelopeOcrTail | Should -BeFalse
@@ -675,6 +723,7 @@ $script:NonzeroScriptExitSentinel='NONZERO SCRIPT EXIT:'
 $script:FetchExecuteTypedCharWarn=400
 $script:ShellRejectedCommandPattern=@('command not found','No such file or directory')
 $script:ShellRejectionWindowSeconds=20
+$script:GuiFetchSubmissionProbeSeconds=0
 $script:sent=[System.Collections.Generic.List[string]]::new()
 $script:shellEscapeFlags=[System.Collections.Generic.List[bool]]::new()
 $script:drainDelays=[System.Collections.Generic.List[double]]::new()
@@ -695,7 +744,14 @@ $script:sshCalls=[System.Collections.Generic.List[string]]::new()
 $script:events=[System.Collections.Generic.List[object]]::new()
 $script:waitResults=[System.Collections.Generic.Queue[bool]]::new()
 $script:matchedPattern=$null
-function Invoke-GuestSsh { param($VMName,$GuestKey,$Command,$TimeoutSeconds,$TransportRetryCount,$DetachToken) $null=$VMName;$null=$GuestKey;$null=$TransportRetryCount;$null=$DetachToken;$script:sshCalls.Add([string]$Command);$script:sshTimeout=$TimeoutSeconds; if ([string]$Command -match 'gui-rejection') { return $script:rejectionResult }; return $script:sshResult }
+$script:stateAnswers=[System.Collections.Generic.Queue[string]]::new()
+$script:consoleFrame=$null
+$script:frameCalls=0
+$script:vncEvents=@()
+$script:vncSince=$null
+function Invoke-GuestSsh { param($VMName,$GuestKey,$Command,$TimeoutSeconds,$TransportRetryCount,$DetachToken) $null=$VMName;$null=$GuestKey;$null=$TransportRetryCount;$null=$DetachToken;$script:sshCalls.Add([string]$Command);$script:sshTimeout=$TimeoutSeconds; if ([string]$Command -match 'gui-rejection' -and [string]$Command -match 'rm -f --') { return $script:rejectionResult }; if ($script:stateAnswers.Count -and [string]$Command -match 'fetch-context/') { return @{success=$true;output=$script:stateAnswers.Dequeue()} }; return $script:sshResult }
+function Save-GuestConsoleFrame { param($Context,$Label) $null=$Context;$null=$Label; $script:frameCalls++; return $script:consoleFrame }
+function Get-VncConnectionEvent { param($VMName,$SinceUtc) $null=$VMName; $script:vncSince=$SinceUtc; return $script:vncEvents }
 function Send-CycleEventSafely { param($EventRecord) $script:events.Add($EventRecord) }
 function Get-FetchExecutionContext {
     param($Context,$CommandLine,[switch]$Compress)
@@ -727,9 +783,23 @@ function Wait-ForText { param($FreshMatch,$EarlyFailurePattern,$FailurePattern,[
 function Save-FetchExecutionEvidence { param($Context,$Succeeded,$ElapsedSeconds) $script:captured++; $script:succeeded=$Succeeded }
 '@
         $helpers = (Get-FunctionSource 'Get-GuiFetchExecutionInput') + "`n" + (Get-FunctionSource 'Resolve-SequenceCharDelay') + "`n" + (Get-FunctionSource 'Test-GuiFetchInputStalled') + "`n" + (Get-FunctionSource 'Get-GuiFetchPayloadState') +
-            "`n" + (Get-FunctionSource 'Get-GuiFetchEnvelopeTransfer') + "`n" + (Get-FunctionSource 'Get-GuiFetchRejection')
+            "`n" + (Get-FunctionSource 'Get-GuiFetchEnvelopeTransfer') + "`n" + (Get-FunctionSource 'Get-GuiFetchRejection') +
+            "`n" + (Get-FunctionSource 'Get-GuiFetchGuardAnswer') + "`n" + (Get-FunctionSource 'Confirm-GuiFetchSubmission')
         $script:handlerModule = New-Module -ScriptBlock ([scriptblock]::Create(
             $fixture + "`n" + $helpers + "`nfunction Invoke-TestUtmProvider $provider`nfunction Invoke-TestHandler $handler"))
+        # The handler presses keys through the engine by its module-qualified
+        # name, which only a loaded module of that name answers.
+        $script:engineStandIn = New-Module -Name Test.SequenceEngine -ScriptBlock {
+            $script:keys = [System.Collections.Generic.List[string]]::new()
+            $script:keyResult = $true
+            function Send-Key { param($HostType, $VMName, $KeyName) $script:keys.Add("$HostType/$VMName/$KeyName"); return $script:keyResult }
+        } | Import-Module -PassThru
+        $script:CompactEnvelopeLines = @("(unset __y;__y='QUJD';", "__y+='REVG';", ('yfe --gui ' + ('a' * 64) + ' "$__y")'))
+        $script:StagedConsoleText = "> __y+='REVG';`n> yfe --gui $('a' * 64) `"`$__y`")"
+    }
+
+    AfterAll {
+        Remove-Module -ModuleInfo $script:engineStandIn -ErrorAction SilentlyContinue
     }
 
     BeforeEach {
@@ -741,7 +811,9 @@ function Save-FetchExecutionEvidence { param($Context,$Succeeded,$ElapsedSeconds
             $script:sshResult=@{success=$true;output='NOT_PREPARED'};$script:sshCalls.Clear()
             $script:rejectionResult=@{success=$true;output=''};$script:events.Clear();$script:waitResults.Clear();$script:matchedPattern=$null;$script:Fail.StepLauncherRejection=$null
             $script:compactInput=@();$script:compactSupported=$false;$script:capabilityCalls=0
+            $script:stateAnswers.Clear();$script:consoleFrame=$null;$script:frameCalls=0;$script:vncEvents=@();$script:vncSince=$null
         }
+        & $script:engineStandIn { $script:keys.Clear(); $script:keyResult = $true }
         $script:handlerContext = @{HostType='host.macos.utm';VMName='vm';GuestKey='guest.ubuntu.server.26';StepInvocationId='9dd7e79e0e404f0b8aa334f1337540e9';SequenceInvocationId='2ba53dd6961e4beea8ec17e8416f8651';
             Step=@{text=$script:payload;waitPattern='FETCHED AND EXECUTED:';timeoutSeconds=1200;freshMatchTailLines=60};
             Vars=@{};ExpandVariable={param($value,$vars) $null=$vars; $value};DefaultTimeoutSeconds=1;DefaultPollSeconds=1}
@@ -914,7 +986,7 @@ function Save-FetchExecutionEvidence { param($Context,$Succeeded,$ElapsedSeconds
             $script:sent | Should -HaveCount 7
             $script:sent[3] | Should -BeExactly 'clear'
             ($script:sent[4..6] -join '|') | Should -BeExactly ($script:sent[0..2] -join '|')
-            @($script:sshCalls | Where-Object { $_ -match 'gui-rejection/a{64}' }) | Should -HaveCount 1
+            @($script:sshCalls | Where-Object { $_ -match 'gui-rejection/a{64}.*rm -f --' }) | Should -HaveCount 1
             $script:events | Should -HaveCount 1
             $script:events[0].stack | Should -Be 'gui-envelope'
             $script:events[0].reason | Should -Be 'YFE_GUI_ENCODING: received 9 of 8 characters'
@@ -1041,5 +1113,130 @@ function Save-FetchExecutionEvidence { param($Context,$Succeeded,$ElapsedSeconds
             $script:shellEscapeFlags[0] | Should -BeFalse
             $script:waited | Should -Be 1
         }
+    }
+
+    It 'presses Enter once more when the guest never ran the guard and the console still shows it staged' {
+        & $script:handlerModule {param($lines, $staged)
+            $script:compactSupported = $true; $script:compactInput = $lines
+            foreach ($answer in 'NOT_PREPARED', 'NOT_PREPARED', 'NOT_PREPARED', 'RUNNING') { $script:stateAnswers.Enqueue($answer) }
+            $script:consoleFrame = @{ Text = $staged }
+        } $script:CompactEnvelopeLines $script:StagedConsoleText
+        & $script:handlerModule {param($c) Invoke-TestHandler $c} $script:handlerContext 3>$null | Should -BeTrue
+        (& $script:engineStandIn { $script:keys }) -join '|' | Should -BeExactly 'host.macos.utm/vm/Enter'
+        $submission = $script:handlerContext.GuiTransfer.submissions[0]
+        $submission.outcome | Should -BeExactly 'resent-then-running'
+        $submission.enterResent | Should -BeTrue
+        @($submission.probes | ForEach-Object { ($_ -split ' ', 2)[1] }) -join ',' | Should -BeExactly 'NOT_PREPARED,NOT_PREPARED,NOT_PREPARED,RUNNING'
+        & $script:handlerModule {
+            $script:sshCalls[0] | Should -Match 'fetch-context/7c4e2a91b80'
+            $script:sshCalls[0] | Should -Match 'stepInvocationId: 9dd7e79e0e404f0b8aa334f1337540e9'
+            $script:sshCalls[0] | Should -Match ('gui-rejection/' + ('a' * 64))
+            $script:frameCalls | Should -Be 1
+            $script:events | Should -HaveCount 1
+            $script:events[0].event | Should -BeExactly 'retry_attempt'
+            $script:events[0].stack | Should -BeExactly 'gui-submission'
+            $script:waited | Should -Be 1
+        }
+    }
+
+    It 'does not press Enter again when the guest says the guard ran' -ForEach @(
+        @{State='PREPARED'}, @{State='RUNNING'}, @{State='STARTED'}, @{State='REJECTED'}
+    ) {
+        & $script:handlerModule {param($lines, $staged, $state)
+            $script:compactSupported = $true; $script:compactInput = $lines
+            $script:stateAnswers.Enqueue($state)
+            $script:consoleFrame = @{ Text = $staged }
+        } $script:CompactEnvelopeLines $script:StagedConsoleText $State
+        & $script:handlerModule {param($c) Invoke-TestHandler $c} $script:handlerContext | Should -BeTrue
+        @(& $script:engineStandIn { $script:keys }) | Should -HaveCount 0
+        $submission = $script:handlerContext.GuiTransfer.submissions[0]
+        $submission.outcome | Should -BeExactly $State.ToLowerInvariant()
+        $submission.enterResent | Should -BeFalse
+        $submission.probes | Should -HaveCount 1
+        & $script:handlerModule { $script:frameCalls | Should -Be 0 }
+    }
+
+    It 'does not press Enter again when the guest does not answer' {
+        & $script:handlerModule {param($lines, $staged)
+            $script:compactSupported = $true; $script:compactInput = $lines
+            $script:sshResult = @{success=$false;output=''}
+            $script:consoleFrame = @{ Text = $staged }
+        } $script:CompactEnvelopeLines $script:StagedConsoleText
+        & $script:handlerModule {param($c) Invoke-TestHandler $c} $script:handlerContext | Should -BeTrue
+        @(& $script:engineStandIn { $script:keys }) | Should -HaveCount 0
+        $submission = $script:handlerContext.GuiTransfer.submissions[0]
+        $submission.outcome | Should -BeExactly 'unanswered'
+        $submission.probes | Should -HaveCount 1
+        $submission.probes[0] | Should -Match ' unanswered$'
+        & $script:handlerModule { $script:frameCalls | Should -Be 0 }
+    }
+
+    It 'does not press Enter again unless the console shows the staged input' -ForEach @(
+        @{Text=$null; Outcome='console-unread'}, @{Text="guard ran`nyuuser26@yuhost26:~`$ "; Outcome='console-not-staged'}
+    ) {
+        & $script:handlerModule {param($lines, $text)
+            $script:compactSupported = $true; $script:compactInput = $lines
+            if ($null -ne $text) { $script:consoleFrame = @{ Text = $text } }
+        } $script:CompactEnvelopeLines $Text
+        & $script:handlerModule {param($c) Invoke-TestHandler $c} $script:handlerContext | Should -BeTrue
+        @(& $script:engineStandIn { $script:keys }) | Should -HaveCount 0
+        $submission = $script:handlerContext.GuiTransfer.submissions[0]
+        $submission.outcome | Should -BeExactly $Outcome
+        $submission.probes | Should -HaveCount 3
+        & $script:handlerModule { $script:frameCalls | Should -Be 1; $script:events | Should -HaveCount 0 }
+    }
+
+    It 'presses Enter again at most once and still reports the input lost when the guard never runs' {
+        & $script:handlerModule {param($lines, $staged)
+            $script:compactSupported = $true; $script:compactInput = $lines
+            $script:consoleFrame = @{ Text = $staged }
+            $script:waitResult = $false; $script:Fail.WaitForTextOcrTail = $staged
+        } $script:CompactEnvelopeLines $script:StagedConsoleText
+        & $script:handlerModule {param($c) Invoke-TestHandler $c} $script:handlerContext 3>$null | Should -BeFalse
+        @(& $script:engineStandIn { $script:keys }) | Should -HaveCount 1
+        $submission = $script:handlerContext.GuiTransfer.submissions[0]
+        $submission.outcome | Should -BeExactly 'resent-then-not_prepared'
+        $submission.probes | Should -HaveCount 6
+        & $script:handlerModule { $script:Fail.StepInputLost | Should -BeTrue; $script:waited | Should -Be 1 }
+    }
+
+    It 'records a failed second Enter without asking the guest again' {
+        & $script:handlerModule {param($lines, $staged)
+            $script:compactSupported = $true; $script:compactInput = $lines
+            $script:consoleFrame = @{ Text = $staged }
+        } $script:CompactEnvelopeLines $script:StagedConsoleText
+        & $script:engineStandIn { $script:keyResult = $false }
+        & $script:handlerModule {param($c) Invoke-TestHandler $c} $script:handlerContext 3>$null | Should -BeTrue
+        $submission = $script:handlerContext.GuiTransfer.submissions[0]
+        $submission.outcome | Should -BeExactly 'resend-failed'
+        $submission.enterResent | Should -BeTrue
+        $submission.probes | Should -HaveCount 3
+    }
+
+    It 'records the VNC connection events since the attempt began typing' {
+        $before = [DateTime]::UtcNow
+        & $script:handlerModule {param($lines)
+            $script:compactSupported = $true; $script:compactInput = $lines
+            $script:stateAnswers.Enqueue('RUNNING')
+            $script:vncEvents = @(
+                [pscustomobject]@{ Utc = [DateTime]::new(2026, 10, 23, 10, 1, 2, 123, [DateTimeKind]::Utc); VMName = 'vm'; Kind = 'server-closed'; Detail = '' },
+                [pscustomobject]@{ Utc = [DateTime]::new(2026, 10, 23, 10, 1, 2, 200, [DateTimeKind]::Utc); VMName = 'vm'; Kind = 'opened'; Detail = 'port 5901' })
+        } $script:CompactEnvelopeLines
+        & $script:handlerModule {param($c) Invoke-TestHandler $c} $script:handlerContext | Should -BeTrue
+        $script:handlerContext.GuiTransfer.submissions[0].transportEvents -join '|' | Should -BeExactly '10:01:02.123 server-closed|10:01:02.200 opened port 5901'
+        & $script:handlerModule { $script:vncSince } | Should -BeGreaterOrEqual $before
+    }
+
+    It 'checks the submission of each typed attempt' {
+        & $script:handlerModule {param($lines)
+            $script:compactSupported = $true; $script:compactInput = $lines
+            # The refusal's own payload-state reading takes the middle answer.
+            foreach ($answer in 'REJECTED', 'NOT_PREPARED', 'RUNNING') { $script:stateAnswers.Enqueue($answer) }
+            $script:waitResults.Enqueue($false); $script:waitResults.Enqueue($true)
+            $script:matchedPattern = 'NONZERO SCRIPT EXIT:'
+            $script:rejectionResult = @{success=$true;output="code=YFE_GUI_ENCODING`nreceivedChars=9`nreceivedSha256=$('b' * 64)`n"}
+        } $script:CompactEnvelopeLines
+        & $script:handlerModule {param($c) Invoke-TestHandler $c} $script:handlerContext 3>$null | Should -BeTrue
+        @($script:handlerContext.GuiTransfer.submissions | ForEach-Object { "$($_.attempt):$($_.outcome)" }) -join ',' | Should -BeExactly '1:rejected,2:running'
     }
 }

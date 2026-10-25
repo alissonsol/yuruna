@@ -43,6 +43,17 @@ const DataheILrunner = `{
     },
     " רשומות של מנגנון ההרצה שלא ניתן היה להוכיח שאינן עדכניות."
   ],
+  "runner.bump_ca_create_action": "יצירת ה-CA של ⁦ssl-bump⁩ עבור שרת ה-proxy המטמון, שמארח זה שומר בין בניות מחדש של ה-proxy",
+  "runner.bump_ca_unavailable": "לא ניתן היה לקרוא או ליצור CA של ⁦ssl-bump⁩ עבור שרת ה-proxy המטמון במצב הפרטי של מארח זה; ה-proxy אינו נבנה בלעדיו.",
+  "runner.bump_ca_unreadable": [
+    "לא ניתן לקרוא את ה-CA של שרת ה-proxy המטמון השמור ב-⁦",
+    {
+      "arg": "path",
+      "type": "detail",
+      "trust": "external"
+    },
+    "⁩; לא ייכלל CA בזרע עד שיתוקן או יוסר."
+  ],
   "runner.config_gate_attempt_failed": [
     "ניסיון ההרצה הסתיים עם הקוד ",
     {
@@ -82,6 +93,54 @@ const DataheILrunner = `{
     ". שכבת התבנית חייבת לשמור על כל ערך שהגדרתם, ולכן החלפה זו היא פגם בשכבת התבנית ולא שינוי סכמה; שחזרו את הערך הקודם ידנית אם לא היה מכוון ודווחו על הפגם."
   ],
   "runner.critical_record_replace": "החליפו רשומה קריטית פרטית",
+  "runner.cycle_ceiling_reached": [
+    "[מחזור חיצוני ",
+    {
+      "arg": "cycle",
+      "type": "integer",
+      "trust": "internal"
+    },
+    "] תהליך המחזור ",
+    {
+      "arg": "id",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " הגיע ל-⁦testCycle.maxCycleSeconds⁩ (‏",
+    {
+      "arg": "ceilingSeconds",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " s) ונעצר יחד עם עץ התהליכים שלו."
+  ],
+  "runner.cycle_ceiling_scaled": [
+    "[מחזור חיצוני ",
+    {
+      "arg": "cycle",
+      "type": "integer",
+      "trust": "internal"
+    },
+    "] המחזור מתכנן ",
+    {
+      "arg": "count",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " הרצות; התקרה שלו עולה מ-⁦testCycle.maxCycleSeconds⁩ (‏",
+    {
+      "arg": "configuredSeconds",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " s) ל-‏",
+    {
+      "arg": "ceilingSeconds",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " s, שני זמני קצובה של שלב לכל הרצה."
+  ],
   "runner.cycle_outcome_rejected_kept": [
     "[מחזור חיצוני ",
     {
@@ -290,6 +349,55 @@ const DataheILrunner = `{
       "trust": "external"
     },
     " תווים לאחר העטיפה; Windows אינו יכול להפעיל אותה. ההרצה באורח לא התחילה."
+  ],
+  "runner.framework_health_write_action": "רישום האם המסגרת הפיקה תוצאת מחזור",
+  "runner.framework_rescue_action": "משיכת המסגרת מהמריץ הקבוע",
+  "runner.framework_rescue_due": [
+    "תהליך המחזור הסתיים ללא תוצאה ",
+    {
+      "arg": "streak",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " פעמים ברציפות (⁦",
+    {
+      "arg": "outcome",
+      "type": "token",
+      "trust": "internal"
+    },
+    "⁩) ב-commit ⁦",
+    {
+      "arg": "sha",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "⁩ של המסגרת; ה-commit האחרון שהפיק תוצאה הוא ⁦",
+    {
+      "arg": "lastGoodSha",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "⁩. המריץ הקבוע מושך את המסגרת בעצמו."
+  ],
+  "runner.framework_rescue_result": [
+    "משיכת המסגרת על ידי המריץ הקבוע: ⁦",
+    {
+      "arg": "result",
+      "type": "token",
+      "trust": "internal"
+    },
+    "⁩; ה-commit של המסגרת הוא כעת ⁦",
+    {
+      "arg": "sha",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "⁩. ",
+    {
+      "arg": "detail",
+      "type": "detail",
+      "trust": "external"
+    }
   ],
   "runner.gate_evidence_save_failed": [
     "לא ניתן לשמור את ראיות בדיקת התצורה: ",
@@ -1842,6 +1950,21 @@ const DataheILrunner = `{
       "type": "detail",
       "trust": "internal"
     }
+  ],
+  "runner.max_cycle_seconds_invalid": [
+    "הערך של ⁦testCycle.maxCycleSeconds⁩ הוא '",
+    {
+      "arg": "v",
+      "type": "detail",
+      "trust": "external"
+    },
+    "', שאינו מספר -- ייעשה שימוש ב-",
+    {
+      "arg": "defaultSeconds",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " s."
   ],
   "runner.mb985d466db": [
     "stopVm: מכבה בכוח את '",
@@ -22415,6 +22538,62 @@ const DataheILrunner = `{
       "trust": "external"
     }
   ],
+  "runner.outer_loop_exception": [
+    "לולאת המריץ הקבוע נעצרה בשל ⁦",
+    {
+      "arg": "type",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "⁩ לא צפוי ב-⁦",
+    {
+      "arg": "location",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "⁩: ",
+    {
+      "arg": "message",
+      "type": "detail",
+      "trust": "external"
+    },
+    ". מופע ",
+    {
+      "arg": "streak",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " בתוך שעה; הלולאה תתחיל מחדש בעוד ",
+    {
+      "arg": "holdSeconds",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " s."
+  ],
+  "runner.outer_loop_orphan_stopped": [
+    "תהליך המחזור ",
+    {
+      "arg": "id",
+      "type": "integer",
+      "trust": "internal"
+    },
+    ", שלולאת המריץ שנקטעה השאירה פועל, נעצר."
+  ],
+  "runner.outer_poll_failed": [
+    "בדיקת ",
+    {
+      "arg": "probe",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    " של המריץ הקבוע נכשלה וטופלה כאילו לא התקבלה תשובה: ",
+    {
+      "arg": "message",
+      "type": "detail",
+      "trust": "external"
+    }
+  ],
   "runner.pool_configuration_library_removed": "⁦test-sets.yml⁩ הוסר ממאגר התצורה; אין מי שקורא אותו.",
   "runner.pool_configuration_schema_already_current": [
     "תצורת המאגר כבר בגרסת schemaVersion ",
@@ -22549,6 +22728,63 @@ const DataheILrunner = `{
       "trust": "internal"
     },
     "."
+  ],
+  "runner.proxy_ca_pin_mismatch": [
+    "שרת ה-proxy המטמון ב-⁦",
+    {
+      "arg": "cacheHost",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "⁩ מגיש CA עם ⁦sha256 ",
+    {
+      "arg": "fetched",
+      "type": "identifier",
+      "trust": "external"
+    },
+    "⁩, אך מארח זה סומך עליו בערך ⁦",
+    {
+      "arg": "expected",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "⁩; ה-CA המהימן נשמר. שמור את הקיבוע. במארח שבונה את ה-proxy, הפעל ⁦Start-CachingProxyServiceVM.ps1 -ForceRebuild -RepairPoolCaTrust⁩ כדי לרשום את מפתח החתימה המאומת שלו באמצעות בקרת מארחים מאומתת. מארח ללא מפתח רשום אינו יכול לאמת החלפת CA."
+  ],
+  "runner.proxy_ca_statement_absent": [
+    "ה-proxy לשמירת מטמון ב-⁦",
+    {
+      "arg": "cacheHost",
+      "type": "identifier",
+      "trust": "external"
+    },
+    "⁩ מגיש את ה-CA עם sha256 ‏⁦",
+    {
+      "arg": "fetched",
+      "type": "identifier",
+      "trust": "external"
+    },
+    "⁩ ללא הצהרה חתומה, ומארח זה רושם את מפתחות האימות של המראה של המעבדה, ולכן אינו סומך בשימוש ראשון על CA שלא הוצמד. בנו מחדש את ה-proxy לשמירת מטמון במארח שבבעלותו; ה-proxy הזה יגיש אז את ⁦yuruna-squid-ca.sig.json⁩."
+  ],
+  "runner.proxy_ca_statement_refused": [
+    "ה-proxy לשמירת מטמון ב-⁦",
+    {
+      "arg": "cacheHost",
+      "type": "identifier",
+      "trust": "external"
+    },
+    "⁩ מגיש את ה-CA עם sha256 ‏⁦",
+    {
+      "arg": "fetched",
+      "type": "identifier",
+      "trust": "external"
+    },
+    "⁩ עם הצהרה שמארח זה אינו מקבל (⁦",
+    {
+      "arg": "reason",
+      "type": "token",
+      "trust": "internal"
+    },
+    "⁩), ולכן אין אמון ב-CA הזה."
   ],
   "runner.readiness_ack_remove_action": "הסירו אישור מוכנות לרענון שאינו תקף עוד",
   "runner.readiness_ack_write_action": "כתבו את אישור המוכנות לרענון",
@@ -22961,6 +23197,66 @@ const DataheILrunner = `{
       "type": "detail",
       "trust": "external"
     }
+  ],
+  "runner.resident_watchdog_kill_preamble": [
+    "[מחזור חיצוני ",
+    {
+      "arg": "cycle",
+      "type": "integer",
+      "trust": "internal"
+    },
+    "] ה-watchdog של השלבים הפסיק לפעול ופעימת השלב לא זזה במשך ‏",
+    {
+      "arg": "ageSeconds",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " s בשלב ההכנה '⁦",
+    {
+      "arg": "phase",
+      "type": "token",
+      "trust": "internal"
+    },
+    "⁩' ‏(גבול ‏",
+    {
+      "arg": "boundSeconds",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " s); רכיב ההרצה התושב עצר את תהליך המחזור ",
+    {
+      "arg": "id",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " יחד עם עץ התהליכים שלו."
+  ],
+  "runner.resident_watchdog_kill_step": [
+    "[מחזור חיצוני ",
+    {
+      "arg": "cycle",
+      "type": "integer",
+      "trust": "internal"
+    },
+    "] ה-watchdog של השלבים הפסיק לפעול ופעימת השלב לא זזה במשך ‏",
+    {
+      "arg": "ageSeconds",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " s ‏(גבול ‏",
+    {
+      "arg": "boundSeconds",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " s); רכיב ההרצה התושב עצר את תהליך המחזור ",
+    {
+      "arg": "id",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " יחד עם עץ התהליכים שלו."
   ],
   "runner.runner_process_signal_action": [
     "שלחו אות לתהליך מריץ מאומת (",
@@ -23859,6 +24155,15 @@ const DataheILrunner = `{
       "trust": "external"
     }
   ],
+  "runner.vm_storage_reconcile_failed": [
+    "לא ניתן היה להשלים שינויי שם של מכונות וירטואליות שנקטעו בתחילת המחזור (",
+    {
+      "arg": "message",
+      "type": "detail",
+      "trust": "external"
+    },
+    "). המחזור ממשיך, המחיקות ממשיכות לבדוק הפניות, והמחזור הבא ינסה שוב."
+  ],
   "runner.warm_resume_declined_unverified": [
     "  WARM-RESUME נדחה: '",
     {
@@ -23885,6 +24190,33 @@ const DataheILrunner = `{
       "trust": "internal"
     },
     "). הכשל המקורי נשאר בתוקף."
+  ],
+  "runner.watchdog_lapse_seen": [
+    "[מחזור חיצוני ",
+    {
+      "arg": "cycle",
+      "type": "integer",
+      "trust": "internal"
+    },
+    "] ה-watchdog של השלבים הפסיק לפעול; כעת רכיב ההרצה התושב עוצר מחזור זה כאשר פעימת השלב שלו ישנה מ-‏",
+    {
+      "arg": "stepSeconds",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " s ‏(‏",
+    {
+      "arg": "preambleSeconds",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " s לפני השלב הראשון), ו-⁦testCycle.maxCycleSeconds⁩ עדיין מגביל אותו (‏",
+    {
+      "arg": "ceilingSeconds",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " s, כאשר 0 פירושו ללא הגבלה)."
   ]
 }
 `

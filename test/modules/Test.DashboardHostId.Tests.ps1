@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.22
+.VERSION 2026.10.25
 .GUID 42d2490f-e2d9-4303-a287-fa13182fb811
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -199,41 +199,50 @@ Describe 'the Host ID a dashboard panel shows' {
     }
 }
 
-Describe 'memory readings alongside the complete host inventory' {
-    It 'classifies commit support independently of scrape health: <Name>' -ForEach @(
-        @{ Name = 'macOS exporter up'; HostType = 'host.macos.utm'; Expected = 'Unsupported' },
-        @{ Name = 'macOS exporter down'; HostType = 'host.macos.utm'; Expected = 'Unsupported' },
-        @{ Name = 'unreachable macOS inventory row'; HostType = 'host.macos.utm'; Expected = 'Unsupported' },
-        @{ Name = 'Windows without a reading'; HostType = 'host.windows.hyper-v'; Expected = 'Supported' },
-        @{ Name = 'legacy public Ubuntu without metrics'; HostType = 'host.ubuntu.kvm'; Expected = 'Supported' },
-        @{ Name = 'unrecognized platform'; HostType = 'host.custom.macos'; Expected = 'Unknown' },
-        @{ Name = 'platform not reported'; HostType = ''; Expected = 'Unknown' }
-    ) {
-        $commit = Get-Panel -Id 24
-        $query = @($commit.targets | Where-Object { $_.refId -eq 'A' })[0].expr
-        # The inventory query owns this label, including rows with no up or
-        # memory series. Apply its ordered label-replacement rules to the
-        # reported host type rather than assuming a scrape can classify it.
-        $rules = @([regex]::Matches($query, ',\s*"headroomSupport",\s*"([^"]+)",\s*"hostType",\s*"([^"]+)"'))
-        Assert-True ($rules.Count -gt 0) 'the inventory must supply an explicit support label'
-        $actual = ''
-        foreach ($rule in $rules) {
-            if ($HostType -cmatch ('^(?:' + $rule.Groups[2].Value + ')$')) { $actual = $rule.Groups[1].Value }
-        }
-        Assert-Equal $Expected $actual
-        Assert-True ($query -notmatch '\bup\s*\{|yuruna_host_memory_|windows_memory_') 'support must not depend on an exporter answering'
+Describe 'a continuous timeline across pool membership changes' {
+    It 'returns identity labels only so historical pool labels cannot create duplicate rows' {
+        $timeline = Get-Panel -Id $script:PanelTimeline
+        $query = $timeline.targets[0].expr
+        Assert-True ($query -match '^max by \(hostId, hostIdDashed\) \(') 'each output series must have one stable host identity'
+        Assert-True ($query -match 'pool=~"\$pool"') 'pool selection still filters the input history'
+        Assert-Equal '{{hostId}}' $timeline.targets[0].legendFormat
     }
 
-    It 'shows commit support without substituting labels for missing or negative byte readings' {
+    It 'selects the newest sample before collapsing state codes' {
+        $timeline = Get-Panel -Id $script:PanelTimeline
+        $query = $timeline.targets[0].expr
+        Assert-True ($query -match ' and topk by \(hostId\) \(1, timestamp\(') 'a stale fail code must not override a newer running code'
+        $selectors = @([regex]::Matches($query, 'yuruna_pool_host_status\{[^}]+\}').Value)
+        Assert-Equal 2 $selectors.Count
+        Assert-Equal $selectors[0] $selectors[1] 'sample ranking and state values must use the same pool and hostname filter'
+        Assert-True ($selectors[0] -match 'hostname=""') 'historical hostname-bearing series remain excluded'
+    }
+}
+
+Describe 'memory readings alongside the complete host inventory' {
+    It 'keeps the compact commit-headroom column <Column> in position <Index>' -ForEach @(
+        @{ Column = 'Host ID'; Index = 0 },
+        @{ Column = 'Type'; Index = 1 },
+        @{ Column = 'Minimum'; Index = 2 },
+        @{ Column = 'Latest'; Index = 3 },
+        @{ Column = 'Exporter'; Index = 4 }
+    ) {
+        $commit = Get-Panel -Id 24
+        $organize = @($commit.transformations | Where-Object { $_.id -eq 'organize' })[0].options
+        $source = @($organize.renameByName.PSObject.Properties | Where-Object Value -EQ $Column)[0].Name
+        Assert-True (-not [string]::IsNullOrWhiteSpace($source)) "the $Column column must remain visible"
+        Assert-Equal $Index $organize.indexByName.$source
+    }
+
+    It 'omits the support column without substituting labels for missing or negative byte readings' {
         $available = Get-Panel -Id 23
         $commit = Get-Panel -Id 24
         $fields = @($commit.transformations | Where-Object { $_.id -eq 'filterFieldsByName' })[0].options.include.names
-        Assert-True ($fields -contains 'headroomSupport') 'the support label must survive the table transformation'
+        Assert-True ($fields -notcontains 'headroomSupport') 'missing byte readings already show n/a'
         $organize = @($commit.transformations | Where-Object { $_.id -eq 'organize' })[0]
-        Assert-Equal 'Support' $organize.options.renameByName.headroomSupport
-        $support = Get-Override $commit 'Support'
-        Assert-Equal 'none' (Get-OverrideProperty $support 'unit')
-        Assert-Equal 'Unknown' (Get-OverrideProperty $support 'noValue')
+        Assert-True (-not $organize.options.renameByName.headroomSupport)
+        Assert-Equal 0 @($commit.fieldConfig.overrides | Where-Object { $_.matcher.options -eq 'Support' }).Count
+        Assert-True ($commit.targets[0].expr -notmatch 'headroomSupport|label_replace') 'inventory rows do not need synthetic support labels'
         Assert-True ($available.targets[0].expr -notmatch 'headroomSupport') 'physical availability has no unsupported-macOS state'
         foreach ($ref in 'B', 'C') {
             $query = @($commit.targets | Where-Object { $_.refId -eq $ref })[0].expr

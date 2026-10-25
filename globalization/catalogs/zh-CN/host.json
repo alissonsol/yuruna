@@ -5897,6 +5897,61 @@
       "sourceHash": "77b62b3bb39cd82c527244867ce76f4ed23605154ab9ee838554d982c69b8926",
       "origin": "machine",
       "message": "虚拟机“{vmName}”在 {seconds} 秒内未接受 Windows 安装程序启动按键。"
+    },
+    "host.kvm_rename_destination_dir_exists": {
+      "sourceHash": "4b3d974279588ce38a9b8a9905f134cccf65204575d9784698ece0a65c64e943",
+      "origin": "machine",
+      "message": "无法重命名为“{newName}”：目录 {newDir} 已存在，将存储移入其中可能会覆盖磁盘。"
+    },
+    "host.vm_storage_reference_unknown": {
+      "sourceHash": "b7939d379e67a7ff686510f6a5505bf09f52e1441d332c73f82703ce78382279",
+      "origin": "machine",
+      "message": "已保留 {vmDir}：无法读取哪些虚拟机在使用其中的磁盘（{message}）。"
+    },
+    "host.vm_storage_delete_refused": {
+      "sourceHash": "7daeaa25c45a790e4a6e7fe74bb9beb859c436287232fc54de7c3ca5914f40bf",
+      "origin": "machine",
+      "message": "已保留 {vmDir}：其中仍有已注册虚拟机正在使用的磁盘（{owners}）。"
+    },
+    "host.vm_storage_relocate_action": {
+      "sourceHash": "7ee21afdf2b33972fd24efd366621fcc5a49c9a1f8f8ccd17493eb2fab850735",
+      "origin": "machine",
+      "message": "将留在“{fromName}”下的存储移到此虚拟机自己的名称下"
+    },
+    "host.vm_storage_relocation_failed": {
+      "sourceHash": "193c701139ef6a718fab1db481c50ac8463843ce290d0f5fc0688774e9c833ee",
+      "origin": "machine",
+      "message": "无法将“{vMName}”的存储移出“{fromName}”的目录：{reason}。"
+    },
+    "host.vm_storage_relocated": {
+      "sourceHash": "0ed84581a58174a809c52e4f44f8a3fd84104fdce45b3cd6e81fed3963a0fa88",
+      "origin": "machine",
+      "message": "已完成一次中断的重命名：“{vMName}”的存储已移出“{fromName}”的目录。"
+    },
+    "host.vm_build_storage_in_use": {
+      "sourceHash": "b70e67d63b395dd5953a5d20afe49a4f03d3043d6ee50806052263611ef94b78",
+      "origin": "machine",
+      "message": "未重建“{vMName}”：{vmDir} 中仍有另一台虚拟机正在使用的磁盘，或者无法读取其使用情况。其中的内容均未更改。"
+    },
+    "host.hyperv_rename_destination_dir_occupied": {
+      "sourceHash": "5861465cad32019f536959ba9e088654eab9e3faea8a52b37e11da4b326b6057",
+      "origin": "machine",
+      "message": "无法重命名为“{newName}”：目录 {newDir} 中已有文件，将存储移入其中会在重命名之后失败，使重命名只完成一半。"
+    },
+    "host.vm_storage_reconcile_action": {
+      "sourceHash": "518ebc15e6c396cd1dc4a0f1dc5d0d10450037b1cc28c9b504784ba5ff8c1ed1",
+      "origin": "machine",
+      "message": "完成被中断的快照提升遗留下的未完成重命名"
+    },
+    "host.vm_storage_repair_unknown": {
+      "sourceHash": "f0ab49131809c3ecf754a0223559367eae71bb89f1979ff1b4048bc684c1f09b",
+      "origin": "machine",
+      "message": "无法检查“{vMName}”是否仍有存储位于另一个名称下（{message}）；其存储保持原样，下一个周期会再次检查。"
+    },
+    "host.proxy_ca_refused_build": {
+      "sourceHash": "643de5f5e6aef1937e9ed81d27541922f0d9f67306cc88920fbd9f9dee30887a",
+      "origin": "machine",
+      "message": "未构建“{vMName}”：{cacheHost} 上的缓存代理提供了此主机不信任的 CA（{reason}）。不会绕过它为来宾准备种子，该失败归类为 source_integrity。"
     }
   }
 }

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.22
+.VERSION 2026.10.25
 .GUID 42d2a293-af6c-4dd9-a606-42daae4a745b
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -408,6 +408,24 @@ Describe 'Test-PoolConfiguration.ps1 judges pools.yml as stored' {
 }
 
 Describe 'Get-PoolConfiguration.ps1 emits the v4 shape' {
+    It 'resumes a configured pool without changing operator repositories and reports the replaced value' {
+        $doc = Get-V4PoolDocument -LabRepositories
+        $doc['pools'][0]['configuredState'] = 'paused'
+        $doc['pools'][0]['repositories']['projectUrl'] = 'file:///operator/project.git'
+        $f = New-PoolStoreFixture -Pools $doc
+        $before = Get-StoreHead $f
+        $run = Invoke-PoolCli 'Set-PoolConfiguredState.ps1' @('-PoolId', 'lab', '-State', 'run', '-ConfigurationGitUrl', $f.Store, '-ConfigurationDir', $f.Clone)
+        $run.Code | Should -Be 0
+        $run.Text | Should -Match 'pools\.lab\.configuredState: paused -> run'
+        $saved = Get-StorePoolDocument $f
+        $lab = Get-FixturePool $saved 'lab'
+        $lab['configuredState'] | Should -BeExactly 'run'
+        $lab['repositories']['projectUrl'] | Should -BeExactly 'file:///operator/project.git'
+        $lab['repositories']['frameworkUrl'] | Should -BeExactly $doc['pools'][0]['repositories']['frameworkUrl']
+        (Get-FixturePool $saved 'default')['configuredState'] | Should -BeExactly 'run'
+        $prior = ((& git -C $f.Store show "${before}:pools.yml") -join "`n") | ConvertFrom-Yaml -Ordered
+        (Get-FixturePool $prior 'lab')['configuredState'] | Should -BeExactly 'paused'
+    }
     It 'shows a v2 store''s pairs as repositories, with no library and the auto-enrollment policy' {
         $f = New-PoolStoreFixture -Pools (Get-V2PoolDocument) -Library $script:Library
         $before = Get-StoreHead $f

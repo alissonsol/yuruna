@@ -5897,6 +5897,61 @@
       "sourceHash": "77b62b3bb39cd82c527244867ce76f4ed23605154ab9ee838554d982c69b8926",
       "origin": "machine",
       "message": "המכונה הווירטואלית '{vmName}' לא קיבלה מקש אתחול של מתקין Windows בתוך {seconds} שניות."
+    },
+    "host.kvm_rename_destination_dir_exists": {
+      "sourceHash": "4b3d974279588ce38a9b8a9905f134cccf65204575d9784698ece0a65c64e943",
+      "origin": "machine",
+      "message": "לא ניתן לשנות את השם ל-'⁦{newName}⁩': התיקייה ⁦{newDir}⁩ כבר קיימת, והעברת האחסון אליה עלולה לדרוס דיסקים."
+    },
+    "host.vm_storage_reference_unknown": {
+      "sourceHash": "b7939d379e67a7ff686510f6a5505bf09f52e1441d332c73f82703ce78382279",
+      "origin": "machine",
+      "message": "⁦{vmDir}⁩ נשמר: לא ניתן היה לקרוא אילו מכונות וירטואליות משתמשות בדיסקים שבו ({message})."
+    },
+    "host.vm_storage_delete_refused": {
+      "sourceHash": "7daeaa25c45a790e4a6e7fe74bb9beb859c436287232fc54de7c3ca5914f40bf",
+      "origin": "machine",
+      "message": "⁦{vmDir}⁩ נשמר: הוא עדיין מכיל דיסקים שמכונה וירטואלית רשומה משתמשת בהם ({owners})."
+    },
+    "host.vm_storage_relocate_action": {
+      "sourceHash": "7ee21afdf2b33972fd24efd366621fcc5a49c9a1f8f8ccd17493eb2fab850735",
+      "origin": "machine",
+      "message": "העברת האחסון שנשאר תחת '⁦{fromName}⁩' לשם של מכונה וירטואלית זו"
+    },
+    "host.vm_storage_relocation_failed": {
+      "sourceHash": "193c701139ef6a718fab1db481c50ac8463843ce290d0f5fc0688774e9c833ee",
+      "origin": "machine",
+      "message": "לא ניתן היה להעביר את האחסון של '⁦{vMName}⁩' מחוץ לתיקייה של '⁦{fromName}⁩': {reason}."
+    },
+    "host.vm_storage_relocated": {
+      "sourceHash": "0ed84581a58174a809c52e4f44f8a3fd84104fdce45b3cd6e81fed3963a0fa88",
+      "origin": "machine",
+      "message": "שינוי שם שנקטע הושלם: האחסון של '⁦{vMName}⁩' הועבר מחוץ לתיקייה של '⁦{fromName}⁩'."
+    },
+    "host.vm_build_storage_in_use": {
+      "sourceHash": "b70e67d63b395dd5953a5d20afe49a4f03d3043d6ee50806052263611ef94b78",
+      "origin": "machine",
+      "message": "'⁦{vMName}⁩' לא נבנתה מחדש: ⁦{vmDir}⁩ עדיין מכיל דיסקים שמכונה וירטואלית אחרת משתמשת בהם, או שלא ניתן היה לקרוא מי משתמש בהם. שום דבר בו לא שונה."
+    },
+    "host.hyperv_rename_destination_dir_occupied": {
+      "sourceHash": "5861465cad32019f536959ba9e088654eab9e3faea8a52b37e11da4b326b6057",
+      "origin": "machine",
+      "message": "לא ניתן לשנות את השם ל-'⁦{newName}⁩': התיקייה ⁦{newDir}⁩ כבר מכילה קבצים, והעברת האחסון אליה תיכשל לאחר שינוי השם ותשאיר אותו חלקי."
+    },
+    "host.vm_storage_reconcile_action": {
+      "sourceHash": "518ebc15e6c396cd1dc4a0f1dc5d0d10450037b1cc28c9b504784ba5ff8c1ed1",
+      "origin": "machine",
+      "message": "השלמת שינויי השם שקידום תמונת מצב שנקטע השאיר חלקיים"
+    },
+    "host.vm_storage_repair_unknown": {
+      "sourceHash": "f0ab49131809c3ecf754a0223559367eae71bb89f1979ff1b4048bc684c1f09b",
+      "origin": "machine",
+      "message": "לא ניתן היה לבדוק אם ל-'⁦{vMName}⁩' עדיין יש אחסון תחת שם אחר ({message}); האחסון שלה נשאר כפי שהוא, והמחזור הבא יבדוק שוב."
+    },
+    "host.proxy_ca_refused_build": {
+      "sourceHash": "643de5f5e6aef1937e9ed81d27541922f0d9f67306cc88920fbd9f9dee30887a",
+      "origin": "machine",
+      "message": "'⁦{vMName}⁩' לא נבנתה: ה-proxy לשמירת מטמון ב-⁦{cacheHost}⁩ מגיש CA שמארח זה אינו סומך עליו (⁦{reason}⁩). האורח אינו מוזרע תוך עקיפה של זה, והכשל מסווג כ-⁦source_integrity⁩."
     }
   }
 }

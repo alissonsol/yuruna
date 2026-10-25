@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.22
+.VERSION 2026.10.25
 .GUID 4243f981-9a67-4b29-81f5-966316b4be67
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -74,6 +74,11 @@ if ([string]::IsNullOrWhiteSpace($env:YURUNA_TEST_TEMP_ROOT)) {
     }
 }
 
+# The coordinator sets this before worker startup. A directly invoked shim
+# must also protect its descendants from the shared startup JIT profile race.
+$savedStartupProfile = [Environment]::GetEnvironmentVariable('DOTNET_MultiCoreJitProfile')
+[Environment]::SetEnvironmentVariable('DOTNET_MultiCoreJitProfile', '(D)')
+
 try {
     $pesterModule = Get-Module -ListAvailable Pester |
         Where-Object { $_.Version -ge [version]'6.0.0' -and $_.Version -lt [version]'7.0.0' } |
@@ -114,6 +119,7 @@ try {
     Write-Error ("suite process failed: {0}" -f $_.Exception.Message) -ErrorAction Continue
     exit 2
 } finally {
+    [Environment]::SetEnvironmentVariable('DOTNET_MultiCoreJitProfile', $savedStartupProfile)
     if ($ownedTempRoot) {
         foreach ($name in $savedTempEnvironment.Keys) { [Environment]::SetEnvironmentVariable($name, $savedTempEnvironment[$name]) }
         Remove-Item -LiteralPath $ownedTempRoot -Recurse -Force -ErrorAction SilentlyContinue

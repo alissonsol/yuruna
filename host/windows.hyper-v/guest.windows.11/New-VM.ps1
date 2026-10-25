@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.22
+.VERSION 2026.10.25
 .GUID 427027e4-02aa-49bd-8f50-95db47263320
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -127,12 +127,19 @@ Write-Verbose "Creating 512GB dynamically expanding VHDX..."
 New-VHD -Path $vhdxFile -SizeBytes 512GB -Dynamic | Out-Null
 
 # --- REGION: Render the autounattend.xml + build a CD with it
-# Autounattend seed ISO.
-# New-YurunaSeedDirectory creates the folder exclusively under a random name,
-# so nothing planted at a predictable %TEMP% path is ever reused.
+# Autounattend seed ISO. The answer file and the bootstrap carry the repository
+# token. They are staged in a private workspace beside the disk (owner, SYSTEM
+# and Administrators only), published as an image only the new VM may read,
+# and removed on every exit by the finally below.
 Import-Module (Join-Path $PSScriptRoot '../../../automation/Yuruna.Common.psm1') -DisableNameChecking
+Import-Module (Join-Path $PSScriptRoot '../../modules/Yuruna.SeedMedia.psm1') -Force
+# A plaintext source an older builder left in the temp folder goes first.
+Get-ChildItem -LiteralPath ([IO.Path]::GetTempPath()) -Directory -Filter "seed_${VMName}_*" -ErrorAction SilentlyContinue |
+    Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
+$seedWorkspace = $null
 try {
-    $SeedDir = New-YurunaSeedDirectory -VMName $VMName
+    $seedWorkspace = New-SeedMediaWorkspace -ParentPath $vmDir
+    $SeedDir = $seedWorkspace.Source
 
     $VmConfigDir = Join-Path $ScriptDir "vmconfig"
     $AnswerFileTemplate = Join-Path $VmConfigDir "autounattend.xml"
@@ -186,7 +193,8 @@ try {
     $SeedIso = Join-Path $vmDir "seed.iso"
     Write-Verbose "Generating seed.iso with autounattend configuration..."
     # OEMDRV volume label causes Windows Setup to automatically pick up autounattend.xml
-    CreateIso -SourceDir $SeedDir -OutputFile $SeedIso -VolumeId "OEMDRV"
+    CreateIso -SourceDir $SeedDir -OutputFile $seedWorkspace.Image -VolumeId "OEMDRV"
+    Publish-SeedMediaImage -Workspace $seedWorkspace -Path $SeedIso -Confirm:$false
 
     # --- REGION: Create and configure the Hyper-V VM
     Write-Verbose "Creating new VM '$VMName' on switch '$switchName'..."
@@ -219,6 +227,7 @@ try {
     if ($prunedAce -gt 0) { Write-Verbose "Pruned $prunedAce stale per-VM ACE(s) from base image before attach." }
     Add-VMDvdDrive -VMName $VMName -Path $baseImageFile | Out-Null
     Add-VMDvdDrive -VMName $VMName -Path $SeedIso | Out-Null
+    Grant-SeedMediaVmRead -Path $SeedIso -VMId (Hyper-V\Get-VM -Name $VMName -ErrorAction Stop).Id -Confirm:$false
 
     $dvdDrive = Get-VMDvdDrive -VMName $VMName | Where-Object { $_.Path -eq $baseImageFile }
     Set-VMFirmware -VMName $VMName -FirstBootDevice $dvdDrive
@@ -249,7 +258,7 @@ try {
 } finally {
     # The seed holds the guest's admin credentials; it must not outlive this
     # script on any path, an early exit or a throw included.
-    Remove-Item -LiteralPath $SeedDir -Recurse -Force -ErrorAction SilentlyContinue
+    Remove-SeedMediaWorkspace -Workspace $seedWorkspace -Confirm:$false
 }
 
 # --- REGION: Start Windows installer

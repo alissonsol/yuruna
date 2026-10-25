@@ -798,6 +798,21 @@ exposure, documented above). The vault pre-check is purely read-only: the
 replicator neither writes the vault nor alters the password alphabet, length,
 or storage.
 
+The service VMs that mount a share -- stash (the stash share), pool-control and the
+download agent (the pool share) -- never carry the SMB password in their seed. Each
+seed carries a client certificate minted for that VM by the building host's Config
+CA, and at first boot `/usr/local/bin/yuruna-nas-credential.sh` fetches the
+credential from the host config service (`GET /v1/nas/stash` or `/v1/nas/pool`)
+over mutual TLS and writes the `0600` credentials file the mount reads. The service
+start pipeline ensures the host config service before it builds the VM, as the
+caching-proxy start already did. A guest that cannot reach it mounts nothing and
+says so in `cloud-init-output.log`, the outcome of an unconfigured share. All twelve
+service builders, and the nine test-guest builders, also stage every seed in a private
+workspace beside the disk (`Yuruna.SeedMedia.psm1`: owner-only directory, owner-only
+image, VM-only read on Hyper-V) and remove it on every exit, a failed build included,
+because the seed still carries the guest's admin password, password hash or repository
+token.
+
 ---
 
 <a id="428405a0-0014"></a>
@@ -828,6 +843,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.22
+Last review: 2026.10.25
 
 Back to [Yuruna](../README.md)

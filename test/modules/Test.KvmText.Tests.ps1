@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.22
+.VERSION 2026.10.25
 .GUID 42029610-1d57-467e-bf3b-f8b731e657c1
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -346,7 +346,7 @@ helper.send(request,library)
 '@
         $result.TimedOut | Should -BeTrue
         $result.ElapsedMs | Should -BeLessThan 4000
-        $result.KillFailed | Should -BeFalse
+        $result.KillFailed | Should -BeFalse -Because ($result | ConvertTo-Json -Compress)
         Get-Process -Id $result.ProcessId -ErrorAction SilentlyContinue | Should -BeNullOrEmpty
     }
 }

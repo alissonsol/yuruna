@@ -355,7 +355,7 @@
       "gridPos": { "h": 9, "w": 24, "x": 0, "y": 4 },
       "datasource": { "type": "prometheus", "uid": "yuruna-prometheus" },
       "targets": [
-        { "refId": "A", "expr": "yuruna_pool_host_status{pool=~\"$pool\", hostname=\"\"}", "legendFormat": "{{hostId}}", "range": true, "datasource": { "type": "prometheus", "uid": "yuruna-prometheus" } }
+        { "refId": "A", "expr": "max by (hostId, hostIdDashed) (yuruna_pool_host_status{pool=~\"$pool\", hostname=\"\"} and topk by (hostId) (1, timestamp(yuruna_pool_host_status{pool=~\"$pool\", hostname=\"\"})))", "legendFormat": "{{hostId}}", "range": true, "datasource": { "type": "prometheus", "uid": "yuruna-prometheus" } }
       ],
       "transformations": [
         { "id": "renameByRegex", "options": { "regex": ".*?([0-9a-fA-F]{8})[0-9a-fA-F]{24}.*", "renamePattern": "$1" } }
@@ -700,13 +700,13 @@
           "id": 24,
           "type": "table",
           "title": "Commit headroom per host",
-          "description": "Commit limit minus committed bytes for Windows and Ubuntu. Windows measures memory it can still promise; Ubuntu reports CommitLimit minus Committed_AS, whose allocation meaning depends on the kernel overcommit policy and can be negative. Support identifies Windows and Ubuntu as Supported, macOS as Unsupported, and unrecognized platforms as Unknown. macOS has no equivalent commit counter, so its byte readings stay n/a even when Exporter is Up. Minimum and Latest summarize the selected window; the sparkline preserves its history. Every current host is listed; n/a means no reading, not zero; Support distinguishes an unsupported platform from a supported host with missing telemetry. Exporter reports scrape health at the window end: Up, Down, or Not scraped. A historical reading may remain when the exporter is now Down. Host ID opens the same full-ID and status-page menu as Pool hosts.",
+          "description": "Commit limit minus committed bytes for Windows and Ubuntu. Windows measures memory it can still promise; Ubuntu reports CommitLimit minus Committed_AS, whose allocation meaning depends on the kernel overcommit policy and can be negative. macOS has no equivalent commit counter, so its byte readings stay n/a even when Exporter is Up. Minimum and Latest summarize the selected window; the sparkline preserves its history. Every current host is listed; n/a means no reading, not zero. Exporter reports scrape health at the window end: Up, Down, or Not scraped. A historical reading may remain when the exporter is now Down. Host ID opens the same full-ID and status-page menu as Pool hosts.",
           "gridPos": {"h": 15, "w": 12, "x": 12, "y": 28},
           "datasource": {"type": "prometheus", "uid": "yuruna-prometheus"},
           "targets": [
             {
               "refId": "A",
-              "expr": "label_replace(label_replace(label_replace(topk(1, yuruna_pool_host_info{pool=~\"$pool\"}) by (hostId) unless on(hostId) yuruna_pool_host_retired, \"headroomSupport\", \"Unknown\", \"hostType\", \".*\"), \"headroomSupport\", \"Supported\", \"hostType\", \"host[.](windows|ubuntu)[.].+\"), \"headroomSupport\", \"Unsupported\", \"hostType\", \"host[.]macos[.].+\")",
+              "expr": "topk(1, yuruna_pool_host_info{pool=~\"$pool\"}) by (hostId) unless on(hostId) yuruna_pool_host_retired",
               "instant": true,
               "format": "table",
               "datasource": {"type": "prometheus", "uid": "yuruna-prometheus"}
@@ -754,7 +754,6 @@
                   }
                 ]
               },
-              {"matcher": {"id": "byName", "options": "Support"}, "properties": [{"id": "unit", "value": "none"}, {"id": "noValue", "value": "Unknown"}, {"id": "custom.width", "value": 110}]},
               {"matcher": {"id": "byName", "options": "Minimum"}, "properties": [{"id": "custom.width", "value": 100}]},
               {
                 "matcher": {"id": "byName", "options": "Latest"},
@@ -778,13 +777,13 @@
             {"id": "timeSeriesTable", "options": {"B": {"stat": "lastNotNull"}}, "filter": {"id": "byRefId", "options": "B"}},
             {"id": "joinByField", "options": {"byField": "hostId", "mode": "outerTabular"}},
             {"id": "filterByValue", "options": {"filters": [{"config": {"id": "isNotNull", "options": {}}, "fieldName": "hostIdDashed"}], "match": "all", "type": "include"}},
-            {"id": "filterFieldsByName", "options": {"include": {"names": ["hostId", "hostIdDashed", "hostType", "headroomSupport", "Trend #B", "Value #C", "Value #D"]}}},
+            {"id": "filterFieldsByName", "options": {"include": {"names": ["hostId", "hostIdDashed", "hostType", "Trend #B", "Value #C", "Value #D"]}}},
             {
               "id": "organize",
               "options": {
                 "excludeByName": {},
-                "renameByName": {"hostId": "Host ID", "hostType": "Type", "headroomSupport": "Support", "Value #C": "Minimum", "Trend #B": "Latest", "Value #D": "Exporter"},
-                "indexByName": {"hostId": 0, "hostType": 1, "headroomSupport": 2, "Value #C": 3, "Trend #B": 4, "Value #D": 5, "hostIdDashed": 6}
+                "renameByName": {"hostId": "Host ID", "hostType": "Type", "Value #C": "Minimum", "Trend #B": "Latest", "Value #D": "Exporter"},
+                "indexByName": {"hostId": 0, "hostType": 1, "Value #C": 2, "Trend #B": 3, "Value #D": 4, "hostIdDashed": 5}
               }
             }
           ]

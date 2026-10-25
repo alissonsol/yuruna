@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.22
+.VERSION 2026.10.25
 .GUID 423bf361-3c2d-4eec-ac8d-50aca4319afe
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -39,6 +39,9 @@
     where it lives cannot resolve the SDK at all. The staging mirrors the
     guest's -- module at server/, SDK beside it -- and is removed when the
     module's phases finish.
+
+    Modules run in parallel, each go command already using every processor;
+    their output and failures are reported in module order.
 
 .PARAMETER Path
     Repo-relative root to search for Go modules. Default: test/extension.
@@ -108,12 +111,15 @@ foreach ($tempName in 'TMPDIR', 'TMP', 'TEMP') {
     [Environment]::SetEnvironmentVariable($tempName, $goTemp)
 }
 try {
-    foreach ($module in $modules) {
-        $name = [IO.Path]::GetRelativePath($RepoRoot, $module) -replace '\\', '/'
+    $results = $modules | ForEach-Object -ThrottleLimit ([Math]::Clamp([int][Math]::Floor([Environment]::ProcessorCount / 4), 1, 8)) -Parallel {
+        $module = $_
+        $name = [IO.Path]::GetRelativePath($using:RepoRoot, $module) -replace '\\', '/'
+        $report = [Collections.Generic.List[string]]::new()
+        $failure = $null
 
         $stage = $null
         $runIn = $module
-        if ((Get-Content -Raw -LiteralPath (Join-Path $module 'go.mod')) -match $sdkReplace) {
+        if ((Get-Content -Raw -LiteralPath (Join-Path $module 'go.mod')) -match $using:sdkReplace) {
             # Walk outwards for the SDK rather than assuming a depth: a module whose
             # go.mod sits somewhere other than <area>/server would otherwise stage a
             # directory that is not the SDK, and fail a phase later with an error
@@ -124,8 +130,7 @@ try {
                 if (Test-Path -LiteralPath (Join-Path $candidate 'go.mod')) { $sdk = $candidate; break }
             }
             if (-not $sdk) {
-                $failures.Add("${name}: requires the extension SDK, and no extension-sdk module sits above it")
-                continue
+                return [pscustomobject]@{ Name = $name; Failure = "${name}: requires the extension SDK, and no extension-sdk module sits above it"; Report = @() }
             }
             $stage = Join-Path ([IO.Path]::GetTempPath()) ('yuruna-gotest-' + [Guid]::NewGuid().ToString('n'))
             New-Item -ItemType Directory -Path $stage -Force | Out-Null
@@ -142,39 +147,37 @@ try {
         }
 
         try {
-            foreach ($phase in $phases) {
-                Push-Location $runIn
-                try {
-                    # -buildvcs=false because a staged module is a copy in a temp
-                    # directory with no repository above it. Go treats a VCS query
-                    # it cannot answer as a build failure, so without this every
-                    # SDK-consuming service fails the gate for a reason that has
-                    # nothing to do with its code -- and a gate that always fails
-                    # is read as broken tooling and then ignored.
-                    $goArgs = @($phase)
-                    if ($stage) { $goArgs += '-buildvcs=false' }
-                    $goArgs += './...'
-                    $output = & go @goArgs 2>&1
-                    $ok = ($LASTEXITCODE -eq 0)
-                } finally {
-                    Pop-Location
-                }
-                if (-not $ok) {
-                    $failures.Add("${name}: go $phase failed")
-                    if (-not $Quiet) {
-                        Write-Information "--- ${name}: go $phase ---" -InformationAction Continue
-                        ($output | Out-String).TrimEnd() | Write-Information -InformationAction Continue
-                    }
+            foreach ($phase in $using:phases) {
+                # -buildvcs=false because a staged module is a copy in a temp
+                # directory with no repository above it. Go treats a VCS query
+                # it cannot answer as a build failure, so without this every
+                # SDK-consuming service fails the gate for a reason that has
+                # nothing to do with its code -- and a gate that always fails
+                # is read as broken tooling and then ignored.
+                $goArgs = @('-C', $runIn, $phase)
+                if ($stage) { $goArgs += '-buildvcs=false' }
+                $goArgs += './...'
+                $output = & go @goArgs 2>&1
+                if ($LASTEXITCODE -ne 0) {
+                    $failure = "${name}: go $phase failed"
+                    $report.Add("--- ${name}: go $phase ---")
+                    $report.Add(($output | Out-String).TrimEnd())
                     # The later phases would only restate the same breakage.
                     break
                 }
-                if (-not $Quiet -and $phase -eq 'test') {
-                    ($output | Where-Object { $_ -match '^(ok|---|FAIL|\?)' } | Out-String).TrimEnd() |
-                        Write-Information -InformationAction Continue
+                if ($phase -eq 'test') {
+                    $report.Add(($output | Where-Object { $_ -match '^(ok|---|FAIL|\?)' } | Out-String).TrimEnd())
                 }
             }
         } finally {
             if ($stage) { Remove-Item -LiteralPath $stage -Recurse -Force -ErrorAction SilentlyContinue }
+        }
+        [pscustomobject]@{ Name = $name; Failure = $failure; Report = @($report) }
+    }
+    foreach ($result in @($results | Sort-Object Name)) {
+        if ($result.Failure) { $failures.Add($result.Failure) }
+        if (-not $Quiet) {
+            foreach ($line in $result.Report) { if ($line) { Write-Information $line -InformationAction Continue } }
         }
     }
 

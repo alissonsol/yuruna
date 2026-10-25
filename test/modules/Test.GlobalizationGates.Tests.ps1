@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.22
+.VERSION 2026.10.25
 .GUID 42a4c7d2-1f58-4b93-8c07-5e6d2a91f374
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -32,6 +32,11 @@
     request counts, measured from the working tree, identical on any machine.
     That is what lets them sit in an ordinary suite. Timing is a different
     instrument with different failure modes and lives in its own harness.
+
+    The generated-artifact and product-matrix cases are in
+    Test.GlobalizationGatesArtifacts.Tests.ps1 and
+    Test.GlobalizationGatesProduct.Tests.ps1, which run this file's setup, so
+    the three files run at once.
 
     Run through tools/_InvokeOneSuite.ps1 and inspect its NUnit result file.
 #>
@@ -213,15 +218,16 @@ function Invoke-EnabledProductMatrix {
     foreach ($file in Get-ChildItem -LiteralPath (Join-Path $script:RepoRoot 'globalization/generated') -File -Recurse) {
         $matrixBefore[$file.FullName] = (Get-FileHash -LiteralPath $file.FullName -Algorithm SHA256).Hash
     }
-    foreach ($path in @('test/status', 'test/extension')) {
-        $result = Invoke-Gate -Script 'tools/Invoke-JsTest.ps1' -Arguments @('-Path', $path, '-Quiet')
-        Assert-Equal 0 $result.Code $result.Output
-    }
-    Invoke-ProductGlobalizationCheck -Kind Go -Path 'test/extension'
-    foreach ($path in @('test/modules/Test.CultureMatrix.Tests.ps1',
-            'test/modules/Test.StatusServiceLocale.Tests.ps1', 'test/modules/Test.ProjectLocaleMap.Tests.ps1')) {
-        Invoke-ProductGlobalizationCheck -Kind Pester -Path $path
-    }
+    # The product checks are separate processes with no shared output, so the
+    # set runs them at once; the slowest one, not their sum, sets the time.
+    Invoke-ProductGlobalizationCheckSet -Check @(
+        @{ Kind = 'JsTest'; Path = 'test/status' }
+        @{ Kind = 'JsTest'; Path = 'test/extension' }
+        @{ Kind = 'Go'; Path = 'test/extension' }
+        @{ Kind = 'Pester'; Path = 'test/modules/Test.CultureMatrix.Tests.ps1' }
+        @{ Kind = 'Pester'; Path = 'test/modules/Test.StatusServiceLocale.Tests.ps1' }
+        @{ Kind = 'Pester'; Path = 'test/modules/Test.ProjectLocaleMap.Tests.ps1' }
+    )
     foreach ($file in $matrixBefore.Keys) {
         Assert-True ([string]::Equals($matrixBefore[$file], (Get-FileHash -LiteralPath $file -Algorithm SHA256).Hash, [StringComparison]::Ordinal)) "runtime rendering mutated $file"
     }
@@ -982,110 +988,6 @@ Describe 'the publisher validates the artifacts it is about to publish' {
     }
 }
 
-Describe 'the generated artifacts match their sources' {
-
-    It 'keeps every boundary consumer mapped to an owned affected slice' {
-        $result = Invoke-Gate -Script 'tools/Invoke-AffectedSliceMap.ps1' `
-            -Arguments @('-Check', '-Quiet')
-        Assert-Equal -Expected 0 -Actual $result.Code `
-            "the affected-slice evidence is stale or has an unmapped blocker:`n$($result.Output)"
-    }
-
-    It 'holds converted literals and machine boundaries to their ratchets' {
-        $result = Invoke-Gate -Script 'tools/Test-GlobalizationAuthority.ps1' -Arguments @('-Quiet')
-        Assert-Equal -Expected 0 -Actual $result.Code `
-            "converted prose or a message-shaped protocol escaped its gate:`n$($result.Output)"
-    }
-
-    It 'reports the compiled catalogs as current' {
-        $result = Invoke-Gate -Script 'tools/Invoke-CatalogCompile.ps1' -Arguments @('-Check', '-Quiet')
-        Assert-Equal -Expected 0 -Actual $result.Code `
-            "run tools/Invoke-CatalogCompile.ps1 -Update:`n$($result.Output)"
-    }
-
-    It 'reports every runtime copy as current' {
-        # Browser runtimes and Go modules both carry copies of what the compiler
-        # produced. A copy diverges the moment someone edits the near one.
-        $result = Invoke-Gate -Script 'tools/Invoke-CatalogEmbed.ps1' -Arguments @('-Check', '-Quiet')
-        Assert-Equal -Expected 0 -Actual $result.Code `
-            "run tools/Invoke-CatalogEmbed.ps1:`n$($result.Output)"
-    }
-
-    It 'globalization acceptance: all translated documents source current and reachable' {
-        # This gate had no automated caller: the project's own gate table listed
-        # it while nothing ran it, so a commit that edited an English source
-        # left every check green and the drift was caught only when a person
-        # remembered to type the command.
-        #
-        # Exit 2 is "could not run" -- the sibling checkout is absent -- which
-        # is not a drift finding and must not be reported as one. It is not a
-        # skip either: six of the documents live in that checkout, and
-        # documents nobody compared would count as current.
-        Confirm-SiblingCheckout -Name 'yuruna-project'
-        $result = Invoke-Gate -Script 'tools/Test-DocTranslation.ps1' -Arguments @('-Quiet')
-        Assert-False ($result.Code -eq 2) "the document gate could not run:`n$($result.Output)"
-        Assert-Equal -Expected 0 -Actual $result.Code `
-            "a translated document has drifted from the English it was translated from:`n$($result.Output)"
-    }
-
-    It 'runs the gates that reach the project repository' {
-        # Every gate in this tree stops at its own edge, and a lab runs a
-        # framework and a project from two repositories on two release
-        # cadences. Nothing checked the project except the documentation tools
-        # that already crossed the boundary.
-        #
-        # Exit 2 is "a gate could not run" -- no project checkout, or a missing
-        # tool -- which is not a pass and must not be reported as one. It is
-        # not a skip either: the gates are the subject here, and one that did
-        # not run has checked nothing.
-        Confirm-SiblingCheckout -Name 'yuruna-project', 'yuruna.link'
-        $result = Invoke-Gate -Script 'tools/Invoke-CrossRepoGate.ps1' -Arguments @('-Quiet')
-        Assert-False ($result.Code -eq 2) `
-            "a cross-repository gate could not run on this host; its output names the gate and the repair:`n$($result.Output)"
-        Assert-Equal -Expected 0 -Actual $result.Code `
-            "a gate failed against the project repository:`n$($result.Output)"
-    }
-
-    It 'says which gates in this tree do not reach the project' {
-        # The honest half. A gate that cannot reach the project is not a gate
-        # the project passes, and reporting it as N/A with a reason is the
-        # difference between coverage and the appearance of it.
-        # An explicit mode keeps this run apart from the cached -Quiet run of the same tool, whose output omits the table when every gate passes.
-        #
-        # The table is printed whatever the gates in it answer, so only the
-        # project checkout is needed here: without one the tool stops before
-        # it has a table to print.
-        Confirm-SiblingCheckout -Name 'yuruna-project'
-        $result = Invoke-Gate -Script 'tools/Invoke-CrossRepoGate.ps1' -Arguments @('-Mode', 'changed-domain')
-        foreach ($gate in @('catalog-compile', 'perf-baseline', 'go-build')) {
-            Assert-True ($result.Output -match [regex]::Escape($gate)) "the report does not mention $gate at all"
-        }
-        Assert-True ($result.Output -match 'not-applicable') `
-            'nothing is reported as inapplicable, which would mean every gate reaches a repository it cannot see'
-    }
-
-    It 'keeps the private development repository out of every generated artifact' {
-        # See https://yuruna.link/42e220c4-0014
-        $private = 'yurunadev'
-        $offender = [Collections.Generic.List[string]]::new()
-        foreach ($dir in @('globalization/manifests', 'globalization/catalogs', 'globalization/generated')) {
-            $full = Join-Path $script:RepoRoot $dir
-            if (-not (Test-Path -LiteralPath $full -PathType Container)) { continue }
-            foreach ($file in [IO.Directory]::EnumerateFiles($full, '*', [IO.SearchOption]::AllDirectories)) {
-                $text = [IO.File]::ReadAllText($file)
-                if (-not $text.Contains($private)) { continue }
-                $relative = [IO.Path]::GetRelativePath($script:RepoRoot, $file) -replace '\\', '/'
-                foreach ($origin in @(Get-PrivateNameOrigin -Text $text -Token $private)) {
-                    $offender.Add("$relative carries it from $origin")
-                }
-            }
-        }
-        Assert-Equal -Expected 0 -Actual $offender.Count `
-            ("a generated artifact names the private development repository:`n  " +
-            (@($offender) -join "`n  "))
-    }
-}
-
 Describe 'an explicit lint scope actually selects source' {
     BeforeAll {
         Import-Module (Join-Path $script:RepoRoot 'tools/Gate.Scope.psm1') -Force -Global -DisableNameChecking
@@ -1401,45 +1303,6 @@ Describe 'the Go services carry what the catalog compiled' {
     }
 }
 
-
-Describe 'enabled production locales use the complete product matrix' {
-    It 'globalization acceptance: full converted domain and matrix coverage' {
-        foreach ($tool in @('tools/Invoke-CatalogCompile.ps1', 'tools/Invoke-CatalogEmbed.ps1')) {
-            $result = Invoke-Gate -Script $tool -Arguments @('-Check', '-Quiet')
-            Assert-Equal 0 $result.Code $result.Output
-        }
-        Invoke-EnabledProductMatrix
-    }
-
-    It 'globalization acceptance: all locales cultures runtimes states and pairing rows' {
-        # The manifest selects the locales in the production PS, JS and Go
-        # fixtures. Enabling another complete catalog adds its rows directly.
-        # Native PowerShell and Safari observations have separate producers.
-        Invoke-EnabledProductMatrix
-    }
-
-    It 'globalization acceptance: pt-BR zero fallback immutable bytes bounded caches and budgets' {
-        # The same checks run before and after Portuguese enablement. Catalog
-        # completion and approval are separately required before it is served.
-        $generatedRoot = Join-Path $script:RepoRoot 'globalization/generated'
-        $before = @{}
-        foreach ($file in (Get-ChildItem -LiteralPath $generatedRoot -File -Recurse)) {
-            $before[$file.FullName] = (Get-FileHash -LiteralPath $file.FullName -Algorithm SHA256).Hash
-        }
-        Assert-True ($before.Count -gt 0) 'there are no generated production catalog bytes'
-        Invoke-EnabledProductMatrix
-        Assert-True ($script:ProductMatrixImmutableEvidence.Count -gt 0) 'immutable evidence must surround actual product rendering'
-        foreach ($file in $before.Keys) {
-            Assert-StringEqual $before[$file] (Get-FileHash -LiteralPath $file -Algorithm SHA256).Hash `
-                "runtime rendering mutated $file"
-        }
-        foreach ($tool in @('tools/Invoke-PerfBaseline.ps1', 'tools/Test-Utf8Catalog.ps1')) {
-            $result = Invoke-Gate -Script $tool -Arguments @('-Quiet')
-            Assert-Equal 0 $result.Code $result.Output
-        }
-    }
-}
-
 Describe 'independent tool processes preserve complete gate evidence' {
     BeforeEach {
         foreach ($name in @('Get-GateRemediation', 'Add-Row', 'Invoke-ToolGateBatch')) {
@@ -1556,8 +1419,7 @@ Describe 'local gate cache and immutable rendering regressions' {
     It 'detects generated catalog mutation caused by product rendering' {
         $script:FixtureCatalog = Join-Path $script:RepoRoot 'globalization/generated/catalog.json'
         [IO.File]::WriteAllText($script:FixtureCatalog, '{"before":true}')
-        function Invoke-Gate { param($Script, $Arguments) [void]$Script; [void]$Arguments; return @{ Code = 0; Output = '' } }
-        function Invoke-ProductGlobalizationCheck { param($Kind, $Path) [void]$Kind; [void]$Path; [IO.File]::WriteAllText($script:FixtureCatalog, '{"mutated":true}') }
+        function Invoke-ProductGlobalizationCheckSet { param($Check) [void]$Check; [IO.File]::WriteAllText($script:FixtureCatalog, '{"mutated":true}') }
         { Invoke-EnabledProductMatrix } | Should -Throw '*runtime rendering mutated*'
         $script:EnabledProductMatrixPassed | Should -BeFalse
     }

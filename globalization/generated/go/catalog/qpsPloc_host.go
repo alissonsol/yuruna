@@ -29,6 +29,21 @@ const DataqpsPlochost = `{
     },
     " šéçóñďš; ţħé ƒéáţúřé šţáţé íš úñķñóŵñ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
   ],
+  "host.hyperv_rename_destination_dir_occupied": [
+    "[Çáññóţ řéñáɱé ţó '",
+    {
+      "arg": "newName",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "': ţħé ďířéçţóřý ",
+    {
+      "arg": "newDir",
+      "type": "detail",
+      "trust": "external"
+    },
+    " áļřéáďý ħóļďš ƒíļéš, áñď ɱóṽíñğ šţóřáğé íñţó íţ ŵóúļď ƒáíļ áƒţéř ţħé řéñáɱé áñď ļéáṽé íţ ħáļƒ ďóñé. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+  ],
   "host.hyperv_rename_source_not_stopped": [
     "[Řéñáɱé-ṼⱮ: '",
     {
@@ -113,6 +128,21 @@ const DataqpsPlochost = `{
       "trust": "internal"
     },
     "'; íñšţáļļ á šúďóéřš řúļé ƒóř /bin/kill óř šţóƥ ţħé ďóɱáíñ ƀý ħáñď. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+  ],
+  "host.kvm_rename_destination_dir_exists": [
+    "[Çáññóţ řéñáɱé ţó '",
+    {
+      "arg": "newName",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "': ţħé ďířéçţóřý ",
+    {
+      "arg": "newDir",
+      "type": "detail",
+      "trust": "external"
+    },
+    " áļřéáďý éẋíšţš, áñď ɱóṽíñğ šţóřáğé íñţó íţ çóúļď óṽéřŵříţé ďíšķš. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
   ],
   "host.kvm_rename_source_not_stopped": [
     "[Řéñáɱé-ṼⱮ: '",
@@ -8834,6 +8864,27 @@ const DataqpsPlochost = `{
     },
     " šéçóñďš, šó ţħé ÚŢⱮ řéğíšţřáţíóñš ářé úñķñóŵñ; ñóţħíñğ ŵáš ďéļéţéď. Řúñ ţħíš áğáíñ óñçé ÚŢⱮ áñšŵéřš. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
   ],
+  "host.proxy_ca_refused_build": [
+    "[Ďíď ñóţ ƀúíļď '",
+    {
+      "arg": "vMName",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "': ţħé çáçħíñğ ƥřóẋý áţ ",
+    {
+      "arg": "cacheHost",
+      "type": "identifier",
+      "trust": "external"
+    },
+    " šéřṽéš á ÇÁ ţħíš ħóšţ ďóéš ñóţ ţřúšţ (",
+    {
+      "arg": "reason",
+      "type": "token",
+      "trust": "internal"
+    },
+    "). Ţħé ğúéšţ íš ñóţ šééďéď ářóúñď íţ, áñď ţħé ƒáíļúřé íš çļáššíƒíéď šóúřçé_íñţéğříţý. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+  ],
   "host.rename_vm_inventory_unavailable": [
     "[Řéñáɱé-ṼⱮ: ţħé řúññíñğ ṼⱮ ļíšţ çóúļď ñóţ ƀé řéáď (",
     {
@@ -9355,6 +9406,112 @@ const DataqpsPlochost = `{
       "trust": "internal"
     },
     "š áñď ŵáš šţóƥƥéď; íţš éƒƒéçţ íš úñķñóŵñ úñţíļ ţħé ṼⱮ šţáţé íš řéáď áğáíñ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+  ],
+  "host.vm_build_storage_in_use": [
+    "[Ďíď ñóţ řéƀúíļď '",
+    {
+      "arg": "vMName",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "': ",
+    {
+      "arg": "vmDir",
+      "type": "detail",
+      "trust": "external"
+    },
+    " šţíļļ ħóļďš ďíšķš ţħáţ áñóţħéř ṽířţúáļ ɱáçħíñé úšéš, óř ţħéíř úšé çóúļď ñóţ ƀé řéáď. Ñóţħíñğ íñ íţ ŵáš çħáñğéď. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+  ],
+  "host.vm_storage_delete_refused": [
+    "[Ķéƥţ ",
+    {
+      "arg": "vmDir",
+      "type": "detail",
+      "trust": "external"
+    },
+    ": íţ šţíļļ ħóļďš ďíšķš ţħáţ á řéğíšţéřéď ṽířţúáļ ɱáçħíñé úšéš (",
+    {
+      "arg": "owners",
+      "type": "detail",
+      "trust": "external"
+    },
+    "). ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+  ],
+  "host.vm_storage_reconcile_action": "[Ƒíñíšħ ţħé řéñáɱéš ţħáţ áñ íñţéřřúƥţéď šñáƥšħóţ ƥřóɱóţíóñ ļéƒţ ħáļƒ ďóñé ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
+  "host.vm_storage_reference_unknown": [
+    "[Ķéƥţ ",
+    {
+      "arg": "vmDir",
+      "type": "detail",
+      "trust": "external"
+    },
+    ": çóúļď ñóţ řéáď ŵħíçħ ṽířţúáļ ɱáçħíñéš úšé ďíšķš íñ íţ (",
+    {
+      "arg": "message",
+      "type": "detail",
+      "trust": "external"
+    },
+    "). ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+  ],
+  "host.vm_storage_relocate_action": [
+    "[Ɱóṽé ţħé šţóřáğé ļéƒţ úñďéř '",
+    {
+      "arg": "fromName",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "' ţó ţħíš ṽířţúáļ ɱáçħíñé'š óŵñ ñáɱé ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+  ],
+  "host.vm_storage_relocated": [
+    "[Ƒíñíšħéď áñ íñţéřřúƥţéď řéñáɱé: ţħé šţóřáğé óƒ '",
+    {
+      "arg": "vMName",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "' ɱóṽéď óúţ óƒ ţħé ďířéçţóřý óƒ '",
+    {
+      "arg": "fromName",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "'. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+  ],
+  "host.vm_storage_relocation_failed": [
+    "[Çóúļď ñóţ ɱóṽé ţħé šţóřáğé óƒ '",
+    {
+      "arg": "vMName",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "' óúţ óƒ ţħé ďířéçţóřý óƒ '",
+    {
+      "arg": "fromName",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "': ",
+    {
+      "arg": "reason",
+      "type": "detail",
+      "trust": "external"
+    },
+    ". ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+  ],
+  "host.vm_storage_repair_unknown": [
+    "[Çóúļď ñóţ çħéçķ ŵħéţħéř '",
+    {
+      "arg": "vMName",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "' šţíļļ ħáš šţóřáğé úñďéř áñóţħéř ñáɱé (",
+    {
+      "arg": "message",
+      "type": "detail",
+      "trust": "external"
+    },
+    "); íţš šţóřáğé ŵáš ļéƒţ áš íţ íš, áñď ţħé ñéẋţ çýçļé çħéçķš áğáíñ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
   ],
   "host.windows_installer_boot_key_timeout": [
     "[ṼⱮ '",

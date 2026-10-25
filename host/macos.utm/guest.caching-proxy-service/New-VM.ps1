@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.22
+.VERSION 2026.10.25
 .GUID 4220d762-3e46-4f5b-808c-166adb4d8b1b
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -132,6 +132,17 @@ Write-BaseImageProvenance -BaseImagePath $baseImageFile
 # Runs AFTER the base image is confirmed so a failed image fetch never
 # destroys a working VM.
 Import-Module (Join-Path (Split-Path -Parent $PSScriptRoot) 'modules/Yuruna.Host.psm1') -Force
+# Preserve a deployed root before replacing the only disk that holds its key.
+Import-Module (Join-Path $PSScriptRoot '../../../test/modules/Test.CachingProxyService.psm1') -Global -Force -DisableNameChecking
+$bumpCa = Get-YurunaBumpCa -Create -ReadExistingCa {
+    if ((Get-VMState -VMName $VMName) -ne 'absent') {
+        $existingAddress = Get-VMIp -VMName $VMName
+        if (-not $existingAddress) { throw 'bump-ca-migration-address-unavailable: existing proxy preserved' }
+        Get-CachingProxyServiceLegacyCa -VMName $VMName -Address $existingAddress
+    }
+} -Confirm:$false
+if (-not $bumpCa) { throw 'bump-ca-unavailable: existing proxy preserved' }
+
 if (-not (Remove-UtmTestVM -VMName $VMName -Confirm:$false)) {
     Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_7565389d0d010c89' -Arguments @{ utmDir = "$UtmDir" })
     exit 1
@@ -172,10 +183,10 @@ if (-not (Expand-ExtensionVmDisk -Path $DiskImage -SizeBytes 512GB -Format 'qcow
 
 # --- REGION: Stage the cloud-init seed directory
 # The source and in-progress ISO stay private until protected publication.
-Import-Module (Join-Path $PSScriptRoot '../../modules/Yuruna.CachingProxySeed.psm1') -Force
+Import-Module (Join-Path $PSScriptRoot '../../modules/Yuruna.SeedMedia.psm1') -Force
 $seedWorkspace = $null
 try {
-    $seedWorkspace = New-CachingProxySeedWorkspace -ParentPath $DataDir
+    $seedWorkspace = New-SeedMediaWorkspace -ParentPath $DataDir
     $SeedDir = $seedWorkspace.Source
     # meta-data is shared under host/vmconfig/ (byte-identical across all 3 host platforms).
     $hostVmConfigDir = Join-Path (Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $ScriptDir))) 'host/vmconfig'
@@ -375,6 +386,14 @@ try {
         Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_d4180c81874e5196' -Arguments @{ message = "$($_.Exception.Message)" })
     }
 
+    # --- REGION: ssl-bump CA
+    # The proxy bumps HTTPS with a CA this host keeps across rebuilds, so the
+    # fingerprint every guest and host pins stays the same; see Get-YurunaBumpCa.
+    Import-Module (Join-Path $PSScriptRoot '../../../test/modules/Test.CachingProxyService.psm1') -Global -Force
+    if (-not $bumpCa) { Write-Error (Format-YurunaOperatorMessage -Key 'runner.bump_ca_unavailable'); exit 1 }
+    $bumpCaCertB64 = [Convert]::ToBase64String([System.Text.UTF8Encoding]::new($false).GetBytes($bumpCa.CertPem))
+    $bumpCaKeyB64  = [Convert]::ToBase64String([System.Text.UTF8Encoding]::new($false).GetBytes($bumpCa.KeyPem))
+
     # --- REGION: Dashboard brand identity
     # The Grafana dashboards this VM serves name the enlistment that built it --
     # the same pair the host's status pages carry in their header. Resolved here
@@ -383,6 +402,11 @@ try {
     Import-Module (Join-Path $_repoRootForExt 'test/modules/Test.FrameworkSource.psm1') -Force
     $brand = Get-YurunaBrandIdentity -RepoRoot $_repoRootForExt -Config $tc
     $gitMirrorSeed = Get-CachingProxyGitMirrorSeedSetting -RepoRoot $_repoRootForExt -Config $tc
+    # A host that did not build this proxy trusts its CA through this statement,
+    # signed with the key lab hosts enroll to verify mirror receipts; see
+    # Resolve-YurunaPinnedProxyCa. No signing key means no statement.
+    $proxyCaStatement = ConvertTo-YurunaProxyCaStatement -SigningKeyBase64 ([string]$gitMirrorSeed.SigningKeyBase64) -CaPem $bumpCa.CertPem
+    $proxyCaStatementB64 = [Convert]::ToBase64String([System.Text.UTF8Encoding]::new($false).GetBytes($proxyCaStatement))
 
     # --- REGION: Render user-data / meta-data
     # Render user-data from the shared base + UTM overlay (host/vmconfig/
@@ -412,6 +436,9 @@ try {
             YURUNA_CONFIG_SERVICE_PORT_PLACEHOLDER               = $configPort
             YURUNA_CONFIG_SERVICE_CLIENT_CERT_BASE64_PLACEHOLDER = $configClientCertB64
             YURUNA_CONFIG_SERVICE_CLIENT_KEY_BASE64_PLACEHOLDER  = $configClientKeyB64
+            YURUNA_BUMP_CA_CERT_BASE64_PLACEHOLDER               = $bumpCaCertB64
+            YURUNA_BUMP_CA_KEY_BASE64_PLACEHOLDER                = $bumpCaKeyB64
+            YURUNA_PROXY_CA_STATEMENT_BASE64_PLACEHOLDER = $proxyCaStatementB64
             YURUNA_CONFIG_SERVICE_CA_CERT_BASE64_PLACEHOLDER     = $configCaCertB64
             YURUNA_BRAND_NAME_PLACEHOLDER    = $brand.Name
             YURUNA_BRAND_VERSION_PLACEHOLDER = $brand.Version
@@ -440,9 +467,11 @@ try {
         exit 1
     }
 
-    Publish-CachingProxySeedImage -Workspace $seedWorkspace -Path $SeedIso -Confirm:$false
+    Publish-SeedMediaImage -Workspace $seedWorkspace -Path $SeedIso -Confirm:$false
+
+    # --- REGION: Clean up temporary files
 } finally {
-    Remove-CachingProxySeedWorkspace -Workspace $seedWorkspace -Confirm:$false
+    Remove-SeedMediaWorkspace -Workspace $seedWorkspace -Confirm:$false
 }
 
 # --- REGION: Create and configure the UTM bundle

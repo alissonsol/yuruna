@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.22
+.VERSION 2026.10.25
 .GUID 42c186c8-2569-4926-a391-ec512ef52ef8
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -8,7 +8,7 @@
 #>
 #requires -version 7
 
-function Get-CachingProxySeedAcl {
+function Get-SeedMediaAcl {
     [CmdletBinding()]
     param([switch]$Directory)
     $acl = if ($Directory) { [Security.AccessControl.DirectorySecurity]::new() } else { [Security.AccessControl.FileSecurity]::new() }
@@ -25,7 +25,7 @@ function Get-CachingProxySeedAcl {
     return $acl
 }
 
-function New-CachingProxySeedWorkspace {
+function New-SeedMediaWorkspace {
     <#
     .SYNOPSIS
         Create private, same-filesystem staging for secret-bearing seed media.
@@ -39,10 +39,10 @@ function New-CachingProxySeedWorkspace {
     if (-not $parent.PSIsContainer -or $parent.Attributes -band [IO.FileAttributes]::ReparsePoint) {
         throw 'Seed staging parent must be an existing real directory.'
     }
-    $path = Join-Path $parent.FullName ('.yuruna-cache-seed-' + [Guid]::NewGuid().ToString('N'))
+    $path = Join-Path $parent.FullName ('.yuruna-seed-' + [Guid]::NewGuid().ToString('N'))
     if (Test-Path -LiteralPath $path) { throw 'Seed staging path already exists.' }
     if ($IsWindows) {
-        $null = [IO.FileSystemAclExtensions]::CreateDirectory((Get-CachingProxySeedAcl -Directory), $path)
+        $null = [IO.FileSystemAclExtensions]::CreateDirectory((Get-SeedMediaAcl -Directory), $path)
     } else {
         $null = [IO.Directory]::CreateDirectory($path, [IO.UnixFileMode]'UserRead, UserWrite, UserExecute')
     }
@@ -56,7 +56,7 @@ function New-CachingProxySeedWorkspace {
     }
 }
 
-function Publish-CachingProxySeedImage {
+function Publish-SeedMediaImage {
     <#
     .SYNOPSIS
         Protect a completed ISO before atomically publishing it beside the disk.
@@ -78,14 +78,14 @@ function Publish-CachingProxySeedImage {
     }
     if (-not $PSCmdlet.ShouldProcess($destination, 'Publish protected seed media')) { return }
     if ($IsWindows) {
-        [IO.FileSystemAclExtensions]::SetAccessControl([IO.FileInfo]::new($Workspace.Image), (Get-CachingProxySeedAcl))
+        [IO.FileSystemAclExtensions]::SetAccessControl([IO.FileInfo]::new($Workspace.Image), (Get-SeedMediaAcl))
     } else {
         [IO.File]::SetUnixFileMode($Workspace.Image, [IO.UnixFileMode]'UserRead, UserWrite')
     }
     [IO.File]::Move($Workspace.Image, $destination, $true)
 }
 
-function Grant-CachingProxySeedVmRead {
+function Grant-SeedMediaVmRead {
     <#
     .SYNOPSIS
         Grant only the newly created Hyper-V VM access to its protected ISO.
@@ -102,7 +102,7 @@ function Grant-CachingProxySeedVmRead {
     [IO.FileSystemAclExtensions]::SetAccessControl([IO.FileInfo]::new($Path), $acl)
 }
 
-function Remove-CachingProxySeedWorkspace {
+function Remove-SeedMediaWorkspace {
     <#
     .SYNOPSIS
         Remove the owned plaintext source and any incomplete seed media.
@@ -111,7 +111,7 @@ function Remove-CachingProxySeedWorkspace {
     param([AllowNull()][hashtable]$Workspace)
     if (-not $Workspace -or -not (Test-Path -LiteralPath $Workspace.Root)) { return }
     if ((Split-Path -Parent $Workspace.Root) -ne $Workspace.Parent -or
-        (Split-Path -Leaf $Workspace.Root) -cnotmatch '^\.yuruna-cache-seed-[0-9a-f]{32}$') {
+        (Split-Path -Leaf $Workspace.Root) -cnotmatch '^\.yuruna-seed-[0-9a-f]{32}$') {
         throw 'Refusing to remove an unrecognized seed workspace.'
     }
     if ((Get-Item -LiteralPath $Workspace.Root -Force).Attributes -band [IO.FileAttributes]::ReparsePoint) {
@@ -122,4 +122,4 @@ function Remove-CachingProxySeedWorkspace {
     }
 }
 
-Export-ModuleMember -Function New-CachingProxySeedWorkspace, Publish-CachingProxySeedImage, Grant-CachingProxySeedVmRead, Remove-CachingProxySeedWorkspace
+Export-ModuleMember -Function New-SeedMediaWorkspace, Publish-SeedMediaImage, Grant-SeedMediaVmRead, Remove-SeedMediaWorkspace

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.22
+.VERSION 2026.10.25
 .GUID 42904a4e-7e96-4d32-883d-8326239ad090
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -144,9 +144,17 @@ function Test-OuterNewCommitsAvailable {
         [datetime]$DeadlineUtc = [datetime]::UtcNow.AddSeconds(30)
     )
     if (-not $ConfigPath) { $ConfigPath = Join-Path $RepoRoot 'test/test.config.yml' }
-    $snapshot = Get-GitSourceConfiguration -ConfigPath $ConfigPath
-    $target = Get-GitRepositoryUpdateTarget -RepoRoot $RepoRoot -NoFetch -Operation Poll -SourceContext $snapshot.context -DeadlineUtc $DeadlineUtc
-    return [bool]($target.Success -and -not $target.Skipped -and $target.Revision -ne $BaselineSha)
+    # The failure pause polls this every few minutes while the operator may be
+    # saving test.config.yml; a config that does not parse, or a mirror block
+    # that is invalid, ends this probe and never the resident runner.
+    try {
+        $snapshot = Get-GitSourceConfiguration -ConfigPath $ConfigPath
+        $target = Get-GitRepositoryUpdateTarget -RepoRoot $RepoRoot -NoFetch -Operation Poll -SourceContext $snapshot.context -DeadlineUtc $DeadlineUtc
+        return [bool]($target.Success -and -not $target.Skipped -and $target.Revision -ne $BaselineSha)
+    } catch {
+        Write-OuterLog (Format-YurunaOperatorMessage -Key 'runner.outer_poll_failed' -Arguments @{ probe = 'framework'; message = (ConvertTo-RecoverySafeText -Text ([string]$_.Exception.Message)) })
+        return $false
+    }
 }
 
 function Test-RunnerConfigGateNetworkOnly {
@@ -257,8 +265,14 @@ function Get-OuterRemoteSha {
         [datetime]$DeadlineUtc = [datetime]::UtcNow.AddSeconds(30))
     if ([string]::IsNullOrWhiteSpace($RemoteUrl)) { return $null }
     if (-not $ConfigPath) { $ConfigPath = Join-Path (Split-Path -Parent $PSScriptRoot) 'test.config.yml' }
-    $snapshot = Get-GitSourceConfiguration -ConfigPath $ConfigPath
-    $selection = Resolve-GitSourceSelection -RepositoryUrl $RemoteUrl -Ref HEAD -SourceContext $snapshot.context -Operation Poll -DeadlineUtc $DeadlineUtc
+    # Same contract as Test-OuterNewCommitsAvailable: a failed probe is "no answer".
+    try {
+        $snapshot = Get-GitSourceConfiguration -ConfigPath $ConfigPath
+        $selection = Resolve-GitSourceSelection -RepositoryUrl $RemoteUrl -Ref HEAD -SourceContext $snapshot.context -Operation Poll -DeadlineUtc $DeadlineUtc
+    } catch {
+        Write-OuterLog (Format-YurunaOperatorMessage -Key 'runner.outer_poll_failed' -Arguments @{ probe = 'project'; message = (ConvertTo-RecoverySafeText -Text ([string]$_.Exception.Message)) })
+        return $null
+    }
     if (-not $selection.success) { return $null }
     return [string]$selection.selectedSha
 }
@@ -283,6 +297,190 @@ function Get-OuterConfigMtime {
         Write-Verbose "Get-OuterConfigMtime: $($_.Exception.Message)"
     }
     return $null
+}
+
+function Get-OuterMaxCycleSeconds {
+    <#
+    .SYNOPSIS
+        Read testCycle.maxCycleSeconds, the absolute bound the resident runner
+        puts on one cycle process, with the same per-cycle re-read as the
+        watchdog timeouts. 0 (or any non-positive value) disables the bound.
+    .DESCRIPTION
+        The step-heartbeat watchdog is armed inside the cycle process and stands
+        down when it cannot prove the inner's identity, which leaves that cycle
+        with no bound at all. This ceiling is enforced by the resident on the
+        cycle process it spawned, so it holds whatever happens below it.
+    #>
+    [CmdletBinding()]
+    [OutputType([int])]
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseSingularNouns', '',
+        Justification = 'The plural is the unit, not a collection: a duration is named <name>Seconds so a bare number can never be read in the wrong unit (docs/design/naming.md). Singularizing to Second would read as one second.')]
+    param(
+        [Parameter(Mandatory)][string]$ConfigPath,
+        [Parameter(Mandatory)][int]$DefaultSeconds,
+        [Parameter()][hashtable]$PoolTestCycleOverride = @{}
+    )
+    return Get-OuterTimeoutValue -Key maxCycleSeconds -Minimum 0 -MessageKey 'runner.max_cycle_seconds_invalid' @PSBoundParameters
+}
+
+function Get-OuterCycleCeilingSeconds {
+    <#
+    .SYNOPSIS
+        The bound on one cycle's working time: testCycle.maxCycleSeconds, or two
+        step timeouts for each run the cycle plans when that is more.
+    .DESCRIPTION
+        A fixed bound fits one size of plan. The template's 21600 is three runs at
+        two hours each; a plan with more guests or sequences takes proportionally
+        longer, and a bound it always outgrows would stop every cycle of that
+        host before it could finish. A non-positive configured value keeps the
+        bound disabled whatever the plan.
+    #>
+    [CmdletBinding()]
+    [OutputType([int])]
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseSingularNouns', '',
+        Justification = 'The plural is the unit, not a collection: a duration is named <name>Seconds so a bare number can never be read in the wrong unit (docs/design/naming.md). Singularizing to Second would read as one second.')]
+    param(
+        [Parameter(Mandatory)][int]$ConfiguredSeconds,
+        [Parameter(Mandatory)][int]$StepTimeoutSeconds,
+        [Parameter()][int]$PlannedRunCount = 0
+    )
+    if ($ConfiguredSeconds -le 0) { return 0 }
+    $planned = [int64][math]::Max(0, $PlannedRunCount) * 2 * [math]::Max(1, $StepTimeoutSeconds)
+    return [int][math]::Min([int64][int]::MaxValue, [math]::Max([int64]$ConfiguredSeconds, $planned))
+}
+
+function Get-OuterCyclePlannedRunCount {
+    <#
+    .SYNOPSIS
+        How many runs (guests and orchestration sequences) the cycle that this
+        attempt spawned lists in status.json, or 0 until it has published them.
+    .DESCRIPTION
+        The inner publishes the whole plan, every run pending, when the cycle
+        starts. A status.json from an earlier cycle, or one read half-written,
+        counts as no plan yet.
+    #>
+    [CmdletBinding()]
+    [OutputType([int])]
+    param(
+        [Parameter(Mandatory)][string]$RuntimeDir,
+        [Parameter(Mandatory)][datetime]$SpawnedAtUtc
+    )
+    try {
+        $doc = [IO.File]::ReadAllText((Join-Path $RuntimeDir 'status.json')) | ConvertFrom-Json -AsHashtable -ErrorAction Stop
+    } catch { return 0 }
+    if ($doc -isnot [System.Collections.IDictionary] -or -not $doc['cycleStartUtc']) { return 0 }
+    try {
+        if (([datetime]$doc['cycleStartUtc']).ToUniversalTime() -lt $SpawnedAtUtc.ToUniversalTime()) { return 0 }
+    } catch { return 0 }
+    return @(@($doc['guests']) | Where-Object { $null -ne $_ }).Count
+}
+
+function Test-OuterCycleHeld {
+    <#
+    .SYNOPSIS
+        Whether the running cycle is held by an operator pause, a lab hold or an
+        active debug break.
+    .DESCRIPTION
+        Held time is time someone chose to spend, so it does not count toward the
+        cycle ceiling: a cycle paused for an afternoon would otherwise be stopped
+        soon after it resumed. A hang between a pause request and the step
+        boundary that honors it stays bounded by the step watchdog.
+    #>
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param([Parameter(Mandatory)][string]$RuntimeDir)
+    foreach ($name in @('control.step-pause', 'control.cycle-pause', 'control.pause', 'control.lab-hold', 'break-active.json')) {
+        if ([IO.File]::Exists((Join-Path $RuntimeDir $name))) { return $true }
+    }
+    return $false
+}
+
+function Read-OuterWatchdogLapseBound {
+    <#
+    .SYNOPSIS
+        The step and preamble bounds a standing-down watchdog recorded in its
+        lapse sentinel, as @{ StepSeconds; PreambleSeconds }, or $null.
+    .DESCRIPTION
+        The cycle process resolves those bounds with the pool's overrides, which
+        the resident never reads, so the resident takes them from the watchdog
+        rather than from its own reading of the configuration.
+    #>
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param([Parameter(Mandatory)][string]$Path)
+    try { $text = [IO.File]::ReadAllText($Path) } catch { return $null }
+    if ($text -cnotmatch '\[stepSeconds=(\d{1,9}) preambleSeconds=(\d{1,9})\]') { return $null }
+    $step = [int]$Matches[1]
+    if ($step -lt 1) { return $null }
+    return @{ StepSeconds = $step; PreambleSeconds = [int]$Matches[2] }
+}
+
+function Step-OuterHeartbeatGuard {
+    <#
+    .SYNOPSIS
+        Advance the resident's heartbeat guard by one poll; return the stall,
+        as @{ AgeSeconds; BoundSeconds; Phase }, once the step heartbeat has not
+        moved for longer than its bound, or $null.
+    .DESCRIPTION
+        The guard stands in for a step watchdog that stood down, with that
+        watchdog's own rules: the preamble bound while runner.phase exists, the
+        step bound once it is gone, and an unreadable phase reads as the looser
+        bound. Staleness is the time since the guard last saw the heartbeat's
+        write time change, on the guard's Stopwatch, so a wall-clock step can
+        neither fire it early nor hold it off, and no bound runs out sooner than
+        its full length after the guard engaged.
+    .PARAMETER Guard
+        @{ Watch; LastWriteUtc; StepSeconds; PreambleSeconds }, updated in place.
+    #>
+    [CmdletBinding()]
+    [OutputType([pscustomobject])]
+    param(
+        [Parameter(Mandatory)][hashtable]$Guard,
+        [Parameter(Mandatory)][string]$RuntimeDir
+    )
+    $heartbeat = Join-Path $RuntimeDir 'runner.stepHeartbeat'
+    $stamp = $Guard.LastWriteUtc
+    try { $stamp = if ([IO.File]::Exists($heartbeat)) { [IO.File]::GetLastWriteTimeUtc($heartbeat) } else { $null } } catch { $stamp = $Guard.LastWriteUtc }
+    if ($stamp -ne $Guard.LastWriteUtc) {
+        $Guard.LastWriteUtc = $stamp
+        $Guard.Watch.Restart()
+    }
+    $phase = ''
+    try {
+        $phaseFile = Join-Path $RuntimeDir 'runner.phase'
+        if ([IO.File]::Exists($phaseFile)) { $phase = ([IO.File]::ReadAllText($phaseFile)).Trim() }
+    } catch { $phase = '' }
+    $preamble = [int]$Guard.PreambleSeconds
+    $bound = if ($phase -and $preamble -gt 0 -and $preamble -lt [int]$Guard.StepSeconds) { $preamble } else { [int]$Guard.StepSeconds }
+    $age = $Guard.Watch.Elapsed.TotalSeconds
+    if ($age -le $bound) { return $null }
+    return [pscustomobject]@{ AgeSeconds = [int]$age; BoundSeconds = $bound; Phase = $phase }
+}
+
+function Write-OuterStopRecord {
+    <#
+    .SYNOPSIS
+        Write runner.watchdog-kill.json for a cycle the resident stopped, in the
+        shape the step watchdog writes, atomically.
+    .DESCRIPTION
+        The post-dispatch accounting reads this record for the attempt it names,
+        so a stop the resident made is attributed the way a watchdog stop is.
+        A failed write is logged; it never prevents the stop.
+    #>
+    [CmdletBinding(SupportsShouldProcess)]
+    [OutputType([bool])]
+    param([Parameter(Mandatory)][System.Collections.IDictionary]$Record)
+    $killPath = Join-Path $env:YURUNA_RUNTIME_DIR 'runner.watchdog-kill.json'
+    if (-not $PSCmdlet.ShouldProcess($killPath, 'Record the cycle stop')) { return $false }
+    try {
+        $killTemp = $killPath + '.' + [Guid]::NewGuid().ToString('n') + '.tmp'
+        [IO.File]::WriteAllText($killTemp, ($Record | ConvertTo-Json -Depth 6))
+        [IO.File]::Move($killTemp, $killPath, $true)
+        return $true
+    } catch {
+        Write-OuterLog (Format-YurunaOperatorMessage -Key 'runner.outer_poll_failed' -Arguments @{ probe = 'ceiling-record'; message = (ConvertTo-RecoverySafeText -Text ([string]$_.Exception.Message)) })
+        return $false
+    }
 }
 
 function Get-OuterPoolTestCycleOverride {
@@ -1407,7 +1605,8 @@ function Update-RunnerCrashGating {
         [Parameter()][string]$StalledPhase = '',
         [Parameter()][int]$StallStreak = 0,
         [Parameter()][string]$FailureClass = '',
-        [Parameter()][bool]$IsCrash = $true
+        [Parameter()][bool]$IsCrash = $true,
+        [Parameter()][AllowEmptyString()][string]$Description = ''
     )
     $result = @{ Updated = $false; ConsecutiveCrashes = 0; ConsecutiveFailures = 0; Alerted = $false }
     $gatingFile = Join-Path $RuntimeDir 'runner.gating.json'
@@ -1475,7 +1674,9 @@ function Update-RunnerCrashGating {
     if ($shouldAlert) {
         $where = if ($StalledPhase) { "never reached its first test step -- it stalled in preamble phase '$StalledPhase'" } else { 'was killed before it could report a verdict' }
         $streakNote = if ($StallStreak -gt 1) { " This is the ${StallStreak}th consecutive cycle to stall in the same phase, so it is a standing condition on this host rather than a passing one." } else { '' }
-        $message = if ($FailureClass -eq 'config_gate_failed') {
+        $message = if ($Description) {
+            $Description
+        } elseif ($FailureClass -eq 'config_gate_failed') {
             Format-YurunaOperatorMessage -Key 'runner.config_gate_attempt_failed' -Arguments @{ exitCode = "$ExitCode" }
         } elseif (-not $StalledPhase -and $FailureClass -in @('', 'inner_exited')) {
             Format-YurunaOperatorMessage -Key 'runner.inner_attempt_exited' -Arguments @{ exitCode = "$ExitCode" }
@@ -2857,8 +3058,8 @@ function Stop-ProcessTree {
         so a group kill reaches the whole tree.
     #>
     [CmdletBinding(SupportsShouldProcess)]
-    param([Parameter(Mandatory)][int]$ProcessId)
-    if ($PSCmdlet.ShouldProcess([string]$ProcessId, 'Stop process tree')) { Stop-YurunaProcessTree -ProcessId $ProcessId -Confirm:$false }
+    param([Parameter(Mandatory)][int]$ProcessId, [switch]$IncludeDescendants)
+    if ($PSCmdlet.ShouldProcess([string]$ProcessId, 'Stop process tree')) { Stop-YurunaProcessTree -ProcessId $ProcessId -IncludeDescendants:$IncludeDescendants -Confirm:$false }
 }
 
 function Invoke-OuterCycleDispatch {
@@ -2933,7 +3134,7 @@ function Invoke-OuterCycleDispatch {
         return [pscustomobject]@{
             Outcome = $inProcessResult.Outcome; ExitCode = $inProcessResult.ExitCode; CycleGeneration = $cycleGeneration
             RecordFailureClass = $inProcessResult.FailureClass; RecordDetail = $inProcessResult.Detail
-            Refresh = $dispatch.Mode; Cycle = $null; Gate = $null; Handoff = $validated
+            Refresh = $dispatch.Mode; Cycle = $null; Gate = $null; Handoff = $validated; FromRecord = $true
         }
     }
 
@@ -2997,12 +3198,137 @@ function Invoke-OuterCycleDispatch {
             $cycleIdentity = [pscustomobject]@{ Pid = [int]$proc.Id; StartTimeUnixMs = $cycleStart }
         }
 
+        # See Get-OuterMaxCycleSeconds. Measured on a Stopwatch, which a wall-clock
+        # change (DST, an NTP step) cannot shorten or extend.
+        $defaultCeiling = if ($State.ContainsKey('MaxCycleSecondsDefault')) { [int]$State['MaxCycleSecondsDefault'] } else { 21600 }
+        $ceilingSeconds = $defaultCeiling
+        if ($State.ContainsKey('ConfigPath') -and $State.ConfigPath) {
+            # A configuration that cannot be read keeps the default bound; it never
+            # stops the cycle from being spawned.
+            try { $ceilingSeconds = Get-OuterMaxCycleSeconds -ConfigPath $State.ConfigPath -DefaultSeconds $defaultCeiling }
+            catch { Write-OuterLog (Format-YurunaOperatorMessage -Key 'runner.outer_poll_failed' -Arguments @{ probe = 'max-cycle-seconds'; message = (ConvertTo-RecoverySafeText -Text ([string]$_.Exception.Message)) }) }
+        }
+        # The plan raises the ceiling once the inner publishes it, at two step
+        # timeouts per run, and held time is subtracted from the working time.
+        $ceilingStepSeconds = if ($State.ContainsKey('StepTimeoutSecondsDefault')) { [int]$State['StepTimeoutSecondsDefault'] } else { 3600 }
+        if ($State.ContainsKey('ConfigPath') -and $State.ConfigPath) {
+            try { $ceilingStepSeconds = Get-OuterStepTimeoutSeconds -ConfigPath $State.ConfigPath -DefaultSeconds $ceilingStepSeconds }
+            catch { Write-OuterLog (Format-YurunaOperatorMessage -Key 'runner.outer_poll_failed' -Arguments @{ probe = 'step-timeout-seconds'; message = (ConvertTo-RecoverySafeText -Text ([string]$_.Exception.Message)) }) }
+        }
+        $effectiveCeiling = $ceilingSeconds
+        $plannedRuns = 0
+        $planPollSeconds = if ($State.ContainsKey('PlanPollSeconds')) { [int]$State['PlanPollSeconds'] } else { 15 }
+        $planWatch = [Diagnostics.Stopwatch]::StartNew()
+        $heldWatch = [Diagnostics.Stopwatch]::new()
+        $ceilingWatch = [Diagnostics.Stopwatch]::StartNew()
+        $lapseFile = Join-Path $env:YURUNA_RUNTIME_DIR 'runner.watchdog.lapsed'
+        $lapseReported = $false
+        # Armed when the step watchdog stands down: the resident then applies the
+        # watchdog's bounds itself, so a cycle it cannot guard is not left to the
+        # ceiling alone.
+        $heartbeatGuard = $null
         while (-not $proc.HasExited) {
             if ($State.ShutdownState['Requested']) {
                 Write-OuterLog (Format-YurunaOperatorMessage -Key 'runner.operator_2ca94152d51378a0' -Arguments @{ cycle = "$Cycle"; id = "$($proc.Id)" })
                 Stop-ProcessTree -ProcessId $proc.Id -Confirm:$false
                 try { $null = $proc.WaitForExit(15000) } catch { $null = $_ }
                 return [pscustomobject]@{ Outcome = 'shutdown'; ExitCode = 0; CycleGeneration = $cycleGeneration; Refresh = $dispatch.Mode; Cycle = $cycleIdentity; Gate = $null; Handoff = $validated }
+            }
+            if (Test-OuterCycleHeld -RuntimeDir $env:YURUNA_RUNTIME_DIR) {
+                if (-not $heldWatch.IsRunning) { $heldWatch.Start() }
+            } elseif ($heldWatch.IsRunning) { $heldWatch.Stop() }
+            if ($ceilingSeconds -gt 0 -and $plannedRuns -eq 0 -and $planWatch.Elapsed.TotalSeconds -ge $planPollSeconds) {
+                $planWatch.Restart()
+                $plannedRuns = Get-OuterCyclePlannedRunCount -RuntimeDir $env:YURUNA_RUNTIME_DIR -SpawnedAtUtc $spawnedAt.ToUniversalTime()
+                if ($plannedRuns -gt 0) {
+                    $scaledCeiling = Get-OuterCycleCeilingSeconds -ConfiguredSeconds $ceilingSeconds -StepTimeoutSeconds $ceilingStepSeconds -PlannedRunCount $plannedRuns
+                    if ($scaledCeiling -gt $effectiveCeiling) {
+                        $effectiveCeiling = $scaledCeiling
+                        Write-OuterLog (Format-YurunaOperatorMessage -Key 'runner.cycle_ceiling_scaled' -Arguments @{ cycle = "$Cycle"; count = "$plannedRuns"; configuredSeconds = "$ceilingSeconds"; ceilingSeconds = "$effectiveCeiling" })
+                    }
+                }
+            }
+            # The watchdog writes this sentinel when it stands down; saying so now,
+            # rather than after the cycle returns, is what tells an operator the
+            # resident is guarding the cycle in its place.
+            if (-not $lapseReported -and [IO.File]::Exists($lapseFile)) {
+                try {
+                    if ([IO.File]::GetLastWriteTimeUtc($lapseFile) -ge $spawnedAt.ToUniversalTime()) {
+                        $lapseReported = $true
+                        $lapseBound = Read-OuterWatchdogLapseBound -Path $lapseFile
+                        if (-not $lapseBound) {
+                            $fallbackPreamble = if ($State.ContainsKey('PreambleTimeoutSecondsDefault')) { [int]$State['PreambleTimeoutSecondsDefault'] } else { 600 }
+                            $lapseBound = @{ StepSeconds = $ceilingStepSeconds; PreambleSeconds = $fallbackPreamble }
+                        }
+                        $heartbeatStamp = $null
+                        $heartbeatFile = Join-Path $env:YURUNA_RUNTIME_DIR 'runner.stepHeartbeat'
+                        if ([IO.File]::Exists($heartbeatFile)) { $heartbeatStamp = [IO.File]::GetLastWriteTimeUtc($heartbeatFile) }
+                        $heartbeatGuard = @{
+                            Watch = [Diagnostics.Stopwatch]::StartNew(); LastWriteUtc = $heartbeatStamp
+                            StepSeconds = [int]$lapseBound.StepSeconds; PreambleSeconds = [int]$lapseBound.PreambleSeconds
+                        }
+                        $lapseLine = Format-YurunaOperatorMessage -Key 'runner.watchdog_lapse_seen' -Arguments @{ cycle = "$Cycle"; stepSeconds = "$($heartbeatGuard.StepSeconds)"; preambleSeconds = "$($heartbeatGuard.PreambleSeconds)"; ceilingSeconds = "$effectiveCeiling" }
+                        Write-Warning $lapseLine
+                        Write-OuterLog $lapseLine
+                    }
+                } catch { $null = $_ }
+            }
+            if ($heartbeatGuard) {
+                $stall = Step-OuterHeartbeatGuard -Guard $heartbeatGuard -RuntimeDir $env:YURUNA_RUNTIME_DIR
+                if ($stall) {
+                    $stallClass = if ($stall.Phase) { 'preamble_stall' } else { 'wait_timeout' }
+                    $stallReason = if ($stall.Phase) {
+                        Format-YurunaOperatorMessage -Key 'runner.resident_watchdog_kill_preamble' -Arguments @{ cycle = "$Cycle"; ageSeconds = "$($stall.AgeSeconds)"; boundSeconds = "$($stall.BoundSeconds)"; phase = "$($stall.Phase)"; id = "$($proc.Id)" }
+                    } else {
+                        Format-YurunaOperatorMessage -Key 'runner.resident_watchdog_kill_step' -Arguments @{ cycle = "$Cycle"; ageSeconds = "$($stall.AgeSeconds)"; boundSeconds = "$($stall.BoundSeconds)"; id = "$($proc.Id)" }
+                    }
+                    Write-Warning $stallReason
+                    Write-OuterLog $stallReason
+                    $null = Write-OuterStopRecord -Confirm:$false -Record ([ordered]@{
+                        schemaVersion = 1; recordPath = 'runner.watchdog-kill.json'
+                        attemptGeneration = [string]$cycleGeneration
+                        startedAtUtc = $spawnedAt.ToUniversalTime().ToString('o')
+                        timestamp = [DateTime]::UtcNow.ToString('o')
+                        innerPid = [int]$proc.Id; phase = [string]$stall.Phase
+                        failureClass = $stallClass; description = $stallReason
+                        stepHeartbeatAgeSeconds = [int]$stall.AgeSeconds
+                        timeoutSeconds = [int]$stall.BoundSeconds
+                    })
+                    Stop-ProcessTree -ProcessId $proc.Id -IncludeDescendants -Confirm:$false
+                    try { $null = $proc.WaitForExit(15000) } catch { $null = $_ }
+                    $stallExit = 1
+                    try { if ($proc.HasExited -and $proc.ExitCode -ne 0) { $stallExit = [int]$proc.ExitCode } } catch { $null = $_ }
+                    return [pscustomobject]@{
+                        Outcome = 'outcome-unrecorded'; ExitCode = $stallExit
+                        OutcomeReason = 'resident-watchdog'; OutcomeDetail = $stallReason; RecordFailureClass = $stallClass
+                        CycleGeneration = $cycleGeneration; Refresh = $dispatch.Mode; Cycle = $cycleIdentity; Gate = $null; Handoff = $validated
+                    }
+                }
+            }
+            if ($effectiveCeiling -gt 0 -and ($ceilingWatch.Elapsed.TotalSeconds - $heldWatch.Elapsed.TotalSeconds) -ge $effectiveCeiling) {
+                $ceilingReason = Format-YurunaOperatorMessage -Key 'runner.cycle_ceiling_reached' -Arguments @{ cycle = "$Cycle"; ceilingSeconds = "$effectiveCeiling"; id = "$($proc.Id)" }
+                Write-Warning $ceilingReason
+                Write-OuterLog $ceilingReason
+                # Same record the watchdog leaves, so the post-dispatch accounting
+                # attributes the stop to this attempt without guessing.
+                $null = Write-OuterStopRecord -Confirm:$false -Record ([ordered]@{
+                    schemaVersion = 1; recordPath = 'runner.watchdog-kill.json'
+                    attemptGeneration = [string]$cycleGeneration
+                    startedAtUtc = $spawnedAt.ToUniversalTime().ToString('o')
+                    timestamp = [DateTime]::UtcNow.ToString('o')
+                    innerPid = [int]$proc.Id; phase = ''
+                    failureClass = 'cycle_killed'; description = $ceilingReason
+                    timeoutSeconds = $effectiveCeiling
+                })
+                Stop-ProcessTree -ProcessId $proc.Id -IncludeDescendants -Confirm:$false
+                try { $null = $proc.WaitForExit(15000) } catch { $null = $_ }
+                $ceilingExit = 1
+                try { if ($proc.HasExited -and $proc.ExitCode -ne 0) { $ceilingExit = [int]$proc.ExitCode } } catch { $null = $_ }
+                return [pscustomobject]@{
+                    Outcome = 'outcome-unrecorded'; ExitCode = $ceilingExit
+                    OutcomeReason = 'cycle-ceiling'; OutcomeDetail = $ceilingReason
+                    CycleGeneration = $cycleGeneration; Refresh = $dispatch.Mode; Cycle = $cycleIdentity; Gate = $null; Handoff = $validated
+                }
             }
             $null = $proc.WaitForExit(1000)
         }
@@ -3037,7 +3363,7 @@ function Invoke-OuterCycleDispatch {
         return [pscustomobject]@{
             Outcome = $record.Outcome; ExitCode = $record.ExitCode; CycleGeneration = $reportedGeneration
             RecordFailureClass = $record.FailureClass; RecordDetail = $record.RecordDetail
-            Refresh = $dispatch.Mode; Cycle = $cycleIdentity; Gate = $null; Handoff = $validated
+            Refresh = $dispatch.Mode; Cycle = $cycleIdentity; Gate = $null; Handoff = $validated; FromRecord = $true
         }
     }
     Write-Verbose "[outer cycle $Cycle] cycle outcome record rejected ($($record.Reason)): $($record.Detail)"
@@ -3132,7 +3458,9 @@ function Invoke-RunnerOuterLoop {
             throw "Invoke-RunnerOuterLoop: -State is missing required key '$k'."
         }
     }
-    $cycle = 0
+    # The counter lives in $State so a loop re-entered by Invoke-RunnerOuterSupervisor
+    # continues the numbering and never issues the same cycle generation twice.
+    $cycle = if ($State.ContainsKey('OuterCycleCounter')) { [int]$State['OuterCycleCounter'] } else { 0 }
     # The runner's own identity for cycle generations: kept when the caller
     # already carries one, minted otherwise.
     if (-not ($State.ContainsKey('RunnerInstanceId') -and [string]$State['RunnerInstanceId'] -match '^[0-9a-f]{32}$')) {
@@ -3158,6 +3486,7 @@ function Invoke-RunnerOuterLoop {
     while (-not $State.ShutdownState['Requested']) {
         if ((Wait-DiagnosticVmPreservation -ShutdownState $State.ShutdownState -ConfigPath $State.ConfigPath) -eq 'shutdown') { break }
         $cycle++
+        $State['OuterCycleCounter'] = $cycle
         $State['CycleGeneration'] = "$($State['RunnerInstanceId']):$cycle"
 
         # Taken before the dispatch, not inside it: the fault path below uses it
@@ -3172,6 +3501,21 @@ function Invoke-RunnerOuterLoop {
         # before anything reacts to it, so the file describes the cycle even when
         # the reaction fails. $null for an outcome that is not a verdict.
         $recoveryResult = Publish-OuterRecoveryResult -Dispatch $cycleResult -CycleGeneration ([string]$State['CycleGeneration']) -SpawnedAtUtc $cycleSpawnedAtUtc
+        # See Update-OuterFrameworkHealth: a framework that kills its own cycle
+        # process before the pull can only be repaired from this process.
+        # Read once: the fault record below names the commit that ran, even when a
+        # rescue pull has moved the checkout since.
+        $dispatchCommitSha = [string](Get-OuterCommitSha -RepoRoot $State.RepoRoot)
+        $frameworkHealth = $null
+        if ($env:YURUNA_RUNTIME_DIR) {
+            $fromRecord = [bool]($cycleResult.PSObject.Properties['FromRecord'] -and $cycleResult.FromRecord)
+            $frameworkHealth = Update-OuterFrameworkHealth -RuntimeDir $env:YURUNA_RUNTIME_DIR -RepoRoot $State.RepoRoot `
+                -Outcome ([string]$outcome) -FromRecord:$fromRecord -Sha $dispatchCommitSha -Confirm:$false
+            if ($frameworkHealth.RescueDue) {
+                $null = Invoke-OuterFrameworkRescue -State $State -Health $frameworkHealth -Cycle $cycle -SpawnedAtUtc $cycleSpawnedAtUtc `
+                    -Outcome ([string]$outcome) -ExitCode ([int]$exitCode) -Confirm:$false
+            }
+        }
 
         # A preserved guest must survive automatic refresh, recovery, and the
         # next cycle's stale-VM sweep even when repository revisions change.
@@ -3278,7 +3622,12 @@ function Invoke-RunnerOuterLoop {
             $holdSeconds = switch ($outcome) {
                 'pull-error'    { $State.OuterPullErrorSleepSeconds }
                 'spawn-failed'  { $State.InnerSpawnErrorSleepSeconds }
-                'cycle-aborted' { $State.InnerSpawnErrorSleepSeconds }
+                # A repeated early abort doubles the hold, to at most 15 minutes, so a
+                # framework that cannot start does not respawn every 30 s all day.
+                'cycle-aborted' {
+                    $abortStreak = if ($frameworkHealth) { [math]::Max(1, [int]$frameworkHealth.Streak) } else { 1 }
+                    [int][math]::Min(900, $State.InnerSpawnErrorSleepSeconds * [math]::Pow(2, [math]::Min(16, $abortStreak - 1)))
+                }
                 default         { 30 }
             }
             $null = Wait-OuterInterruptible -Seconds $holdSeconds -ShutdownState $State.ShutdownState
@@ -3336,6 +3685,16 @@ function Invoke-RunnerOuterLoop {
             $unrecordedWhy = if ($cycleResult.PSObject.Properties['OutcomeReason']) { [string]$cycleResult.OutcomeReason } else { 'unknown' }
             $faultReason = "cycle outcome unrecorded ($unrecordedWhy); child exited $exitCode"
             $faultClass  = 'outcome_unrecorded'
+            if ($unrecordedWhy -ceq 'cycle-ceiling') {
+                $faultReason = [string]$cycleResult.OutcomeDetail
+                $faultClass  = 'cycle_killed'
+            } elseif ($unrecordedWhy -ceq 'resident-watchdog') {
+                # The stop record names wait_timeout or preamble_stall and the
+                # phase, exactly as a watchdog stop would; the attempt fault below
+                # reads both from it.
+                $faultReason = [string]$cycleResult.OutcomeDetail
+                $faultClass  = ''
+            }
         } elseif ($outcome -eq 'no-cycle-result') {
             # The cycle returned without a verdict to record. Publish-CycleOutcomeRecord
             # recorded that as a failure, so the exit code alone would read as a
@@ -3357,7 +3716,7 @@ function Invoke-RunnerOuterLoop {
             }
         }
 
-        $faultCommitSha = [string](Get-OuterCommitSha -RepoRoot $State.RepoRoot)
+        $faultCommitSha = $dispatchCommitSha
 
         # State machine: in-cycle -> fault. The transition lands BEFORE
         # the failure-pause loop so a dashboard sees "fault" the moment
@@ -3671,15 +4030,208 @@ function Invoke-RunnerOuterLoop {
         }
     }
 }
+function Update-OuterFrameworkHealth {
+    <#
+    .SYNOPSIS
+        Track whether the installed framework still produces cycle outcomes.
+    .DESCRIPTION
+        The framework pull runs inside the per-cycle process, after that process
+        has imported the framework, so a commit that breaks the import also stops
+        every later pull and the host never receives the fix. This record keeps
+        the last framework commit whose cycle process produced a valid outcome
+        record, and a streak of dispatches at the current commit that ended
+        without one (cycle-aborted or outcome-unrecorded with no record behind
+        it). RescueDue is set from
+        the RescueAfter-th such dispatch on; the resident then pulls with its own,
+        already loaded code (Invoke-OuterFrameworkRescue). spawn-failed and
+        shutdown say nothing about the framework and leave the record unchanged.
+        The record is file-backed so the streak survives a runner restart.
+    #>
+    [CmdletBinding(SupportsShouldProcess)]
+    [OutputType([pscustomobject])]
+    param(
+        [Parameter(Mandatory)][string]$RuntimeDir,
+        [Parameter(Mandatory)][string]$RepoRoot,
+        [Parameter(Mandatory)][AllowEmptyString()][string]$Outcome,
+        # The outcome came from a valid record, so the cycle process imported the
+        # framework and ran, whatever the outcome is called.
+        [switch]$FromRecord,
+        # The commit the dispatch ran; read from the checkout when omitted.
+        [AllowEmptyString()][string]$Sha,
+        [ValidateRange(1, 100)][int]$RescueAfter = 2
+    )
+    $path = Join-Path $RuntimeDir 'runner.framework-health.json'
+    $health = @{ lastGoodSha = ''; lastGoodAtUtc = ''; streak = 0; streakSha = '' }
+    if (Test-Path -LiteralPath $path -PathType Leaf) {
+        try {
+            $parsed = Get-Content -Raw -LiteralPath $path -ErrorAction Stop | ConvertFrom-Json -AsHashtable -ErrorAction Stop
+            foreach ($name in @('lastGoodSha', 'lastGoodAtUtc', 'streakSha')) { if ($parsed[$name]) { $health[$name] = [string]$parsed[$name] } }
+            if ($null -ne $parsed['streak']) { $health.streak = [int]$parsed['streak'] }
+        } catch { Write-Verbose "Update-OuterFrameworkHealth: $path is unreadable ($($_.Exception.Message)); starting a new record." }
+    }
+    $sha = if ($PSBoundParameters.ContainsKey('Sha')) { $Sha } else { [string](Get-OuterCommitSha -RepoRoot $RepoRoot) }
+    $unproven = -not $FromRecord -and $Outcome -cin @('cycle-aborted', 'outcome-unrecorded')
+    $neutral = -not $FromRecord -and $Outcome -cin @('', 'shutdown', 'spawn-failed')
+    if ($unproven) {
+        if ($health.streakSha -cne $sha) { $health.streak = 0; $health.streakSha = $sha }
+        $health.streak++
+    } elseif (-not $neutral) {
+        $health.lastGoodSha = $sha
+        $health.lastGoodAtUtc = [datetime]::UtcNow.ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", [Globalization.CultureInfo]::InvariantCulture)
+        $health.streak = 0
+        $health.streakSha = ''
+    }
+    if (-not $neutral -and $PSCmdlet.ShouldProcess($path, (Format-YurunaOperatorMessage -Key 'runner.framework_health_write_action'))) {
+        $null = Initialize-RunnerStateWriter
+        try {
+            $null = Write-YurunaStateFileJson -Path $path -Depth 4 -Compress:$false -Confirm:$false -InputObject @{
+                schemaVersion = 1; lastGoodSha = $health.lastGoodSha; lastGoodAtUtc = $health.lastGoodAtUtc
+                streak = $health.streak; streakSha = $health.streakSha; lastOutcome = $Outcome
+            }
+        } catch { Write-Verbose "Update-OuterFrameworkHealth: save failed (best-effort): $($_.Exception.Message)" }
+    }
+    return [pscustomobject]@{
+        Sha = $sha; LastGoodSha = $health.lastGoodSha; Streak = [int]$health.streak
+        RescueDue = ($unproven -and $health.streak -ge $RescueAfter)
+    }
+}
+
+function Invoke-OuterFrameworkRescue {
+    <#
+    .SYNOPSIS
+        Pull the framework from the resident process when cycle processes keep
+        dying without an outcome, and make the condition visible.
+    .DESCRIPTION
+        Uses the Invoke-OuterGitPull this process loaded at runner start, which
+        predates the commit that the failing cycle processes run, so a fix pushed
+        upstream reaches the host even though no cycle process can pull it. The
+        attempt and its result go to outer.log. For cycle-aborted, which skips the
+        failure pause, the fault is also published to status.json and counted
+        toward the crash alert; outcome-unrecorded already publishes both on its
+        own path. Returns updated, unchanged, failed or skipped.
+    #>
+    [CmdletBinding(SupportsShouldProcess)]
+    [OutputType([string])]
+    param(
+        [Parameter(Mandatory)][hashtable]$State,
+        [Parameter(Mandatory)][psobject]$Health,
+        [int]$Cycle = 0,
+        [datetime]$SpawnedAtUtc = [datetime]::UtcNow,
+        [AllowEmptyString()][string]$Outcome = '',
+        [int]$ExitCode = 1
+    )
+    $lastGood = if ($Health.LastGoodSha) { [string]$Health.LastGoodSha } else { 'none' }
+    $reason = Format-YurunaOperatorMessage -Key 'runner.framework_rescue_due' -Arguments @{
+        streak = "$($Health.Streak)"; outcome = $Outcome; sha = [string]$Health.Sha; lastGoodSha = $lastGood
+    }
+    Write-Warning $reason
+    Write-OuterLog $reason
+    $result = 'skipped'
+    if (-not $State.NoGitPull -and $PSCmdlet.ShouldProcess([string]$State.RepoRoot, (Format-YurunaOperatorMessage -Key 'runner.framework_rescue_action'))) {
+        $pulled = $false
+        try { $pulled = [bool](Invoke-OuterGitPull -RepoRoot $State.RepoRoot -ConfigPath $State.ConfigPath) } catch { $pulled = $false }
+        $after = [string](Get-OuterCommitSha -RepoRoot $State.RepoRoot)
+        $result = if (-not $pulled) { 'failed' } elseif ($after -cne [string]$Health.Sha) { 'updated' } else { 'unchanged' }
+        $detail = if ($pulled) { '' } else { ConvertTo-RecoverySafeText -Text ([string](Get-LastOuterPullFailure)) }
+        Write-OuterLog (Format-YurunaOperatorMessage -Key 'runner.framework_rescue_result' -Arguments @{ result = $result; sha = $after; detail = $detail })
+    }
+    if ($Outcome -ceq 'cycle-aborted' -and $env:YURUNA_RUNTIME_DIR) {
+        try {
+            $null = Update-RunnerFaultStatus -RuntimeDir $env:YURUNA_RUNTIME_DIR -RunnerState 'paused' -FailureClass 'cycle_killed' `
+                -Reason $reason -AttemptGeneration ([string]$State['CycleGeneration']) -SpawnedAtUtc $SpawnedAtUtc `
+                -FrameworkCommitSha ([string]$Health.Sha) -ExitCode $ExitCode `
+                -AttemptEvidence @{ stage = 'FrameworkRescue'; description = $reason; frameworkCommitSha = [string]$Health.Sha } -Confirm:$false
+            $config = Read-TestConfig -Path $State.ConfigPath -NoCache
+            $null = Update-RunnerCrashGating -RuntimeDir $env:YURUNA_RUNTIME_DIR -SpawnedAtUtc $SpawnedAtUtc -Config $config `
+                -Cycle $Cycle -ExitCode $ExitCode -FailureClass 'cycle_killed' -Description $reason -Confirm:$false
+        } catch { Write-OuterLog (Format-YurunaOperatorMessage -Key 'runner.outer_poll_failed' -Arguments @{ probe = 'fault-status'; message = (ConvertTo-RecoverySafeText -Text ([string]$_.Exception.Message)) }) }
+    }
+    return $result
+}
+
+function Invoke-RunnerOuterSupervisor {
+    <#
+    .SYNOPSIS
+        Keep the resident outer loop running through an exception that escapes it.
+    .DESCRIPTION
+        Nothing restarts the resident runner, so an exception that escapes
+        Invoke-RunnerOuterLoop (a configuration read during the failure pause, a
+        helper that throws on a state file) would otherwise end cycling on the
+        host until an operator noticed. Each escape is written to outer.log with
+        its type and location, published as a runner fault, counted toward the
+        crash alert, and followed by a hold that doubles with each repeat inside
+        an hour (BaseHoldSeconds up to MaxHoldSeconds) before the loop is entered
+        again. A cycle process the escaped loop left running is stopped first, so
+        two cycles never run at once. The cycle counter lives in $State, so
+        re-entry never reissues a cycle generation. A shutdown request and a
+        pipeline stop (Ctrl+C) still end the runner.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][hashtable]$State,
+        [ValidateRange(1, 86400)][int]$BaseHoldSeconds = 30,
+        [ValidateRange(1, 86400)][int]$MaxHoldSeconds = 900,
+        [scriptblock]$Loop = { param($LoopState) Invoke-RunnerOuterLoop -State $LoopState }
+    )
+    $streak = 0
+    $lastEscapeUtc = [datetime]::MinValue
+    while (-not $State.ShutdownState['Requested']) {
+        try {
+            & $Loop $State
+            return
+        } catch [System.Management.Automation.PipelineStoppedException] {
+            throw
+        } catch {
+            if ($State.ShutdownState['Requested']) { return }
+            $escape = $_
+            $now = [datetime]::UtcNow
+            if (($now - $lastEscapeUtc).TotalSeconds -gt 3600) { $streak = 0 }
+            $streak++
+            $lastEscapeUtc = $now
+            $hold = [int][math]::Min($MaxHoldSeconds, $BaseHoldSeconds * [math]::Pow(2, [math]::Min(16, $streak - 1)))
+            $location = 'unknown'
+            if ($escape.InvocationInfo -and $escape.InvocationInfo.ScriptName) {
+                $location = '{0}:{1}' -f (Split-Path -Leaf $escape.InvocationInfo.ScriptName), $escape.InvocationInfo.ScriptLineNumber
+            }
+            $line = Format-YurunaOperatorMessage -Key 'runner.outer_loop_exception' -Arguments @{
+                type = $escape.Exception.GetType().FullName
+                message = (ConvertTo-RecoverySafeText -Text ([string]$escape.Exception.Message))
+                location = $location; streak = "$streak"; holdSeconds = "$hold"
+            }
+            Write-Warning $line
+            Write-OuterLog $line
+            if ($env:YURUNA_RUNTIME_DIR) {
+                try {
+                    $orphan = Read-YurunaRunnerCycleRecord -RuntimeDir $env:YURUNA_RUNTIME_DIR
+                    if ($orphan.State -eq 'AliveOwned') {
+                        Write-OuterLog (Format-YurunaOperatorMessage -Key 'runner.outer_loop_orphan_stopped' -Arguments @{ id = "$($orphan.Pid)" })
+                        Stop-ProcessTree -ProcessId ([int]$orphan.Pid) -Confirm:$false
+                        $null = Clear-YurunaRunnerCycleRecord -RuntimeDir $env:YURUNA_RUNTIME_DIR -ProcessId ([int]$orphan.Pid) -Confirm:$false
+                    }
+                } catch { Write-OuterLog (Format-YurunaOperatorMessage -Key 'runner.outer_poll_failed' -Arguments @{ probe = 'cycle-record'; message = (ConvertTo-RecoverySafeText -Text ([string]$_.Exception.Message)) }) }
+                try {
+                    $commitSha = Get-OuterCommitSha -RepoRoot $State.RepoRoot
+                    $null = Update-RunnerFaultStatus -RuntimeDir $env:YURUNA_RUNTIME_DIR -RunnerState 'paused' -FailureClass 'script_error' `
+                        -Reason $line -SpawnedAtUtc $now -FrameworkCommitSha ([string]$commitSha) -Confirm:$false
+                    $config = Read-TestConfig -Path $State.ConfigPath -NoCache
+                    $null = Update-RunnerCrashGating -RuntimeDir $env:YURUNA_RUNTIME_DIR -SpawnedAtUtc $now -Config $config `
+                        -Cycle ([int]$State['OuterCycleCounter']) -FailureClass 'script_error' -Description $line -Confirm:$false
+                } catch { Write-OuterLog (Format-YurunaOperatorMessage -Key 'runner.outer_poll_failed' -Arguments @{ probe = 'fault-status'; message = (ConvertTo-RecoverySafeText -Text ([string]$_.Exception.Message)) }) }
+            }
+            $null = Wait-OuterInterruptible -Seconds $hold -ShutdownState $State.ShutdownState
+        }
+    }
+}
 Export-ModuleMember -Function Test-YurunaCycleAborted, `
     Get-OuterCommitSha, Test-OuterNewCommitsAvailable, Invoke-OuterGitPull, Get-OuterSourceSelection, Invoke-OuterNetworkGit, `
-    Get-OuterRemoteSha, Get-OuterConfigMtime, Get-OuterStepTimeoutSeconds, Get-OuterPreambleTimeoutSeconds, Get-OuterProjectUrl, `
+    Get-OuterRemoteSha, Get-OuterConfigMtime, Get-OuterStepTimeoutSeconds, Get-OuterPreambleTimeoutSeconds, Get-OuterMaxCycleSeconds, Get-OuterCycleCeilingSeconds, Get-OuterCyclePlannedRunCount, Test-OuterCycleHeld, Read-OuterWatchdogLapseBound, Step-OuterHeartbeatGuard, Get-OuterProjectUrl, `
     Get-OuterPoolTestCycleOverride, Get-OuterAutoRemediation, Test-OuterNoStatusServiceForwarded, `
     Get-OuterStatusBaseUrl, Get-OuterCycleSummaryLine, `
     Sync-ForwardEnv, Write-OuterLog, `
     Clear-TerminalNotifierJob, `
     Wait-OuterInterruptible, Stop-ProcessTree, Invoke-OuterCycleDispatch, `
-    Invoke-RunnerOuterCycle, Get-LastOuterCycleResult, Invoke-RunnerOuterLoop, `
+    Invoke-RunnerOuterCycle, Get-LastOuterCycleResult, Invoke-RunnerOuterLoop, Invoke-RunnerOuterSupervisor, `
+    Update-OuterFrameworkHealth, Invoke-OuterFrameworkRescue, `
     Get-OuterPoolStorageMoveMode, Get-OuterPoolStoragePushWait, `
     Wait-OuterPushForwarder, Test-OuterPoolStorageSpaceReady, Invoke-OuterPoolStorageMove, `
     Write-PoolStorageSpaceFailureRecord, Send-PoolStorageSpaceNotification, `

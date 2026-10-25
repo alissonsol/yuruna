@@ -2196,6 +2196,21 @@
       "sourceHash": "2e62b6db2caa115b2d04e6793e072b9e3b1f18aea522e01483293bd438ca33fe",
       "origin": "machine",
       "message": "mirror.fresh"
+    },
+    "status.banner_unguarded": {
+      "sourceHash": "394fbed24b4960662a7b9c8bb6cedd3c22522edf75f1be81da46f9e6621968eb",
+      "origin": "machine",
+      "message": "测试正在进行，但没有步骤看门狗；由运行器代为约束本周期"
+    },
+    "status.banner_stalled": {
+      "sourceHash": "0e743c58136adc7c08191e4505508e55780d92f0da44eecf3265298907ad6255",
+      "origin": "machine",
+      "message": "测试正在进行，但在 {boundSeconds} s 上限内没有任何步骤推进"
+    },
+    "status.api_forbidden_not_served": {
+      "sourceHash": "aedd2003b2a7c38b4af0667a090aa363d68b67814e6401b5f0821bad691dd39b",
+      "origin": "machine",
+      "message": "禁止（不是提供的文件）"
     }
   }
 }

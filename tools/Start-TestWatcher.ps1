@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.22
+.VERSION 2026.10.25
 .GUID 4254370d-577a-4b3f-a8a8-77e38fafee0e
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -28,7 +28,8 @@
     the same for -QuietSeconds and differs from the one last recorded, it runs
     the public suites, and the private ones under dev-only when they exist, with
     -Background: at idle priority, recording every suite that has no reusable
-    pass, and launching no further suite while a foreground run is active. A
+    pass, and launching no further suite while a foreground run is active.
+    Public and private rounds share the concurrency budget and run together. A
     change made during a round starts another round once the workspace is quiet.
 
     The watcher runs nothing a foreground run would not, and its results never
@@ -41,9 +42,9 @@
     part of every record's context, so a record made under another environment
     is not reused.
 .PARAMETER IntervalSeconds
-    Seconds between workspace fingerprints. Default 5.
+    Seconds between workspace fingerprints. Default 1.
 .PARAMETER QuietSeconds
-    Seconds the workspace must stay unchanged before a round starts. Default 15.
+    Seconds the workspace must stay unchanged before a round starts. Default 2.
 .PARAMETER ThrottleLimit
     Concurrent suite processes for each round. Default: half the logical
     processors, at least 2 and at most 16.
@@ -62,8 +63,8 @@
 
 [CmdletBinding()]
 param(
-    [ValidateRange(1, 3600)][int]$IntervalSeconds = 5,
-    [ValidateRange(0, 3600)][int]$QuietSeconds = 15,
+    [ValidateRange(1, 3600)][int]$IntervalSeconds = 1,
+    [ValidateRange(0, 3600)][int]$QuietSeconds = 2,
     [ValidateRange(1, 64)][int]$ThrottleLimit = [Math]::Clamp([int][Math]::Floor([Environment]::ProcessorCount / 2), 2, 16),
     [switch]$Once
 )
@@ -72,6 +73,8 @@ $ErrorActionPreference = 'Stop'
 $RepoRoot = Split-Path -Parent $PSScriptRoot
 $Runner = Join-Path $PSScriptRoot 'Invoke-TestSuite.ps1'
 $DevOnlyRunner = Join-Path $RepoRoot 'dev-only/tools/Invoke-DevOnlyTests.ps1'
+$commonDirectory = git -C $RepoRoot rev-parse --path-format=absolute --git-common-dir 2>$null
+$foregroundDirectory = if ($LASTEXITCODE -eq 0 -and $commonDirectory) { Join-Path ([string]$commonDirectory) 'yuruna/test-impact/foreground' } else { $null }
 
 $tracer = if ($env:YURUNA_STRACE) { $env:YURUNA_STRACE } else {
     (Get-Command strace -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1).Source
@@ -84,6 +87,26 @@ $missing = @(
 if ($missing.Count) {
     Write-Error "Start-TestWatcher: recording needs $($missing -join ', ')." -ErrorAction Continue
     exit 2
+}
+
+# The watcher checks the same lease protocol before starting a round; each
+# runner also checks it before launching a suite if foreground work starts later.
+function Test-ForegroundRun {
+    param([string]$Directory)
+    if (-not $Directory -or -not [IO.Directory]::Exists($Directory)) { return $false }
+    foreach ($lock in [IO.Directory]::GetFiles($Directory, '*.lock')) {
+        try {
+            ([IO.File]::Open($lock, [IO.FileMode]::Open, [IO.FileAccess]::ReadWrite, [IO.FileShare]::None)).Dispose()
+            if ([IO.File]::GetLastWriteTimeUtc($lock) -lt [DateTime]::UtcNow.AddMinutes(-1)) {
+                Remove-Item -LiteralPath $lock -Force -ErrorAction SilentlyContinue
+            }
+        } catch [IO.FileNotFoundException] {
+            continue
+        } catch {
+            return $true
+        }
+    }
+    return $false
 }
 
 # --- REGION: Workspace fingerprint
@@ -120,19 +143,33 @@ function Invoke-Round {
             @{ Name = 'dev-only suites'; Script = $DevOnlyRunner; Results = Join-Path $RepoRoot '.test-results/background-dev-only' }
         }
     )
-    $passed = $true
-    $parts = foreach ($run in $runs) {
-        $argv = @('-NoProfile', '-NonInteractive', '-File', $run.Script, '-Background', '-Quiet', '-ResultsPath', $run.Results)
-        if ($run.Script -eq $Runner) { $argv += @('-ThrottleLimit', [string]$Throttle) }
-        $null = & (Get-Process -Id $PID).Path @argv 2>&1
-        if ($LASTEXITCODE -ne 0) { $passed = $false }
+    $privateThrottle = if ($runs.Count -gt 1 -and $Throttle -gt 1) { [Math]::Min(4, [Math]::Max(1, [int][Math]::Floor($Throttle / 4))) } else { 0 }
+    $runs[0].Throttle = $Throttle - $privateThrottle
+    if ($runs.Count -gt 1) { $runs[1].Throttle = [Math]::Max(1, $privateThrottle) }
+    $powerShell = (Get-Process -Id $PID).Path
+    $results = @($runs | ForEach-Object -ThrottleLimit ([Math]::Min($runs.Count, $Throttle)) -Parallel {
+        $run = $_
         $report = Join-Path $run.Results 'suite-results.json'
+        # A child that exits before publishing must not inherit an old verdict.
+        Remove-Item -LiteralPath $report -Force -ErrorAction SilentlyContinue
+        $argv = @('-NoProfile', '-NonInteractive', '-File', $run.Script, '-Background', '-Quiet',
+            '-ResultsPath', $run.Results, '-ThrottleLimit', [string]$run.Throttle)
+        $output = & $using:powerShell @argv 2>&1 | Out-String
+        $code = $LASTEXITCODE
+        $summary = "$($run.Name): no report (exit $code)"
+        $passed = $code -eq 0 -and (Test-Path -LiteralPath $report)
         if (Test-Path -LiteralPath $report) {
             $result = Get-Content -LiteralPath $report -Raw | ConvertFrom-Json
-            "$($run.Name): $($result.impact.reused) reused, $($result.impact.recorded) recorded, " +
+            $summary = "$($run.Name): $($result.impact.reused) reused, $($result.impact.recorded) recorded, " +
                 "$(@($result.suites).Count - $result.impact.reused - $result.impact.recorded) ran without a record, " +
-                "$(@($result.problems).Count) problem(s)"
-        } else { "$($run.Name): no report (exit $LASTEXITCODE)" }
+                "$(@($result.problems).Count) problem(s) (exit $code)"
+        }
+        [pscustomobject]@{ Passed = $passed; Summary = $summary; Output = $output }
+    })
+    $passed = @($results | Where-Object { -not $_.Passed }).Count -eq 0
+    $parts = @($results | ForEach-Object Summary)
+    foreach ($result in $results) {
+        if (-not $result.Passed -and $result.Output) { Write-Information $result.Output.Trim() -InformationAction Continue }
     }
     Write-Information ("{0} round in {1:n0}s -- {2}" -f [DateTime]::Now.ToString('HH:mm:ss', [Globalization.CultureInfo]::InvariantCulture), $clock.Elapsed.TotalSeconds,
         ($parts -join '; ')) -InformationAction Continue
@@ -153,9 +190,9 @@ while ($true) {
         $seenState = $state
         $quiet.Restart()
     }
-    if ($state -cne $recordedState -and $quiet.Elapsed.TotalSeconds -ge $QuietSeconds) {
-        $null = Invoke-Round -Throttle $ThrottleLimit
-        $recordedState = $state
+    if ($state -cne $recordedState -and $quiet.Elapsed.TotalSeconds -ge $QuietSeconds -and
+        -not (Test-ForegroundRun -Directory $foregroundDirectory)) {
+        if (Invoke-Round -Throttle $ThrottleLimit) { $recordedState = $state }
     }
     Start-Sleep -Seconds $IntervalSeconds
 }

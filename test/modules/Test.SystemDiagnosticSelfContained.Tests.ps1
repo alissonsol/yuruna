@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.22
+.VERSION 2026.10.25
 .GUID 429aa9e5-4b47-42a5-adc9-b48244e14f6a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -208,13 +208,29 @@ Describe 'Get-SystemDiagnostic.ps1 loads nothing beside itself' {
         $copy = Join-Path $solo 'Get-SystemDiagnostic.ps1'
         Copy-Item -LiteralPath $script:DiagnosticPath -Destination $copy
 
-        $run = Invoke-DiagnosticBoundedCommand -FilePath $script:Pwsh -TimeoutSeconds 300 -ArgumentList @(
-            '-NoProfile', '-NonInteractive', '-File', $copy, '-SkipDocker', '-SkipKube',
-            '-CheckoutRoot', (Join-Path $TestDrive 'no-checkout'))
+        # Other test processes write expected module failures to the system
+        # journal. Those records are evidence, not errors from this script.
+        # Give the journal probe controlled input without putting a companion
+        # file beside the standalone diagnostic.
+        $priorPath = $env:PATH
+        try {
+            if ($IsLinux) {
+                $nativeDir = Join-Path $TestDrive 'standalone-native'
+                $null = New-Item -ItemType Directory -Path $nativeDir
+                $journal = Join-Path $nativeDir 'journalctl'
+                [IO.File]::WriteAllText($journal, "#!/bin/sh`nprintf '%s\n' 'standalone journal fixture'`n")
+                & chmod +x $journal
+                $env:PATH = $nativeDir + [IO.Path]::PathSeparator + $priorPath
+            }
+            $run = Invoke-DiagnosticBoundedCommand -FilePath $script:Pwsh -TimeoutSeconds 300 -ArgumentList @(
+                '-NoProfile', '-NonInteractive', '-File', $copy, '-SkipDocker', '-SkipKube',
+                '-CheckoutRoot', (Join-Path $TestDrive 'no-checkout'))
+        } finally { $env:PATH = $priorPath }
 
         $run.TimedOut | Should -BeFalse
         $run.ExitCode | Should -Be 0
         $text = "$($run.StdOut)`n$($run.StdErr)"
+        if ($IsLinux) { $text | Should -Match 'standalone journal fixture' }
         $text | Should -Not -Match 'is not recognized as a name of a cmdlet'
         $text | Should -Not -Match 'was not loaded because no valid module file was found'
         $text | Should -Match 'not applicable: checkout evidence is unavailable'

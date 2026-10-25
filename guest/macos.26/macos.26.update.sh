@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.10.22
+# Version: 2026.10.25
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 # --- REGION: Initialize environment
@@ -195,7 +195,9 @@ fi
 
 # --- REGION: yuruna_materialize_framework_pin
 # This complete helper is embedded in standalone updaters. Python's process
-# groups provide the same finite Git deadline on Linux and macOS.
+# groups provide the same finite Git deadline on Linux and macOS. It is
+# defined ahead of the materialize region, unlike the Linux updaters, so a
+# harness can run that region against a stand-in of this helper.
 yuruna_materialize_framework_pin() {
     local destination="$1" repository="$2" revision="$3" mirror_ip="${4:-}" mirror_url=''
     [[ "$repository" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]] \

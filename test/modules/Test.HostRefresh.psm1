@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.22
+.VERSION 2026.10.25
 .GUID 42b6904c-f865-423b-822a-edb5cb5994fe
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -920,13 +920,6 @@ function Start-HostRefreshProgressPublisher {
         })
     $publisher = [pscustomobject]@{ PSTypeName = 'Yuruna.HostRefreshPublisher'; Sync = $sync; PowerShell = $null; Runspace = $null; Handle = $null; Started = $false }
     if (-not $PSCmdlet.ShouldProcess($Path, (Format-YurunaOperatorMessage -Key 'runner.host_refresh_should_process_publish'))) { return $publisher }
-    $first = $false
-    try {
-        $state = $sync.State
-        $state['remainingBudgetMs'] = [Math]::Max([long]0, $ExpiryTick - [Environment]::TickCount64)
-        $first = [bool](Write-YurunaStateFileJson -Path $Path -InputObject $state -Depth 6 -Confirm:$false)
-    } catch { $first = $false }
-    if ($first) { $sync.LastWrittenSeq = [long]1; $sync.LastWriteTick = [Environment]::TickCount64; $sync.WriteCount = 1 } else { $sync.Degraded = $true }
     try {
         $modulePath = if ($WriterModulePath) { $WriterModulePath } else { Join-Path $PSScriptRoot 'Test.StateFile.psm1' }
         $initialState = [System.Management.Automation.Runspaces.InitialSessionState]::CreateDefault2()
@@ -938,11 +931,30 @@ function Start-HostRefreshProgressPublisher {
         $null = $shell.AddScript($script:HostRefreshPublisherLoop).AddArgument($sync)
         $publisher.PowerShell = $shell
         $publisher.Runspace = $runspace
-        $publisher.Handle = $shell.BeginInvoke()
-        $publisher.Started = $true
     } catch {
         Write-Verbose "Start-HostRefreshProgressPublisher: heartbeat runspace unavailable: $($_.Exception.Message)"
         $sync.Degraded = $true
+    }
+    # Module loading can take longer than a heartbeat period under load. Date
+    # the initial projection only once its writer is ready to take over.
+    $now = Get-HostRefreshUtcText
+    $sync.Raw['heartbeatUtc'] = $now
+    $sync.State['heartbeatUtc'] = $now
+    $first = $false
+    try {
+        $state = $sync.State
+        $state['remainingBudgetMs'] = [Math]::Max([long]0, $ExpiryTick - [Environment]::TickCount64)
+        $first = [bool](Write-YurunaStateFileJson -Path $Path -InputObject $state -Depth 6 -Confirm:$false)
+    } catch { $first = $false }
+    if ($first) { $sync.LastWrittenSeq = [long]1; $sync.LastWriteTick = [Environment]::TickCount64; $sync.WriteCount = 1 } else { $sync.Degraded = $true }
+    if ($publisher.PowerShell) {
+        try {
+            $publisher.Handle = $publisher.PowerShell.BeginInvoke()
+            $publisher.Started = $true
+        } catch {
+            Write-Verbose "Start-HostRefreshProgressPublisher: heartbeat runspace unavailable: $($_.Exception.Message)"
+            $sync.Degraded = $true
+        }
     }
     return $publisher
 }

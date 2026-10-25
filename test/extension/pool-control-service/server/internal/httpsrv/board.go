@@ -67,10 +67,11 @@ type boardCard struct {
 type configurationDoc struct {
 	OK    bool `json:"ok"`
 	Pools []struct {
-		PoolID   string   `json:"poolId"`
-		PoolGUID string   `json:"poolGuid"`
-		Display  string   `json:"displayName"`
-		Members  []string `json:"members"`
+		PoolID          string   `json:"poolId"`
+		PoolGUID        string   `json:"poolGuid"`
+		Display         string   `json:"displayName"`
+		Members         []string `json:"members"`
+		ConfiguredState string   `json:"configuredState"`
 		// Repositories is nil when the pool carries none, and then every
 		// member runs its own configured repositories.
 		Repositories *struct {

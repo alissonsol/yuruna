@@ -1588,7 +1588,7 @@ Page-specific behavior:
   rows, and the legacy `guestSequence` path, which has no sequences --
   carry only `guestSummary`, so the renderer falls back to one badge
   per guest: `guestSummary[k]` is either a bare string ("pass"/"fail",
-  very old rows) or `{ status, failureArtifacts }`, and when
+  old rows) or `{ status, failureArtifacts }`, and when
   `failureArtifacts` is set that pill links to the per-guest cycle
   folder. In that fallback the pill is still *labeled* with the
   sequence name(s) driving its guest in the CURRENT cycle plan
@@ -1877,7 +1877,7 @@ runtime-only files live under `<runtimeDir>/` (typically
 | `runner.heartbeat` | `<runtimeDir>` | C# `Yuruna.HeartbeatWriter` timer in [Test.RunnerHeartbeat.psm1](../test/modules/Test.RunnerHeartbeat.psm1), started by [Invoke-TestRunnerInnerLoop.ps1](../test/modules/Invoke-TestRunnerInnerLoop.ps1) | overwritten every 30 s | Process-level proof of life. Stays fresh even when the runspace is wedged inside a long SSH/OCR call. |
 | `runner.stepHeartbeat` | `<runtimeDir>` | runspace-side touch at step boundaries and after completed pause polls or lab-health probes; outer pre-wipes + force-touches before each spawn | overwritten on completed progress | Runspace-level proof of life. Deliberate holds remain live; blocked calls still age beyond `testCycle.stepTimeoutSeconds` and trigger the watchdog. |
 | `runner.configGate.json` + `runner-attempts/<attempt>/config-gate.{json,log}` | `<runtimeDir>` | [Test.ConfigPreflight.psm1](../test/modules/Test.ConfigPreflight.psm1) after a gate verdict | latest pointer replaced; 20 attempt folders retained | Structured configuration findings and transcript with attempt generation, timestamps and framework commit. Separate from completed cycle artifacts. |
-| `runner.watchdog-kill.json` | `<runtimeDir>` | [Test.RunnerWatchdog.psm1](../test/modules/Test.RunnerWatchdog.psm1) before terminating a matching stale inner | cleared before the next spawn | Attempt-bound evidence that termination was initiated by the watchdog; a nonzero gate exit alone is not a stall. |
+| `runner.watchdog-kill.json` | `<runtimeDir>` | [Test.RunnerWatchdog.psm1](../test/modules/Test.RunnerWatchdog.psm1) before terminating a matching stale inner; `Write-OuterStopRecord` in [Test.RunnerOuterLoop.psm1](../test/modules/Test.RunnerOuterLoop.psm1), in the same shape, for a cycle the resident stopped | cleared before the next spawn | Attempt-bound evidence that termination was initiated by the watchdog; a nonzero gate exit alone is not a stall. |
 | `.test.config.snapshot.json` | `<runtimeDir>` | `Publish-TestConfigSnapshot` in [Test.Config.psm1](../test/modules/Test.Config.psm1), auto-fired by every `Read-TestConfig` parse | overwritten on next parse | Cross-process parsed-config snapshot (envelope: sourcePath, sourceMtime, sourceHash, publishedAt, publisherPid, config). `Read-TestConfigOrSnapshot` validates the envelope's mtime+hash against the live YAML and uses the snapshot when both still match, avoiding a redundant YAML parse in the inner. |
 | `.caching-proxy-service.env.json` | `<runtimeDir>` | atomic temp->rename in [test/service/Start-CachingProxyServiceVM.ps1](../test/service/Start-CachingProxyServiceVM.ps1) | wiped by `Remove-TestVMFiles.ps1` | Cleared `*_proxy` env-var snapshot so a re-invocation of Start-CachingProxyServiceVM can restore them without operator re-typing. |
 | `yuruna-caching-proxy-service.yml` | `<runtimeDir>` | `Save-CachingProxyServiceState` in [Test.CachingProxyService.psm1](../test/modules/Test.CachingProxyService.psm1) (temp-file + Move-Item + `.backup` rotation) | merged on next save | Cache-VM password + IP. Has a `.backup` sibling rotated on each successful write; `Read-CachingProxyServiceState` falls back to the backup when the main is corrupt and rotates the bad copy to `.corrupt.<UTC>` for forensics. |
@@ -2485,6 +2485,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.22
+Last review: 2026.10.25
 
 Back to [Yuruna](../README.md)

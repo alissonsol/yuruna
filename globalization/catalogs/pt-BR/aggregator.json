@@ -447,6 +447,11 @@
       "sourceHash": "a58db505d0715741667a03430689374251661c114e517a9744d1ccbb5bbe9ea3",
       "origin": "machine",
       "message": "preenchimento do histórico: varredura concluída para {value1} hospedeiro(s): gravou {value2} ciclo(s), eventos de {value3} ciclo(s), {value4} incidente(s) e {value5} amostra(s) da linha do tempo; {value6} ciclo(s) ilegível(is); {value7} hospedeiro(s) ainda com histórico a gravar"
+    },
+    "aggregator.invalid_control_scope": {
+      "sourceHash": "c385422dd8a1236efb8930bbd4491f6f42e35ee443c60d843acbba17908fbaee",
+      "origin": "machine",
+      "message": "escopo de controle inválido"
     }
   }
 }

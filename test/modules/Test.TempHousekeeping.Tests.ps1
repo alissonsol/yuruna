@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.22
+.VERSION 2026.10.25
 .GUID 42b8c3e5-1f7a-4d96-a2c8-6e0b9d4f1a37
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -279,7 +279,7 @@ Describe 'Remove-YurunaStaleTempEntry' {
         $null = New-Item -ItemType Directory -Force -Path $script:Stale
         $g32 = 'abcdef0123456789abcdef0123456789'
         $script:Harness = @(
-            "seed_amisad-core_0042", "seed_amisad-core_k3vq0d5m.x2c", "yuruna-browser-profile-$g32", "yuruna-gotest-$g32", "yrn-suite-0123456789ab",
+            "yuruna-browser-profile-$g32", "yuruna-gotest-$g32", "yrn-suite-0123456789ab",
             "yrn-parser-follow-123456789", "yuruna-localization-$($g32)$($g32).lock", "yuruna-status-bounce-4242.log.err",
             "yuruna-squid-ca.pem", "yuruna-dhcp-test-guest-01.etl", "yrn-go-0123456789ab",
             "yuruna-fae-recorder.ATLa2gnP", "yuruna-fae-profile.Q1w2E3", "yrn-run-0123456789ab")
@@ -342,27 +342,6 @@ Describe 'Remove-YurunaStaleTempEntry' {
         $null = Remove-YurunaStaleTempEntry -TempRoot @($script:Stale) -Now $script:Later -Confirm:$false
         Assert-False (Test-Path -LiteralPath $link) 'the link is gone'
         Assert-True (Test-Path -LiteralPath (Join-Path $target 'keep.txt')) 'what it pointed at is untouched'
-    }
-}
-
-Describe 'New-YurunaSeedDirectory' {
-    It 'creates a distinct, empty seed folder in the temp folder on every call' {
-        $first = New-YurunaSeedDirectory -VMName 'amisad-core'
-        $second = New-YurunaSeedDirectory -VMName 'amisad-core'
-        try {
-            Assert-True ($first -ne $second) 'each build gets its own folder'
-            $tempRoot = [IO.Path]::GetFullPath([IO.Path]::GetTempPath()).TrimEnd('\', '/')
-            foreach ($path in $first, $second) {
-                Assert-True ([IO.Directory]::Exists($path)) "$path exists"
-                Assert-Equal 0 @(Get-ChildItem -LiteralPath $path -Force).Count -Because "$path starts empty"
-                Assert-Match '^seed_amisad-core_' (Split-Path -Leaf $path) 'the name carries the VM'
-                Assert-Equal $tempRoot ([IO.Path]::GetFullPath((Split-Path -Parent $path)).TrimEnd('\', '/')) -Because 'it sits in the temp folder'
-            }
-            # The New-VM scripts that call it run on Windows, where the sweep has to know the name.
-            if ($IsWindows) { Assert-Match (Get-YurunaStaleTempPattern)['seed'].Pattern (Split-Path -Leaf $first) 'the temp sweep recognizes it' }
-        } finally {
-            Remove-Item -LiteralPath $first, $second -Recurse -Force -ErrorAction SilentlyContinue
-        }
     }
 }
 
@@ -606,31 +585,47 @@ Describe 'leaks on purpose' {
 
 Describe 'Temp files with secrets or large captures are removed on every path' {
     It 'wraps the seed folder of <Script> in a try whose finally removes it' -TestCases @(
+        # Every test-guest seed carries a password hash, a plaintext password or a
+        # repository token, so every test-guest builder on every host stages it in
+        # the protected workspace and disposes of it there.
         @{ Script = 'host/windows.hyper-v/guest.amazon.linux.2023/New-VM.ps1' }
+        @{ Script = 'host/windows.hyper-v/guest.windows.11/New-VM.ps1' }
+        @{ Script = 'host/windows.hyper-v/modules/New-UbuntuServerVM.ps1' }
+        @{ Script = 'host/ubuntu.kvm/guest.amazon.linux.2023/New-VM.ps1' }
+        @{ Script = 'host/ubuntu.kvm/guest.windows.11/New-VM.ps1' }
+        @{ Script = 'host/ubuntu.kvm/modules/New-UbuntuServerVM.ps1' }
+        @{ Script = 'host/macos.utm/guest.amazon.linux.2023/New-VM.ps1' }
+        @{ Script = 'host/macos.utm/guest.windows.11/New-VM.ps1' }
+        @{ Script = 'host/macos.utm/modules/New-UbuntuServerVM.ps1' }
+        # Every service seed carries the admin password, so every service builder on
+        # every host stages it in the protected workspace and disposes of it there.
         @{ Script = 'host/windows.hyper-v/guest.caching-proxy-service/New-VM.ps1' }
         @{ Script = 'host/windows.hyper-v/guest.download-agent-service/New-VM.ps1' }
         @{ Script = 'host/windows.hyper-v/guest.pool-control-service/New-VM.ps1' }
         @{ Script = 'host/windows.hyper-v/guest.stash-service/New-VM.ps1' }
-        @{ Script = 'host/windows.hyper-v/guest.windows.11/New-VM.ps1' }
-        @{ Script = 'host/windows.hyper-v/modules/New-UbuntuServerVM.ps1' }
+        @{ Script = 'host/ubuntu.kvm/guest.caching-proxy-service/New-VM.ps1' }
+        @{ Script = 'host/ubuntu.kvm/guest.download-agent-service/New-VM.ps1' }
+        @{ Script = 'host/ubuntu.kvm/guest.pool-control-service/New-VM.ps1' }
+        @{ Script = 'host/ubuntu.kvm/guest.stash-service/New-VM.ps1' }
+        @{ Script = 'host/macos.utm/guest.caching-proxy-service/New-VM.ps1' }
+        @{ Script = 'host/macos.utm/guest.download-agent-service/New-VM.ps1' }
+        @{ Script = 'host/macos.utm/guest.pool-control-service/New-VM.ps1' }
+        @{ Script = 'host/macos.utm/guest.stash-service/New-VM.ps1' }
     ) {
         param($Script)
         $ast = Get-YurunaTestFileAst -Path (Join-Path $script:RepoRoot $Script)
-        $assignment = $ast.Find({ param($n) $n -is [System.Management.Automation.Language.AssignmentStatementAst] -and $n.Left.Extent.Text -eq '$SeedDir' }, $true)
-        Assert-NotNull $assignment "$Script names its seed folder"
+        # The folder the seed is rendered into is the protected workspace's source,
+        # whatever the builder calls it ($SeedDir, or $autoSrc for an answer file).
+        $assignment = $ast.Find({ param($n) $n -is [System.Management.Automation.Language.AssignmentStatementAst] -and $n.Right.Extent.Text -eq '$seedWorkspace.Source' }, $true)
+        Assert-NotNull $assignment "$Script renders into the protected workspace source"
         $try = $assignment.Parent
         while ($try -and $try -isnot [System.Management.Automation.Language.TryStatementAst]) { $try = $try.Parent }
         Assert-NotNull $try "$Script creates the seed folder inside a try"
         Assert-NotNull $try.Finally "$Script has a finally for it"
-        if ($Script -eq 'host/windows.hyper-v/guest.caching-proxy-service/New-VM.ps1') {
-            Assert-Match '\$SeedDir\s*=\s*\$seedWorkspace\.Source' $assignment.Extent.Text "$Script renders into the protected workspace source"
-            Assert-Match '\$seedWorkspace\s*=\s*New-CachingProxySeedWorkspace' $try.Body.Extent.Text "$Script creates its protected workspace inside the try"
-            Assert-Match 'Remove-CachingProxySeedWorkspace -Workspace \$seedWorkspace' $try.Finally.Extent.Text "$Script disposes that same protected workspace in finally"
-            $cleanup = Get-YurunaTestFunctionAst -Path (Join-Path $script:RepoRoot 'host/modules/Yuruna.CachingProxySeed.psm1') -Name 'Remove-CachingProxySeedWorkspace'
-            Assert-Match 'Remove-Item -LiteralPath \$Workspace\.Root -Recurse -Force' $cleanup.Extent.Text 'the helper removes the containing source and image staging tree'
-        } else {
-            Assert-Match 'Remove-Item -LiteralPath \$SeedDir -Recurse' $try.Finally.Extent.Text "$Script removes the seed in that finally"
-        }
+        Assert-Match '\$seedWorkspace\s*=\s*New-SeedMediaWorkspace' $try.Body.Extent.Text "$Script creates its protected workspace inside the try"
+        Assert-Match 'Remove-SeedMediaWorkspace -Workspace \$seedWorkspace' $try.Finally.Extent.Text "$Script disposes that same protected workspace in finally"
+        $cleanup = Get-YurunaTestFunctionAst -Path (Join-Path $script:RepoRoot 'host/modules/Yuruna.SeedMedia.psm1') -Name 'Remove-SeedMediaWorkspace'
+        Assert-Match 'Remove-Item -LiteralPath \$Workspace\.Root -Recurse -Force' $cleanup.Extent.Text 'the helper removes the containing source and image staging tree'
     }
 
     It 'removes the <Function> temp files of <Driver> in a finally' -TestCases @(

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.22
+.VERSION 2026.10.25
 .GUID 421beeef-5850-4f6c-9d34-483ec197d700
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -94,6 +94,33 @@ AfterAll {
 }
 
 Describe 'the heartbeat' {
+    It 'timestamps the initial heartbeat after the writer runspace is initialized' {
+        $directory = New-ScratchDir
+        $path = Join-Path $directory 'host-refresh.state.json'
+        $loaded = Join-Path $directory 'writer-loaded.txt'
+        $writer = Join-Path $directory 'Writer.psm1'
+        # Keep the initial record observable even if the asynchronous loop runs
+        # immediately after BeginInvoke on a busy host.
+        $body = "[IO.File]::WriteAllText('$($loaded.Replace("'", "''"))', [DateTime]::UtcNow.ToString('o'))`n" + @'
+function Write-YurunaStateFileJson {
+    [CmdletBinding(SupportsShouldProcess)]
+    param([string]$Path, $InputObject, [int]$Depth)
+    return [bool]$PSCmdlet.ShouldProcess($Path, 'Leave the initial fixture record unchanged')
+}
+Export-ModuleMember -Function Write-YurunaStateFileJson
+'@
+        [IO.File]::WriteAllText($writer, $body)
+        $publisher = Start-HostRefreshProgressPublisher -Path $path -Initial (Get-InitialSnapshot) -ExpiryTick ([Environment]::TickCount64 + 900000) -WriterModulePath $writer -Confirm:$false
+        try {
+            Assert-True $publisher.Started
+            $initialized = [DateTime]::Parse([IO.File]::ReadAllText($loaded)).ToUniversalTime()
+            $heartbeat = ([datetime](Read-Projection -Path $path)['heartbeatUtc']).ToUniversalTime()
+            Assert-True ($heartbeat -ge $initialized) 'initial heartbeat must not include runspace and module startup time'
+        } finally {
+            $null = Stop-HostRefreshProgressPublisher -Publisher $publisher -Terminal @{ verdict = 'already-healthy'; state = 'completed' } -Confirm:$false
+        }
+    }
+
     It 'keeps advancing, at most every five seconds, while the main thread sleeps through a long step' {
         $path = Join-Path (New-ScratchDir) 'host-refresh.state.json'
         $publisher = Start-HostRefreshProgressPublisher -Path $path -Initial (Get-InitialSnapshot) -ExpiryTick ([Environment]::TickCount64 + 900000) -Confirm:$false

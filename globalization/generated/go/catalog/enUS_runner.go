@@ -43,6 +43,17 @@ const DataenUSrunner = `{
     },
     " runner records it could not prove stale."
   ],
+  "runner.bump_ca_create_action": "Create the caching-proxy ssl-bump CA this host keeps across proxy rebuilds",
+  "runner.bump_ca_unavailable": "No caching-proxy ssl-bump CA could be read or created in this host's private state; the proxy is not built without one.",
+  "runner.bump_ca_unreadable": [
+    "The caching-proxy CA kept at ",
+    {
+      "arg": "path",
+      "type": "detail",
+      "trust": "external"
+    },
+    " cannot be read; no CA is seeded until it is repaired or removed."
+  ],
   "runner.config_gate_attempt_failed": [
     "The runner attempt exited ",
     {
@@ -82,6 +93,54 @@ const DataenUSrunner = `{
     ". The template overlay must keep every value you set, so this replacement is a defect in the overlay, not a schema change; restore the previous value by hand if it was not intended and report the defect."
   ],
   "runner.critical_record_replace": "Replace a private critical record",
+  "runner.cycle_ceiling_reached": [
+    "[outer cycle ",
+    {
+      "arg": "cycle",
+      "type": "integer",
+      "trust": "internal"
+    },
+    "] cycle process ",
+    {
+      "arg": "id",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " reached testCycle.maxCycleSeconds (",
+    {
+      "arg": "ceilingSeconds",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " s) and was stopped with its process tree."
+  ],
+  "runner.cycle_ceiling_scaled": [
+    "[outer cycle ",
+    {
+      "arg": "cycle",
+      "type": "integer",
+      "trust": "internal"
+    },
+    "] the cycle plans ",
+    {
+      "arg": "count",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " run(s); its ceiling rises from testCycle.maxCycleSeconds (",
+    {
+      "arg": "configuredSeconds",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " s) to ",
+    {
+      "arg": "ceilingSeconds",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " s, two step timeouts for each run."
+  ],
   "runner.cycle_outcome_rejected_kept": [
     "[outer cycle ",
     {
@@ -290,6 +349,55 @@ const DataenUSrunner = `{
       "trust": "external"
     },
     " characters after wrapping; Windows cannot start it. Guest execution was not started."
+  ],
+  "runner.framework_health_write_action": "Record whether the framework produced a cycle outcome",
+  "runner.framework_rescue_action": "Pull the framework from the resident runner",
+  "runner.framework_rescue_due": [
+    "The cycle process ended without an outcome ",
+    {
+      "arg": "streak",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " times in a row (",
+    {
+      "arg": "outcome",
+      "type": "token",
+      "trust": "internal"
+    },
+    ") at framework commit ",
+    {
+      "arg": "sha",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "; the last commit that produced an outcome is ",
+    {
+      "arg": "lastGoodSha",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    ". The resident runner pulls the framework itself."
+  ],
+  "runner.framework_rescue_result": [
+    "Resident framework pull: ",
+    {
+      "arg": "result",
+      "type": "token",
+      "trust": "internal"
+    },
+    "; the framework commit is now ",
+    {
+      "arg": "sha",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    ". ",
+    {
+      "arg": "detail",
+      "type": "detail",
+      "trust": "external"
+    }
   ],
   "runner.gate_evidence_save_failed": [
     "Configuration gate evidence could not be saved: ",
@@ -1840,6 +1948,21 @@ const DataenUSrunner = `{
       "type": "detail",
       "trust": "internal"
     }
+  ],
+  "runner.max_cycle_seconds_invalid": [
+    "testCycle.maxCycleSeconds is '",
+    {
+      "arg": "v",
+      "type": "detail",
+      "trust": "external"
+    },
+    "', which is not a number -- using ",
+    {
+      "arg": "defaultSeconds",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " s."
   ],
   "runner.mb985d466db": [
     "stopVm: forcing '",
@@ -22413,6 +22536,62 @@ const DataenUSrunner = `{
       "trust": "external"
     }
   ],
+  "runner.outer_loop_exception": [
+    "The resident runner loop stopped on an unexpected ",
+    {
+      "arg": "type",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    " at ",
+    {
+      "arg": "location",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    ": ",
+    {
+      "arg": "message",
+      "type": "detail",
+      "trust": "external"
+    },
+    ". Occurrence ",
+    {
+      "arg": "streak",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " within an hour; the loop restarts in ",
+    {
+      "arg": "holdSeconds",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " s."
+  ],
+  "runner.outer_loop_orphan_stopped": [
+    "Stopped cycle process ",
+    {
+      "arg": "id",
+      "type": "integer",
+      "trust": "internal"
+    },
+    ", which the interrupted runner loop had left running."
+  ],
+  "runner.outer_poll_failed": [
+    "A ",
+    {
+      "arg": "probe",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    " poll by the resident runner failed and was treated as no answer: ",
+    {
+      "arg": "message",
+      "type": "detail",
+      "trust": "external"
+    }
+  ],
   "runner.pool_configuration_library_removed": "Removed test-sets.yml from the configuration store; nothing reads it.",
   "runner.pool_configuration_schema_already_current": [
     "Pool configuration is already at schemaVersion ",
@@ -22547,6 +22726,63 @@ const DataenUSrunner = `{
       "trust": "internal"
     },
     "."
+  ],
+  "runner.proxy_ca_pin_mismatch": [
+    "The caching proxy at ",
+    {
+      "arg": "cacheHost",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    " serves CA sha256 ",
+    {
+      "arg": "fetched",
+      "type": "identifier",
+      "trust": "external"
+    },
+    ", but this host trusts ",
+    {
+      "arg": "expected",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    " for it; the trusted CA is kept. Keep the pin. On the proxy builder, run Start-CachingProxyServiceVM.ps1 -ForceRebuild -RepairPoolCaTrust to enroll its verified signing key through authenticated host control. A host without an enrolled key cannot verify a CA rotation."
+  ],
+  "runner.proxy_ca_statement_absent": [
+    "The caching proxy at ",
+    {
+      "arg": "cacheHost",
+      "type": "identifier",
+      "trust": "external"
+    },
+    " serves the CA with sha256 ",
+    {
+      "arg": "fetched",
+      "type": "identifier",
+      "trust": "external"
+    },
+    " without a signed statement, and this host enrolls the lab's mirror verification keys, so it does not trust a CA it has not pinned on first use. Rebuild the caching proxy on the host that owns it; that proxy then serves yuruna-squid-ca.sig.json."
+  ],
+  "runner.proxy_ca_statement_refused": [
+    "The caching proxy at ",
+    {
+      "arg": "cacheHost",
+      "type": "identifier",
+      "trust": "external"
+    },
+    " serves the CA with sha256 ",
+    {
+      "arg": "fetched",
+      "type": "identifier",
+      "trust": "external"
+    },
+    " with a statement this host does not accept (",
+    {
+      "arg": "reason",
+      "type": "token",
+      "trust": "internal"
+    },
+    "), so that CA is not trusted."
   ],
   "runner.readiness_ack_remove_action": "Remove a stale refresh readiness acknowledgment",
   "runner.readiness_ack_write_action": "Write the refresh readiness acknowledgment",
@@ -22959,6 +23195,66 @@ const DataenUSrunner = `{
       "type": "detail",
       "trust": "external"
     }
+  ],
+  "runner.resident_watchdog_kill_preamble": [
+    "[outer cycle ",
+    {
+      "arg": "cycle",
+      "type": "integer",
+      "trust": "internal"
+    },
+    "] the step watchdog had stood down and the step heartbeat has not moved for ",
+    {
+      "arg": "ageSeconds",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " s in preamble phase '",
+    {
+      "arg": "phase",
+      "type": "token",
+      "trust": "internal"
+    },
+    "' (bound ",
+    {
+      "arg": "boundSeconds",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " s); the resident runner stopped cycle process ",
+    {
+      "arg": "id",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " with its process tree."
+  ],
+  "runner.resident_watchdog_kill_step": [
+    "[outer cycle ",
+    {
+      "arg": "cycle",
+      "type": "integer",
+      "trust": "internal"
+    },
+    "] the step watchdog had stood down and the step heartbeat has not moved for ",
+    {
+      "arg": "ageSeconds",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " s (bound ",
+    {
+      "arg": "boundSeconds",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " s); the resident runner stopped cycle process ",
+    {
+      "arg": "id",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " with its process tree."
   ],
   "runner.runner_process_signal_action": [
     "Signal a verified runner process (",
@@ -23857,6 +24153,15 @@ const DataenUSrunner = `{
       "trust": "external"
     }
   ],
+  "runner.vm_storage_reconcile_failed": [
+    "Could not finish interrupted virtual machine renames at cycle start (",
+    {
+      "arg": "message",
+      "type": "detail",
+      "trust": "external"
+    },
+    "). The cycle continues, deletes stay reference-checked, and the next cycle tries again."
+  ],
   "runner.warm_resume_declined_unverified": [
     "  WARM-RESUME declined: '",
     {
@@ -23883,6 +24188,33 @@ const DataenUSrunner = `{
       "trust": "internal"
     },
     "). The original failure stands."
+  ],
+  "runner.watchdog_lapse_seen": [
+    "[outer cycle ",
+    {
+      "arg": "cycle",
+      "type": "integer",
+      "trust": "internal"
+    },
+    "] the step watchdog stood down; the resident runner now stops this cycle when its step heartbeat is older than ",
+    {
+      "arg": "stepSeconds",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " s (",
+    {
+      "arg": "preambleSeconds",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " s before the first step), and testCycle.maxCycleSeconds still bounds it (",
+    {
+      "arg": "ceilingSeconds",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " s, where 0 means unbounded)."
   ]
 }
 `

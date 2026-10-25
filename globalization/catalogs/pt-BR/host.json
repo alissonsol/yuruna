@@ -4774,6 +4774,61 @@
       "sourceHash": "77b62b3bb39cd82c527244867ce76f4ed23605154ab9ee838554d982c69b8926",
       "origin": "machine",
       "message": "A VM '{vmName}' não aceitou uma tecla de inicialização do instalador do Windows em {seconds} segundos."
+    },
+    "host.kvm_rename_destination_dir_exists": {
+      "sourceHash": "4b3d974279588ce38a9b8a9905f134cccf65204575d9784698ece0a65c64e943",
+      "origin": "machine",
+      "message": "Não é possível renomear para '{newName}': o diretório {newDir} já existe, e mover o armazenamento para ele poderia sobrescrever discos."
+    },
+    "host.vm_storage_reference_unknown": {
+      "sourceHash": "b7939d379e67a7ff686510f6a5505bf09f52e1441d332c73f82703ce78382279",
+      "origin": "machine",
+      "message": "{vmDir} foi mantido: não foi possível ler quais máquinas virtuais usam discos nele ({message})."
+    },
+    "host.vm_storage_delete_refused": {
+      "sourceHash": "7daeaa25c45a790e4a6e7fe74bb9beb859c436287232fc54de7c3ca5914f40bf",
+      "origin": "machine",
+      "message": "{vmDir} foi mantido: ele ainda contém discos que uma máquina virtual registrada usa ({owners})."
+    },
+    "host.vm_storage_relocate_action": {
+      "sourceHash": "7ee21afdf2b33972fd24efd366621fcc5a49c9a1f8f8ccd17493eb2fab850735",
+      "origin": "machine",
+      "message": "Mover o armazenamento deixado em '{fromName}' para o nome desta máquina virtual"
+    },
+    "host.vm_storage_relocation_failed": {
+      "sourceHash": "193c701139ef6a718fab1db481c50ac8463843ce290d0f5fc0688774e9c833ee",
+      "origin": "machine",
+      "message": "Não foi possível mover o armazenamento de '{vMName}' para fora do diretório de '{fromName}': {reason}."
+    },
+    "host.vm_storage_relocated": {
+      "sourceHash": "0ed84581a58174a809c52e4f44f8a3fd84104fdce45b3cd6e81fed3963a0fa88",
+      "origin": "machine",
+      "message": "Uma renomeação interrompida foi concluída: o armazenamento de '{vMName}' saiu do diretório de '{fromName}'."
+    },
+    "host.vm_build_storage_in_use": {
+      "sourceHash": "b70e67d63b395dd5953a5d20afe49a4f03d3043d6ee50806052263611ef94b78",
+      "origin": "machine",
+      "message": "'{vMName}' não foi recriada: {vmDir} ainda contém discos que outra máquina virtual usa, ou não foi possível ler quem os usa. Nada nele foi alterado."
+    },
+    "host.hyperv_rename_destination_dir_occupied": {
+      "sourceHash": "5861465cad32019f536959ba9e088654eab9e3faea8a52b37e11da4b326b6057",
+      "origin": "machine",
+      "message": "Não é possível renomear para '{newName}': o diretório {newDir} já contém arquivos, e mover o armazenamento para ele falharia depois da renomeação e a deixaria pela metade."
+    },
+    "host.vm_storage_reconcile_action": {
+      "sourceHash": "518ebc15e6c396cd1dc4a0f1dc5d0d10450037b1cc28c9b504784ba5ff8c1ed1",
+      "origin": "machine",
+      "message": "Concluir as renomeações que uma promoção de snapshot interrompida deixou pela metade"
+    },
+    "host.vm_storage_repair_unknown": {
+      "sourceHash": "f0ab49131809c3ecf754a0223559367eae71bb89f1979ff1b4048bc684c1f09b",
+      "origin": "machine",
+      "message": "Não foi possível verificar se '{vMName}' ainda tem armazenamento sob outro nome ({message}); o armazenamento foi mantido como está, e o próximo ciclo verifica de novo."
+    },
+    "host.proxy_ca_refused_build": {
+      "sourceHash": "643de5f5e6aef1937e9ed81d27541922f0d9f67306cc88920fbd9f9dee30887a",
+      "origin": "machine",
+      "message": "'{vMName}' não foi criada: o proxy de cache em {cacheHost} serve uma CA na qual este hospedeiro não confia ({reason}). O convidado não é semeado contornando isso, e a falha é classificada como source_integrity."
     }
   }
 }

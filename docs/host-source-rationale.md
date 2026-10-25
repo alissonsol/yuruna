@@ -107,6 +107,37 @@ takes a disk snapshot would otherwise leave a domain that can never
 be undefined. Ask for all of them in one call so removal does not
 depend on which features the guest workload happened to use.
 
+The VM directory is deleted only when no defined domain uses a file inside
+it. Snapshot promotion renames the domain first and moves its storage
+second, so a failure or kill between the two leaves the promoted domain --
+the baseline later cycles restore from -- with its disks under the vacated
+name, where deleting that name's directory would destroy them. Any domain
+whose disks still sit under another name's directory is repaired first
+(`Repair-KvmVMStorageLocation`): the state to resume is read from libvirt,
+and `Complete-KvmDomainRename`, the step `Rename-VM` itself runs after
+`virsh domrename`, finishes the move, renames the files and redefines the
+disk paths and NIC address. Each of its steps can run twice without
+changing what the first run did. A directory still referenced afterwards,
+or a reference check libvirt does not answer, is kept and named in a
+warning. Hyper-V's `Remove-HyperVTestVM` follows the same rule through
+`Test-HyperVDirectoryFreeToDelete` and `Repair-HyperVVMStorageLocation`. UTM
+needs neither: a VM's disks live inside its bundle, which a rename moves in
+one step.
+
+The repair does not wait for a delete to reach the vacated directory. Each
+driver's `Repair-VMStorageLocation` runs it for every defined domain or
+registered VM, and the cycle-start VM admission calls it on a host it found
+clear, before the cycle's sweep or builds touch a VM directory; a domain it
+cannot repair now (it runs, its old directory is shared, or its disks cannot
+be read) keeps its storage and is named in a warning, and the next cycle
+tries again. The builders are covered too: `Remove-KvmDomainDefinition` and
+`Remove-HyperVGuestDefinition`, which every builder calls before it replaces
+the files in its VM directory, finish such a rename and refuse the build
+while another VM still uses that directory or its use cannot be read.
+Hyper-V's `Rename-VM` also refuses a destination directory that already holds
+files before it renames the registration, because the storage move would fail
+on them afterwards and leave exactly the half-done rename this repairs.
+
 <a id="42f52e37-0005"></a>
 
 ## host/ubuntu.kvm/modules/Yuruna.Host.psm1: Get-VMIp
@@ -279,6 +310,11 @@ established order for the same exit-code reason.
 This script also has no List protected base images phase. Its base images
 live under ~/yuruna/image/<guest>/, outside the vms/ tree it scans, so no
 file it could delete is a base image.
+
+A directory named after no domain is still kept when a defined domain uses
+a disk inside it (`virsh domblklist --details`): an interrupted snapshot
+promotion leaves the promoted domain's disks under the old name. When any
+domain's disks cannot be read, no directory is deleted on that run.
 
 <a id="42f52e37-000c"></a>
 

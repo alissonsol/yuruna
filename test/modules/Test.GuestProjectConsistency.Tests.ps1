@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.22
+.VERSION 2026.10.25
 .GUID 42bc0016-f193-426d-a72c-0c102ad1e5f2
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -579,7 +579,7 @@ Describe 'Guest bootstrap account and phase consistency' {
         $source = Get-Content (Join-Path $script:RepoRoot "guest/windows.11/windows.11.$Workload.ps1") -Raw
         $regions = @([regex]::Matches($source, '(?m)^# --- REGION: ([^\r\n]+)') |
             ForEach-Object { $_.Groups[1].Value })
-        ($regions[0..1] -join ',') | Should -BeExactly 'Ensure running as Administrator,Invoke-GuestWingetInstall'
+        ($regions[0..1] -join ',') | Should -BeExactly 'Elevation check,Invoke-GuestWingetInstall'
         $tokens = $null; $errors = $null
         $ast = [Management.Automation.Language.Parser]::ParseInput($source, [ref]$tokens, [ref]$errors)
         $errors | Should -BeNullOrEmpty

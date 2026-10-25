@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.22
+.VERSION 2026.10.25
 .GUID 42bda300-8f98-7969-bc3d-200d08e0d119
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -209,6 +209,7 @@
     'aggregator.host_not_known_to_the_pool' = 'hospedeiro desconhecido do grupo'
     'aggregator.hostid_must_be_a_42_prefixed_32_hex_id' = 'hostId deve ser um id 32-hex de 42 prefixos'
     'aggregator.ingest_disabled' = 'ingerir desativado'
+    'aggregator.invalid_control_scope' = 'escopo de controle inválido'
     'aggregator.invalid_hostid' = 'hostId inválido'
     'aggregator.invalid_hostid_or_area' = 'hostId ou área inválida'
     'aggregator.invalid_statusport' = 'status inválidoPort'

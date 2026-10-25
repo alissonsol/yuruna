@@ -1,7 +1,7 @@
 /*
   LICENSEURI https://yuruna.link/license
   Copyright (c) 2019-2026 by Alisson Sol et al.
-  Version: 2026.10.22
+  Version: 2026.10.25
 
   Framework-free checks for test/status/yuruna.common.js. Run: node yuruna.common.test.js
   (exit 0 = pass). No package.json / test runner in the repo, so this uses the Node
@@ -111,6 +111,28 @@ Y.applyBanner({ overallStatus: 'fail', guests: [{}] }, null, { running: true });
 assert.strictEqual(bannerEl.className, 'fail', 'failed guest cycles must remain red');
 Y.applyBanner(faultData, null, { running: false });
 assert.strictEqual(bannerEl.className, 'stopped', 'verified stopped runner keeps precedence');
+// (1b) A running cycle whose step watchdog stood down, or whose step heartbeat is
+//      past its bound, reads as degraded rather than as ordinary progress.
+var bannerTextEl = makeEl();
+documentShim.getElementById = function (id) { return id === 'banner' ? bannerEl : (id === 'banner-text' ? bannerTextEl : null); };
+var runningData = { overallStatus: 'running', cycleStartUtc: '2026-10-24T10:00:00Z', guests: [{}] };
+var lapse = '2026-10-24T10:03:00Z inner.pid never appeared in 180s [stepSeconds=3600 preambleSeconds=600]';
+Y.applyBanner(runningData, null, { running: true, liveness: 'ok', watchdogLapsed: null });
+assert.strictEqual(bannerEl.className, 'running', 'a guarded cycle making progress stays an ordinary run');
+Y.applyBanner(runningData, null, { running: true, liveness: 'ok', watchdogLapsed: lapse });
+assert.strictEqual(bannerEl.className, 'degraded', 'a cycle without its step watchdog is shown as such');
+assert.strictEqual(bannerTextEl.textContent, Y.t('status.banner_unguarded'));
+Y.applyBanner(runningData, null, { running: true, liveness: 'stalled', boundSeconds: 3600, stepHeartbeatAgeSeconds: 3700, watchdogLapsed: lapse });
+assert.strictEqual(bannerEl.className, 'degraded', 'a stalled cycle is shown as stalled');
+assert.strictEqual(bannerTextEl.textContent, Y.t('status.banner_stalled', { boundSeconds: 3600 }));
+assert.ok(bannerTextEl.textContent.indexOf('3700') === -1, 'the live age stays out of the aria-live banner');
+Y.applyBanner({ overallStatus: 'running', stepPaused: true, stepPausedSinceUtc: '', guests: [{}] },
+  { code: 'sequence_paused_waiting_resume' }, { running: true, liveness: 'stalled', boundSeconds: 3600, watchdogLapsed: lapse });
+assert.strictEqual(bannerEl.className, 'paused', 'a hold the operator chose keeps its own banner');
+Y.applyBanner({ overallStatus: 'pass', guests: [{}] }, null, { running: true, liveness: 'idle', watchdogLapsed: lapse });
+assert.strictEqual(bannerEl.className, 'pass', 'a finished cycle keeps its verdict');
+Y.applyBanner(runningData, null, { running: false, watchdogLapsed: lapse });
+assert.strictEqual(bannerEl.className, 'stopped', 'a stopped runner keeps precedence over a guard state');
 documentShim.getElementById = getElementById;
 var faultEl = makeEl();
 Y.renderRunnerFault(faultEl, { runnerFault: updateFault });
@@ -446,5 +468,39 @@ assert.ok(staleCommit.indexOf('>mirror.stale</small>') >= 0, 'stale source is vi
 assert.ok(staleCommit.indexOf('fallbackReason=mirror-upstream-unreachable') >= 0, 'fallback reason is available in the source detail');
 assert.ok(staleCommit.indexOf('&lt;untrusted>') >= 0, 'source metadata is escaped');
 assert.ok(staleCommit.indexOf('keyId=<untrusted>') < 0, 'untrusted metadata cannot become markup');
+
+// (9) The control proof a /go/host redirect leaves in the fragment is taken off the
+//     address bar the moment the page loads and kept only for this tab: a fragment
+//     never reaches a server, and stripping it is what keeps it out of a copied
+//     link, a screenshot and the history entry.
+(function () {
+  var stored = {};
+  var replaced = [];
+  var proofWindow = {
+    location: { hostname: 'test', href: 'http://192.0.2.10:8080/status/?x=1#yctl=1900000000.42aa.abc%3D', search: '?x=1',
+      pathname: '/status/', hash: '#yctl=1900000000.42aa.abc%3D' },
+    history: { replaceState: function (state, title, url) { replaced.push(url); } },
+    sessionStorage: { getItem: function (k) { return stored[k] || null; }, setItem: function (k, v) { stored[k] = v; }, removeItem: function (k) { delete stored[k]; } },
+    addEventListener: function () {}, removeEventListener: function () {},
+    navigator: { userAgent: 'node' },
+    localStorage: { getItem: function () { return null; }, setItem: function () {}, removeItem: function () {} },
+    setTimeout: function () { return 0; }, clearTimeout: function () {},
+    setInterval: function () { return 0; }, clearInterval: function () {}
+  };
+  var proofSandbox = {
+    document: documentShim, console: console, navigator: proofWindow.navigator, localStorage: proofWindow.localStorage,
+    fetch: sandbox.fetch, setTimeout: function () { return 0; }, clearTimeout: function () {},
+    setInterval: function () { return 0; }, clearInterval: function () {}
+  };
+  Object.keys(proofWindow).forEach(function (key) {
+    if (!Object.prototype.hasOwnProperty.call(proofSandbox, key)) proofSandbox[key] = proofWindow[key];
+  });
+  proofSandbox.globalThis = proofSandbox;
+  proofSandbox.window = proofSandbox;
+  vm.createContext(proofSandbox);
+  vm.runInContext(src, proofSandbox, { filename: 'yuruna.common.js' });
+  assert.strictEqual(stored.yurunaCtl, '1900000000.42aa.abc%3D', 'the proof is kept for this tab');
+  assert.deepStrictEqual(replaced, ['/status/?x=1'], 'the address bar keeps the path and query and loses the fragment');
+})();
 
 console.log('PASS: yuruna.common.js');

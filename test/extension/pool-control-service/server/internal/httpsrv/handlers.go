@@ -57,10 +57,8 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("POST /api/pool", s.gate.Require(s.handleNewPool))
 	mux.HandleFunc("DELETE /api/pool", s.gate.Require(s.handleRemovePool))
 	mux.HandleFunc("POST /api/pool/configured-state", s.gate.Require(s.handleConfiguredState))
-	// Pool-wide host control drives other machines rather than this service's
-	// own configuration, but it takes the same gate as the rest: it only ever
-	// pauses or continues work that is already running, and an operator holding
-	// the dashboard's rotating code is exactly who needs it mid-cycle.
+	// Pool-wide control drives the members' live switches and releases a stored
+	// pool pause on Continue. Both operations take the ordinary write gate.
 	mux.HandleFunc("POST /api/pool/host-control", s.gate.Require(s.handleHostControlApply))
 	// Per-host refresh takes BOTH gates, in this order: the ordinary write gate,
 	// then the refresh credential in its own header. A lab session or the

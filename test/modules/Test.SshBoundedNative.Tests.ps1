@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.22
+.VERSION 2026.10.25
 .GUID 42f71118-c871-4ce5-99f5-744301324e82
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -75,6 +75,41 @@ Describe 'Native SSH subprocess lifecycle' {
         }
     }
 
+    It 'retains completed reads when supervision resumes after its deadline' -Skip:($IsWindows) {
+        # A scheduling pause can consume the remaining budget after one stream
+        # was observed while the other stream's read has already completed.
+        $handler = { param($Text, $Stream) $null = $Text; $null = $Stream; Start-Sleep -Milliseconds 1100 }
+        $r = Invoke-BoundedNativeCommand -FilePath /bin/bash -TimeoutSeconds 1 `
+            -ArgumentList @('-c', 'printf partial-out; printf partial-err >&2; sleep 30') -OutputHandler $handler
+        $r.TimedOut | Should -BeTrue
+        $r.StdOut | Should -Be 'partial-out'
+        $r.StdErr | Should -Be 'partial-err'
+    }
+
+    It 'enforces the child deadline while the output observer is paused' {
+        $pidFile = Join-Path $TestDrive 'paused-observer.pid'
+        $fixture = Join-Path $TestDrive 'paused-observer.ps1'
+        Set-Content -LiteralPath $fixture -Value 'param($PidFile); [IO.File]::WriteAllText($PidFile, [string]$PID); [Console]::Write("ready"); Start-Sleep 30'
+        $observed = [Collections.Generic.List[bool]]::new()
+        $handler = {
+            param($Text, $Stream)
+            $null = $Text
+            if ($Stream -ne 'stdout') { return }
+            Start-Sleep -Milliseconds 2100
+            $nativeId = [int][IO.File]::ReadAllText($pidFile)
+            $live = Get-Process -Id $nativeId -ErrorAction SilentlyContinue
+            $observed.Add($null -ne $live)
+            if ($live) { $live.Dispose() }
+        }.GetNewClosure()
+        $r = Invoke-BoundedNativeCommand -FilePath $script:Pwsh -TimeoutSeconds 2 `
+            -ArgumentList @('-NoProfile', '-File', $fixture, $pidFile) -OutputHandler $handler
+        $observed.Count | Should -Be 1
+        $observed[0] | Should -BeFalse -Because ($r | ConvertTo-Json -Compress)
+        $r.TimedOut | Should -BeTrue
+        $r.KillFailed | Should -BeFalse -Because ($r | ConvertTo-Json -Compress)
+        Get-Process -Id $r.ProcessId -ErrorAction SilentlyContinue | Should -BeNullOrEmpty
+    }
+
     It 'drains large output on both streams while retaining finite buffers' {
         $writer = '$block = "x" * 8192; for ($i = 0; $i -lt 200; $i++) { [Console]::Write($block); [Console]::Error.Write($block) }; exit 0'
         $r = Invoke-BoundedNativeCommand -FilePath $script:Pwsh -ArgumentList @('-NoProfile', '-Command', $writer) -TimeoutSeconds 15 -MaxCapturedChars 4096
@@ -137,6 +172,59 @@ $child = [Diagnostics.Process]::Start($psi)
                 if ($remaining -and $remaining.Path -eq $script:Pwsh) { $remaining.Kill() }
             }
         }
+    }
+
+    It 'kills a native client through <Mode> cleanup when the shared thread pool has no available workers' -TestCases @(
+        @{ Mode = 'tree' }, @{ Mode = 'direct' }
+    ) {
+        param($Mode)
+        $probe = @'
+param($ModulePath, $Mode)
+Import-Module $ModulePath -Force -DisableNameChecking
+& (Get-Module Yuruna.Common) { Initialize-BoundedNativeCleanup }
+Add-Type -TypeDefinition @"
+using System;
+using System.Threading;
+using System.Threading.Tasks;
+public static class OccupiedNativeWorker {
+    static readonly ManualResetEventSlim release = new ManualResetEventSlim();
+    static readonly ManualResetEventSlim entered = new ManualResetEventSlim();
+    static int minWorker, minIo, maxWorker, maxIo;
+    public static void Block() {
+        ThreadPool.GetMinThreads(out minWorker, out minIo);
+        ThreadPool.GetMaxThreads(out maxWorker, out maxIo);
+        if (!ThreadPool.SetMinThreads(1, minIo) || !ThreadPool.SetMaxThreads(1, maxIo))
+            throw new InvalidOperationException("Cannot constrain the fixture worker pool.");
+        Task.Run(() => { entered.Set(); release.Wait(); });
+        if (!entered.Wait(5000)) throw new TimeoutException("Fixture worker did not start.");
+    }
+    public static void Restore() {
+        release.Set();
+        ThreadPool.SetMaxThreads(maxWorker, maxIo);
+        ThreadPool.SetMinThreads(minWorker, minIo);
+    }
+}
+"@
+$process = [Diagnostics.Process]::Start((Get-Process -Id $PID).Path, '-NoProfile -Command "Start-Sleep 30"')
+$startTicks = $process.StartTime.ToUniversalTime().Ticks
+try {
+    [OccupiedNativeWorker]::Block()
+    $kill = if ($Mode -eq 'tree') { [Yuruna.NativeCleanup]::KillTree($process) }
+        else { [Yuruna.NativeCleanup]::KillDirect($process.Id, $startTicks) }
+    $completed = $kill.Wait(1000)
+    if (-not $completed -or ($Mode -eq 'tree' -and -not $kill.Result) -or -not $process.WaitForExit(500)) { exit 1 }
+} finally {
+    [OccupiedNativeWorker]::Restore()
+    if (-not $process.HasExited) { $process.Kill(); $process.WaitForExit() }
+    $process.Dispose()
+}
+'@
+        $path = Join-Path $TestDrive 'occupied-worker.ps1'
+        Set-Content -LiteralPath $path -Value $probe
+        $r = Invoke-BoundedNativeCommand -FilePath $script:Pwsh -TimeoutSeconds 15 -ArgumentList @(
+            '-NoProfile', '-File', $path, (Join-Path $PSScriptRoot '../../automation/Yuruna.Common.psm1'), $Mode)
+        $r.ExitCode | Should -Be 0 -Because $r.StdErr
+        (Test-BoundedNativeResultComplete -Result $r) | Should -BeTrue
     }
 
     It 'returns a complete command result even when asynchronous disposal remains pending' {

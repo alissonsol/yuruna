@@ -816,6 +816,65 @@ nothing. What each repair does, and the ledger's rules, are in the
 `Invoke-TestProject` never run repairs: an operator-driven run should not change the
 machine behind the operator's back, so their results are `advised` or `none`.
 
+<a id="42f909ad-002a"></a>
+
+## When the resident runner itself is the problem
+
+Three faults sit above everything the cycle process can repair, because each one
+stops the cycle process from running or from being bounded. The resident runner
+handles them itself, with the code it loaded when it started.
+
+- **An exception escapes the loop.** `Start-TestRunner.ps1` runs the loop under
+  `Invoke-RunnerOuterSupervisor`. An exception that escapes, for example a
+  `test.config.yml` saved half-edited while the failure pause polls the
+  configured sources, is written to `outer.log` with its type and script line,
+  published to `status.json` as a `runnerFault` (`script_error`), and counted
+  toward the crash alert. The loop is entered again after a hold that starts at
+  30 seconds and doubles with each repeat within an hour, up to 15 minutes. A
+  cycle process the escaped loop left running is stopped first, and the cycle
+  counter continues, so no cycle generation is issued twice. The two source polls
+  of the failure pause never throw: an unreadable configuration is a logged
+  "no answer". Ctrl+C and a shutdown request still end the runner.
+- **The framework cannot start its own cycle process.** The framework pull runs
+  inside the cycle process, after that process imports the framework, so a
+  commit that breaks the import also stops every pull that would bring the fix.
+  `runtime/runner.framework-health.json` keeps the last commit whose cycle
+  process produced a valid outcome record, and a streak of dispatches at the
+  current commit that ended without one (`cycle-aborted`, or
+  `outcome-unrecorded` with no record behind it). From the second such dispatch
+  the resident pulls the framework itself, logs the result (`updated`,
+  `unchanged` or `failed`), and for `cycle-aborted`, which skips the failure
+  pause, publishes the fault and counts it toward the alert. The hold after a
+  repeated abort doubles to at most 15 minutes. A runner started with
+  `-NoGitPull` does not pull.
+- **A cycle has no bound.** The step watchdog is armed inside the cycle process
+  and stands down when it cannot prove the inner runner's identity, leaving
+  `runtime/runner.watchdog.lapsed` with the step and preamble bounds it would
+  have applied. The resident notices that file while it waits, says so at once,
+  and takes over the watchdog's job with those bounds: the preamble bound while
+  `runner.phase` exists, the step bound after, measured from the last change it
+  saw in `runner.stepHeartbeat` on a monotonic clock. When a bound runs out it
+  writes `runtime/runner.watchdog-kill.json` with the class the watchdog would
+  have used (`wait_timeout`, or `preamble_stall` with the phase), stops the
+  cycle process and every descendant, and reports the outcome as unrecorded
+  with reason `resident-watchdog`; the recovery result is `aborted` with that
+  class and stage `ResidentWatchdog`. The status page shows a cycle running
+  without its step watchdog, or one whose heartbeat is past its bound, with an
+  amber banner instead of "Test in progress".
+  Every cycle is also bounded by `testCycle.maxCycleSeconds` (default 21600, 0
+  disables), enforced by the resident on the cycle process it spawned and
+  measured on a monotonic clock. Only working time counts: while a step pause,
+  a cycle pause, a lab hold or a debug break is in place the clock stops, so a
+  cycle an operator held is not stopped soon after it resumes. Once the cycle
+  publishes its plan in `status.json`, the ceiling rises to two step timeouts
+  for each planned run when that is more than the configured value; the
+  default is three runs at the template's one-hour step timeout. At the
+  ceiling the resident writes `runtime/runner.watchdog-kill.json` with
+  `failureClass: cycle_killed` and stops the cycle process and every
+  descendant, so a wedged capture, OCR engine or ssh below the inner runner
+  goes too. The recovery result for that cycle is `aborted`
+  (`cycle_killed`, stage `CycleCeiling`).
+
 <a id="42f909ad-0011"></a>
 
 ## Watchdog and heartbeat protocol
@@ -838,7 +897,7 @@ runner respawns the inner from a clean state.
 | `runner.heartbeat`       | C# `System.Threading.Timer` inside inner | (legacy) | Liveness at the process level. Keeps ticking even when the runspace is wedged inside a non-terminating OCR / SSH loop -- therefore **NOT a safe signal for "the cycle is making progress."** |
 | `runner.stepHeartbeat`   | `Invoke-Sequence` at the top of each step | outer watchdog | Touched from the runspace itself. The signal the watchdog uses to detect a wedged step. |
 | `runner.phase`           | inner runner during its preamble | outer watchdog | Present means the inner has not reached its first sequence step, which selects the tighter preamble bound. |
-| `runner.watchdog.lapsed` | outer watchdog          | outer runner          | Durable sentinel written when the watchdog gives up before arming. The outer is blocked on the call-op while that happens, so an unguarded cycle would otherwise be invisible until a post-mortem. |
+| `runner.watchdog.lapsed` | outer watchdog          | resident runner, cycle process, status service | Durable sentinel written when the watchdog gives up before arming, ending in the bounds it would have applied (`[stepSeconds=N preambleSeconds=M]`). The resident guards the cycle with those bounds while it runs, the status page shows the cycle as unguarded, and the cycle process reports it and removes the file once the inner returns. |
 | `inner.start`            | inner runner per cycle  | host refresh, boot recovery | StartTime sidecar of `inner.pid`, written before it. Wiped with `inner.pid` before each spawn. |
 | `runner.cycle.json`      | outer runner            | host refresh, inner (preflight) | PID, start time, cycle number and generation of the running cycle process, plus the outer's own identity; removed once the cycle exits. Lets a refresh identify the whole runner chain. |
 | `runner.refresh-gated.json` | inner runner         | cycle process         | Written when the inner stops at one of its host-refresh gate sites, naming itself and its parent. Consumed by the cycle process that spawned it. |
@@ -900,10 +959,15 @@ The watchdog:
    children (console capture, OCR, ssh) that would otherwise orphan,
    keep handles open, and confuse the next cycle's process discovery.
 
-Every early exit above also writes `runner.watchdog.lapsed`. The outer is
-blocked inside the call-op while the watchdog gives up, so the sentinel is
-what turns "this cycle ran unguarded" into a warning the operator sees when
-the outer regains control.
+Every early exit above also writes `runner.watchdog.lapsed`, ending in the
+step and preamble bounds the watchdog would have applied. The cycle process
+is blocked inside the call-op while the watchdog gives up, but the resident
+runner is not: it reads the sentinel while the cycle runs and applies those
+bounds to `runner.stepHeartbeat` itself, so a cycle the watchdog cannot guard
+still stops when its heartbeat does. The bounds ride in the sentinel because
+the pool's `testCycle` overrides that shape them are resolved only in the
+cycle process. See [When the resident runner itself is the
+problem](#42f909ad-002a).
 
 <a id="42f909ad-0015"></a>
 
@@ -1115,6 +1179,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.22
+Last review: 2026.10.25
 
 Back to [Yuruna](../README.md)

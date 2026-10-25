@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.22
+.VERSION 2026.10.25
 .GUID 42aaece2-9ccd-4d9f-b467-c4468bc981ba
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -986,6 +986,8 @@ function ConvertTo-RunnerRecoveryResult {
           completed, infra stage failed     infrastructure-fault
           completed, any other failure      failed
           outcome-unrecorded / no-cycle-result   infrastructure-fault (outcome_unrecorded)
+          outcome-unrecorded at the cycle ceiling  aborted (cycle_killed, CycleCeiling)
+          outcome-unrecorded, resident heartbeat stop  aborted (wait_timeout or preamble_stall, ResidentWatchdog)
           cycle-aborted                     aborted (cycle_killed)
           pull-error                        infrastructure-fault (source class or bootstrap_sync, FrameworkPull)
           spawn-failed                      infrastructure-fault (cycle_spawn_failed)
@@ -1028,6 +1030,23 @@ function ConvertTo-RunnerRecoveryResult {
             } catch { $null = $_ }
         }
         'outcome-unrecorded' {
+            if ((& $property 'OutcomeReason') -ceq 'cycle-ceiling') {
+                # The resident stopped the cycle at testCycle.maxCycleSeconds.
+                $outcome = 'aborted'; $class = 'cycle_killed'; $stage = 'CycleCeiling'
+                $reason = & $property 'OutcomeDetail'
+                $evidence = @(Get-RecoveryEvidenceFromPath -Pair @(@{ Path = (Join-Path $RuntimeDir 'runner.watchdog-kill.json'); Note = 'the ceiling stop record' }))
+                break
+            }
+            if ((& $property 'OutcomeReason') -ceq 'resident-watchdog') {
+                # The resident stopped a cycle whose step watchdog had stood down,
+                # with that watchdog's class for the bound that ran out.
+                $outcome = 'aborted'; $stage = 'ResidentWatchdog'
+                $class = & $property 'RecordFailureClass'
+                if ($class -cnotin @('wait_timeout', 'preamble_stall')) { $class = 'wait_timeout' }
+                $reason = & $property 'OutcomeDetail'
+                $evidence = @(Get-RecoveryEvidenceFromPath -Pair @(@{ Path = (Join-Path $RuntimeDir 'runner.watchdog-kill.json'); Note = 'the resident stop record' }))
+                break
+            }
             $outcome = 'infrastructure-fault'; $class = 'outcome_unrecorded'; $stage = 'CycleOutcome'
             $reason = "outcome record $(& $property 'OutcomeReason'): $(& $property 'OutcomeDetail'); child exited $exitCode"
             $evidence = @(Get-RecoveryEvidenceFromPath -Pair @(@{ Path = (Join-Path $RuntimeDir 'runner.cycle.outcome.rejected.json'); Note = 'the rejected record' }))

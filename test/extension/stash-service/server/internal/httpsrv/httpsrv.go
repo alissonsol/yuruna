@@ -101,6 +101,7 @@ func New(sshServer *sshsrv.Server, opts Options) *Server {
 	s.gate = labgate.New(labgate.Options{
 		Language: opts.Language, AllowPseudoLocale: opts.AllowPseudoLocale,
 		AggregatorURL: opts.AggregatorURL,
+		ProofAudience: "svc-stash-service",
 		CookieName:    sessionCookie,
 		Audit:         s.auditUnlock,
 	})

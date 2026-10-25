@@ -28,7 +28,8 @@ Treat region labels as shared vocabulary, not prose to paraphrase. Recurring
 host phases use `Log level from environment`, `Import host modules`, `Seek the
 base image`, `Remove existing VM`, `Create copies and files for VM`, `Stage the
 cloud-init seed directory`, `Clean up temporary files`, `Installation summary`,
-and `Completion`. Service guests keep
+and `Completion`; a script that must run elevated, on a host or in a Windows
+guest, uses `Elevation check`. Service guests keep
 `Initialize environment`, `Detect architecture`, `Load retry helpers`, `Service
 user`, `Load service helpers`, `Service locale`, `Service tunables`, `Storage paths`, `Package
 dependencies`, `Locate the daemon source`, `Build`, `Install the binary`, `Storage directories`,
@@ -288,8 +289,11 @@ forwarders; NAT, routed, isolated, missing, and unreadable configurations do not
 Hyper-V creates and starts a registered VM through host cmdlets. KVM imports and
 starts a libvirt domain. UTM first creates a bundle; the caller registers and
 starts it in the logged-in GUI session. These differences determine where
-startup and address discovery occur. Format conversion, Hyper-V switch settings,
-KVM permissions, and UTM bundle layout remain platform-specific.
+startup and address discovery occur. A service builder that waits for the
+guest's address does so under `Wait for VM IP`: the Hyper-V builder starts the
+guest first under `Start the VM`, the KVM domain import has already started it,
+and the UTM builder prints `Guidance` instead. Format conversion, Hyper-V switch
+settings, KVM permissions, and UTM bundle layout remain platform-specific.
 
 Force-stop requests retain the same contract across providers. UTM implements
 `Stop-VM -Force` with `utmctl stop --kill`; an ordinary stop remains graceful.
@@ -2578,6 +2582,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.22
+Last review: 2026.10.25
 
 Back to [Yuruna](../README.md)

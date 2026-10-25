@@ -21,11 +21,10 @@ import (
 // Pool-wide host control: one selector drives every member of a pool the way
 // the operator would drive one host from its own status page.
 //
-// The pool's configuredState in the configuration store is a DIFFERENT mechanism and is
-// deliberately not what this touches: that one is durable, reconciled at a
-// cycle boundary from git, and `drain` ends the runner process. This acts on
-// the live pause switches instead, which is what "pause the lab now, then let
-// it carry on" means to an operator watching a cycle.
+// A durable configured pause also holds the outer runner at a cycle boundary.
+// Continue must release that hold as well as the live pause switches; otherwise
+// the page reports Continue while every member refuses to start another cycle.
+// Drain remains a separate operation that ends the runner process.
 //
 // Membership comes from the configuration store and the addresses from the aggregator,
 // for the same reason the board joins them that way: the aggregator's notion of
@@ -57,8 +56,9 @@ type hostControlRow struct {
 
 // poolControlView is one pool's members and the single state they add up to.
 type poolControlView struct {
-	State string           `json:"state"`
-	Hosts []hostControlRow `json:"hosts"`
+	State           string           `json:"state"`
+	Hosts           []hostControlRow `json:"hosts"`
+	ConfiguredState string           `json:"configuredState"`
 }
 
 // aggregate collapses member states into what the pool's selector shows.
@@ -165,7 +165,16 @@ func (s *Server) handleHostControlState(w http.ResponseWriter, r *http.Request) 
 		for _, m := range p.Members {
 			rows = append(rows, byHost[m])
 		}
-		pools[p.PoolID] = poolControlView{State: aggregate(rows), Hosts: rows}
+		current := aggregate(rows)
+		if p.ConfiguredState == "paused" {
+			switch current {
+			case hostctl.ActionContinue:
+				current = hostctl.ActionPauseAfterCycle
+			case hostctl.ActionPauseAfterStep:
+				current = hostctl.StateBoth
+			}
+		}
+		pools[p.PoolID] = poolControlView{State: current, Hosts: rows, ConfiguredState: p.ConfiguredState}
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "pools": pools, "statusError": statusErr})
 }
@@ -211,7 +220,36 @@ func (s *Server) handleHostControlApply(w http.ResponseWriter, r *http.Request) 
 		writeErr(w, http.StatusNotFound, "pool '"+body.PoolID+"' not found")
 		return
 	}
+	resumePool := func() bool {
+		if body.Action != hostctl.ActionContinue {
+			return true
+		}
+		for _, p := range doc.Pools {
+			if p.PoolID != body.PoolID || p.ConfiguredState != "paused" {
+				continue
+			}
+			res := s.configuration.SetConfiguredState(r.Context(), body.PoolID, "run")
+			if s.state != nil {
+				detail := "configuredState: paused -> run"
+				if !res.OK {
+					detail = firstNonEmpty(res.Error, res.Stderr, "operation failed")
+				}
+				s.state.Record(time.Now(), state.AuditEntry{
+					Publish: true, TimeUTC: time.Now().UTC().Format(time.RFC3339),
+					Action: "configured-state", Target: body.PoolID, OK: res.OK, Detail: detail,
+				})
+			}
+			if !res.OK {
+				relayResult(w, res)
+				return false
+			}
+		}
+		return true
+	}
 	if len(members) == 0 {
+		if !resumePool() {
+			return
+		}
 		s.recordHostControl(body.PoolID, body.Action, 0, 0)
 		writeJSON(w, http.StatusOK, map[string]any{
 			"ok": true, "poolId": body.PoolID, "action": body.Action,
@@ -223,18 +261,28 @@ func (s *Server) handleHostControlApply(w http.ResponseWriter, r *http.Request) 
 	ctx, cancel := context.WithTimeout(r.Context(), hostApplyBudget)
 	defer cancel()
 
-	// One proof for the whole fan-out: it is pool-wide by construction (an HMAC
-	// over the shared token, with no host in the signed message), so minting per
-	// host would buy nothing and, on the aggregator path, cost a round trip per
-	// member.
-	proof, perr := s.controlProof(ctx, members, addr)
+	// One proof per member: a proof names the host it opens. A member left
+	// without one is refused on its own row.
+	proofs, perr := s.controlProofs(ctx, members, addr, hostctl.ScopePause)
 	if perr != nil {
 		writeErr(w, http.StatusServiceUnavailable, perr.Error())
 		return
 	}
+	if !resumePool() {
+		return
+	}
 
 	rows := eachMember(members, func(hostID string) hostControlRow {
-		if err := s.hostctl.Apply(ctx, addr[hostID], body.Action, proof); err != nil {
+		err := s.hostctl.Apply(ctx, addr[hostID], body.Action, proofs[hostID])
+		// A host that predates scoped proofs refuses a pause-scoped one as
+		// proof-invalid; its own full proof still opens it, so that one is
+		// asked for and the call made once more.
+		if err != nil && hostctl.Scoped(proofs[hostID]) && hostctl.RefusedProof(err) {
+			if full := s.fullControlProof(ctx, hostID); full != "" {
+				err = s.hostctl.Apply(ctx, addr[hostID], body.Action, full)
+			}
+		}
+		if err != nil {
 			return hostControlRow{HostID: hostID, Error: err.Error()}
 		}
 		return hostControlRow{HostID: hostID, State: body.Action, OK: true}
@@ -254,42 +302,87 @@ func (s *Server) handleHostControlApply(w http.ResponseWriter, r *http.Request) 
 	})
 }
 
-// controlProof obtains the proof this fan-out presents to each host.
+// controlProofs obtains the proof each member is sent, keyed by host id. A
+// non-empty scope narrows each one to that class of the host's routes: the
+// pool-wide action calls only the pause and resume routes, so its proofs open
+// nothing else on the host, while a refresh needs the host's full proof.
 //
-// Two sources, in order. The internal authentication key this service already holds needs no
-// round trip -- but it is opt-in on a service VM (nothing bakes that file into
-// the seed), so without it the aggregator is asked for one through /go/host:
-// the identical proof a browser gets by following a dashboard host link. That
-// fallback is what lets pool-wide control work on a lab that never placed the
-// token file by hand.
-func (s *Server) controlProof(ctx context.Context, members []string, addr map[string]string) (string, error) {
-	if proof := hostctl.Mint(s.opts.AuthToken, hostctl.ProofTTL); proof != "" {
-		return proof, nil
+// Two sources, in order. The internal authentication key this service already
+// holds needs no round trip and binds each proof to its host -- but it is opt-in
+// on a service VM (nothing bakes that file into the seed), so without it the
+// aggregator is asked through /go/host: the identical proof a browser gets by
+// following a dashboard host link. That fallback is what lets pool-wide control
+// work on a lab that never placed the token file by hand.
+//
+// The aggregator binds each proof to the host it was asked about, so it is
+// asked once per member. An aggregator that predates audiences answers with an
+// unbound proof that opens every host, and that one answer is then used for the
+// whole fan-out. Asking stops once proofAttemptLimit members in a row have been
+// refused with nothing obtained: an aggregator that will not mint for those
+// will not mint for the rest either, and an operator should not wait out one
+// round trip per member to be told so.
+func (s *Server) controlProofs(ctx context.Context, members []string, addr map[string]string, scope string) (map[string]string, error) {
+	proofs := make(map[string]string, len(members))
+	if hostctl.Mint(s.opts.AuthToken, hostctl.ProofTTL) != "" {
+		for _, hostID := range members {
+			proof := hostctl.MintFor(s.opts.AuthToken, hostID, hostctl.ProofTTL)
+			if scope == hostctl.ScopePause {
+				proof = hostctl.MintPause(s.opts.AuthToken, hostID, hostctl.ProofTTL)
+			}
+			if proof != "" {
+				proofs[hostID] = proof
+			}
+		}
+		return proofs, nil
 	}
 	base := s.pool.BaseURL()
 	if base == "" {
-		return "", &controlProofError{reason: controlProofNoInternalKey,
+		return nil, &controlProofError{reason: controlProofNoInternalKey,
 			text: fmt.Sprintf("no control proof: this service holds no internal authentication key (%s) and has no pool aggregator to ask for one", s.authTokenFile())}
 	}
-	// Only the aggregator's own token signs the proof, so any host it can
-	// resolve yields the same one; asking about a member it has never seen just
-	// gets a 404, hence trying the ones with a known address first. A couple of
-	// tries covers a member that has since gone away -- an aggregator that will
-	// not mint for two hosts will not mint for the twentieth either, and an
-	// operator should not wait out one round trip per member to be told so.
 	var lastErr error
-	for i, hostID := range orderByReachable(members, addr) {
-		if i >= proofAttemptLimit {
+	refused := 0
+	for _, hostID := range orderByReachable(members, addr) {
+		if len(proofs) == 0 && refused >= proofAttemptLimit {
 			break
 		}
-		proof, err := s.hostctl.ProofFromAggregator(ctx, base, hostID)
-		if err == nil {
-			return proof, nil
+		proof, err := s.hostctl.ProofFromAggregator(ctx, base, hostID, scope)
+		if err != nil {
+			lastErr = err
+			refused++
+			continue
 		}
-		lastErr = err
+		if !hostctl.Bound(proof) {
+			for _, member := range members {
+				proofs[member] = proof
+			}
+			return proofs, nil
+		}
+		proofs[hostID] = proof
 	}
-	return "", &controlProofError{reason: controlProofAggregatorRefused,
-		text: fmt.Sprintf("no control proof: this service holds no internal authentication key (%s) and the pool aggregator would not mint one (%v)", s.authTokenFile(), lastErr)}
+	if len(proofs) == 0 {
+		return nil, &controlProofError{reason: controlProofAggregatorRefused,
+			text: fmt.Sprintf("no control proof: this service holds no internal authentication key (%s) and the pool aggregator would not mint one (%v)", s.authTokenFile(), lastErr)}
+	}
+	return proofs, nil
+}
+
+// fullControlProof is hostID's unscoped proof, from the same source
+// controlProofs used, or "" when none can be had. A host that predates scoped
+// proofs needs it.
+func (s *Server) fullControlProof(ctx context.Context, hostID string) string {
+	if proof := hostctl.MintFor(s.opts.AuthToken, hostID, hostctl.ProofTTL); proof != "" {
+		return proof
+	}
+	base := s.pool.BaseURL()
+	if base == "" {
+		return ""
+	}
+	proof, err := s.hostctl.ProofFromAggregator(ctx, base, hostID, "")
+	if err != nil {
+		return ""
+	}
+	return proof
 }
 
 // Why no control proof could be obtained, as bounded tokens.
@@ -363,8 +456,8 @@ func (s *Server) recordHostControl(poolID, action string, applied, failed int) {
 }
 
 // membersOf returns a pool's members and whether the pool exists at all. The
-// two are distinct answers: an empty pool accepts the call and changes nothing,
-// an unknown pool is a bad request.
+// two are distinct answers: an empty pool has no live hosts to drive but can
+// still release a configured pause; an unknown pool is a bad request.
 func membersOf(doc configurationDoc, poolID string) ([]string, bool) {
 	for _, p := range doc.Pools {
 		if p.PoolID == poolID {

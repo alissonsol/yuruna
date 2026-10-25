@@ -547,6 +547,11 @@
       "sourceHash": "a58db505d0715741667a03430689374251661c114e517a9744d1ccbb5bbe9ea3",
       "origin": "machine",
       "message": "השלמת היסטוריה: הושלמה סריקה של {value1} מארחים: נכתבו {value2} מחזורים, אירועים של {value3} מחזורים, {value4} תקריות ו-{value5} דגימות ציר זמן; {value6} מחזורים לא ניתנים לקריאה; ל-{value7} מארחים יש היסטוריה שטרם נכתבה"
+    },
+    "aggregator.invalid_control_scope": {
+      "sourceHash": "c385422dd8a1236efb8930bbd4491f6f42e35ee443c60d843acbba17908fbaee",
+      "origin": "machine",
+      "message": "היקף בקרה לא חוקי"
     }
   }
 }

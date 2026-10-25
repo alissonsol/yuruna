@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.22
+.VERSION 2026.10.25
 .GUID 426cd98f-b5bd-4102-91d1-1cc3b6887155
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -214,6 +214,65 @@ function Read-VncBuffer {
     return $buf
 }
 
+# --- REGION: VNC connection events
+# The opens, the connections found closed by their server, and the failed
+# writes, newest last and bounded, so a step that lost input can show what its
+# connection did while it typed.
+$script:VncConnectionEvents = [System.Collections.Generic.List[object]]::new()
+
+function Add-VncConnectionEvent {
+    param([string]$VMName, [string]$Kind, [string]$Detail = '')
+    $script:VncConnectionEvents.Add([pscustomobject]@{ Utc = [DateTime]::UtcNow; VMName = $VMName; Kind = $Kind; Detail = $Detail })
+    if ($script:VncConnectionEvents.Count -gt 64) { $script:VncConnectionEvents.RemoveAt(0) }
+}
+
+function Get-VncConnectionEvent {
+    <#
+    .SYNOPSIS
+        The recorded VNC connection events for a VM since a moment, oldest first.
+    #>
+    [CmdletBinding()]
+    [OutputType([object[]])]
+    param([string]$VMName, [DateTime]$SinceUtc = [DateTime]::MinValue)
+    return @($script:VncConnectionEvents | Where-Object { $_.VMName -eq $VMName -and $_.Utc -ge $SinceUtc })
+}
+
+function Test-VncConnectionOpen {
+    <#
+    .SYNOPSIS
+        Whether the server end of an RFB connection is still open.
+    .DESCRIPTION
+        TcpClient.Connected reports the state after the last read or write, and
+        this client only writes once the handshake is done. A connection its
+        server closed -- QEMU closes every client when its VM stops, so each VM
+        restart leaves the cached one dead -- still reads as connected, and the
+        next write succeeds locally while the server discards it: a key sent
+        then is lost with no error, and only the write after it fails. A socket
+        whose peer closed is readable with nothing to read. Anything the server
+        sent unasked is read and dropped first; this client requests no updates,
+        so that is at most a bell or a clipboard message.
+    .OUTPUTS
+        [bool]
+    #>
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param([Parameter(Mandatory)][System.Net.Sockets.TcpClient]$Client)
+    try {
+        $socket = $Client.Client
+        $drained = 0
+        while ($socket.Poll(0, [System.Net.Sockets.SelectMode]::SelectRead)) {
+            $pending = $socket.Available
+            if ($pending -le 0 -or $drained -ge 1048576) { return $false }
+            $read = $socket.Receive([byte[]]::new([Math]::Min($pending, 65536)))
+            if ($read -le 0) { return $false }
+            $drained += $read
+        }
+        return $true
+    } catch {
+        return $false
+    }
+}
+
 function Connect-VNC {
     <#
     .SYNOPSIS
@@ -223,11 +282,14 @@ function Connect-VNC {
         VMs do not collide on 5900), runs the RFB handshake with
         security type 1 (None), and caches the TcpClient so subsequent
         Send-KeyVNC / Send-TextVNC calls within the sequence reuse the
-        connection. Returns $null on handshake failure.
+        connection. A cached connection its server has closed is replaced
+        rather than reused. Returns $null on handshake failure.
     #>
     param([string]$VMName, [int]$Port = 0)
     if ($script:CachedVncVM -eq $VMName -and $script:CachedVnc -and $script:CachedVnc.Connected) {
-        return $script:CachedVnc
+        if (Test-VncConnectionOpen -Client $script:CachedVnc) { return $script:CachedVnc }
+        Add-VncConnectionEvent -VMName $VMName -Kind 'server-closed'
+        Write-Information "      VNC: the server closed the connection to $VMName since its last use; reconnecting." -InformationAction Continue
     }
     # Resolve the per-VM VNC port. Hardcoding 5900 across every VM let the
     # capture path silently grab whichever QEMU bound it first, so the
@@ -328,11 +390,13 @@ function Connect-VNC {
         }
 
         Write-Debug "      VNC connected to $VMName on port $Port"
+        Add-VncConnectionEvent -VMName $VMName -Kind 'opened' -Detail "port $Port"
         $script:CachedVnc   = $tcp
         $script:CachedVncVM = $VMName
         return $tcp
     } catch {
         Write-Debug "      VNC connection to port $Port failed: $_"
+        Add-VncConnectionEvent -VMName $VMName -Kind 'connect-failed' -Detail "port $Port"
         if ($tcp) { try { $tcp.Dispose() } catch { Write-Debug "      VNC dispose error: $_" } }
         return $null
     }
@@ -450,6 +514,7 @@ function Send-KeyVNC {
         return $true
     } catch {
         Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_22ec2c9b5f0c9a52' -Arguments @{ value = "$_" })
+        Add-VncConnectionEvent -VMName $VMName -Kind 'write-failed' -Detail "key $KeyName"
         $sendFailed = $true
         return $false
     } finally {
@@ -527,6 +592,7 @@ function Send-TextVNC {
         return $true
     } catch {
         Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_2d0a11d52e180ee9' -Arguments @{ value = "$_" })
+        Add-VncConnectionEvent -VMName $VMName -Kind 'write-failed' -Detail "text of $($Text.Length) characters"
         $sendFailed = $true
         return $false
     } finally {
@@ -1599,6 +1665,7 @@ var up = `$.CGEventCreateMouseEvent(null, `$.kCGEventLeftMouseUp,   pt, `$.kCGMo
 # rather than deleted, so the knowledge survives without shipping a dead
 # public entry point.
 Export-ModuleMember -Function Get-HyperVKeyboard, Clear-HyperVKeyboard, Read-VncBuffer, Connect-VNC, Disconnect-VNC, `
+    Test-VncConnectionOpen, Get-VncConnectionEvent, `
     Send-VncKeyEvent, Send-KeyVNC, Send-TextVNC, `
     Send-ScanCode, Send-KeyHyperV, Send-KeyUTM, Send-ChordUTM, Send-KeyKvm, `
     Send-TextKvm, Send-TextHyperV, Test-HardCharsInText, ConvertTo-ShellEscapedText, `

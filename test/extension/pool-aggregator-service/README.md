@@ -404,12 +404,18 @@ unaffected (graceful degradation).
   "fit to content" panel height, so on the proxy VM
   `yuruna-fit-pool-dashboard.py` (cloud-init `write_files` +
   `yuruna-fit-pool-dashboard.timer`, every 5min) recomputes those heights from
-  the live host count and rewrites the provisioned copy in place, so a table
+  the live host count across all pools and rewrites the provisioned copy in place, so a table
   sized for today's pool neither scrolls when a host joins nor shows dead
   whitespace when one leaves. The summary tiles across the top -- **Lab token**
   (id `18`) included -- are a fixed 4 units tall and the re-stack starts below
   them. Changing the panel **ids** (`7`, `6`, `17`) or adding a fourth per-host
   panel means updating that script.
+
+  Timeline rows retain each host's history across pool changes. At each time
+  step the query selects the most recently sampled series for that host before
+  dropping pool and scrape labels. A stale failure in the old pool cannot
+  override a newer running state, and the fitter counts distinct historical
+  host IDs rather than historical label sets.
 
 ## Flags
 
@@ -680,6 +686,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.22
+Last review: 2026.10.25
 
 Back to [Yuruna](../../../README.md)

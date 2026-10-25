@@ -96,11 +96,17 @@ a modifier down across the base key.
 **VNC connection caching and recovery.** `Test.Transport` caches a single VNC
 handle (`$script:CachedVnc`, `$script:CachedVncVM`) and reuses it across
 steps on macOS UTM -- fast (saves roughly 200 ms per VNC `Send-Key` call) but
-brittle: a guest reboot, a network partition, or a VNC server restart leaves
-the handle in a closed state, and the next VNC text send silently drops every
-keystroke until the cache is invalidated. `Test.VncProvider`'s
-`Repair-VncConnection` is the recovery primitive that forces the next call to
-re-handshake. It is invoked from `Wait-ForText`'s bounded no-text self-heal
+brittle: QEMU closes every client when its VM stops, so a guest reboot or a VNC
+server restart leaves the cached handle closed at the server's end while
+`TcpClient.Connected` still reports it open. A key written to such a handle
+succeeds locally and is discarded, and only the write after it fails. So
+`Connect-VNC` checks the handle before reusing it (`Test-VncConnectionOpen`: a
+socket whose peer closed is readable with nothing to read) and opens a new
+connection when the server has closed it. Each open, each closed connection
+found, and each failed write is kept as a connection event
+(`Get-VncConnectionEvent`), which a GUI fetch adds to its transfer evidence.
+`Test.VncProvider`'s `Repair-VncConnection` is the recovery primitive that
+forces the next call to re-handshake. It is invoked from `Wait-ForText`'s bounded no-text self-heal
 (several consecutive polls with no OCR text is a likely sign the cached
 handle is feeding frozen frames) and is available to any `host_io_blocked`
 recovery path.
@@ -345,6 +351,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.22
+Last review: 2026.10.25
 
 Back to [Yuruna](../README.md)

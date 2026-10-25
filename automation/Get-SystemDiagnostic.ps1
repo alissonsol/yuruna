@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.22
+.VERSION 2026.10.25
 .GUID 420783b4-e34a-4b51-b88e-e01fa3738a91
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -1317,6 +1317,34 @@ function Get-FileTreeWithDeadline {
     return @{ TimedOut = $false; TimeoutSeconds = $TimeoutSeconds; Label = $Label; Items = @($result.Output) }
 }
 
+function Protect-DiagnosticSecretText {
+    <#
+    .SYNOPSIS
+        Redact secrets from collected text, one line at a time.
+    .DESCRIPTION
+        Embedded here because this script runs alone on a guest; the name rule
+        for secret-bearing environment variables matches Get-YurunaSecretValue
+        in automation/Yuruna.Retry.psm1. A line that assigns a secret-named key
+        is replaced whole, environment secret values are replaced wherever they
+        appear (tool logs written before redaction existed carry them), and
+        GitHub token shapes are replaced last.
+    #>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param([AllowNull()][AllowEmptyCollection()][string[]]$Line)
+    $namePattern = '(?i)pass(word|wd|phrase)|secret|token|credential|api[_-]?key|private[_-]?key|access[_-]?key'
+    $secretValues = @(foreach ($entry in [Environment]::GetEnvironmentVariables().GetEnumerator()) {
+        $value = [string]$entry.Value
+        if ([string]$entry.Key -match $namePattern -and $value.Length -ge 4 -and $value -notin @('true', 'false', 'null', 'none', 'yes', 'no')) { $value }
+    }) | Select-Object -Unique | Sort-Object -Property Length -Descending
+    foreach ($text in @($Line)) {
+        if ($text -match '(?i)\b[A-Za-z0-9_]*(?:TOKEN|PASSWORD|SECRET|PRIVATE_KEY|CREDENTIAL)[A-Za-z0-9_]*\s*[:=]') { '[REDACTED SECRET ASSIGNMENT]'; continue }
+        $safeLine = [string]$text
+        foreach ($secretValue in $secretValues) { $safeLine = $safeLine.Replace($secretValue, '[REDACTED]') }
+        [regex]::Replace($safeLine, '\b(?:gh[pousr]_[A-Za-z0-9_]{20,}|github_pat_[A-Za-z0-9_]+)', '[REDACTED]')
+    }
+}
+
 function Get-DiagnosticFileTail {
     <#
     .SYNOPSIS
@@ -2140,14 +2168,7 @@ fi
     $lines = @(Invoke-PrivProbe -Tool 'sh' -ToolArgs @('-c',$probe,'sh',$Path,[string]$MaxBytes,[string][bool]$MetadataOnly) -KeepStderr)
     $state = if ($lines.Count -gt 0 -and $lines[0] -match '^state=(.+)$') { $Matches[1] } else { 'read-error' }
     # Installer logs can echo resolved seed commands even when the seed itself is omitted.
-    $content = foreach ($line in ($lines | Select-Object -Skip 1)) {
-        if ($line -match '(?i)\b[A-Za-z0-9_]*(?:TOKEN|PASSWORD|SECRET|PRIVATE_KEY|CREDENTIAL)[A-Za-z0-9_]*\s*[:=]') { '[REDACTED SECRET ASSIGNMENT]'; continue }
-        $safeLine = [string]$line
-        foreach ($secretValue in @($env:GH_TOKEN,$env:GITHUB_TOKEN)) {
-            if ($secretValue) { $safeLine = $safeLine.Replace($secretValue,'[REDACTED]') }
-        }
-        [regex]::Replace($safeLine, '\b(?:gh[pousr]_[A-Za-z0-9_]{20,}|github_pat_[A-Za-z0-9_]+)', '[REDACTED]')
-    }
+    $content = Protect-DiagnosticSecretText -Line @($lines | Select-Object -Skip 1)
     return @{ State=$state; Lines=@($content) }
 }
 
@@ -3688,7 +3709,8 @@ try {
                     if ($tl.Length -gt 64KB) {
                         $sizeNote = " (last 64 KB shown of $($tl.Length) bytes)"
                     }
-                    $content = Get-DiagnosticFileTail -Path $tl.FullName
+                    # A tool log can hold an expanded command with its secrets.
+                    $content = (Protect-DiagnosticSecretText -Line ((Get-DiagnosticFileTail -Path $tl.FullName) -split "`r?`n")) -join "`n"
                 } catch {
                     Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_a594feac6339b77c' -FormatValues ($tl.FullName, $_.Exception.Message) -FormatBindings @{ fullName = '0'; message = '1' })
                     continue

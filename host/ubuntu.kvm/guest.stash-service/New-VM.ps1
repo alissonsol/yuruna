@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.22
+.VERSION 2026.10.25
 .GUID 428fd107-ddcf-4d18-a2a8-6763e5534b41
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -120,148 +120,163 @@ if (-not (Expand-ExtensionVmDisk -Path $diskImg -SizeBytes 256GB -Format 'qcow2'
 }
 
 # --- REGION: Stage the cloud-init seed directory
-# Staged beside the disk, not under a temp root: the per-VM directory is
-# private to this build and the plaintext source is removed once seed.iso exists.
-$seedDir = Join-Path $vmDir 'seed.src'
-if (Test-Path -LiteralPath $seedDir) { Remove-Item -LiteralPath $seedDir -Recurse -Force }
-New-Item -ItemType Directory -Force -Path $seedDir | Out-Null
+# The seed carries the admin password. It is staged in a private (0700)
+# workspace beside the disk and published as an owner-only image, and the
+# finally below removes the workspace on every exit, a failed build included.
+Import-Module (Join-Path $repoRoot 'host/modules/Yuruna.SeedMedia.psm1') -Force
+# A plaintext source an older builder left beside the disk goes first.
+Remove-Item -LiteralPath (Join-Path $vmDir 'seed.src') -Recurse -Force -ErrorAction SilentlyContinue
+$seedWorkspace = $null
+try {
+    $seedWorkspace = New-SeedMediaWorkspace -ParentPath $vmDir
+    $seedDir = $seedWorkspace.Source
 
-# --- REGION: Yuruna harness SSH key
-# See https://yuruna.link/42e220c4-0004
-# Seed the shared harness key so guest provisioning and failure diagnostics agree.
-Import-Module (Join-Path $repoRoot 'test/modules/Test.Ssh.psm1')       -Force -DisableNameChecking
-Import-Module (Join-Path $repoRoot 'test/modules/Test.Extension.psm1') -Global -Force -Verbose:$false
-$SshAuthorizedKey = Get-YurunaSshPublicKey
-if (-not $SshAuthorizedKey) { Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_24e40b06bcf4c618'); exit 1 }
-
-# --- REGION: Vault admin password
-# Each service family has its own admin account: a shared name would map several
-# VMs to one vault entry, and the last build would invalidate the others' credential.
-$_authActiveName = @(Import-Extension -Area 'authentication' -RequireSingle)[0]
-$AdminPassword = Get-Password -Username 'stash-admin'
-if (-not $AdminPassword) { Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_5f54f73b7b1051eb'); exit 1 }
-Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_762658980a25b8fb' -Arguments @{ authActiveName = "$_authActiveName" })
-Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_c427eb2402415f42' -Arguments @{ authentication = "$(Resolve-ExtensionAreaDir -Area 'authentication')" })
-
-# Check the shared seed templates before the guest network is resolved.
-$baseUserData     = Join-Path $repoRoot 'host/vmconfig/stash-service.base.user-data'
-$overlayUserData  = Join-Path $repoRoot 'host/vmconfig/stash-service.kvm.overlay.yml'
-$metaDataTemplate = Join-Path $repoRoot 'host/vmconfig/stash-service.meta-data'
-foreach ($f in @($baseUserData, $overlayUserData, $metaDataTemplate)) {
-    if (-not (Test-Path -LiteralPath $f)) {
-        Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_9a1ef2a7551102d0' -Arguments @{ f = "$f" })
-        exit 1
-    }
-}
-
-# --- REGION: Select the guest network
-# See https://yuruna.link/42e220c4-0004
-# Resolve the network and reachable host address together before rendering the seed.
-Import-Module (Join-Path (Split-Path -Parent $ScriptDir) 'modules/Yuruna.Host.psm1') -Force -DisableNameChecking
-Import-Module (Join-Path $PSScriptRoot '../../../automation/Yuruna.Common.psm1') -Force -DisableNameChecking
-$guestBinding = Resolve-GuestHostBinding
-$networkName  = $guestBinding.NetworkName
-if (-not $networkName) {
-    Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_a32e7c960a5619ec')
-    exit 1
-}
-if ($networkName -eq 'default') {
-    Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_867ce32ee6d72c7e')
-} else {
-    Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_5a3f633bc62da766' -Arguments @{ networkName = "$networkName" })
-
-    # --- REGION: Bridge-uplink preflight
+    # --- REGION: Yuruna harness SSH key
     # See https://yuruna.link/42e220c4-0004
-    # Reject a confirmed dead bridge; leave network repair to the caching-proxy launcher.
-    $netXml = (& virsh --connect $virshUri net-dumpxml $networkName 2>$null) -join "`n"
-    if ($netXml -match "<forward\s+mode='bridge'" -and $netXml -match "<bridge\s+name='([^']+)'") {
-        $extBridge = $Matches[1]
-        $brifDir   = "/sys/class/net/$extBridge/brif"
-        $physPorts = if (Test-Path -LiteralPath $brifDir) {
-            @(Get-ChildItem -LiteralPath $brifDir -ErrorAction SilentlyContinue |
-                Where-Object { $_.Name -notmatch '^(vnet|tap)\d+$' })
-        } else { @() }
-        if ($physPorts.Count -eq 0) {
-            Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_2331212c13235927' -Arguments @{ networkName = "$networkName"; extBridge = "$extBridge" })
+    # Seed the shared harness key so guest provisioning and failure diagnostics agree.
+    Import-Module (Join-Path $repoRoot 'test/modules/Test.Ssh.psm1')       -Force -DisableNameChecking
+    Import-Module (Join-Path $repoRoot 'test/modules/Test.Extension.psm1') -Global -Force -Verbose:$false
+    $SshAuthorizedKey = Get-YurunaSshPublicKey
+    if (-not $SshAuthorizedKey) { Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_24e40b06bcf4c618'); exit 1 }
+
+    # --- REGION: Vault admin password
+    # Each service family has its own admin account: a shared name would map several
+    # VMs to one vault entry, and the last build would invalidate the others' credential.
+    $_authActiveName = @(Import-Extension -Area 'authentication' -RequireSingle)[0]
+    $AdminPassword = Get-Password -Username 'stash-admin'
+    if (-not $AdminPassword) { Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_5f54f73b7b1051eb'); exit 1 }
+    Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_762658980a25b8fb' -Arguments @{ authActiveName = "$_authActiveName" })
+    Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_c427eb2402415f42' -Arguments @{ authentication = "$(Resolve-ExtensionAreaDir -Area 'authentication')" })
+
+    # Check the shared seed templates before the guest network is resolved.
+    $baseUserData     = Join-Path $repoRoot 'host/vmconfig/stash-service.base.user-data'
+    $overlayUserData  = Join-Path $repoRoot 'host/vmconfig/stash-service.kvm.overlay.yml'
+    $metaDataTemplate = Join-Path $repoRoot 'host/vmconfig/stash-service.meta-data'
+    foreach ($f in @($baseUserData, $overlayUserData, $metaDataTemplate)) {
+        if (-not (Test-Path -LiteralPath $f)) {
+            Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_9a1ef2a7551102d0' -Arguments @{ f = "$f" })
             exit 1
         }
     }
+
+    # --- REGION: Select the guest network
+    # See https://yuruna.link/42e220c4-0004
+    # Resolve the network and reachable host address together before rendering the seed.
+    Import-Module (Join-Path (Split-Path -Parent $ScriptDir) 'modules/Yuruna.Host.psm1') -Force -DisableNameChecking
+    Import-Module (Join-Path $PSScriptRoot '../../../automation/Yuruna.Common.psm1') -Force -DisableNameChecking
+    $guestBinding = Resolve-GuestHostBinding
+    $networkName  = $guestBinding.NetworkName
+    if (-not $networkName) {
+        Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_a32e7c960a5619ec')
+        exit 1
+    }
+    if ($networkName -eq 'default') {
+        Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_867ce32ee6d72c7e')
+    } else {
+        Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_5a3f633bc62da766' -Arguments @{ networkName = "$networkName" })
+
+        # --- REGION: Bridge-uplink preflight
+        # See https://yuruna.link/42e220c4-0004
+        # Reject a confirmed dead bridge; leave network repair to the caching-proxy launcher.
+        $netXml = (& virsh --connect $virshUri net-dumpxml $networkName 2>$null) -join "`n"
+        if ($netXml -match "<forward\s+mode='bridge'" -and $netXml -match "<bridge\s+name='([^']+)'") {
+            $extBridge = $Matches[1]
+            $brifDir   = "/sys/class/net/$extBridge/brif"
+            $physPorts = if (Test-Path -LiteralPath $brifDir) {
+                @(Get-ChildItem -LiteralPath $brifDir -ErrorAction SilentlyContinue |
+                    Where-Object { $_.Name -notmatch '^(vnet|tap)\d+$' })
+            } else { @() }
+            if ($physPorts.Count -eq 0) {
+                Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_2331212c13235927' -Arguments @{ networkName = "$networkName"; extBridge = "$extBridge" })
+                exit 1
+            }
+        }
+    }
+
+    # --- REGION: Yuruna host coordinates
+    # See https://yuruna.link/4220a755-001b
+    # Bake the status-service address and storage coordinates for the selected network.
+    Import-Module (Join-Path $repoRoot 'test/modules/Test.PoolStorage.psm1')  -Global -Force
+    Import-Module (Join-Path $repoRoot 'test/modules/Test.YurunaDir.psm1')    -Global -Force
+    Import-Module (Join-Path $repoRoot 'test/modules/Test.Config.psm1')       -Global -Force
+    Import-Module (Join-Path $repoRoot 'test/modules/Test.Locale.psm1') -Global -Force
+    Import-Module (Join-Path $repoRoot 'test/modules/Test.CachingProxyService.psm1') -Global -Force
+    $YurunaHostIp = $guestBinding.HostIp
+    $_statusSeed = Get-YurunaStatusServiceSeed -RepoRoot $repoRoot
+    $YurunaHostPort = $_statusSeed.Port
+    $tc = $_statusSeed.Config
+    $serviceLanguage = Resolve-SeedLanguageTag -Config $tc
+    $allowPseudoLocaleValue = if ($AllowPseudoLocale) { 'true' } else { 'false' }
+    $ystashNas = Get-YurunaStashSeedValue -Config $tc -GuestReachableAddress $YurunaHostIp
+    # --- REGION: https://yuruna.link/42e220c4-0004
+    # Wait before resolving the aggregator URL: an empty value remains baked into the guest seed.
+    $null = Wait-YurunaAggregatorReady
+    $aggregatorSeedUrl = Get-PoolAggregatorServiceSeedUrl
+
+    # --- REGION: Render user-data / meta-data
+    # Render user-data from the shared base + KVM overlay (host/vmconfig/
+    # stash-service.*). New-CloudInitUserData resolves placeholders with literal
+    # .Replace(), so values carrying regex-special chars are safe.
+    Import-Module (Join-Path $repoRoot 'automation/Yuruna.CloudInitTemplate.psm1') -Force
+    # The NAS password is fetched by the guest over mutual TLS; the seed carries
+    # only this VM's client leaf for the host config service.
+    Import-Module (Join-Path $PSScriptRoot '../../../test/modules/Test.ConfigServiceCA.psm1') -Force
+    $configSeed = Get-YurunaConfigServiceSeedMaterial -VMName $VMName -HostId ([string]$ystashNas.HostId) -Config $tc
+    $userData = New-CloudInitUserData `
+        -BasePath    $baseUserData `
+        -OverlayPath $overlayUserData `
+        -RepoRoot    $repoRoot `
+        -Replacement @{
+            YURUNA_LANGUAGE_PLACEHOLDER = $serviceLanguage
+            YURUNA_ALLOW_PSEUDO_LOCALE_PLACEHOLDER = $allowPseudoLocaleValue
+            SSH_AUTHORIZED_KEY_PLACEHOLDER = $SshAuthorizedKey
+            PASSWORD_PLACEHOLDER           = $AdminPassword
+            YURUNA_STATUS_SERVICE_IP_PLACEHOLDER     = $YurunaHostIp
+            YURUNA_STATUS_SERVICE_PORT_PLACEHOLDER   = $YurunaHostPort
+            YSTASH_NAS_NETWORK_PATH_PLACEHOLDER  = $ystashNas.NetworkPath
+            YSTASH_NAS_NETWORK_IP_PLACEHOLDER    = $ystashNas.NetworkIp
+            YSTASH_NAS_NETWORK_USER_PLACEHOLDER  = $ystashNas.NetworkUser
+            YURUNA_CONFIG_SERVICE_PORT_PLACEHOLDER               = $configSeed.Port
+            YURUNA_CONFIG_SERVICE_CA_CERT_BASE64_PLACEHOLDER     = $configSeed.CaCertBase64
+            YURUNA_CONFIG_SERVICE_CLIENT_CERT_BASE64_PLACEHOLDER = $configSeed.ClientCertBase64
+            YURUNA_CONFIG_SERVICE_CLIENT_KEY_BASE64_PLACEHOLDER  = $configSeed.ClientKeyBase64
+            YSTASH_NAS_HOST_ID_PLACEHOLDER       = $ystashNas.HostId
+            YURUNA_AGGREGATOR_URL_PLACEHOLDER    = $aggregatorSeedUrl
+        } -Confirm:$false
+    $metaData = (Get-Content -Raw -LiteralPath $metaDataTemplate)
+
+    Set-Content -LiteralPath (Join-Path $seedDir 'user-data') -Value $userData -NoNewline
+    Set-Content -LiteralPath (Join-Path $seedDir 'meta-data') -Value $metaData -NoNewline
+    # --- REGION: https://yuruna.link/4220a755-000b
+    Copy-Item -Path (Join-Path $repoRoot 'host/vmconfig/guest-dhcp.network-config') `
+        -Destination (Join-Path $seedDir 'network-config')
+
+    # --- REGION: Generate cloud-init seed ISO
+    & genisoimage -output $seedWorkspace.Image -volid cidata -joliet -rock `
+        (Join-Path $seedDir 'user-data') (Join-Path $seedDir 'meta-data') `
+        (Join-Path $seedDir 'network-config') 2>&1 | Out-Null
+    if ($LASTEXITCODE -ne 0) {
+        Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_3d53fa1f73f89fed' -Arguments @{ lASTEXITCODE = "$LASTEXITCODE" })
+        exit 1
+    }
+    Publish-SeedMediaImage -Workspace $seedWorkspace -Path $seedImg -Confirm:$false
+
+    Write-Output ""
+    Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_75cf4528e83fec3c')
+    Write-Output "  user:     stash-admin"
+    Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_d16883e5df36f6c1')
+    Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_fa07a6efcd13635f')
+    Write-Output "    virt-viewer --connect $virshUri $VMName"
+    Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_095582e0ec3b9dc8')
+    Write-Output ""
+
+    # --- REGION: Create and configure the libvirt domain
+    if (-not (New-KvmServiceDomain -VMName $VMName -DiskPath $diskImg -SeedPath $seedImg -NetworkName $networkName -MemoryMb 2048 -Confirm:$false)) { exit 1 }
+
+} finally {
+    # --- REGION: Clean up temporary files
+    Remove-SeedMediaWorkspace -Workspace $seedWorkspace -Confirm:$false
 }
-
-# --- REGION: Yuruna host coordinates
-# See https://yuruna.link/4220a755-001b
-# Bake the status-service address and storage coordinates for the selected network.
-Import-Module (Join-Path $repoRoot 'test/modules/Test.PoolStorage.psm1')  -Global -Force
-Import-Module (Join-Path $repoRoot 'test/modules/Test.YurunaDir.psm1')    -Global -Force
-Import-Module (Join-Path $repoRoot 'test/modules/Test.Config.psm1')       -Global -Force
-Import-Module (Join-Path $repoRoot 'test/modules/Test.Locale.psm1') -Global -Force
-Import-Module (Join-Path $repoRoot 'test/modules/Test.CachingProxyService.psm1') -Global -Force
-$YurunaHostIp = $guestBinding.HostIp
-$_statusSeed = Get-YurunaStatusServiceSeed -RepoRoot $repoRoot
-$YurunaHostPort = $_statusSeed.Port
-$tc = $_statusSeed.Config
-$serviceLanguage = Resolve-SeedLanguageTag -Config $tc
-$allowPseudoLocaleValue = if ($AllowPseudoLocale) { 'true' } else { 'false' }
-$ystashNas = Get-YurunaStashSeedValue -Config $tc -GuestReachableAddress $YurunaHostIp
-# --- REGION: https://yuruna.link/42e220c4-0004
-# Wait before resolving the aggregator URL: an empty value remains baked into the guest seed.
-$null = Wait-YurunaAggregatorReady
-$aggregatorSeedUrl = Get-PoolAggregatorServiceSeedUrl
-
-# --- REGION: Render user-data / meta-data
-# Render user-data from the shared base + KVM overlay (host/vmconfig/
-# stash-service.*). New-CloudInitUserData resolves placeholders with literal
-# .Replace(), so values carrying regex-special chars are safe.
-Import-Module (Join-Path $repoRoot 'automation/Yuruna.CloudInitTemplate.psm1') -Force
-$userData = New-CloudInitUserData `
-    -BasePath    $baseUserData `
-    -OverlayPath $overlayUserData `
-    -RepoRoot    $repoRoot `
-    -Replacement @{
-        YURUNA_LANGUAGE_PLACEHOLDER = $serviceLanguage
-        YURUNA_ALLOW_PSEUDO_LOCALE_PLACEHOLDER = $allowPseudoLocaleValue
-        SSH_AUTHORIZED_KEY_PLACEHOLDER = $SshAuthorizedKey
-        PASSWORD_PLACEHOLDER           = $AdminPassword
-        YURUNA_STATUS_SERVICE_IP_PLACEHOLDER     = $YurunaHostIp
-        YURUNA_STATUS_SERVICE_PORT_PLACEHOLDER   = $YurunaHostPort
-        YSTASH_NAS_NETWORK_PATH_PLACEHOLDER  = $ystashNas.NetworkPath
-        YSTASH_NAS_NETWORK_IP_PLACEHOLDER    = $ystashNas.NetworkIp
-        YSTASH_NAS_NETWORK_USER_PLACEHOLDER  = $ystashNas.NetworkUser
-        YSTASH_NAS_PASSWORD_PLACEHOLDER      = $ystashNas.Password
-        YSTASH_NAS_HOST_ID_PLACEHOLDER       = $ystashNas.HostId
-        YURUNA_AGGREGATOR_URL_PLACEHOLDER    = $aggregatorSeedUrl
-    } -Confirm:$false
-$metaData = (Get-Content -Raw -LiteralPath $metaDataTemplate)
-
-Set-Content -LiteralPath (Join-Path $seedDir 'user-data') -Value $userData -NoNewline
-Set-Content -LiteralPath (Join-Path $seedDir 'meta-data') -Value $metaData -NoNewline
-# --- REGION: https://yuruna.link/4220a755-000b
-Copy-Item -Path (Join-Path $repoRoot 'host/vmconfig/guest-dhcp.network-config') `
-    -Destination (Join-Path $seedDir 'network-config')
-
-# --- REGION: Generate cloud-init seed ISO
-& genisoimage -output $seedImg -volid cidata -joliet -rock `
-    (Join-Path $seedDir 'user-data') (Join-Path $seedDir 'meta-data') `
-    (Join-Path $seedDir 'network-config') 2>&1 | Out-Null
-if ($LASTEXITCODE -ne 0) {
-    Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_3d53fa1f73f89fed' -Arguments @{ lASTEXITCODE = "$LASTEXITCODE" })
-    exit 1
-}
-
-Write-Output ""
-Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_75cf4528e83fec3c')
-Write-Output "  user:     stash-admin"
-Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_d16883e5df36f6c1')
-Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_fa07a6efcd13635f')
-Write-Output "    virt-viewer --connect $virshUri $VMName"
-Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_095582e0ec3b9dc8')
-Write-Output ""
-
-# --- REGION: Create and configure the libvirt domain
-if (-not (New-KvmServiceDomain -VMName $VMName -DiskPath $diskImg -SeedPath $seedImg -NetworkName $networkName -MemoryMb 2048 -Confirm:$false)) { exit 1 }
-
-# --- REGION: Clean up temporary files
-Remove-Item -LiteralPath $seedDir -Recurse -Force -ErrorAction SilentlyContinue
 
 # --- REGION: Wait for VM IP
 # See https://yuruna.link/42e220c4-0004

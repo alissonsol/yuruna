@@ -11,6 +11,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"yuruna.com/test/extension/extension-sdk/controlproof"
 )
 
 // TestMintControlProofGolden pins the cross-language control-proof format. The vector is
@@ -30,7 +32,7 @@ func TestMintControlProofGolden(t *testing.T) {
 // TestMintControlProofEmptyToken: no configured internal authentication key -> no proof, so /go/host
 // adds no fragment and the host falls back to loopback-only control.
 func TestMintControlProofEmptyToken(t *testing.T) {
-	if got := mintControlProof("", 0); got != "" {
+	if got := mintControlProof("", refreshHostIDForProofs, 0); got != "" {
 		t.Fatalf("empty token must yield empty proof, got %q", got)
 	}
 }
@@ -39,13 +41,16 @@ func TestMintControlProofEmptyToken(t *testing.T) {
 
 const proofToken = "sekret-internal-auth-key"
 
+// refreshHostIDForProofs is a host id used as the audience of a host-bound proof.
+const refreshHostIDForProofs = "42aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+
 // TestVerifyControlProofAcceptsWhatItMints closes the loop on the format: what this
 // daemon hands a browser is what this daemon will later accept back from the service
 // that browser landed on.
 func TestVerifyControlProofAcceptsWhatItMints(t *testing.T) {
 	now := time.Now()
-	proof := mintControlProof(proofToken, controlProofTTL)
-	if !verifyControlProof(proofToken, proof, now, controlProofMaxTTL) {
+	proof := mintControlProof(proofToken, refreshHostIDForProofs, controlProofTTL)
+	if !verifyControlProof(proofToken, proof, refreshHostIDForProofs, now, controlProofMaxTTL) {
 		t.Fatalf("a freshly minted proof did not verify: %q", proof)
 	}
 }
@@ -69,7 +74,7 @@ func TestVerifyControlProofRefusesWhatItDidNotMint(t *testing.T) {
 		{"no token held", "", controlProofFor(proofToken, fresh)},
 	}
 	for _, c := range cases {
-		if verifyControlProof(c.token, c.wire, now, controlProofMaxTTL) {
+		if verifyControlProof(c.token, c.wire, "", now, controlProofMaxTTL) {
 			t.Errorf("%s: verified, want refused", c.name)
 		}
 	}
@@ -88,7 +93,7 @@ func TestControlProofRouteAnswersTheVerdictAndNothingElse(t *testing.T) {
 	s := newPoolState("default", 8080)
 	s.authToken = proofToken
 
-	rec := postProof(t, s, `{"proof":`+strconv.Quote(mintControlProof(proofToken, controlProofTTL))+`}`)
+	rec := postProof(t, s, `{"proof":`+strconv.Quote(mintControlProof(proofToken, "svc-stash-service", controlProofTTL))+`,"audience":"svc-stash-service"}`)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("fresh proof = %d, want 200", rec.Code)
 	}
@@ -141,8 +146,11 @@ func TestGoStashCarriesAVerifiableProofInTheFragment(t *testing.T) {
 	if base != "http://10.0.0.9" {
 		t.Errorf("redirect target = %q, want http://10.0.0.9", base)
 	}
-	if !verifyControlProof(proofToken, frag, time.Now(), controlProofMaxTTL) {
+	if !verifyControlProof(proofToken, frag, "svc-download-agent-service", time.Now(), controlProofMaxTTL) {
 		t.Errorf("the fragment %q is not a proof this daemon would accept back", frag)
+	}
+	if verifyControlProof(proofToken, frag, "svc-stash-service", time.Now(), controlProofMaxTTL) || verifyControlProof(proofToken, frag, hid, time.Now(), controlProofMaxTTL) {
+		t.Errorf("the fragment %q unlocks a target it was not minted for", frag)
 	}
 }
 
@@ -162,5 +170,72 @@ func TestGoStashCarriesNoFragmentWithoutAToken(t *testing.T) {
 	s.handleGoStash(rec, httptest.NewRequest("GET", "/go/stash?host="+hid, nil))
 	if loc := rec.Header().Get("Location"); loc != "http://10.0.0.5" {
 		t.Errorf("Location = %q, want the bare target with no fragment", loc)
+	}
+}
+
+// A proof /go/host hands a browser opens that host and no other: the key is
+// pool-wide, so without the binding a proof lifted from one address bar would
+// unlock every host for its lifetime.
+func TestGoHostBindsItsProofToTheHost(t *testing.T) {
+	s := newPoolState("default", 8080)
+	s.authToken = proofToken
+	hid := "42512149e3dc437ca677a40828382528"
+	s.hosts[hid] = &hostView{HostId: hid, BaseURL: "http://192.0.2.10:8080", CurrentIP: "192.0.2.10", Reachable: true, LastSeenUnixMs: time.Now().UnixMilli()}
+	rec := httptest.NewRecorder()
+	s.handleGoHost(rec, httptest.NewRequest(http.MethodGet, "/go/host?host="+hid, nil))
+	_, frag, found := strings.Cut(rec.Header().Get("Location"), "#yctl=")
+	if rec.Code != http.StatusFound || !found {
+		t.Fatalf("status %d, Location %q", rec.Code, rec.Header().Get("Location"))
+	}
+	if !strings.Contains(frag, "."+hid+".") {
+		t.Fatalf("fragment %q is not bound to %s", frag, hid)
+	}
+	if !verifyControlProof(proofToken, frag, hid, time.Now(), controlProofMaxTTL) {
+		t.Fatal("the host the proof was minted for refuses it")
+	}
+	if verifyControlProof(proofToken, frag, "42bbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", time.Now(), controlProofMaxTTL) {
+		t.Fatal("another host accepts it")
+	}
+}
+
+// pool-control asks /go/host for a pause-scoped proof: it opens that host's
+// pause and resume routes and nothing else there, and no other host.
+func TestGoHostMintsTheScopeItIsAskedFor(t *testing.T) {
+	s := newPoolState("default", 8080)
+	s.authToken = proofToken
+	hid := "42512149e3dc437ca677a40828382528"
+	s.hosts[hid] = &hostView{HostId: hid, BaseURL: "http://192.0.2.10:8080", CurrentIP: "192.0.2.10", Reachable: true, LastSeenUnixMs: time.Now().UnixMilli()}
+	rec := httptest.NewRecorder()
+	s.handleGoHost(rec, httptest.NewRequest(http.MethodGet, "/go/host?host="+hid+"&scope=pause", nil))
+	_, frag, found := strings.Cut(rec.Header().Get("Location"), "#yctl=")
+	if rec.Code != http.StatusFound || !found {
+		t.Fatalf("status %d, Location %q", rec.Code, rec.Header().Get("Location"))
+	}
+	if !controlproof.VerifyScoped(proofToken, frag, hid, []string{controlproof.ScopePause}, time.Now(), controlProofMaxTTL) {
+		t.Fatalf("fragment %q does not open %s's pause routes", frag, hid)
+	}
+	if verifyControlProof(proofToken, frag, hid, time.Now(), controlProofMaxTTL) {
+		t.Fatal("a pause-scoped proof also opens the host's other routes")
+	}
+	if controlproof.VerifyScoped(proofToken, frag, "42bbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", []string{controlproof.ScopePause}, time.Now(), controlProofMaxTTL) {
+		t.Fatal("another host accepts it")
+	}
+	rec = httptest.NewRecorder()
+	s.handleGoHost(rec, httptest.NewRequest(http.MethodGet, "/go/host?host="+hid+"&scope=Not.A.Scope", nil))
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("a malformed scope answered %d", rec.Code)
+	}
+}
+
+func TestControlProofRouteChecksTheAudienceTheServiceNames(t *testing.T) {
+	s := newPoolState("default", 8080)
+	s.authToken = proofToken
+	proof := mintControlProof(proofToken, "svc-stash-service", controlProofTTL)
+	if rec := postProof(t, s, `{"proof":`+strconv.Quote(proof)+`,"audience":"svc-pool-control-service"}`); rec.Code != http.StatusUnauthorized {
+		t.Fatalf("another service's proof = %d, want 401", rec.Code)
+	}
+	// A service that predates audiences names none and is answered for the MAC alone.
+	if rec := postProof(t, s, `{"proof":`+strconv.Quote(proof)+`}`); rec.Code != http.StatusOK {
+		t.Fatalf("no audience named = %d, want 200", rec.Code)
 	}
 }

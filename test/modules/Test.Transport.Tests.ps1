@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.22
+.VERSION 2026.10.25
 .GUID 42869a92-a8d2-410d-9364-cdfba1a4ed8e
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -338,6 +338,106 @@ Describe 'VNC key taps reach the server with their release' {
 
     It 'turns off Nagle on the VNC connection' {
         Assert-True ((Get-TransportFunctionText -Name 'Connect-VNC') -match '\$tcp\.NoDelay\s*=\s*\$true') 'Connect-VNC sets TcpClient.NoDelay'
+    }
+}
+
+Describe 'VNC connection reuse after its server closed it' {
+    # QEMU closes every RFB client when its VM stops. The cached connection
+    # still reads as connected, a key written to it succeeds locally and is
+    # discarded, and only the write after that one fails.
+
+    BeforeAll {
+        # The real primitives, outside the module whose copies the file-level
+        # BeforeAll shadows, over the one key and no chords.
+        $names = 'Read-VncBuffer', 'Add-VncConnectionEvent', 'Get-VncConnectionEvent', 'Test-VncConnectionOpen',
+            'Connect-VNC', 'Disconnect-VNC', 'Send-VncKeyEvent', 'Send-VncKeyTap', 'Send-KeyVNC'
+        $functions = ($names | ForEach-Object { Get-TransportFunctionText -Name $_ }) -join "`n`n"
+        $state = @'
+$script:VncConnectionEvents = [System.Collections.Generic.List[object]]::new()
+$script:CachedVnc = $null
+$script:CachedVncVM = $null
+$script:X11KeySyms = @{ Enter = 0xFF0D }
+$script:X11Chords = @{}
+function Format-YurunaOperatorMessage { param($Key, $Arguments) $null = $Arguments; $Key }
+'@
+        $script:wireModule = New-Module -ScriptBlock ([scriptblock]::Create($state + "`n" + $functions))
+        # Answers each connection's handshake, reads one key tap, then closes
+        # its end, the way a stopping VM's QEMU does. A connection that never
+        # comes ends it: a blocked accept does not wake when its listener stops.
+        $script:FakeRfbServer = {
+            param($Listener, $Connections, $Taps)
+            # Version, one security type (None), SecurityResult OK, and ServerInit for a 1x1 desktop with no name.
+            $greeting = [byte[]](@([Text.Encoding]::ASCII.GetBytes("RFB 003.008`n")) + @(1, 1) + @(0, 0, 0, 0) + @(0, 1, 0, 1) + @(@(0) * 16) + @(0, 0, 0, 0))
+            for ($n = 0; $n -lt $Connections; $n++) {
+                $accepting = $Listener.AcceptTcpClientAsync()
+                if (-not $accepting.Wait(10000)) { break }
+                $peer = $accepting.Result
+                $tap = ''
+                try {
+                    $stream = $peer.GetStream()
+                    $stream.ReadTimeout = 10000
+                    $stream.Write($greeting, 0, $greeting.Length)
+                    # The client's version, security choice and ClientInit (14 bytes), then one tap (16).
+                    $buffer = [byte[]]::new(30)
+                    $read = 0
+                    while ($read -lt 30) { $got = $stream.Read($buffer, $read, 30 - $read); if ($got -le 0) { break }; $read += $got }
+                    $tap = [Convert]::ToHexString($buffer, 14, [Math]::Max(0, $read - 14))
+                } finally { $peer.Dispose() }
+                $Taps.Enqueue($tap)
+            }
+        }
+    }
+
+    It 'opens a new connection for the next key instead of writing it into the closed one' {
+        $listener = [System.Net.Sockets.TcpListener]::new([System.Net.IPAddress]::Loopback, 0)
+        $listener.Start()
+        $taps = [System.Collections.Concurrent.ConcurrentQueue[string]]::new()
+        $server = [powershell]::Create()
+        try {
+            [void]$server.AddScript($script:FakeRfbServer).AddArgument($listener).AddArgument(2).AddArgument($taps)
+            $serving = $server.BeginInvoke()
+            $port = ([System.Net.IPEndPoint]$listener.LocalEndpoint).Port
+            Assert-True (& $script:wireModule { param($p) Send-KeyVNC -VMName 'vm' -KeyName 'Enter' -Port $p } $port) 'the first key is sent'
+            # The scenario starts once the server has closed its end and the
+            # close has reached the client.
+            $deadline = [DateTime]::UtcNow.AddSeconds(10)
+            while ($taps.Count -lt 1 -and [DateTime]::UtcNow -lt $deadline) { Start-Sleep -Milliseconds 20 }
+            $cached = & $script:wireModule { $script:CachedVnc }
+            while (-not $cached.Client.Poll(0, [System.Net.Sockets.SelectMode]::SelectRead) -and [DateTime]::UtcNow -lt $deadline) { Start-Sleep -Milliseconds 20 }
+            Assert-True $cached.Connected 'the closed connection still reads as connected'
+            Assert-True (& $script:wireModule { param($p) Send-KeyVNC -VMName 'vm' -KeyName 'Enter' -Port $p 6>$null } $port) 'the second key is sent'
+            Assert-True ($serving.AsyncWaitHandle.WaitOne(20000)) 'the fake server finished'
+            Assert-Equal -Expected '040100000000FF0D040000000000FF0D|040100000000FF0D040000000000FF0D' -Actual ($taps.ToArray() -join '|') `
+                -Because "the second Enter reaches the server on a new connection; server errors: $($server.Streams.Error -join '; ')"
+            $kinds = @(& $script:wireModule { Get-VncConnectionEvent -VMName 'vm' } | ForEach-Object Kind)
+            Assert-Equal -Expected 'opened,server-closed,opened' -Actual ($kinds -join ',') -Because 'the closed connection is recorded between the two opens'
+        } finally {
+            $listener.Stop()
+            & $script:wireModule { Disconnect-VNC }
+            $server.Dispose()
+        }
+    }
+
+    It 'tells an open connection from one its server closed, after reading what the server sent unasked' {
+        $listener = [System.Net.Sockets.TcpListener]::new([System.Net.IPAddress]::Loopback, 0)
+        $listener.Start()
+        try {
+            $client = [System.Net.Sockets.TcpClient]::new()
+            $client.Connect([System.Net.IPAddress]::Loopback, ([System.Net.IPEndPoint]$listener.LocalEndpoint).Port)
+            $peer = $listener.AcceptTcpClient()
+            try {
+                Assert-True (& $script:wireModule { param($c) Test-VncConnectionOpen -Client $c } $client) 'an idle open connection is open'
+                # An RFB Bell message: one byte the server may send at any time.
+                $peer.GetStream().WriteByte(2)
+                $deadline = [DateTime]::UtcNow.AddSeconds(10)
+                while ($client.Available -lt 1 -and [DateTime]::UtcNow -lt $deadline) { Start-Sleep -Milliseconds 20 }
+                Assert-True (& $script:wireModule { param($c) Test-VncConnectionOpen -Client $c } $client) 'a connection with a message waiting is open'
+                Assert-Equal -Expected 0 -Actual $client.Available -Because 'the unasked message is read and dropped'
+                $peer.Dispose()
+                while (-not $client.Client.Poll(0, [System.Net.Sockets.SelectMode]::SelectRead) -and [DateTime]::UtcNow -lt $deadline) { Start-Sleep -Milliseconds 20 }
+                Assert-True (-not (& $script:wireModule { param($c) Test-VncConnectionOpen -Client $c } $client)) 'a connection its server closed is not open'
+            } finally { $peer.Dispose(); $client.Dispose() }
+        } finally { $listener.Stop() }
     }
 }
 

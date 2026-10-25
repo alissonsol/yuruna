@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.22
+.VERSION 2026.10.25
 .GUID 421bcf2d-5f7f-8b49-9f26-41fdd197f523
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -210,6 +210,7 @@
     'aggregator.host_not_known_to_the_pool' = '池中无此宿主机记录'
     'aggregator.hostid_must_be_a_42_prefixed_32_hex_id' = 'hostId必须是以42开头的32位十六进制标识符'
     'aggregator.ingest_disabled' = '数据摄取已禁用'
+    'aggregator.invalid_control_scope' = '控制范围无效'
     'aggregator.invalid_hostid' = 'hostId无效'
     'aggregator.invalid_hostid_or_area' = 'hostId或area无效'
     'aggregator.invalid_statusport' = 'statusPort无效'

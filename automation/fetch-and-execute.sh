@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.10.22
+# Version: 2026.10.25
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 
@@ -915,6 +915,10 @@ fae_kernel_loop() {
             [ "$index" -ge "$limit" ] && break
             [ "$((SECONDS-started))" -ge 7200 ] && break
             kill -0 "$owner" 2>/dev/null || break
+            # The process collector publishes atomically and can finish just
+            # after our upload. Deliver it while a short payload is still
+            # running instead of waiting for the next kernel interval.
+            [ "$folder/evidence.txt" -nt "$folder/kernel.evidence.txt" ] && break
             sleep 1
         done
     done

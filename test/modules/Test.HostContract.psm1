@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.22
+.VERSION 2026.10.25
 .GUID 42a04c70-e7da-4354-977e-5dd4778e74a0
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -276,6 +276,8 @@ function Invoke-HostVmAdmission {
         The verdict is recorded (Write-VmAdmissionRecord) whatever it is. The
         caller exits on anything but 'clear': 1 for occupied, 2 (cannot run) for
         unknown, so the two read differently to whoever looks at the exit code.
+        On a clear host the driver's Repair-VMStorageLocation, where it has one,
+        then finishes any rename an interrupted snapshot promotion left half done.
     .PARAMETER HostType
         The host type string; on macOS UTM an occupied host also gets that
         driver's explanation of why concurrent guests split the vmnet bridge.
@@ -307,6 +309,18 @@ function Invoke-HostVmAdmission {
         }
         'unknown' {
             Write-Warning (Format-YurunaOperatorMessage -Key 'runner.vm_admission_unknown' -Arguments @{ probes = "$($admission.Probes)"; reason = "$($admission.Reason)"; detail = "$($admission.Detail)" })
+        }
+    }
+    # A clear host runs no guest, which is when a rename that an interrupted
+    # snapshot promotion left half done can be finished: before this cycle's
+    # sweep or builds reach the directory it vacated. Never part of the verdict:
+    # a driver without the repair, or a repair that fails, admits the host the
+    # same, and every delete stays reference-checked.
+    if ($admission.State -eq 'clear' -and (Get-Command Repair-VMStorageLocation -ErrorAction SilentlyContinue)) {
+        try {
+            $null = Repair-VMStorageLocation -Confirm:$false
+        } catch {
+            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.vm_storage_reconcile_failed' -Arguments @{ message = "$($_.Exception.Message)" })
         }
     }
     $null = Write-VmAdmissionRecord -Admission $admission -HostType $HostType -RuntimeDir $RuntimeDir -Confirm:$false

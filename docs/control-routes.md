@@ -66,6 +66,30 @@ so a host whose clock trails the proxy still accepts a freshly minted proof. The
 captured once on arrival and never refreshed, so the config page shows a countdown and warns
 before it lapses rather than letting a long edit fail at Save.
 
+The key is pool-wide, so a proof is also **bound to the one target it opens**: the wire
+form is `<expiry>.<audience>.<base64 HMAC>`, the MAC covers
+`yuruna-control|proof|v2|<audience>|<expiry>`, and the audience is the host id for a
+host's control routes or `svc-<service>` for an extension service UI. A proof copied out
+of one host's address bar, a screenshot or a pasted link therefore opens that host and no
+other. Hosts and services are updated at different times, so every verifier still accepts
+the older unbound form `<expiry>.<base64 HMAC>` until every minter binds; an older host
+refuses the bound form, which is why hosts take this change before the caching proxy and
+the pool-control VM are rebuilt. The expiry stays the first field, so the page countdown
+reads both forms. The lab LAN remains the trust boundary by design: anyone who can open
+the dashboard can mint a proof for any host through `/go/host`.
+
+A bound proof can also be **scoped** to one class of its target's routes:
+`<expiry>.<audience>.<scope>.<base64 HMAC>`, with the MAC over
+`yuruna-control|proof|v3|<audience>|<scope>|<expiry>`. The one scope is `pause`, which a
+host accepts on `control/step-pause`, `control/step-resume`, `control/cycle-pause` and
+`control/cycle-resume` and on no other route; every other control route takes only the
+bound and unbound forms, and the extension services never take a scoped proof. The
+pool-wide pause and continue sends scoped proofs, so a captured one cannot save that host's
+configuration, start a cycle or refresh it. The fragment hand-off itself stays: the
+fragment never reaches a server or an access log, both page runtimes take it off the
+address bar with `history.replaceState` the moment they load and keep the proof only in
+`sessionStorage`, and the redirect that carries it is the LAN-open path described above.
+
 A host with **no** internal authentication key is not broken -- it accepts control from loopback only.
 
 The **extension service UIs** are handed the same proof the same way. Opening one from the
@@ -77,9 +101,13 @@ proof, or an expired one, and the UI's ordinary Lab token prompt is still there.
 
 The **Pool-control service** presents the same proof when its *Pool Status* column pauses or
 continues every member of a pool at once ([pool-admin.md](pool-admin.md#pool-status--pausing-and-continuing-every-member-at-once)).
-It mints one from its own copy of the token when it has one, and otherwise reads the fragment
-off `/go/host` without following the redirect -- the same proof, obtained as a browser
-obtains it. So the enrollment state that decides whether a host's buttons work also
+It mints one pause-scoped proof per member from its own copy of the token when it has one,
+and otherwise reads the fragment off `/go/host?host=<member>&scope=pause` without following
+the redirect -- obtained as a browser obtains it, once per member. An aggregator that
+predates scopes ignores the parameter and mints the member's full bound proof, and one that
+predates audiences answers with one unbound proof, which is then used for the whole
+fan-out. A host that predates scopes refuses a scoped proof as `proof-invalid`; that member
+is then sent its full proof once. So the enrollment state that decides whether a host's buttons work also
 decides whether pool-wide control reaches it, and the `reason` table below explains both.
 
 <a id="42185271-0004"></a>
@@ -402,7 +430,12 @@ applies (`testCycle.preambleTimeoutSeconds` while `runner.phase` exists,
 `runnerState` reports the runner's own lifecycle state from
 `runner.state.json`, so the `paused` verdict can be checked against it.
 `phase` reports `runner.phase`, which is null outside the inner runner's
-preamble.
+preamble. `watchdogLapsed` is the text of `runner.watchdog.lapsed` while it
+exists: the step watchdog stood down for the running cycle, and the text ends
+with the bounds the resident runner applies in its place. The status page shows
+a running cycle with `watchdogLapsed` set, or with `liveness` `stalled`, in an
+amber banner instead of "Test in progress"; it names the bound rather than the
+live age, so the aria-live banner does not re-announce itself on every poll.
 
 **`test/service/Start-StatusService.ps1`.**
 
@@ -653,15 +686,53 @@ The status service's file-serving side dispatches by URL prefix:
 `yuruna-repo/<rel>` maps to the repo working tree (deny-listed),
 `runtime/<name>` to the runtime dir (pids, `status.json`, control flags,
 `ipaddresses.txt`, `caching-proxy-service.txt`, `current-action.json`, `server.err`,
-`yuruna-caching-proxy-service.yml`, `host.uuid`), `log/<name>` to the log dir (HTML
+`yuruna-caching-proxy-service.yml`, `host.uuid`; only the allow-listed records below are
+served), `log/<name>` to the log dir (HTML
 transcripts, OCR/screenshot debug, failure captures), and anything else to the
-status dir (`index.html`, template, static assets, `perf/`, `extension/`,
-`captures/`, `ssh/`). Each branch pins the resolved path under its mount root
+status dir (`index.html`, static assets, `perf/` and `captures/`; its other folders are
+refused, as below). Each branch pins the resolved path under its mount root
 with a StartsWith check, so traversal such as `runtime/../../../etc/passwd`
 cannot escape. A unified deny-list then applies to every served path, so
 secrets under `status/` (`vault.yml`, `transports.yml`, `events.log`, the SSH
 private key, the caching-proxy-service state file) are blocked regardless of which
 route reached them.
+
+**The runtime directory is served by allow-list.** It holds credentials, keys, proofs,
+journals and snapshots next to the few records pages and pool services read, and a deny
+list of names fails open for every file renamed or added later: a credential file left
+behind under an earlier name matches no pattern. Any request whose resolved file lies
+under the runtime directory --
+through `runtime/`, the `yuruna-repo/` mount or the status root -- is served only when it
+names `status.json`, `current-action.json`, `break-active.json`, `ipaddresses.txt`,
+`caching-proxy-service.txt`, `host-network.txt`, `host-network.json`,
+`host.registration.json`, `start-cycle.state.json`, `host-refresh.state.json`,
+`runner.watchdog-kill.json`, `runner-attempts/index.json` or a
+`runner-attempts/<id>/{config-gate.json,config-gate.log,runner-fault.json}` record; anything
+else is a 403. The `yuruna-repo/` mount also refuses every file below a `test/status/`
+subdirectory, which is harness state rather than committed source. At start the service
+removes the legacy credential copies `yuruna-caching-proxy.yml`,
+`yuruna-caching-proxy.yml.backup` and `caching-proxy.txt` from the runtime directory; a
+host that served them should rotate the proxy password.
+
+**The repository mount serves source files only.** A file reached through
+`yuruna-repo/<rel>` is served when git lists it in the framework checkout as tracked, or
+as untracked but not ignored (`git ls-files --cached --others --exclude-standard`);
+under `yuruna-repo/project/` the project checkout's own listing decides. Everything the
+harness writes into a checkout -- configuration, vault state, keys, caches, runtime
+records -- is ignored there, so a file is refused because git ignores it, whatever its
+name. The listing is cached and read again on a miss at most every two seconds, so a
+script created a moment ago is served without a restart. The one ignored file served on
+purpose is `project-poc.tar.gz`, the archive an AmisAd checkout publishes at the
+framework root for manual runs. Where git cannot answer (the tree is not a checkout, or
+git is missing) the deny lists alone decide, as before; where it can, they still apply
+on top.
+
+**The status root serves its pages, the performance rows and the captures.** Below it,
+only the top-level files git lists under `test/status/` (the pages, their scripts and
+style, the locale catalogs), `perf/` and `captures/` are served; every other folder --
+`ssh/`, `extension/`, a hand-off folder, anything added later -- is refused, file and
+listing alike, so its names do not say which keys and hand-off files a host holds. The
+lab's hand-off files live under `log/handoff/`, which the log route serves.
 
 The shared name shapes also refuse generated copies such as `*.snapshot.json`,
 `*.snapshot.*.json`, `*.backup`, `*.bak`, and `*.tmp`. Renaming a secret into its
@@ -694,6 +765,13 @@ A served path containing a colon is refused outright. NTFS reads a named stream
 through the file name (`name::$DATA` is the file's own bytes), and the canonical
 path keeps that suffix, so the spelling would reach a refused file under a name no
 pattern above matches. No file this service serves has a colon in its name.
+
+`yuruna-archive.tar.gz` and `yuruna-project-archive.tar.gz` stream committed content, not
+files, and are dispatched before this step too. `?commit=<40 hex>` selects a commit the
+checkout holds instead of `HEAD`: a service VM asks for the exact commit its seed names and
+extracts the answer only when it matches the SHA-256 seeded beside it, which
+`Export-YurunaGitArchive` in `test/modules/Test.HostGit.psm1` makes possible by building
+the archive one way for both the route and the seed renderer.
 
 `archive/<cycle-folder>.zip` is dispatched *before* this by-prefix step and
 never reaches it: it names a folder to pack rather than a file to serve, and it
@@ -849,6 +927,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.22
+Last review: 2026.10.25
 
 Back to [Yuruna](../README.md)

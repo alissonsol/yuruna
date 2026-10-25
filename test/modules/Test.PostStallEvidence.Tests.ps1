@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.22
+.VERSION 2026.10.25
 .GUID 42e157fc-5dda-4b28-a498-afaf9bcafda2
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -163,6 +163,43 @@ fae_kernel_loop "$BASHPID" "$FAE_TEST_FOLDER/ring" 1 2
         Test-Path -LiteralPath (Join-Path $fixture.Folder 'ring/kernel.first-stall.txt') | Should -BeFalse
         @(Get-Content -LiteralPath (Join-Path $fixture.Folder 'uploads.txt')).Count | Should -Be 3
         $fixture.Result.StdErr | Should -Not -Match 'SSH unexpectedly'
+    }
+
+    It 'publishes new execution evidence before the next kernel interval' -ForEach @(
+        @{ Initial = '' }
+        @{ Initial = 'previous execution sample' }
+    ) {
+        $body = @'
+fae_kernel_collect() { printf 'unchanged kernel message\n'; }
+if [ -n '__INITIAL__' ]; then printf '%s\n' '__INITIAL__' > "$FAE_TEST_FOLDER/ring/evidence.txt"; fi
+fae_kernel_loop "$BASHPID" "$FAE_TEST_FOLDER/ring" 30 10 &
+uploader=$!
+for ((attempt=0; attempt<100; attempt++)); do
+    if grep -q '^state=running' "$FAE_TEST_FOLDER/ring/kernel.status" 2>/dev/null; then break; fi
+    sleep 0.05
+done
+printf 'newly published execution sample\n' > "$FAE_TEST_FOLDER/ring/evidence.next"
+mv -- "$FAE_TEST_FOLDER/ring/evidence.next" "$FAE_TEST_FOLDER/ring/evidence.txt"
+for ((attempt=0; attempt<80; attempt++)); do
+    if grep -q 'newly published execution sample' "$FAE_TEST_FOLDER/last-upload.txt" 2>/dev/null; then
+        cp -- "$FAE_TEST_FOLDER/last-upload.txt" "$FAE_TEST_FOLDER/delivered-before-stop.txt"
+        break
+    fi
+    sleep 0.05
+done
+: > "$FAE_TEST_FOLDER/ring/stop"
+wait "$uploader"
+'@
+        $fixture = Invoke-KernelFixture -Body $body.Replace('__INITIAL__', $Initial) -TimeoutSeconds 12
+        $fixture.Result.TimedOut | Should -BeFalse
+        $fixture.Result.ExitCode | Should -Be 0 -Because $fixture.Result.StdErr
+        $delivered = Join-Path $fixture.Folder 'delivered-before-stop.txt'
+        Test-Path -LiteralPath $delivered | Should -BeTrue -Because 'an atomic execution sample must wake the independent uploader'
+        $upload = Get-Content -LiteralPath $delivered -Raw
+        $upload | Should -Match 'newly published execution sample'
+        $upload | Should -Match 'unchanged kernel message'
+        $upload | Should -Match 'kernelRecorderState=running'
+        $upload | Should -Not -Match 'executionEvidence=not-yet-available|previous execution sample'
     }
 
     It 'uploads the final slow sample when the payload stops before the first collection finishes' {

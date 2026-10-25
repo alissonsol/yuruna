@@ -987,8 +987,9 @@ relaxing egress:
   rc=60 state with a clear diagnostic, never aborting the update run.
 - **Re-anchoring at every step boundary.** An empty seed CA is not the only
   way a guest ends up holding the wrong one: the CA is a *copy*, and it goes
-  stale the moment the cache is rebuilt from a blank disk, because the
-  replacement mints a fresh CA. A guest that anchored to the old one keeps
+  stale the moment the cache is rebuilt with another root -- by a different
+  host, which seeds its own CA, or from a seed that carries none, which mints
+  a fresh one. A guest that anchored to the old one keeps
   every step it already passed and fails the next bumped HTTPS on a
   certificate nobody touched -- so checking once per guest is not enough.
   `fetch-and-execute.sh` runs the re-anchor before handing control to any
@@ -1133,7 +1134,20 @@ GitHub -- a rebuild never waits on the private->public mirror.
 on ubuntu.kvm and macos.utm (windows.hyper-v has no override); empty
 values make the build fall back to GitHub.
 `Start-CachingProxyServiceVM.ps1` ensures the status service the baked
-address points at is running.
+address points at is running. Whichever base serves a source file, the
+build compiles it only when its SHA-256 matches the manifest the
+renderer seeds (`/etc/yuruna/build-source.sha256`, from
+`Get-YurunaSourceDigestManifest` over the working tree the host serves);
+a file that differs is removed and its service is not built. The
+GitHub fallback is pinned to the host's commit, so a working tree with
+uncommitted changes to those sources builds only from the host. The
+stash, pool-control and download-agent seeds take the framework as an
+archive of the commit `host.env` names, requested with `?commit=` and
+extracted only when it matches the seeded
+`/etc/yuruna/framework-archive.sha256`; otherwise they fall through to
+the mirror fetch of that exact commit, and when that fails too, to a
+shallow clone of the public GitHub repository's default branch, which runs
+published code rather than the host's commit.
 
 The reachable host address and the network the cache VM attaches to
 are a topology-aware matched pair -- the address only works from the
@@ -1481,7 +1495,7 @@ rides the adapter being reconfigured.
   Set-VMSwitch -Name 'Yuruna-External' -AllowManagementOS $true
   ```
 
-  The two halves carry very different risk. The `$false` step is inert
+  The two halves carry different risk. The `$false` step is inert
   in this state -- there is no management vNIC left to remove, which is
   what the verdict says. The `$true` step is the one that re-plumbs the
   host's IP stack onto a new adapter, so it is the one to have console
@@ -2571,7 +2585,7 @@ being stranded by it. The Ubuntu guest-update script wraps that read in
 
 A failed fetch additionally earns one forced run of
 `yuruna-host-locate.sh` rather than waiting for the timer to come around.
-The file can be up to a full refresh interval behind the very move that
+The file can be up to a full refresh interval behind the move that
 broke the fetch, so a retry that skips the refresh does nothing but
 re-dial the address that already failed. Both callers spend exactly one
 such attempt -- the framework-tarball fetch runs its livecheck twice and
@@ -2820,6 +2834,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.22
+Last review: 2026.10.25
 
 Back to [Yuruna](../README.md)

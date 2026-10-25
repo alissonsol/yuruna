@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.22
+.VERSION 2026.10.25
 .GUID 42a28f50-90bf-4aa0-a8f6-cda286b79d39
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -114,6 +114,7 @@ mkdir -p "$FIXTURE_ROOT/etc/yuruna" "$FIXTURE_ROOT/checkout" "$FIXTURE_ROOT/payl
 printf 'YURUNA_STATUS_SERVICE_IP=192.0.2.1\nYURUNA_STATUS_SERVICE_PORT=8080\n' > "$FIXTURE_ROOT/etc/yuruna/host.env"
 case "$FIXTURE_MODE" in
     lan-*) printf 'YURUNA_CACHING_PROXY_SERVICE_IP=192.0.2.2\nYURUNA_GITHUB_REPO=example/repo\nYURUNA_GITHUB_REF=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n' >> "$FIXTURE_ROOT/etc/yuruna/host.env" ;;
+    *) printf 'YURUNA_GITHUB_REF=cccccccccccccccccccccccccccccccccccccccc\n' >> "$FIXTURE_ROOT/etc/yuruna/host.env" ;;
 esac
 printf 'previous\n' > "$FIXTURE_ROOT/checkout/VERSION"
 printf 'prior-source\n' > "$FIXTURE_ROOT/etc/yuruna/framework-source"
@@ -126,6 +127,12 @@ case "$FIXTURE_MODE" in
 esac
 printf 'new checkout\n' > "$FIXTURE_ROOT/payload/new.txt"
 command tar -czf "$FIXTURE_ROOT/good.tar.gz" -C "$FIXTURE_ROOT/payload" .
+# The renderer seeds the digest of the archive the host serves for the seeded commit.
+case "$FIXTURE_MODE" in
+    no-digest) ;;
+    digest-mismatch) printf '%064d\n' 0 > "$FIXTURE_ROOT/etc/yuruna/framework-archive.sha256" ;;
+    *) sha256sum "$FIXTURE_ROOT/good.tar.gz" | cut -d' ' -f1 > "$FIXTURE_ROOT/etc/yuruna/framework-archive.sha256" ;;
+esac
 if [ "$FIXTURE_MODE" = truncated-archive ]; then
     head -c 30 "$FIXTURE_ROOT/good.tar.gz" > "$FIXTURE_ROOT/short.tar.gz"
     cp "$FIXTURE_ROOT/short.tar.gz" "$FIXTURE_ROOT/good.tar.gz"
@@ -596,6 +603,7 @@ Describe 'Service seeds accept only complete framework sources' {
         $result.Version | Should -BeExactly host-version
         $result.Marker | Should -Match '(?m)^source=host$'
         $result.Attempts | Should -Be 1
+        $result.Calls | Should -Match 'yuruna-archive\.tar\.gz\?commit=c{40}' -Because 'the seed asks for the commit its digest describes'
         $result.Calls | Should -Not -Match '(?m)^git '
         Test-Path (Join-Path $result.Root 'checkout/old.txt') | Should -BeFalse
         @(Get-ChildItem $result.Root -Filter 'checkout.fetch.*').Count | Should -Be 0
@@ -607,6 +615,7 @@ Describe 'Service seeds accept only complete framework sources' {
         @{ Service='stash'; Mode='empty-version' }, @{ Service='pool-control'; Mode='empty-version' }, @{ Service='download-agent'; Mode='empty-version' }
         @{ Service='stash'; Mode='directory-version' }, @{ Service='pool-control'; Mode='directory-version' }, @{ Service='download-agent'; Mode='directory-version' }
         @{ Service='stash'; Mode='truncated-archive' }, @{ Service='pool-control'; Mode='truncated-archive' }, @{ Service='download-agent'; Mode='truncated-archive' }
+        @{ Service='stash'; Mode='digest-mismatch' }, @{ Service='pool-control'; Mode='digest-mismatch' }, @{ Service='download-agent'; Mode='digest-mismatch' }
     ) -Skip:(-not $script:CanRunBash) {
         $result = Invoke-ServiceFrameworkFixture $Service $Mode
         $result.Version | Should -BeExactly mirror-version
@@ -615,7 +624,16 @@ Describe 'Service seeds accept only complete framework sources' {
         @([regex]::Matches($result.Calls, '(?m)^sleep 10$')).Count | Should -Be 5
         $result.Calls | Should -Match '(?m)^git -c http.lowSpeedLimit=1024 -c http.lowSpeedTime=60 clone --depth 1 '
         Test-Path (Join-Path $result.Root 'checkout/partial.txt') | Should -BeFalse
-        if ($Mode -eq 'transfer-error') { $result.Calls | Should -Not -Match '(?m)^tar ' }
+        if ($Mode -in 'transfer-error', 'digest-mismatch') { $result.Calls | Should -Not -Match '(?m)^tar ' }
+    }
+    It '<Service> never extracts a host archive when the seed carries no digest' -ForEach @(
+        @{ Service='stash' }, @{ Service='pool-control' }, @{ Service='download-agent' }
+    ) -Skip:(-not $script:CanRunBash) {
+        $result = Invoke-ServiceFrameworkFixture $Service no-digest
+        $result.Version | Should -BeExactly mirror-version
+        $result.Marker | Should -Match '(?m)^source=mirror$'
+        $result.Calls | Should -Not -Match 'yuruna-archive\.tar\.gz'
+        $result.Calls | Should -Not -Match '(?m)^tar '
     }
     It '<Service> retries a failed transfer before accepting the host' -ForEach @(
         @{ Service='stash' }, @{ Service='pool-control' }, @{ Service='download-agent' }

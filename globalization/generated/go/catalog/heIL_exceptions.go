@@ -805,6 +805,14 @@ const DataheILexceptions = `{
     },
     ", אינו תואם לפרמטרים של סקריפט הכניסה; הפעלת תהליך עבודה שנקודת הכניסה לא תקבל נדחית."
   ],
+  "exceptions.host_signature_could_not_be_checked": [
+    "לא ניתן היה לבדוק את חתימת GPG של SHA256SUMS עבור ",
+    {
+      "arg": "checksumUrl",
+      "type": "detail",
+      "trust": "external"
+    }
+  ],
   "exceptions.host_utm_sudo_requires_noninteractive": "⁦Invoke-UtmHostTool⁩: יש לקרוא ל-sudo עם -n כארגומנט הראשון, כדי שלעולם לא ימתין להזנת סיסמה.",
   "exceptions.host_utmctl_kill_requires_stop": [
     "⁦Invoke-UtmctlLifecycle⁩: הפרמטר ⁦-Kill⁩ חל רק על הפעולה stop, ולא על '",

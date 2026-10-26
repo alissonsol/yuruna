@@ -2211,6 +2211,11 @@
       "sourceHash": "aedd2003b2a7c38b4af0667a090aa363d68b67814e6401b5f0821bad691dd39b",
       "origin": "machine",
       "message": "禁止（不是提供的文件）"
+    },
+    "status.banner_recovery_disabled": {
+      "sourceHash": "a9c3d53b4d9e6073373c5d96b95265a7531ccf3f447c74d7437476087d8e62ba",
+      "origin": "machine",
+      "message": "自动恢复已关闭：无法读取或写入恢复台账。"
     }
   }
 }

@@ -1,5 +1,6 @@
 // LICENSEURI https://yuruna.link/license
 // Copyright (c) 2019-2026 by Alisson Sol et al.
+// GUID: 42b495ad-3420-4429-b6b3-ab3d405ae1f8
 
 package httpsrv
 
@@ -404,7 +405,6 @@ func TestHostsTypeDropsThePrefixAndFallsBackToTheHostsOwnRecord(t *testing.T) {
 }
 
 // --- REGION: Write gate
-//
 // The gate's own semantics live in the SDK's labgate suite. What is covered here
 // is which of THIS service's routes sit behind it: every route that rewrites pool
 // configuration, and nothing else.

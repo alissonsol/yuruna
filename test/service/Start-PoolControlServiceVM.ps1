@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.25
+.VERSION 2026.10.26
 .GUID 421a21ac-638b-4121-a908-7c26df6a9e86
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -57,8 +57,8 @@
     Legitimate off-LAN, where the mirror is the only source there is. VM path
     only; -HostSideProof builds from this enlistment by definition.
 .PARAMETER AllowPseudoLocale
-    Open expanded and mirrored pseudo locales for an explicit reference run.
-    Disabled by default for both VM and host-side deployments.
+    Enable developer pseudo locales for the rebuilt service VM or the host-side
+    daemon. Disabled by default.
 #>
 
 [CmdletBinding(SupportsShouldProcess)]

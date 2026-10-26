@@ -1,5 +1,6 @@
 // LICENSEURI https://yuruna.link/license
 // Copyright (c) 2019-2026 by Alisson Sol et al.
+// GUID: 4257cf9a-bc9a-47b2-ade0-0786e85cbec6
 module stash-service
 
 go 1.26.0

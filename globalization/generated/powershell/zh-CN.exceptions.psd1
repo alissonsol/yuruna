@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.25
+.VERSION 2026.10.26
 .GUID 42876abe-db94-7e68-a8e3-79694be0d37c
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -814,6 +814,15 @@
             'trust' = 'internal'
         }
         '与入口脚本的参数不匹配；拒绝启动入口点无法接受的工作进程。'
+    )
+    'exceptions.host_signature_could_not_be_checked' = @(
+        '无法检查'
+        @{
+            'arg' = 'checksumUrl'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '的SHA256SUMS GPG签名'
     )
     'exceptions.host_utm_sudo_requires_noninteractive' = 'Invoke-UtmHostTool：调用sudo时必须将-n作为第一个参数，以确保其绝不等待密码输入。'
     'exceptions.host_utmctl_kill_requires_stop' = @(

@@ -110,8 +110,9 @@ Hosts also fetch the cache CA from Apache on port 80. The copy a host seeds
 into guests, serves at its status service's `/ca.crt`, pins for pool event
 push and trusts for its own HTTPS downloads is accepted only when it is a root
 the host trusts for that proxy: the CA it seeds into the proxies it builds, the
-root pinned for that address, or a root the proxy's builder signed with the
-lab's mirror signing key (`yuruna-squid-ca.sig.json` beside the CA). A host
+root pinned for that address, a matching legacy cached root, or a root named
+by a builder-signed statement that verifies with an enrolled mirror public key
+(`yuruna-squid-ca.sig.json` beside the CA). A host
 that enrolls that key never trusts a CA on first use; one that enrolls none
 pins the first root it sees. A builder that is handed an untrusted root stops
 with the `source_integrity` class, and a host download sends HTTPS direct. The
@@ -135,9 +136,15 @@ always brings up the cache, and the stash when storage is configured. The
 download agent defaults off in standalone mode and on in lab mode, unless
 `downloadAgentService.enabled` says otherwise; lab mode also adds pool-control
 and a default pool. [Start-CachingProxyServiceVM.ps1](../../test/service/Start-CachingProxyServiceVM.ps1)
-is a no-op when `vmStart.cachingProxyIp` names an existing cache. Other hosts
-find the lab's stash and download agent through the aggregator's extension-host
-discovery. Each service seed fetches Yuruna source from its building host's
+defaults to a full rebuild and authenticated enrollment of the builder's public
+signing key on discovered pool hosts, preserving their CA pins. Pending host
+enrollment warns after a ready rebuild; explicitly requesting
+`-RepairPoolCaTrust` requires every discovered host to succeed. With
+`-RepairPoolCaTrust:$false`, startup can instead adopt a healthy existing cache
+and reassert its host services and forwarding. Ordinary runner hosts use the
+configured cache address without launching this builder. They find the lab's
+stash and download agent through the aggregator's extension-host discovery.
+Each service seed fetches Yuruna source from its building host's
 status service on port 8080; [Git mirror source endpoints](#git-mirror-source-endpoints)
 shows the fallbacks.
 
@@ -232,7 +239,13 @@ operator before accepting a reference host's key.
 
 Guests take source from the building host's status service first:
 `fetch-and-execute.sh` reads files under `/yuruna-repo/` against a
-runner-supplied digest, and guest updaters extract `/yuruna-archive.tar.gz`. The
+runner-supplied digest. For guest updaters, the host's command context also
+carries the framework and project archive commits and SHA-256 values when it
+can compute them. The updater requests `/yuruna-archive.tar.gz?commit=<sha>`
+and `/yuruna-project-archive.tar.gz?commit=<sha>` and extracts only bytes matching
+the supplied digest. Without an archive identity pair, the legacy current
+archive path still applies. See
+[Guest checkout archives](03-data-flows.md#guest-checkout-archives). The
 download-agent, pool-control, and stash seeds request
 `/yuruna-archive.tar.gz?commit=<sha>` for the commit the seed names and extract
 it only when its bytes match the SHA-256 seeded beside that commit; a seed
@@ -635,5 +648,11 @@ Registry authentication exists in
 that registry support does not create a GCP cluster or network topology.
 
 ---
+
+LICENSEURI https://yuruna.link/license
+
+Copyright (c) 2019-2026 by Alisson Sol et al.
+
+Last review: 2026.10.26
 
 [Architecture](../architecture.md) | [Design overview](README.md)

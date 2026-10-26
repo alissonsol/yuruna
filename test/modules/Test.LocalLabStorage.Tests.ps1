@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.25
+.VERSION 2026.10.26
 .GUID 42dda961-f475-4e81-85a3-3bc00118dd2d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -246,8 +246,6 @@ Describe 'Format-LocalLabStorageSize' {
         Assert-Equal '0 B' (Format-LocalLabStorageSize -Bytes 0)
     }
 }
-
-# Copyright (c) 2019-2026 by Alisson Sol et al.
 
 Describe 'Get-LocalLabStorageSmbAuthVerdict' {
     It 'reports ok on exit 0' {

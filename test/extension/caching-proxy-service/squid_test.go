@@ -1,9 +1,11 @@
 // LICENSEURI https://yuruna.link/license
 // Copyright (c) 2019-2026 by Alisson Sol et al.
+// GUID: 428225e9-5fb3-4ec7-b6d4-bf49baef3fe7
 
 package main
 
 import (
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -236,5 +238,28 @@ func TestWriteFileAtomicLeavesNoPartialDropIn(t *testing.T) {
 	entries, _ := os.ReadDir(dir)
 	if len(entries) != 1 {
 		t.Errorf("the temp file must not survive: %v", entries)
+	}
+}
+
+// A transport error names the URL it failed on, and that URL carries the
+// manager password; neither the error nor the summary that open status routes
+// serve may repeat it.
+func TestTheManagerPasswordNeverReachesAnError(t *testing.T) {
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	closed := listener.Addr().String()
+	listener.Close()
+	c := newSquidClient(closed, "mgr-secret-sentinel", 2*time.Second)
+	_, err = c.page("info")
+	if err == nil {
+		t.Fatal("a closed manager port answered")
+	}
+	if strings.Contains(err.Error(), "mgr-secret-sentinel") {
+		t.Fatalf("the error repeats the manager password: %v", err)
+	}
+	if s := c.summary(); s.Reachable || strings.Contains(s.Error, "mgr-secret-sentinel") {
+		t.Fatalf("the summary repeats the manager password: %+v", s)
 	}
 }

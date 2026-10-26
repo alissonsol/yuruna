@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.25
+.VERSION 2026.10.26
 .GUID 4246d32b-8525-4736-8ed7-b3883787ca97
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -74,6 +74,25 @@ function Clear-CycleFolderHandle {
         Justification = 'Test helper: clears one in-memory global that Restore-ArchiveFixture puts back; no production state.')]
     param()
     $global:__YurunaCycleFolder = $null
+}
+
+# The failure index skips a root record older than the cycle start, so its
+# tests set and restore the start handle Start-LogFile publishes.
+function Get-CycleStartHandle {
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidGlobalVars', '',
+        Justification = 'Test reads the Yuruna.Log cross-module cycle-start handle to restore it afterwards.')]
+    [OutputType([string])]
+    param()
+    return [string]$global:__YurunaCycleStartUtc
+}
+
+function Set-CycleStartHandle {
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidGlobalVars', '',
+        Justification = 'Test sets the Yuruna.Log cross-module cycle-start handle the failure index reads.')]
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+        Justification = 'Test helper: sets an in-process handle; no system state.')]
+    param([AllowEmptyString()][AllowNull()][string]$Value)
+    $global:__YurunaCycleStartUtc = $Value
 }
 
 function Restore-ArchiveFixture {
@@ -249,6 +268,80 @@ Describe 'Stop-LogFile last_failure.json archiving' {
                 [System.Text.UTF8Encoding]::new($false))
             Stop-LogFile -Outcome 'pass' -Reason 'recovered' -Confirm:$false
             Assert-True (-not (Test-Path (Join-Path $fx.Final 'last_failure.json'))) 'a recovered cycle must not be left looking failed'
+        } finally { Restore-ArchiveFixture -Fixture $fx }
+    }
+}
+
+# The root last_failure.json is cleared by every sequence start, so a cycle
+# that ran on past a failure ended with the first failure's record gone and
+# the recovery decision read nothing, or a later guest's record.
+Describe 'The cycle failure index' {
+    BeforeEach {
+        $script:SavedIndexEnv = @{ Generation = $env:YURUNA_CYCLE_GENERATION; CycleStart = (Get-CycleStartHandle) }
+        $env:YURUNA_CYCLE_GENERATION = ('a' * 32) + ':7'
+        Set-CycleStartHandle -Value ([datetime]::UtcNow.AddMinutes(-1).ToString('o'))
+        $script:WriteRoot = {
+            param($Fixture, [string]$Json)
+            [System.IO.File]::WriteAllText((Join-Path $Fixture.Tmp 'last_failure.json'), $Json, [System.Text.UTF8Encoding]::new($false))
+        }
+        $script:ReadIndex = { param($Fixture) Get-Content -LiteralPath (Join-Path $Fixture.Tmp 'cycle_failures.json') -Raw | ConvertFrom-Json -AsHashtable }
+    }
+    AfterEach {
+        $env:YURUNA_CYCLE_GENERATION = $script:SavedIndexEnv.Generation
+        Set-CycleStartHandle -Value $script:SavedIndexEnv.CycleStart
+    }
+
+    It 'keeps every failing guest in the order it failed, after the root record is cleared' {
+        $fx = New-ArchiveFixture
+        try {
+            & $script:WriteRoot $fx '{"schemaVersion":2,"failureClass":"provisioning_failure","vmName":"vm-a","guestKey":"guest.a"}'
+            $null = Copy-CycleFailureRecord
+            Remove-Item -LiteralPath (Join-Path $fx.Tmp 'last_failure.json') -Force
+            & $script:WriteRoot $fx '{"schemaVersion":2,"failureClass":"lab_dependency_down","vmName":"vm-b","guestKey":"guest.b"}'
+            $null = Copy-CycleFailureRecord
+            Remove-Item -LiteralPath (Join-Path $fx.Tmp 'last_failure.json') -Force
+            $index = & $script:ReadIndex $fx
+            Assert-Equal -Expected $env:YURUNA_CYCLE_GENERATION -Actual $index.identity
+            Assert-Equal -Expected 'vm:vm-a,vm:vm-b' -Actual (@($index.rows | ForEach-Object { $_.key }) -join ',')
+            Assert-Equal -Expected 'provisioning_failure' -Actual $index.rows[0].record.failureClass -Because 'the first failure leads'
+        } finally { Restore-ArchiveFixture -Fixture $fx }
+    }
+    It 'replaces a guest row with its newer record in place, and starts over for another cycle' {
+        $fx = New-ArchiveFixture
+        try {
+            & $script:WriteRoot $fx '{"schemaVersion":2,"failureClass":"wait_timeout","vmName":"vm-a"}'
+            $null = Copy-CycleFailureRecord
+            & $script:WriteRoot $fx '{"schemaVersion":2,"failureClass":"script_error","vmName":"vm-b"}'
+            $null = Copy-CycleFailureRecord
+            & $script:WriteRoot $fx '{"schemaVersion":2,"failureClass":"ocr_timeout","vmName":"vm-a"}'
+            $null = Copy-CycleFailureRecord
+            $index = & $script:ReadIndex $fx
+            Assert-Equal -Expected 'vm:vm-a,vm:vm-b' -Actual (@($index.rows | ForEach-Object { $_.key }) -join ',') -Because 'the enrichment keeps its place'
+            Assert-Equal -Expected 'ocr_timeout' -Actual $index.rows[0].record.failureClass
+            $env:YURUNA_CYCLE_GENERATION = ('b' * 32) + ':8'
+            $null = Copy-CycleFailureRecord
+            $index = & $script:ReadIndex $fx
+            Assert-Equal -Expected 1 -Actual @($index.rows).Count -Because 'another cycle does not inherit the rows'
+        } finally { Restore-ArchiveFixture -Fixture $fx }
+    }
+    It 'does not index a root record written before the cycle started' {
+        $fx = New-ArchiveFixture -RootFailureJson '{"schemaVersion":2,"failureClass":"script_error","vmName":"vm-old"}'
+        try {
+            [System.IO.File]::SetLastWriteTimeUtc((Join-Path $fx.Tmp 'last_failure.json'), [datetime]::UtcNow.AddHours(-3))
+            $null = Copy-CycleFailureRecord
+            Assert-False (Test-Path -LiteralPath (Join-Path $fx.Tmp 'cycle_failures.json')) 'an earlier run left that record'
+        } finally { Restore-ArchiveFixture -Fixture $fx }
+    }
+    It 'travels with the cycle as failures.json' {
+        $fx = New-ArchiveFixture
+        try {
+            & $script:WriteRoot $fx '{"schemaVersion":2,"failureClass":"wait_timeout","vmName":"vm-a"}'
+            $null = Copy-CycleFailureRecord
+            Stop-LogFile -Outcome 'fail' -Reason 'failure-index-test' -Confirm:$false
+            $archived = Join-Path $fx.Final 'failures.json'
+            Assert-True (Test-Path -LiteralPath $archived) 'the index is archived into the cycle folder'
+            $man = Get-Content -Raw (Join-Path $fx.Final 'manifest.json') | ConvertFrom-Json
+            Assert-Equal -Expected 'failures' -Actual (@($man.artifacts | Where-Object { $_.path -eq 'failures.json' })[0].kind)
         } finally { Restore-ArchiveFixture -Fixture $fx }
     }
 }
@@ -576,5 +669,33 @@ Describe 'Add-OcrHistoryFrame keeps the earliest frames of a guest' {
         $record.consoleSecondOpinion.Verdict | Should -Be 'guest-wedged'
         & (Get-Module Test.Log) { $script:OrdinarySnapshotCalls } | Should -Be 0
         $record.controlSnapshot | Should -BeNullOrEmpty
+    }
+}
+
+Describe 'A sealed cycle folder names the records it is missing' {
+    It 'finds nothing missing in a complete folder' {
+        $folder = Join-Path $TestDrive ([guid]::NewGuid().ToString('N'))
+        $null = New-Item -ItemType Directory -Path (Join-Path $folder 'vm1') -Force
+        Set-Content -LiteralPath (Join-Path $folder 'cycle.events.ndjson') -Value '{"event":"cycle_end"}'
+        Set-Content -LiteralPath (Join-Path $folder 'vm1/last_failure.json') -Value '{}'
+        @(Get-CycleTelemetryGap -CycleFolder $folder -Outcome fail).Count | Should -Be 0
+    }
+    It 'names an empty or absent event stream, and a failed cycle with no failure record' {
+        $folder = Join-Path $TestDrive ([guid]::NewGuid().ToString('N'))
+        $null = New-Item -ItemType Directory -Path $folder -Force
+        @(Get-CycleTelemetryGap -CycleFolder $folder -Outcome pass) | Should -Be @('cycle.events.ndjson')
+        New-Item -ItemType File -Path (Join-Path $folder 'cycle.events.ndjson') -Force | Out-Null
+        @(Get-CycleTelemetryGap -CycleFolder $folder -Outcome fail) | Should -Be @('cycle.events.ndjson', 'last_failure.json')
+        Set-Content -LiteralPath (Join-Path $folder 'failures.json') -Value '{}'
+        Set-Content -LiteralPath (Join-Path $folder 'cycle.events.ndjson') -Value '{}'
+        @(Get-CycleTelemetryGap -CycleFolder $folder -Outcome fail).Count | Should -Be 0 -Because 'the cycle failure index is a record of what failed'
+    }
+    It 'is checked and recorded before the manifest seals the folder' {
+        $src = Get-Content -Raw -LiteralPath (Join-Path $PSScriptRoot 'Test.Log.psm1')
+        $check = $src.IndexOf('$telemetryGaps = @(Get-CycleTelemetryGap -CycleFolder $global:__YurunaCycleFolder -Outcome $Outcome)', [StringComparison]::Ordinal)
+        $manifest = $src.IndexOf('Write-CycleManifest -CycleFolder $global:__YurunaCycleFolder -Confirm:$false', $check, [StringComparison]::Ordinal)
+        $check | Should -BeGreaterThan 0
+        $manifest | Should -BeGreaterThan $check -Because 'telemetry_gaps.json must be in the manifest it describes'
+        $src | Should -Match "'telemetry_gaps\.json'\s+\{ 'telemetry-gaps'; break \}"
     }
 }

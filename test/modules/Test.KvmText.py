@@ -1,6 +1,7 @@
 #!/usr/bin/python3
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
+# GUID: 42fe9dd1-e653-4984-b779-259b24d16476
 """Send a paced text burst through one libvirt connection.
 
 The caller supervises this process with a wall-clock cap. A failed or killed

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.25
+.VERSION 2026.10.26
 .GUID 428b7f5c-e722-4d67-858d-b11427a01f39
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -226,16 +226,16 @@ AfterAll {
 }
 
 Describe 'Built-in registration' {
-    It 'registers exactly the three repairs, in the order they should be tried, when the module loads' {
-        @(Get-RegisteredRecoveryAction) | Should -Be @('clear_stale_git_lock', 'reclone_project', 'end_failure_pause_early')
+    It 'registers exactly the four repairs, in the order they should be tried, when the module loads' {
+        @(Get-RegisteredRecoveryAction) | Should -Be @('clear_stale_git_lock', 'reclone_project', 'end_failure_pause_early', 'end_failure_pause_on_probe')
     }
 
     It 'registers them again, without duplicates, when asked or when the module is imported again' {
         Register-BuiltinRecoveryAction
         Register-BuiltinRecoveryAction
-        @(Get-RegisteredRecoveryAction) | Should -Be @('clear_stale_git_lock', 'reclone_project', 'end_failure_pause_early')
+        @(Get-RegisteredRecoveryAction) | Should -Be @('clear_stale_git_lock', 'reclone_project', 'end_failure_pause_early', 'end_failure_pause_on_probe')
         Import-Module (Join-Path $here 'Test.RecoveryActions.psm1') -Force -DisableNameChecking
-        @(Get-RegisteredRecoveryAction) | Should -Be @('clear_stale_git_lock', 'reclone_project', 'end_failure_pause_early')
+        @(Get-RegisteredRecoveryAction) | Should -Be @('clear_stale_git_lock', 'reclone_project', 'end_failure_pause_early', 'end_failure_pause_on_probe')
     }
 
     It 'describes each repair, lets all three skip the pause, and caps the git repairs at two attempts' {
@@ -252,6 +252,51 @@ Describe 'Built-in registration' {
     It 'exports the lock finder and the process check besides the registration function' {
         $exports = @((Get-Module Test.RecoveryActions).ExportedFunctions.Keys | Sort-Object)
         $exports | Should -Be @('Find-StaleGitLock', 'Register-BuiltinRecoveryAction', 'Test-GitProcessRunning')
+    }
+}
+
+# Every repair runs under the ledger, so a ledger that cannot be read or written
+# stops all of them; each refusal alone reads like an ordinary declined repair.
+Describe 'Recovery health while the ledger cannot be used' {
+    BeforeEach {
+        $script:Dir = New-ScratchDir
+        $script:Now = [datetime]::new(2026, 10, 4, 12, 0, 0, [DateTimeKind]::Utc)
+        Clear-RecoveryAction
+        $script:Calls = [System.Collections.Generic.List[string]]::new()
+        $script:Result = New-TestResult -FailureClass 'wait_timeout' -Stage 'cycle' -Reason 'timed out'
+        $script:Ctx = @{ Result = $script:Result; Calls = $script:Calls; Counter = @{ N = 0 }; Seen = @{} }
+        $script:Ledger = Join-Path $script:Dir 'recovery.ledger.ndjson'
+        $script:Health = Join-Path $script:Dir 'recovery.health.json'
+        Register-ToyAction
+    }
+    AfterEach {
+        if (Test-Path -LiteralPath $script:Ledger -PathType Leaf) { (Get-Item -LiteralPath $script:Ledger).IsReadOnly = $false }
+        Clear-RecoveryAction
+        Remove-Item -LiteralPath $script:Dir -Recurse -Force -ErrorAction SilentlyContinue
+    }
+
+    It 'marks recovery disabled when the ledger cannot be read, and warns only when that starts' {
+        $null = New-Item -ItemType Directory -Path $script:Ledger
+        $first = Invoke-RecoveryAction -Name 'toy_action' -Context $script:Ctx -RuntimeDir $script:Dir -Now $script:Now -WarningVariable firstWarnings -WarningAction SilentlyContinue
+        $first.Decision | Should -Be 'ledger-unavailable'
+        @($firstWarnings).Count | Should -Be 1
+        (Get-Content -Raw -LiteralPath $script:Health | ConvertFrom-Json).state | Should -Be 'ledger-unreadable'
+        $null = Invoke-RecoveryAction -Name 'toy_action' -Context $script:Ctx -RuntimeDir $script:Dir -Now $script:Now -WarningVariable againWarnings -WarningAction SilentlyContinue
+        @($againWarnings).Count | Should -Be 0 -Because 'the state did not change'
+        @($script:Calls) | Should -Be @() -Because 'no repair step runs without the ledger'
+    }
+
+    It 'marks recovery disabled when the attempt cannot be written, and clears the mark once a line is written' {
+        Set-Content -LiteralPath $script:Ledger -Value '' -NoNewline
+        (Get-Item -LiteralPath $script:Ledger).IsReadOnly = $true
+        $blocked = Invoke-RecoveryAction -Name 'toy_action' -Context $script:Ctx -RuntimeDir $script:Dir -Now $script:Now -WarningAction SilentlyContinue
+        $blocked.Decision | Should -Be 'ledger-unavailable'
+        (Get-Content -Raw -LiteralPath $script:Health | ConvertFrom-Json).state | Should -Be 'ledger-unwritable'
+        @($script:Calls) | Should -Be @('precondition') -Because 'the action never runs before its attempt is on disk'
+        (Get-Item -LiteralPath $script:Ledger).IsReadOnly = $false
+        $applied = Invoke-RecoveryAction -Name 'toy_action' -Context $script:Ctx -RuntimeDir $script:Dir -Now $script:Now
+        $applied.Decision | Should -Be 'applied'
+        Test-Path -LiteralPath $script:Health | Should -BeFalse
     }
 }
 

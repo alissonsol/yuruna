@@ -1,5 +1,6 @@
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
+# GUID: 42ee2f11-ae9b-493b-8e90-a3eb32464500
 """Exercise the seeded installer error hook without a VM or network access."""
 import os
 from pathlib import Path

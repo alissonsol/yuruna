@@ -1,5 +1,6 @@
 // LICENSEURI https://yuruna.link/license
 // Copyright (c) 2019-2026 by Alisson Sol et al.
+// GUID: 42f249cb-0ad3-4928-ad51-64049f6be202
 
 package imagestore
 
@@ -230,7 +231,7 @@ func TestDownloadVerifyPromoteCommitRoundTrip(t *testing.T) {
 	sha := sha256Hex(body)
 	srv := originServer(t, "img.iso", body, sha, "Thu, 23 Jul 2026 09:14:02 GMT")
 
-	a := newTestAgent(t, Options{PoolDir: t.TempDir(), AgentVersion: "2026.10.25"})
+	a := newTestAgent(t, Options{PoolDir: t.TempDir(), AgentVersion: "2026.10.26"})
 	id := ImageID{HostType: HostTypeKVM, ImageKey: KeyUbuntuServer26, Arch: ArchAMD64, Variant: VariantStable}
 	res := Resolved{
 		Family: FamilyUbuntuISO, UpstreamFilename: "img.iso",
@@ -251,7 +252,7 @@ func TestDownloadVerifyPromoteCommitRoundTrip(t *testing.T) {
 		t.Fatal(err)
 	}
 	p := &Progress{}
-	gotSHA, written, _, err := a.downloadTo(context.Background(), res.SourceURL, staged, p)
+	gotSHA, written, _, err := a.downloadTo(context.Background(), res.SourceURL, staged, 0, p)
 	if err != nil {
 		t.Fatalf("downloadTo: %v", err)
 	}
@@ -711,7 +712,7 @@ func ubuntuFixture(t *testing.T, body []byte, daily bool, headSize int) http.Rou
 
 func TestRefreshRecordsTheProbedSizeAndTheResolvedVariant(t *testing.T) {
 	body := []byte("a stand-in for the ISO the daily tree does not carry today")
-	a := newTestAgent(t, Options{PoolDir: t.TempDir(), Transport: ubuntuFixture(t, body, false, 0), AgentVersion: "2026.10.25"})
+	a := newTestAgent(t, Options{PoolDir: t.TempDir(), Transport: ubuntuFixture(t, body, false, 0), AgentVersion: "2026.10.26"})
 	// daily was asked for; only stable resolves, so the fallback fires.
 	id := ImageID{HostType: HostTypeKVM, ImageKey: KeyUbuntuServer26, Arch: ArchAMD64, Variant: VariantDaily}
 
@@ -801,7 +802,7 @@ func TestAMidBodyProxyFailureFallsBackToADirectFetch(t *testing.T) {
 
 	dst := filepath.Join(t.TempDir(), "artifact")
 	p := &Progress{}
-	sha, n, viaProxy, err := a.downloadTo(context.Background(), origin.URL+"/img.iso", dst, p)
+	sha, n, viaProxy, err := a.downloadTo(context.Background(), origin.URL+"/img.iso", dst, 0, p)
 	if err != nil {
 		t.Fatalf("a mid-body proxy failure must fall back to direct rather than fail the refresh: %v", err)
 	}
@@ -920,5 +921,30 @@ func TestReadOnlyAgentDoesNotSweepSharedStaging(t *testing.T) {
 	}
 	if _, err = os.Stat(path); err != nil {
 		t.Fatalf("follower removed holder staging: %v", err)
+	}
+}
+
+// With a probed size the copy reads one byte past it and no more, so a reply
+// longer than advertised is caught by the size check without filling the pool.
+func TestCopyStreamStopsOneBytePastTheProbedSize(t *testing.T) {
+	origin := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write(bytes.Repeat([]byte("x"), 8<<20))
+	}))
+	t.Cleanup(origin.Close)
+	resp, err := http.Get(origin.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dst := filepath.Join(t.TempDir(), "staged")
+	_, n, err := copyStream(resp, dst, 16, &Progress{})
+	if err != nil {
+		t.Fatalf("copyStream: %v", err)
+	}
+	fi, err := os.Stat(dst)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n != 17 || fi.Size() != 17 {
+		t.Fatalf("copied %d byte(s), staged %d; want 17, one past the probed 16", n, fi.Size())
 	}
 }

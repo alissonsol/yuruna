@@ -857,6 +857,36 @@
       "sourceHash": "1119e7416a9854e3111c91005788de244fc41633b6b681615c1f0ee0f61fb1cc",
       "origin": "machine",
       "message": "יש לבדוק את sourceSelections באבחון אימות התצורה ואת מצב המראה; יש להשאיר את אימות החתימה והקומיט פעיל."
+    },
+    "remediation.vm_not_stopped_rationale": {
+      "sourceHash": "08037372e114765752250461f6454c4ff930fd653db40d4d3b2fef71e4cd2beb",
+      "origin": "machine",
+      "message": "{vmName} לא הגיע למצב העצירה שהשלב המתין לו: האורח התעלם מבקשת הכיבוי, והמתנה נוספת לא תשנה זאת. כיבוי והפעלה קרים יכולים."
+    },
+    "remediation.vm_not_stopped_action_power": {
+      "sourceHash": "640f5e262c898dcd8a1c107df70ea1f19a9723d1b55c9c5880a7bc01dd5ece1c",
+      "origin": "machine",
+      "message": "כבו את המכונה הווירטואלית מהמארח -- ⁦retry⁩ עם ⁦restartVmBeforeRetry: coldPowerCycle⁩ עושה זאת -- והריצו את השלב שוב."
+    },
+    "remediation.vm_not_stopped_action_inspect": {
+      "sourceHash": "15879774c917340e974da8827f0752cbe47da1a3c47659d751689a71d933031b",
+      "origin": "machine",
+      "message": "אם זה קורה שוב, בדקו בקונסולת האורח מה מעכב את הכיבוי."
+    },
+    "remediation.guest_run_lost_rationale": {
+      "sourceHash": "4bd1594123a8566bdd8b7a3bf25ec8abe219c4701f942702a61e9a9741baa1dd",
+      "origin": "machine",
+      "message": "ההרצה ב-{vmName} אבדה: המפקח של האורח ענה אך לא ידע מה עלה בגורלה, כך שהתהליך איננו, וחיבור מחדש לא יחזיר אותו."
+    },
+    "remediation.guest_run_lost_action_restore": {
+      "sourceHash": "1134d22bef2d923248fa744f8cf8ab854a679519c337c8a11710d53a930807ff",
+      "origin": "machine",
+      "message": "שחזרו את תמונת המצב התקינה האחרונה והריצו את הרצף שוב."
+    },
+    "remediation.guest_run_lost_action_inspect": {
+      "sourceHash": "28e9abf2f74ea280b26312eeac2fb6013582d2472223baf12eb8e542297f5001",
+      "origin": "machine",
+      "message": "קראו את יומן ההרצה של האורח כדי לברר מה סיים את התהליך."
     }
   }
 }

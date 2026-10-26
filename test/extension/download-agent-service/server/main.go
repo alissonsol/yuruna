@@ -1,5 +1,6 @@
 // LICENSEURI https://yuruna.link/license
 // Copyright (c) 2019-2026 by Alisson Sol et al.
+// GUID: 42cc7bfa-1dd8-4dc6-8fe6-a854c23d3ea6
 
 // Command download-agent-service is the Yuruna download-agent daemon. See
 // ../../../../docs/download-agent.md#what-it-is for what it does. -- main.go

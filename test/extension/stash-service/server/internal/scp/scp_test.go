@@ -1,8 +1,10 @@
 // LICENSEURI https://yuruna.link/license
 // Copyright (c) 2019-2026 by Alisson Sol et al.
+// GUID: 420386e2-ec70-45b1-8df7-d564a1fafcec
 package scp
 
 import (
+	"bufio"
 	"bytes"
 	"errors"
 	"io"
@@ -84,5 +86,38 @@ func TestStrictHeaders(t *testing.T) {
 		if _, _, _, err := parseCLine(h); err != nil {
 			t.Errorf("rejected %q: %v", h, err)
 		}
+	}
+}
+
+// endless yields one byte forever: a client that never sends its newline.
+type endless byte
+
+func (e endless) Read(p []byte) (int, error) {
+	for i := range p {
+		p[i] = byte(e)
+	}
+	return len(p), nil
+}
+
+type countingReader struct {
+	r io.Reader
+	n int
+}
+
+func (c *countingReader) Read(p []byte) (int, error) {
+	n, err := c.r.Read(p)
+	c.n += n
+	return n, err
+}
+
+// A control line that never ends is refused once it passes the cap, having
+// read about the cap, not the stream.
+func TestAnEndlessControlLineIsRefusedAtTheCap(t *testing.T) {
+	counted := &countingReader{r: endless('C')}
+	if _, err := readControlLine(bufio.NewReader(counted)); err == nil {
+		t.Fatal("an endless control line was accepted")
+	}
+	if counted.n > 4*maxControlLine {
+		t.Fatalf("read %d bytes of an endless line; the cap is %d", counted.n, maxControlLine)
 	}
 }

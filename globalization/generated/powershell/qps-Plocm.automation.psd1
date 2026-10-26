@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.25
+.VERSION 2026.10.26
 .GUID 42df85f3-7223-8240-a334-1350406572f3
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -1426,15 +1426,6 @@
             'trust' = 'external'
         }
         '''.‬ ~~~~~~~~~~~~~~~~~~~~~~~~]'
-    )
-    'automation.operator_483ad55e8c49c6d8' = @(
-        '[!‮-- ŴÁŘÑÍÑĞ: ţóƒú áļřéáďý íñíţíáļížéď: '
-        @{
-            'arg' = 'terraformPath'
-            'type' = 'detail'
-            'trust' = 'external'
-        }
-        " `n   Řéšóúřçé ɱáý ñóţ ƀé çřéáţéď. Úšé 'ýúřúñá çļéář' ţó çļéář ţóƒú šţáţé.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
     )
     'automation.operator_485fb74637bada2f' = '[!‮Çóññéçţíṽíţý ƥřóƀé (ƥíñğ -ç 3 -Ŵ 2 1.1.1.1)‬ ~~~~~~~~~~~~~~~~~~]'
     'automation.operator_48a01e8836cadcfb' = '[!‮ĎÑŠ řéšóļṽéř šţáţúš‬ ~~~~~~~~]'

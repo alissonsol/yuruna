@@ -5075,9 +5075,9 @@
       "message": "[5/{steps}] status service：正在重启，以使运行中的进程立即重新读取users.yml（最多{bounceTimeoutSeconds}s）……"
     },
     "runner.operator_4fb40cac594a7bbc": {
-      "sourceHash": "9ed391bdb16546f63bba339f0c311627af4e62a1c6c2e9cbf41ac6fd72bfb69e",
+      "sourceHash": "f354256e769d29df6b77f19586b5261c48adbfa45f9fcae042ee8f1c2275a40d",
       "origin": "machine",
-      "message": "[Invoke-TestProject] 步骤1+2：清空<RepoRoot>/project并从{projectUrl}重新克隆"
+      "message": "[Invoke-TestProject] 步骤1+2：周期的内部运行器用{projectUrl}的新克隆替换<RepoRoot>/project"
     },
     "runner.operator_4fc3e1360294bece": {
       "sourceHash": "03fa71d800b5d7b4a2dcda7cfae75fb49cf4ba47a89b4fa3f8105abe565713f1",
@@ -5320,9 +5320,9 @@
       "message": "禁用（sysadminctl -screenLock off）"
     },
     "runner.operator_554a120b73560a96": {
-      "sourceHash": "10ef8fa3c00830884504ef497d45e5e6454855f8e0dbe1b82fffbb3efb857f5b",
+      "sourceHash": "6c5714741ebaaf5f2fe3b824ebf66bef48808421d26f46974894a14269c3c29e",
       "origin": "machine",
-      "message": "[Invoke-TestProject] 步骤3：正在启动Invoke-TestRunnerInnerLoop以运行一个测试周期。"
+      "message": "[Invoke-TestProject] 步骤3：通过Invoke-TestCycleRunner运行一个运行器周期。"
     },
     "runner.operator_55583f4e86287622": {
       "sourceHash": "cbdeb52695d4642bbb153372fc3aa3e317587a3e898d1c517cb8fbf388cd131a",
@@ -14807,6 +14807,141 @@
       "sourceHash": "122fe9517c2c51dc6acc4f23ddb80e8b772eb893200dea32d7bb9b39220e94a8",
       "origin": "machine",
       "message": "{cacheHost} 上的缓存代理提供 sha256 为 {fetched} 的 CA，并附带此主机不接受的声明（{reason}），因此不信任该 CA。"
+    },
+    "runner.recovery_disabled": {
+      "sourceHash": "2ff25029f8c6fb99500f9a475e99955285a890ab82f3ff60d933ed488b72b3c7",
+      "origin": "machine",
+      "message": "自动恢复已禁用（{reason}）：在 {ledgerPath} 处的恢复台账可以再次读写之前，不会运行任何修复。"
+    },
+    "runner.oneshot_lease_take_action": {
+      "sourceHash": "dccf3940f2d60616026e3587246565f19266efb0c5e30467ec2c6d6f6186379f",
+      "origin": "machine",
+      "message": "获取运行时目录的一次性运行租约"
+    },
+    "runner.oneshot_lease_release_action": {
+      "sourceHash": "0db2ab8fba666745cc20b6b0bc548af1a521a11eb71ff98212d37cb278df0a51",
+      "origin": "machine",
+      "message": "释放运行时目录的一次性运行租约"
+    },
+    "runner.oneshot_lease_held": {
+      "sourceHash": "41dba8e194924b57a0f13e9375f27f9cbdd7d4ffb7e97a94d60fce4eeed31ee8",
+      "origin": "machine",
+      "message": "{callerName}：一次性运行（PID {pid}）正占用此运行时目录（{leasePath}）；拒绝启动。请等待其完成，或从另一个YURUNA_RUNTIME_DIR运行。"
+    },
+    "runner.oneshot_lease_unknown": {
+      "sourceHash": "621c1471fdb4e43ad7f1f22d8ddaad700108faf89b6beae840f6e2f8d4d8a29a",
+      "origin": "machine",
+      "message": "{callerName}：一次性运行租约{leasePath}指向PID {pid}，但无法确认其身份（{reason}）；拒绝启动。如果没有正在进行的一次性运行，请删除该文件后重新运行。"
+    },
+    "runner.oneshot_blocks_start": {
+      "sourceHash": "9c9d84588f5ec9efb3d4958fe3e2fbd53b43eb93ad24c9ad97180262104cd983",
+      "origin": "machine",
+      "message": "Start-TestRunner：一次性运行（PID {pid}）正占用此运行时目录（{leasePath}）；不会启动运行器。请在该运行结束后再次启动。"
+    },
+    "runner.oneshot_lease_unconfirmed": {
+      "sourceHash": "96495cfbfcc8527b70aa9feeea21bd1e939988391c9cbe7462bf50ed712f1754",
+      "origin": "machine",
+      "message": "Start-TestRunner：一次性运行租约{leasePath}指向PID {pid}，但无法确认其身份（{reason}）；仍将启动运行器。"
+    },
+    "runner.project_checkout_replace_action": {
+      "sourceHash": "668c9b2920a8f07b9addd3221dae45c339bbf8c18f5ddb3f6156bbce38006619",
+      "origin": "machine",
+      "message": "替换为{projectUrl}的全新检出副本，然后运行一个测试周期"
+    },
+    "runner.step_heartbeat_write_failed": {
+      "sourceHash": "a4cb6f17dd4d8b7ed032367f97b6232a6e506eef29ccdafc21ef5d95e85d7077",
+      "origin": "machine",
+      "message": "无法写入步骤心跳{path}（连续{count}次）：{detail}。看门狗依据此文件判断周期状态，文件过期后会将周期视为卡死并停止；请检查该位置的可用空间和文件锁。"
+    },
+    "runner.step_handler_threw": {
+      "sourceHash": "f839c9d3199794861c3dfbf05ba6c7e21de2b1ca9f979b1af253ac9915d811bc",
+      "origin": "machine",
+      "message": "步骤{step}（{action}）：处理程序抛出异常：{message}。该步骤失败，包裹它的retry可能会再次运行它。"
+    },
+    "runner.pool_notifier_busy": {
+      "sourceHash": "87ec6fd0063fbe642ef91456aa91fbaa3500c71db8b35d5741783793ee949662",
+      "origin": "machine",
+      "message": "此主机上另一个池通知程序运行持有其锁；本次运行未投递任何内容。"
+    },
+    "runner.cycle_telemetry_gap": {
+      "sourceHash": "5fc7efc06449da1d594d15dc630938ee29abeaa5d06a37f6adb78f2518a74f6d",
+      "origin": "machine",
+      "message": "该周期结束时缺少{missing}：查看此周期的人在那里找不到记录。文件夹中保存的telemetry_gaps.json列出了缺少的内容。"
+    },
+    "runner.pool_notifier_spool_errors": {
+      "sourceHash": "7a4742e240da5059e93eacfd07cd687f6f700d6b80834b09e41f52d650753496",
+      "origin": "machine",
+      "message": "[外部周期 {cycle}] 池通知器：{count} 个队列步骤失败，因此一条消息可能被发送两次或无休止地重试；第一个：{detail}"
+    },
+    "runner.cycle_degraded": {
+      "sourceHash": "038878f2fe6d6f572d6227622f70e9e8f10b18001274b01c9127df811b505303",
+      "origin": "machine",
+      "message": "  周期{cycleCount}没有失败，但跳过了{planned}个计划来宾中的{skipped}个（{guests}）：它属于降级，不算通过，因此失败连续计数和警报保持不变。"
+    },
+    "runner.project_cycle_not_run": {
+      "sourceHash": "399864ad299651e0b811dee9978498d4332a144aebc1fe5fc0edd1f0a4093519",
+      "origin": "machine",
+      "message": "  周期未运行（{outcome}）：池已排空或暂停、主机刷新或Ctrl+C在得出结论前阻止了它。"
+    },
+    "runner.project_cycle_degraded": {
+      "sourceHash": "446f0e0f1e7cea59e565034f16b229e31d32f7be903923a86089d21d4b55daf9",
+      "origin": "machine",
+      "message": "  周期降级：没有失败，但跳过了一个计划来宾。请在{dIR}查看各周期的日志。"
+    },
+    "runner.refresh_gate_boot_resume": {
+      "sourceHash": "47724f1cf71d5c02a31a2fead7c83f7608ca42c97045a14400e0039c9219fdfc",
+      "origin": "machine",
+      "message": "Start-TestRunner：宿主机刷新{requestId}在之前的一次启动中未完成；正在使用test/lab/Invoke-HostRefresh.ps1 -Resume继续执行一次（pid {pid}）。本次启动仍被拒绝；刷新完成后会启动运行器，其错误写入{stdErrPath}。"
+    },
+    "runner.refresh_gate_boot_resume_tried": {
+      "sourceHash": "8aaf2839f9d8d1f8599a0b6c80968f28324b05a6bd81ce1cbb7d562e1180711d",
+      "origin": "machine",
+      "message": "Start-TestRunner：宿主机刷新{requestId}在之前的一次启动中未完成，本次启动已继续执行过一次；请使用test/lab/Invoke-HostRefresh.ps1 -Resume再次继续。"
+    },
+    "runner.refresh_gate_boot_resume_failed": {
+      "sourceHash": "aa9764587388bed7ece04a0fbb705501ab615012d424565797b266bc9ee6bf63",
+      "origin": "machine",
+      "message": "Start-TestRunner：宿主机刷新{requestId}在之前的一次启动中未完成，继续执行失败（{reason}）；请使用test/lab/Invoke-HostRefresh.ps1 -Resume继续。"
+    },
+    "runner.ocr_known_answer_failed": {
+      "sourceHash": "ab40de4ef1839a98f7c4b9d40114f0fafe11108381538ae9cfd47cb6c5d83448",
+      "origin": "machine",
+      "message": "OCR无法读取已知帧（{detail}）；周期在任何来宾依赖它之前停止，记为主机的检测工具故障。"
+    },
+    "runner.ocr_known_answer_degraded": {
+      "sourceHash": "44205c7439c9bd9be75fca2f6f766f8affa62073724f870134d76b2d0fea41f1",
+      "origin": "machine",
+      "message": "有一个OCR提供程序无法读取已知帧（{detail}）；等待操作改用能够读取的提供程序。"
+    },
+    "runner.recovery_probe_cleared": {
+      "sourceHash": "7351086a22ad13b622d8d497f3d2cda3c4b0aeed60dc5419e648c02ac20f002a",
+      "origin": "machine",
+      "message": "周期{cycle}：{failureClass}状况已解除（{detail}）；正在结束失败暂停（第{attempt}次，共{maxAttempts}次）。"
+    },
+    "runner.config_last_good_used": {
+      "sourceHash": "0449e2bebabd62b9a4385513feec1f4d4d88d91f2906d4a7377ebcbb1fe535ca",
+      "origin": "machine",
+      "message": "无法解析{path}（{problem}）；在文件修复之前，运行器继续依据最后一次成功解析的配置进行决策。"
+    },
+    "runner.host_network_sweep_timed_out": {
+      "sourceHash": "a0d420ee9feecd40d137bb1ec3f3b9acf5c687cde6e49f4ac91d9c2c9f1e897a",
+      "origin": "machine",
+      "message": "主机网络拒绝路径上的滞留VM清理未在{seconds}秒内完成，已被停止；本周期仍被拒绝。"
+    },
+    "runner.orchestration_before_seal_failed": {
+      "sourceHash": "2ebf7fc04c1a5962186d43dc492a27d09ef976b45d7a461742fe6d967175d114",
+      "origin": "machine",
+      "message": "在周期封存前记录编排{setName}失败决定的步骤失败：{message}"
+    },
+    "runner.state_file_write_failed": {
+      "sourceHash": "a4720d14cf513e7a24fc4d98b72b9ca0c79e0d055cce4b92b21613962fee661c",
+      "origin": "machine",
+      "message": "无法写入{path}：{message} 读取此记录的程序将看不到此更改。"
+    },
+    "runner.fetch_archive_digest_unavailable": {
+      "sourceHash": "7dc05c265dfd0efd30e73c2b1770ec63a126c4ec49a5a0d38422ebc9827f0755",
+      "origin": "machine",
+      "message": "无法生成{repoDir}在{commit}处归档的摘要，因此更新脚本会在不校验的情况下解包该目录树。"
     }
   }
 }

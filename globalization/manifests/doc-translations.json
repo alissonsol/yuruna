@@ -6,14 +6,15 @@
       "source": "docs/authentication.md",
       "locale": "pt-BR",
       "translated": "docs/pt-BR/authentication.md",
-      "sourceHash": "109aa5fe54d0fc1a331e347100bd7a0c1d6d9e82e1a084fc0eaa6f3a77bfbe2f"
+      "sourceHash": "9b6db50071bb5ab4c61b1fb12f8801596755f232fdf9ca0853a44910ee9c71da",
+      "origin": "machine"
     },
     {
       "repo": "yuruna",
       "source": "docs/extensions-api.md",
       "locale": "pt-BR",
       "translated": "docs/pt-BR/extensions-api.md",
-      "sourceHash": "37eea00638bee2dd3fe265a466140f1a8e444b14b3b27f44770b3ea873720304",
+      "sourceHash": "def4827ccf0bb4ac0b2935f49cb0702123e013a9b1bd6605b8befd603420c9e9",
       "origin": "machine"
     },
     {
@@ -21,7 +22,7 @@
       "source": "docs/failure-schema.md",
       "locale": "pt-BR",
       "translated": "docs/pt-BR/failure-schema.md",
-      "sourceHash": "e73aa65e123f554ec0cf832f12c27494091e0e5583e4aa8428b1c99add51025c",
+      "sourceHash": "80a52afde1e7bb6cdbc5b6f43ea3195e997a7039b4f9565d39506d3659a03294",
       "origin": "machine"
     },
     {
@@ -29,7 +30,7 @@
       "source": "docs/framework-implementation-notes.md",
       "locale": "pt-BR",
       "translated": "docs/pt-BR/framework-implementation-notes.md",
-      "sourceHash": "61c04a37a7258469d08ceba71b1c1ffca41245528df017bba9f5732b042f2a57",
+      "sourceHash": "3264fbfdd69cc596a7a9667b84efeaa7eadfdc7ede19d6ed7ef0b28df8a2d691",
       "origin": "machine"
     },
     {
@@ -77,7 +78,7 @@
       "source": "docs/pool-admin.md",
       "locale": "pt-BR",
       "translated": "docs/pt-BR/pool-admin.md",
-      "sourceHash": "2d2e5880825c0128cbb9545cae92a1cc50bbbbeff75fad553fbf1e27bcec803a",
+      "sourceHash": "b4ef11385f7e7492573f314483c5792583952fd848c03bfdf52c1db8322b1fe1",
       "origin": "machine"
     },
     {
@@ -85,7 +86,7 @@
       "source": "docs/project-implementation-notes.md",
       "locale": "pt-BR",
       "translated": "docs/pt-BR/project-implementation-notes.md",
-      "sourceHash": "afdb2a7c7a7b5f72bb779223839686c6eee8e30627631fbaac300a97373c682d",
+      "sourceHash": "a8310a460fb25db6c5e001cbbe53a92544d59df5f1893f044cf6cb3cefca5b9e",
       "origin": "machine"
     },
     {
@@ -93,7 +94,7 @@
       "source": "docs/test-harness.md",
       "locale": "pt-BR",
       "translated": "docs/pt-BR/test-harness.md",
-      "sourceHash": "84255e31386df759f7d2148a0aac45998af59e4b430322a7bf6e9543000180b1",
+      "sourceHash": "d80bd12a4a05f6876a8ebf2fa53b21d90a88293712038ddc0235be324fee714c",
       "origin": "machine"
     },
     {

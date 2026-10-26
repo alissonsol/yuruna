@@ -1,5 +1,6 @@
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
+# GUID: 420b183c-8435-4f4c-9249-92c36a939e40
 # TLS is enforced by the service itself (the require_secure_transport
 # server parameter defaults to on), so no ssl_* arguments exist here.
 resource "azurerm_postgresql_flexible_server" "db" {

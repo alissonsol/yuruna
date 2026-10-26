@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.25
+.VERSION 2026.10.26
 .GUID 42ef082c-e8a7-4b9b-a65e-775dd8f26574
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -28,6 +28,11 @@ if (-not $global:YurunaCredentialProviders) {
     $global:YurunaCredentialProviders = [ordered]@{}
 }
 $script:Providers = $global:YurunaCredentialProviders
+# The providers this module registers below. A provider a project registers
+# is any other type, and Get-CredentialProvider consults those first: the
+# built-in docker-generic matches every host, so a provider registered after
+# it would otherwise never be reached.
+$script:BuiltInProviderType = @('azurecr', 'ecr', 'gar', 'dockerhub', 'docker-generic')
 
 function Register-CredentialProvider {
     <#
@@ -69,14 +74,21 @@ function Register-CredentialProvider {
 function Get-CredentialProvider {
     <#
     .SYNOPSIS
-        Look up the first registered provider whose Pattern regex
-        matches $Target. Returns the @{ Type; Pattern; Authenticator;
-        LoginCommand } entry or $null when no match.
+        Look up the first provider whose Pattern regex matches $Target: a
+        project's providers first, the most recently registered first, then
+        the built-in ones in their registration order. Returns the
+        @{ Type; Pattern; Authenticator; LoginCommand } entry or $null when
+        no match.
     #>
     [CmdletBinding()]
     [OutputType([hashtable])]
     param([Parameter(Mandatory)][string]$Target)
-    foreach ($key in $script:Providers.Keys) {
+    # A project's providers first, the most recently registered first, then the
+    # built-in ones in their order, with the catch-all last.
+    $keys = @($script:Providers.Keys)
+    $external = @($keys | Where-Object { $_ -cnotin $script:BuiltInProviderType })
+    [array]::Reverse($external)
+    foreach ($key in @($external) + @($keys | Where-Object { $_ -cin $script:BuiltInProviderType })) {
         $p = $script:Providers[$key]
         if ($Target -match $p.Pattern) {
             return @{

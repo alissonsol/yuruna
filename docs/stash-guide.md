@@ -198,6 +198,18 @@ installs a systemd unit with `Restart=on-failure`; the binary can also run
 directly for local development. Operational logs go to stderr, captured by
 journald when the daemon runs under systemd.
 
+**Limits that keep the service up.** A text stash sent as a JSON or form body
+is read into memory whole, so it is bounded like the file it becomes (100 MiB,
+plus room for the encoding), and only one text body over 1 MiB is read at a
+time: another answers `503` with `Retry-After` while the first is arriving, and
+a body still arriving after five minutes is cut off. Pasting in the web UI and
+uploading files are not affected. A request a browser marks cross-site is
+refused (`403`), so a page elsewhere cannot create stashes through an
+operator's browser; `scp`, `sftp` and scripts are not affected. On port 22 a
+connection has 30 seconds to complete its SSH handshake, at most 64
+connections are served at once, and one SFTP session holds at most 16 files
+open.
+
 **Staging and stored names.** The store's `FinalizeStaging` step turns recursive
 SCP input, multiple files, or any directory entry into
 `<id>.yuruna.archive.zip`. Exactly one root-level file with no directory entry
@@ -214,6 +226,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.25
+Last review: 2026.10.26
 
 Back to [Yuruna](../README.md)

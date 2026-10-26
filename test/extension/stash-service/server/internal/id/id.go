@@ -1,5 +1,6 @@
 // LICENSEURI https://yuruna.link/license
 // Copyright (c) 2019-2026 by Alisson Sol et al.
+// GUID: 42204ae7-4aec-4b0f-9592-77b1f6418419
 
 // Package id implements the 4-character unique-ID allocator defined in
 // section 7 of the stash service spec.

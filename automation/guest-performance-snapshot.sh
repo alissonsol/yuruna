@@ -1,7 +1,8 @@
 #!/bin/bash
-# Version: 2026.10.25
+# Version: 2026.10.26
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
+# GUID: 42d3c9b9-c227-4dc4-8a8b-968b76b3eeee
 #
 # A small, read-only sample; the SSH caller supplies the overall 20-second budget.
 

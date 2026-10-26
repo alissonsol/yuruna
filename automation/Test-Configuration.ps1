@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.25
+.VERSION 2026.10.26
 .GUID 424726b4-f226-4fcb-9a7e-5b0459912dc9
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -77,11 +77,9 @@ Get-Module Yuruna.* | Remove-Module *>&1 | Write-Verbose
 $validationModulePath = Join-Path -Path $yuruna_root -ChildPath "automation/Yuruna.Validation.psm1"
 Import-Module -Name $validationModulePath -Force
 
-$null = Start-Transcript $transcriptFileName
-
-$result = Confirm-Configuration $project_root $config_subfolder
-
-$null = Stop-Transcript
+# The harness starts and stops the transcript, so a throw still ends it and
+# still reports a failure.
+$result = Invoke-YurunaEntrypoint -TranscriptFile $transcriptFileName -BooleanResult -Operation { Confirm-Configuration $project_root $config_subfolder }
 if (-Not $result) {
     Write-Output $result
     Write-Output $(Get-Content -Path $transcriptFileName)

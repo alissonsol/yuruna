@@ -1,5 +1,6 @@
 // LICENSEURI https://yuruna.link/license
 // Copyright (c) 2019-2026 by Alisson Sol et al.
+// GUID: 424e9dd3-c963-4c65-bb53-27566cb0ff2d
 
 // Package httpsrv serves the pool-control-service operator UI (board, hosts,
 // pools, scan, diagnostics) and the JSON API that drives it. It mirrors the

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.25
+.VERSION 2026.10.26
 .GUID 4274cfbc-3e20-4a5b-846e-afc72bc0f9b7
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -354,6 +354,20 @@ Describe 'Invoke-GuestSsh honors the unresolved-address sentinel' {
         $r.exitCode | Should -Be -2
         $r.output   | Should -Match 'host address-discovery failure'
         $r.output   | Should -Match 'the command never ran'
+    }
+
+    It 'leaves a status the far end reported to the guest, even when the bare name was dialed' {
+        # A broadcast responder can answer the bare name, and then the command
+        # ran: only ssh's own 255 says the guest was never reached.
+        Mock -ModuleName Test.Ssh -CommandName Get-GuestAddress -MockWith { 'yuruna-unresolvable-test-host' }
+        Mock -ModuleName Test.Ssh -CommandName Wait-GuestIp     -MockWith { $null }
+        Mock -ModuleName Test.Ssh -CommandName Get-ProvenGuestAddress -MockWith { $null }
+        Mock -ModuleName Test.Ssh -CommandName Invoke-BoundedNativeCommand -MockWith { @{ ExitCode = 3; StdOut = 'STASH UNREACHABLE'; StdErr = ''; Started = $true } }
+        Mock -ModuleName Test.Ssh -CommandName Test-BoundedNativeResultComplete -MockWith { $true }
+        $r = Invoke-GuestSsh -VMName 'yuruna-unresolvable-test-host' -GuestKey 'guest.ubuntu.server.24' `
+                -Command 'true' -TimeoutSeconds 20 -AddressWaitSeconds 0 -WarningAction SilentlyContinue
+        $r.exitCode | Should -Be 3
+        $r.output   | Should -Not -Match 'the command never ran'
     }
 
     It 'does not enter the wait when the caller passed an address as the VM name' {

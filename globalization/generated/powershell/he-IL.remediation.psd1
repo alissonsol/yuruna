@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.25
+.VERSION 2026.10.26
 .GUID 42a7417f-269d-7411-6f6f-5a366471b90c
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -19,6 +19,17 @@
 # locale: he-IL  domain: remediation
 
 @{
+    'remediation.guest_run_lost_action_inspect' = 'קראו את יומן ההרצה של האורח כדי לברר מה סיים את התהליך.'
+    'remediation.guest_run_lost_action_restore' = 'שחזרו את תמונת המצב התקינה האחרונה והריצו את הרצף שוב.'
+    'remediation.guest_run_lost_rationale' = @(
+        'ההרצה ב-'
+        @{
+            'arg' = 'vmName'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ' אבדה: המפקח של האורח ענה אך לא ידע מה עלה בגורלה, כך שהתהליך איננו, וחיבור מחדש לא יחזיר אותו.'
+    )
     'remediation.hypervisor_unresponsive_action_evidence' = 'קראו את ⁦utm-control-snapshot.*.json⁩ ואת ⁦utm-log-show.*.txt⁩ בתיקיית המחזור: מזהה תהליך או זמן התחלה של UTM שהשתנו באמצע המחזור מעידים על קריסה והפעלה מחדש, וקטע היומן המאוחד מציין מה קדם לכך'
     'remediation.hypervisor_unresponsive_action_restart' = 'הפעילו מחדש את יישום הבקרה של ההיפרווייזר במארח: ב-macOS צאו מ-⁦UTM.app⁩ מתוך הפעלת שולחן העבודה (או הריצו ⁦test/lab/Invoke-HostRefresh.ps1⁩), ואז ודאו ש-⁦`utmctl stop`⁩ על מכונה וירטואלית עצורה חוזר מיד'
     'remediation.hypervisor_unresponsive_action_resume' = 'חדשו את פעולת המריץ ברגע שפועל מחזור חיים חוזר לענות; המחזור הבא בודק את ערוץ הבקרה לפני שהוא בונה דבר'
@@ -726,5 +737,15 @@
             'type' = 'detail'
             'trust' = 'external'
         }
+    )
+    'remediation.vm_not_stopped_action_inspect' = 'אם זה קורה שוב, בדקו בקונסולת האורח מה מעכב את הכיבוי.'
+    'remediation.vm_not_stopped_action_power' = 'כבו את המכונה הווירטואלית מהמארח -- ⁦retry⁩ עם ⁦restartVmBeforeRetry: coldPowerCycle⁩ עושה זאת -- והריצו את השלב שוב.'
+    'remediation.vm_not_stopped_rationale' = @(
+        @{
+            'arg' = 'vmName'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ' לא הגיע למצב העצירה שהשלב המתין לו: האורח התעלם מבקשת הכיבוי, והמתנה נוספת לא תשנה זאת. כיבוי והפעלה קרים יכולים.'
     )
 }

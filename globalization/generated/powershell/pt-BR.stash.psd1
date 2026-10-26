@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.25
+.VERSION 2026.10.26
 .GUID 42ae3999-2506-b655-3702-3ee74d44e203
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -41,6 +41,7 @@
     'stash.api_invalid_host' = 'máquina inválida'
     'stash.api_invalid_json_body' = 'corpo JSON inválido'
     'stash.api_invalid_stash_path' = 'caminho inválido do stash'
+    'stash.api_large_text_busy' = 'outro texto grande está sendo armazenado; tente de novo em instantes'
     'stash.api_no_stashes_given' = 'nenhum stash fornecido'
     'stash.api_not_an_archive' = 'não é um arquivo'
     'stash.api_not_found' = 'não encontrado'

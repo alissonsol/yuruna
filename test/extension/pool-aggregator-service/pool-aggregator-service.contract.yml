@@ -1,5 +1,6 @@
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
+# GUID: 4279eee4-538d-4cf3-ae09-ef0d91eeaf2b
 # Yuruna extension contract for area: pool-aggregator-service
 # Every extension implementation (<name>.psm1) in this directory MUST
 # export the verbs listed in `requiredFunction`. Test.Extension's

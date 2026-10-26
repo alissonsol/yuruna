@@ -208,9 +208,9 @@ qualquer script existente em todas (ou algumas) das pastas de hospedeiro.
 
 A definição única do formato de uma regra de etapa.
 
-A estrutura do documento da transcrição é construída a partir dessas linhas;
-até o compartilhamento, o formato existia duas vezes: no orquestrador que
-grava a regra e em uma regex aqui que a recupera. Duas cópias de um formato
+A estrutura do documento da transcrição é construída a partir dessas linhas,
+por isso o formato é definido uma única vez e compartilhado, nunca mantido
+duas vezes -- no orquestrador que grava a regra e em uma regex que a recupera. Duas cópias de um formato
 divergem, e a falha é silenciosa da pior maneira -- a transcrição ainda é
 renderizada, apenas fica sem títulos, então quem navega por dezenas de
 quilobytes de um único <pre> perde todos os marcos e nada informa um problema.
@@ -526,7 +526,11 @@ Posicionado após a admissão de VMs para que uma recusa nunca abandone convidad
 que o ciclo anterior deixou executando: recusar antes de encerrar deixa o
 hospedeiro mais sujo que um ciclo normal, e esses remanescentes são justamente
 o que impede a condição de desaparecer. O caminho de recusa executa a varredura
-de VMs pela mesma razão.
+de VMs pela mesma razão, uma vez por perda (`sweptUtc` em
+`runner.hostNetwork.json`; nenhum ciclo é executado entre duas recusas que
+pudesse abandonar outra VM) e em um processo próprio limitado a 300 s, para que
+um hipervisor que parou de responder não mantenha a recusa até que o watchdog do
+preâmbulo a encerre.
 
 <a id="4213a0b3-001d"></a>
 
@@ -2529,6 +2533,11 @@ Por que -Command (não -File):
 Por que -NoProfile:
   $PROFILE no shell que inicia o processo pode redefinir variáveis de ambiente YURUNA_* no
   filho DEPOIS que a captura do pai fixou os valores corretos.
+Por que o trecho final de saída:
+  -Command informa se sua última instrução teve êxito, não o código de saída do
+  script. O comando termina com o trecho que a reinicialização no grupo libvirt
+  usa, para que os códigos 2, 70 e 78 do processo interno cheguem ao executor sem
+  alteração e um erro de encerramento ainda saia com 1.
 Por que um módulo auxiliar:
   Start-TestRunner.ps1, Invoke-TestProject.ps1 e Invoke-TestCycleRunner.ps1
   precisam do mesmo escape de aspas simples e construção de -Command; se houver duplicação,
@@ -4394,6 +4403,14 @@ automaticamente uma recomendação é uma funcionalidade separada, desligada por
 que precisa de um limite de tentativas por ciclo, uma lista de classes permitidas
 (e revisão humana suficiente) antes de poder agir.
 
+A decisão é tomada antes de a transcrição do ciclo ser fechada, de modo que seu
+registro e seu evento pertencem a esse ciclo. Um ciclo do executor decide antes
+de Complete-CycleRun. Um ciclo de orquestração sela a própria transcrição dentro
+de Invoke-OrchestrationSequence, então o executor lhe entrega a mesma decisão
+como `-BeforeSeal`. O orquestrador a executa assim que o resultado é conhecido e
+antes de Complete-Run e Stop-LogFile, e o alerta envia esse conteúdo sem decidir
+de novo.
+
 <a id="4213a0b3-00fd"></a>
 
 ## test/modules/Test.RunnerInnerLoop.psm1: Invoke-RunnerInnerCycle
@@ -4741,6 +4758,16 @@ consulta do indicador QUANTO no POST do Resend, além de um limite de mensagens 
 portanto é seguro no laço externo INTERATIVO de pwsh puro (o contrato do gancho de fim de ciclo
 que não bloqueia em solicitações e limita subprocessos). Executa NO PROCESSO para que o registro de entregas
 do despachante (o canal de confirmação) seja legível; não é necessária uma inicialização independente.
+
+Um ciclo que termina cedo, ou um hospedeiro retido entre ciclos -- uma pausa por falha, um
+bloqueio, uma espera sem veredito --, não entregaria nada; por isso o executor residente também
+executa o notificador a partir das suas esperas e da sondagem de despacho
+(`Invoke-OuterPoolNotifierTick`): no máximo uma vez por minuto, em um thread job pelo qual nunca
+espera. Cada tique coleta a execução que o anterior iniciou e deixa de lado, para o coletor, uma
+que ainda esteja em andamento depois do mesmo limite de 120 s. Um bloqueio de arquivo de PID na
+pasta de runtime (`pool.notifier.lock`) mantém separadas a execução do residente e a de um ciclo,
+de modo que uma transição de alerta seja lida e enfileirada uma só vez; somente um detentor vivo
+faz uma execução se afastar, portanto um bloqueio que não pode ser criado nunca silencia a entrega.
 
 <a id="4213a0b3-0112"></a>
 
@@ -5983,7 +6010,7 @@ oposto: que o invólucro imprimiu sua etiqueta de falha. Nada a verificava novam
 portanto, um simples tempo limite era informado como uma falha relatada pelo script, encaminhado a
 pause_and_inspect ("uma nova tentativa automática apenas a acionaria novamente") e excluído da
 retomada com estado existente -- transformando uma interrupção transitória na origem em um ciclo morto que exige
-um operador. Build-SequenceFailureRecord ainda reclassifica para
+um operador. New-SequenceFailureRecord ainda reclassifica para
 pattern_matched_failure quando um padrão realmente corresponde; assim, esse caso mantém
 seu próprio rótulo e seu encaminhamento sem nova tentativa.
 

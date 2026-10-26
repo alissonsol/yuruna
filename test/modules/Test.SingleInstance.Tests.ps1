@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.25
+.VERSION 2026.10.26
 .GUID 42645f00-faa2-428e-bbc3-6249194cf5b0
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -615,6 +615,67 @@ Describe 'Get-YurunaRunnerRecordState and Remove-YurunaRunnerRecordGeneration (r
     }
 }
 
+# Invoke-TestProject and Debug-TestSequence published no ownership, so a
+# Start-TestRunner or a second one-shot run started beside them took over, or
+# raced, the runtime they were using.
+Describe 'One-shot runtime lease' {
+    BeforeAll {
+        $script:LeaseDir = New-YurunaTestTempDir -Prefix 'yrn-si-lease'
+        $script:LeasePid = Join-Path $script:LeaseDir 'oneshot.pid'
+        $script:LeaseStart = Join-Path $script:LeaseDir 'oneshot.start'
+    }
+    AfterAll { Remove-YurunaTestTempDir $script:LeaseDir }
+    BeforeEach { Remove-Item -LiteralPath $script:LeasePid, $script:LeaseStart -Force -ErrorAction SilentlyContinue }
+
+    It 'takes a free lease, takes it again from the same process, and releases it' {
+        $lease = Enter-YurunaOneShotLease -RuntimeDir $script:LeaseDir -Confirm:$false
+        Assert-True $lease.Acquired 'a free lease is taken'
+        Assert-Equal -Expected "$PID" -Actual ([IO.File]::ReadAllText($script:LeasePid).Trim())
+        Assert-True (Test-Path -LiteralPath $script:LeaseStart) 'the lease carries the start time that proves its holder'
+        Assert-Equal -Expected 'Self' -Actual (Get-YurunaOneShotLeaseState -RuntimeDir $script:LeaseDir).State
+        Assert-True (Enter-YurunaOneShotLease -RuntimeDir $script:LeaseDir -Confirm:$false).Acquired 'one shell runs one-shot entry points one after another'
+        Assert-True (Exit-YurunaOneShotLease -RuntimeDir $script:LeaseDir -Confirm:$false) 'the holder releases its lease'
+        Assert-Equal -Expected 'Missing' -Actual (Get-YurunaOneShotLeaseState -RuntimeDir $script:LeaseDir).State
+        Assert-False (Test-Path -LiteralPath $script:LeaseStart) 'the start record goes with the pidfile'
+    }
+    It 'refuses a lease a live process holds, and never releases it' {
+        $holder = Get-TestSleeperProcess
+        try {
+            Set-Content -LiteralPath $script:LeasePid -Value "$($holder.Id)" -Encoding utf8NoBOM
+            Set-Content -LiteralPath $script:LeaseStart -Value (Get-TestProcessStartIso -ProcessId $holder.Id) -Encoding utf8NoBOM
+            $lease = Enter-YurunaOneShotLease -RuntimeDir $script:LeaseDir -Confirm:$false
+            Assert-False $lease.Acquired 'a live holder keeps the runtime'
+            Assert-Equal -Expected 'Held' -Actual $lease.State
+            Assert-Equal -Expected $holder.Id -Actual $lease.Pid
+            Assert-False (Exit-YurunaOneShotLease -RuntimeDir $script:LeaseDir -Confirm:$false) 'a lease this process does not hold is never released'
+            Assert-Equal -Expected "$($holder.Id)" -Actual ([IO.File]::ReadAllText($script:LeasePid).Trim()) -Because 'the holder lease is untouched'
+        } finally {
+            if (-not $holder.HasExited) { $holder.Kill() }
+        }
+    }
+    It 'takes over a lease whose holder exited or whose PID now names another process' {
+        Set-Content -LiteralPath $script:LeasePid -Value "$(Get-TestDeadPid)" -Encoding utf8NoBOM
+        Assert-True (Enter-YurunaOneShotLease -RuntimeDir $script:LeaseDir -Confirm:$false).Acquired 'an exited holder no longer owns the runtime'
+        Assert-Equal -Expected "$PID" -Actual ([IO.File]::ReadAllText($script:LeasePid).Trim())
+        $null = Exit-YurunaOneShotLease -RuntimeDir $script:LeaseDir -Confirm:$false
+        $reused = Get-TestSleeperProcess
+        try {
+            Set-Content -LiteralPath $script:LeasePid -Value "$($reused.Id)" -Encoding utf8NoBOM
+            Set-Content -LiteralPath $script:LeaseStart -Value (Get-TestProcessStartIso -ProcessId $reused.Id -SkewSeconds -30) -Encoding utf8NoBOM
+            Assert-True (Enter-YurunaOneShotLease -RuntimeDir $script:LeaseDir -Confirm:$false).Acquired 'a reused PID is not the process that wrote the lease'
+        } finally {
+            if (-not $reused.HasExited) { $reused.Kill() }
+        }
+    }
+    It 'refuses, and keeps, a lease whose holder cannot be proven' {
+        Set-Content -LiteralPath $script:LeasePid -Value '' -Encoding utf8NoBOM -NoNewline
+        $lease = Enter-YurunaOneShotLease -RuntimeDir $script:LeaseDir -Confirm:$false
+        Assert-False $lease.Acquired 'an unproven holder is not overridden'
+        Assert-Equal -Expected 'Unknown' -Actual $lease.State
+        Assert-True (Test-Path -LiteralPath $script:LeasePid) 'an unproven lease is never deleted'
+    }
+}
+
 Describe 'Start record and cycle record' {
     BeforeAll { $script:CycleDir = New-YurunaTestTempDir -Prefix 'yrn-si-cycle' }
     AfterAll { Remove-YurunaTestTempDir $script:CycleDir }
@@ -626,6 +687,15 @@ Describe 'Start record and cycle record' {
         Assert-True (Write-YurunaProcessStartRecord -Path $path -Confirm:$false) 'written'
         $recorded = [DateTimeOffset]::Parse((Get-Content -LiteralPath $path -Raw).Trim()).UtcDateTime
         Assert-True ([Math]::Abs(($recorded - (Get-Process -Id $PID).StartTime.ToUniversalTime()).TotalSeconds) -le 2) 'this process start time'
+    }
+    It 'writes the start record of another process it names' {
+        $child = Get-TestSleeperProcess
+        try {
+            $path = Join-Path $script:CycleDir 'child.start'
+            Assert-True (Write-YurunaProcessStartRecord -Path $path -ProcessId $child.Id -Confirm:$false) 'written'
+            $recorded = [DateTimeOffset]::Parse((Get-Content -LiteralPath $path -Raw).Trim()).UtcDateTime
+            Assert-True ([Math]::Abs(($recorded - $child.StartTime.ToUniversalTime()).TotalSeconds) -le 2) 'the child start time'
+        } finally { if (-not $child.HasExited) { $child.Kill() }; $child.Dispose() }
     }
     It 'records the spawned cycle process and classifies it from that record' {
         $cycle = Get-TestSleeperProcess

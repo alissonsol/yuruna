@@ -1,5 +1,6 @@
 // LICENSEURI https://yuruna.link/license
 // Copyright (c) 2019-2026 by Alisson Sol et al.
+// GUID: 428baa0a-c72c-4785-a770-62dbca53e2ff
 
 package gatethrottle
 

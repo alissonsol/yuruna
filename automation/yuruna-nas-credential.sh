@@ -1,7 +1,8 @@
 #!/bin/sh
-# Version: 2026.10.25
+# Version: 2026.10.26
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
+# GUID: 42f6780f-6201-4bb8-94a5-7862ef198dac
 #
 # Write one NAS credential (stash or pool) as a cifs credentials file, read
 # from the building host's config service over mutual TLS. cloud-init deploys

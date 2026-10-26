@@ -734,7 +734,11 @@ Um pequeno daemon Go (`test/extension/pool-control-service/server`, módulo `poo
   `Add-HostToPool.ps1`, `Remove-HostFromPool.ps1`, `Move-PoolHostIdentity.ps1`,
   `Set-PoolRepository.ps1`), em vez de reimplementar
   Git + YAML + validação de esquema + commit/push em Go &mdash; uma única implementação
-  oficial. Um push malsucedido aparece na interface como erro.
+  oficial. Um push malsucedido aparece na interface como erro. Uma leitura inicia o
+  pwsh e obtém o bloqueio exclusivo do clone de administração; por isso, uma leitura
+  bem-sucedida responde às rotas abertas de leitura por 15 segundos, as chamadas que
+  chegam enquanto ela é executada a compartilham, e qualquer outra CLI a invalida; no
+  máximo quatro CLIs são executadas ao mesmo tempo.
 - **Controla as rotas de controle dos próprios membros** para Pool Status
   (`/api/pool/host-control`): a única parte daqui que atua em outras máquinas,
   em vez de no armazenamento de configuração. A composição vem da configuração e os endereços
@@ -1257,6 +1261,8 @@ Eles ainda não têm um comando dedicado -- escreva-os diretamente em `pools.yml
 
 - **`config.testCycle`** -- substitui os ajustes de ciclo de teste para todo o grupo (por exemplo,
   `stepTimeoutSeconds`, `autoRemediation.enabled`); o valor do grupo tem prioridade sobre a configuração de cada hospedeiro.
+  O ciclo registra a substituição que aplicou em seu registro de resultado; assim, as decisões de
+  reparo do executor residente após um ciclo com falha também seguem `autoRemediation`.
 - **`gating`** -- limiares de alertas de saúde do grupo (o quórum de membros saudáveis e quanto tempo deve passar antes de um
   grupo ser marcado como "degraded"). Informativo: controla os alertas e o painel, nunca bloqueia um
   ciclo. A entrega é configurada separadamente no hospedeiro de alertas (veja a documentação do notificador).
@@ -1294,6 +1300,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.25
+Last review: 2026.10.26
 
 Voltar para [Yuruna](../../README.md)

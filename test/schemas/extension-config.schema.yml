@@ -1,5 +1,6 @@
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
+# GUID: 42d4a623-39ee-4ead-8a24-d58371175f44
 $schema: https://json-schema.org/draft/2020-12/schema
 $id: https://yuruna.com/schemas/extension-config.schema.yml
 title: Yuruna extension area config

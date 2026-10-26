@@ -6,7 +6,7 @@ carries the browser runtime its UI is built on.
 
 | Package | What it is |
 |---|---|
-| [`beacon`](beacon/) | The presence beacon. A hello at startup (retried on a doubling catch-up cadence until it first lands), a re-announce every interval, an `active:false` goodbye at shutdown -- so the dashboard's **Extension hosts** row survives the owning host's status service being down. |
+| [`beacon`](beacon/) | The presence beacon. A hello at startup, a re-announce every interval (any failed announce retried on a doubling catch-up cadence until one lands), an `active:false` goodbye at shutdown -- so the dashboard's **Extension hosts** row survives the owning host's status service being down. |
 | [`controlproof`](controlproof/) | Verifies the bounded, HMAC-backed host-control proof carried by dashboard links. |
 | [`hostinfo`](hostinfo/) | Reads active host IP addresses for extension-service UIs. |
 | [`i18n`](i18n/) | Serves compiled message catalogs, locale selection and localized HTTP/page text. |

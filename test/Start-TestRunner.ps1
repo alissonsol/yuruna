@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.25
+.VERSION 2026.10.26
 .GUID 4246a89e-2ebb-49a1-87a4-31d719f44bf1
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -62,7 +62,10 @@ Strict binding: an unknown or misspelled parameter is a binding error, never a
 value silently absorbed into $args while the runner starts on defaults.
 
 While a host refresh holds this host's runner (the refresh gate is closed,
-recovery-pending, in a handoff, or unreadable), a normal start refuses.
+recovery-pending, in a handoff, or unreadable), a normal start refuses. When
+the refresh was left unfinished by an earlier boot (its owner started before
+this boot and is gone), the first start of each boot also resumes it once with
+test/lab/Invoke-HostRefresh.ps1 -Resume.
 #>
 
 [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidGlobalVars', '',
@@ -122,7 +125,7 @@ $script:ForwardEnvNames = @(
     'YURUNA_LOG_DIR',           # Test.YurunaDir override
     'YURUNA_LOG_LEVEL',         # cascade visibility
     'YURUNA_OCR_COMBINE',       # OCR combine mode (And|Or)
-    'YURUNA_CONFIG_PATH',       # operator-supplied -ConfigPath (Sync-RuntimeConfig + Test.Transport agree)
+    'YURUNA_CONFIG_PATH',       # operator-supplied -ConfigPath (Sync-RunnerCycleConfig + Test.Transport agree)
     'YURUNA_STATUS_PUBLIC_URL'  # off-host dashboard URL for failure-notification deep links
 )
 
@@ -238,9 +241,148 @@ if ($RefreshResume) {
                 Write-OuterLog $ensureFailed
             }
         }
+        # A refresh that an earlier boot left unfinished is resumed once per boot
+        # and request; this start still refuses, and the refresh's own handoff
+        # starts the runner. See https://yuruna.link/42f909ad-0023
+        if ($startGate.Orphaned) {
+            $bootResume = Invoke-YurunaRefreshBootResume -Gate $startGate -RepoRoot $RepoRoot -Confirm:$false
+            $resumeLine = switch -Regex ($bootResume.Reason) {
+                '^launched$' {
+                    Format-YurunaOperatorMessage -Key 'runner.refresh_gate_boot_resume' -Arguments @{
+                        requestId = "$($bootResume.RequestId)"; pid = "$($bootResume.Pid)"; stdErrPath = "$($bootResume.StdErrPath)" }
+                }
+                '^already-tried$' {
+                    Format-YurunaOperatorMessage -Key 'runner.refresh_gate_boot_resume_tried' -Arguments @{ requestId = "$($bootResume.RequestId)" }
+                }
+                '^(marker-failed|no-private-root|launch-failed)' {
+                    Format-YurunaOperatorMessage -Key 'runner.refresh_gate_boot_resume_failed' -Arguments @{
+                        requestId = "$($bootResume.RequestId)"; reason = "$($bootResume.Reason)" }
+                }
+                default { $null }
+            }
+            if ($resumeLine) {
+                Write-Warning $resumeLine
+                Write-OuterLog $resumeLine
+            }
+        }
         exit (Get-EntryPointExitCode -Outcome Failure)
     }
 }
+
+# Snapshot AFTER Initialize-YurunaRuntimeDir / Initialize-YurunaLogDir so the
+# resolved (or operator-supplied) defaults for YURUNA_RUNTIME_DIR / YURUNA_-
+# LOG_DIR are captured rather than the pre-resolution null. Only names
+# present in $env: at this moment are stored -- absent names are not
+# forwarded (we don't want to set them to '' downstream).
+$script:ForwardEnvSnapshot = @{}
+foreach ($n in $script:ForwardEnvNames) {
+    $v = [Environment]::GetEnvironmentVariable($n)
+    if ($null -ne $v -and $v -ne '') {
+        $script:ForwardEnvSnapshot[$n] = $v
+    }
+}
+
+# --- REGION: Startup refusals
+# A start that is going to refuse must not first stop the runner it would
+# replace, or clear the runtime state that runner is using, so a fresh start
+# runs every refusal before the boot recovery and the takeover below.
+# A refusal is an orderly exit, and a launch record left open would read as a
+# runner for a refresh to restart, so a refusing start records its launch
+# ended cleanly -- unless a live runner owns runner.pid, whose record is that
+# runner's and is left alone. Once this runner has written its own record
+# (the Launch record region), $completeLaunchRecord only completes it.
+# The one definition of the record, written here by a refusing start or at
+# the Launch record region by the runner that owns the runtime.
+$launchScriptPath = $PSCommandPath
+$launchBoundParameters = $PSBoundParameters
+$writeLaunchRecord = {
+    Write-YurunaRunnerLaunchRecord -ScriptPath $launchScriptPath -BoundParameters $launchBoundParameters `
+        -ResolvedConfigPath $ConfigPath -RuntimeDir $env:YURUNA_RUNTIME_DIR -RepoRoot $RepoRoot `
+        -WorkingDirectory (Get-Location).ProviderPath -ForwardEnvironment $script:ForwardEnvSnapshot `
+        -AllowedEnvironmentName $script:ForwardEnvNames -Confirm:$false
+}
+$completeLaunchRecord = {
+    $runtimeOwner = Get-RunnerInstanceState -RunnerPidFile (Join-Path $env:YURUNA_RUNTIME_DIR 'runner.pid') -RunnerStartFile (Join-Path $env:YURUNA_RUNTIME_DIR 'runner.start')
+    if ($runtimeOwner.status -eq 'OtherRunner') { return }
+    $refusedLaunch = & $writeLaunchRecord
+    if ($refusedLaunch.Written) { $null = Complete-YurunaRunnerLaunchRecord -RuntimeDir $env:YURUNA_RUNTIME_DIR -CleanExit -Confirm:$false }
+}
+# Refuses while another live process holds the one-shot lease. A lease whose
+# holder cannot be proven is only reported: refusing on it would stop the
+# lab's runner until someone removed a file by hand.
+$refuseOneShot = {
+    $oneShot = Get-YurunaOneShotLeaseState -RuntimeDir $env:YURUNA_RUNTIME_DIR
+    if ($oneShot.State -eq 'Unknown') {
+        $unconfirmed = Format-YurunaOperatorMessage -Key 'runner.oneshot_lease_unconfirmed' -Arguments @{ pid = "$($oneShot.Pid)"; leasePath = "$($oneShot.PidFile)"; reason = "$($oneShot.Reason)" }
+        Write-Warning $unconfirmed
+        Write-OuterLog $unconfirmed
+    }
+    if ($oneShot.State -eq 'Held') {
+        if ($RefreshResume) {
+            $null = Write-YurunaRunnerReadinessAck -TokenId $RefreshHandoffToken -Role outer -State failed -FailureReason 'other-runner' -Confirm:$false
+        }
+        $oneShotBlocks = Format-YurunaOperatorMessage -Key 'runner.oneshot_blocks_start' -Arguments @{ pid = "$($oneShot.Pid)"; leasePath = "$($oneShot.PidFile)" }
+        Write-Warning $oneShotBlocks
+        Write-OuterLog $oneShotBlocks
+        & $releaseRunnerRecord
+        & $completeLaunchRecord
+        exit (Get-EntryPointExitCode -Outcome Failure)
+    }
+}
+# Nothing to release until this runner has written runner.pid.
+$releaseRunnerRecord = { }
+$refuseStart = {
+    # A missing powershell-yaml is a hard stop rather than a warning.
+    # See https://yuruna.link/42f909ad-0009
+    if (-not (Get-Module -ListAvailable -Name powershell-yaml -ErrorAction SilentlyContinue)) {
+        # exit is a bounded, non-interactive stop; the outer loop must never block
+        # on a prompt.
+        $yamlMissing = "powershell-yaml is not installed. The cycle planner cannot parse test.runner.yml, so every cycle would fall back to the legacy guestSequence and SKIP Start-GuestOS for every guest -- refusing to start a silently-degraded loop. Fix with: Install-Module powershell-yaml -Scope CurrentUser  (or re-run test/lab/Enable-TestAutomation.ps1)"
+        if ($RefreshResume) {
+            $null = Write-YurunaRunnerReadinessAck -TokenId $RefreshHandoffToken -Role outer -State failed -FailureReason 'yaml-missing' -Confirm:$false
+        }
+        Write-OuterLog (Format-YurunaOperatorMessage -Key 'runner.operator_1b2d45fc84aa493b' -Arguments @{ yamlMissing = "$yamlMissing" })
+        Write-Warning $yamlMissing
+        & $completeLaunchRecord
+        exit (Get-EntryPointExitCode -Outcome Failure)
+    }
+
+    # --- REGION: Elevation check
+    # See https://yuruna.link/42010605-0002
+    $elevationHostType = Get-HostType
+    # A resumed start has nobody at a console, so it never prompts: a missing
+    # credential is a refusal the worker reports.
+    if ($elevationHostType -and (Get-Command Assert-RunnerElevation -ErrorAction SilentlyContinue)) {
+        if (-not (Assert-RunnerElevation -HostType $elevationHostType -NonInteractive:$RefreshResume)) {
+            if ($RefreshResume) {
+                $null = Write-YurunaRunnerReadinessAck -TokenId $RefreshHandoffToken -Role outer -State failed -FailureReason 'elevation-refused' -Confirm:$false
+            }
+            Write-OuterLog (Format-YurunaOperatorMessage -Key 'runner.operator_71c777325565d43c' -Arguments @{ elevationHostType = "$elevationHostType" })
+            & $completeLaunchRecord
+            exit (Get-EntryPointExitCode -Outcome Failure)
+        }
+    }
+
+    # --- REGION: One-shot run in progress
+    # An Invoke-TestProject or Debug-TestSequence run holds the runtime for its
+    # whole duration; the boot recovery and takeover below would reclaim the
+    # checkout, status rows and VMs it is using.
+    # See https://yuruna.link/42010605-0013
+    & $refuseOneShot
+
+    # --- REGION: Pre-cycle config gate
+    # See https://yuruna.link/42f909ad-000a
+    $gate = Invoke-ConfigGate -TestRoot $TestRoot -ConfigPath $ConfigPath -Skip:$NoConfigGate -CallerName 'outer startup'
+    if (-not $gate.passed) {
+        if ($RefreshResume) {
+            $null = Write-YurunaRunnerReadinessAck -TokenId $RefreshHandoffToken -Role outer -State failed -FailureReason 'config-gate-failed' -Confirm:$false
+        }
+        Write-OuterLog (Format-YurunaOperatorMessage -Key 'runner.operator_4bc00ee22cf67a77' -Arguments @{ exitCode = "$($gate.exitCode)" })
+        & $completeLaunchRecord
+        exit (Get-EntryPointExitCode -Outcome Failure)
+    }
+}
+if (-not $RefreshResume) { . $refuseStart }
 
 # Recover stale runtime state before starting a fresh outer runner.
 # See https://yuruna.link/42e220c4-0008
@@ -258,19 +400,6 @@ $runStartupRecovery = {
     }
 }
 if (-not $RefreshResume) { & $runStartupRecovery }
-
-# Snapshot AFTER Initialize-YurunaRuntimeDir / Initialize-YurunaLogDir so the
-# resolved (or operator-supplied) defaults for YURUNA_RUNTIME_DIR / YURUNA_-
-# LOG_DIR are captured rather than the pre-resolution null. Only names
-# present in $env: at this moment are stored -- absent names are not
-# forwarded (we don't want to set them to '' downstream).
-$script:ForwardEnvSnapshot = @{}
-foreach ($n in $script:ForwardEnvNames) {
-    $v = [Environment]::GetEnvironmentVariable($n)
-    if ($null -ne $v -and $v -ne '') {
-        $script:ForwardEnvSnapshot[$n] = $v
-    }
-}
 
 # See https://yuruna.link/42010605-0002
 
@@ -340,6 +469,14 @@ if (-not $pidWritten) {
     Write-Error (Format-YurunaOperatorMessage -Key 'runner.operator_e00026446a75f063' -Arguments @{ runnerPidFile = "$RunnerPidFile" })
     exit (Get-EntryPointExitCode -Outcome Failure)
 }
+# A one-shot run takes its lease and then reads runner.pid; this runner wrote
+# runner.pid and now reads the lease, so of two starts in the same moment at
+# least one sees the other. A refusal here removes the runner.pid just written.
+$releaseRunnerRecord = {
+    Remove-Item -LiteralPath $RunnerPidFile   -Force -ErrorAction SilentlyContinue
+    Remove-Item -LiteralPath $RunnerStartFile -Force -ErrorAction SilentlyContinue
+}
+& $refuseOneShot
 if ($RefreshResume) { & $runStartupRecovery }
 
 # --- REGION: Launch record
@@ -348,10 +485,7 @@ if ($RefreshResume) { & $runStartupRecovery }
 # a command line, which for an interactive pwsh carries nothing. A record that
 # cannot be written only means a later refresh cannot restart this runner and
 # leaves the restart to the operator.
-$launchRecord = Write-YurunaRunnerLaunchRecord -ScriptPath $PSCommandPath -BoundParameters $PSBoundParameters `
-    -ResolvedConfigPath $ConfigPath -RuntimeDir $env:YURUNA_RUNTIME_DIR -RepoRoot $RepoRoot `
-    -WorkingDirectory (Get-Location).ProviderPath -ForwardEnvironment $script:ForwardEnvSnapshot `
-    -AllowedEnvironmentName $script:ForwardEnvNames -Confirm:$false
+$launchRecord = & $writeLaunchRecord
 if (-not $launchRecord.Written) {
     $launchSkipped = Format-YurunaOperatorMessage -Key 'runner.refresh_launch_record_skipped' -Arguments @{ reason = "$($launchRecord.Reason)" }
     Write-Warning $launchSkipped
@@ -408,48 +542,10 @@ if ($script:ForwardEnvSnapshot.Count -gt 0) {
 }
 Write-Output "========"
 
-# A missing powershell-yaml is a hard stop rather than a warning.
-# See https://yuruna.link/42f909ad-0009
-if (-not (Get-Module -ListAvailable -Name powershell-yaml -ErrorAction SilentlyContinue)) {
-    # exit is a bounded, non-interactive stop; the outer loop must never block
-    # on a prompt.
-    $yamlMissing = "powershell-yaml is not installed. The cycle planner cannot parse test.runner.yml, so every cycle would fall back to the legacy guestSequence and SKIP Start-GuestOS for every guest -- refusing to start a silently-degraded loop. Fix with: Install-Module powershell-yaml -Scope CurrentUser  (or re-run test/lab/Enable-TestAutomation.ps1)"
-    if ($RefreshResume) {
-        $null = Write-YurunaRunnerReadinessAck -TokenId $RefreshHandoffToken -Role outer -State failed -FailureReason 'yaml-missing' -Confirm:$false
-    }
-    Write-OuterLog (Format-YurunaOperatorMessage -Key 'runner.operator_1b2d45fc84aa493b' -Arguments @{ yamlMissing = "$yamlMissing" })
-    Write-Warning $yamlMissing
-    & $completeLaunchRecord
-    exit (Get-EntryPointExitCode -Outcome Failure)
-}
-
-# --- REGION: Elevation check
-# See https://yuruna.link/42010605-0002
-$elevationHostType = Get-HostType
-# A resumed start has nobody at a console, so it never prompts: a missing
-# credential is a refusal the worker reports.
-if ($elevationHostType -and (Get-Command Assert-RunnerElevation -ErrorAction SilentlyContinue)) {
-    if (-not (Assert-RunnerElevation -HostType $elevationHostType -NonInteractive:$RefreshResume)) {
-        if ($RefreshResume) {
-            $null = Write-YurunaRunnerReadinessAck -TokenId $RefreshHandoffToken -Role outer -State failed -FailureReason 'elevation-refused' -Confirm:$false
-        }
-        Write-OuterLog (Format-YurunaOperatorMessage -Key 'runner.operator_71c777325565d43c' -Arguments @{ elevationHostType = "$elevationHostType" })
-        & $completeLaunchRecord
-        exit (Get-EntryPointExitCode -Outcome Failure)
-    }
-}
-
-# --- REGION: Pre-cycle config gate
-# See https://yuruna.link/42f909ad-000a
-$gate = Invoke-ConfigGate -TestRoot $TestRoot -ConfigPath $ConfigPath -Skip:$NoConfigGate -CallerName 'outer startup'
-if (-not $gate.passed) {
-    if ($RefreshResume) {
-        $null = Write-YurunaRunnerReadinessAck -TokenId $RefreshHandoffToken -Role outer -State failed -FailureReason 'config-gate-failed' -Confirm:$false
-    }
-    Write-OuterLog (Format-YurunaOperatorMessage -Key 'runner.operator_4bc00ee22cf67a77' -Arguments @{ exitCode = "$($gate.exitCode)" })
-    & $completeLaunchRecord
-    exit (Get-EntryPointExitCode -Outcome Failure)
-}
+# --- REGION: Resumed-start refusals
+# A resumed start refuses here, where the refresh has already reclaimed what
+# it needed; a fresh start ran the same refusals before taking anything over.
+if ($RefreshResume) { . $refuseStart }
 
 # --- REGION: Eternal loop
 # See https://yuruna.link/42010605-0002

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.25
+.VERSION 2026.10.26
 .GUID 4298cc86-a88d-484a-9f42-179d9e217fbf
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -107,6 +107,9 @@ New-Item -ItemType Directory -Force -Path $DataDir | Out-Null
 # at its 64 KiB cluster boundaries, which are 4 KiB-aligned.
 $DiskImage = "$DataDir/disk.qcow2"
 Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_6288433a06ff55be')
+# `/bin/cp -c` triggers APFS clone (O(1), sparse-preserving). Falls back
+# to Copy-Item if the destination isn't APFS (rare). Full path bypasses
+# the PowerShell `cp` alias for Copy-Item.
 & /bin/cp -c $baseImageFile $DiskImage
 if ($LASTEXITCODE -ne 0) {
     Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_6a80b3350f680db8')
@@ -237,15 +240,16 @@ try {
     New-UtmServiceBundleConfiguration -TemplatePath (Join-Path $ScriptDir 'config.plist.template') -BundlePath $UtmDir -VMName $VMName -NetworkMode $NetworkMode -MemoryMb 2048 -Confirm:$false
     $VncDisplay = Get-VncDisplayForVm -VMName $VMName
 
-
 } finally {
     # --- REGION: Clean up temporary files
     Remove-SeedMediaWorkspace -Workspace $seedWorkspace -Confirm:$false
 }
 
 # --- REGION: Guidance
+# See https://yuruna.link/42e220c4-0004
 # UTM bundles are registered and started by the operator, so this phase prints
 # the next steps instead of waiting for an IP.
+# Keep the here-string literal: expandable strings would execute the shell examples.
 Write-Output ""
 Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_0693526b7c911445')
 Write-Output "  Path:      $UtmDir"

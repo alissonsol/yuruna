@@ -208,6 +208,24 @@ two conditions holds. Both are hard stops rather than warnings, because
 the failure mode they guard against is a loop that keeps producing
 near-empty cycles -- expensive to notice and diagnose after the fact.
 
+A fresh start runs every refusal -- these two, the elevation check, and
+the one-shot lease below -- before the boot recovery and before it stops
+the runner it would replace: a start that is going to refuse must leave
+the other runner and its runtime state as they were. A start resumed by a
+host refresh runs them once it owns `runner.pid`.
+Either way a refusal records that the start's launch ended cleanly, so a refresh
+does not take it for a crashed runner to restart -- except while a live
+runner owns `runner.pid`, whose launch record is that runner's.
+
+An `Invoke-TestProject` or `Debug-TestSequence` run holds the runtime's
+one-shot lease (`oneshot.pid` + `oneshot.start`) from before its first
+side effect until it exits, and the runner refuses to start while a live
+process holds it, naming the PID and the lease file. It reads the lease
+again right after it writes `runner.pid`, because the one-shot entry
+points take the lease first and then look for `runner.pid`: of two starts
+at the same moment, at least one sees the other. A lease whose holder
+cannot be proven alive or gone is reported and does not block the runner.
+
 <a id="42f909ad-0009"></a>
 
 ### powershell-yaml must be installed
@@ -358,10 +376,12 @@ dispatches, and all three may be absent:
 ## Failure-pause break-out triggers
 
 After the inner exits non-zero, the loop captures three baselines and
-polls five triggers every `FailureCommitPollSeconds` until the cap or one of
+polls six triggers every `FailureCommitPollSeconds` until the cap or one of
 them fires. The 5-second slice sleep inside the poll loop keeps
 Ctrl+C responsive (`Start-Sleep` cannot be interrupted by our event
-handler in long sweeps).
+handler in long sweeps). The pause and its poll interval are measured on a
+monotonic clock (`Get-OuterMonotonicTime`), so a daylight-saving change or
+a clock correction neither ends the pause early nor stretches it by an hour.
 
 | Trigger | Baseline | Probe |
 |---|---|---|
@@ -369,7 +389,8 @@ handler in long sweeps).
 | Project commit | `git ls-remote <projectUrl> HEAD` | Same `ls-remote` at poll time |
 | Local config edit | `Get-OuterConfigMtime` | Same call at poll time; `-ne` comparison handles changed / created / deleted in one shot |
 | Status-UI start request | (none) | Existence of `$YURUNA_RUNTIME_DIR/control.cycle-restart` |
-| Auto-remediation (default off) | (none) | The failure's class is one the [remediation dispatcher](failure-schema.md#remediation-dispatcher) maps to a clearly-safe retry, and the [recovery ledger](failure-schema.md#recovery-result-and-ledger) still has budget for the failure's fingerprint |
+| Auto-remediation (default off) | (none) | The failure's class is one the [remediation dispatcher](failure-schema.md#remediation-dispatcher) maps to a clearly-safe retry, the [recovery ledger](failure-schema.md#recovery-result-and-ledger) still has budget for the failure's fingerprint, and the class has runner-minutes left in its 24 h budget |
+| Recovery probe (default off, with auto-remediation) | (none) | The probe registered for a host condition (`hypervisor_unresponsive`, `host_network_degraded`, `pool_storage_full`) says it has cleared |
 
 Network / IO failure on any individual probe is treated as "no
 change for now" (return `$null` / unchanged baseline) so a flaky
@@ -383,6 +404,17 @@ failure's fingerprint, and not in the loop process: a runner restart does not ha
 a deterministic transient a fresh set of retries. A passing cycle re-arms the
 budget, and so does the passage of 24 hours. Everything the dispatcher does not
 classify as clearly-safe keeps the full wait-for-human pause.
+
+The early end is a real backoff: it waits one poll interval after the first
+failure, then doubles with each early end the ledger already holds for the same
+fingerprint, to at most 15 minutes, and a pass re-arms it with the budget. A
+class also has a runner-minute budget per rolling 24 hours (`RetryMinutesPerDay`
+in `Test.FailureTaxonomy`, 180 by default): the runner cycles that failed with
+it add their `durationSeconds`, and once the sum reaches the budget no pause of
+that class ends early -- neither by this trigger nor by a recovery probe --
+until older failures leave the window. A hang that the watchdog killed is filed
+as a `wait_timeout`, whose repair is the retry; without the budget the same
+hang would repeat after every early end.
 
 The automatic host-refresh decision runs after every dispatch, through
 `Test.HostRefreshTrigger` when that module is present (it is off by default;
@@ -535,7 +567,16 @@ gate that cannot be read -- damaged, from a newer schema, or under a private
 directory that fails its safety checks -- holds exactly like a closed one.
 Nothing expires a gate by age: one left behind by a worker that died stays held
 until `test/lab/Invoke-HostRefresh.ps1 -Resume` resolves it, and the runner's
-hold line says so.
+hold line says so. A refresh an earlier boot left unfinished is the one case the
+runner resumes itself: when the gate is orphaned and its owner started before
+the current boot (a power loss or a reboot in the middle of the refresh), the
+first `Start-TestRunner.ps1` start of each boot runs that same `-Resume` once for
+that request, detached, and still refuses; the refresh's own handoff starts the
+runner when it completes. The marker `boot-resume.json` beside the gate names
+the request and the boot, so a resume that fails is not retried until the next
+boot, and the worker's stderr is kept in `boot-resume.err`. A gate whose owner
+died in this boot, or whose owner's start time was not recorded, stays with the
+operator.
 
 An orphaned gate -- its owner proven dead or recycled, with no live handoff
 token -- still holds the runner, but not the observational status service:
@@ -775,6 +816,14 @@ A child that dies within seconds of its spawn, with a non-zero exit and no
 record, remains `cycle-aborted`: it never ran a cycle, and the loop holds briefly
 and retries instead of pausing.
 
+The hold after an attempt that produced no verdict -- `pull-error`,
+`spawn-failed` or `cycle-aborted` -- starts at its base (30 seconds) and doubles
+for each such attempt in a row, up to 15 minutes; the first cycle that runs to
+a verdict ends the streak. A cycle process that could not be started is
+published as a runner fault (`cycle_spawn_failed`, stage `CycleSpawn`), the
+same way a failed framework pull already is, so the pool sees a host that
+cannot start its cycles.
+
 The cycle process writes the record through `Publish-CycleOutcomeRecord`, which
 reads it back through the same validator (`Read-CycleOutcomeRecord`, both in
 [`Test.RecoveryContract`](../test/modules/Test.RecoveryContract.psm1)) before it
@@ -807,8 +856,31 @@ ledger):
    the status-service check, and before the pause. A repair that applied replaces the
    pause: the state machine goes `fault -> idle`, `outer.log` names the repair, and the
    next cycle is its proof.
-3. **Inside the pause**, as trigger 5 above: the early end for a transient class, which
-   waits for the first poll interval as it always did and is decided once per pause.
+3. **Inside the pause**, as the auto-remediation trigger above: the early end for a
+   transient class, which waits for its doubling hold and is decided once per pause;
+   and, for a host condition that clears on its own (`hypervisor_unresponsive`,
+   `host_network_degraded`, `pool_storage_full`), the probe that
+   `Test.RecoveryProbe` registers for the class. The pause runs it at most once per
+   probe interval, in a short-lived process (`test/modules/Invoke-RecoveryProbe.ps1`
+   loads the host driver and the checks the cycle uses to raise the class, which
+   the resident never loads), and a probe that says the condition cleared ends the
+   pause through `end_failure_pause_on_probe`. A probe that says it still holds
+   writes nothing to the ledger.
+
+The pool's `autoRemediation` override reaches these decisions too: the cycle
+process resolves the pool's `testCycle` block and records it in the cycle's
+outcome record (`poolTestCycle`), and the resident reads it from there, because
+the resident never syncs the pool configuration itself.
+
+A cycle that failed nothing but skipped a planned guest (a quarantined one) is
+degraded, not a pass. The inner exits 75 (`Get-DegradedCycleExitCode`, from
+sysexits `EX_TEMPFAIL`), the recovery result says `degraded`, and the cycle
+summary line reads `DEGRADED (n of m guests skipped)`. It raises no fault and
+takes no failure pause, but it has none of a pass's effects: it re-arms no
+repair budget, ends no failure streak, counts toward no alert re-arm and gives
+the automatic host refresh no success, because the skipped guest proves
+nothing. The status page and the history row still show the guests that ran as
+passing and the skipped guest as `skipped`.
 
 The ledger decides every time, so a restart between two identical failures changes
 nothing. What each repair does, and the ledger's rules, are in the
@@ -895,7 +967,7 @@ runner respawns the inner from a clean state.
 | `runner.start`           | outer runner            | next outer + status service | StartTime sidecar -- used to confirm a recovered PID belongs to a still-live outer (forgery-resistant: PID reuse has a different StartTime). |
 | `inner.pid`              | inner runner per cycle  | outer watchdog        | PID of the current inner cycle. Wiped by the outer before each spawn. |
 | `runner.heartbeat`       | C# `System.Threading.Timer` inside inner | (legacy) | Liveness at the process level. Keeps ticking even when the runspace is wedged inside a non-terminating OCR / SSH loop -- therefore **NOT a safe signal for "the cycle is making progress."** |
-| `runner.stepHeartbeat`   | `Invoke-Sequence` at the top of each step | outer watchdog | Touched from the runspace itself. The signal the watchdog uses to detect a wedged step. |
+| `runner.stepHeartbeat`   | `Write-RunnerStepHeartbeat`, from the runspace as work completes | outer watchdog | The signal the watchdog uses to detect a wedged step. Its one writer counts failed writes and reports them, at most once a minute, as a warning and in `runner.stepHeartbeat.errors.log`. |
 | `runner.phase`           | inner runner during its preamble | outer watchdog | Present means the inner has not reached its first sequence step, which selects the tighter preamble bound. |
 | `runner.watchdog.lapsed` | outer watchdog          | resident runner, cycle process, status service | Durable sentinel written when the watchdog gives up before arming, ending in the bounds it would have applied (`[stepSeconds=N preambleSeconds=M]`). The resident guards the cycle with those bounds while it runs, the status page shows the cycle as unguarded, and the cycle process reports it and removes the file once the inner returns. |
 | `inner.start`            | inner runner per cycle  | host refresh, boot recovery | StartTime sidecar of `inner.pid`, written before it. Wiped with `inner.pid` before each spawn. |
@@ -916,9 +988,14 @@ hangs**.
 A sequence step spinning forever in an OCR loop keeps the threadpool-
 written heartbeat fresh.
 
-`runner.stepHeartbeat` is touched from the runspace itself, at the
-top of every step iteration inside `Invoke-Sequence`. A wedged step
-stops touching it. The watchdog reads this file's mtime and kills the
+`runner.stepHeartbeat` is touched from the runspace itself: at the top
+of every step iteration inside `Invoke-Sequence`, and inside the waits
+that make progress on their own clock -- each finished `Wait-ForText`
+poll, each `Wait-VmStopped` probe, and the debug break, which also has a
+bound (the step's `timeoutSeconds`, else `YURUNA_BREAK_MAX_SECONDS`, else
+`testCycle.stepTimeoutSeconds`, 2700 s without one) and ends as a
+graceful timeout instead of a watchdog kill. A wedged step stops touching
+it. The watchdog reads this file's mtime and kills the
 inner when its age exceeds the bound in force -- once the sequence is
 running, `testCycle.stepTimeoutSeconds` (2700-second fallback; 3600 in the
 shipped template).
@@ -936,12 +1013,12 @@ outer is completely wedged on the spawn.
 
 The watchdog:
 
-1. Waits up to 180 s for `inner.pid` to appear. A loaded host can take
-   well past a minute to spawn pwsh and import the runner modules, and
-   giving up early runs the whole cycle unguarded while a longer wait
-   costs nothing -- the job idles. If the file never appears it
-   reports the lapse and exits without action, preferable to picking a
-   PID blindly.
+1. Waits up to 180 s for `inner.pid` to appear. The cycle process writes
+   `inner.start` and `inner.pid` itself the moment it starts the inner, so
+   the identity is there before the inner has loaded a module; the inner
+   rewrites the same values. The wait covers a cycle process that could
+   not write them. If the file never appears it reports the lapse and
+   exits without action, preferable to picking a PID blindly.
 2. Reads `inner.pid` and captures the process's `StartTime` alongside it.
    That pair is the armed identity: a PID alone can be reused mid-cycle,
    and killing the wrong process is worse than a missed kill.
@@ -950,9 +1027,13 @@ The watchdog:
      across three spaced probes before disarming, because `Get-Process`
      fails transiently on a loaded host and acting on one false reading
      would disable hang protection for the rest of the cycle.
-   - `runner.stepHeartbeat`'s mtime is younger than the bound in force.
-     With no heartbeat file yet, age is measured from arm time, so an
-     inner wedged before its first step write is still detected.
+   - `runner.stepHeartbeat` changed within the bound in force. Its age is
+     the heartbeat's UTC age when the job first saw it plus time on a
+     monotonic clock since it last changed: an age taken in local time
+     moves by an hour at a daylight-saving change, which would kill healthy
+     inners each spring. With no heartbeat file yet, age is measured from
+     arm time, so an inner wedged before its first step write is still
+     detected.
 4. On a stale heartbeat: re-verifies the identity, appends a `[watchdog]`
    line to `outer.log` with the observed age and bound, then kills the
    inner **and its descendants** -- a wedged step usually has live
@@ -1024,6 +1105,16 @@ one fleet-wide through its `config.testCycle` override without editing each
 host. Tightening helps on hosts where genuine slow steps complete
 under, say, 1200; loosening protects against a known-slow first-run
 image-build step.
+
+While an edit leaves `test.config.yml` unparsable -- a save caught half
+written, a typo in the YAML -- every resident decision (these timeouts, the
+cycle ceiling, automatic recovery and its budget, the automatic refresh
+threshold, the pool-storage checks) keeps the last configuration that parsed,
+and the runner warns once per broken content (`Read-TestConfig
+-LastGoodOnError`). Without the fallback, a broken file would read as no configuration,
+and the decisions would fall back to their defaults, automatic recovery off among
+them. The next cycle's own configuration gate still refuses to start on a file
+that does not parse.
 
 <a id="42f909ad-0018"></a>
 
@@ -1179,6 +1270,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.25
+Last review: 2026.10.26
 
 Back to [Yuruna](../README.md)

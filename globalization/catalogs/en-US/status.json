@@ -3284,6 +3284,11 @@
       "message": "Forbidden (not a served file)",
       "description": "Host status HTTP refusal for a file the repository mount or the status root does not serve: not a source file of the checkout, or a folder of the status root other than the performance rows and captures.",
       "lifecycle": "active"
+    },
+    "status.banner_recovery_disabled": {
+      "message": "Automatic recovery is off: the recovery ledger cannot be read or written.",
+      "description": "Note the status banner adds while control/runner-status reports recoveryDisabled: the recovery ledger cannot be read or written, so no automatic repair runs. The reported state decides behavior; this message is presentation only.",
+      "lifecycle": "active"
     }
   }
 }

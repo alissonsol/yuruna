@@ -939,6 +939,11 @@
           "example": "value"
         }
       }
+    },
+    "stash.api_large_text_busy": {
+      "message": "another large text is being stored; try again shortly",
+      "description": "HTTP error display text. The additive code and existing reason/status remain stable; never use translated prose to decide application behavior. External detail is displayed as data.",
+      "lifecycle": "active"
     }
   }
 }

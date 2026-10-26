@@ -1,5 +1,6 @@
 // LICENSEURI https://yuruna.link/license
 // Copyright (c) 2019-2026 by Alisson Sol et al.
+// GUID: 42226531-defc-416c-9e91-55019077c07c
 // Pools CRUD: create (mints poolGuid server-side), drive every member's pause
 // state, set each pool's framework and project URLs, add/remove hosts, delete
 // an empty pool.
@@ -554,7 +555,9 @@
   }
 
   document.getElementById('create').addEventListener('click', function () {
-    var poolId = document.getElementById('new-poolid').value.trim();
+    // Lowercased here, so a phone keyboard that capitalized the first letter
+    // still names the dns-safe id New-Pool.ps1 accepts.
+    var poolId = document.getElementById('new-poolid').value.trim().toLowerCase();
     var display = document.getElementById('new-display').value.trim();
     if (!poolId) { Y.notice('error', window.YurunaI18n.t("pool.enter_a_pool_id")); return; }
     Y.mutate('/api/pool', { method: 'POST', body: { poolId: poolId, displayName: display } }).then(function () {

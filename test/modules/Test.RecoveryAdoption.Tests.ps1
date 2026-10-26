@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.25
+.VERSION 2026.10.26
 .GUID 42ca3251-686b-4dc2-8cb3-c234aec016e5
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -73,13 +73,15 @@ Describe 'Every entry point goes through the shared steps' {
         # Each early exit saves first; the main run saves in its finally block.
         ([regex]::Matches($text, 'Save-SequenceRecoveryResult -ExitCode')).Count | Should -BeGreaterOrEqual 5
     }
-    It 'Invoke-TestProject refreshes the checkout through the step and records its result when it stops' {
+    It 'Invoke-TestProject runs its cycle through the runner and records its result when it stops' {
         $calls = Get-CommandName 'Invoke-TestProject.ps1'
-        $calls | Should -Contain 'Invoke-CycleCheckoutStep'
+        $calls | Should -Contain 'Invoke-OuterCycleDispatch'
+        $calls | Should -Contain 'Get-OneShotCycleExitCode'
+        $calls | Should -Not -Contain 'Invoke-CycleCheckoutStep'
         $calls | Should -Not -Contain 'Update-ProjectClone'
         $text = $script:Sources['Invoke-TestProject.ps1']
         $text | Should -Match 'Save-RecoveryResult -EntryPoint project -ExitCode \$Code'
-        $text | Should -Match 'Save-RecoveryResult -EntryPoint project -ExitCode \$innerExit'
+        $text | Should -Match 'Save-RecoveryResult -EntryPoint project -ExitCode \$exitCode'
     }
     It 'the inner runner asks admission through the step and exits with the step''s code' {
         $calls = Get-CommandName 'modules/Invoke-TestRunnerInnerLoop.ps1'

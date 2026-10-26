@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.25
+.VERSION 2026.10.26
 .GUID 42caf871-b327-4fe1-9fdb-2ee70289ee2b
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -405,5 +405,3 @@ Describe 'The removal path never trusts a utmctl delete exit code' {
         Assert-True ($probeAt -ge 0 -and $probeAt -lt $startMatch.Index) 'and the probe happens before any start is attempted'
     }
 }
-
-# Copyright (c) 2019-2026 by Alisson Sol et al.

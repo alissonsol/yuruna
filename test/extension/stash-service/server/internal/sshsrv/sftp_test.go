@@ -1,5 +1,6 @@
 // LICENSEURI https://yuruna.link/license
 // Copyright (c) 2019-2026 by Alisson Sol et al.
+// GUID: 4273c280-e7d3-4143-9624-9320f3ab2820
 
 package sshsrv
 
@@ -257,4 +258,40 @@ func TestSFTPWritebackFailureIsPartial(t *testing.T) {
 	if record.Status != meta.StatusPartial || record.StoredPath != "" {
 		t.Fatalf("failed upload finalized: %+v", record)
 	}
+}
+
+// One session holds at most maxOpenUploads files open: the next open is refused
+// until one of them is closed, so a session cannot pile up pending rows,
+// staging folders and descriptors.
+func TestSFTPSessionOpenUploadsAreCapped(t *testing.T) {
+	saved := maxOpenUploads
+	maxOpenUploads = 2
+	t.Cleanup(func() { maxOpenUploads = saved })
+	s := newTestServer(t, true)
+	h := &stashSFTP{srv: s, username: "u", clientIP: "10.0.0.9"}
+	open := func(name string) io.WriterAt {
+		t.Helper()
+		w, err := h.Filewrite(sftp.NewRequest("Put", "/scratch/"+name))
+		if err != nil {
+			t.Fatalf("open %s: %v", name, err)
+		}
+		if _, err := w.WriteAt([]byte(name), 0); err != nil {
+			t.Fatalf("write %s: %v", name, err)
+		}
+		return w
+	}
+	closeUpload := func(w io.WriterAt) {
+		t.Helper()
+		if err := w.(io.Closer).Close(); err != nil {
+			t.Fatalf("close: %v", err)
+		}
+	}
+	first, second := open("a.txt"), open("b.txt")
+	if _, err := h.Filewrite(sftp.NewRequest("Put", "/scratch/c.txt")); err == nil {
+		t.Fatal("an open past the per-session cap was accepted")
+	}
+	closeUpload(first)
+	third := open("c.txt")
+	closeUpload(second)
+	closeUpload(third)
 }

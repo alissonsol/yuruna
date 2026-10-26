@@ -558,6 +558,15 @@ for PowerShell to place into the UTM plist. `defer { sema.signal() }`
 keeps the wait deterministic in every code path; an unhandled crash
 inside the install handler would otherwise hang forever.
 
+The restore itself cannot wait the same way. The helper creates its
+`VZVirtualMachine` without an explicit queue, so the VM is bound to the main
+dispatch queue, and `VZMacOSInstaller` delivers both its progress KVO updates
+and its completion handler on that queue. Blocking the main thread there, as
+the IPSW load's semaphore wait does, would stall the queue and deadlock the
+install before it writes a single byte: the completion handler could never
+run. The helper hands the thread to `dispatchMain()` instead, which never
+returns, and the completion handler exits the process with the result.
+
 <a id="42885ada-0011"></a>
 
 ## `utmctl list` answers but every `start`, `stop` and `delete` times out
@@ -662,6 +671,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.25
+Last review: 2026.10.26
 
 Back to [Yuruna](../README.md)

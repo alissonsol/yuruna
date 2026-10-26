@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.25
+.VERSION 2026.10.26
 .GUID 42e8abe9-fab4-421a-90ab-caa2e130911b
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -795,7 +795,7 @@ function Write-YurunaCriticalRecord {
         (-not $Wait.TimedOut) -and ($null -eq $Wait.Exception) -and ([int]$Wait.Result -eq 0)
     }
 
-    # --- validated
+    # --- REGION: validated
     $result.Stage = 'validated'
     if ($powerLoss -and -not $declaration.PowerLossQualified) { return (& $fail 'durability-unavailable' $null) }
     if (-not ($Payload -is [System.Collections.IDictionary] -or $Payload -is [System.Management.Automation.PSCustomObject])) {
@@ -837,7 +837,7 @@ function Write-YurunaCriticalRecord {
     if ((Get-YurunaDeadlineRemainingMs -Deadline $deadlineObject) -lt 1000) { return (& $fail 'deadline-exhausted' $null) }
     & $completeStage 'validated'
 
-    # --- temp-written
+    # --- REGION: temp-written
     $result.Stage = 'temp-written'
     $token = '{0}-{1}' -f $PID, [Guid]::NewGuid().ToString('N')
     $tempPath = Join-Path $directory "$leaf.$token.tmp"
@@ -845,7 +845,7 @@ function Write-YurunaCriticalRecord {
     if ($wait.TimedOut -or $wait.Exception) { return (& $failTask $wait) }
     & $completeStage 'temp-written'
 
-    # --- temp-flushed
+    # --- REGION: temp-flushed
     $result.Stage = 'temp-flushed'
     $wait = Wait-YurunaCriticalIoTask -Task ($io::FlushPathAsync($tempPath, $false)) -TimeoutMilliseconds (& $stepMs $flushCapMs) -Operation 'flush-temp'
     if (-not (& $flushOk $wait)) {
@@ -854,7 +854,7 @@ function Write-YurunaCriticalRecord {
     }
     & $completeStage 'temp-flushed'
 
-    # --- temp-verified
+    # --- REGION: temp-verified
     $result.Stage = 'temp-verified'
     $wait = Wait-YurunaCriticalIoTask -Task ($io::ReadFileAsync($tempPath, $MaxBytes)) -TimeoutMilliseconds (& $stepMs 5000) -Operation 'verify-temp'
     if ($wait.TimedOut -or $wait.Exception) { return (& $failTask $wait) }
@@ -866,7 +866,7 @@ function Write-YurunaCriticalRecord {
     }
     & $completeStage 'temp-verified'
 
-    # --- previous-preserved
+    # --- REGION: previous-preserved
     $result.Stage = 'previous-preserved'
     if ($existing.Source -eq 'current') {
         $prevTempPath = Join-Path $directory "$leaf.prev.$token.tmp"
@@ -890,7 +890,7 @@ function Write-YurunaCriticalRecord {
     }
     & $completeStage 'previous-preserved'
 
-    # --- current-replaced
+    # --- REGION: current-replaced
     $result.Stage = 'current-replaced'
     $wait = Wait-YurunaCriticalIoTask -Task ($io::ReplaceFileAsync($tempPath, $fullPath)) -TimeoutMilliseconds (& $stepMs 5000) -Operation 'replace-current'
     if ($wait.TimedOut) {
@@ -903,7 +903,7 @@ function Write-YurunaCriticalRecord {
     $tempPath = $null
     & $completeStage 'current-replaced'
 
-    # --- directory-committed
+    # --- REGION: directory-committed
     $result.Stage = 'directory-committed'
     $wait = Wait-YurunaCriticalIoTask -Task ($io::FlushPathAsync($directory, $true)) -TimeoutMilliseconds (& $stepMs $flushCapMs) -Operation 'flush-directory'
     # -2: this platform commits the entry through the write-through rename.
@@ -914,7 +914,7 @@ function Write-YurunaCriticalRecord {
     }
     & $completeStage 'directory-committed'
 
-    # --- verified
+    # --- REGION: verified
     $result.Stage = 'verified'
     $after = Read-YurunaCriticalRecord -Path $fullPath -Kind $Kind -Deadline $deadlineObject -MaxBytes $MaxBytes
     if ($after.Status -ne 'ok' -or $after.Source -ne 'current' -or [long]$after.Generation -ne $newGeneration) {

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.25
+.VERSION 2026.10.26
 .GUID 42859ca6-4a84-417f-b9e8-f2a3a4dd84a5
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -36,7 +36,7 @@
     caller that trusts rc. This script therefore reads the NUnit result file
     and treats a MISSING file as the process-level failure signal.
 
-    Five conditions fail the run. Each exists because it has been observed or
+    Six conditions fail the run. Each exists because it has been observed or
     is structurally invisible to the others:
       1. the suite process did not produce a result file (crash, parse error,
          timeout)
@@ -47,10 +47,21 @@
          or renamed suite is silent test loss
       5. a suite's test count dropped below its baseline -- a Describe that
          stopped discovering half its cases is silent test loss too
+      6. a suite skipped more tests than its baseline budget -- a host that
+         lacks a tool a suite needs counts its tests as total and passes
+         conditions 2 to 5, so a skip is the remaining silent test loss.
+         -AllowSkipGrowth reports it as a warning instead, for a developer host
+         that knowingly lacks the tool; the run records that, and release
+         evidence refuses such a run.
 
-    Conditions 4 and 5 need the baseline to mean anything, which is why it is
+    Conditions 4 to 6 need the baseline to mean anything, which is why it is
     tracked (test/modules/suite-baseline.json) rather than generated per
     machine. Per-run output is disposable and goes to a gitignored directory.
+
+    Time is reported, never adjudicated: a suite that ran longer than twice its
+    recorded cost and more than -SlowdownAllowanceSeconds over it is listed as
+    a warning and in suite-results.json `slowdowns`, so a feedback loop that
+    grows slower is seen before the suite reaches its kill cap.
 
     A baseline row is `total`, `skipped` and `seconds`, recorded by
     -UpdateBaseline on the reference host, plus three optional fields that are
@@ -77,7 +88,7 @@
     a recorded pass instead of running the suite again when every recorded input
     is unchanged and the record's context matches: the same calendar day, root,
     platform, toolchain, runner and environment (process and session identifiers
-    excepted). A reused suite still goes through all five conditions, from its
+    excepted). A reused suite still goes through all six conditions, from its
     recorded NUnit file. Such a run is complete for a commit; a release runs with
     -All. Without strace or python3 nothing is recorded and every suite runs.
     Records live under the clone's Git directory (yuruna/test-impact).
@@ -103,6 +114,10 @@
     Per-suite wall-clock limit before the process is killed. Default 300, added
     to the suite's recorded cost. A baseline row's `timeoutSeconds` raises the
     cap for that one suite.
+.PARAMETER SlowdownAllowanceSeconds
+    How far beyond its recorded cost a suite may run before it is reported as
+    slower, on top of the doubling. Default 60, so a suite that finishes in a
+    second or two is not reported for ordinary variation under load.
 .PARAMETER ResultsPath
     Directory for per-suite NUnit XML, retained worker logs, and
     suite-results.json. Default .test-results (gitignored). Only one runner
@@ -145,6 +160,11 @@
     traced suite runs slower (up to three times for one that probes many paths),
     so its cap is four times the untraced one. Ignored, with a note, where
     strace or python3 is unavailable.
+.PARAMETER AllowSkipGrowth
+    Report a suite that skipped more tests than its baseline budget as a warning
+    instead of a failure, for a developer host that knowingly lacks a tool a
+    suite needs. The run records skipGrowthAllowed, which release evidence
+    refuses.
 .PARAMETER Background
     Record at idle priority, and launch no further suite while a run without
     this switch is active on the same clone. tools/Start-TestWatcher.ps1 runs
@@ -153,7 +173,7 @@
 .EXAMPLE
     pwsh -NoProfile -File tools/Invoke-TestSuite.ps1
     Runs every suite without a reusable recorded pass; exits non-zero on any of
-    the five conditions.
+    the six conditions.
 .EXAMPLE
     pwsh -NoProfile -File tools/Invoke-TestSuite.ps1 -All
     Runs every suite, as a release requires.
@@ -172,6 +192,7 @@ param(
     [string]$Filter,
     [int]$ThrottleLimit = [Math]::Clamp([int][Math]::Floor([Environment]::ProcessorCount * 3 / 4), 8, 24),
     [int]$TimeoutSeconds = 300,
+    [ValidateRange(0, 86400)][int]$SlowdownAllowanceSeconds = 60,
     [string]$ResultsPath,
     [string]$BaselinePath,
     [switch]$ListOnly,
@@ -182,7 +203,8 @@ param(
     [switch]$Quiet,
     [switch]$All,
     [switch]$Record,
-    [switch]$Background
+    [switch]$Background,
+    [switch]$AllowSkipGrowth
 )
 
 $ErrorActionPreference = 'Stop'
@@ -255,6 +277,21 @@ function Get-SuiteSkipBudget {
         return [int]$budgets.Value.$Platform
     }
     return [int]$Row.skipped
+}
+
+# --- REGION: Get-SkippedCaseName
+# The names of the first few skipped cases in a suite's NUnit file, so a skip
+# over budget names what stopped running. Pester records no reason there.
+function Get-SkippedCaseName {
+    param([Parameter(Mandatory)][string]$XmlPath)
+    if (-not (Test-Path -LiteralPath $XmlPath)) { return @() }
+    try {
+        $document = [xml](Get-Content -LiteralPath $XmlPath -Raw -ErrorAction Stop)
+        return @($document.SelectNodes('//test-case[@executed="False"]') | ForEach-Object { $_.GetAttribute('name') } |
+            Where-Object { $_ } | Select-Object -First 3)
+    } catch {
+        return @()
+    }
 }
 
 # --- REGION: Assert-RefreshBaseline
@@ -1042,6 +1079,7 @@ try {
     # --- REGION: Adjudicate
     $results = @(@($reused) + @($results | Where-Object { $null -ne $_ }) | Sort-Object path)
     $problems = [Collections.Generic.List[string]]::new()
+    $skipGrowth = [Collections.Generic.List[string]]::new()
 
     # Report the originating failure before its canceled siblings.
     foreach ($r in ($results | Sort-Object @{ Expression = { $_.rc -eq 125 } }, path)) {
@@ -1076,8 +1114,25 @@ try {
             if ($now -lt $was) {
                 $problems.Add("$($p.Name): $now tests, baseline had $was -- tests disappeared")
             }
+            $skipBudget = Get-SuiteSkipBudget -Row $p.Value -Platform $Platform
+            $skippedNow = [int]$seen[$p.Name].skipped
+            if ($skippedNow -gt $skipBudget) {
+                $cases = @(Get-SkippedCaseName -XmlPath (Join-Path $ResultsPath ('nunit-' + ($p.Name -replace '[\\/]', '_') + '.xml')))
+                $line = "$($p.Name): $skippedNow skipped, budget $skipBudget -- tests stopped running$(if ($cases) { "; first: $($cases -join ' | ')" })"
+                if ($AllowSkipGrowth) { $skipGrowth.Add($line) } else { $problems.Add($line) }
+            }
         }
     }
+
+    # A reused suite did not run, so its seconds say nothing about this run.
+    $slowdowns = @(foreach ($r in $results) {
+            if (-not $r.haveXml -or [string]$r.impact -like 'reused*' -or -not $order.ContainsKey($r.path)) { continue }
+            $recorded = [double]$order[$r.path]
+            if ($recorded -le 0) { continue }
+            if ($r.seconds -gt [math]::Max(2 * $recorded, $recorded + $SlowdownAllowanceSeconds)) {
+                [pscustomobject]@{ path = $r.path; seconds = $r.seconds; recordedSeconds = $recorded }
+            }
+        }) | Sort-Object -Property @{ Expression = { $_.seconds - $_.recordedSeconds }; Descending = $true }, path
 
     $totals = [pscustomobject]@{
         suites  = $results.Count
@@ -1125,6 +1180,9 @@ try {
         }
         totals        = $totals
         problems      = @($problems)
+        skipGrowthAllowed = [bool]$AllowSkipGrowth
+        skipGrowth    = @($skipGrowth)
+        slowdowns     = @($slowdowns)
         suites        = $results
     }
     $run | ConvertTo-Json -Depth 6 |
@@ -1235,6 +1293,13 @@ try {
     Write-Information ("{0} suite(s), {1} test(s), {2} failed, {3} skipped, {4} incomplete suite(s), {5}s{6}" -f
         $totals.suites, $totals.tests, ($totals.failed + $totals.errors), $totals.skipped, $totals.incomplete, $totals.seconds,
         $reusedSummary) -InformationAction Continue
+    foreach ($s in $skipGrowth) { Write-Warning "skip growth allowed: $s" }
+    foreach ($s in @($slowdowns | Select-Object -First 5)) {
+        Write-Warning ("{0} ran {1:n1}s against {2:n1}s recorded" -f $s.path, $s.seconds, $s.recordedSeconds)
+    }
+    if (@($slowdowns).Count -gt 5) {
+        Write-Warning "$(@($slowdowns).Count - 5) more suite(s) ran far longer than recorded; see slowdowns in suite-results.json"
+    }
 
     # Keep the report beside its logs so a later run does not erase the link
     # between an incomplete suite and its original diagnostics.

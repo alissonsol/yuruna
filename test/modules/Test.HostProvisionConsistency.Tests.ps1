@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.25
+.VERSION 2026.10.26
 .GUID 427dc7e5-42e7-4d34-bef6-83be459c7402
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -509,6 +509,35 @@ Describe 'Download-agent artifact pattern' {
         Assert-True ($checked -ge 6) "each Amazon Linux 2023 and Windows 11 Get-Image script must state an artifact pattern; found $checked"
     }
 
+    It 'puts every downloaded image in place through Publish-YurunaBaseImage, never with a move of its own' {
+        # A move that fails under the default error action lets the script go on
+        # to write the record that vouches for the image; the publisher stops,
+        # puts the previous image back and checks the size first.
+        $expected = @{
+            'host/macos.utm/guest.amazon.linux.2023/Get-Image.ps1'       = 1
+            'host/ubuntu.kvm/guest.amazon.linux.2023/Get-Image.ps1'      = 1
+            'host/windows.hyper-v/guest.amazon.linux.2023/Get-Image.ps1' = 1
+            'host/macos.utm/guest.macos.26/Get-Image.ps1'                = 1
+            'host/windows.hyper-v/guest.windows.11/Get-Image.ps1'        = 3
+            'host/macos.utm/guest.windows.11/Get-Image.ps1'              = 4
+            'host/ubuntu.kvm/guest.windows.11/Get-Image.ps1'             = 3
+        }
+        $checked = 0
+        foreach ($file in Get-ChildItem (Join-Path $script:RepoRoot 'host/*/guest.*/Get-Image.ps1')) {
+            $relative = [IO.Path]::GetRelativePath($script:RepoRoot, $file.FullName).Replace('\', '/')
+            $ast = [Management.Automation.Language.Parser]::ParseFile($file.FullName, [ref]$null, [ref]$null)
+            $commands = @($ast.FindAll({ param($node) $node -is [Management.Automation.Language.CommandAst] }, $true))
+            $moves = @($commands | Where-Object { $_.GetCommandName() -in @('Move-Item', 'Rename-Item', 'mv', 'move') })
+            Assert-Equal 0 $moves.Count "$relative moves a file itself: $(@($moves | ForEach-Object { $_.Extent.Text }) -join ' | ')"
+            $publishes = @($commands | Where-Object { $_.GetCommandName() -eq 'Publish-YurunaBaseImage' }).Count
+            if ($expected.ContainsKey($relative)) {
+                Assert-Equal $expected[$relative] $publishes "$relative must publish each image it swaps"
+                $checked++
+            }
+        }
+        Assert-Equal $expected.Count $checked 'every script that swaps an image is under test'
+    }
+
     It 'gives every Amazon Linux 2023 host a pattern that accepts only the artifact it stages' {
         $cases = @(
             @{ Script = 'host/macos.utm/guest.amazon.linux.2023/Get-Image.ps1';       Extension = 'qcow2'; Refused = @('zip', 'vhdx') }
@@ -576,6 +605,11 @@ function Expand-ExtensionVmDisk { param($Path, $SizeBytes, $Format) return $true
 }
 
 Describe 'KVM Windows media adoption' {
+    BeforeAll {
+        # The script loads the publisher the adoption block hands the ISO to.
+        Import-Module (Join-Path $script:RepoRoot 'host/modules/Yuruna.Image.psm1') -DisableNameChecking
+    }
+
     It 'rejects ARM-labeled media and accepts x64 or unlabeled media without changing their bytes' {
         $path = Join-Path $script:RepoRoot 'host/ubuntu.kvm/guest.windows.11/Get-Image.ps1'
         $ast = Get-ProvisionAst $path

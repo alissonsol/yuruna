@@ -1,5 +1,6 @@
 // LICENSEURI https://yuruna.link/license
 // Copyright (c) 2019-2026 by Alisson Sol et al.
+// GUID: 42a0e51f-7f8a-4593-9b70-8c015e20084d
 
 // Package state persists the download-agent service's operational state. See
 // ../../../../../../docs/download-agent.md#the-download-pool for the on-share

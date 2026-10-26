@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
+# GUID: 42b06307-7f92-43e4-b350-43f17f30da0e
 """Collect repository dependency evidence without restoring or downloading packages."""
 from __future__ import annotations
 

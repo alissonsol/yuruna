@@ -1,5 +1,6 @@
 // LICENSEURI https://yuruna.link/license
 // Copyright (c) 2019-2026 by Alisson Sol et al.
+// GUID: 42f34377-59d2-48e8-80be-be5109e7fa7d
 // Network scan: pick a range, watch it being walked, see what it added.
 // No innerHTML on data.
 (function () {

@@ -1,5 +1,6 @@
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
+# GUID: 42b3d7b4-aac3-439d-904c-8adf32fe4c4b
 provider "azurerm" {
 
   features {}

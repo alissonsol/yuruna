@@ -1,5 +1,6 @@
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
+# GUID: 426646ed-bc71-4365-959e-50a63243435d
 # Yuruna extension contract for area: pool-control-service
 # Every extension implementation (<name>.psm1) in this directory MUST
 # export the verbs listed in `requiredFunction`. Test.Extension's

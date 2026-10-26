@@ -311,6 +311,26 @@ workarounds collected during development live in [Yuruna Workarounds](docs/worka
   commit that stages a test file needs Pester 6.x on the host. `pwsh -NoProfile
   -File tools/Install-TestModule.ps1` installs the newest 6.x; see
   [Pester install](docs/install.md#pester-install).
+- **Command names in prose** -- every `Verb-Noun` name in Markdown and in
+  PowerShell comments names something that exists: a function in one of the
+  repositories, a script or tool file, a command of PowerShell, or an entry of
+  `tools/symbol-reference.allowlist.json` (a cmdlet of a module Linux lacks, an
+  optional hook, an example's invented name, each with its reason). Rename or
+  remove a function and update the prose that names it in the same change;
+  `pwsh -NoProfile -Command "& ./tools/Test-SymbolReference.ps1 -Root @('<repo>', ...)"`
+  lists what still points at the old name, and `Test.SymbolReference` fails the
+  suite on it. `dev-only/` (designs name commands still proposed) and
+  `CHANGELOG.md` (history) are exempt.
+- **Documentation footer** -- every Markdown document, the private
+  `dev-only/` ones included, ends with its footer: a `---` rule, the
+  `LICENSEURI https://yuruna.link/license` line, the copyright line, the
+  `Last review:` stamp (translated in a translated document), and the
+  navigation line (`Back to [Yuruna](...)`, or a row of links). Nothing
+  follows it: a paragraph added at the end of the file lands under the
+  license. A document opens with its region anchor (`<a id="..."></a>`) and
+  then its title. `pwsh tools/Test-SourceMetadata.ps1 -Markdown -Root <repo>`
+  lists the documents with no footer or with content after it; no hook runs
+  it. Agent instruction files (`AGENTS.md`, `CLAUDE.md`) carry no footer.
 - **Software bill of materials** -- [SBOM maintenance](docs/sbom/README.md)
   generates repository, host, and guest inventories from the staged snapshot,
   stages changed files, and retains the preceding version as `.previous`.
@@ -370,26 +390,38 @@ workarounds collected during development live in [Yuruna Workarounds](docs/worka
   directly above `Copyright (c) 2019-2026 by Alisson Sol et al.`, written in the
   language's comment syntax and placed below any first line that must stay first
   (a shebang, `<?xml?>`, `#cloud-config`). A copyright without the pointer leaves
-  open which license the published repositories ship under. PowerShell keeps both
-  in the `<#PSScriptInfo` block, which also holds a `.GUID` that starts with `42`
-  and that no other file declares (mint one with the recipe in
-  [docs/test-perf.md](docs/test-perf.md)): the GUID is what keeps a script's
-  history joined through a rename, so a shared one merges two histories. JSON,
-  Markdown, lock files, images and `.template` skeletons (whose comments are
-  copied into operator files) are not covered. Only three kinds of file are
-  exempt, and only through an entry in
+  open which license the published repositories ship under. Directly below the
+  copyright line comes a GUID line in the same syntax (`# GUID: 42...`,
+  `// GUID: 42...`, `<!-- GUID: 42... -->`; bare `GUID: 42...` inside a block
+  comment that holds the copyright line) whose GUID starts with `42` and is
+  declared by no other file. Take the one the gate prints or mint one with the
+  recipe in [docs/test-perf.md](docs/test-perf.md): the GUID is what keeps a
+  file's history joined through a rename, so a shared one merges two histories.
+  PowerShell keeps all three in the `<#PSScriptInfo` block (`.LICENSEURI`,
+  `.COPYRIGHT`, `.GUID`), and a sequence YAML is named by its top-level
+  `sequenceGuid` instead of a GUID line. JSON, Markdown, lock files, images and
+  `.template` skeletons (whose comments are copied into operator files) are not
+  covered. Only three kinds of file are exempt, and only through an entry in
   [tools/source-metadata.exemptions.json](tools/source-metadata.exemptions.json),
   where each entry states its reason: generated files (the entry names the
-  generator, and the file must name it too), vendored files (they keep their
-  upstream header), and byte-identical synchronized copies that share a GUID by
-  design (the entry names the sync tool). A new generated file therefore needs a
-  reviewed entry before it passes. The commit hook runs
-  `tools/Test-SourceMetadata.ps1 -Staged`, which reads the index and blocks a gap
-  the commit introduces; a gap that already exists in a file you only edit is
-  reported and does not block. `pwsh tools/Test-SourceMetadata.ps1 -All` reports
-  the whole tree (`-Root` takes several repositories, and `-FailOnDebt` turns
-  any finding into a failure for a release gate). A project repository's hook can
-  run the same script with `-Staged -Root <that repository>`.
+  generator, and the file must name it too; a generated file carries no GUID),
+  vendored files (they keep their upstream header), and byte-identical
+  synchronized copies that share a GUID by design (the entry names the tool that
+  copies them or the check that holds them identical, and lists the
+  repositories under `repos` when the copies live in more than one). Files that
+  only stay aligned, such as the Ubuntu 24 and 26 variants of a script, keep
+  their own GUIDs, and the check that compares them leaves the identity lines
+  out. A new generated file therefore needs a reviewed entry before it passes.
+  The commit hook runs `tools/Test-SourceMetadata.ps1 -Staged`, which reads the
+  index and blocks a gap the commit introduces; a gap that already exists in a
+  file you only edit is reported and does not block, but a malformed GUID or one
+  another file declares always blocks. `pwsh tools/Test-SourceMetadata.ps1 -All`
+  reports the whole tree (`-Root` takes several repositories, whose GUIDs must
+  then be unique across all of them, and `-FailOnDebt` turns any finding into a
+  failure for a release gate). The yuruna-project, yuruna.link and amisad.dev
+  hooks run the same script with `-Staged -Root <that repository>` from the
+  framework checkout beside them (or where `YURUNA_FRAMEWORK_ROOT` points), and
+  only warn when there is none.
 - **Accessibility** -- run `pwsh tools/Invoke-A11yCheck.ps1` when you touch a
   page, a stylesheet, or anything that generates HTML. It drives the installed
   Chrome and measures what the browser paints -- contrast, reflow at 320 CSS px,
@@ -460,6 +492,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.25
+Last review: 2026.10.26
 
 Back to [Yuruna](README.md)

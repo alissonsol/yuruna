@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.25
+.VERSION 2026.10.26
 .GUID 4264d5c7-e082-4c67-a5f9-915f2f84141e
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -303,6 +303,39 @@ Describe 'proxy CA preparation and recovery entry points' {
         @($poolRepairArgs.HostRecord).Count | Should -Be 1
         $poolRepairArgs.HostRecord[0].hostId | Should -BeExactly ('a'*32)
         $script:SnapshotUrl | Should -BeExactly $Url
+    }
+}
+
+# A proxy URL can carry a user and password, and the runtime directory is
+# read by more than this process.
+Describe 'Start-CachingProxyServiceVM.ps1 clears the inherited proxy environment without keeping it' {
+    It 'clears the variables, keeps no copy of their values and drops one an older run left' {
+        $source = Get-Content -LiteralPath $script:startCp -Raw
+        $begin = $source.IndexOf('# --- REGION: Clear the inherited proxy environment')
+        $end = $source.IndexOf('# --- REGION: Initialize host access', $begin)
+        $begin | Should -BeGreaterOrEqual 0
+        $end | Should -BeGreaterThan $begin
+        $runtime = Join-Path $TestDrive 'proxy-env'
+        $null = New-Item -ItemType Directory -Path $runtime -Force
+        $leftover = Join-Path $runtime '.caching-proxy-service.env.json'
+        Set-Content -LiteralPath $leftover -Value '{"HTTP_PROXY":"http://operator:fixture-secret@192.0.2.9:3128"}'
+        $priorProxy = $env:HTTP_PROXY
+        $priorRuntime = $env:YURUNA_RUNTIME_DIR
+        try {
+            $env:HTTP_PROXY = 'http://operator:fixture-secret@192.0.2.9:3128'
+            $env:YURUNA_RUNTIME_DIR = $runtime
+            # The region resolves module paths from the script's own folder.
+            $rootLine = '$PSScriptRoot = ''' + ((Split-Path -Parent $script:startCp) -replace "'", "''") + "'"
+            $region = [scriptblock]::Create($rootLine + "`n" + $source.Substring($begin, $end - $begin))
+            $verbose = @(& { $VerbosePreference = 'Continue'; & $region } 4>&1 | ForEach-Object { "$_" }) -join "`n"
+            Test-Path -LiteralPath Env:HTTP_PROXY | Should -BeFalse
+            @(Get-ChildItem -LiteralPath $runtime -Force).Count | Should -Be 0 -Because 'no copy of the values is kept, and the old one is gone'
+            $verbose | Should -Match 'HTTP_PROXY'
+            $verbose | Should -Not -Match 'fixture-secret'
+        } finally {
+            if ($null -eq $priorProxy) { Remove-Item Env:HTTP_PROXY -ErrorAction SilentlyContinue } else { $env:HTTP_PROXY = $priorProxy }
+            if ($null -eq $priorRuntime) { Remove-Item Env:YURUNA_RUNTIME_DIR -ErrorAction SilentlyContinue } else { $env:YURUNA_RUNTIME_DIR = $priorRuntime }
+        }
     }
 }
 

@@ -1,5 +1,6 @@
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
+# GUID: 42c4d05d-f2f4-44cb-93a2-d9edb41ea426
 locals {
   # Split the comma-separated CIDR allow-list (one tfvars string, since the
   # pipeline emits every variable quoted) into the list azurerm wants.

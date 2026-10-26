@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.25
+.VERSION 2026.10.26
 .GUID 42228108-7cf2-409b-8ae4-1bb3028f378f
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -1652,27 +1652,118 @@ function Remove-YurunaRunnerRecordGeneration {
 function Write-YurunaProcessStartRecord {
     <#
     .SYNOPSIS
-        Write this process's start time as an ISO-8601 UTC string, the same
+        Write a process's start time as an ISO-8601 UTC string, the same
         shape as runner.start (inner.start uses it).
     .DESCRIPTION
         Written atomically before the matching pidfile, so a reader never
         sees a new PID beside an old start time.
     .PARAMETER Path
         The start-record file.
+    .PARAMETER ProcessId
+        The process to record; this one by default. The cycle process records
+        the inner it just started, so the watchdog can arm before the inner
+        has loaded far enough to record itself.
     .OUTPUTS
         [bool]
     #>
     [CmdletBinding(SupportsShouldProcess)]
     [OutputType([bool])]
-    param([Parameter(Mandatory)][string]$Path)
+    param([Parameter(Mandatory)][string]$Path, [int]$ProcessId = $PID)
     if (-not $PSCmdlet.ShouldProcess($Path, (Format-YurunaOperatorMessage -Key 'runner.process_start_record_write_action'))) { return $false }
     try {
-        $iso = (Get-Process -Id $PID).StartTime.ToUniversalTime().ToString('o')
+        $iso = (Get-Process -Id $ProcessId -ErrorAction Stop).StartTime.ToUniversalTime().ToString('o')
     } catch {
         Write-Verbose "Write-YurunaProcessStartRecord: own start time unreadable: $($_.Exception.Message)"
         return $false
     }
     return [bool](Write-YurunaStateFile -Path $Path -Content $iso -Confirm:$false)
+}
+
+# --- REGION: One-shot runtime lease
+# Start-TestRunner owns runner.pid for its whole lifetime. A one-shot entry
+# point (Invoke-TestProject, Debug-TestSequence) owns oneshot.pid for its run,
+# so the guards that look for a runner also see a run that is not the resident
+# loop. The pair is the same shape as runner.pid + runner.start and goes
+# through the same writer, classifier and generation-checked removal.
+function Get-YurunaOneShotLeaseState {
+    <#
+    .SYNOPSIS
+        Classify this runtime's one-shot lease: Missing, Self, Held (a live
+        process other than this one), Stale (holder gone, safe to remove) or
+        Unknown (holder identity unproven; never removed).
+    .OUTPUTS
+        [pscustomobject] State, Pid, Reason, Fingerprint, PidFile, StartFile.
+    #>
+    [CmdletBinding()]
+    [OutputType([pscustomobject])]
+    param([Parameter(Mandatory)][string]$RuntimeDir, [psobject]$ProcessTable)
+    $pidFile = Join-Path $RuntimeDir 'oneshot.pid'
+    $startFile = Join-Path $RuntimeDir 'oneshot.start'
+    $recordArgs = @{ PidFile = $pidFile; StartFile = $startFile }
+    if ($ProcessTable) { $recordArgs.ProcessTable = $ProcessTable }
+    $record = Get-YurunaRunnerRecordState @recordArgs
+    $state = switch ([string]$record.State) {
+        'Missing' { 'Missing' }
+        'DeadOrRecycled' { 'Stale' }
+        'Unknown' { 'Unknown' }
+        default { if ([int]$record.Pid -eq $PID) { 'Self' } else { 'Held' } }
+    }
+    return [pscustomobject]@{
+        State = $state; Pid = [int]$record.Pid; Reason = [string]$record.Reason
+        Fingerprint = [string]$record.Fingerprint; PidFile = $pidFile; StartFile = $startFile
+    }
+}
+
+function Enter-YurunaOneShotLease {
+    <#
+    .SYNOPSIS
+        Take this runtime's one-shot lease, or report the process holding it.
+    .DESCRIPTION
+        A lease whose holder is gone (process absent, or another process
+        behind a reused PID) is removed as that exact generation and taken.
+        A live holder, or one whose identity cannot be proven, refuses: two
+        one-shot runs in one runtime directory would race each other's VMs,
+        status rows and checkout. Taking a lease this process already holds
+        succeeds, so one shell can run one-shot entry points one after another.
+    .OUTPUTS
+        [pscustomobject] Acquired plus the Get-YurunaOneShotLeaseState fields
+        of the lease as it was found.
+    #>
+    [CmdletBinding(SupportsShouldProcess)]
+    [OutputType([pscustomobject])]
+    param([Parameter(Mandatory)][string]$RuntimeDir)
+    $lease = Get-YurunaOneShotLeaseState -RuntimeDir $RuntimeDir
+    if ($lease.State -eq 'Stale') {
+        $null = Remove-YurunaRunnerRecordGeneration -PidFile $lease.PidFile -StartFile $lease.StartFile -Fingerprint $lease.Fingerprint -Confirm:$false
+        $lease = Get-YurunaOneShotLeaseState -RuntimeDir $RuntimeDir
+    }
+    $acquired = $lease.State -eq 'Self'
+    if ($lease.State -eq 'Missing' -and $PSCmdlet.ShouldProcess($lease.PidFile, (Format-YurunaOperatorMessage -Key 'runner.oneshot_lease_take_action'))) {
+        # Write-RunnerPidFile creates the pidfile with CreateNew, so of two runs
+        # that both found no lease exactly one wins; the loser reads the winner.
+        $acquired = [bool](Write-RunnerPidFile -RunnerPidFile $lease.PidFile -RunnerStartFile $lease.StartFile -Confirm:$false)
+        if (-not $acquired) { $lease = Get-YurunaOneShotLeaseState -RuntimeDir $RuntimeDir }
+    }
+    $lease | Add-Member -NotePropertyName Acquired -NotePropertyValue $acquired -PassThru
+}
+
+function Exit-YurunaOneShotLease {
+    <#
+    .SYNOPSIS
+        Release this process's one-shot lease; another process's is never touched.
+    .OUTPUTS
+        [bool] $true when this process's lease was removed.
+    #>
+    [CmdletBinding(SupportsShouldProcess)]
+    [OutputType([bool])]
+    param([Parameter(Mandatory)][string]$RuntimeDir)
+    $lease = Get-YurunaOneShotLeaseState -RuntimeDir $RuntimeDir
+    if ($lease.State -ne 'Self') { return $false }
+    if (-not $PSCmdlet.ShouldProcess($lease.PidFile, (Format-YurunaOperatorMessage -Key 'runner.oneshot_lease_release_action'))) { return $false }
+    # The generation removed is the one this process wrote, proven by the
+    # fingerprint taken in the classification just above.
+    $removal = Remove-YurunaRunnerRecordGeneration -PidFile $lease.PidFile -StartFile $lease.StartFile -Fingerprint $lease.Fingerprint -Confirm:$false
+    return [bool]$removal.Removed
 }
 
 function Get-YurunaRunnerCycleRecordPath {
@@ -2627,6 +2718,102 @@ function Test-YurunaRefreshTokenWindow {
     if ($null -eq $boot -or [Math]::Abs((Get-YurunaBootEpochMs) - [long]$boot) -gt $script:BootEpochSlackMs) { return 'boot-changed' }
     if ($null -eq $Handoff['expiresTick'] -or [Environment]::TickCount64 -ge [long]$Handoff['expiresTick']) { return 'expired' }
     return 'ok'
+}
+
+function Invoke-YurunaRefreshBootResume {
+    <#
+    .SYNOPSIS
+        Once per boot and request, resume a host refresh whose gate an earlier
+        boot left held.
+    .DESCRIPTION
+        A power loss or reboot in the middle of a refresh leaves the gate held
+        by an owner that no longer exists, and nothing expires a gate by age,
+        so every runner start would refuse until an operator ran
+        test/lab/Invoke-HostRefresh.ps1 -Resume. When the gate is orphaned and
+        its owner started before the current boot, this runs that same remedy
+        once, detached: the refusing start still exits, and the worker's own
+        handoff starts the runner. A gate whose owner died in this boot, or
+        whose owner's start is unknown, stays with the operator.
+
+        The marker under the private state root names the request and the
+        boot. It is written before the launch, so a launch or a worker that
+        fails is not retried in the same boot.
+    .PARAMETER Gate
+        The gate view from Get-YurunaRefreshGateState.
+    .PARAMETER RepoRoot
+        The repository whose test/lab/Invoke-HostRefresh.ps1 resumes it.
+    .PARAMETER PrivateRoot
+        An already-resolved private state root; defaults to the per-user one.
+    .PARAMETER BootEpochMs
+        The current boot's epoch; defaults to Get-YurunaBootEpochMs.
+    .OUTPUTS
+        [pscustomobject] @{ Launched; Reason; RequestId; MarkerPath; Pid;
+        StdErrPath }. Reason is launched, not-orphaned, owner-this-boot,
+        owner-start-unknown, already-tried, no-private-root, marker-failed,
+        whatif, or launch-failed:<reason>.
+    #>
+    [CmdletBinding(SupportsShouldProcess)]
+    [OutputType([pscustomobject])]
+    param(
+        [Parameter(Mandatory)][AllowNull()]$Gate,
+        [Parameter(Mandatory)][string]$RepoRoot,
+        [string]$PrivateRoot,
+        [long]$BootEpochMs = (Get-YurunaBootEpochMs)
+    )
+    $result = [ordered]@{ Launched = $false; Reason = 'not-orphaned'; RequestId = $null; MarkerPath = $null; Pid = $null; StdErrPath = $null }
+    if (-not $Gate -or -not $Gate.Orphaned) { return [pscustomobject]$result }
+    $result.RequestId = [string]$Gate.RequestId
+    $ownerStart = [long]0
+    $owner = $Gate.Owner
+    if (-not ($owner -is [System.Collections.IDictionary] -and $null -ne $owner['startTimeUnixMs'] -and
+            [long]::TryParse([string]$owner['startTimeUnixMs'], [ref]$ownerStart) -and $ownerStart -gt 0)) {
+        $result.Reason = 'owner-start-unknown'
+        return [pscustomobject]$result
+    }
+    # The slack a handoff token allows for the same question: two readings of
+    # the boot epoch differ by clock adjustments made since the boot.
+    if ($ownerStart -ge ($BootEpochMs - $script:BootEpochSlackMs)) {
+        $result.Reason = 'owner-this-boot'
+        return [pscustomobject]$result
+    }
+    $root = Resolve-YurunaRefreshStateRoot -PrivateRoot $PrivateRoot -NoCreate
+    if (-not $root.Resolved) { $result.Reason = 'no-private-root'; return [pscustomobject]$result }
+    $markerPath = [System.IO.Path]::Combine($root.Path, 'boot-resume.json')
+    $result.MarkerPath = $markerPath
+    try {
+        $previous = [System.IO.File]::ReadAllText($markerPath) | ConvertFrom-Json -AsHashtable -ErrorAction Stop
+        if ($previous -is [System.Collections.IDictionary] -and [string]$previous['requestId'] -ceq $result.RequestId -and
+            $null -ne $previous['bootEpochMs'] -and [Math]::Abs($BootEpochMs - [long]$previous['bootEpochMs']) -le $script:BootEpochSlackMs) {
+            $result.Reason = 'already-tried'
+            return [pscustomobject]$result
+        }
+    } catch { Write-Verbose "Invoke-YurunaRefreshBootResume: no usable marker: $($_.Exception.Message)" }
+    if (-not $PSCmdlet.ShouldProcess($result.RequestId, 'resume the host refresh an earlier boot left unfinished')) {
+        $result.Reason = 'whatif'
+        return [pscustomobject]$result
+    }
+    try {
+        $marker = [ordered]@{ requestId = $result.RequestId; bootEpochMs = $BootEpochMs; launchedUtc = [DateTimeOffset]::UtcNow.ToString('o') } | ConvertTo-Json -Compress
+        $temporary = "$markerPath.$([guid]::NewGuid().ToString('N')).tmp"
+        [System.IO.File]::WriteAllText($temporary, $marker)
+        [System.IO.File]::Move($temporary, $markerPath, $true)
+    } catch {
+        Write-Verbose "Invoke-YurunaRefreshBootResume: marker write failed: $($_.Exception.Message)"
+        $result.Reason = 'marker-failed'
+        return [pscustomobject]$result
+    }
+    $result.StdErrPath = [System.IO.Path]::Combine($root.Path, 'boot-resume.err')
+    $launch = Start-YurunaDetachedProcess -FilePath (Join-Path $RepoRoot 'test/lab/Invoke-HostRefresh.ps1') -ArgumentList @('-Resume') `
+        -WorkingDirectory $RepoRoot -StdOutPath ([System.IO.Path]::Combine($root.Path, 'boot-resume.out')) -StdErrPath $result.StdErrPath `
+        -PrivateDirectory $root.Path -Confirm:$false
+    if (-not $launch.Launched) {
+        $result.Reason = "launch-failed:$($launch.Reason)"
+        return [pscustomobject]$result
+    }
+    $result.Launched = $true
+    $result.Reason = 'launched'
+    $result.Pid = $launch.FinalPid
+    return [pscustomobject]$result
 }
 
 function Test-YurunaRefreshSpawnAllowed {
@@ -4567,9 +4754,10 @@ Export-ModuleMember -Function `
     Resolve-YurunaRunnerProcessTarget, Get-YurunaProcessTable, Get-YurunaProcessIdentityState, `
     Get-YurunaProcessStartUnixMs, Get-YurunaRunnerRecordState, Remove-YurunaRunnerRecordGeneration, `
     Write-YurunaProcessStartRecord, Read-YurunaRunnerCycleRecord, Write-YurunaRunnerCycleRecord, `
+    Get-YurunaOneShotLeaseState, Enter-YurunaOneShotLease, Exit-YurunaOneShotLease, `
     Clear-YurunaRunnerCycleRecord, Get-YurunaRunnerExclusionSet, Get-YurunaRunnerSnapshot, `
     New-YurunaRunnerReclaimPlan, Compare-YurunaRunnerReclaimPlan, Stop-YurunaRunnerProcessTarget, `
-    Get-YurunaRuntimeKey, Get-YurunaRefreshGateState, Test-YurunaRefreshSpawnAllowed, Set-YurunaRefreshGate, `
+    Get-YurunaRuntimeKey, Get-YurunaRefreshGateState, Invoke-YurunaRefreshBootResume, Test-YurunaRefreshSpawnAllowed, Set-YurunaRefreshGate, `
     New-YurunaRunnerHandoffToken, Test-YurunaRunnerHandoffToken, Get-YurunaRunnerChainIdentity, `
     Write-YurunaRunnerReadinessAck, Wait-YurunaRunnerReadiness, Complete-YurunaRunnerHandoff, Complete-YurunaRunnerExpiredHandoff, `
     Write-YurunaRunnerLaunchRecord, Complete-YurunaRunnerLaunchRecord, Read-YurunaRunnerLaunchRecord, `

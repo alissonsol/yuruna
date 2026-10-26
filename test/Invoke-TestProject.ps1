@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.25
+.VERSION 2026.10.26
 .GUID 4245d5d1-5745-4e5e-b405-e37f1c12f700
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -32,15 +32,22 @@
     the inner. Omit to read test.config.yml.logLevel.
 
 .NOTES
-    Concurrency: Invoke-TestProject does not manage runner.pid itself. The
-    inner runner it spawns owns inner.pid and runs its own single-
-    instance check (which will stop a running Start-TestRunner.ps1).
-    Stop any long-running Start-TestRunner before invoking Invoke-TestProject
-    if you want clean isolation; the inner's takeover handles the
-    interactive operator case but cannot rescue cycles already
-    mid-flight.
+    Concurrency: Invoke-TestProject holds the runtime's one-shot lease
+    (oneshot.pid) from before the checkout is replaced until it exits, and
+    refuses to start while a Start-TestRunner owns runner.pid or another
+    one-shot run holds the lease. Start-TestRunner refuses to start while
+    this run holds it.
+
+    -WhatIf reports the replacement and stops before anything is changed;
+    an unknown or misspelled parameter is a binding error.
+
+    Exit codes are the cycle's: 0 passed, 1 failed, 75 failed nothing but
+    skipped a planned guest, 78 the configuration gate refused, 70 the cycle
+    left no usable outcome record; 2 when it did not run (a drained or paused
+    pool, a host refresh, Ctrl+C).
 #>
 
+[CmdletBinding(SupportsShouldProcess)]
 param(
     [string]$ConfigPath = $null,
     # Skip the pre-cycle Test-Config.ps1 gate. Use only for ad-hoc /
@@ -72,7 +79,7 @@ $RepoRoot    = $paths.RepoRoot
 $ModulesDir  = $paths.ModulesDir
 $ConfigPath  = $paths.ConfigPath
 # Publish the resolved config path so every cross-module reload site
-# (Sync-RuntimeConfig in the inner runner, Update-TransportDefault in
+# (Sync-RunnerCycleConfig in the inner runner, Update-TransportDefault in
 # Test.Transport) reads the SAME file when -ConfigPath <elsewhere> is
 # in play. The inner runner that this script spawns inherits the var.
 $env:YURUNA_CONFIG_PATH = $ConfigPath
@@ -81,12 +88,16 @@ $InnerScript = Join-Path $ModulesDir 'Invoke-TestRunnerInnerLoop.ps1'
 # Test.YurunaDir, Test.ConfigPreflight, Test.HostContract, Test.InnerSpawn.
 Initialize-YurunaEntryPointModuleSet -For Project -ModulesDir $ModulesDir
 
+# On host.ubuntu.kvm, relaunch under `sg libvirt` when this shell's group set
+# lacks libvirt: the inner cycle drives virsh and virt-install with the groups
+# it inherits from this process. Runs before the lease, which the relaunched
+# run then takes for itself.
+Invoke-LibvirtGroupReExecIfNeeded -HostType (Get-HostType) -ScriptPath $PSCommandPath -BoundParameters $PSBoundParameters
+
 # See https://yuruna.link/42010605-0002
 $ExitOk      = Get-EntryPointExitCode -Outcome Ok
 $ExitFailure = Get-EntryPointExitCode -Outcome Failure
 
-# The steps this run took, in order, for the typed result recorded at every exit.
-$script:RecoverySteps = [System.Collections.Generic.List[object]]::new()
 
 # --- REGION: Stop-WithReason
 function Stop-WithReason {
@@ -105,9 +116,21 @@ function Stop-WithReason {
     Write-Output '!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!'
     Write-Output ''
     if (Get-Command Save-RecoveryResult -ErrorAction SilentlyContinue) {
-        $null = Save-RecoveryResult -EntryPoint project -ExitCode $Code -Steps @($script:RecoverySteps)
+        $null = Save-RecoveryResult -EntryPoint project -ExitCode $Code
     }
+    Close-ProjectRun
     exit $Code
+}
+
+# Remove this run's Ctrl+C subscription and release its one-shot lease. Both
+# are left alone when this run never took them, so the stops before the lease
+# pass through harmlessly; the subscription would otherwise outlive the run in
+# the operator's shell.
+function Close-ProjectRun {
+    if (Get-Command Unregister-EntryPointCancelHandler -ErrorAction SilentlyContinue) { Unregister-EntryPointCancelHandler }
+    if ($env:YURUNA_RUNTIME_DIR -and (Get-Command Exit-YurunaOneShotLease -ErrorAction SilentlyContinue)) {
+        $null = Exit-YurunaOneShotLease -RuntimeDir $env:YURUNA_RUNTIME_DIR -Confirm:$false
+    }
 }
 
 # --- REGION: Elevation check
@@ -160,20 +183,33 @@ Set repositories.projectUrl to a clonable URL and retry.
 "@
 }
 
-# --- REGION: Bootstrap runtime + log dirs
-# Initialize-YurunaRuntimeDir / Initialize-YurunaLogDir publish
-# YURUNA_RUNTIME_DIR / YURUNA_LOG_DIR; the inner inherits them so its
-# pidfile, heartbeats, status.json, and per-cycle log all land in the
-# same place a Start-TestRunner cycle would write to. Test.YurunaDir
-# was imported by Initialize-YurunaEntryPointModuleSet above.
-$null = Initialize-YurunaRuntimeDir
-$null = Initialize-YurunaLogDir
-
-# See https://yuruna.link/42010605-0002
-if (-not (Assert-NoOtherRunner -RuntimeDir $env:YURUNA_RUNTIME_DIR -CallerName 'Invoke-TestProject')) {
-    Stop-WithReason -Code $ExitFailure -Step 'Pre-flight (single-instance)' `
-        -Reason 'A live Start-TestRunner already owns runner.pid in this runtime dir. Stop it before invoking Invoke-TestProject, or run from a different YURUNA_RUNTIME_DIR.'
+# --- REGION: Confirm the replacement
+# Everything above only read state. -WhatIf stops here, before the lease, the
+# source handoff, the checkout replacement and the cycle: module functions do
+# not inherit this script's -WhatIf, so nothing below may run under it.
+if (-not $PSCmdlet.ShouldProcess((Join-Path $RepoRoot 'project'), (Format-YurunaOperatorMessage -Key 'runner.project_checkout_replace_action' -Arguments @{ projectUrl = "$projectUrl" }))) {
+    exit $ExitOk
 }
+
+# --- REGION: Bootstrap runtime + log dirs, claim the runtime
+# Initialize-YurunaOneShotEntryPoint publishes YURUNA_RUNTIME_DIR /
+# YURUNA_LOG_DIR (the inner inherits them, so its pidfile, heartbeats,
+# status.json and per-cycle log land where a Start-TestRunner cycle would
+# write), takes the one-shot lease and refuses while another run owns the
+# runtime. The lease is released by Stop-WithReason and by the finally block
+# at the end of the script.
+# See https://yuruna.link/42010605-001e
+if (-not (Initialize-YurunaOneShotEntryPoint -CallerName 'Invoke-TestProject')) {
+    Stop-WithReason -Code $ExitFailure -Step 'Pre-flight (single-instance)' `
+        -Reason 'Another run owns this runtime dir (a live Start-TestRunner, or the one-shot run named above). Stop it before invoking Invoke-TestProject, or run from a different YURUNA_RUNTIME_DIR.'
+}
+
+# --- REGION: Ctrl+C handler
+# Ctrl+C flips the shared flag. The runner's dispatcher, which waits on the
+# cycle, stops the cycle's process tree when it sees it; this process keeps
+# running so it records the result and releases the runtime.
+# See https://yuruna.link/42010605-0002
+$script:CancelState = Register-EntryPointCancelHandler -ExitAfterLabel 'cycle'
 
 # See https://yuruna.link/42010605-0002
 if (Get-Command Clear-StaleControlState -ErrorAction SilentlyContinue) {
@@ -190,125 +226,66 @@ Write-Output "  Inner:      $InnerScript"
 Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_9b5f387caf6f42bd')
 Write-Output '========'
 
-# --- REGION: Source selection
-Import-Module (Join-Path $ModulesDir 'Test.SourceSelection.psm1') -DisableNameChecking
+# --- REGION: Run one runner cycle
+# The cycle runs the way a Start-TestRunner cycle runs, through the runner's
+# own dispatcher: the per-cycle process arms the step watchdog, syncs the pool
+# configuration (a drained or paused pool holds the run), clears the last
+# cycle's runtime files and runs the cycle-end hooks; its inner runs the
+# configuration gate, replaces <RepoRoot>/project with a fresh clone of the
+# project pin that gate selected, and runs the cycle. This process waits under
+# the runner's cycle ceiling and scores the cycle from its outcome record. The
+# framework stays as installed: the cycle never pulls it.
+# See https://yuruna.link/42010605-0002
+Initialize-YurunaEntryPointModuleSet -For Outer -ModulesDir $ModulesDir
 $previousGeneration = $env:YURUNA_CYCLE_GENERATION
 $env:YURUNA_CYCLE_GENERATION = [guid]::NewGuid().ToString('N') + ':1'
 try {
-    # This entry point intentionally keeps the installed framework. Bind its
-    # actual HEAD before the gate, just as an outer NoGitPull cycle does.
-    $frameworkSource = Get-InstalledGitSourceSelection -RepoRoot $RepoRoot
-    if (-not (Write-GitSourceHandoff -RepoRoot $RepoRoot -ConfigPath $ConfigPath -CycleGeneration $env:YURUNA_CYCLE_GENERATION -Framework $frameworkSource -Confirm:$false)) {
-        throw 'source-handoff-write-failed'
-    }
-
-    # --- REGION: Pre-cycle config gate
-    # Same gate as Start-TestRunner and Debug-TestSequence. Invoke-TestProject
-    # re-clones the project then runs one cycle. Without this gate a misconfigured
-    # framework config (vault, users, transports) would only surface mid-cycle as a
-    # confusing step failure. Bypass with -NoConfigGate for in-progress edits.
-    $gate = Invoke-ConfigGate -TestRoot $TestRoot -ConfigPath $ConfigPath -Skip:$NoConfigGate -CallerName 'Invoke-TestProject'
-    if (-not $gate.passed) {
-        Stop-WithReason -Code $ExitFailure -Step 'Pre-cycle config gate' `
-            -Reason "Test-Config.ps1 exited $($gate.exitCode). Fix the FAIL items above (test.config.yml, vault.yml, users.yml, transports.yml, ...) then re-run. To bypass for an in-progress edit, pass -NoConfigGate."
-    }
-
-    # --- REGION: Step 1+2: wipe + re-clone project
-    # See https://yuruna.link/42010605-0002
     Write-Output ''
     Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_4fb40cac594a7bbc' -Arguments @{ projectUrl = "$projectUrl" })
-    # Reuse the gate's accepted project pin. A bypass still selects it once here;
-    # the inner inherits this generation and must not resolve another moving tip.
-    $sourceGate = Invoke-GitSourceGate -RepoRoot $RepoRoot -ConfigPath $ConfigPath -CycleGeneration $env:YURUNA_CYCLE_GENERATION
-    foreach ($selection in @($sourceGate.framework, $sourceGate.project)) {
-        if ($selection -and -not $selection.success) {
-            throw "source-selection-failed: $($selection.failureClass): $($selection.detail)"
-        }
-    }
-    $projectUrl = $sourceGate.projectUrl
-    $handoff = Read-GitSourceHandoff -RepoRoot $RepoRoot -ConfigPath $ConfigPath -CycleGeneration $env:YURUNA_CYCLE_GENERATION
-    $priorSources = Read-InstalledGitSource -RepoRoot $RepoRoot
-    $checkoutArguments = @{ RepoRoot=$RepoRoot; ProjectUrl=$projectUrl; SourceContext=$sourceGate.context }
-    if ($sourceGate.project) {
-        $checkoutArguments.SourceSelection = $sourceGate.project
-        $checkoutArguments.SelectionAcceptedAt = [DateTimeOffset]$handoff.projectAcceptedAt
-    }
-    if ($priorSources.project) { $checkoutArguments.InstalledProvenance = $priorSources.project }
-    $checkoutStep = Invoke-CycleCheckoutStep @checkoutArguments
-    [void]$script:RecoverySteps.Add($checkoutStep)
-    $cloneRes = @{ success = $checkoutStep.Ok; skipped = $checkoutStep.Skipped; errorMessage = $checkoutStep.ErrorMessage }
-    if (-not $cloneRes.success) {
-        Stop-WithReason -Code $ExitFailure -Step 'Step 1+2 (wipe + clone)' `
-            -Reason $cloneRes.errorMessage
-    }
-    if ($checkoutStep.SourceSelection) {
-        # A transport fallback can install the same pin from another source. Retain
-        # the actual fetch provenance for the inner's NoProjectClone path.
-        if (-not (Write-InstalledGitSource -RepoRoot $RepoRoot -Kind project -Selection $checkoutStep.SourceSelection -Confirm:$false) -or
-            -not (Write-GitSourceHandoff -RepoRoot $RepoRoot -ConfigPath $ConfigPath -CycleGeneration $env:YURUNA_CYCLE_GENERATION -Project $checkoutStep.SourceSelection -Confirm:$false)) {
-            throw 'source-provenance-write-failed'
-        }
-    }
-    Write-Output '[Invoke-TestProject] Step 1+2: complete.'
-
-    # --- REGION: Step 3: spawn one inner cycle
-    # See https://yuruna.link/42010605-0002
-    Write-Output ''
     Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_554a120b73560a96')
-
-    # Test.InnerSpawn was imported by Initialize-YurunaEntryPointModuleSet above.
-    $pwshExe = Get-PwshExePath
-    # See https://yuruna.link/42010605-0002
-    $innerParams = [ordered]@{
-        ConfigPath     = $ConfigPath
-        NoGitPull      = [switch]::new($true)
-        NoProjectClone = [switch]::new($true)
-        NoConfigGate   = [switch]::new([bool]$NoConfigGate)
-        ConfigGateInherited = [switch]::new($true)
+    $cycleState = @{
+        CycleScript     = Join-Path $ModulesDir 'Invoke-TestCycleRunner.ps1'
+        RepoRoot        = $RepoRoot
+        ConfigPath      = $ConfigPath
+        PwshExe         = Get-PwshExePath
+        ShutdownState   = $script:CancelState
+        NoGitPull       = $true
+        NoStatusService = [bool]$NoStatusService
+        NoConfigGate    = [bool]$NoConfigGate
+        CycleGeneration = $env:YURUNA_CYCLE_GENERATION
     }
-    # Forward -NoStatusService so the inner's shared status-service gate honors it; the
-    # server is the inner's responsibility, so Invoke-TestProject only passes it through.
-    if ($NoStatusService)                           { $innerParams['NoStatusService'] = [switch]::new($true) }
-    if ($PSBoundParameters.ContainsKey('logLevel')) { $innerParams['logLevel'] = $logLevel }
-    $argList = New-InnerRunnerArgList -ScriptPath $InnerScript -Parameters $innerParams
-
-    $previousRelaunch = $env:YURUNA_RUNNER_RELAUNCH
-    $env:YURUNA_RUNNER_RELAUNCH = '1'
-
-    $innerExit = 0
-    try {
-        & $pwshExe @argList
-        $innerExit = $LASTEXITCODE
-    } catch {
-        Stop-WithReason -Code $ExitFailure -Step 'Step 3 (spawn inner)' `
-            -Reason "Could not invoke inner pwsh ($pwshExe): $($_.Exception.Message)"
-    } finally {
-        $env:YURUNA_RUNNER_RELAUNCH = $previousRelaunch
-    }
+    if ($PSBoundParameters.ContainsKey('logLevel')) { $cycleState['LogLevel'] = $logLevel }
+    $cycleResult = Invoke-OuterCycleDispatch -State $cycleState -Cycle 1
+    $exitCode = Get-OneShotCycleExitCode -Result $cycleResult
 
     Write-Output ''
-    Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_d8c8c432b7e3764d' -Arguments @{ innerExit = "$innerExit" })
+    Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_d8c8c432b7e3764d' -Arguments @{ innerExit = "$exitCode" })
 
-    # --- REGION: Step 4: stop
-    # Not a repeated process. Surface the inner's exit code so a CI step or
+    # --- REGION: Stop
+    # Not a repeated process. Surface the cycle's exit code so a CI step or
     # upstream wrapper can branch on cycle pass/fail just as if
     # Invoke-TestRunnerInnerLoop had been called directly.
     Write-Output ''
     Write-Output '========'
-    Write-Output "  Invoke-TestProject: STOP (exit $innerExit)"
-    if ($innerExit -eq $ExitOk) {
+    Write-Output "  Invoke-TestProject: STOP (exit $exitCode)"
+    if ($exitCode -eq $ExitOk) {
         Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_4573c62ccdadf85e')
+    } elseif ($cycleResult.Outcome -cin @('drain', 'paused', 'refresh-gated', 'refresh-preflight', 'shutdown')) {
+        Write-Output (Format-YurunaOperatorMessage -Key 'runner.project_cycle_not_run' -Arguments @{ outcome = [string]$cycleResult.Outcome })
+    } elseif ($exitCode -eq (Get-DegradedCycleExitCode)) {
+        Write-Output (Format-YurunaOperatorMessage -Key 'runner.project_cycle_degraded' -Arguments @{ dIR = "$env:YURUNA_LOG_DIR" })
     } else {
         Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_3d14a370bf8bc861' -Arguments @{ dIR = "$env:YURUNA_LOG_DIR" })
     }
     Write-Output '========'
 
     if (Get-Command Save-RecoveryResult -ErrorAction SilentlyContinue) {
-        $null = Save-RecoveryResult -EntryPoint project -ExitCode $innerExit -Steps @($script:RecoverySteps)
+        $null = Save-RecoveryResult -EntryPoint project -ExitCode $exitCode
     }
-    exit $innerExit
+    exit $exitCode
 } catch {
-    Stop-WithReason -Code $ExitFailure -Step 'Source selection' -Reason $_.Exception.Message
+    Stop-WithReason -Code $ExitFailure -Step 'Cycle dispatch' -Reason $_.Exception.Message
 } finally {
     $env:YURUNA_CYCLE_GENERATION = $previousGeneration
+    Close-ProjectRun
 }

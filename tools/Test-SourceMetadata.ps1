@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.25
+.VERSION 2026.10.26
 .GUID 423c6a1c-f359-436b-9533-31e9a82bfb68
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -18,8 +18,8 @@
 
 <#
 .SYNOPSIS
-    Gate: a code or manifest file opens with the license pointer and copyright
-    line, and a PowerShell file carries a unique 42-prefixed GUID.
+    Gate: a code or manifest file opens with the license pointer, the copyright
+    line and a unique 42-prefixed GUID.
 .DESCRIPTION
     Rules, by the name each finding carries:
 
@@ -31,8 +31,14 @@
                        directly above the copyright line (blank lines and bare
                        comment markers do not count), or .LICENSEURI in the
                        PSScriptInfo block.
-      guid             The PSScriptInfo .GUID is well formed, starts with 42,
-                       and no other tracked file declares it.
+      guid             The file's GUID is well formed, starts with 42, and no
+                       other tracked file declares it. PowerShell keeps it as
+                       .GUID in the PSScriptInfo block. Any other file carries
+                       a "GUID: 42..." line in its comment syntax directly
+                       below the copyright line (blank lines and bare comment
+                       markers between them do not count), except that a
+                       sequence YAML is named by its top-level sequenceGuid
+                       alone. A generated file carries none.
       generated-banner A file under a generated path that has no header names
                        its generator in its first 12 lines.
 
@@ -44,16 +50,19 @@
 
     The only exemptions are the ones in tools/source-metadata.exemptions.json:
     generated paths (naming their generator), vendored paths, and groups of
-    synchronized copies that share a GUID by design (naming their sync tool).
-    Each carries a reason, and a path no entry covers is checked.
+    synchronized copies that share a GUID by design (naming the tool that copies
+    them or the check that holds them identical; a group may span repositories
+    through "repos"). Each carries a reason, and a path no entry covers is
+    checked.
 
     -Staged reads the index, looks only at added, modified and renamed files,
     and blocks a gap the commit introduces. A gap already present in a file the
     commit merely edits is printed as a note, so editing an old file never
-    forces a stamp. -All reads the working tree of every tracked file and
-    reports the debt: a summary, the count per rule, and where the findings are.
-    It also reports exemptions that match nothing or cover only files that
-    already comply.
+    forces a stamp. A GUID that is malformed or declared by another file is
+    never such a gap: the tree holds none, so a commit that shows one made it.
+    -All reads the working tree of every tracked file and reports the debt: a
+    summary, the count per rule, and where the findings are. It also reports
+    exemptions that match nothing or cover only files that already comply.
 
     Exit codes follow the entry-point contract (Get-EntryPointExitCode):
         0  No blocking finding.
@@ -85,6 +94,13 @@
 .PARAMETER Quiet
     With -Staged, print no success line (notes about gaps that already existed
     still print). With -All, print only the summary line.
+.PARAMETER Markdown
+    Report instead whether every tracked Markdown file of each -Root ends with
+    the license footer: after the LICENSEURI line only the copyright line, a
+    review stamp in any language and a line of navigation links may follow
+    (CONTRIBUTING.md, "Documentation"). Agent instruction files (AGENTS.md,
+    CLAUDE.md) carry no footer. Exits 1 when a file has no footer or has other
+    content after it. No hook runs this mode.
 .EXAMPLE
     pwsh tools/Test-SourceMetadata.ps1 -Staged -Quiet
     # What the pre-commit hook runs.
@@ -103,7 +119,8 @@ param(
     [string]$ExemptionsPath,
     [switch]$FailOnDebt,
     [switch]$Detail,
-    [switch]$Quiet
+    [switch]$Quiet,
+    [switch]$Markdown
 )
 
 $ErrorActionPreference = 'Stop'
@@ -124,6 +141,11 @@ $ReadBytes    = 16384
 $CopyrightPattern = '\(c\)\s*\d{4}(?:\s*-\s*\d{4})?\s+by\s+Alisson Sol et al\.'
 $PointerPattern   = 'LICENSEURI\s+https://yuruna\.link/license(?![\w./-])'
 $GuidPattern      = '^[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}$'
+# A GUID line is optional comment markers, "GUID:", the value and an optional
+# closing marker. Inside a block comment that already holds the copyright line
+# it has no markers of its own, so nesting never closes the block early.
+$GuidLinePattern  = '^\s*(?:@?REM\s+)?[^\sA-Za-z0-9]*\s*GUID:\s*(?<value>[^\s*]+?)\s*(?:\*/|-->|\*@)?\s*$'
+$SequenceGuidPattern = '^sequenceGuid:\s*[''"]?(?<value>[^''"\s#]+)'
 $ExemptionsName   = 'tools/source-metadata.exemptions.json'
 $DeclareHint      = "A generated or vendored file is declared in $ExemptionsName instead (CONTRIBUTING.md, Source metadata)."
 
@@ -276,7 +298,7 @@ function Read-Exemption {
     $shapes = @(
         @{ Section = 'generated'; Required = 'repo', 'generator', 'paths', 'reason' }
         @{ Section = 'vendored'; Required = 'repo', 'paths', 'reason' }
-        @{ Section = 'synchronizedCopies'; Required = 'repo', 'syncTool', 'files', 'reason' })
+        @{ Section = 'synchronizedCopies'; Required = 'syncTool', 'files', 'reason'; OneOf = 'repo', 'repos' })
     foreach ($shape in $shapes) {
         $list = $document[$shape.Section]
         if ($null -eq $list) { continue }
@@ -286,23 +308,34 @@ function Read-Exemption {
             $label = "$($shape.Section)[$i]"
             if ($item -isnot [hashtable]) { $errors.Add("$label must be an object"); continue }
             foreach ($key in $item.Keys) {
-                if ($key -cnotin $shape.Required) { $errors.Add("$label has unknown key '$key'") }
+                if ($key -cnotin (@($shape.Required) + @($shape.OneOf))) { $errors.Add("$label has unknown key '$key'") }
             }
             $complete = $true
-            foreach ($key in $shape.Required) {
+            $need = @($shape.Required)
+            if ($shape.OneOf) {
+                $given = @($shape.OneOf | Where-Object { $item.ContainsKey($_) })
+                if ($given.Count -ne 1) { $errors.Add("$label needs exactly one of '$($shape.OneOf -join "' and '")'"); $complete = $false }
+                $need += $given
+            }
+            foreach ($key in $need) {
                 $value = $item[$key]
                 if ($value -is [array]) { $present = $value.Count -gt 0 -and -not @($value | Where-Object { $_ -isnot [string] -or -not $_.Trim() }) }
                 else { $present = $value -is [string] -and [bool]$value.Trim() }
                 if (-not $present) { $errors.Add("$label needs a non-empty '$key'"); $complete = $false }
             }
-            if ($complete -and $shape.Section -eq 'synchronizedCopies' -and $item['files'].Count -lt 2) {
-                $errors.Add("$label needs at least two 'files' (one file has nothing to be a copy of)")
-                $complete = $false
-            }
             if (-not $complete) { continue }
-            # Paths are matched as repository-relative with forward slashes.
+            # Paths are matched as repository-relative with forward slashes. A
+            # group's copies are each listed path in each named repository.
             if ($shape.Section -eq 'synchronizedCopies') {
-                $groups.Add([pscustomobject]@{ Repo = $item['repo']; Tool = $item['syncTool']; File = @($item['files'] -replace '\\', '/'); Label = $label })
+                $repoNames = if ($item.ContainsKey('repos')) { @($item['repos']) } else { @($item['repo']) }
+                $member = @(foreach ($name in $repoNames) {
+                        foreach ($file in @($item['files'] -replace '\\', '/')) { [pscustomobject]@{ Repo = $name; Path = $file } }
+                    })
+                if ($member.Count -lt 2) {
+                    $errors.Add("$label needs at least two copies: two 'files', or a file in two 'repos' (one file has nothing to be a copy of)")
+                    continue
+                }
+                $groups.Add([pscustomobject]@{ Tool = $item['syncTool']; Member = $member; Label = $label })
             } else {
                 $generator = if ($shape.Section -eq 'generated') { $item['generator'] } else { $null }
                 $entries.Add([pscustomobject]@{ Kind = $shape.Section; Repo = $item['repo']; Path = @($item['paths'] -replace '\\', '/'); Label = $label; Generator = $generator })
@@ -361,7 +394,10 @@ function Get-HeaderFact {
     [CmdletBinding()]
     [OutputType([pscustomobject])]
     param([Parameter(Mandatory)][string]$Style, [Parameter(Mandatory)][AllowEmptyString()][string[]]$Line)
-    $fact = [pscustomobject]@{ Block = $false; Copyright = $false; Pointer = $false; Guid = $null }
+    # Guid is the identity the file declares; outside PowerShell it is the
+    # sequenceGuid of a sequence and the GUID line of anything else.
+    $fact = [pscustomobject]@{ Block = $false; Copyright = $false; Pointer = $false; Guid = $null
+        CopyrightLine = $null; LineGuid = $null; SequenceGuid = $null; StrayGuidLine = 0 }
     if ($Style -eq 'psinfo') {
         $inside = $false
         foreach ($text in $Line) {
@@ -376,22 +412,34 @@ function Get-HeaderFact {
         }
         return $fact
     }
+    $guidAt = -1
     for ($i = 0; $i -lt $Line.Count; $i++) {
         if ($Line[$i] -notmatch "Copyright\s*$CopyrightPattern") { continue }
         $fact.Copyright = $true
+        $fact.CopyrightLine = $Line[$i]
         for ($j = $i - 1; $j -ge 0; $j--) {
             if ($Line[$j] -match '[A-Za-z0-9]') { $fact.Pointer = $Line[$j] -match $PointerPattern; break }
         }
+        for ($j = $i + 1; $j -lt $Line.Count; $j++) {
+            if ($Line[$j] -notmatch '[A-Za-z0-9]') { continue }
+            if ($Line[$j] -match $GuidLinePattern) { $fact.LineGuid = $Matches['value']; $guidAt = $j }
+            break
+        }
         break
     }
+    for ($i = 0; $i -lt $Line.Count; $i++) {
+        if ($Style -eq 'hash' -and -not $fact.SequenceGuid -and $Line[$i] -match $SequenceGuidPattern) { $fact.SequenceGuid = $Matches['value'] }
+        elseif ($i -ne $guidAt -and -not $fact.StrayGuidLine -and $Line[$i] -match $GuidLinePattern) { $fact.StrayGuidLine = $i + 1 }
+    }
+    $fact.Guid = if ($fact.SequenceGuid) { $fact.SequenceGuid } else { $fact.LineGuid }
     return $fact
 }
 
 function ConvertTo-Problem {
     [CmdletBinding()]
     [OutputType([pscustomobject])]
-    param([Parameter(Mandatory)][string]$Rule, [Parameter(Mandatory)][string]$Message, [string[]]$Fix = @())
-    return [pscustomobject]@{ Rule = $Rule; Message = $Message; Fix = $Fix; Existing = $false }
+    param([Parameter(Mandatory)][string]$Rule, [Parameter(Mandatory)][string]$Message, [string[]]$Fix = @(), [switch]$Final)
+    return [pscustomobject]@{ Rule = $Rule; Message = $Message; Fix = $Fix; Existing = $false; Final = [bool]$Final }
 }
 
 # The copyright / license-pointer gaps of a file judged on its own, ignoring
@@ -435,20 +483,43 @@ function Get-HeaderGap {
     return @($problems)
 }
 
+# The GUID line a file takes is its copyright line with the text replaced, so it
+# keeps the markers and indentation of whatever comment holds the header.
+function Get-GuidLineText {
+    [CmdletBinding()]
+    [OutputType([string])]
+    param([Parameter(Mandatory)][string]$Style, [AllowNull()][string]$CopyrightLine, [Parameter(Mandatory)][string]$Guid)
+    if ($CopyrightLine -and $CopyrightLine -match "^(?<lead>.*?)Copyright\s*$CopyrightPattern(?<tail>.*)$") {
+        return $Matches['lead'] + "GUID: $Guid" + $Matches['tail']
+    }
+    return $Wrapper[$Style] -f "GUID: $Guid"
+}
+
 function Get-GuidProblem {
     [CmdletBinding()]
     [OutputType([object[]])]
     param([Parameter(Mandatory)][string]$Style, [Parameter(Mandatory)][pscustomobject]$Fact)
-    if ($Style -ne 'psinfo' -or -not $Fact.Block) { return @() }
+    if ($Style -eq 'psinfo' -and -not $Fact.Block) { return @() }
     $fresh = Get-FreshGuid
-    if (-not $Fact.Guid) {
-        return @(ConvertTo-Problem -Rule 'guid' -Message 'the PSScriptInfo block has no .GUID line' -Fix @(".GUID $fresh"))
+    if ($Style -eq 'psinfo') {
+        if (-not $Fact.Guid) {
+            return @(ConvertTo-Problem -Rule 'guid' -Message 'the PSScriptInfo block has no .GUID line' -Fix @(".GUID $fresh"))
+        }
+    } elseif ($Fact.SequenceGuid) {
+        if ($Fact.LineGuid) {
+            return @(ConvertTo-Problem -Rule 'guid' -Final -Message 'declares both a GUID line and a sequenceGuid; a sequence is named by its sequenceGuid alone' `
+                    -Fix @('Remove the GUID line below the copyright line.'))
+        }
+    } elseif (-not $Fact.LineGuid) {
+        $fix = if ($Fact.StrayGuidLine) { @("Move the GUID line at line $($Fact.StrayGuidLine) directly below the copyright line.") }
+        else { @('Put this line directly below the copyright line:', (Get-GuidLineText -Style $Style -CopyrightLine $Fact.CopyrightLine -Guid $fresh)) }
+        return @(ConvertTo-Problem -Rule 'guid' -Message "no 'GUID: 42...' line directly below the copyright line" -Fix $fix)
     }
     if ($Fact.Guid -notmatch $GuidPattern) {
-        return @(ConvertTo-Problem -Rule 'guid' -Message "'$($Fact.Guid)' is not a GUID" -Fix @("Use a fresh one, for example $fresh."))
+        return @(ConvertTo-Problem -Rule 'guid' -Final -Message "'$($Fact.Guid)' is not a GUID" -Fix @("Use a fresh one, for example $fresh."))
     }
     if (-not $Fact.Guid.StartsWith('42')) {
-        return @(ConvertTo-Problem -Rule 'guid' -Message "'$($Fact.Guid)' does not start with 42" -Fix @("Use a fresh one, for example $fresh."))
+        return @(ConvertTo-Problem -Rule 'guid' -Final -Message "'$($Fact.Guid)' does not start with 42" -Fix @("Use a fresh one, for example $fresh."))
     }
     return @()
 }
@@ -472,7 +543,10 @@ function Get-FileProblem {
                     -Fix @("Have the generator write 'Generated by $($Exempt.Generator)' at the top. A hand-written file gets the standard header",
                         "instead, and the paths in $ExemptionsName must not cover it.")))
     }
-    foreach ($item in (Get-GuidProblem -Style $Style -Fact $Fact)) { $problems.Add($item) }
+    # Outside PowerShell a generated file carries no GUID: its generator writes it whole.
+    if ($Style -eq 'psinfo' -or -not $Exempt) {
+        foreach ($item in (Get-GuidProblem -Style $Style -Fact $Fact)) { $problems.Add($item) }
+    }
     return @($problems)
 }
 
@@ -484,7 +558,9 @@ function Test-GuidShareAllowed {
     [OutputType([bool])]
     param([Parameter(Mandatory)][string]$Repo, [Parameter(Mandatory)][string]$RelativePath)
     foreach ($group in $Exemption.Group) {
-        if ($group.Repo -eq $Repo -and $RelativePath -cin $group.File) { return $true }
+        foreach ($member in $group.Member) {
+            if ($member.Repo -eq $Repo -and $member.Path -ceq $RelativePath) { return $true }
+        }
     }
     return $false
 }
@@ -495,9 +571,9 @@ function ConvertTo-ClashProblem {
     param([Parameter(Mandatory)][string]$Guid, [Parameter(Mandatory)][string[]]$Other)
     $shown = ($Other | Select-Object -First 3) -join ', '
     if ($Other.Count -gt 3) { $shown += " and $($Other.Count - 3) more" }
-    return ConvertTo-Problem -Rule 'guid' -Message "GUID $Guid is also declared by $shown" `
+    return ConvertTo-Problem -Rule 'guid' -Final -Message "GUID $Guid is also declared by $shown" `
         -Fix @("A GUID names one file across renames: use a fresh one, for example $(Get-FreshGuid).",
-            "Byte-identical copies kept in step by a tool are declared under synchronizedCopies in $ExemptionsName.")
+            "Byte-identical copies kept in step by a tool or a check are declared under synchronizedCopies in $ExemptionsName.")
 }
 
 # --- REGION: Report
@@ -531,7 +607,7 @@ function Get-FindingGroup {
 
 # --- REGION: Main
 try {
-    if ($Staged -eq $All) {
+    if (-not $Markdown -and $Staged -eq $All) {
         Write-Error 'Test-SourceMetadata: pass exactly one of -Staged or -All.' -ErrorAction Continue
         exit $ExitCannotRun
     }
@@ -564,6 +640,44 @@ try {
         if ((Split-Path -Leaf $commonDir) -eq '.git') { $name = Split-Path -Leaf (Split-Path -Parent $commonDir) }
         if ($RepoName) { $name = $RepoName }
         [pscustomobject]@{ Root = $full; Name = $name }
+    }
+
+    if ($Markdown) {
+        $footerFinding = [Collections.Generic.List[string]]::new()
+        $footerFiles = 0
+        $footerMissing = 0
+        foreach ($repo in $repos) {
+            $listing = Invoke-Git -Repository $repo.Root -Argument @('ls-files', '-z', '--', '*.md')
+            if ($listing.Code -ne 0) { throw "git ls-files failed in $($repo.Root)" }
+            foreach ($relative in ($listing.Text -split "`0" | Where-Object { $_ })) {
+                $full = Join-Path $repo.Root $relative
+                if (-not (Test-Path -LiteralPath $full -PathType Leaf)) { continue }
+                $lines = [IO.File]::ReadAllLines($full)
+                $at = -1
+                for ($i = $lines.Count - 1; $i -ge 0; $i--) { if ($lines[$i] -match ('^' + $PointerPattern + '\s*$')) { $at = $i; break } }
+                if ($at -lt 0) {
+                    if ((Split-Path -Leaf $relative) -notin @('AGENTS.md', 'CLAUDE.md')) {
+                        $footerFinding.Add(('FAIL  {0}/{1} [markdown-footer-missing] no license footer' -f $repo.Name, $relative))
+                        $footerMissing++
+                    }
+                    continue
+                }
+                $footerFiles++
+                for ($i = $at + 1; $i -lt $lines.Count; $i++) {
+                    $text = $lines[$i].Trim()
+                    if (-not $text) { continue }
+                    # The copyright line, a review stamp in the document's language,
+                    # and navigation links -- a short lead word, then links only.
+                    if ($text -match $CopyrightPattern -or $text -match '^[^\[\]:]{1,40}:\s+\d{4}\.\d{2}\.\d{2}(\.\d+)?$' -or
+                        $text -match '^[^\[\]]{0,24}\[[^\]]+\]\([^)]+\)(\s*[|-]\s*\[[^\]]+\]\([^)]+\))*$') { continue }
+                    $footerFinding.Add(('FAIL  {0}/{1}:{2} [markdown-footer] content after the license footer' -f $repo.Name, $relative, ($i + 1)))
+                    break
+                }
+            }
+        }
+        foreach ($line in $footerFinding) { Write-Output $line }
+        Write-Output ('Test-SourceMetadata [markdown]: {0} repo(s), {1} file(s) with the footer, {2} with content after it, {3} without one.' -f @($repos).Count, $footerFiles, ($footerFinding.Count - $footerMissing), $footerMissing)
+        exit $(if ($footerFinding.Count -gt 0) { $ExitFailure } else { $ExitOk })
     }
 
     $script:ShownFix = [Collections.Generic.HashSet[string]]::new()
@@ -620,7 +734,7 @@ try {
         if ($exempt) {
             if (-not $exempted.ContainsKey($exempt.Label)) { $exempted[$exempt.Label] = [pscustomobject]@{ Matched = 0; Compliant = 0 } }
             $exempted[$exempt.Label].Matched++
-            if (@(Get-HeaderGap -Style $file.Style -Fact $fact).Count -eq 0) { $exempted[$exempt.Label].Compliant++ }
+            if (@(Get-HeaderGap -Style $file.Style -Fact $fact).Count -eq 0 -and ($file.Style -eq 'psinfo' -or $fact.Guid)) { $exempted[$exempt.Label].Compliant++ }
         }
         $problem = [Collections.Generic.List[object]]::new()
         foreach ($item in (Get-FileProblem -Style $file.Style -Fact $fact -Line $file.Line -Exempt $exempt)) { $problem.Add($item) }
@@ -631,14 +745,13 @@ try {
     }
     $checked = @($checked)
 
-    # GUID uniqueness. -All compares every file it read. -Staged looks only at
-    # files that are new or whose .GUID line changed -- git names them in one
-    # call -- and asks git for other index entries holding those GUIDs in one
-    # grep, so a commit never pays for walking the tree.
-    $guidFile = @($checked | Where-Object { $_.Style -eq 'psinfo' -and $_.Fact.Guid -match $GuidPattern -and -not ($_.Exempt -and $_.Exempt.Kind -eq 'vendored') })
+    # GUID uniqueness, whichever form declares it. -All compares every file it
+    # read. -Staged looks only at files that are new or whose GUID lines changed
+    # -- git names them in one call -- and asks git for other index entries
+    # holding those GUIDs in one grep, so a commit never pays for walking the tree.
+    $guidFile = @($checked | Where-Object { $_.Fact.Guid -match $GuidPattern -and -not ($_.Exempt -and $_.Exempt.Kind -eq 'vendored') })
     if ($Staged -and $guidFile.Count -gt 0) {
-        $named = Invoke-Git -Repository $repos[0].Root -Argument @('diff', '--cached', '--name-only', '-z', '--diff-filter=AMR',
-            '-G', '^[[:space:]]*\.GUID[[:space:]]', '--', '*.ps1', '*.psm1', '*.psd1')
+        $named = Invoke-Git -Repository $repos[0].Root -Argument @('diff', '--cached', '--name-only', '-z', '--diff-filter=AMR', '-G', '[Gg][Uu][Ii][Dd]')
         $guidChanged = @($named.Text -split "`0" | Where-Object { $_ })
         $guidFile = @($guidFile | Where-Object { $_.Path -cin $guidChanged })
     }
@@ -656,13 +769,31 @@ try {
         for ($start = 0; $start -lt $searched.Count; $start += 100) {
             $argument = @('grep', '--cached', '-n', '-i', '-F')
             foreach ($guid in ($searched | Select-Object -Skip $start -First 100)) { $argument += @('-e', $guid) }
-            $hit = Invoke-Git -Repository $repos[0].Root -Argument ($argument + @('--', '*.ps1', '*.psm1', '*.psd1'))
+            $hit = Invoke-Git -Repository $repos[0].Root -Argument $argument
             foreach ($row in ($hit.Text -split "`n" | Where-Object { $_ })) {
-                if ($row -notmatch '^(?<path>.+?):(?<n>\d+):\s*\.GUID\s+(?<guid>[0-9a-fA-F-]{36})\s*$' -or [int]$Matches['n'] -gt $HeaderWindow) { continue }
-                $key = $Matches['guid'].ToLowerInvariant()
+                if ($row -notmatch '^(?<path>.+?):(?<n>\d+):(?<text>.*)$' -or [int]$Matches['n'] -gt $HeaderWindow) { continue }
+                $path = $Matches['path']
+                $declared = $Matches['text']
+                if (-not (Test-CoveredName -RelativePath $path)) { continue }
+                if ($declared -notmatch '^\s*\.GUID\s+(?<value>[0-9a-fA-F-]{36})\s*$' -and $declared -notmatch $SequenceGuidPattern -and
+                    $declared -notmatch $GuidLinePattern) { continue }
+                $key = $Matches['value'].ToLowerInvariant()
+                if ($key -cnotin $searched) { continue }
                 if (-not $holder.ContainsKey($key)) { $holder[$key] = [Collections.Generic.List[string]]::new() }
-                $holder[$key].Add($Matches['path'])
+                $holder[$key].Add($path)
             }
+        }
+        # A grep row is only a candidate. A file declares the GUID its own header
+        # holds; a copy of another file's header -- the catalog kernel embedded
+        # byte for byte in every browser runtime, a fixture -- declares nothing.
+        $candidate = @($holder.Values | ForEach-Object { $_ } | Sort-Object -Unique)
+        $candidateHead = Read-GitObjectHead -Repository $repos[0].Root -Spec @($candidate | ForEach-Object { ':' + $_ })
+        foreach ($key in @($holder.Keys)) {
+            $holder[$key] = @($holder[$key] | Where-Object {
+                    $line = $candidateHead[':' + $_]
+                    $style = if ($null -ne $line) { Get-FileStyle -RelativePath $_ -FirstLine $line[0] }
+                    $style -and "$((Get-HeaderFact -Style $style -Line $line).Guid)".ToLowerInvariant() -eq $key
+                })
         }
         foreach ($one in ($guidFile | Where-Object { -not (Test-GuidShareAllowed -Repo $_.Repo -RelativePath $_.Path) })) {
             $other = @($holder[$one.Fact.Guid.ToLowerInvariant()] | Where-Object { $_ -cne $one.Path })
@@ -671,8 +802,9 @@ try {
     }
 
     # A gap the file already had before the change is not the change's doing. A moved
-    # or edited file is compared with the version it replaces;
-    # a GUID problem is never excused, because the tree holds none to excuse.
+    # or edited file is compared with the version it replaces. A final problem -- a
+    # GUID that is malformed or held by another file -- is never excused, because
+    # the tree holds none to excuse.
     if ($Staged) {
         $touched = @($checked | Where-Object { $_.Problem.Count -gt 0 -and -not $_.Added })
         $previous = Read-GitObjectHead -Repository $repos[0].Root -Spec @($touched | ForEach-Object { 'HEAD:' + $_.Before })
@@ -681,7 +813,7 @@ try {
             if ($null -eq $old) { continue }
             $oldFact = Get-HeaderFact -Style $file.Style -Line $old
             $oldRule = @(Get-FileProblem -Style $file.Style -Fact $oldFact -Line $old -Exempt $file.Exempt | ForEach-Object { $_.Rule })
-            foreach ($problem in $file.Problem) { $problem.Existing = $problem.Rule -ne 'guid' -and $problem.Rule -in $oldRule }
+            foreach ($problem in $file.Problem) { $problem.Existing = -not $problem.Final -and $problem.Rule -in $oldRule }
         }
     }
 
@@ -708,15 +840,19 @@ try {
                 $findings.Add([pscustomobject]@{ Repo = $entry.Repo; Path = $ExemptionsName; Rule = 'exemption'; Message = $text; Fix = @(); Existing = $true })
             }
         }
+        # A group that spans repositories is judged on the copies in the
+        # repositories given; the others are checked when their roots are.
         foreach ($group in $Exemption.Group) {
-            if ($group.Repo -cnotin $named) { continue }
-            $member = @($checked | Where-Object { $_.Repo -eq $group.Repo -and $_.Path -cin $group.File })
+            $expected = @($group.Member | Where-Object { $_.Repo -cin $named })
+            if ($expected.Count -eq 0) { continue }
+            $member = @($checked | Where-Object { $one = $_; @($expected | Where-Object { $_.Repo -eq $one.Repo -and $_.Path -ceq $one.Path }).Count -gt 0 })
             $guids = @($member | ForEach-Object { "$($_.Fact.Guid)".ToLowerInvariant() } | Sort-Object -Unique)
+            $where = (@($expected | ForEach-Object { $_.Repo } | Sort-Object -Unique)) -join ', '
             $text = $null
-            if ($member.Count -ne $group.File.Count) { $text = "the synchronized copies kept by $($group.Tool) are not all tracked files in $($group.Repo)" }
-            elseif ($guids.Count -ne 1) { $text = "the copies kept by $($group.Tool) declare $($guids.Count) different GUIDs; run the tool so they match again" }
+            if ($member.Count -ne $expected.Count) { $text = "the synchronized copies kept by $($group.Tool) are not all tracked files in $where" }
+            elseif ($guids.Count -ne 1) { $text = "the copies kept by $($group.Tool) declare $($guids.Count) different GUIDs; make them identical again" }
             if ($text) {
-                $findings.Add([pscustomobject]@{ Repo = $group.Repo; Path = $ExemptionsName; Rule = 'exemption'; Message = $text; Fix = @(); Existing = $true })
+                $findings.Add([pscustomobject]@{ Repo = $expected[0].Repo; Path = $ExemptionsName; Rule = 'exemption'; Message = $text; Fix = @(); Existing = $true })
             }
         }
     }
@@ -742,7 +878,7 @@ try {
     $clean = @($checked | Where-Object { $_.Problem.Count -eq 0 -and -not $_.Exempt })
     $generated = @($checked | Where-Object { $_.Exempt -and $_.Exempt.Kind -eq 'generated' -and $_.Problem.Count -eq 0 })
     $vendored = @($checked | Where-Object { $_.Exempt -and $_.Exempt.Kind -eq 'vendored' -and $_.Problem.Count -eq 0 })
-    $synchronized = @($clean | Where-Object { $one = $_; @($Exemption.Group | Where-Object { $_.Repo -eq $one.Repo -and $one.Path -cin $_.File }).Count -gt 0 })
+    $synchronized = @($clean | Where-Object { Test-GuidShareAllowed -Repo $_.Repo -RelativePath $_.Path })
     $withFinding = @($findings | Where-Object { $_.Rule -ne 'exemption' } | ForEach-Object { $_.Repo + '/' + $_.Path } | Sort-Object -Unique).Count
     Write-Output ('Test-SourceMetadata [all]: {0} repo(s), {1} checked file(s): {2} compliant ({3} of them synchronized copies), {4} generated and exempt, {5} vendored and exempt, {6} with findings.' -f
         $repos.Count, $checked.Count, $clean.Count, $synchronized.Count, $generated.Count, $vendored.Count, $withFinding)

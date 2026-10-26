@@ -1,5 +1,6 @@
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
+# GUID: 429d91ea-b15d-42fc-ad8b-5ba41af4fe83
 terraform {
   # Match the portable OpenTofu host floor; standalone guests can use a newer patch.
   required_version = ">= 1.13.1"

@@ -251,7 +251,7 @@ Go module. The packages a service uses directly:
 
 | Package | What a service gets |
 |---|---|
-| `beacon` | `POST /announce` presence: hello at boot (retried on a doubling catch-up cadence), re-announce every interval, `active:false` goodbye. The aggregator it announces to is seeded once, at `New-VM` time -- see [When the caching proxy is rebuilt](#when-the-caching-proxy-is-rebuilt). |
+| `beacon` | `POST /announce` presence: hello at boot, re-announce every interval (any failed announce retried on a doubling catch-up cadence), `active:false` goodbye. The aggregator it announces to is seeded once, at `New-VM` time -- see [When the caching proxy is rebuilt](#when-the-caching-proxy-is-rebuilt). |
 | `pool` | The read client for the **information provider**: `Status`, `ExtensionHost(s)`, `ExtensionTarget`, `Healthz`, and `Get`/`GetURL` for untyped routes. |
 | `labgate` | The write gate: `Require`, `RequireBearer`, `HandleLogin`, `Session`. |
 | `hostrefresh` | Remote host refresh authorization: the versioned refresh proof (`Proof`, `Verify` with an explicit clock and a two-sided skew), the `Signer` that mints it from the signing authority, the secret-file loader, and the refresh credential `Gate` that reads only `X-Yuruna-Refresh-Credential`. Only pool-control imports it; see [Remote host refresh](pool-admin.md#remote-host-refresh). |
@@ -389,11 +389,15 @@ Three properties come with the gate:
 - **Fail closed, and say which.** A validator that cannot be reached answers
   `503` with reason `lab-token-unavailable`, never `401` -- an operator who
   cannot tell "wrong code" from "validator down" retypes a correct code until
-  they give up. A service with neither credential configured answers `503`
+  they give up. Such an attempt still counts toward the source's throttle, so
+  it cannot be repeated without end while the validator refuses this service.
+  A service with neither credential configured answers `503`
   `auth-unconfigured` rather than running a write ungated.
 - **Audited at the service.** Every unlock attempt is recorded with its source
-  address. The aggregator's own audit cannot answer that question: from there,
-  every operator in the lab is one source address.
+  address, up to the one that reaches the throttle; the attempts the throttle
+  then turns away are not, so an anonymous caller cannot grow the audit. The
+  aggregator's own audit cannot answer that question: from there, every
+  operator in the lab is one source address.
 
 `POST /announce` is the deliberate exception and stays open, contained
 by self-identity binding, a health probe, bounded state, and being
@@ -1007,12 +1011,13 @@ Containment instead:
 collector's memory; the Loki line the handler writes is the only copy that
 survives a restart, and rehydrate restores the row afterward. So when
 that write does not land the handler answers `503` -- the announce is kept and
-serving, but the announcer is told to come back. A beacon retries only until its
-*first* success and then sleeps a whole re-announce period, so a `2xx` for an
-unrecorded announce would cost the pool an entire period of a healthy service
-missing, in exchange for a retry worth seconds. Announcers
-must therefore treat any non-`2xx` as "not done" and keep their catch-up
-cadence, which is what the SDK `beacon` does. A pool configured with no Loki
+serving, but the announcer is told to come back. A beacon told `2xx` sleeps a
+whole re-announce period, so a `2xx` for an unrecorded announce would cost the
+pool an entire period of a healthy service missing after the collector's next
+restart, in exchange for a retry worth seconds. Announcers
+must therefore treat any non-`2xx` as "not done" and return to their catch-up
+cadence, for the first announce and every later one, which is what the SDK
+`beacon` does. A pool configured with no Loki
 keeps no announce history by choice and still answers `2xx`.
 
 `-announce-ttl 0` disables the route.
@@ -1167,6 +1172,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.25
+Last review: 2026.10.26
 
 Back to [Yuruna](../README.md)

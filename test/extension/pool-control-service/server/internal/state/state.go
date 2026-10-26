@@ -1,5 +1,6 @@
 // LICENSEURI https://yuruna.link/license
 // Copyright (c) 2019-2026 by Alisson Sol et al.
+// GUID: 42e8242e-91d0-470a-a801-e83dbf3c96ab
 
 // Package state persists the pool-control service's operational state under the
 // pool NAS (poolStorageNetworkPath/pool-control-service/): an append-only audit log of every

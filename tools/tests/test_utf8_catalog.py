@@ -1,5 +1,6 @@
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
+# GUID: 4277a4c2-1143-4041-bac3-1e19f300268b
 import subprocess, tempfile, unittest
 from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]

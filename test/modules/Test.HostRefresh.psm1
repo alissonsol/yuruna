@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.25
+.VERSION 2026.10.26
 .GUID 42b6904c-f865-423b-822a-edb5cb5994fe
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -1517,7 +1517,10 @@ function Start-HostRefreshStatusService {
     if ($null -eq $cap) { $result.Outcome = 'deadline-exhausted'; $result.Reason = 'deadline-exhausted'; return [pscustomobject]$result }
     if (-not $PSCmdlet.ShouldProcess("$Port", (Format-YurunaOperatorMessage -Key 'runner.host_refresh_should_process_listener'))) { $result.Reason = 'preview'; return [pscustomobject]$result }
     $pwsh = if (Get-HostRefreshCommand -Name 'Get-PwshExePath') { Get-PwshExePath } else { (Get-Process -Id $PID).Path }
-    try { if ([System.IO.File]::Exists($ResultPath)) { [System.IO.File]::Delete($ResultPath) } } catch { $null = $_ }
+    try { if ([System.IO.File]::Exists($ResultPath)) { [System.IO.File]::Delete($ResultPath) } } catch { Write-Verbose "Stale listener result not removed: $($_.Exception.Message)" }
+    # A result an earlier start left behind would read as this start's outcome
+    # when the child writes none, so one that cannot be removed stops here.
+    if ([System.IO.File]::Exists($ResultPath)) { $result.Reason = 'stale-result'; return [pscustomobject]$result }
     $arguments = @('-NoLogo', '-NoProfile', '-NonInteractive', '-File', $script, '-RefreshSafe', '-Port', "$Port", '-ResultPath', $ResultPath,
         '-DeadlineTickMs', "$([long]$Deadline.ExpiryTick)")
     $native = Invoke-BoundedNativeCommand -FilePath $pwsh -ArgumentList $arguments -TimeoutSeconds $cap -Deadline $Deadline `
@@ -1997,12 +2000,9 @@ function New-HostRefreshSyntheticProbe {
     [CmdletBinding()]
     [OutputType([pscustomobject])]
     param([Parameter(Mandatory)][string]$HostType, [Parameter(Mandatory)][string]$Reason)
-    return [pscustomobject]@{
-        PSTypeName = 'Yuruna.VirtualizationProbe'; schemaVersion = 1; hostType = $HostType; state = 'Undetermined'; reason = $Reason
-        started = $false; timedOut = $false; deadlineExhausted = ($Reason -eq 'deadline-exhausted'); corroborated = $false
-        observedUtc = (Get-HostRefreshUtcText); observedTick = [Environment]::TickCount64; elapsedMs = [long]0
-        evidence = [pscustomobject]@{}; diagnostic = ''
-    }
+    return (New-YurunaVirtualizationProbeRecord -HostType $HostType -State 'Undetermined' -Reason $Reason `
+        -DeadlineExhausted ($Reason -eq 'deadline-exhausted') -ObservedUtc (Get-HostRefreshUtcText) `
+        -ObservedTick ([Environment]::TickCount64) -ElapsedMs 0 -Evidence ([ordered]@{}))
 }
 
 function Invoke-HostRefreshProbeRung {

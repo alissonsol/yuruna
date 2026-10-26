@@ -1,5 +1,6 @@
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
+# GUID: 4257e887-25d7-4d9e-850d-5c0cfb251b09
 # Workloads bind these NodePorts; the load balancer exists before any Helm deployment.
 locals {
   ingress_ports = {

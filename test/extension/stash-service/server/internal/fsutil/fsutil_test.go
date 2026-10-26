@@ -1,5 +1,6 @@
 // LICENSEURI https://yuruna.link/license
 // Copyright (c) 2019-2026 by Alisson Sol et al.
+// GUID: 4227f089-1083-4211-b7a1-4ce41e9154f9
 package fsutil
 
 import (

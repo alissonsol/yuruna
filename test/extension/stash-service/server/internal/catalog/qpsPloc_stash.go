@@ -32,6 +32,7 @@ const DataqpsPlocstash = `{
   "stash.api_invalid_host": "[íñṽáļíď ħóšţ ~~~~~]",
   "stash.api_invalid_json_body": "[íñṽáļíď ĴŠÓÑ ƀóďý ~~~~~~~]",
   "stash.api_invalid_stash_path": "[íñṽáļíď šţášħ ƥáţħ ~~~~~~~~]",
+  "stash.api_large_text_busy": "[áñóţħéř ļářğé ţéẋţ íš ƀéíñğ šţóřéď; ţřý áğáíñ šħóřţļý ~~~~~~~~~~~~~~~~~~~~~~]",
   "stash.api_no_stashes_given": "[ñó šţášħéš ğíṽéñ ~~~~~~~]",
   "stash.api_not_an_archive": "[ñóţ áñ ářçħíṽé ~~~~~~]",
   "stash.api_not_found": "[ñóţ ƒóúñď ~~~~]",

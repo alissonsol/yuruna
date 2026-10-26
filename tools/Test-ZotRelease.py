@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
+# GUID: 4250fc68-45b4-44c0-8ee7-711bc7ea5c4c
 """Qualify the zot release the caching-proxy seed pins by syncing real images through it.
 
 `zot verify` accepts a configuration that the same release then refuses to sync

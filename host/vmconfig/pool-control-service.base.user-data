@@ -1,6 +1,7 @@
 #cloud-config
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
+# GUID: 4202f85a-4832-49c5-872b-d9e010e4993a
 #vim:syntax=yaml
 # See https://yuruna.link/429f3d06
 # See https://yuruna.link/4207d71a-000c

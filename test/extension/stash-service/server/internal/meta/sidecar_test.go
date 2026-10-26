@@ -1,5 +1,6 @@
 // LICENSEURI https://yuruna.link/license
 // Copyright (c) 2019-2026 by Alisson Sol et al.
+// GUID: 421531b0-a6b6-4fc6-bcde-ab23e066b2d9
 
 package meta
 
@@ -116,8 +117,8 @@ func TestRebuildSkipsUnreadableSubtreeButRejectsUnreadableRoot(t *testing.T) {
 	if _, err := os.ReadDir(blocked); err == nil {
 		t.Skip("host identity bypasses directory permissions")
 	}
-	sidecar := filepath.Join(root, "z-readable"+config.SidecarExtension)
-	if err := os.WriteFile(sidecar, []byte(`{"id":"restored","username":"u","status":"complete"}`), 0600); err != nil {
+	sidecar := filepath.Join(root, "restored"+config.SidecarExtension)
+	if err := os.WriteFile(sidecar, []byte(`{"id":"restored","storedPath":"/mnt/stash/files/restored.txt","username":"u","status":"complete"}`), 0600); err != nil {
 		t.Fatal(err)
 	}
 	m, err := Open(filepath.Join(t.TempDir(), "stash.sqlite"))
@@ -134,5 +135,46 @@ func TestRebuildSkipsUnreadableSubtreeButRejectsUnreadableRoot(t *testing.T) {
 	}
 	if _, err := m.RebuildFromSidecars(blocked); err == nil {
 		t.Fatal("unreadable root must fail visibly")
+	}
+}
+
+// The rebuild takes each artifact from beside its sidecar, whatever location
+// the sidecar records: the share is writable by every host in the pool, and the
+// index row is what the byte routes open and the delete route removes.
+func TestRebuildTakesTheArtifactBesideTheSidecar(t *testing.T) {
+	root := t.TempDir()
+	day := filepath.Join(root, "2026", "10", "20")
+	if err := os.MkdirAll(day, 0700); err != nil {
+		t.Fatal(err)
+	}
+	for name, body := range map[string]string{
+		"moved" + config.SidecarExtension:  `{"id":"moved","status":"complete","storedPath":"/mnt/old-mount/stash/host/files/2026/10/20/moved.txt"}`,
+		"escape" + config.SidecarExtension: `{"id":"escape","status":"complete","storedPath":"/etc/passwd"}`,
+		"other" + config.SidecarExtension:  `{"id":"theirs","status":"complete","storedPath":"/x/theirs.txt"}`,
+	} {
+		if err := os.WriteFile(filepath.Join(day, name), []byte(body), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	m, err := Open(filepath.Join(t.TempDir(), "stash.sqlite"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer m.Close()
+	count, err := m.RebuildFromSidecars(root)
+	if err != nil || count != 1 {
+		t.Fatalf("rebuilt %d: %v; want only the sidecar that names its own artifact", count, err)
+	}
+	rec, err := m.Get("moved")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := filepath.Join(day, "moved.txt"); rec.StoredPath != want {
+		t.Fatalf("storedPath = %q, want the artifact beside the sidecar, %q", rec.StoredPath, want)
+	}
+	for _, id := range []string{"escape", "theirs"} {
+		if _, err := m.Get(id); err == nil {
+			t.Fatalf("a sidecar naming %s's artifact elsewhere was indexed", id)
+		}
 	}
 }

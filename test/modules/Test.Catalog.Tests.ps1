@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.25
+.VERSION 2026.10.26
 .GUID 42ff5f78-3c96-4742-aa2e-f64ce54e850a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -235,6 +235,17 @@ Describe 'the renderer refuses to guess' {
             Assert-Throw { Get-CatalogDomain -Locale $bad -Domain 'status' } 'Not a locale tag' "'$bad' should not reach a path"
         }
         Assert-Throw { Get-CatalogDomain -Locale 'en-US' -Domain '../secrets' } 'Not a domain' 'a domain should not reach a path'
+    }
+
+    It 'renders the key and its arguments, never an exception, when a catalog cannot be read' {
+        # The caller is usually reporting another failure; an exception from its
+        # message would replace that report with one about the catalog.
+        $root = Join-Path $TestDrive ('corrupt-' + [guid]::NewGuid().ToString('N'))
+        $null = New-Item -ItemType Directory -Path $root -Force
+        Set-Content -LiteralPath (Join-Path $root 'en-US.status.psd1') -Value '@{ unterminated = '
+        Assert-StringEqual -Expected 'status.host_online_count (count=3)' `
+            -Actual (Format-CatalogMessage -Key 'status.host_online_count' -Arguments @{ count = 3 } -Locale 'en-US' -Root $root) `
+            'an unreadable catalog renders as the key and the raw arguments'
     }
 
     It 'treats an absent domain as empty rather than failing the caller' {

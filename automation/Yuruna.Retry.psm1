@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.25
+.VERSION 2026.10.26
 .GUID 4257205b-1908-49c3-840b-b2b3559b3337
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -233,6 +233,33 @@ function Protect-YurunaSecretText {
 
 <#
 .SYNOPSIS
+    The last lines of a tool's output, redacted and bounded, for a failure
+    message that has to say why the tool failed.
+.DESCRIPTION
+    The entry points run at -logLevel Error unless told otherwise, which drops
+    the Information lines a failed step prints, and the YURUNA_RESULT line the
+    host files the failure from carries only the manifest's errorMessage; a
+    message naming the command and not its error leaves nothing to act on.
+#>
+function Get-YurunaOutputTail {
+    [CmdletBinding()]
+    [OutputType([string])]
+    param(
+        [AllowNull()][AllowEmptyCollection()][object[]]$Output,
+        [ValidateRange(1, 50)][int]$MaxLines = 5,
+        [ValidateRange(40, 4000)][int]$MaxChars = 600,
+        [AllowNull()][AllowEmptyCollection()][string[]]$SecretValue
+    )
+    $lines = @(@($Output) | ForEach-Object { ([string]$_).Trim() } | Where-Object { $_ })
+    if ($lines.Count -eq 0) { return '' }
+    $values = if ($PSBoundParameters.ContainsKey('SecretValue')) { @($SecretValue) } else { Get-YurunaSecretValue }
+    $tail = Protect-YurunaSecretText -Text (@($lines | Select-Object -Last $MaxLines) -join ' | ') -SecretValue $values
+    if ($tail.Length -gt $MaxChars) { $tail = '...' + $tail.Substring($tail.Length - ($MaxChars - 3)) }
+    return $tail
+}
+
+<#
+.SYNOPSIS
     Runs a scriptblock under capped exponential backoff with optional jitter,
     retrying on non-zero exit (or per the -ShouldRetry predicate) and returning
     a result object describing the outcome.
@@ -411,4 +438,4 @@ function Invoke-TofuInitWithRetry {
     } -MaxAttempts $MaxAttempts -InitialDelaySeconds $InitialDelaySeconds -LogPath $LogPath -RcFile $RcFile
 }
 
-Export-ModuleMember -Function 'Invoke-WithYurunaRetry','Invoke-TofuInitWithRetry','Get-YurunaRetryBackoff','Get-YurunaRetryDefault','Get-YurunaTransientPattern','Test-YurunaTransientFailure','Write-YurunaToolLogSection','Get-YurunaSecretValue','Protect-YurunaSecretText'
+Export-ModuleMember -Function 'Invoke-WithYurunaRetry','Invoke-TofuInitWithRetry','Get-YurunaRetryBackoff','Get-YurunaRetryDefault','Get-YurunaTransientPattern','Test-YurunaTransientFailure','Write-YurunaToolLogSection','Get-YurunaSecretValue','Protect-YurunaSecretText','Get-YurunaOutputTail'

@@ -61,6 +61,11 @@ They select scripts for [Amazon Linux 2023](../../guest/amazon.linux.2023/),
 [Ubuntu Server 24](../../guest/ubuntu.server.24/),
 [Ubuntu Server 26](../../guest/ubuntu.server.26/),
 [Windows 11](../../guest/windows.11/), and [macOS 26](../../guest/macos.26/).
+The macOS 26 [UTM builder](../../host/macos.utm/guest.macos.26/New-VM.ps1)
+restores an IPSW and leaves startup and Setup Assistant to the operator; no
+automated setup sequence is shipped. Its
+[update script](../../guest/macos.26/macos.26.update.sh) applies to a guest
+the operator has already configured.
 Host drivers execute on the hypervisor host and import harness modules for
 configuration, logging, SSH, and sequences; guest scripts execute in the VM and
 source the automation shell helpers. GUI fetch execution crosses that boundary:
@@ -98,5 +103,11 @@ for it. It does not
 establish a GCP infrastructure deployment path, so no active GCP edge is drawn.
 
 ---
+
+LICENSEURI https://yuruna.link/license
+
+Copyright (c) 2019-2026 by Alisson Sol et al.
+
+Last review: 2026.10.26
 
 [Architecture](../architecture.md) | [Design overview](README.md)

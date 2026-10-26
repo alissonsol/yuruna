@@ -1,5 +1,6 @@
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
+# GUID: 42e4af3e-6b05-4c65-bcaa-39c39b9036ec
 # Reference: https://registry.terraform.io/providers/hashicorp/external/latest/docs/data-sources/data_source
 # The external programs derive everything from local DNS APIs; they read
 # neither argv nor stdin, so query is the empty object the provider still

@@ -1,5 +1,6 @@
 // LICENSEURI https://yuruna.link/license
 // Copyright (c) 2019-2026 by Alisson Sol et al.
+// GUID: 42e923b8-c6d5-4ac2-b4d8-f1c382db04d7
 
 // Package config holds the pool-control-service daemon's frozen constants, mirroring the
 // stash-service config package so the two services share defaults and idioms.

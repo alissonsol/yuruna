@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.25
+.VERSION 2026.10.26
 .GUID 427027e4-02aa-49bd-8f50-95db47263320
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -127,10 +127,11 @@ Write-Verbose "Creating 512GB dynamically expanding VHDX..."
 New-VHD -Path $vhdxFile -SizeBytes 512GB -Dynamic | Out-Null
 
 # --- REGION: Render the autounattend.xml + build a CD with it
-# Autounattend seed ISO. The answer file and the bootstrap carry the repository
-# token. They are staged in a private workspace beside the disk (owner, SYSTEM
-# and Administrators only), published as an image only the new VM may read,
-# and removed on every exit by the finally below.
+# Autounattend seed ISO: Windows Setup scans all drives for autounattend.xml.
+# The answer file and the bootstrap carry the repository token. They are staged
+# in a private workspace beside the disk (owner, SYSTEM and Administrators
+# only), published as an image only the new VM may read, and removed on every
+# exit by the finally below.
 Import-Module (Join-Path $PSScriptRoot '../../../automation/Yuruna.Common.psm1') -DisableNameChecking
 Import-Module (Join-Path $PSScriptRoot '../../modules/Yuruna.SeedMedia.psm1') -Force
 # A plaintext source an older builder left in the temp folder goes first.
@@ -200,14 +201,15 @@ try {
     Write-Verbose "Creating new VM '$VMName' on switch '$switchName'..."
     Hyper-V\New-VM -Name $VMName -Generation 2 -MemoryStartupBytes 12288MB -SwitchName $switchName -VHDPath $vhdxFile | Out-Null
 
-    # Deterministic per (host, VM name): a rebuilt guest presents the SAME MAC, so the
-    # DHCP server returns the SAME lease instead of consuming a new one. Random MACs
-    # make every rebuild a fresh lease request, which drains a shared pool until guests
-    # boot with no IPv4 at all. Hyper-V takes bare hex, no separators.
+    # --- REGION: https://yuruna.link/4220a755-000a
+    # Key the MAC by VM name so a rebuild presents the same address and keeps its DHCP lease.
     $YurunaGuestMac = Get-YurunaGuestMacAddress -VMName $VMName
+    # Hyper-V takes bare hex, no separators.
     Hyper-V\Set-VMNetworkAdapter -VMName $VMName -StaticMacAddress ($YurunaGuestMac -replace ':','')
     Write-Verbose "Deterministic guest MAC for '$VMName': $YurunaGuestMac"
 
+    # Static (min=max=startup, dynamic disabled) so a hung swap/paging never
+    # distorts a cycle -- see https://yuruna.link/429f3d06-001b.
     Set-VM -Name $VMName -MemoryStartupBytes 12288MB -MemoryMinimumBytes 12288MB -MemoryMaximumBytes 12288MB -AutomaticCheckpointsEnabled $false | Out-Null
     Set-VMMemory -VMName $VMName -DynamicMemoryEnabled $false
 
@@ -254,10 +256,8 @@ try {
     # Note: EnhancedSessionTransportType only accepts VMBus or HvSocket; disable at host level instead.
     Set-VMHost -EnableEnhancedSessionMode $false
 
-    # --- REGION: Clean up temporary files
 } finally {
-    # The seed holds the guest's admin credentials; it must not outlive this
-    # script on any path, an early exit or a throw included.
+    # --- REGION: Clean up temporary files
     Remove-SeedMediaWorkspace -Workspace $seedWorkspace -Confirm:$false
 }
 

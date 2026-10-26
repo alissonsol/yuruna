@@ -1,5 +1,6 @@
 // LICENSEURI https://yuruna.link/license
 // Copyright (c) 2019-2026 by Alisson Sol et al.
+// GUID: 421e29ec-2531-4d66-8dfb-105d11d500e5
 
 // Package httpsrv serves the download-agent service UI and the JSON API behind
 // it. It mirrors the pool-control-service httpsrv (static page + strict CSP, all

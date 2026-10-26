@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
+# GUID: 428d83fc-161c-4797-af20-59714e4728c4
 """Bounded fault controls for an explicitly disposable provisioned proxy VM."""
 import base64
 import json

@@ -695,6 +695,36 @@
       "sourceHash": "1119e7416a9854e3111c91005788de244fc41633b6b681615c1f0ee0f61fb1cc",
       "origin": "machine",
       "message": "Examine sourceSelections nos diagnósticos da validação da configuração e o estado do espelho; mantenha ativada a verificação de assinaturas e commits."
+    },
+    "remediation.vm_not_stopped_rationale": {
+      "sourceHash": "08037372e114765752250461f6454c4ff930fd653db40d4d3b2fef71e4cd2beb",
+      "origin": "machine",
+      "message": "{vmName} nunca chegou ao estado parado que a etapa esperava: o convidado ignorou o pedido de desligamento, e esperar de novo não muda isso. Um ciclo de energia a frio pode mudar."
+    },
+    "remediation.vm_not_stopped_action_power": {
+      "sourceHash": "640f5e262c898dcd8a1c107df70ea1f19a9723d1b55c9c5880a7bc01dd5ece1c",
+      "origin": "machine",
+      "message": "Desligue a VM pelo hospedeiro -- um retry com restartVmBeforeRetry: coldPowerCycle faz isso -- e execute a etapa de novo."
+    },
+    "remediation.vm_not_stopped_action_inspect": {
+      "sourceHash": "15879774c917340e974da8827f0752cbe47da1a3c47659d751689a71d933031b",
+      "origin": "machine",
+      "message": "Se acontecer de novo, verifique no console do convidado o que está impedindo o desligamento."
+    },
+    "remediation.guest_run_lost_rationale": {
+      "sourceHash": "4bd1594123a8566bdd8b7a3bf25ec8abe219c4701f942702a61e9a9741baa1dd",
+      "origin": "machine",
+      "message": "A execução em {vmName} foi perdida: o supervisor do convidado respondeu, mas não soube dar conta dela; o processo deixou de existir, e reconectar não o traz de volta."
+    },
+    "remediation.guest_run_lost_action_restore": {
+      "sourceHash": "1134d22bef2d923248fa744f8cf8ab854a679519c337c8a11710d53a930807ff",
+      "origin": "machine",
+      "message": "Restaure o último snapshot bom e execute a sequência de novo."
+    },
+    "remediation.guest_run_lost_action_inspect": {
+      "sourceHash": "28e9abf2f74ea280b26312eeac2fb6013582d2472223baf12eb8e542297f5001",
+      "origin": "machine",
+      "message": "Leia o log de execução do convidado para saber o que encerrou o processo."
     }
   }
 }

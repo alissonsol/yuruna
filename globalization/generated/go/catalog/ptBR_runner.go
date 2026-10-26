@@ -63,6 +63,20 @@ const DataptBRrunner = `{
     },
     " porque a validação da configuração falhou. Nenhum novo ciclo de testes foi iniciado. Corrija a configuração antes de tentar novamente."
   ],
+  "runner.config_last_good_used": [
+    {
+      "arg": "path",
+      "type": "detail",
+      "trust": "internal"
+    },
+    " não pode ser interpretado (",
+    {
+      "arg": "problem",
+      "type": "detail",
+      "trust": "external"
+    },
+    "); o executor continua decidindo pela última configuração que pôde ser lida até que o arquivo seja corrigido."
+  ],
   "runner.config_naming_backup": [
     "Fazer backup da configuração em ",
     {
@@ -140,6 +154,33 @@ const DataptBRrunner = `{
       "trust": "internal"
     },
     " s, dois tempos limite de etapa por execução."
+  ],
+  "runner.cycle_degraded": [
+    "  O ciclo ",
+    {
+      "arg": "cycleCount",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " não teve falhas, mas pulou ",
+    {
+      "arg": "skipped",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " de ",
+    {
+      "arg": "planned",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " convidado(s) planejado(s) (",
+    {
+      "arg": "guests",
+      "type": "detail",
+      "trust": "external"
+    },
+    "): ele está degradado, não aprovado, então a sequência de falhas e o alerta ficam como estavam."
   ],
   "runner.cycle_outcome_rejected_kept": [
     "[ciclo externo ",
@@ -234,6 +275,15 @@ const DataptBRrunner = `{
     },
     " em vez de 0."
   ],
+  "runner.cycle_telemetry_gap": [
+    "O ciclo terminou sem ",
+    {
+      "arg": "missing",
+      "type": "detail",
+      "trust": "internal"
+    },
+    ": quem consultar este ciclo não encontra esse registro. A pasta guarda telemetry_gaps.json com o que falta."
+  ],
   "runner.detached_handshake_write_action": "Gravar o handshake de identidade do worker desanexado",
   "runner.detached_launch_action": "Iniciar um processo worker desanexado",
   "runner.diagnostic_budget_exhausted": [
@@ -317,6 +367,21 @@ const DataptBRrunner = `{
       ]
     }
   },
+  "runner.fetch_archive_digest_unavailable": [
+    "Não foi possível montar o resumo do arquivo de ",
+    {
+      "arg": "repoDir",
+      "type": "detail",
+      "trust": "internal"
+    },
+    " em ",
+    {
+      "arg": "commit",
+      "type": "detail",
+      "trust": "internal"
+    },
+    ", então o script de atualização descompacta essa árvore sem verificá-la."
+  ],
   "runner.fetch_context_deadline": [
     "fetchAndExecute: o prazo de ",
     {
@@ -518,6 +583,15 @@ const DataptBRrunner = `{
       "trust": "internal"
     },
     " caracteres]"
+  ],
+  "runner.host_network_sweep_timed_out": [
+    "A varredura de VMs abandonadas no caminho de recusa por falta de rede do host não terminou em ",
+    {
+      "arg": "seconds",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " s e foi interrompida; o ciclo continua recusado."
   ],
   "runner.host_refresh_action_dispose_obligations": [
     "Próximo passo: após verificar cada item manualmente, registre-o com: pwsh test/lab/Invoke-HostRefresh.ps1 -DisposeObligation ",
@@ -2090,6 +2164,108 @@ const DataptBRrunner = `{
       "trust": "internal"
     },
     "); a inicialização foi recusada. Aguarde a conclusão ou retome com test/lab/Invoke-HostRefresh.ps1 -Resume."
+  ],
+  "runner.ocr_known_answer_degraded": [
+    "Um provedor de OCR não consegue ler um quadro conhecido (",
+    {
+      "arg": "detail",
+      "type": "detail",
+      "trust": "internal"
+    },
+    "); as esperas leem por meio dos provedores que conseguem."
+  ],
+  "runner.ocr_known_answer_failed": [
+    "O OCR não consegue ler um quadro conhecido (",
+    {
+      "arg": "detail",
+      "type": "detail",
+      "trust": "internal"
+    },
+    "); o ciclo para antes que qualquer convidado dependa dele, como falha de instrumentação do host."
+  ],
+  "runner.oneshot_blocks_start": [
+    "Start-TestRunner: uma execução avulsa (PID ",
+    {
+      "arg": "pid",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    ") detém este diretório de runtime (",
+    {
+      "arg": "leasePath",
+      "type": "detail",
+      "trust": "internal"
+    },
+    "); o runner não será iniciado. Inicie-o novamente quando essa execução terminar."
+  ],
+  "runner.oneshot_lease_held": [
+    {
+      "arg": "callerName",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    ": uma execução avulsa (PID ",
+    {
+      "arg": "pid",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    ") detém este diretório de runtime (",
+    {
+      "arg": "leasePath",
+      "type": "detail",
+      "trust": "internal"
+    },
+    "); a inicialização foi recusada. Aguarde a conclusão dela ou execute a partir de outro YURUNA_RUNTIME_DIR."
+  ],
+  "runner.oneshot_lease_release_action": "Liberar a concessão de execução avulsa do diretório de runtime",
+  "runner.oneshot_lease_take_action": "Assumir a concessão de execução avulsa do diretório de runtime",
+  "runner.oneshot_lease_unconfirmed": [
+    "Start-TestRunner: a concessão de execução avulsa ",
+    {
+      "arg": "leasePath",
+      "type": "detail",
+      "trust": "internal"
+    },
+    " indica o PID ",
+    {
+      "arg": "pid",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    ", cuja identidade não pode ser confirmada (",
+    {
+      "arg": "reason",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "); o runner será iniciado mesmo assim."
+  ],
+  "runner.oneshot_lease_unknown": [
+    {
+      "arg": "callerName",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    ": a concessão de execução avulsa ",
+    {
+      "arg": "leasePath",
+      "type": "detail",
+      "trust": "internal"
+    },
+    " indica o PID ",
+    {
+      "arg": "pid",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    ", cuja identidade não pode ser confirmada (",
+    {
+      "arg": "reason",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "); a inicialização foi recusada. Se nenhuma execução avulsa estiver ativa, remova o arquivo e execute novamente."
   ],
   "runner.operator_00041714738b26ad": "Definir a topologia do clone (duplicar)",
   "runner.operator_0021edc0297e700d": [
@@ -8273,7 +8449,7 @@ const DataptBRrunner = `{
     "s) ..."
   ],
   "runner.operator_4fb40cac594a7bbc": [
-    "[Invoke-TestProject] Passo 1+2: limpar e re-clonar <RepoRoot>/projeto de ",
+    "[Invoke-TestProject] Passo 1+2: o executor interno do ciclo substitui <RepoRoot>/project por um clone novo de ",
     {
       "arg": "projectUrl",
       "type": "detail",
@@ -8708,7 +8884,7 @@ const DataptBRrunner = `{
   ],
   "runner.operator_55110b53e7e30cf1": "não construído sobre esta máquina",
   "runner.operator_55420bdecd564874": "Desativar (sysadminctl -screenLock off)",
-  "runner.operator_554a120b73560a96": "[Invoke-TestProject] Etapa 3: desova Invoke-TestRunnerInnerLoop para um ciclo de teste.",
+  "runner.operator_554a120b73560a96": "[Invoke-TestProject] Passo 3: executando um ciclo do executor por meio de Invoke-TestCycleRunner.",
   "runner.operator_55583f4e86287622": [
     "Texto '",
     {
@@ -22472,6 +22648,20 @@ const DataptBRrunner = `{
     },
     " -- deve ser 0 (desativado) ou um inteiro positivo."
   ],
+  "runner.orchestration_before_seal_failed": [
+    "A etapa que registra a decisão de falha da orquestração ",
+    {
+      "arg": "setName",
+      "type": "detail",
+      "trust": "internal"
+    },
+    " antes de o ciclo ser selado falhou: ",
+    {
+      "arg": "message",
+      "type": "detail",
+      "trust": "external"
+    }
+  ],
   "runner.outer_attempt_failed": "a tentativa do executor falhou",
   "runner.outer_log_runtime_dir_unset": [
     "Write-OuterLog: YURUNA_RUNTIME_DIR não está definido, portanto o outer.log não pode ser localizado; esta linha e as seguintes não serão gravadas nele: ",
@@ -22592,6 +22782,27 @@ const DataptBRrunner = `{
     },
     "). Atualize este checkout antes de alterar a configuração do grupo."
   ],
+  "runner.pool_notifier_busy": "Outra execução do notificador do pool mantém o bloqueio neste hospedeiro; esta não entregou nada.",
+  "runner.pool_notifier_spool_errors": [
+    "[ciclo externo ",
+    {
+      "arg": "cycle",
+      "type": "detail",
+      "trust": "external"
+    },
+    "] notificador do grupo: ",
+    {
+      "arg": "count",
+      "type": "detail",
+      "trust": "external"
+    },
+    " etapa(s) do spool falharam, então uma mensagem pode ser enviada duas vezes ou repetida sem fim; primeira: ",
+    {
+      "arg": "detail",
+      "type": "detail",
+      "trust": "external"
+    }
+  ],
   "runner.pool_repositories_cleared": [
     "Repositórios removidos do grupo '",
     {
@@ -22648,6 +22859,33 @@ const DataptBRrunner = `{
   ],
   "runner.prior_runner_cleanup_action": "Ação: parando-o e rodando\nRemove-TestVMFiles.ps1 antes de iniciar",
   "runner.process_start_record_write_action": "Gravar um registro de hora de início do processo",
+  "runner.project_checkout_replace_action": [
+    "Substituir por um checkout novo de ",
+    {
+      "arg": "projectUrl",
+      "type": "detail",
+      "trust": "external"
+    },
+    " e então executar um ciclo de teste"
+  ],
+  "runner.project_cycle_degraded": [
+    "  Ciclo DEGRADADO: nada falhou, mas um convidado planejado foi pulado. Veja ",
+    {
+      "arg": "dIR",
+      "type": "detail",
+      "trust": "external"
+    },
+    " para o diário de bordo por ciclo."
+  ],
+  "runner.project_cycle_not_run": [
+    "  Ciclo NÃO EXECUTADO (",
+    {
+      "arg": "outcome",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "): um pool drenado ou pausado, uma atualização do host ou Ctrl+C o reteve antes de um veredito."
+  ],
   "runner.project_previous_cleanup_failed": [
     "Não foi possível excluir o checkout anterior do projeto em ",
     {
@@ -22758,6 +22996,54 @@ const DataptBRrunner = `{
     },
     "); a pausa por falha é ignorada e o próximo ciclo começa imediatamente."
   ],
+  "runner.recovery_disabled": [
+    "A recuperação automática está desativada (",
+    {
+      "arg": "reason",
+      "type": "token",
+      "trust": "internal"
+    },
+    "): nenhum reparo é executado até que o registro de recuperação em ",
+    {
+      "arg": "ledgerPath",
+      "type": "detail",
+      "trust": "internal"
+    },
+    " possa ser lido e gravado novamente."
+  ],
+  "runner.recovery_probe_cleared": [
+    "Ciclo ",
+    {
+      "arg": "cycle",
+      "type": "integer",
+      "trust": "internal"
+    },
+    ": a condição ",
+    {
+      "arg": "failureClass",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    " foi resolvida (",
+    {
+      "arg": "detail",
+      "type": "detail",
+      "trust": "internal"
+    },
+    "); encerrando a pausa por falha (tentativa ",
+    {
+      "arg": "attempt",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " de ",
+    {
+      "arg": "maxAttempts",
+      "type": "integer",
+      "trust": "internal"
+    },
+    ")."
+  ],
   "runner.recovery_result_write_failed": [
     "Não foi possível registrar o resultado da recuperação em ",
     {
@@ -22828,6 +23114,51 @@ const DataptBRrunner = `{
       "trust": "internal"
     },
     "); um segundo runner não será iniciado. Aguarde a conclusão ou retome com test/lab/Invoke-HostRefresh.ps1 -Resume."
+  ],
+  "runner.refresh_gate_boot_resume": [
+    "Start-TestRunner: a atualização do hospedeiro ",
+    {
+      "arg": "requestId",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    " ficou inacabada em uma inicialização anterior; retomando-a uma vez com test/lab/Invoke-HostRefresh.ps1 -Resume (pid ",
+    {
+      "arg": "pid",
+      "type": "integer",
+      "trust": "internal"
+    },
+    "). Este início continua recusado; a atualização inicia o runner quando terminar, e seus erros vão para ",
+    {
+      "arg": "stdErrPath",
+      "type": "detail",
+      "trust": "internal"
+    },
+    "."
+  ],
+  "runner.refresh_gate_boot_resume_failed": [
+    "Start-TestRunner: a atualização do hospedeiro ",
+    {
+      "arg": "requestId",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    " ficou inacabada em uma inicialização anterior, e retomá-la falhou (",
+    {
+      "arg": "reason",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "); retome-a com test/lab/Invoke-HostRefresh.ps1 -Resume."
+  ],
+  "runner.refresh_gate_boot_resume_tried": [
+    "Start-TestRunner: a atualização do hospedeiro ",
+    {
+      "arg": "requestId",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    ", inacabada desde uma inicialização anterior, já foi retomada uma vez nesta inicialização; retome-a novamente com test/lab/Invoke-HostRefresh.ps1 -Resume."
   ],
   "runner.refresh_gate_hold": [
     "[ciclo externo ",
@@ -23854,6 +24185,21 @@ const DataptBRrunner = `{
       ]
     }
   },
+  "runner.state_file_write_failed": [
+    "Não foi possível gravar ",
+    {
+      "arg": "path",
+      "type": "detail",
+      "trust": "internal"
+    },
+    ": ",
+    {
+      "arg": "message",
+      "type": "detail",
+      "trust": "external"
+    },
+    " Quem lê este registro não verá esta alteração."
+  ],
   "runner.status_beacon_start_failed": [
     "Não foi possível iniciar o sinal de endereços da máquina: ",
     {
@@ -24015,6 +24361,48 @@ const DataptBRrunner = `{
   ],
   "runner.status_worker_directory_prepare_action": "Preparar o diretório privado do worker",
   "runner.status_worker_state_write_action": "Publicar o registro de estado do worker",
+  "runner.step_handler_threw": [
+    "Etapa ",
+    {
+      "arg": "step",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " (",
+    {
+      "arg": "action",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "): o handler lançou uma exceção: ",
+    {
+      "arg": "message",
+      "type": "detail",
+      "trust": "external"
+    },
+    ". A etapa falha, e um retry em volta dela pode executá-la de novo."
+  ],
+  "runner.step_heartbeat_write_failed": [
+    "Não foi possível gravar o heartbeat de etapa ",
+    {
+      "arg": "path",
+      "type": "detail",
+      "trust": "internal"
+    },
+    " (",
+    {
+      "arg": "count",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " vezes seguidas): ",
+    {
+      "arg": "detail",
+      "type": "detail",
+      "trust": "external"
+    },
+    ". O watchdog avalia o ciclo por este arquivo e o encerra como travado quando ele fica desatualizado; verifique o espaço livre e os bloqueios de arquivo nesse local."
+  ],
   "runner.telemetry_event_dropped": [
     "Não foi possível registrar um evento do ciclo ('",
     {

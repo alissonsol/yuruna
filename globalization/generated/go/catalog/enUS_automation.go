@@ -1355,15 +1355,6 @@ const DataenUSautomation = `{
     },
     "'."
   ],
-  "automation.operator_483ad55e8c49c6d8": [
-    "-- WARNING: tofu already initialized: ",
-    {
-      "arg": "terraformPath",
-      "type": "detail",
-      "trust": "external"
-    },
-    " \n   Resource may not be created. Use 'yuruna clear' to clear tofu state."
-  ],
   "automation.operator_485fb74637bada2f": "Connectivity probe (ping -c 3 -W 2 1.1.1.1)",
   "automation.operator_48a01e8836cadcfb": "DNS resolver status",
   "automation.operator_48ffd650c4a65b3b": "ecr Authenticator: 'docker' CLI not on PATH; cannot complete login.",

@@ -7,6 +7,36 @@ package catalog
 // DataptBRhost is the compiled catalog for this locale and domain. It is a
 // string so the package carries no init cost until a caller decodes it.
 const DataptBRhost = `{
+  "host.agent_image_unverifiable": [
+    "O agente de download serviu ",
+    {
+      "arg": "isoFileName",
+      "type": "identifier",
+      "trust": "external"
+    },
+    " a partir de ",
+    {
+      "arg": "sourceUrl",
+      "type": "detail",
+      "trust": "external"
+    },
+    ", mas nenhuma lista de somas de verificação do publicador o nomeia, então a imagem não é usada."
+  ],
+  "host.base_image_publish_failed": [
+    "Não foi possível colocar o download no lugar como ",
+    {
+      "arg": "baseImageFile",
+      "type": "detail",
+      "trust": "internal"
+    },
+    ": ",
+    {
+      "arg": "message",
+      "type": "detail",
+      "trust": "external"
+    },
+    " Nenhum sentinela ou registro de origem foi gravado para ele."
+  ],
   "host.clock_service_description": "Serviço de tempo do Windows (W32Time)",
   "host.enable_automation_no_prompt_confirm_conflict": "Enable-TestAutomation: -NoOperatorPrompt não pode ser combinado com -Confirm, que pede confirmação antes de cada alteração; nada foi capturado nem alterado.",
   "host.enable_automation_no_prompt_mode": "Enable-TestAutomation: executando com -NoOperatorPrompt -- sem diálogos de consentimento, sem reinício do Dock ou do protetor de tela, sem instalação de módulos, sem solicitação de senha do sudo e sem questionário de networkStorage. As configurações que exigem um operador são informadas como ainda não atendidas.",
@@ -4848,7 +4878,7 @@ const DataptBRhost = `{
     },
     "' não vai escravizar) -- os convidados nele nunca obteriam uma oferta DHCP. Rodando o netplan mudar de volta."
   ],
-  "host.operator_891e818fe6ad2659": "Assinatura SHA256SUMS não verificada (gpg/keyserver indisponível ou sem .gpg separado); procedendo apenas no hash.",
+  "host.operator_891e818fe6ad2659": "Assinatura do SHA256SUMS não verificada (o gpg ou o chaveiro fixado não está instalado); continuando apenas com o hash.",
   "host.operator_89af27dbbf79e963": [
     "O caminho não existe: ",
     {
@@ -8164,7 +8194,7 @@ const DataptBRhost = `{
   ],
   "host.operator_f08765755eb06413": "pacotes apt (qemu-kvm, libvirt-daemon-system, cifs-utils, acl, ...) e módulos PSGallery",
   "host.operator_f0fd9838eca3f370": "virsh --source agent : tenta (seed instala o qemu-guest-agent best-effort; confirma por convidado)",
-  "host.operator_f11ac5338e134c99": "Save-ImageWithChecksum: SHA256SUMS signature unverified (gpg/keyserver indisponível ou nenhum .gpg separado); continuando apenas no hash.",
+  "host.operator_f11ac5338e134c99": "Save-ImageWithChecksum: assinatura do SHA256SUMS não verificada (o gpg ou o chaveiro fixado não está instalado); continuando apenas com o hash.",
   "host.operator_f138be59eb9fb325": "o libvirt GUI, para assistir um convidado um passo sem cabeça está preso",
   "host.operator_f14a8d0740e60f7c": [
     "Save-VMDiskSnapshot: '",
@@ -8698,6 +8728,23 @@ const DataptBRhost = `{
       "trust": "external"
     },
     "' não foi renomeada e o pacote dela não foi editado."
+  ],
+  "host.signature_could_not_be_checked": "  A ASSINATURA GPG DO SHA256SUMS NÃO PÔDE SER VERIFICADA",
+  "host.signature_could_not_be_checked_detail": "  O gpg e as chaves de assinatura do Ubuntu fixadas estão presentes, mas a assinatura não pôde ser obtida nem verificada; a soma de verificação é recusada por não estar autenticada.",
+  "host.snapshot_state_unknown": [
+    "Não foi possível saber se o snapshot '",
+    {
+      "arg": "id",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "' existe em ",
+    {
+      "arg": "vMName",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    ": o hipervisor não respondeu."
   ],
   "host.unified_screen_lock_description": "bloqueio de tela unificado sysadminctl",
   "host.utm_app_census_unknown": [

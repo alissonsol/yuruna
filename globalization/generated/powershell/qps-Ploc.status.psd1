@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.25
+.VERSION 2026.10.26
 .GUID 42678c90-5aeb-d880-3139-e40c336311f5
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -291,6 +291,7 @@
     'status.banner_idle' = '[Ñó ţéšţ ďáţá áṽáíļáƀļé ~~~~~~~~~]'
     'status.banner_incident_details' = '[Íñçíďéñţ ďéţéçţéď — šéé ďéţáíļš ƀéļóŵ ~~~~~~~~~~~~~~~]'
     'status.banner_pass' = '[Áļļ ğúéšţš óƥéřáţíóñáļ ~~~~~~~~~]'
+    'status.banner_recovery_disabled' = '[Áúţóɱáţíç řéçóṽéřý íš óƒƒ: ţħé řéçóṽéřý ļéďğéř çáññóţ ƀé řéáď óř ŵříţţéñ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
     'status.banner_running' = '[Ţéšţ íñ ƥřóğřéšš ~~~~~~~]'
     'status.banner_stalled' = @(
         '[Ţéšţ íñ ƥřóğřéšš, ƀúţ ñó šţéƥ ħáš áďṽáñçéď ŵíţħíñ íţš '

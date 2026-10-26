@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.25
+.VERSION 2026.10.26
 .GUID 427227f6-5537-49d8-bd74-b53ec39ba8f9
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -171,6 +171,39 @@ Describe 'break handler bounds the wait with an optional wall-clock deadline' {
         # rather than escaping the break's soft/return-$false envelope.
         $handler = Get-BreakHandlerScriptBlockAst -Path $script:modulePath
         Assert-True ($handler.Extent.Text -match 'try\s*\{\s*\$breakMaxSeconds\s*=\s*\[int\]') 'the break-timeout [int] parse must be inside a try/catch'
+    }
+}
+
+# An unbounded break outlived the step watchdog's bound, and the watchdog killed
+# the whole cycle; the break now ends at that bound by itself.
+Describe 'break handler ends an unbounded break at the step bound' {
+    It 'defaults to testCycle.stepTimeoutSeconds and keeps the heartbeat moving while it holds' {
+        $t = (Get-BreakHandlerScriptBlockAst -Path $script:modulePath).Extent.Text
+        $t | Should -Match 'testCycle\.stepTimeoutSeconds'
+        $t | Should -Match '\$breakMaxSeconds = 2700'
+        $loop = $t.Substring($t.IndexOf('while ($true)'))
+        $loop.Substring(0, $loop.IndexOf('Start-Sleep -Milliseconds $breakPollMs')) | Should -Match 'breakBeat'
+    }
+}
+
+# A wait its own timeout bounds read as a wedge once it outlasted the
+# watchdog's bound; each finished probe now moves the heartbeat.
+Describe 'Wait-VmStopped moves the step heartbeat while it waits' {
+    BeforeAll { Import-Module $script:modulePath -Force -DisableNameChecking }
+    It 'beats once per probe until the VM stops' {
+        # Closures carry the counters, so the stand-ins the module resolves
+        # globally need no global variables.
+        $counts = @{ probes = 0; beats = 0 }
+        Set-Item -Path function:global:Get-VMState -Value ({ param($VMName) $null = $VMName; $counts.probes++; if ($counts.probes -ge 3) { 'stopped' } else { 'running' } }.GetNewClosure())
+        Set-Item -Path function:global:Write-RunnerStepHeartbeat -Value ({ $counts.beats++ }.GetNewClosure())
+        try {
+            Mock -ModuleName Test.SequenceHandler Start-Sleep { }
+            $result = InModuleScope Test.SequenceHandler { Wait-VmStopped -Context @{ VMName = 'vm' } -TimeoutSeconds 60 -FrameIntervalSeconds 0 }
+            $result.Stopped | Should -BeTrue
+            $counts.beats | Should -Be 3
+        } finally {
+            Remove-Item function:global:Get-VMState, function:global:Write-RunnerStepHeartbeat -ErrorAction SilentlyContinue
+        }
     }
 }
 
@@ -362,7 +395,9 @@ Describe 'waitForTextWithNudge preserves one OCR deadline' {
         }
         Set-Item -LiteralPath Function:\Format-YurunaOperatorMessage -Value { param($Key) $Key }
         try {
-            Assert-True (Repair-ScreenshotRing -VMName 'test-vm' -Confirm:$false) 'canonical ring repair must succeed'
+            $ring = Repair-ScreenshotRing -VMName 'test-vm' -Confirm:$false
+            Assert-True ($ring.Attempted -and $ring.Effective) 'canonical ring repair must remove the frames'
+            Assert-Equal -Expected 'screenshot-ring' -Actual $ring.Mechanism
             Assert-True $script:ringResolverCalled 'ring repair must use Get-CycleScreenDir'
             Assert-True (-not (Test-Path -LiteralPath (Join-Path $ringFixture 'frame.png'))) 'stale PNG survived ring repair'
             Assert-True (Test-Path -LiteralPath (Join-Path $ringFixture 'frame.txt')) 'ring repair removed a non-frame sidecar'
@@ -1170,5 +1205,111 @@ Describe 'startVm and inputTextAndEnter leave evidence when the guest goes quiet
     It 'sshExec marks the first silence when its transport drops mid-command' {
         $h = Get-HandlerScriptBlockAst -Path $script:modulePath -Name 'sshExec'
         $h.Extent.Text | Should -Match 'transportLost[\s\S]*Set-GuestSilenceMarker'
+    }
+}
+
+Describe 'The ssh verbs publish their proof that a failed step did nothing' {
+    BeforeAll {
+        Import-Module $script:modulePath -Force -DisableNameChecking -Global
+        # Dot-sourced into the module so the stubs shadow the transport for this
+        # module only and die with it in AfterAll.
+        . (Get-Module Test.SequenceHandler) {
+            function Invoke-GuestSsh {
+                [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter', '',
+                    Justification = 'Stub: the signature has to match the real function so the caller binds.')]
+                param($VMName, $GuestKey, $Command, $TimeoutSeconds, $TransportRetryCount, $DetachToken)
+                return $script:SshProofResult
+            }
+            function Get-FetchExecutionContext {
+                [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter', '',
+                    Justification = 'Stub: the signature has to match the real function so the caller binds.')]
+                param($Context, $CommandLine)
+                return @{ Command = [string]$CommandLine; Launch = [string]$CommandLine }
+            }
+            function Save-FetchExecutionEvidence {
+                [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter', '',
+                    Justification = 'Stub: the signature has to match the real function so the caller binds.')]
+                param($Context, $Succeeded, $ElapsedSeconds)
+            }
+            function Get-GuestRunToken { return 'fixture-token' }
+        }
+        function Set-SshProofResult {
+            [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+                Justification = 'Test helper: sets the stub result inside the module under test.')]
+            param([hashtable]$Result)
+            & (Get-Module Test.SequenceHandler) { $script:SshProofResult = $args[0] } $Result
+        }
+        $script:proofContext = @{
+            Step = @{ command = 'run.sh'; timeoutSeconds = 5; detach = $false }; Vars = @{}
+            ExpandVariable = { param($Value, $Vars) $null = $Vars; $Value }
+            DefaultTimeoutSeconds = 5; ShowSensitive = $false; VMName = 'vm1'; GuestKey = 'guest.ubuntu.server.24'
+            StepInvocationId = 'step-1'; SequenceInvocationId = 'seq-1'; StepNum = 3; SequencePath = 'x.yml'
+        }
+    }
+    AfterAll { Remove-Module Test.SequenceHandler -Force }
+    BeforeEach { (Get-SequenceFailureState).StepEffect = $null }
+
+    It 'sshExec proves nothing ran when ssh never opened a session' {
+        Set-SshProofResult @{ success = $false; exitCode = -2; output = 'the command never ran'; addressResolved = $false; transportLost = $false }
+        $ok = & (Get-SequenceAction -Name sshExec).Handler $script:proofContext 3>$null
+        Assert-False $ok 'the step fails'
+        $proof = (Get-SequenceFailureState).StepEffect
+        Assert-Equal -Expected 'none-proven' -Actual $proof.effect
+        Assert-Equal -Expected 'address-unresolved' -Actual $proof.source
+        Assert-Equal -Expected 'step-1' -Actual $proof.stepInvocationId -Because 'the proof names the step that published it'
+    }
+    It 'sshExec proves nothing for a status the guest reported' {
+        # The bare name was dialed and a far end answered: the command ran.
+        Set-SshProofResult @{ success = $false; exitCode = 3; output = 'STASH UNREACHABLE'; addressResolved = $false; transportLost = $false }
+        $null = & (Get-SequenceAction -Name sshExec).Handler $script:proofContext 3>$null
+        Assert-True ($null -eq (Get-SequenceFailureState).StepEffect) 'a status from the guest is no proof'
+    }
+    It 'sshFetchAndExecute proves nothing ran when no source served the script' {
+        Set-SshProofResult @{ success = $false; exitCode = 1; output = 'NONZERO SCRIPT EXIT: 1 (no fetch source)'; addressResolved = $true; transportLost = $false; runLost = $false }
+        $null = & (Get-SequenceAction -Name sshFetchAndExecute).Handler $script:proofContext 3>$null
+        $proof = (Get-SequenceFailureState).StepEffect
+        Assert-Equal -Expected 'none-proven' -Actual $proof.effect
+        Assert-Equal -Expected 'no-source-served' -Actual $proof.source
+    }
+    It 'sshFetchAndExecute files the class a deploy entry point reported' {
+        (Get-SequenceFailureState).StepDeployResult = $null
+        $line = 'YURUNA_RESULT {"success":false,"failureClass":"chart_invalid","canonicalFailureClass":"plan_invalid","errorMessage":"lint failed"}'
+        Set-SshProofResult @{ success = $false; exitCode = 1; output = "transcript`n$line`nNONZERO SCRIPT EXIT: 1"; addressResolved = $true; transportLost = $false; runLost = $false }
+        $null = & (Get-SequenceAction -Name sshFetchAndExecute).Handler $script:proofContext 3>$null
+        $deploy = (Get-SequenceFailureState).StepDeployResult
+        Assert-Equal -Expected 'plan_invalid' -Actual $deploy.failureClass
+        Assert-Equal -Expected 'chart_invalid' -Actual $deploy.deployFailureClass
+        Assert-Equal -Expected 'lint failed' -Actual $deploy.errorMessage
+        (Get-SequenceFailureState).StepDeployResult = $null
+    }
+    It 'reads no deploy result from a malformed, unknown or non-canonical record' {
+        $reader = & (Get-Module Test.SequenceHandler) { ${function:Get-GuestDeployResult} }
+        foreach ($text in @('', 'YURUNA_RESULT {not json', 'YURUNA_RESULT {"canonicalFailureClass":"unknown"}',
+                'YURUNA_RESULT {"canonicalFailureClass":"cluster_unreachable"}', '  YURUNA_RESULT {"canonicalFailureClass":"plan_invalid"}')) {
+            Assert-True ($null -eq (& $reader -Output $text)) "no result from: $text"
+        }
+        $last = & $reader -Output ("YURUNA_RESULT {`"canonicalFailureClass`":`"plan_invalid`"}`nYURUNA_RESULT {`"canonicalFailureClass`":`"network_timeout`"}")
+        Assert-Equal -Expected 'network_timeout' -Actual $last.failureClass -Because 'the last record is the run''s own'
+    }
+    It 'sshFetchAndExecute proves nothing for a script that ran and failed' {
+        Set-SshProofResult @{ success = $false; exitCode = 1; output = 'NONZERO SCRIPT EXIT: 1'; addressResolved = $true; transportLost = $false; runLost = $false }
+        $null = & (Get-SequenceAction -Name sshFetchAndExecute).Handler $script:proofContext 3>$null
+        Assert-True ($null -eq (Get-SequenceFailureState).StepEffect) 'a script that ran is no proof'
+    }
+}
+
+Describe 'A typed command is acknowledged by what the console says' {
+    BeforeAll { Import-Module $script:modulePath -Force -DisableNameChecking -Global }
+    AfterAll { Remove-Module Test.SequenceHandler -Force }
+    It 'does not take a cursor blink, which changes only the raw frame, for an echo' {
+        $before = @{ Text = 'user@vm:~$ '; Hash = 'A' }
+        $blink = @{ Text = "user@vm:~`$  "; Hash = 'B' }
+        Test-GuestConsoleFrameChanged -Before $before -After $blink | Should -BeFalse
+        $echo = @{ Text = 'user@vm:~$ echo hello'; Hash = 'C' }
+        Test-GuestConsoleFrameChanged -Before $before -After $echo | Should -BeTrue
+    }
+    It 'falls back to the raw frame for a console the OCR could not read' {
+        Test-GuestConsoleFrameChanged -Before @{ Text = ''; Hash = 'A' } -After @{ Text = ''; Hash = 'B' } | Should -BeTrue
+        Test-GuestConsoleFrameChanged -Before @{ Text = ''; Hash = 'A' } -After @{ Text = ''; Hash = 'A' } | Should -BeFalse
     }
 }

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.25
+.VERSION 2026.10.26
 .GUID 42aee21f-6c39-49b6-e04d-daf28d2639f1
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -74,6 +74,20 @@
             'trust' = 'internal'
         }
         ' because configuration validation failed. No new test cycle started. Correct the configuration before retrying.'
+    )
+    'runner.config_last_good_used' = @(
+        @{
+            'arg' = 'path'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+        ' does not parse ('
+        @{
+            'arg' = 'problem'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '); the runner keeps deciding from the last configuration that did until the file is fixed.'
     )
     'runner.config_naming_backup' = @(
         'Back up configuration to '
@@ -152,6 +166,33 @@
             'trust' = 'internal'
         }
         ' s, two step timeouts for each run.'
+    )
+    'runner.cycle_degraded' = @(
+        '  Cycle '
+        @{
+            'arg' = 'cycleCount'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        ' failed nothing but skipped '
+        @{
+            'arg' = 'skipped'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        ' of '
+        @{
+            'arg' = 'planned'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        ' planned guest(s) ('
+        @{
+            'arg' = 'guests'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '): it is degraded, not a pass, so the failure streak and the alert stay as they were.'
     )
     'runner.cycle_outcome_rejected_kept' = @(
         '[outer cycle '
@@ -246,6 +287,15 @@
         }
         ' instead of 0.'
     )
+    'runner.cycle_telemetry_gap' = @(
+        'The cycle ended without '
+        @{
+            'arg' = 'missing'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+        ': a reader joining this cycle finds no record there. The folder keeps telemetry_gaps.json naming what is missing.'
+    )
     'runner.detached_handshake_write_action' = 'Write the detached worker''s identity handshake'
     'runner.detached_launch_action' = 'Launch a detached worker process'
     'runner.diagnostic_budget_exhausted' = @(
@@ -329,6 +379,21 @@
             )
         }
     }
+    'runner.fetch_archive_digest_unavailable' = @(
+        'The digest of the archive of '
+        @{
+            'arg' = 'repoDir'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+        ' at '
+        @{
+            'arg' = 'commit'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+        ' could not be built, so the update script unpacks that tree without checking it.'
+    )
     'runner.fetch_context_deadline' = @(
         'fetchAndExecute: the '
         @{
@@ -530,6 +595,15 @@
             'trust' = 'internal'
         }
         ' characters]'
+    )
+    'runner.host_network_sweep_timed_out' = @(
+        'The stranded-VM sweep on the host-network refusal path did not finish within '
+        @{
+            'arg' = 'seconds'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        ' s and was stopped; the cycle still refuses.'
     )
     'runner.host_refresh_action_dispose_obligations' = @(
         'Next step: after checking each item by hand, record it with: pwsh test/lab/Invoke-HostRefresh.ps1 -DisposeObligation '
@@ -2101,6 +2175,108 @@
             'trust' = 'internal'
         }
         '); refusing to start. Wait for it to finish, or resume it with test/lab/Invoke-HostRefresh.ps1 -Resume.'
+    )
+    'runner.ocr_known_answer_degraded' = @(
+        'An OCR provider cannot read a known frame ('
+        @{
+            'arg' = 'detail'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+        '); waits read through the providers that can.'
+    )
+    'runner.ocr_known_answer_failed' = @(
+        'OCR cannot read a known frame ('
+        @{
+            'arg' = 'detail'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+        '); the cycle stops before any guest depends on it, as the host''s instrumentation failure.'
+    )
+    'runner.oneshot_blocks_start' = @(
+        'Start-TestRunner: a one-shot run (PID '
+        @{
+            'arg' = 'pid'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ') holds this runtime directory ('
+        @{
+            'arg' = 'leasePath'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+        '); not starting the runner. Start it again once that run finishes.'
+    )
+    'runner.oneshot_lease_held' = @(
+        @{
+            'arg' = 'callerName'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ': a one-shot run (PID '
+        @{
+            'arg' = 'pid'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ') holds this runtime directory ('
+        @{
+            'arg' = 'leasePath'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+        '); refusing to start. Wait for it to finish, or run from a different YURUNA_RUNTIME_DIR.'
+    )
+    'runner.oneshot_lease_release_action' = 'Release the one-shot runtime lease'
+    'runner.oneshot_lease_take_action' = 'Take the one-shot runtime lease'
+    'runner.oneshot_lease_unconfirmed' = @(
+        'Start-TestRunner: the one-shot lease '
+        @{
+            'arg' = 'leasePath'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+        ' names PID '
+        @{
+            'arg' = 'pid'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ', whose identity cannot be confirmed ('
+        @{
+            'arg' = 'reason'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        '); starting the runner anyway.'
+    )
+    'runner.oneshot_lease_unknown' = @(
+        @{
+            'arg' = 'callerName'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ': the one-shot lease '
+        @{
+            'arg' = 'leasePath'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+        ' names PID '
+        @{
+            'arg' = 'pid'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ', whose identity cannot be confirmed ('
+        @{
+            'arg' = 'reason'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        '); refusing to start. If no one-shot run is active, remove the file and run again.'
     )
     'runner.operator_00041714738b26ad' = 'Set clone (duplicate) topology'
     'runner.operator_0021edc0297e700d' = @(
@@ -8303,7 +8479,7 @@
         's) ...'
     )
     'runner.operator_4fb40cac594a7bbc' = @(
-        '[Invoke-TestProject] Step 1+2: wipe and re-clone <RepoRoot>/project from '
+        '[Invoke-TestProject] Step 1+2: the cycle''s inner replaces <RepoRoot>/project with a fresh clone of '
         @{
             'arg' = 'projectUrl'
             'type' = 'detail'
@@ -8741,7 +8917,7 @@
     )
     'runner.operator_55110b53e7e30cf1' = 'not built on this host'
     'runner.operator_55420bdecd564874' = 'Disable (sysadminctl -screenLock off)'
-    'runner.operator_554a120b73560a96' = '[Invoke-TestProject] Step 3: spawning Invoke-TestRunnerInnerLoop for one test cycle.'
+    'runner.operator_554a120b73560a96' = '[Invoke-TestProject] Step 3: running one runner cycle through Invoke-TestCycleRunner.'
     'runner.operator_55583f4e86287622' = @(
         'Text '''
         @{
@@ -22539,6 +22715,20 @@
         }
         ' -- should be 0 (disabled) or a positive integer.'
     )
+    'runner.orchestration_before_seal_failed' = @(
+        'The step that records orchestration '
+        @{
+            'arg' = 'setName'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+        '''s failure decision before its cycle is sealed failed: '
+        @{
+            'arg' = 'message'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+    )
     'runner.outer_attempt_failed' = 'runner attempt failed'
     'runner.outer_log_runtime_dir_unset' = @(
         'Write-OuterLog: YURUNA_RUNTIME_DIR is not set, so outer.log cannot be located; this line and later lines are not written to it: '
@@ -22659,6 +22849,27 @@
         }
         '). Update this checkout before changing pool configuration.'
     )
+    'runner.pool_notifier_busy' = 'Another pool notifier run holds its lock on this host; this one delivered nothing.'
+    'runner.pool_notifier_spool_errors' = @(
+        '[outer cycle '
+        @{
+            'arg' = 'cycle'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '] pool notifier: '
+        @{
+            'arg' = 'count'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' spool step(s) failed, so a message can be sent twice or retried without end; first: '
+        @{
+            'arg' = 'detail'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+    )
     'runner.pool_repositories_cleared' = @(
         'Repositories cleared on pool '''
         @{
@@ -22715,6 +22926,33 @@
     )
     'runner.prior_runner_cleanup_action' = "  Action:  stopping it and running`n           Remove-TestVMFiles.ps1 before start"
     'runner.process_start_record_write_action' = 'Write a process start-time record'
+    'runner.project_checkout_replace_action' = @(
+        'Replace with a fresh checkout of '
+        @{
+            'arg' = 'projectUrl'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ', then run one test cycle'
+    )
+    'runner.project_cycle_degraded' = @(
+        '  Cycle DEGRADED: it failed nothing but skipped a planned guest. See '
+        @{
+            'arg' = 'dIR'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' for the per-cycle log.'
+    )
+    'runner.project_cycle_not_run' = @(
+        '  Cycle NOT RUN ('
+        @{
+            'arg' = 'outcome'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        '): a drained or paused pool, a host refresh or Ctrl+C held it before a verdict.'
+    )
     'runner.project_previous_cleanup_failed' = @(
         'Could not delete the displaced project checkout at '
         @{
@@ -22825,6 +23063,54 @@
         }
         '); the failure pause is skipped and the next cycle starts at once.'
     )
+    'runner.recovery_disabled' = @(
+        'Automatic recovery is disabled ('
+        @{
+            'arg' = 'reason'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+        '): no repair runs until the recovery ledger at '
+        @{
+            'arg' = 'ledgerPath'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+        ' can be read and written again.'
+    )
+    'runner.recovery_probe_cleared' = @(
+        'Cycle '
+        @{
+            'arg' = 'cycle'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        ': the '
+        @{
+            'arg' = 'failureClass'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ' condition has cleared ('
+        @{
+            'arg' = 'detail'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+        '); ending the failure pause (attempt '
+        @{
+            'arg' = 'attempt'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        ' of '
+        @{
+            'arg' = 'maxAttempts'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        ').'
+    )
     'runner.recovery_result_write_failed' = @(
         'Could not record the recovery result at '
         @{
@@ -22895,6 +23181,51 @@
             'trust' = 'internal'
         }
         '); not starting a second runner. Wait for it to finish, or resume it with test/lab/Invoke-HostRefresh.ps1 -Resume.'
+    )
+    'runner.refresh_gate_boot_resume' = @(
+        'Start-TestRunner: host refresh '
+        @{
+            'arg' = 'requestId'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ' was left unfinished by an earlier boot; resuming it once with test/lab/Invoke-HostRefresh.ps1 -Resume (pid '
+        @{
+            'arg' = 'pid'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        '). This start still refuses; the refresh starts the runner when it completes, and its errors go to '
+        @{
+            'arg' = 'stdErrPath'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+        '.'
+    )
+    'runner.refresh_gate_boot_resume_failed' = @(
+        'Start-TestRunner: host refresh '
+        @{
+            'arg' = 'requestId'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ' was left unfinished by an earlier boot, and resuming it failed ('
+        @{
+            'arg' = 'reason'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        '); resume it with test/lab/Invoke-HostRefresh.ps1 -Resume.'
+    )
+    'runner.refresh_gate_boot_resume_tried' = @(
+        'Start-TestRunner: host refresh '
+        @{
+            'arg' = 'requestId'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ', left unfinished by an earlier boot, was already resumed once in this boot; resume it again with test/lab/Invoke-HostRefresh.ps1 -Resume.'
     )
     'runner.refresh_gate_hold' = @(
         '[outer cycle '
@@ -23921,6 +24252,21 @@
             )
         }
     }
+    'runner.state_file_write_failed' = @(
+        'Could not write '
+        @{
+            'arg' = 'path'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+        ': '
+        @{
+            'arg' = 'message'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' Readers of this record will not see this change.'
+    )
     'runner.status_beacon_start_failed' = @(
         'Host-address beacon could not be started: '
         @{
@@ -24082,6 +24428,48 @@
     )
     'runner.status_worker_directory_prepare_action' = 'Prepare the private worker directory'
     'runner.status_worker_state_write_action' = 'Publish the worker state record'
+    'runner.step_handler_threw' = @(
+        'Step '
+        @{
+            'arg' = 'step'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        ' ('
+        @{
+            'arg' = 'action'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        '): the handler threw: '
+        @{
+            'arg' = 'message'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '. The step fails, and a retry around it may run it again.'
+    )
+    'runner.step_heartbeat_write_failed' = @(
+        'The step heartbeat '
+        @{
+            'arg' = 'path'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+        ' could not be written ('
+        @{
+            'arg' = 'count'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        ' in a row): '
+        @{
+            'arg' = 'detail'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '. The watchdog judges the cycle by this file and stops it as wedged once it goes stale; check free space and file locks there.'
+    )
     'runner.telemetry_event_dropped' = @(
         'A cycle event could not be recorded ('''
         @{

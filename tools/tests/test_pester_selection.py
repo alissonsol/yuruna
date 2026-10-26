@@ -1,5 +1,6 @@
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
+# GUID: 4225ce48-33bc-4629-9426-f9dfef222f70
 import os
 from pathlib import Path
 import subprocess

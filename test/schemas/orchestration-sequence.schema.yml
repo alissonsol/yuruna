@@ -1,5 +1,6 @@
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
+# GUID: 42058285-a215-446c-aae6-4c93e6cdf5c1
 $schema: https://json-schema.org/draft/2020-12/schema
 $id: https://yuruna.com/schemas/orchestration-sequence.schema.yml
 title: Yuruna orchestration sequence

@@ -1,5 +1,6 @@
 // LICENSEURI https://yuruna.link/license
 // Copyright (c) 2019-2026 by Alisson Sol et al.
+// GUID: 42b43dbb-8cdd-4455-9a28-0d90f88e6180
 //
 // The catalog kernel: resolve a locale, look a message up, format its
 // arguments. This file is the single source. tools/Invoke-CatalogEmbed.ps1

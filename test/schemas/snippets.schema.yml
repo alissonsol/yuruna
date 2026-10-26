@@ -1,5 +1,6 @@
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
+# GUID: 4272a244-3a27-41e6-bcfd-73b6f385e8e7
 $schema: https://json-schema.org/draft/2020-12/schema
 $id: https://yuruna.com/schemas/snippets.schema.yml
 title: Yuruna sequence snippet library

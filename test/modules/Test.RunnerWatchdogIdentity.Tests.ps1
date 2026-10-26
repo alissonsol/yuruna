@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.25
+.VERSION 2026.10.26
 .GUID 4226ec4a-0d3b-407b-80ff-4b853f0a15cc
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -139,6 +139,44 @@ Describe 'Watchdog gates disarm and kill on the armed identity' {
     }
     It 'kills only inside an identity-gated branch (never an unrelated reused PID)' {
         (Test-StopProcessGatedBy -Ast (Get-ModuleAst) -Pattern 'sameInner') | Should -Be $true
+    }
+}
+
+# Local time moves by an hour at a daylight-saving change, and a heartbeat age
+# taken from it killed a healthy inner each spring. The job reads the
+# heartbeat's UTC write time and measures the rest on a monotonic clock.
+# The watchdog waited up to 180 s for the inner to record itself, the window in
+# which a wedged start-up ran unguarded; the cycle process now records the inner
+# it started.
+Describe 'The cycle process records the inner it starts' {
+    It 'writes inner.start and then inner.pid for the started process before waiting on it' {
+        $ast = Get-YurunaTestFileAst -Path (Join-Path $here 'Test.RunnerOuterLoop.psm1')
+        $text = $ast.Extent.Text
+        $start = $text.IndexOf('[Diagnostics.Process]::Start($innerStart)')
+        $record = $text.IndexOf('Write-YurunaProcessStartRecord -Path $innerStartFile -ProcessId $innerProcess.Id', $start)
+        $pidWrite = $text.IndexOf('Write-YurunaStateFile -Path $innerPidFile -Content ([string]$innerProcess.Id)', $start)
+        $wait = $text.IndexOf('$innerProcess.WaitForExit()', $start)
+        $start | Should -BeGreaterThan 0
+        $record | Should -BeGreaterThan $start
+        $pidWrite | Should -BeGreaterThan $record
+        $wait | Should -BeGreaterThan $pidWrite
+    }
+}
+
+Describe 'Watchdog measures heartbeat staleness without local wall-clock time' {
+    It 'reads no local write time and subtracts no Get-Date' {
+        $ast = Get-ModuleAst
+        $localStamp = @($ast.FindAll({ param($n)
+            $n -is [System.Management.Automation.Language.MemberExpressionAst] -and
+            $n.Member -is [System.Management.Automation.Language.StringConstantExpressionAst] -and
+            $n.Member.Value -eq 'LastWriteTime' }, $true))
+        $localStamp.Count | Should -Be 0
+        $wallSubtraction = @($ast.FindAll({ param($n)
+            $n -is [System.Management.Automation.Language.BinaryExpressionAst] -and
+            $n.Operator -eq [System.Management.Automation.Language.TokenKind]::Minus -and
+            $n.Left.Extent.Text -match '^\(\s*Get-Date\s*\)$' }, $true))
+        $wallSubtraction.Count | Should -Be 0
+        (Get-CommandInvokeCount -Ast $ast -Name 'Get-Date') | Should -BeGreaterOrEqual 1 -Because 'log stamps still use it; only the arithmetic moved'
     }
 }
 

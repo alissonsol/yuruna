@@ -1,5 +1,6 @@
 // LICENSEURI https://yuruna.link/license
 // Copyright (c) 2019-2026 by Alisson Sol et al.
+// GUID: 42e57b5f-a1e5-446b-b38c-a573b299c443
 
 package imagestore
 
@@ -46,7 +47,7 @@ func brokenFido(t *testing.T) FidoConfig {
 }
 
 func TestAHandPlacedISOBecomesTheServedArtifact(t *testing.T) {
-	a := newTestAgent(t, Options{PoolDir: t.TempDir(), Fido: brokenFido(t), AgentVersion: "2026.10.25"})
+	a := newTestAgent(t, Options{PoolDir: t.TempDir(), Fido: brokenFido(t), AgentVersion: "2026.10.26"})
 	body := []byte("bytes an operator downloaded from Microsoft by hand")
 	dropFile(t, a.store, windowsID, signedName, body, 10*time.Minute)
 

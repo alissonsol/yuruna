@@ -5649,9 +5649,9 @@
       "message": "进度：{mB} / {mB2} MB（{pct}%）"
     },
     "host.operator_f11ac5338e134c99": {
-      "sourceHash": "e288add86c27ce9adf52ac5833a49fe5d0e6c7a2f3e954ac7384711975dd0227",
+      "sourceHash": "025859b6823167d9fbb715936657a771a78fea41c437be55cf7e22e17f10554d",
       "origin": "machine",
-      "message": "Save-ImageWithChecksum：SHA256SUMS签名未经验证（gpg/keyserver不可用，或缺少分离式.gpg签名）；将仅依据哈希值继续。"
+      "message": "Save-ImageWithChecksum：SHA256SUMS签名未经验证（未安装gpg或固定的密钥环）；将仅依据哈希值继续。"
     },
     "host.operator_f95b24ace7630162": {
       "sourceHash": "d31a683e4fefa806d35855911384ce063e9184616f0ae09244168822295fdbd5",
@@ -5814,9 +5814,9 @@
       "message": "执行ufw allow {statusPort}/tcp"
     },
     "host.operator_891e818fe6ad2659": {
-      "sourceHash": "4c4a9aaccd45a5f5774944f094ba4aded1cb51b6b3be4b1f02160c15185ab93d",
+      "sourceHash": "55caf09b2df58413a3a69a99da8ea510cf62df49b8eb83b7961b07e29e7ee329",
       "origin": "machine",
-      "message": "SHA256SUMS签名未经验证（gpg/keyserver不可用，或缺少分离式.gpg签名）；将仅依据哈希值继续。"
+      "message": "SHA256SUMS签名未经验证（未安装gpg或固定的密钥环）；将仅依据哈希值继续。"
     },
     "host.operator_8da23b13d6bee38a": {
       "sourceHash": "11d467713d346aa0063bbdf51a170a8366452ccd437c6e5cca445d3ca7ab5739",
@@ -5952,6 +5952,31 @@
       "sourceHash": "643de5f5e6aef1937e9ed81d27541922f0d9f67306cc88920fbd9f9dee30887a",
       "origin": "machine",
       "message": "未构建“{vMName}”：{cacheHost} 上的缓存代理提供了此主机不信任的 CA（{reason}）。不会绕过它为来宾准备种子，该失败归类为 source_integrity。"
+    },
+    "host.agent_image_unverifiable": {
+      "sourceHash": "ee96e9d45bc4a212644685e9f24f2d3ed01466c51ba3a84be74f0bc82aeb394a",
+      "origin": "machine",
+      "message": "下载代理从 {sourceUrl} 提供了 {isoFileName}，但发布者的校验和列表中没有它，因此不使用该映像。"
+    },
+    "host.snapshot_state_unknown": {
+      "sourceHash": "0c80dc7ea13c4d1bcf48f7e671df4e7bd3d0b47de472ef5163f735cd8339dda0",
+      "origin": "machine",
+      "message": "无法确定{vMName}上是否存在快照“{id}”：虚拟机管理程序没有响应。"
+    },
+    "host.signature_could_not_be_checked": {
+      "sourceHash": "e1981edf8a70ecd44e5c2031b45f959b3a99fbcde406e1d266e1b6002d545b77",
+      "origin": "machine",
+      "message": "  无法检查SHA256SUMS的GPG签名"
+    },
+    "host.signature_could_not_be_checked_detail": {
+      "sourceHash": "d0a392ea9fec5c3af72b58f5e9835f393c212763ef4e705316b9f56d572dcf97",
+      "origin": "machine",
+      "message": "  gpg和固定的Ubuntu签名密钥都存在，但无法获取或验证签名；该校验和因未经认证而被拒绝。"
+    },
+    "host.base_image_publish_failed": {
+      "sourceHash": "891986811834ded8494d25e5df6050ca2f3681cf7e9737154ed2386097dcea1a",
+      "origin": "machine",
+      "message": "无法将下载内容就位为{baseImageFile}：{message} 未为其写入哨兵或来源记录。"
     }
   }
 }

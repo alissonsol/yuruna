@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.25
+.VERSION 2026.10.26
 .GUID 42bf60de-1efd-47a3-9c1c-7472978c1c6d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -29,12 +29,12 @@
     PSInvalidOperationException ("There is no Runspace available...") on the
     threadpool thread that fires the timer.
 
-    The outer watchdog reads runner.heartbeat's mtime: stale beyond
-    testCycle.stepTimeoutSeconds means the inner is wedged and gets killed.
-    runner.heartbeat proves the PROCESS is alive; the in-runspace
-    runner.stepHeartbeat (touched per step by Invoke-Sequence) proves the
-    RUNSPACE is alive -- the two are complementary and the watchdog uses the
-    step file to catch hangs the threadpool heartbeat cannot.
+    runner.heartbeat proves only that the PROCESS is alive, and no decision
+    reads it. The watchdog judges the inner by runner.stepHeartbeat, which the
+    runspace itself touches as work completes: stale beyond the step bound
+    means the inner is wedged and gets killed. Write-RunnerStepHeartbeat is
+    that file's one writer, so a write that keeps failing is counted and
+    reported there before it can read as a wedge.
 #>
 
 # Compile the timer helper once per process. The [type] guard makes the
@@ -50,12 +50,11 @@ namespace Yuruna {
     public static class HeartbeatWriter {
         private static Timer _timer;
         private static string _path;
-        // Silent error-swallowing here would let a disk-full condition
-        // stay invisible until the watchdog killed the inner as
-        // "stale". These two fields surface persistent failures via
-        // a sibling `.errors.log` AND expose the counter to the main
-        // runspace (Get-RunnerHeartbeatError) so a Wait-For-Text observer
-        // can flag the degraded state.
+        // A failed tick is recorded in a sibling `.errors.log` (at most
+        // once a minute) so a post-hoc reader sees the error class. The
+        // watchdog does not read this file, so its failures are a
+        // diagnostic only; runner.stepHeartbeat failures are reported by
+        // Write-RunnerStepHeartbeat.
         private static long _consecutiveErrors = 0;
         private static DateTime _lastErrorLogUtc = DateTime.MinValue;
         public static long ConsecutiveErrors { get { return _consecutiveErrors; } }
@@ -145,18 +144,22 @@ function Stop-RunnerHeartbeat {
     $script:HeartbeatStarted = $false
 }
 
+# Consecutive runner.stepHeartbeat write failures, and when one was last
+# reported. Per process: the inner is fresh per cycle.
+$script:StepHeartbeatConsecutiveErrors = 0
+$script:StepHeartbeatLastReportUtc = [DateTime]::MinValue
+
 function Get-RunnerHeartbeatError {
     <#
     .SYNOPSIS
-        Consecutive heartbeat-write failures (disk full / AV write-lock). A
-        non-zero value pinpoints a degraded heartbeat as a write problem rather
-        than a wedged runspace.
+        Consecutive runner.stepHeartbeat write failures (disk full, a write
+        lock). A non-zero value pinpoints a stale heartbeat as a write problem
+        rather than a wedged runspace.
     #>
     [CmdletBinding()]
     [OutputType([long])]
     param()
-    try { return [long]([Yuruna.HeartbeatWriter]::ConsecutiveErrors) }
-    catch { return [long]0 }
+    return [long]$script:StepHeartbeatConsecutiveErrors
 }
 
 function Write-RunnerPhase {
@@ -192,10 +195,10 @@ function Write-RunnerPhase {
     if (-not $env:YURUNA_RUNTIME_DIR) { return }
     try {
         [System.IO.File]::WriteAllText((Join-Path $env:YURUNA_RUNTIME_DIR 'runner.phase'), $Phase)
-        [System.IO.File]::WriteAllText((Join-Path $env:YURUNA_RUNTIME_DIR 'runner.stepHeartbeat'), [DateTime]::UtcNow.ToString('o'))
     } catch {
         Write-Verbose "Write-RunnerPhase('$Phase') failed (non-fatal): $($_.Exception.Message)"
     }
+    Write-RunnerStepHeartbeat -RuntimeDir $env:YURUNA_RUNTIME_DIR
     # The next attempt overwrites runner.phase; retain the transition timeline
     # independently so an earlier watchdog kill remains attributable.
     try {
@@ -216,18 +219,42 @@ function Write-RunnerStepHeartbeat {
         Called after a step boundary or a completed control poll. A background
         timer must never call this: a blocked probe or an abandoned hold must
         still age out under the watchdog's normal bound.
+
+        The one writer of runner.stepHeartbeat, the file the watchdog judges
+        the inner by. A failed write is counted (Get-RunnerHeartbeatError),
+        and at most once a minute it is reported as a warning and appended to
+        a sibling `.errors.log`: unreported, a full disk or a write lock reads
+        as a wedged runspace and the watchdog kills a healthy cycle.
     .PARAMETER RuntimeDir
         Directory holding the runner's progress heartbeat.
+    .PARAMETER Path
+        The heartbeat file itself, for a caller that already holds its path.
     #>
     [CmdletBinding()]
     [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
         Justification = 'Updates a runner-local liveness marker; gating this telemetry write would manufacture a stalled runspace.')]
-    param([string]$RuntimeDir = $env:YURUNA_RUNTIME_DIR)
-    if ([string]::IsNullOrWhiteSpace($RuntimeDir)) { return }
+    param([string]$RuntimeDir = $env:YURUNA_RUNTIME_DIR, [string]$Path)
+    $target = $Path
+    if (-not $target) {
+        if ([string]::IsNullOrWhiteSpace($RuntimeDir)) { return }
+        $target = Join-Path $RuntimeDir 'runner.stepHeartbeat'
+    }
     try {
-        [IO.File]::WriteAllText((Join-Path $RuntimeDir 'runner.stepHeartbeat'), [datetime]::UtcNow.ToString('o'))
+        [IO.File]::WriteAllText($target, [datetime]::UtcNow.ToString('o'))
+        $script:StepHeartbeatConsecutiveErrors = 0
     } catch {
-        Write-Verbose "Write-RunnerStepHeartbeat: $($_.Exception.Message)"
+        $script:StepHeartbeatConsecutiveErrors++
+        $now = [datetime]::UtcNow
+        if (($now - $script:StepHeartbeatLastReportUtc).TotalSeconds -lt 60) { return }
+        $script:StepHeartbeatLastReportUtc = $now
+        $detail = "$($_.Exception.GetType().Name): $($_.Exception.Message)"
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.step_heartbeat_write_failed' -Arguments @{
+            path = "$target"; count = "$($script:StepHeartbeatConsecutiveErrors)"; detail = $detail })
+        try {
+            [IO.File]::AppendAllText("$target.errors.log", "$($now.ToString('o')) consecutive=$($script:StepHeartbeatConsecutiveErrors) $detail" + [Environment]::NewLine)
+        } catch {
+            Write-Verbose "Write-RunnerStepHeartbeat: error log unavailable: $($_.Exception.Message)"
+        }
     }
 }
 
@@ -269,13 +296,9 @@ function Clear-RunnerPhase {
         Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_8f0e63efce713f70')
     }
     # Only now refresh the heartbeat, so the restored bound starts from a fresh
-    # timestamp. Its own try/catch: nothing follows it, so a failure here can no
-    # longer skip anything, and it lands on the loose-bound side either way.
-    try {
-        [System.IO.File]::WriteAllText((Join-Path $env:YURUNA_RUNTIME_DIR 'runner.stepHeartbeat'), [DateTime]::UtcNow.ToString('o'))
-    } catch {
-        Write-Verbose "Clear-RunnerPhase: stepHeartbeat refresh failed (non-fatal): $($_.Exception.Message)"
-    }
+    # timestamp. Nothing follows it, so a failed write can no longer skip
+    # anything; the writer reports it.
+    Write-RunnerStepHeartbeat -RuntimeDir $env:YURUNA_RUNTIME_DIR
 }
 
 Export-ModuleMember -Function Start-RunnerHeartbeat, Stop-RunnerHeartbeat, Get-RunnerHeartbeatError, Write-RunnerPhase, Clear-RunnerPhase, Write-RunnerStepHeartbeat

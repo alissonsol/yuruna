@@ -1,5 +1,6 @@
 // LICENSEURI https://yuruna.link/license
 // Copyright (c) 2019-2026 by Alisson Sol et al.
+// GUID: 42e621f4-b345-420a-8c5d-0bf8390520d4
 
 package httpsrv
 

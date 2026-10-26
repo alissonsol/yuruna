@@ -1,5 +1,6 @@
 // LICENSEURI https://yuruna.link/license
 // Copyright (c) 2019-2026 by Alisson Sol et al.
+// GUID: 42101031-39d2-4c93-8a13-f329b138f225
 
 // The half of the parser that can only be tested where it runs: following a
 // file across a logrotate needs real inodes.

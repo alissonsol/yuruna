@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
+# GUID: 42152107-1fb1-43af-bf3a-8119cdf56410
 """Regenerate Ubuntu entrypoints and their shared-workflow integrity pins."""
 import argparse
 import hashlib

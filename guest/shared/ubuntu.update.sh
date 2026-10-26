@@ -1,7 +1,8 @@
 #!/bin/bash
-# Version: 2026.10.25
+# Version: 2026.10.26
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
+# GUID: 422627df-cd08-4fa3-84f7-b73848bfdc46
 # --- REGION: Initialize environment
 set -euo pipefail
 
@@ -82,6 +83,36 @@ yuruna_host_livecheck() {
         round=$((round + 1))
     done
     return 1
+}
+fi
+
+# A guest image can carry a retry lib older than this script. This copy of the
+# lib's archive fetch stays identical to it.
+if ! command -v yuruna_fetch_archive >/dev/null 2>&1; then
+yuruna_fetch_archive() {
+    local url="$1" destination="$2" commit="${3:-}" expected="${4:-}" archive actual rc=1
+    if [ -z "$commit" ] || [ -z "$expected" ]; then
+        if command -v wget >/dev/null 2>&1; then
+            wget --no-proxy --timeout=30 --tries=2 -qO- "$url" | tar -xz -C "$destination"
+        else
+            curl -fsSL --noproxy '*' --connect-timeout 30 --speed-limit 1024 --speed-time 60 "$url" | tar -xz -C "$destination"
+        fi
+        return
+    fi
+    archive=$(mktemp) || return 1
+    if command -v wget >/dev/null 2>&1; then
+        wget --no-proxy --timeout=30 --tries=2 -qO "$archive" "$url?commit=$commit" || { rm -f "$archive"; return 1; }
+    else
+        curl -fsSL --noproxy '*' --connect-timeout 30 --speed-limit 1024 --speed-time 60 -o "$archive" "$url?commit=$commit" || { rm -f "$archive"; return 1; }
+    fi
+    if command -v sha256sum >/dev/null 2>&1; then actual=$(sha256sum "$archive"); else actual=$(shasum -a 256 "$archive"); fi
+    if [ "${actual%% *}" = "$expected" ]; then
+        tar -xzf "$archive" -C "$destination" && rc=0
+    else
+        echo "yuruna: the archive at $url for commit $commit does not match the digest the host sent; not unpacked."
+    fi
+    rm -f "$archive"
+    return "$rc"
 }
 fi
 
@@ -232,7 +263,7 @@ if yuruna_host_env && [ ! -d "$REAL_HOME/yuruna" ]; then
   if yuruna_host_livecheck; then
     mkdir -p "$REAL_HOME/yuruna"
     # --- REGION: https://yuruna.link/42e220c4-000e
-    if wget --no-proxy --timeout=30 --tries=2 -qO- "$TARBALL_URL" | tar -xz -C "$REAL_HOME/yuruna" && [ -f "$REAL_HOME/yuruna/VERSION" ] && [ -s "$REAL_HOME/yuruna/VERSION" ]; then
+    if yuruna_fetch_archive "$TARBALL_URL" "$REAL_HOME/yuruna" "${E_ARCHIVE_COMMIT:-}" "${E_ARCHIVE_SHA:-}" && [ -f "$REAL_HOME/yuruna/VERSION" ] && [ -s "$REAL_HOME/yuruna/VERSION" ]; then
       sudo chown -R "$REAL_USER:$REAL_USER" "$REAL_HOME/yuruna" 2>/dev/null || true
       echo -e "\e[1;32m---- Yuruna framework available at $REAL_HOME/yuruna (early extract). ----\e[0m"
     else
@@ -486,7 +517,7 @@ if [ ! -d "$REAL_HOME/yuruna" ]; then
     if yuruna_host_livecheck; then
       echo "yuruna: fetching committed tarball from $TARBALL_URL"
       mkdir -p "$REAL_HOME/yuruna"
-      if wget --no-proxy --timeout=30 --tries=2 -qO- "$TARBALL_URL" | tar -xz -C "$REAL_HOME/yuruna" && [ -f "$REAL_HOME/yuruna/VERSION" ] && [ -s "$REAL_HOME/yuruna/VERSION" ]; then
+      if yuruna_fetch_archive "$TARBALL_URL" "$REAL_HOME/yuruna" "${E_ARCHIVE_COMMIT:-}" "${E_ARCHIVE_SHA:-}" && [ -f "$REAL_HOME/yuruna/VERSION" ] && [ -s "$REAL_HOME/yuruna/VERSION" ]; then
         HOST_OK=true
         break
       else
@@ -543,8 +574,8 @@ if [ ! -d "$REAL_HOME/yuruna/project" ]; then
     fi
     echo "yuruna: trying project tarball at $PROJECT_TARBALL_URL"
     mkdir -p "$REAL_HOME/yuruna/project"
-    if wget --no-proxy --timeout=30 --tries=2 -qO- "$PROJECT_TARBALL_URL" \
-         | tar -xz -C "$REAL_HOME/yuruna/project" 2>/dev/null \
+    if yuruna_fetch_archive "$PROJECT_TARBALL_URL" "$REAL_HOME/yuruna/project" \
+         "${E_PROJECT_ARCHIVE_COMMIT:-}" "${E_PROJECT_ARCHIVE_SHA:-}" 2>/dev/null \
          && [ -n "$(ls -A "$REAL_HOME/yuruna/project" 2>/dev/null)" ]; then
       PROJECT_HOST_OK=true
       break

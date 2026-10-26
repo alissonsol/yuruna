@@ -1,5 +1,6 @@
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
+# GUID: 420a7522-b10e-4f4f-b5d0-f650613e89df
 """Exercise the shipped pool mount, repository maintenance, and runner over static HTTP."""
 import functools
 import http.server

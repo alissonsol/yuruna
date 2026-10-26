@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.25
+.VERSION 2026.10.26
 .GUID 42765a89-9026-4dfc-bda8-481ccd6555ce
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -699,5 +699,3 @@ Export-ModuleMember -Function Get-FrameworkSourceSnapshot, ConvertTo-YurunaBrand
     Test-FrameworkArchiveEndpoint, `
     Get-FrameworkSourceHostCandidate, Test-GuestFrameworkSourcePreflight, Assert-GuestFrameworkSource, `
     Test-ServiceVmFrameworkSource, Assert-ServiceVmFrameworkSource
-
-# Copyright (c) 2019-2026 by Alisson Sol et al.

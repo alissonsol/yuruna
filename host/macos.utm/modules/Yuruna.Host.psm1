@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.25
+.VERSION 2026.10.26
 .GUID 42bd906d-30b3-44f2-9020-fea9dbf0805f
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -4477,9 +4477,9 @@ function Rename-VM {
     }
     # A positive 'stopped' source and a positive 'absent' destination, never
     # merely "not the value we are refusing on": a denied or timed-out probe
-    # now reads as 'unknown' rather than 'absent', so requiring the positive
-    # state on both sides -- and refusing outright on 'unknown' -- is what
-    # keeps an unanswered probe from reaching the mutation further down.
+    # reads as 'unknown', not 'absent', so requiring the positive state on
+    # both sides -- and refusing outright on 'unknown' -- is what keeps an
+    # unanswered probe from reaching the mutation further down.
     $srcState = Get-VMState -VMName $VMName
     if ($srcState -ne 'stopped') {
         switch ($srcState) {
@@ -4997,7 +4997,7 @@ function Restore-VMDiskSnapshot {
         Write-Warning (Format-YurunaOperatorMessage -Key $key -Arguments @{ dataDir = "$dataDir" })
         return $false
     }
-    if (-not (Test-VMDiskSnapshot -VMName $VMName -Id $Id)) { return $false }
+    if ((Get-VMDiskSnapshotState -VMName $VMName -Id $Id) -ne 'present') { return $false }
     if ((Get-VMState -VMName $VMName) -eq 'running') {
         if (-not (Stop-VM -VMName $VMName)) {
             [void](Stop-VMForce -VMName $VMName)
@@ -5025,15 +5025,47 @@ function Restore-VMDiskSnapshot {
     return $true
 }
 
+# --- REGION: Get-VMDiskSnapshotState
+function Get-VMDiskSnapshotState {
+    <#
+    .SYNOPSIS
+        Whether snapshot $Id exists on $VMName: 'present', 'absent', or
+        'unknown' when the hypervisor could not answer.
+    .DESCRIPTION
+        A probe that cannot answer is not an absence: read as one, it rebuilds a
+        baseline over a snapshot that may exist, or skips a restore that would
+        have worked. Only a VM that does not exist, or an answer that lists no
+        such snapshot, is 'absent'.
+    #>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param(
+        [Parameter(Mandatory)][string]$VMName,
+        [Parameter(Mandatory)][string]$Id
+    )
+    $bundleDisk = Get-UtmBundleDisk -VMName $VMName
+    if (-not $bundleDisk.Ready) {
+        # No bundle, or a bundle with no disk, holds no snapshot; a missing
+        # qemu-img is a host that cannot look.
+        if ($bundleDisk.Reason -in @('missing-directory', 'missing-disk')) { return 'absent' }
+        return 'unknown'
+    }
+    foreach ($disk in @($bundleDisk.Disk)) {
+        $diskState = Get-UtmDiskSnapshotState -Disk $disk.FullName -Id $Id
+        if ($diskState -ne 'present') { return $diskState }
+    }
+    return 'present'
+}
+
 # --- REGION: Test-VMDiskSnapshot
 function Test-VMDiskSnapshot {
     <#
     .SYNOPSIS
         Returns $true when snapshot $Id is present on every qcow2 disk of
-        the UTM bundle for $VMName. False on missing bundle, missing
-        qemu-img, or any disk lacking the snapshot. Used by Debug-TestSequence's
-        requiresSnapshot warm-path probe before deciding whether to walk
-        the baseline chain.
+        the UTM bundle for $VMName, $false when the bundle or any disk lacks
+        it, and throws when qemu-img could not answer. Used by
+        Debug-TestSequence's requiresSnapshot warm-path probe before deciding
+        whether to walk the baseline chain.
     #>
     [CmdletBinding()]
     [OutputType([bool])]
@@ -5041,15 +5073,11 @@ function Test-VMDiskSnapshot {
         [Parameter(Mandatory)][string]$VMName,
         [Parameter(Mandatory)][string]$Id
     )
-    $bundleDisk = Get-UtmBundleDisk -VMName $VMName
-    $disks = @($bundleDisk.Disk)
-    if (-not $bundleDisk.Ready) {
-        return $false
-    }
-    foreach ($disk in $disks) {
-        if (-not (Test-UtmDiskHasSnapshot -Disk $disk.FullName -Id $Id)) { return $false }
-    }
-    return $true
+    $state = Get-VMDiskSnapshotState -VMName $VMName -Id $Id
+    # A probe that could not answer throws, so a caller's indeterminate branch
+    # runs instead of reading the blip as a missing snapshot.
+    if ($state -eq 'unknown') { throw (Format-YurunaOperatorMessage -Key 'host.snapshot_state_unknown' -Arguments @{ id = "$Id"; vMName = "$VMName" }) }
+    return ($state -eq 'present')
 }
 
 <#
@@ -5100,9 +5128,22 @@ function Test-UtmDiskHasSnapshot {
     [CmdletBinding()]
     [OutputType([bool])]
     param([string]$Disk, [string]$Id)
+    return ((Get-UtmDiskSnapshotState -Disk $Disk -Id $Id) -eq 'present')
+}
+
+function Get-UtmDiskSnapshotState {
+    <#
+    .SYNOPSIS
+        Whether one qcow2 disk carries snapshot $Id: 'present', 'absent', or
+        'unknown' when the bounded qemu-img read did not complete.
+    #>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param([string]$Disk, [string]$Id)
     $probe = Invoke-UtmHostTool -Tool 'qemu-img' -ArgumentList @('snapshot', '-l', '-U', $Disk) -TimeoutSeconds 10
-    if (-not (Test-BoundedNativeResultComplete -Result $probe) -or $probe.ExitCode -ne 0) { return $false }
-    return [bool]([regex]::IsMatch($probe.StdOut, '(?m)^\s*\d+\s+' + [regex]::Escape($Id) + '\s'))
+    if (-not (Test-BoundedNativeResultComplete -Result $probe) -or $probe.ExitCode -ne 0) { return 'unknown' }
+    if ([regex]::IsMatch($probe.StdOut, '(?m)^\s*\d+\s+' + [regex]::Escape($Id) + '\s')) { return 'present' }
+    return 'absent'
 }
 
 # --- REGION: VM console
@@ -5386,14 +5427,10 @@ function Get-VMConsoleSecondOpinion {
         [Parameter(Mandatory)][string]$VMName,
         [int]$IntervalSeconds = 5
     )
-    # Percent of one core, sustained across the sample window, that counts
-    # as "still executing". An idle QEMU answering VNC polls sits in low
-    # single digits; a guest spinning on a wedged boot holds a core or more,
-    # so anything in between is read as executing rather than halted.
-    # Emulator CPU cannot distinguish guest work from a hypervisor spin, so this
-    # verdict alone never authorizes a reset. A login wait acts on it only after
-    # QEMU has reported no active display for the whole livelock window.
     # See https://yuruna.link/428e4df6-001c
+    # Percent of one core, sustained across the sample window, that counts as
+    # "still executing": an idle QEMU answering VNC polls sits in low single
+    # digits, a guest spinning on a wedged boot holds a core or more.
     $executingPercent = 25
     $observation = [ordered]@{
         Verdict = 'unavailable'; Detail = ''; ObservedAtUtc = [DateTime]::UtcNow.ToString('o')
@@ -5851,7 +5888,7 @@ function Get-VMMac {
     }
     # Canonical form for the whole harness, so a MAC read on one host compares
     # equal to the same MAC read on another. The `arp -an` notation this host
-    # needs is produced at the point of use by ConvertTo-UtmArpMacAddress.
+    # needs is produced at the point of use by ConvertTo-ArpMacNeedle.
     $canonical = ConvertTo-YurunaMacAddress -MacAddress ([string]$bundleNetwork.MacAddress)
     if ($canonical) { return $canonical }
     return ([string]$bundleNetwork.MacAddress).ToUpperInvariant()
@@ -7113,20 +7150,10 @@ function Test-VirtualizationResponsive {
     }
     $emit = {
         param([string]$State, [string]$Reason)
-        [pscustomobject]@{
-            PSTypeName        = 'Yuruna.VirtualizationProbe'
-            schemaVersion     = 1
-            hostType          = 'host.macos.utm'
-            state             = $State
-            reason            = $Reason
-            started           = [bool]$facts.started
-            timedOut          = [bool]$facts.timedOut
-            deadlineExhausted = [bool]$facts.deadlineExhausted
-            corroborated      = [bool]$facts.corroborated
-            observedUtc       = $observedUtc
-            observedTick      = [long](Get-UtmClockTick -Deadline $Deadline)
-            elapsedMs         = [long]$stopwatch.ElapsedMilliseconds
-            evidence          = [pscustomobject]@{
+        $record = New-YurunaVirtualizationProbeRecord -HostType 'host.macos.utm' -State $State -Reason $Reason `
+            -Started ([bool]$facts.started) -TimedOut ([bool]$facts.timedOut) -DeadlineExhausted ([bool]$facts.deadlineExhausted) `
+            -Corroborated ([bool]$facts.corroborated) -ObservedUtc $observedUtc -ObservedTick ([long](Get-UtmClockTick -Deadline $Deadline)) `
+            -ElapsedMs ([long]$stopwatch.ElapsedMilliseconds) -Evidence ([ordered]@{
                 utmctlSource    = [string]$facts.utmctlSource
                 sessionKind     = [string]$facts.sessionKind
                 appState        = [string]$facts.appState
@@ -7142,11 +7169,11 @@ function Test-VirtualizationResponsive {
                     exitCode  = [int]$facts.lifecycle.exitCode
                     timedOut  = [bool]$facts.lifecycle.timedOut
                 }
-            }
-            diagnostic        = ConvertTo-UtmDiagnosticText -Text ([string]$facts.diagnostic)
-            automationSubject = [string]$facts.subject
-            inventory         = $facts.inventory
-        }
+            }) -Diagnostic (ConvertTo-UtmDiagnosticText -Text ([string]$facts.diagnostic))
+        # The two fields only the UTM probe has, after the common ones.
+        $record | Add-Member -NotePropertyName automationSubject -NotePropertyValue ([string]$facts.subject)
+        $record | Add-Member -NotePropertyName inventory -NotePropertyValue $facts.inventory
+        $record
     }
     # One bounded utmctl list, classified; returns the probe-level verdict
     # ('responsive', 'timeout', or an Undetermined reason) and records facts.
@@ -7449,7 +7476,7 @@ function New-UtmServiceBundleConfiguration {
 # --- REGION: Exports
 Export-ModuleMember -Function Write-UtmBundleConfiguration, New-UtmServiceBundleConfiguration, Get-MacDefaultRouteInterface, `
     New-VM, Start-VM, Stop-VM, Stop-VMForce, Remove-VM, Rename-VM, Get-VMState, Get-VMName, `
-    Save-VMDiskSnapshot, Restore-VMDiskSnapshot, Test-VMDiskSnapshot, `
+    Save-VMDiskSnapshot, Restore-VMDiskSnapshot, Test-VMDiskSnapshot, Get-VMDiskSnapshotState, `
     Test-VMConsoleOpen, Restart-VMConsole, `
     Get-Image, Get-ImagePath, `
     Send-Text, Send-Key, Send-Click, Get-VMScreenshot, Get-VMConsoleHandle, Get-VMConsoleSecondOpinion, `
@@ -7484,7 +7511,7 @@ Import-Module (Join-Path -Path $PSScriptRoot -ChildPath '..' -AdditionalChildPat
 $null = Assert-YurunaHostContractCoverage -HostType 'macos.utm' `
     -Module $ExecutionContext.SessionState.Module -ExportedFunction @(
     'New-VM','Start-VM','Stop-VM','Stop-VMForce','Remove-VM','Rename-VM','Get-VMState','Get-VMName',
-    'Save-VMDiskSnapshot','Restore-VMDiskSnapshot','Test-VMDiskSnapshot',
+    'Save-VMDiskSnapshot','Restore-VMDiskSnapshot','Test-VMDiskSnapshot','Get-VMDiskSnapshotState',
     'Test-VMConsoleOpen','Restart-VMConsole',
     'Get-Image','Get-ImagePath',
     'Send-Text','Send-Key','Send-Click','Get-VMScreenshot','Get-VMConsoleHandle',

@@ -1,5 +1,6 @@
 // LICENSEURI https://yuruna.link/license
 // Copyright (c) 2019-2026 by Alisson Sol et al.
+// GUID: 42f2ef7d-4e9c-4ff8-be30-b90c0bf8676a
 
 // Tests for the parts of the parser that do not touch the filesystem. No build
 // constraint, so they run on every harness host rather than only on the VM's

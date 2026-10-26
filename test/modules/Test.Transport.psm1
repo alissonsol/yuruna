@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.25
+.VERSION 2026.10.26
 .GUID 426cd98f-b5bd-4102-91d1-1cc3b6887155
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -76,7 +76,7 @@ function Update-TransportDefault {
     # YURUNA_CONFIG_PATH wins over the in-tree template guess so an
     # operator running with `-ConfigPath <elsewhere>` sees their edits
     # to vmCommunication.* take effect mid-cycle (matches the contract
-    # Sync-RuntimeConfig honors for testCycle.stopOnFailure).
+    # Sync-RunnerCycleConfig honors for testCycle.stopOnFailure).
     $cfgPath = if ($env:YURUNA_CONFIG_PATH) { $env:YURUNA_CONFIG_PATH } `
                else { Join-Path (Split-Path -Parent $PSScriptRoot) 'test.config.yml' }
     $cfg = Read-TestConfig -Path $cfgPath

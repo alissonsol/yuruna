@@ -1,5 +1,6 @@
 // LICENSEURI https://yuruna.link/license
 // Copyright (c) 2019-2026 by Alisson Sol et al.
+// GUID: 4279f6e3-ba00-436c-b242-82f27c62c3a2
 
 package main
 
@@ -9,6 +10,7 @@ import (
 	"fmt"
 	"html"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"strings"
@@ -307,8 +309,11 @@ func renderLandingLocale(grafanaBase string, dashboards map[string]string, servi
 // stripped: the links carry their own.
 func browserHost(r *http.Request) string {
 	h := r.Host
-	if fwd := strings.TrimSpace(r.Header.Get("X-Forwarded-Host")); fwd != "" {
-		// Apache proxies this page from :80, so the client's Host arrives here.
+	if fwd := strings.TrimSpace(r.Header.Get("X-Forwarded-Host")); fwd != "" && fromLoopback(r) {
+		// Apache proxies this page from :80 on this VM, so the client's Host
+		// arrives here. Only that proxy is believed: a client reaching the
+		// daemon's own port could otherwise point every link on the page at a
+		// host of its choosing.
 		h = strings.TrimSpace(strings.Split(fwd, ",")[0])
 	}
 	if h == "" {
@@ -322,6 +327,17 @@ func browserHost(r *http.Request) string {
 		return h[:i]
 	}
 	return h
+}
+
+// fromLoopback reports whether the request came from this machine, which is
+// where the Apache proxy that sets X-Forwarded-Host runs.
+func fromLoopback(r *http.Request) bool {
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		host = r.RemoteAddr
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
 }
 
 // handleLanding serves the page. Everything it reports is read at request time:

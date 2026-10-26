@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.25
+.VERSION 2026.10.26
 .GUID 4285f6b7-ed85-acb7-05f2-67970932d046
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -816,6 +816,14 @@
             'trust' = 'internal'
         }
         ', אינו תואם לפרמטרים של סקריפט הכניסה; הפעלת תהליך עבודה שנקודת הכניסה לא תקבל נדחית.'
+    )
+    'exceptions.host_signature_could_not_be_checked' = @(
+        'לא ניתן היה לבדוק את חתימת GPG של SHA256SUMS עבור '
+        @{
+            'arg' = 'checksumUrl'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
     )
     'exceptions.host_utm_sudo_requires_noninteractive' = '⁦Invoke-UtmHostTool⁩: יש לקרוא ל-sudo עם -n כארגומנט הראשון, כדי שלעולם לא ימתין להזנת סיסמה.'
     'exceptions.host_utmctl_kill_requires_stop' = @(

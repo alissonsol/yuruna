@@ -1,6 +1,7 @@
 #cloud-config
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
+# GUID: 42702fb2-4231-4321-917f-b8dae93d4147
 #vim:syntax=yaml
 # See https://yuruna.link/429f3d06-0032
 # --- REGION: hostname
@@ -3378,7 +3379,7 @@ write_files:
                 {
                   "matcher": { "id": "byName", "options": "Status" },
                   "properties": [
-                    { "id": "custom.width", "value": 240 },
+                    { "id": "custom.width", "value": 120 },
                     { "id": "custom.cellOptions", "value": { "type": "color-background", "mode": "basic" } },
                     {
                       "id": "mappings",
@@ -3444,7 +3445,7 @@ write_files:
                 {
                   "matcher": { "id": "byName", "options": "Commit" },
                   "properties": [
-                    { "id": "custom.width", "value": 150 },
+                    { "id": "custom.width", "value": 300 },
                     { "id": "links", "value": [
                       { "title": "Open framework commit", "url": "${__data.fields.commitUrl}", "targetBlank": true },
                       { "title": "Open project commit", "url": "${__data.fields.projectCommitUrl}", "targetBlank": true }

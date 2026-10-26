@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.25
+.VERSION 2026.10.26
 .GUID 42c7e1a9-5b3d-4f0e-9a6c-2d8f1b7e4a53
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -177,9 +177,12 @@ Describe 'Orchestration cycle repository provenance' {
             [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
                 Justification = 'Nested test doubles only capture in-memory arguments; they never write status, transcripts, or host state.')]
             [CmdletBinding()]
-            param([string]$ProjectUrl, [switch]$Nested)
+            param([string]$ProjectUrl, [switch]$Nested, [string]$FrameworkUrl = 'https://github.com/example/framework',
+                [int]$ActionExit = 0, [scriptblock]$Seal, [System.Collections.Generic.List[string]]$Order)
             Invoke-InOrchestrator {
-                param($Root, $Url, $IsNested)
+                param($Root, $Url, $IsNested, $FrameworkSource, $HostActionExit, $BeforeSealBlock, $CallOrder)
+                # Read by the doubles below through dynamic scope.
+                $null = $HostActionExit, $CallOrder
                 # Boundaries capture the actual owner's payloads while host actions,
                 # service probes, transcripts, and status writes remain local doubles.
                 $capture = @{ reset = 0; status = @(); log = @(); perf = $null; nested = @(); completed = 0 }
@@ -194,9 +197,10 @@ Describe 'Orchestration cycle repository provenance' {
                 function Initialize-YurunaRuntimeDir { return $runtimeDir }
                 function Reset-StatusDocumentForCycleStart { $capture.reset++ }
                 function Initialize-StatusDocument {
-                    param($GitCommits, $GitCommit)
+                    param($GitCommits, $GitCommit, $RepoUrl)
                     $capture.status = $GitCommits
                     $capture.primarySha = $GitCommit
+                    $capture.repoUrl = $RepoUrl
                     return '2026-01-01T00:00:00Z'
                 }
                 function Start-LogFile {
@@ -215,9 +219,10 @@ Describe 'Orchestration cycle repository provenance' {
                 function Publish-CycleContext { }
                 function Clear-CycleContext { }
                 function Write-CycleStepEvent { }
-                function Invoke-OrchestratorHostAction { return 0 }
-                function Complete-Run { $capture.completed++ }
-                function Stop-LogFile { }
+                function Invoke-OrchestratorHostAction { return $HostActionExit }
+                function Write-CycleInfraFailure { }
+                function Complete-Run { $capture.completed++; if ($null -ne $CallOrder) { $CallOrder.Add('complete') } }
+                function Stop-LogFile { if ($null -ne $CallOrder) { $CallOrder.Add('stop') } }
                 function Start-NestedLogFile { return @{ LogRel = 'nested.log'; LogFile = (Join-Path $Root 'nested.log') } }
                 function Register-NestedRunNode {
                     param($StatusPath, $NodeId)
@@ -230,17 +235,53 @@ Describe 'Orchestration cycle repository provenance' {
                 try {
                     $env:YURUNA_RUNTIME_DIR = $runtimeDir
                     $env:YURUNA_CACHING_PROXY_SERVICE_IP = ''
-                    $config = @{ repositories = @{ frameworkUrl = 'https://github.com/example/framework'; projectUrl = $Url }; vmStart = @{} }
+                    $config = @{ repositories = @{ frameworkUrl = $FrameworkSource; projectUrl = $Url }; vmStart = @{} }
                     $sequence = @{ name = 'suite'; steps = @(@{ action = 'InvokeTestSequence'; sequence = 'host-action' }) }
+                    $sealArgument = @{}
+                    if ($BeforeSealBlock) { $sealArgument.BeforeSeal = $BeforeSealBlock }
                     $capture.exitCode = Invoke-OrchestrationSequence -Sequence $sequence -SequencePath (Join-Path $Root 'suite.yml') `
-                        -RepoRoot $Root -SequencesDir $Root -TestRoot $Root -HostType 'host.ubuntu.kvm' -Config $config -InformationAction SilentlyContinue
+                        -RepoRoot $Root -SequencesDir $Root -TestRoot $Root -HostType 'host.ubuntu.kvm' -Config $config -InformationAction SilentlyContinue @sealArgument
                 } finally {
                     $env:YURUNA_RUNTIME_DIR = $savedRuntime
                     $env:YURUNA_CACHING_PROXY_SERVICE_IP = $savedCache
                 }
                 return $capture
-            } @($script:ProvenanceRoot, $ProjectUrl, [bool]$Nested)
+            } @($script:ProvenanceRoot, $ProjectUrl, [bool]$Nested, $FrameworkUrl, $ActionExit, $Seal, $Order)
         }
+    }
+
+    It 'decides on a failed cycle before it completes and seals the transcript' {
+        $order = [System.Collections.Generic.List[string]]::new()
+        $seal = { param($Status, $Reason) $order.Add("seal|$Status|$Reason"); 'decision line' }.GetNewClosure()
+        $actual = Invoke-ProvenanceFixture -ProjectUrl '' -ActionExit 3 -Seal $seal -Order $order
+        Assert-Equal 1 $actual.exitCode 'the seal output must not reach the exit code'
+        Assert-Equal 3 $order.Count "one decision, then completion, then the seal: $($order -join ', ')"
+        Assert-True ($order[0] -like 'seal|fail|host-action: *') "the decision sees the failure and its reason: $($order[0])"
+        Assert-StringEqual 'complete' $order[1]
+        Assert-StringEqual 'stop' $order[2]
+    }
+
+    It 'hands a passing cycle its status before sealing it' {
+        $order = [System.Collections.Generic.List[string]]::new()
+        $seal = { param($Status, $Reason) $order.Add("seal|$Status|$Reason") }.GetNewClosure()
+        $actual = Invoke-ProvenanceFixture -ProjectUrl '' -Seal $seal -Order $order
+        Assert-Equal 0 $actual.exitCode
+        Assert-StringEqual 'seal|pass|' $order[0]
+    }
+
+    It 'leaves the decision to the owner when nested' {
+        $order = [System.Collections.Generic.List[string]]::new()
+        $seal = { param($Status, $Reason) $order.Add("seal|$Status|$Reason") }.GetNewClosure()
+        $null = Invoke-ProvenanceFixture -ProjectUrl '' -Nested -ActionExit 3 -Seal $seal -Order $order
+        Assert-Equal 0 $order.Count 'a nested orchestration neither decides nor seals the cycle'
+    }
+
+    It 'completes and seals the cycle although the decision throws' {
+        $order = [System.Collections.Generic.List[string]]::new()
+        $seal = { param($Status, $Reason) $null = $Status, $Reason; throw 'ledger unreadable' }
+        $actual = Invoke-ProvenanceFixture -ProjectUrl '' -ActionExit 3 -Seal $seal -Order $order 3>$null
+        Assert-Equal 1 $actual.exitCode
+        Assert-StringEqual 'complete,stop' ($order -join ',')
     }
 
     It 'publishes both repository commits in status and transcript for a <Source> project' -TestCases @(
@@ -260,6 +301,18 @@ Describe 'Orchestration cycle repository provenance' {
         }
         Assert-StringEqual $script:FrameworkSha $actual.perf.framework
         Assert-StringEqual $script:ProjectSha $actual.perf.project
+    }
+
+    # The standalone owners published the configured framework URL as typed,
+    # so a token written into it reached status.json, which is served without
+    # authentication; the runner's own cycles already stripped it.
+    It 'publishes the framework URL without the credentials written into it' {
+        $actual = Invoke-ProvenanceFixture -ProjectUrl 'https://github.com/example/project.git' -FrameworkUrl 'https://ops:ghp_fixturetoken@github.com/example/framework.git'
+        Assert-Equal 0 $actual.exitCode
+        Assert-StringEqual 'https://github.com/example/framework' $actual.repoUrl 'the top-level repoUrl carries no userinfo'
+        foreach ($payload in @('status', 'log')) {
+            Assert-StringEqual 'https://github.com/example/framework' $actual[$payload][0].repoUrl "$payload carries no userinfo"
+        }
     }
 
     It 'resolves a local project source through its origin for the displayed commit link' {
@@ -286,5 +339,43 @@ Describe 'Orchestration cycle repository provenance' {
         Assert-Equal 0 $actual.completed 'a nested orchestration cannot complete its owner'
         Assert-StringEqual (Join-Path $script:ProvenanceRoot 'runtime/owner.json') $actual.nested[0]
         Assert-StringEqual 'parent/suite' $actual.nested[1]
+    }
+}
+
+# Inner guest sequences of an orchestration ran without the VM sizing their
+# variables declared: the orchestrator built New-VM's arguments without the
+# MemoryStartupBytes, Cores and ExposeVirtualizationExtensions that
+# Debug-TestSequence forwards for the same plan.
+Describe 'Orchestration guest VM sizing' {
+    It 'forwards the plan''s memory, cores and virtualization extensions to New-VM' {
+        $captured = Invoke-InOrchestrator {
+            $capture = @{}
+            function Test-GuestFolder { return $true }
+            function Get-TestVMName { return 'test-sizing' }
+            function Resolve-TestSequencePlan {
+                return @{ resolveFailed = $false; chainEntries = @(); effectiveUser = $null; effectiveHost = $null; chainTotalSteps = 1
+                    warmPath = $false; effectiveMemoryStartupBytes = 8GB; effectiveCores = 4; effectiveExposeVirtualizationExtensions = $true }
+            }
+            function Clear-GuestSshUserOverride { }
+            function Get-VMState { return 'absent' }
+            function New-VM {
+                [CmdletBinding(SupportsShouldProcess)]
+                [OutputType([hashtable])]
+                param($GuestKey, $RepoRoot, $VMName, $CachingProxyServiceUrl, $MemoryStartupBytes, $Cores, $ExposeVirtualizationExtensions)
+                $capture.called = @($GuestKey, $RepoRoot, $CachingProxyServiceUrl)
+                if ($PSCmdlet.ShouldProcess($VMName, 'fixture New-VM')) {
+                    $capture.memory = $MemoryStartupBytes; $capture.cores = $Cores; $capture.expose = $ExposeVirtualizationExtensions
+                }
+                return @{ success = $false; errorMessage = 'fixture stops after New-VM' }
+            }
+            $run = Invoke-OrchestratorGuestRun -Sequence @{ baseline = @{ 'ubuntu.server.24' = @{} } } -SequencePath 'inner.yml' -Name 'inner' `
+                -RepoRoot $TestDrive -SequencesDir $TestDrive -HostType 'host.ubuntu.kvm' -Config @{ vmStart = @{} } -InformationAction SilentlyContinue
+            $capture.ok = $run.ok
+            return $capture
+        }
+        Assert-False $captured.ok 'the fixture stops the run at New-VM'
+        Assert-Equal 8GB $captured.memory -Because 'variables.memoryStartupBytes reaches New-VM'
+        Assert-Equal 4 $captured.cores -Because 'variables.cores reaches New-VM'
+        Assert-True ([bool]$captured.expose) 'variables.exposeVirtualizationExtensions reaches New-VM'
     }
 }

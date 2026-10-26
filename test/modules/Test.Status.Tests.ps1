@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.25
+.VERSION 2026.10.26
 .GUID 42d985d1-8774-4cde-a9d4-deb5b4740d25
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -167,6 +167,28 @@ Describe 'status.json lastFailure surface' {
         Assert-Equal -Expected 'provisioning_failure' -Actual $j.history[0].lastFailure.failureClass -Because 'history row snapshots the cause'
         Assert-Equal -Expected 'boom' -Actual $j.history[0].guestSummary.'guest.x'.errorMessage -Because 'per-guest errorMessage persisted'
         Assert-Equal -Expected 'provisioning_failure' -Actual $j.history[0].guestSummary.'guest.x'.failureClass -Because 'per-guest failureClass persisted'
+        Remove-Item -Recurse -Force $dir -ErrorAction SilentlyContinue
+    }
+
+    # A retry_exhausted summary said only that the retries ran out; the inner
+    # class, how the class was derived and the reason now travel with it.
+    It 'records the cause a wrapper class hides in the summary and its history row' {
+        $dir = New-TempStatusDir
+        $env:YURUNA_RUNTIME_DIR = $dir
+        $sf = Join-Path $dir 'status.json'
+        Initialize-StatusDocument -StatusFilePath $sf -HostType 'h' -Hostname 'host' -GitCommit 'abc' -GuestList @('guest.x') -StepNames @('Sequence')
+        Set-GuestStatus -GuestKey 'guest.x' -Status 'fail' -Confirm:$false
+        Set-LastFailureSummary -FailureClass 'retry_exhausted' -Severity 'hard' -GuestKey 'guest.x' -StepName 'Sequence' -ErrorMessage 'gave up' `
+            -InnerFailureClass 'wait_timeout' -ClassificationSource 'verb-registry' -Reason 'step' -Confirm:$false
+        $j = Get-Content -Raw $sf | ConvertFrom-Json
+        Assert-Equal -Expected 'retry_exhausted' -Actual $j.lastFailure.failureClass
+        Assert-Equal -Expected 'wait_timeout' -Actual $j.lastFailure.routingClass -Because 'consumers route on the inner cause'
+        Assert-Equal -Expected 'wait_timeout' -Actual $j.lastFailure.innerFailureClass
+        Assert-Equal -Expected 'verb-registry' -Actual $j.lastFailure.classificationSource
+        Assert-Equal -Expected 'step' -Actual $j.lastFailure.reason
+        Complete-Run -OverallStatus 'fail' -MaxHistoryRuns 5
+        $j = Get-Content -Raw $sf | ConvertFrom-Json
+        Assert-Equal -Expected 'wait_timeout' -Actual $j.history[0].lastFailure.routingClass -Because 'the history row keeps the cause'
         Remove-Item -Recurse -Force $dir -ErrorAction SilentlyContinue
     }
 

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.25
+.VERSION 2026.10.26
 .GUID 42da4d2b-cbcd-4c6d-b4e8-973686da3b1a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -85,6 +85,9 @@ function Reset-FailState {
     $f.StepInputLost = $null
     $f.StepLauncherRejection = $null
     $f.StepAptIndexMismatch = $null
+    # A proof left set would let every later record claim its step did nothing.
+    $f.StepEffect = $null
+    $f.StepDeployResult = $null
     # Same reasoning as the flood slot: a test that sets either of these would
     # otherwise leave every later test in this file reporting a parked console or
     # an operator hold it never had.
@@ -783,6 +786,7 @@ Describe 'Orchestration dependency record integration' {
 }
 
 Describe 'A guest that never reached the stopped state' {
+    BeforeAll { Import-Module (Join-Path $PSScriptRoot 'Test.FailureTaxonomy.psm1') -Force -DisableNameChecking -Global }
     It 'is a wait that timed out, carrying the observed state and the first silence' {
         [void](Reset-FailState)
         $f = Get-SequenceFailureState
@@ -790,7 +794,8 @@ Describe 'A guest that never reached the stopped state' {
         $f.FirstGuestSilenceUtc = '2026-10-12T21:53:53Z'
         $f.FirstGuestSilenceSource = 'sshExec: transport dropped mid-command'
         $r = New-SequenceFailureRecord -Reason step -VMName 'vm1' -GuestKey 'guest.ubuntu.server.26' -HostType 'host.windows.hyper-v' -SequencePath $script:seqPath -LogDir 'd' -TotalSteps 19
-        Assert-Equal -Expected 'wait_timeout' -Actual $r.File.failureClass -Because 'nothing was started, so the registry class for the verb does not describe the fault'
+        Assert-Equal -Expected 'vm_not_stopped' -Actual $r.File.failureClass -Because 'nothing was started, so the registry class for the verb does not describe the fault'
+        Assert-False ((Get-FailureClassRoute -FailureClass $r.File.failureClass).UnattendedRetry) 'waiting again unattended for an ignored shutdown is not a repair'
         Assert-True ($r.File.suggestedRecoveries -notcontains 'retry_immediately') 'waiting again for an ignored shutdown is not a recovery'
         Assert-Equal -Expected 'running' -Actual $r.File.context.causeDetail.vmState -Because 'the host state at the deadline'
         Assert-Equal -Expected 180 -Actual $r.File.context.causeDetail.vmStateWaitedSeconds -Because 'how long the step waited'
@@ -858,4 +863,113 @@ Describe 'Independent console observations survive failure serialization' {
 # visible to the files that run after it in the shared runspace.
 AfterAll {
     Remove-Module Test.SequenceFailureState -Force -ErrorAction SilentlyContinue
+}
+
+# A run its supervisor could not account for was filed as
+# instrumentation_failure, which is retried unattended as safe to repeat.
+Describe 'A guest run that was lost' {
+    BeforeAll { Import-Module (Join-Path $PSScriptRoot 'Test.FailureTaxonomy.psm1') -Force -DisableNameChecking -Global }
+    It 'has its own class, routed to a restore rather than an unattended re-run' {
+        [void](Reset-FailState)
+        $f = Get-SequenceFailureState
+        $f.StepGuestRunLost = $true
+        try {
+            $r = New-SequenceFailureRecord -Reason step -VMName 'vm1' -GuestKey 'guest.ubuntu.server.26' -HostType 'host.ubuntu.kvm' -SequencePath $script:seqPath -LogDir 'd' -TotalSteps 3
+            Assert-Equal -Expected 'guest_run_lost' -Actual $r.File.failureClass
+            Assert-True ($r.File.suggestedRecoveries -contains 'restart_from_snapshot') 'a restore is the recovery'
+            $route = Get-FailureClassRoute -FailureClass $r.File.failureClass
+            Assert-False ($route.UnattendedRetry -or $route.WarmResume) 'a lost run is neither retried unattended nor resumed in place'
+        } finally { $f.StepGuestRunLost = $null }
+    }
+}
+
+
+Describe 'A step whose handler proved it did nothing' {
+    It 'carries the proof and its source for the step that published it' {
+        $f = Reset-FailState
+        $f.LastFailedStepInvocationId = 'step-a'
+        $f.StepEffect = [ordered]@{ effect = 'none-proven'; source = 'address-unresolved'; stepInvocationId = 'step-a' }
+        $r = New-SequenceFailureRecord -Reason step -VMName 'vm1' -GuestKey 'guest.ubuntu.server.24' -HostType 'h' -SequencePath $script:seqPath -LogDir 'd' -TotalSteps 5
+        Assert-Equal -Expected 'none-proven' -Actual $r.File.stepEffect
+        Assert-Equal -Expected 'address-unresolved' -Actual $r.File.stepEffectSource
+        Assert-Equal -Expected 'none-proven' -Actual $r.Event.stepEffect -Because 'the event mirrors the record'
+        $f.StepEffect = $null
+    }
+    It 'ignores the proof of a step other than the one that failed' {
+        # A retry wrapper fails after its inner step published a proof: the
+        # inner step did nothing, but the wrapper may have run other steps.
+        $f = Reset-FailState
+        $f.LastFailedStepInvocationId = 'wrapper'
+        $f.StepEffect = [ordered]@{ effect = 'none-proven'; source = 'no-source-served'; stepInvocationId = 'inner' }
+        $r = New-SequenceFailureRecord -Reason step -VMName 'vm1' -GuestKey 'guest.ubuntu.server.24' -HostType 'h' -SequencePath $script:seqPath -LogDir 'd' -TotalSteps 5
+        Assert-Equal -Expected 'unknown' -Actual $r.File.stepEffect
+        Assert-Equal -Expected '' -Actual $r.File.stepEffectSource
+        $f.StepEffect = $null
+    }
+    It 'lets a matched failure pattern outrank the proof' {
+        $f = Reset-FailState
+        $f.LastFailedStepInvocationId = 'step-a'
+        $f.WaitForTextMatchedFailurePattern = 'FAILED'
+        $f.StepEffect = [ordered]@{ effect = 'none-proven'; source = 'address-unresolved'; stepInvocationId = 'step-a' }
+        $r = New-SequenceFailureRecord -Reason step -VMName 'vm1' -GuestKey 'guest.ubuntu.server.24' -HostType 'h' -SequencePath $script:seqPath -LogDir 'd' -TotalSteps 5
+        Assert-Equal -Expected 'unknown' -Actual $r.File.stepEffect -Because 'the guest announced its own failure, so it ran'
+        $f.StepEffect = $null; $f.WaitForTextMatchedFailurePattern = $null
+    }
+    It 'reports nothing proven when no handler published a proof, and on a crash' {
+        [void](Reset-FailState)
+        $r = New-SequenceFailureRecord -Reason step -VMName 'vm1' -GuestKey 'g' -HostType 'h' -SequencePath $script:seqPath -LogDir 'd' -TotalSteps 5
+        Assert-Equal -Expected 'unknown' -Actual $r.File.stepEffect
+        $err = $null
+        try { throw 'boom' } catch { $err = $_ }
+        $c = New-SequenceFailureRecord -Reason crash -VMName 'v' -GuestKey 'g' -HostType 'h' -SequencePath $script:seqPath -LogDir 'd' -TotalSteps 5 -CrashError $err
+        Assert-Equal -Expected 'unknown' -Actual $c.File.stepEffect
+        Assert-Equal -Expected '' -Actual $c.File.stepEffectSource
+    }
+}
+
+Describe 'A deploy that reported its own failure class' {
+    It 'is filed under that class, from the deploy result' {
+        $f = Reset-FailState
+        $f.StepDeployResult = @{ failureClass = 'plan_invalid'; deployFailureClass = 'chart_invalid'; errorMessage = 'lint failed' }
+        $r = New-SequenceFailureRecord -Reason step -VMName 'vm1' -GuestKey 'g' -HostType 'h' -SequencePath $script:seqPath -LogDir 'd' -TotalSteps 5
+        Assert-Equal -Expected 'plan_invalid' -Actual $r.File.failureClass
+        Assert-Equal -Expected 'deploy-result' -Actual $r.File.classificationSource
+        Assert-Equal -Expected @('pause_and_inspect') -Actual @($r.File.suggestedRecoveries)
+        $f.StepDeployResult = $null
+    }
+    It 'suggests a backed-off retry for a deploy that could not reach what it needed' {
+        $f = Reset-FailState
+        $f.StepDeployResult = @{ failureClass = 'network_timeout'; deployFailureClass = 'cluster_unreachable'; errorMessage = '' }
+        $r = New-SequenceFailureRecord -Reason step -VMName 'vm1' -GuestKey 'g' -HostType 'h' -SequencePath $script:seqPath -LogDir 'd' -TotalSteps 5
+        Assert-Equal -Expected 'network_timeout' -Actual $r.File.failureClass
+        Assert-True ($r.File.suggestedRecoveries -contains 'retry_with_backoff') 'the class''s own recovery'
+        $f.StepDeployResult = $null
+    }
+    It 'gives way to a matched failure pattern' {
+        $f = Reset-FailState
+        $f.WaitForTextMatchedFailurePattern = 'FAILED'
+        $f.StepDeployResult = @{ failureClass = 'plan_invalid'; deployFailureClass = 'chart_invalid'; errorMessage = '' }
+        $r = New-SequenceFailureRecord -Reason step -VMName 'vm1' -GuestKey 'g' -HostType 'h' -SequencePath $script:seqPath -LogDir 'd' -TotalSteps 5
+        Assert-Equal -Expected 'pattern_matched_failure' -Actual $r.File.failureClass
+        $f.StepDeployResult = $null; $f.WaitForTextMatchedFailurePattern = $null
+    }
+}
+
+Describe 'Every failure record links its class''s documentation' {
+    It 'carries docUrl on step, crash and infra records and their events' {
+        [void](Reset-FailState)
+        $step = New-SequenceFailureRecord -Reason step -VMName 'vm1' -GuestKey 'g' -HostType 'h' -SequencePath $script:seqPath -LogDir 'd' -TotalSteps 5
+        # The schema link and the anchor are joined here: a literal link with a
+        # placeholder for its anchor reads to the anchor gate as a broken pointer.
+        $schema = 'https://yuruna.link/42820e91'
+        $step.File.docUrl | Should -BeExactly ($schema + '#failure-class-' + $step.File.failureClass)
+        $step.Event.docUrl | Should -BeExactly $step.File.docUrl
+        $err = $null
+        try { throw 'boom' } catch { $err = $_ }
+        $crash = New-SequenceFailureRecord -Reason crash -VMName 'v' -GuestKey 'g' -HostType 'h' -SequencePath $script:seqPath -LogDir 'd' -TotalSteps 5 -CrashError $err
+        $crash.File.docUrl | Should -BeExactly ($schema + '#failure-class-' + $crash.File.failureClass)
+        $infra = New-InfraFailureRecord -Stage 'GetImage' -FailureClass 'source_integrity' -Severity 'hard' -GuestKey 'g' -VMName 'vm1' -ErrorMessage 'checksum' -HostType 'h'
+        $infra.File.docUrl | Should -BeExactly 'https://yuruna.link/42820e91#failure-class-source_integrity'
+        $infra.Event.docUrl | Should -BeExactly $infra.File.docUrl
+    }
 }

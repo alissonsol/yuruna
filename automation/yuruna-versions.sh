@@ -1,7 +1,8 @@
 #!/bin/bash
-# Version: 2026.10.25
+# Version: 2026.10.26
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
+# GUID: 42b6e20a-0c70-4d03-ad67-d64c73c4ba78
 # Dependency pins for guest provisioning; service-VM seeds carry their own pins.
 # Keep each export unquoted and without spaces for Check-DependencyVersion.ps1 parsing.
 # --- REGION: https://yuruna.link/4220a755-0008

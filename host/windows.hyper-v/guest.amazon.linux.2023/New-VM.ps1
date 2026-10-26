@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.25
+.VERSION 2026.10.26
 .GUID 4209caff-b7ce-46f6-896a-1d6710c120e8
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -117,7 +117,6 @@ Write-Verbose "Creating VHDX for '$VMName' by copying base image..."
 Copy-Item -LiteralPath $baseImageFile -Destination $vhdxFile -Force -ErrorAction Stop
 Write-Verbose "Copied '$baseImageFile' -> '$vhdxFile'."
 
-
 # user-data AND meta-data are shared under host/vmconfig/ (the meta-data is
 # byte-identical across the three host platforms). Anchor contract:
 # automation/Yuruna.CloudInitTemplate.psm1.
@@ -189,9 +188,8 @@ try {
     $YurunaHostPort = $_statusSeed.Port
 
     # --- REGION: Render user-data / meta-data
-    # New-CloudInitUserData merges base+overlay, auto-bakes yuruna-retry.sh /
-    # fetch-and-execute.sh / yuruna-network.sh from $repoRoot/automation/ as base64
-    # write_files entries, then resolves the per-cycle placeholders below.
+    # See https://yuruna.link/4220a755-0003
+    # Embed the guest libraries as base64 write_files entries so bootstrap needs no download.
     $UserData = New-CloudInitUserData `
         -BasePath    $baseUserData `
         -OverlayPath $overlayUserData `
@@ -217,12 +215,15 @@ try {
     Write-Verbose "Creating new VM '$VMName' on switch '$switchName'..."
     Hyper-V\New-VM -Name $VMName -Generation 2 -MemoryStartupBytes 12288MB -SwitchName $switchName -VHDPath $vhdxFile | Out-Null
 
-    # --- REGION: https://yuruna.link/42e220c4-0004
+    # --- REGION: https://yuruna.link/4220a755-000a
     # Key the MAC by durable guest identity so rebuilds and VM renames keep the DHCP lease.
     $YurunaGuestMac = Get-YurunaGuestMacAddress -VMName $GuestHostname
+    # Hyper-V takes bare hex, no separators.
     Hyper-V\Set-VMNetworkAdapter -VMName $VMName -StaticMacAddress ($YurunaGuestMac -replace ':','')
     Write-Verbose "Deterministic guest MAC for '$GuestHostname': $YurunaGuestMac"
 
+    # Static (min=max=startup, dynamic disabled) so a hung swap/paging never
+    # distorts a cycle -- see https://yuruna.link/429f3d06-001b.
     Set-VM -Name $VMName -MemoryStartupBytes 12288MB -MemoryMinimumBytes 12288MB -MemoryMaximumBytes 12288MB -AutomaticCheckpointsEnabled $false | Out-Null
     Set-VMMemory -VMName $VMName -DynamicMemoryEnabled $false
     Set-VMFirmware -VMName $VMName -EnableSecureBoot Off | Out-Null
@@ -237,10 +238,8 @@ try {
     # in waitForText sequence steps.
     Set-VMVideo -VMName $VMName -HorizontalResolution 1920 -VerticalResolution 1080 -ResolutionType Single
 
-    # --- REGION: Clean up temporary files
 } finally {
-    # The seed holds the guest's admin credentials; it must not outlive this
-    # script on any path, an early exit or a throw included.
+    # --- REGION: Clean up temporary files
     Remove-SeedMediaWorkspace -Workspace $seedWorkspace -Confirm:$false
 }
 

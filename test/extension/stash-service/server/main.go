@@ -1,5 +1,6 @@
 // LICENSEURI https://yuruna.link/license
 // Copyright (c) 2019-2026 by Alisson Sol et al.
+// GUID: 42e3d36c-a156-428d-bf39-bc9bf6996a4d
 
 // Yuruna stash service daemon; see docs/stash-guide.md#good-to-know.
 package main

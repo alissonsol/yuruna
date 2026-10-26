@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.25
+.VERSION 2026.10.26
 .GUID 425d1ef1-c9ad-47cc-8b78-45a0c1156135
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -497,8 +497,6 @@ Describe 'Get-RunnerPreambleStallStreak' {
         } finally { Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction SilentlyContinue }
     }
 }
-
-# Copyright (c) 2019-2026 by Alisson Sol et al.
 
 Describe 'crash gating timestamp interpretation' {
     It 'accounts only for saves before spawn across cultures and local time zones' {

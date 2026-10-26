@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.25
+.VERSION 2026.10.26
 .GUID 429770ab-d272-43a0-985e-672863545e2c
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -72,6 +72,93 @@ function Get-CycleFolderIdentity {
     return ($leaf -replace '\.incomplete$', '' -replace '\.aborted\.[^/\\]+$', '')
 }
 
+function Get-CycleFailureIndexIdentity {
+    <#
+    .SYNOPSIS
+        The cycle a failure index belongs to: the runner's cycle generation, else
+        this run's id, else '' (no index is kept).
+    #>
+    [CmdletBinding()]
+    [OutputType([string])]
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidGlobalVars', '',
+        Justification = 'global:__YurunaRunId is the per-run identity Start-LogFile stamps on events; read here only.')]
+    param()
+    if ($env:YURUNA_CYCLE_GENERATION) { return [string]$env:YURUNA_CYCLE_GENERATION }
+    if ($global:__YurunaRunId) { return "run:$($global:__YurunaRunId)" }
+    return ''
+}
+
+function Add-CycleFailureIndexRow {
+    <#
+    .SYNOPSIS
+        Add the log root's failure record to this cycle's failure index,
+        cycle_failures.json beside it, one row per failing guest or stage.
+    .DESCRIPTION
+        The root last_failure.json holds only the newest record and every
+        sequence start clears it, so on a cycle that carries on past a failure
+        the record a recovery decision reads is gone by the end of the cycle, or
+        is a later guest's. The index is not cleared by a sequence start: it
+        belongs to one cycle (Get-CycleFailureIndexIdentity) and starts over when
+        another cycle writes to it. A row is keyed by the record's VM, else its
+        stage; a newer record of the same failure replaces its row in place, so
+        the rows stay in the order the failures happened. Get-LastFailureFact
+        reads the first row -- the cycle's first failure -- before the root
+        record, and Stop-LogFile archives the index into the cycle folder as
+        failures.json. A root record written before this cycle started is an
+        earlier run's and is not indexed. Best-effort, like the mirror.
+    .OUTPUTS
+        [bool] $true when the index was written.
+    #>
+    [CmdletBinding()]
+    [OutputType([bool])]
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidGlobalVars', '',
+        Justification = 'global:__YurunaCycleStartUtc is the cycle start Start-LogFile publishes; read here only.')]
+    param([Parameter(Mandatory)][string]$LogDir)
+    $identity = Get-CycleFailureIndexIdentity
+    $src = Join-Path $LogDir 'last_failure.json'
+    if (-not $identity -or -not (Test-Path -LiteralPath $src -PathType Leaf)) { return $false }
+    try {
+        if ($global:__YurunaCycleStartUtc) {
+            $cycleStart = [datetime]::Parse([string]$global:__YurunaCycleStartUtc, [Globalization.CultureInfo]::InvariantCulture,
+                [Globalization.DateTimeStyles]::AdjustToUniversal -bor [Globalization.DateTimeStyles]::AssumeUniversal)
+            if ([IO.File]::GetLastWriteTimeUtc($src) -lt $cycleStart.AddSeconds(-2)) { return $false }
+        }
+        $record = Get-Content -LiteralPath $src -Raw -ErrorAction Stop | ConvertFrom-Json -AsHashtable -ErrorAction Stop
+        if ($record -isnot [System.Collections.IDictionary]) { return $false }
+        $context = if ($record['context'] -is [System.Collections.IDictionary]) { $record['context'] } else { @{} }
+        $key = if ($record['vmName']) { "vm:$($record['vmName'])" }
+            elseif ($context['stage']) { "stage:$($context['stage'])" }
+            elseif ($record['action']) { "stage:$($record['action'])" }
+            else { 'cycle' }
+        $path = Join-Path $LogDir 'cycle_failures.json'
+        $index = $null
+        if (Test-Path -LiteralPath $path -PathType Leaf) {
+            try { $index = Get-Content -LiteralPath $path -Raw -ErrorAction Stop | ConvertFrom-Json -AsHashtable -ErrorAction Stop }
+            catch { Write-Verbose "Add-CycleFailureIndexRow: starting a new index over an unreadable one: $($_.Exception.Message)" }
+        }
+        if ($index -isnot [System.Collections.IDictionary] -or [string]$index['identity'] -cne $identity) {
+            $index = [ordered]@{ schemaVersion = 1; identity = $identity; rows = @() }
+        }
+        $rows = [System.Collections.Generic.List[object]]::new()
+        $replaced = $false
+        foreach ($row in @($index['rows'])) {
+            if ($row -is [System.Collections.IDictionary] -and [string]$row['key'] -ceq $key) {
+                $rows.Add([ordered]@{ key = $key; record = $record }); $replaced = $true
+            } elseif ($null -ne $row) { $rows.Add($row) }
+        }
+        if (-not $replaced) { $rows.Add([ordered]@{ key = $key; record = $record }) }
+        $index['rows'] = @($rows)
+        if (Get-Command Write-YurunaStateFileJson -ErrorAction SilentlyContinue) {
+            return [bool](Write-YurunaStateFileJson -Path $path -InputObject $index -Depth 20 -Confirm:$false)
+        }
+        [IO.File]::WriteAllText($path, ($index | ConvertTo-Json -Depth 20), [Text.UTF8Encoding]::new($false))
+        return $true
+    } catch {
+        Write-Verbose "Add-CycleFailureIndexRow: the failure index was not updated: $($_.Exception.Message)"
+        return $false
+    }
+}
+
 function Copy-CycleFailureRecord {
     <#
     .SYNOPSIS
@@ -137,7 +224,11 @@ function Copy-CycleFailureRecord {
     )
     if (-not $LogDir)      { $LogDir      = [string]$env:YURUNA_LOG_DIR }
     if (-not $CycleFolder) { $CycleFolder = [string]$global:__YurunaCycleFolder }
-    if (-not $LogDir -or -not $CycleFolder) { return $false }
+    if (-not $LogDir) { return $false }
+    # The index lives in the log root, so a failure before the cycle folder
+    # exists (a bootstrap stage) is indexed too.
+    $null = Add-CycleFailureIndexRow -LogDir $LogDir
+    if (-not $CycleFolder) { return $false }
     $src = Join-Path $LogDir 'last_failure.json'
     $copied = $false
     try {
@@ -795,6 +886,8 @@ function Write-CycleManifest {
                 # several entries competing for that answer.
                 '*/last_failure.json'    { 'failure-guest'; break }
                 'last_remediation.json'  { 'remediation'; break }
+                'failures.json'          { 'failures'; break }
+                'telemetry_gaps.json'    { 'telemetry-gaps'; break }
                 'failure_screenshot*.png'{ 'screenshot-failure'; break }
                 'failure_ocr*.txt'       { 'ocr-failure'; break }
                 # See https://yuruna.link/4213a0b3-009e
@@ -854,6 +947,28 @@ function Write-CycleManifest {
     } catch {
         Write-Verbose "Write-CycleManifest: $($_.Exception.Message)"
     }
+}
+
+function Get-CycleTelemetryGap {
+    <#
+    .SYNOPSIS
+        The records a cycle folder is missing as it is sealed, by file name: its
+        event stream, and for a failed cycle any record of the failure.
+    .OUTPUTS
+        [string[]] the missing names; empty when the folder is complete.
+    #>
+    [CmdletBinding()]
+    [OutputType([string[]])]
+    param([Parameter(Mandatory)][string]$CycleFolder, [string]$Outcome = 'unknown')
+    $gaps = [System.Collections.Generic.List[string]]::new()
+    $events = Get-Item -LiteralPath (Join-Path $CycleFolder 'cycle.events.ndjson') -ErrorAction SilentlyContinue
+    if (-not $events -or $events.Length -eq 0) { $gaps.Add('cycle.events.ndjson') }
+    if ($Outcome -eq 'fail') {
+        $records = @(Get-ChildItem -LiteralPath $CycleFolder -Recurse -File -Filter 'last_failure.json' -ErrorAction SilentlyContinue) +
+            @(Get-ChildItem -LiteralPath $CycleFolder -File -Filter 'failures.json' -ErrorAction SilentlyContinue)
+        if ($records.Count -eq 0) { $gaps.Add('last_failure.json') }
+    }
+    return [string[]]$gaps
 }
 
 function Stop-LogFile {
@@ -1016,6 +1131,30 @@ function Stop-LogFile {
                     try { Copy-Item -LiteralPath $srcRemediation -Destination $dstRemediation -Force -ErrorAction Stop }
                     catch { Write-Verbose "Stop-LogFile: could not archive last_remediation.json: $($_.Exception.Message)" }
                 }
+                # This cycle's failure index goes with the cycle as failures.json;
+                # an index another cycle left in the log root does not.
+                $srcFailureIndex = Join-Path $env:YURUNA_LOG_DIR 'cycle_failures.json'
+                if (Test-Path -LiteralPath $srcFailureIndex -PathType Leaf) {
+                    try {
+                        $failureIndex = Get-Content -LiteralPath $srcFailureIndex -Raw -ErrorAction Stop | ConvertFrom-Json -AsHashtable -ErrorAction Stop
+                        $indexIdentity = Get-CycleFailureIndexIdentity
+                        if ($indexIdentity -and $failureIndex -is [System.Collections.IDictionary] -and [string]$failureIndex['identity'] -ceq $indexIdentity) {
+                            Copy-Item -LiteralPath $srcFailureIndex -Destination (Join-Path $global:__YurunaCycleFolder 'failures.json') -Force -ErrorAction Stop
+                        }
+                    } catch { Write-Verbose "Stop-LogFile: could not archive the cycle failure index: $($_.Exception.Message)" }
+                }
+            }
+            # A cycle whose record is incomplete says so as it ends, not when a
+            # reader goes looking: the event stream every consumer joins on and,
+            # for a failed cycle, the record of what failed. The gap is kept in
+            # the folder, so it travels with the cycle to the pool.
+            $telemetryGaps = @(Get-CycleTelemetryGap -CycleFolder $global:__YurunaCycleFolder -Outcome $Outcome)
+            if ($telemetryGaps.Count -gt 0) {
+                Write-Warning (Format-YurunaOperatorMessage -Key 'runner.cycle_telemetry_gap' -Arguments @{ missing = ($telemetryGaps -join ', ') })
+                try {
+                    [System.IO.File]::WriteAllText((Join-Path $global:__YurunaCycleFolder 'telemetry_gaps.json'),
+                        ([ordered]@{ outcome = $Outcome; missing = $telemetryGaps } | ConvertTo-Json -Compress))
+                } catch { Write-Verbose "Stop-LogFile: could not record the telemetry gaps: $($_.Exception.Message)" }
             }
             Write-CycleManifest -CycleFolder $global:__YurunaCycleFolder -Confirm:$false
             # Drop the `.incomplete` marker last, after cycle_end + manifest
@@ -1508,4 +1647,4 @@ function Add-OcrHistoryFrame {
     }
 }
 
-Export-ModuleMember -Function Add-OcrHistoryFrame, Start-LogFile, Stop-LogFile, Start-NestedLogFile, Stop-NestedLogFile, Get-YurunaLogPreamble, Get-CycleGuestDataFolder, Get-CycleScreenDir, Save-StepFailureEvidence, Format-CycleFolderBaseName, Get-CycleFolderIdentity, Copy-CycleFailureRecord, Write-CycleNdjsonEvent, Get-CycleEventDelivery, Write-CycleManifest, Send-CycleEventSafely, New-YurunaDegradationRecord, Send-YurunaDegradation, Invoke-CycleLogRotation
+Export-ModuleMember -Function Add-OcrHistoryFrame, Start-LogFile, Stop-LogFile, Get-CycleTelemetryGap, Start-NestedLogFile, Stop-NestedLogFile, Get-YurunaLogPreamble, Get-CycleGuestDataFolder, Get-CycleScreenDir, Save-StepFailureEvidence, Format-CycleFolderBaseName, Get-CycleFolderIdentity, Copy-CycleFailureRecord, Write-CycleNdjsonEvent, Get-CycleEventDelivery, Write-CycleManifest, Send-CycleEventSafely, New-YurunaDegradationRecord, Send-YurunaDegradation, Invoke-CycleLogRotation

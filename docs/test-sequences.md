@@ -431,6 +431,13 @@ the action writes on entry and removes on exit. Not a failure -- the
 step succeeds either way. `YURUNA_BREAK_DISABLED=1` turns the action
 into a no-op for unattended runs.
 
+A break always has a bound: the step's `timeoutSeconds`, else
+`YURUNA_BREAK_MAX_SECONDS`, else `testCycle.stepTimeoutSeconds` (2700 s
+without one). At the bound the break ends with its timeout warning and the
+sequence carries on, instead of outliving the step watchdog and having the
+whole cycle killed. While it holds, the break moves the step heartbeat
+every 10 seconds.
+
 <a id="428e4df6-0011"></a>
 
 #### Programmatic Continue (matches the UI button)
@@ -1236,7 +1243,7 @@ A bare `return` (no value) is coerced to `$false`. Always be explicit.
 | `Description`        | `[string]`                                                                                                                                                                                                                                                                                     | Free-form note carried on the entry. Nothing in the engine reads it; it is there for `Get-SequenceAction` consumers (matrix dumps, docs generators).         |
 | `Aliases`            | `[string[]]`                                                                                                                                                                                                                                                                                   | Alternate YAML names that resolve to the same entry (legacy renames).                                                                                       |
 | `Handler`            | `[scriptblock]` `param([hashtable]$c)` -> `[bool]`                                                                                                                                                                                                                                              | The body that runs when the verb dispatches.                                                                                                                |
-| `FailureClass`       | `ValidateSet`: `ocr_timeout`, `console_flooded`, `network_timeout`, `credential_expired`, `host_io_blocked`, `pattern_matched_failure`, `retry_exhausted`, `snapshot_restore_failed`, `script_error`, `wait_timeout`, `extension_error`, `instrumentation_failure`, `provisioning_failure`, `bootstrap_sync`, `plan_invalid`, `elevation_required`, `project_access_denied`, `host_network_degraded`, `ip_not_discovered`, `payload_unavailable`, `pool_storage_full`, `dhcp_identity_unbounded`, `lab_dependency_down`, `input_lost`, `hypervisor_unresponsive`, `unknown`                                       | Machine-readable failure category for downstream routing (no regex-on-label needed). The canonical list lives in `Test.FailureTaxonomy.psm1`; the ValidateSet is a literal copy because an attribute argument must be a constant expression, and `Assert-FailureTaxonomyInSync` at module load catches the two drifting apart. |
+| `FailureClass`       | `ValidateSet`: `ocr_timeout`, `console_flooded`, `network_timeout`, `credential_expired`, `host_io_blocked`, `pattern_matched_failure`, `retry_exhausted`, `snapshot_restore_failed`, `script_error`, `wait_timeout`, `extension_error`, `instrumentation_failure`, `provisioning_failure`, `bootstrap_sync`, `plan_invalid`, `elevation_required`, `project_access_denied`, `host_network_degraded`, `ip_not_discovered`, `payload_unavailable`, `pool_storage_full`, `dhcp_identity_unbounded`, `lab_dependency_down`, `input_lost`, `hypervisor_unresponsive`, `source_integrity`, `vm_not_stopped`, `guest_run_lost`, `unknown` | Machine-readable failure category for downstream routing (no regex-on-label needed). The canonical list lives in `Test.FailureTaxonomy.psm1`; the ValidateSet is a literal copy because an attribute argument must be a constant expression, and `Assert-FailureTaxonomyInSync` at module load catches the two drifting apart. |
 | `Severity`           | `ValidateSet`: `hard`, `soft`, `unknown`                                                                                                                                                                                                                                                       | `soft` = retry is plausible; `hard` = retry won't help (e.g. snapshot restore failed); `unknown` = no claim either way.                                     |
 | `SuggestedRecoveries`| `[string[]]` -- free-form, ordered                                                                                                                                                                                                                                                              | Hints for an autonomous remediation loop. Common values: `retry_immediately`, `retry_with_backoff`, `restart_from_snapshot`, `operator_intervention_required`. A token outside the remediation dispatcher's vocabulary warns at registration. |
 | `UsesWaitSignals`    | `[bool]`                                                                                                                                                                                                                                                                                       | **Changes engine behavior.** `$true` lets the engine append `-- matched failurePattern "..."` to the step's failure label when the verb short-circuited on an anti-pattern. Set it on any verb that writes that signal: without it the step is labeled as a plain "pattern not found within Ns" timeout, so the ERROR banner and `last_failure.json` both hide the real cause -- a guest process that crashed and printed why. |
@@ -1465,14 +1472,17 @@ re-DHCPs and re-handshakes SSH.
 
 Probe used by Debug-TestSequence's [`requiresSnapshot`](#requiressnapshot)
 warm-path detection: returns `$true` when snapshot `Id` is present on
-VM `VMName`, `$false` otherwise (including when the VM does not exist).
-Pure read; never stops the VM, never mutates state.
+VM `VMName`, `$false` when it is absent (including when the VM does not exist),
+and throws when the hypervisor could not answer, so a caller's indeterminate
+branch runs instead of a blip reading as a missing snapshot. It is a thin
+reading of `Get-VMDiskSnapshotState`, which answers `present`, `absent` or
+`unknown`. Pure read; never stops the VM, never mutates state.
 
-| Host | Implementation |
+| Host | Implementation of `Get-VMDiskSnapshotState` |
 |---|---|
-| Hyper-V | `Hyper-V\Get-VMCheckpoint -VMName <name> -Name <id>` after a `Get-VMState`-not-`absent` guard. |
-| KVM | `virsh snapshot-info --domain <name> --snapshotname <id>` after a `Get-VMState`-not-`absent` guard; exit 0 means present. |
-| UTM | `qemu-img snapshot -l` on every `*.qcow2` in the bundle's `Data/`; all disks must list `<id>` for the answer to be true. |
+| Hyper-V | Every checkpoint of the VM (`Hyper-V\Get-VMCheckpoint -VMName <name>`) after a `Get-VMState`-not-`absent` guard, matched by name; a listing that fails is `unknown`. |
+| KVM | `virsh snapshot-list --domain <name> --name` after a `Get-VMState`-not-`absent` guard, matched by name: the list does not depend on the language libvirt reports errors in; a failed listing is `unknown`. |
+| UTM | `qemu-img snapshot -l` on every `*.qcow2` in the bundle's `Data/`; all disks must list `<id>` to be `present`. A missing bundle or disk is `absent`; a missing `qemu-img` or a read that did not complete is `unknown`. |
 
 <a id="428e4df6-0036"></a>
 
@@ -1552,6 +1562,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.25
+Last review: 2026.10.26
 
 Back to [Yuruna](../README.md)

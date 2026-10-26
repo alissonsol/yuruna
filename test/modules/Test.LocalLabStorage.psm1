@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.25
+.VERSION 2026.10.26
 .GUID 421fc09f-36ed-4d1d-872e-0167bfb4583f
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -1589,5 +1589,3 @@ Export-ModuleMember -Function `
     Remove-LocalLabStorageSambaInclude, Remove-LocalLabStorageBackConnectionName, Remove-LocalLabStorageShare, `
     Remove-LocalLabStorageAccount, Remove-LocalLabStorageLoopbackException, `
     Get-LocalLabStorageFolderReport, Format-LocalLabStorageSize
-
-# Copyright (c) 2019-2026 by Alisson Sol et al.

@@ -23,7 +23,7 @@ arquitetura de todo o projeto e [Yuruna Test ...](../../test/README.md) para o u
 | `service/Start-StatusService.ps1` / `service/Stop-StatusService.ps1` | Interface HTTP de status em processo independente |
 | `Test-CachingProxyService.ps1`                            | Verificação prévia de um cache local ou remoto |
 | `Test-Config.ps1`                                  | Validar `test.config.yml` + envio opcional de notificação |
-| `Invoke-TestProject.ps1`                                 | Variante de execução única: verificar um clone novo, substituir `<RepoRoot>/project`, executar um único ciclo |
+| `Invoke-TestProject.ps1`                                 | Variante de execução única: executar um único ciclo do executor, cujo executor interno substitui `<RepoRoot>/project` por um clone novo |
 | `Debug-TestSequence.ps1`                                 | Auxiliar de desenvolvimento: uma única sequência, com qualquer etapa inicial ou final |
 | `check/Test-TesseractOcr.ps1`                      | Verificação de OCR com Tesseract (código aberto; independente de WinRT) |
 | `check/Test-WinRtOcr.ps1`                          | Verificação de OCR com WinRT -- também demonstra o problema de "acesso fechado" do pwsh moderno |
@@ -48,7 +48,9 @@ copiar o código repetitivo de `$PSScriptRoot`/`Split-Path`/`Join-Path` para
 calculá-los. **Contrato dos códigos de saída:** `0` significa sucesso; falhas na
 verificação prévia usam `1`; `2` significa que uma barreira não conseguiu produzir
 um veredito (a admissão de VMs não consegue determinar se há outros convidados em execução),
-e `Invoke-TestProject` repassa o código de saída exato do ciclo interno.
+e `Invoke-TestProject` informa o código de saída do ciclo que despachou, ou `2`
+quando o ciclo não foi executado (um pool drenado ou pausado, uma atualização do
+host, Ctrl+C).
 Falhas distintas na verificação prévia aparecem no texto da faixa `Stop-WithReason`
 -- o operador ou um analisador de CI lê "STOP (exit 1) at &lt;Step&gt;"
 e o motivo para distingui-las.
@@ -163,8 +165,8 @@ buscas no código e links da interface de status cheguem ao ponto de entrada exp
 | `Test.HostIO.{HyperV,Kvm,Utm}` | Conexão apenas por registro: associa cada tipo de hospedeiro a seus backends. Sem lógica |
 | `Test.Transport`       | As implementações dos backends -- scancodes PS/2, VNC/RFB, AppleScript/CGEvent -- e as janelas de estabilização de que precisam |
 | `Test.KeyCodeRegistry` | Tabelas de códigos de tecla e caracteres por transporte, consultadas pelos transportes |
-| `Test.VncProvider`     | Registro de conexões VNC + `Repair-VncConnection`, que obriga a próxima chamada a refazer o handshake depois que um identificador em cache fica obsoleto |
-| `Test.ScreenshotProvider` | Registro de provedores de captura de tela + `Repair-ScreenshotRing` |
+| `Test.VncProvider`     | Registro de conexões VNC + `Repair-VncConnection`, que obriga o próximo envio de teclas a refazer o handshake depois que um identificador em cache fica obsoleto e informa `{ Attempted, Effective, Mechanism }` |
+| `Test.ScreenshotProvider` | Registro de provedores de captura de tela + `Repair-ScreenshotRing`, que limpa o anel de quadros de uma VM depois de uma recuperação a frio |
 | `Test.OcrEngine` / `Test.Tesseract` | [Provedores OCR](../ocr.md) intercambiáveis e os auxiliares para localizar / instalar / chamar o Tesseract |
 | `Test.OcrMatch`        | Normalização e correspondência tolerantes ao OCR (grupos de confusão) + o combinador de múltiplos mecanismos |
 | `Test.OcrPath`         | `Resolve-OcrImagePath` -- copia uma captura para um caminho temporário curto quando o caminho real ultrapassa o limite de caminho de um mecanismo de OCR nativo; compartilhado pelos provedores Tesseract e WinRT |
@@ -178,10 +180,13 @@ buscas no código e links da interface de status cheguem ao ponto de entrada exp
 | `Test.HostDetection`   | Descoberta do tipo de hospedeiro, mapeamento de pastas de hospedeiro, derivação de nomes de VM de teste, verificações de requisitos mínimos |
 | `Test.HostBootstrap`   | `Initialize-YurunaHost` -- importa o driver `Yuruna.Host` correspondente para a sessão do executor |
 | `Test.HostCondition` (+ `.Mac`, `.Windows`, `.Linux`) | Fachada + trios Set/Assert/AssertMinimum por plataforma -- consulte [Registro de condições do hospedeiro](#host-condition-registry) |
+| `Test.SourceSelection` | Configurações de origem do hospedeiro lidas antes da primeira atualização, URLs de origem sem credenciais, a seleção de origem instalada e o portão de origem do git |
+| `Test.GitOutageFixture` | Fixture de teste: redireciona o tráfego Git do GitHub e as sondagens diretas para substitutos em loopback, restaurados ao descartar |
 | `Test.HostGit`         | Atualização do framework no início do ciclo (`Invoke-GitPull`), hashes curtos de HEAD, substituição verificada do clone do projeto, diagnóstico de PIDs que bloqueiam arquivos no Windows após falhas de `Remove-Item` (Restart Manager / scanner de diretório atual da PEB), respostas de acesso ao repositório para interfaces do grupo (`Get-HostRepositoryAccess`) e instalações sob demanda da PSGallery (`powershell-yaml`, `PSScriptAnalyzer`), que o PowerShell 7 não inclui |
 | `Test.HostAutomationState` | Registra o valor anterior de cada ajuste do hospedeiro antes de `Enable-TestAutomation` gravá-lo, para que `Disable` possa restaurar, em vez de adivinhar |
 | `Test.HostFacts`       | Os dados de hardware da própria máquina no formato servido por `/control/host-facts`, incluindo as regras de contagem de armazenamento |
 | `Test.HostSampling`    | Evidências limitadas de desempenho do hospedeiro, retidas independentemente do executor interno: inventário de contadores, estado de energia, snapshots das VMs e o veredito de livelock de VM (`Start-YurunaHostSampling`, `Get-YurunaVmLivelockVerdict`) |
+| `Test.HostMemoryMetrics` | Medidores nativos de memória do Linux e do macOS que o serviço de status do hospedeiro exporta; uma amostra ilegível ou incompleta nunca é informada como zero |
 | `Test.HostMetricsExporter` | Converge o exportador de métricas do hospedeiro Windows, o endpoint Prometheus por hospedeiro para memória comprometida, CPU, disco e estado das VMs Hyper-V: aquisição do pacote, serviço, regra de firewall e sondagem (`Set-YurunaHostMetricsExporter`). Melhor esforço; nunca lança exceção |
 | `Test.HostIdentity`    | Impressão digital do hardware + recuperação de uuid confirmada pelo operador, que impede que o histórico no grupo de um hospedeiro reinstalado se bifurque |
 | `Test.HostIdentitySeed` | `Resolve-SeededHostId` -- a semente derivada do hardware para um novo `host.uuid`, derivada apenas quando necessária, com alternativa aleatória quando o hardware não está disponível ou `YURUNA_HOST_ID_SEED` é `random` |
@@ -210,7 +215,7 @@ buscas no código e links da interface de status cheguem ao ponto de entrada exp
 | `Test.RunnerElevation` | Contrato de elevação no lançamento: resolvê-la uma vez enquanto um operador está presente, ou recusar o início |
 | `Test.PrivateStateRepair` | `Repair-YurunaStartupPrivateState` -- recupera as permissões do estado privado na inicialização do executor ou do status-service; eleva privilégios apenas sob solicitação interativa explícita e nunca solicita nada a um chamador não assistido |
 | `Test.SingleInstance`  | Proteção por pidfile compartilhada pelo trio de executores (`Get-RunnerInstanceState`, `Stop-StaleRunner`); o construtor da tabela de processos e o classificador de identidades que decidem quais processos executores um reparo pode parar, a barreira de atualização que suspende novas criações durante um reparo, o token de transferência e a confirmação de prontidão que trazem o executor de volta, e o registro persistido de lançamento do qual parte um executor retomado |
-| `Test.InnerSpawn`      | `New-InnerRunnerArgList` -- construtor de argv para `pwsh -Command` que preserva tipos na criação do processo externo->interno e em `Invoke-TestProject`; `Start-YurunaDetachedProcess`, que inicia um worker que sobrevive ao processo que o lançou e o confirma com um handshake |
+| `Test.InnerSpawn`      | `New-InnerRunnerArgList` -- construtor de argv para `pwsh -Command` que preserva tipos na criação do processo externo->interno; `Start-YurunaDetachedProcess`, que inicia um worker que sobrevive ao processo que o lançou e o confirma com um handshake |
 | `Test.Recovery`        | Varredura na inicialização que detecta e arquiva cada classe de estado obsoleto deixada por um ciclo que travou; seu modo de preservação durante atualização mantém os controles do operador e os registros do executor recuperado quando um reparo reinicia o executor |
 | `Test.HostRefreshTrigger` | Política de atualização automática do hospedeiro: evidências de tempo limite do hipervisor por ciclo, a contagem persistida, o orçamento de tentativas por dia UTC e a decisão de reparo pós-ciclo do executor residente -- consulte [testCycle.autoRefreshAfterStalls](../test-config.md) |
 | `Test.OuterLog`        | Gravador de `outer.log` com carimbo de data/hora, compartilhado pelo laço externo e pelo worker de atualização do hospedeiro; nunca lança exceção quando o diretório de execução não está definido |
@@ -263,7 +268,8 @@ buscas no código e links da interface de status cheguem ao ponto de entrada exp
 | `Test.SnapshotManifest`| Arquivos auxiliares de snapshots, para que uma restauração possa recusar um snapshot que não reconhece |
 | `Test.RecoveryContract` | O formato único de resultado que todo ponto de entrada retorna -- resultados, classes de falha do executor, estados de recuperação, impressão digital da falha, ocultação de dados sensíveis, evidências e resultados das etapas -- e sua persistência de melhor esforço |
 | `Test.RecoveryLedger`  | O `recovery.ledger.ndjson` somente de acréscimo que limita o que o executor repara por conta própria, o registro de reparos e o protocolo que executa um deles: grava antes de agir, e um ledger ilegível conta como orçamento esgotado |
-| `Test.RecoveryActions` | Os três reparos registrados no ledger (`Register-BuiltinRecoveryAction`): mover para o lado um bloqueio obsoleto do git, repetir o clone do projeto e encerrar antecipadamente a pausa após falha |
+| `Test.RecoveryProbe`   | As sondas que a pausa após falha executa, em um processo de curta duração (`Invoke-RecoveryProbe.ps1`), para saber que uma condição do host (`hypervisor_unresponsive`, `host_network_degraded`, `pool_storage_full`) foi resolvida |
+| `Test.RecoveryActions` | Os quatro reparos registrados no ledger (`Register-BuiltinRecoveryAction`): mover para o lado um bloqueio obsoleto do git, repetir o clone do projeto, encerrar antecipadamente a pausa após falha e encerrá-la quando uma sonda de recuperação informa que a condição foi resolvida |
 | `Test.CredentialProvider` | Auxiliares de inspeção / reparo apenas para testes sobre o [registro de login de componentes](../authentication.md#component-registry-login) |
 
 **Grupo e laboratório** -- tudo o que só faz sentido com mais de uma máquina:
@@ -336,7 +342,7 @@ com base no tipo de hospedeiro:
 O driver exporta um conjunto fixo de funções de contrato que cobre o ciclo de
 vida de VMs (`New-VM`, `Start-VM`, `Stop-VM`, `Stop-VMForce`, `Remove-VM`,
 `Rename-VM`, `Get-VMState`), inventário de VMs (`Get-VMName`), gerenciamento de
-snapshots (`Save-VMDiskSnapshot`, `Restore-VMDiskSnapshot`, `Test-VMDiskSnapshot`),
+snapshots (`Save-VMDiskSnapshot`, `Restore-VMDiskSnapshot`, `Test-VMDiskSnapshot`, `Get-VMDiskSnapshotState`),
 console de VM (`Test-VMConsoleOpen`, `Restart-VMConsole`), busca de imagens
 (`Get-Image`, `Get-ImagePath`), E/S de VM (`Send-Text`, `Send-Key`, `Send-Click`,
 `Get-VMScreenshot`, `Get-VMConsoleHandle`), descoberta (`Wait-VMIp`, `Get-VMIp`,
@@ -613,11 +619,35 @@ resultado aprovado antes de ser testada.
 **O código de saída de uma suíte isolada não indica aprovação/falha.** O caminho
 independente do Pester não propaga uma execução com falha pelo operador de chamada: uma
 suíte cujos testes falham ainda retorna 0, e uma que não descobre nada retorna 0
-com zero testes. Por isso, o executor lê o arquivo de resultados e falha em cinco
+com zero testes. Por isso, o executor lê o arquivo de resultados e falha em seis
 condições -- nenhum arquivo de resultados (falha de processo, erro de análise, tempo limite), falhas ou erros,
-zero testes, uma suíte do baseline ausente da execução ou uma contagem de testes de
-suíte abaixo do baseline. As duas últimas detectam a perda SILENCIOSA de testes: uma
-suíte excluída e um `Describe` que deixou de descobrir metade de seus casos sem avisar.
+zero testes, uma suíte do baseline ausente da execução, uma contagem de testes de
+suíte abaixo do baseline ou uma suíte que omitiu mais testes do que o limite do baseline.
+As três últimas detectam a perda SILENCIOSA de testes: uma suíte excluída, um `Describe`
+que deixou de descobrir metade de seus casos sem avisar e um hospedeiro sem uma
+ferramenta de que a suíte precisa, cujos testes omitidos continuam contando no total.
+Uma omissão acima do limite cita os primeiros casos omitidos. `-AllowSkipGrowth`
+a informa como aviso, para um hospedeiro de desenvolvimento que sabe não ter a
+ferramenta; a execução registra `skipGrowthAllowed`, e a evidência de versão recusa
+essa execução.
+
+Programas de teste escritos em outras linguagens só executam quando uma suíte os
+cita, porque o executor descobre apenas arquivos `*.Tests.ps1`. `Test.TestPrograms`
+executa os programas Python, de contrato PowerShell e Node ao lado das ferramentas,
+cada um com o número de testes que ainda deve informar, e sua verificação falha em
+qualquer programa de teste versionado (`test_*.py`, `*.test.js`, `*.test.cjs`,
+`*_contracts.*`) que nenhuma suíte cite. A suíte privada `Test-OntologyTests`
+executa os testes da própria ontologia a partir de `dev-only/ontology/.venv`
+(consulte `dev-only/ontology/README.md`). O gate entre repositórios executa os
+programas de teste do yuruna-project (`project-tests`) e, quando houver um
+checkout do amisad.dev ao lado deste, sua suíte de regressão (`amisad-tests`).
+
+O tempo é informado, nunca julgado. Uma suíte que executou por mais que o dobro
+de seus `seconds` registrados e mais que `-SlowdownAllowanceSeconds` (padrão 60)
+além deles é exibida como um aviso, começando pelas cinco maiores, e listada em
+`slowdowns` no `suite-results.json`. Uma execução nunca falha por isso: o aviso
+existe para que um ciclo de retorno que fica mais lento seja notado antes que
+uma suíte atinja seu limite de encerramento.
 
 `test/modules/suite-baseline.json` é essa referência e é versionado. Registre novamente
 todas as linhas com `-UpdateBaseline` apenas a partir de uma execução completa aprovada, como uma alteração
@@ -1510,6 +1540,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.25
+Last review: 2026.10.26
 
 Voltar para [Yuruna](../../README.md)

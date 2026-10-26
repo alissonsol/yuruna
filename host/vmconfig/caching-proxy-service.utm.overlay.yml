@@ -1,5 +1,6 @@
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
+# GUID: 4250efbb-44d4-4d22-929a-b6b2c4144b81
 # macOS/UTM (QEMU) overlay for caching-proxy-service.base.user-data.
 # Anchor sections in base-file order. An empty section emits nothing at that anchor.
 # See https://yuruna.link/42e220c4-0006

@@ -1,7 +1,8 @@
 /*
   LICENSEURI https://yuruna.link/license
   Copyright (c) 2019-2026 by Alisson Sol et al.
-  Version: 2026.10.25
+  GUID: 42bcedaf-cf56-4cdd-a7de-021f1addaedb
+  Version: 2026.10.26
 
   Framework-free checks for test/status/yuruna.common.js. Run: node yuruna.common.test.js
   (exit 0 = pass). No package.json / test runner in the repo, so this uses the Node
@@ -133,6 +134,17 @@ Y.applyBanner({ overallStatus: 'pass', guests: [{}] }, null, { running: true, li
 assert.strictEqual(bannerEl.className, 'pass', 'a finished cycle keeps its verdict');
 Y.applyBanner(runningData, null, { running: false, watchdogLapsed: lapse });
 assert.strictEqual(bannerEl.className, 'stopped', 'a stopped runner keeps precedence over a guard state');
+// (1c) A recovery ledger that cannot be read or written stops every automatic
+//      repair; the banner says so whatever else it shows.
+var recoveryOff = { running: true, liveness: 'ok', recoveryDisabled: 'ledger-unwritable' };
+Y.applyBanner(runningData, null, recoveryOff);
+assert.strictEqual(bannerEl.className, 'degraded', 'a run without automatic recovery is not an ordinary run');
+assert.ok(bannerTextEl.textContent.indexOf(Y.t('status.banner_recovery_disabled')) >= 0, 'the banner names the disabled recovery');
+Y.applyBanner({ runnerFault: { failureClass: 'inner_exited' } }, null, recoveryOff);
+assert.strictEqual(bannerEl.className, 'fail', 'a failed attempt stays red');
+assert.ok(bannerTextEl.textContent.indexOf(Y.t('status.banner_recovery_disabled')) >= 0, 'the failure banner also says no repair will run');
+Y.applyBanner(runningData, null, { running: true, liveness: 'ok', recoveryDisabled: '' });
+assert.strictEqual(bannerEl.className, 'running', 'a usable ledger leaves the banner alone');
 documentShim.getElementById = getElementById;
 var faultEl = makeEl();
 Y.renderRunnerFault(faultEl, { runnerFault: updateFault });
@@ -454,7 +466,9 @@ assert.strictEqual(legacyCommit, 'abcd1234', 'legacy commit records keep renderi
   assert.deepStrictEqual(sourceTranslationCalls, [expected.key], 'display names come from the stable localization key');
   assert.ok(rendered.indexOf('verification=' + expected.verification) >= 0, 'diagnostics retain the stored verification code');
   assert.ok(rendered.indexOf('href="https://github.com/example/project/commit/abcd1234ef567890"') >= 0, 'source labels preserve commit links');
-  assert.ok(rendered.indexOf('color:' + (expected.verification === 'mirror-stale' ? '#b45309' : '#6b7280')) >= 0, 'stale verification retains its distinct color');
+  // The distinct color now comes from a class the stylesheet maps to the warning
+  // token, so it holds its contrast in both color schemes.
+  assert.ok(rendered.indexOf('class="source-provenance' + (expected.verification === 'mirror-stale' ? ' is-stale' : '') + '"') >= 0, 'stale verification retains its distinct color');
   assert.strictEqual(JSON.stringify(record), stored, 'presentation never rewrites retained commit records');
 });
 sourceTranslationCalls = [];
@@ -502,5 +516,65 @@ assert.ok(staleCommit.indexOf('keyId=<untrusted>') < 0, 'untrusted metadata cann
   assert.strictEqual(stored.yurunaCtl, '1900000000.42aa.abc%3D', 'the proof is kept for this tab');
   assert.deepStrictEqual(replaced, ['/status/?x=1'], 'the address bar keeps the path and query and loses the fragment');
 })();
+
+// A read that never answers is given up, and the page says so.
+(function () {
+  var m = /var REQUEST_TIMEOUT_MS = (\d+);[\s\S]*?\n  function boundedFetch\(url, init\) \{[\s\S]*?\n  \}\n/.exec(src);
+  assert.ok(m, 'boundedFetch and its timeout are defined');
+  var fired = [];
+  var aborted = 0;
+  var ctx = {
+    window: { AbortController: function () { this.signal = 'sig'; this.abort = function () { aborted++; }; } },
+    fetch: function () { return new Promise(function () {}); },
+    setTimeout: function (fn, ms) { fired.push({ fn: fn, ms: ms }); return 1; },
+    clearTimeout: function () {},
+    Promise: Promise, Object: Object, Error: Error
+  };
+  vm.createContext(ctx);
+  vm.runInContext(m[0] + '\nthis.boundedFetch = boundedFetch;', ctx);
+  var outcome = null;
+  var pending = ctx.boundedFetch('runtime/status.json', { cache: 'no-store' }).then(
+    function () { outcome = 'resolved'; }, function (e) { outcome = String(e && e.message); });
+  assert.strictEqual(fired.length, 1, 'one timer bounds the read');
+  assert.strictEqual(fired[0].ms, Number(m[1]), 'at the declared timeout');
+  fired[0].fn();
+  return pending.then(function () {
+    assert.ok(/no answer within/.test(outcome), 'the caller is told the read ran out of time: ' + outcome);
+    assert.strictEqual(aborted, 1, 'and the request is aborted, freeing the socket');
+  });
+})()['catch'](function (e) { console.error(e); process.exit(1); });
+['runtime/status.json'].forEach(function () {
+  var direct = src.match(/[^.\w]fetch\('runtime\/status\.json/g) || [];
+  assert.strictEqual(direct.length, 0, 'every status.json read goes through boundedFetch');
+});
+
+// A clicked link does not hold a repaint; keyboard focus and an edited control do.
+[{ name: 'yuruna.common.js', text: src },
+ { name: 'yuruna.core.js', text: fs.readFileSync(path.join(__dirname, '..', 'extension', 'extension-sdk', 'webui', 'assets', 'yuruna.core.js'), 'utf8') }
+].forEach(function (copy) {
+  var m = /\n  function heldFocus\(active\) \{[\s\S]*?\n  \}\n/.exec(copy.text);
+  assert.ok(m, copy.name + ' defines heldFocus');
+  assert.ok(/if \(!heldFocus\(active\)\) \{ return false; \}/.test(copy.text), copy.name + ' asks heldFocus before holding a repaint');
+  var ctx = {};
+  vm.createContext(ctx);
+  vm.runInContext(m[0] + '\nthis.heldFocus = heldFocus;', ctx);
+  var element = function (tag, visible) {
+    return { tagName: tag, isContentEditable: false, matches: function (q) {
+      if (visible === 'throws') throw new Error('unsupported'); return q === ':focus-visible' && visible; } };
+  };
+  assert.strictEqual(ctx.heldFocus(element('A', false)), false, copy.name + ': a link the pointer clicked does not freeze the region');
+  assert.strictEqual(ctx.heldFocus(element('A', true)), true, copy.name + ': keyboard focus keeps its place');
+  assert.strictEqual(ctx.heldFocus(element('INPUT', false)), true, copy.name + ': a control being edited is not repainted away');
+  assert.strictEqual(ctx.heldFocus(element('BUTTON', 'throws')), true, copy.name + ': an engine without :focus-visible keeps the old hold');
+});
+
+// A dropdown option commits on release where the press began, so a finger
+// scrolling the list picks nothing.
+assert.ok(!/el\.onpointerdown = selectItem;/.test(src), 'no option commits on press');
+assert.ok(/el\.onpointerup = function \(e\) \{[\s\S]*?Math\.abs\(e\.clientX - start\.x\) > 10[\s\S]*?selectItem\(e\);/.test(src), 'an option commits on a release that barely moved');
+assert.ok(/el\.onpointercancel = function \(\) \{ press = null; \};/.test(src), 'a press the browser took over for scrolling commits nothing');
+
+// Charts are redrawn for a new width only.
+assert.ok(/if \(window\.innerWidth === drawnWidth\) \{ return; \}/.test(src), 'a height-only resize (a phone toolbar) does not redraw the charts');
 
 console.log('PASS: yuruna.common.js');

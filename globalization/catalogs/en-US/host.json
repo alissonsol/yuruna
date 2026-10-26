@@ -6862,7 +6862,7 @@
       }
     },
     "host.operator_891e818fe6ad2659": {
-      "message": "SHA256SUMS signature unverified (gpg/keyserver unavailable or no detached .gpg); proceeding on hash only.",
+      "message": "SHA256SUMS signature unverified (gpg or the pinned keyring is not installed); proceeding on hash only.",
       "description": "Whole Write-Warning message in host/modules/Yuruna.UbuntuImage.psm1; preserve command names, paths, codes, and argument boundaries.",
       "lifecycle": "active"
     },
@@ -11497,7 +11497,7 @@
       "lifecycle": "active"
     },
     "host.operator_f11ac5338e134c99": {
-      "message": "Save-ImageWithChecksum: SHA256SUMS signature unverified (gpg/keyserver unavailable or no detached .gpg); proceeding on hash only.",
+      "message": "Save-ImageWithChecksum: SHA256SUMS signature unverified (gpg or the pinned keyring is not installed); proceeding on hash only.",
       "description": "Whole Write-Warning message in host/modules/Yuruna.Image.psm1; preserve command names, paths, codes, and argument boundaries.",
       "lifecycle": "active"
     },
@@ -12917,6 +12917,67 @@
           "type": "token",
           "trust": "internal",
           "example": "statement-absent"
+        }
+      }
+    },
+    "host.agent_image_unverifiable": {
+      "message": "The download agent served {isoFileName} from {sourceUrl}, but no publisher checksum list names it, so the image is not used.",
+      "description": "Write-Warning from Save-UbuntuServerImage in host/modules/Yuruna.UbuntuImage.psm1 when an image the download agent served has no origin URL and the publisher's own listing does not name the same file; the download is deleted and the build stops.",
+      "lifecycle": "active",
+      "placeholders": {
+        "isoFileName": {
+          "type": "identifier",
+          "trust": "external",
+          "example": "ubuntu-26.04.1-live-server-amd64.iso"
+        },
+        "sourceUrl": {
+          "type": "detail",
+          "trust": "external",
+          "example": "agent:http://192.0.2.10:8090/ubuntu-26.04.1-live-server-amd64.iso"
+        }
+      }
+    },
+    "host.snapshot_state_unknown": {
+      "message": "Could not tell whether snapshot '{id}' exists on {vMName}: the hypervisor did not answer.",
+      "description": "Exception message from Test-VMDiskSnapshot in each host driver (host/*/modules/Yuruna.Host.psm1) when Get-VMDiskSnapshotState answers unknown; callers report it in their indeterminate branch.",
+      "lifecycle": "active",
+      "placeholders": {
+        "id": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "ubuntu.server.24.base"
+        },
+        "vMName": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "yuruna-u24"
+        }
+      }
+    },
+    "host.signature_could_not_be_checked": {
+      "message": "  SHA256SUMS GPG SIGNATURE COULD NOT BE CHECKED",
+      "description": "Write-Warning banner title in host/modules/Yuruna.Image.psm1 and host/modules/Yuruna.UbuntuImage.psm1 when gpg and the pinned signing keys are present but the checksum signature could not be fetched or verified.",
+      "lifecycle": "active"
+    },
+    "host.signature_could_not_be_checked_detail": {
+      "message": "  gpg and the pinned Ubuntu signing keys are present, but the signature could not be fetched or verified; the checksum is refused as unauthenticated.",
+      "description": "Write-Warning banner line in host/modules/Yuruna.Image.psm1 and host/modules/Yuruna.UbuntuImage.psm1 under host.signature_could_not_be_checked.",
+      "lifecycle": "active"
+    },
+    "host.base_image_publish_failed": {
+      "message": "Could not put the download in place as {baseImageFile}: {message} No sentinel or origin record was written for it.",
+      "description": "Write-Error from the Get-Image scripts under host/*/guest.*/ when Publish-YurunaBaseImage refuses or fails a swap; the script then exits 1.",
+      "lifecycle": "active",
+      "placeholders": {
+        "baseImageFile": {
+          "type": "detail",
+          "trust": "internal",
+          "example": "/home/user/yuruna/image/guest.amazon.linux.2023/host.ubuntu.kvm.guest.amazon.linux.2023.qcow2"
+        },
+        "message": {
+          "type": "detail",
+          "trust": "external",
+          "example": "Another process is publishing the image; its swap was left alone."
         }
       }
     }

@@ -1,5 +1,6 @@
 // LICENSEURI https://yuruna.link/license
 // Copyright (c) 2019-2026 by Alisson Sol et al.
+// GUID: 423587e3-964a-41af-8f89-12f589929924
 
 // Package sshsrv hosts the crypto/ssh server and the per-connection
 // SCP session dispatch loop. Authentication is the section 4.3 pass-through
@@ -128,6 +129,16 @@ func permFor(conn ssh.ConnMetadata) *ssh.Permissions {
 	}
 }
 
+// handshakeTimeout bounds the version exchange, key exchange and
+// authentication of one connection. Without it a client that connects and
+// sends nothing holds a goroutine and a descriptor until the process ends.
+var handshakeTimeout = 30 * time.Second
+
+// maxConnections caps the connections served at once. One accepted past the
+// cap is closed straight away, so idle connections cannot exhaust the
+// descriptors every later upload needs.
+var maxConnections = 64
+
 // ListenAndServe binds to addr and runs the accept loop until ctx is
 // canceled. Connections are handled in their own goroutines.
 func (s *Server) ListenAndServe(ctx context.Context, addr string) error {
@@ -167,7 +178,8 @@ func (s *Server) ListenAndServe(ctx context.Context, addr string) error {
 		}
 		acceptDelay = 0
 		if !s.trackConn(nc) {
-			// Shutting down: refuse the just-accepted connection.
+			// Shutting down, or at the connection cap: refuse the
+			// just-accepted connection.
 			_ = nc.Close()
 			continue
 		}
@@ -180,11 +192,15 @@ func (s *Server) handle(nc net.Conn) {
 	defer s.untrackConn(nc)
 	defer nc.Close()
 	remote := nc.RemoteAddr().String()
+	_ = nc.SetDeadline(time.Now().Add(handshakeTimeout))
 	conn, chans, reqs, err := ssh.NewServerConn(nc, s.sshCfg)
 	if err != nil {
 		log.Printf("ssh handshake from %s: %v", remote, err)
 		return
 	}
+	// An established session has no deadline: an upload of a large file over
+	// a slow link is idle on the wire for as long as the client takes.
+	_ = nc.SetDeadline(time.Time{})
 	username := conn.User()
 	if conn.Permissions != nil {
 		if v, ok := conn.Permissions.Extensions["captured-user"]; ok && v != "" {
@@ -751,7 +767,7 @@ func writeHostKey(path string, pemBytes []byte) error {
 func (s *Server) trackConn(c net.Conn) bool {
 	s.connMu.Lock()
 	defer s.connMu.Unlock()
-	if s.closing {
+	if s.closing || len(s.conns) >= maxConnections {
 		return false
 	}
 	s.conns[c] = struct{}{}

@@ -1,5 +1,6 @@
 // LICENSEURI https://yuruna.link/license
 // Copyright (c) 2019-2026 by Alisson Sol et al.
+// GUID: 42a252bf-9cca-4dc9-bf1c-cc384397b04a
 
 // Package meta owns the SQLite metadata store (section 8). One row per
 // upload. Status moves pending -> {complete | truncated | partial}.
@@ -689,13 +690,40 @@ func (s *Store) RebuildFromSidecars(filesRoot string) (int, error) {
 		if json.Unmarshal(data, &sc) != nil || sc.ID == "" {
 			return nil // skip a corrupt/empty sidecar; don't abort
 		}
-		if ierr := s.insertFull(sc.toRecord()); ierr != nil {
+		rec := sc.toRecord()
+		stored, ok := sidecarArtifact(path, &sc)
+		if !ok {
+			log.Printf("sidecar rebuild skipped %q: it names no artifact beside it", path)
+			return nil
+		}
+		rec.StoredPath = stored
+		if ierr := s.insertFull(rec); ierr != nil {
 			return ierr
 		}
 		count++
 		return nil
 	})
 	return count, walkErr
+}
+
+// sidecarArtifact is the artifact a sidecar describes, found beside the sidecar
+// itself. The recorded storedPath is not trusted as a location: the share is
+// writable by every host in the pool, and the index row is what the byte routes
+// open and the delete route removes, so a sidecar must not name a file outside
+// its own folder. Only the recorded name is kept, and only when it is the
+// sidecar's id or starts with "<id>.", the rule the remote resolver applies.
+func sidecarArtifact(sidecarPath string, sc *Sidecar) (string, bool) {
+	if filepath.Base(sidecarPath) != sc.ID+config.SidecarExtension {
+		return "", false
+	}
+	name := filepath.Base(filepath.Clean(sc.StoredPath))
+	if name != sc.ID && !strings.HasPrefix(name, sc.ID+".") {
+		return "", false
+	}
+	if strings.HasSuffix(name, config.SidecarExtension) || strings.HasSuffix(name, ".staging") {
+		return "", false
+	}
+	return filepath.Join(filepath.Dir(sidecarPath), name), true
 }
 
 func toSidecar(r *Record) Sidecar {

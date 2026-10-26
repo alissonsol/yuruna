@@ -1,5 +1,6 @@
 // LICENSEURI https://yuruna.link/license
 // Copyright (c) 2019-2026 by Alisson Sol et al.
+// GUID: 4230e946-58df-4063-b7f0-8df4422f80e1
 
 // Package detect classifies a stored artifact's content type. Detection runs
 // server-side at upload/flush: once per artifact rather than per view, and

@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
-# Version: 2026.10.25
+# Version: 2026.10.26
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
+# GUID: 42941b83-711c-4580-9279-b5706767ff47
 #
 # Imports the AKS cluster context into ~/.kube/config directly under
 # the project's destination context. Bash + az/kubectl only, no pwsh:

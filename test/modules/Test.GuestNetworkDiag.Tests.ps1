@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.25
+.VERSION 2026.10.26
 .GUID 4204dc0d-3f1d-4015-b639-9480d7186c23
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -931,7 +931,7 @@ prj=no; [ -e "$root/yuruna/project/fetched" ] && prj=yes
 echo "ASKS=$asks NAPS=$naps CLONES=$clones FRAMEWORK=$fw PROJECT=$prj"
 rm -rf "$root"
 '@
-        $fn = Get-ShellFunctionText -Path $script:retryLib -Name 'yuruna_host_livecheck', 'yuruna_materialize_repositories'
+        $fn = Get-ShellFunctionText -Path $script:retryLib -Name 'yuruna_host_livecheck', 'yuruna_fetch_archive', 'yuruna_materialize_repositories'
         $out = Invoke-ShellDriver -FunctionText $fn -Driver $driver
         if ($null -eq $out) { Set-ItResult -Skipped -Because 'bash is not available on this host'; return }
         Assert-True ($out -match 'ASKS=6 NAPS=4 CLONES=0 FRAMEWORK=yes PROJECT=yes') "both tarballs must come from the host that answered late; output was:`n$out"
@@ -968,5 +968,3 @@ echo "RC=$? ASKS=$asks NAPS=$naps ARGS=$args"
         Assert-True ($out -match 'ARGS=.*--max-time 2') 'each ask stays one bounded 2s exchange'
     }
 }
-
-# Copyright (c) 2019-2026 by Alisson Sol et al.

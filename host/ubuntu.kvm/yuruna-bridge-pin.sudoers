@@ -1,5 +1,6 @@
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
+# GUID: 4295e842-c2ff-42d2-9dc3-40c39751d0fe
 # Sudoers rule that lets the pre-cycle health check pin this host's bridge to a
 # stable DHCP identity without an operator present.
 # See https://yuruna.link/4220a755-0027

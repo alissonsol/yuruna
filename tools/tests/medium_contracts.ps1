@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.25
+.VERSION 2026.10.26
 .GUID 421d4450-b529-4d80-a244-126649692f4f
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -38,13 +38,16 @@ try {
     Import-Module powershell-yaml
     . ([scriptblock]::Create((Read-FunctionSource (Join-Path $root 'automation/Yuruna.Workload.psm1') @('Invoke-WorkloadChartDeployment','Invoke-WorkloadToolDeployment'))))
     # The chart deployment writes its log through the retry module's section
-    # writer. Lifted from source like the deployment functions, so the contract
-    # runs the production writer rather than a stand-in for it.
-    . ([scriptblock]::Create((Read-FunctionSource (Join-Path $root 'automation/Yuruna.Retry.psm1') @('Write-YurunaToolLogSection'))))
+    # writer, redacts it with the retry module's secret helpers and runs its
+    # install under the shared retry. The module itself is loaded, because the
+    # retry reads the module's own defaults and pattern, so the contract runs
+    # the production code rather than stand-ins for it.
+    Import-Module (Join-Path $root 'automation/Yuruna.Retry.psm1') -Force -DisableNameChecking
     function Format-YurunaOperatorMessage { param($Key, $Arguments) $Key }
     function New-YurunaResultManifest { param($Success) @{ Success = $Success } }
-    function helm {
-        if ($args[0] -eq $script:failAt) { throw "injected $script:failAt" }
+    # Global, because the install runs from a closure the retry module invokes.
+    function global:helm {
+        if ($args[0] -eq $env:YURUNA_CONTRACT_FAIL_AT) { throw "injected $env:YURUNA_CONTRACT_FAIL_AT" }
         $global:LASTEXITCODE = 0
         if ($args[0] -eq 'status') { 'STATUS: pending-upgrade' }
     }
@@ -53,9 +56,14 @@ try {
     Set-Content (Join-Path $chart 'Chart.yaml') "apiVersion: v2`nname: sample`nversion: 1.0.0"
     $values = @{ quoted = 'a"b'; slash = 'C:\a\b'; multiline = "a`nb"; unicode = [char]0x05e9 + ' ' + [char]0x4e2d; empty = ''; template = '${literal}%{text}'; boolean = 'true'; number = '001' }
     foreach ($failure in @('lint','status','rollback','upgrade','')) {
-        $script:failAt = $failure
-        try { $null = Invoke-WorkloadChartDeployment $temp 'test' 'lab' @{ chart='sample'; variables=@{installName='fixture'} } $values 'fixture.yml' ([Diagnostics.Stopwatch]::StartNew()) }
+        $env:YURUNA_CONTRACT_FAIL_AT = $failure
+        $result = $null
+        try { $result = Invoke-WorkloadChartDeployment $temp 'test' 'lab' @{ chart='sample'; variables=@{installName='fixture'} } $values 'fixture.yml' ([Diagnostics.Stopwatch]::StartNew()) }
         catch { Assert-Contract ($_.Exception.Message -eq "injected $failure") 'Unexpected chart exception' }
+        # The retry keeps what an install attempt threw, so the deployment ends
+        # in a failure result rather than the exception.
+        if ($failure -eq 'upgrade') { Assert-Contract ($result -and -not $result.Success) 'An install that threw did not end in a failure' }
+        if ($failure -eq '') { Assert-Contract ($null -eq $result) 'A clean deployment returned a failure' }
         Assert-Contract ((Get-Location).Path -eq $original.Path) "Location leaked after $failure"
     }
     $roundTrip = Get-Content (Join-Path $temp '.yuruna/test/workloads/lab/fixture/values.yaml') -Raw | ConvertFrom-Yaml

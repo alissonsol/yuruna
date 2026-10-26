@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.25
+.VERSION 2026.10.26
 .GUID 426a341c-7627-4ced-878b-96844d5d7165
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -91,12 +91,28 @@ function Publish-ResourceListHelper {
 
     if ($isInitialization) {
         $script:globalVariables = [ordered]@{}
+        # runId is the configuration's identity: resource names carry it, so one
+        # drawn again at every run made the second run create a second set of
+        # resources beside the first, which nothing then managed or destroyed.
+        # The value an earlier run recorded is kept.
+        $recordedRunId = $null
+        $recordedOutputFile = Join-Path -Path $project_root -ChildPath "config/$config_subfolder/resources.output.yml"
+        if (Test-Path -LiteralPath $recordedOutputFile) {
+            $recorded = ConvertFrom-File $recordedOutputFile
+            if ($recorded -is [System.Collections.IDictionary] -and $recorded['globalVariables'] -is [System.Collections.IDictionary] -and
+                -not [string]::IsNullOrWhiteSpace([string]$recorded['globalVariables']['runId'])) {
+                $recordedRunId = [string]$recorded['globalVariables']['runId']
+            }
+        }
         # Global variables are saved expanded after first time so resources.output
         # can reuse them.
         if ((-Not ($null -eq $yaml.globalVariables)) -and (-Not ($null -eq $yaml.globalVariables.Keys))) {
             $keys = @($yaml.globalVariables.Keys)
             foreach ($key in $keys) {
-                $value = $ExecutionContext.InvokeCommand.ExpandString($yaml.globalVariables[$key])
+                $value = if ($key -ceq 'runId' -and $recordedRunId) {
+                    Write-Verbose "resources.globalVariables[runId] keeps $recordedRunId, recorded by an earlier run."
+                    $recordedRunId
+                } else { $ExecutionContext.InvokeCommand.ExpandString($yaml.globalVariables[$key]) }
                 Write-Debug "resources.globalVariables[$key] = $value"
                 Set-Item -Path Env:$key -Value ${value}
                 $yaml.globalVariables[$key] = $value
@@ -159,11 +175,12 @@ function Publish-ResourceListHelper {
                 Write-Verbose "Set-Resource: recovering '$resourceName' from .old (prior-cycle SIGKILL between swap moves)."
                 Move-Item -LiteralPath $workFolderOld -Destination $workFolderRoot -Force
             }
-            $terraformPath = Join-Path -Path $workFolderRoot -ChildPath '.terraform'
-            if ($isInitialization -and (Test-Path -LiteralPath $terraformPath)) {
-                Write-Information (Format-YurunaOperatorMessage -Key 'automation.operator_483ad55e8c49c6d8' -Arguments @{ terraformPath = "$terraformPath" })
-                return (New-YurunaResultManifest -Success $false -ErrorMessage "tofu already initialized at $terraformPath (run 'yuruna clear' first)" -FailureClass 'config_error')
-            }
+            # A folder that was initialized before -- a run again after a pass,
+            # or after a failure -- is initialized again: tofu init is
+            # idempotent, the plan is read-only and the apply changes only what
+            # differs from the carried-over state. Refusing here made every
+            # second run fail, and the advice to clear first destroyed the
+            # resources it found.
             if (Test-Path -LiteralPath $workFolderNew) {
                 Remove-Item -LiteralPath $workFolderNew -Recurse -Force
             }

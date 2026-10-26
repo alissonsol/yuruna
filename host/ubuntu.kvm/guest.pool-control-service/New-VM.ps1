@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.25
+.VERSION 2026.10.26
 .GUID 42cb87f4-7e53-4a64-bea3-4c874894dd2d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -32,7 +32,7 @@
 .PARAMETER VMName
     libvirt domain name. Default: yuruna-pool-control-service.
 .PARAMETER AllowPseudoLocale
-    Open pseudo-locale negotiation for an explicit reference run. Off by default.
+    Enable developer pseudo locales for this VM. Disabled by default.
 #>
 
 param(
@@ -98,6 +98,8 @@ $virshUri = 'qemu:///system'
 Remove-KvmDomainDefinition -VMName $VMName -Confirm:$false
 
 # --- REGION: Create copies and files for VM
+# See https://yuruna.link/42e220c4-0004
+# Copy the base image: a persistent VM cannot depend on a backing file that rotates.
 $vmDir   = Join-Path $HOME "yuruna/vms/$VMName"
 $diskImg = Join-Path $vmDir "$VMName.qcow2"
 $seedImg = Join-Path $vmDir 'seed.iso'
@@ -287,6 +289,8 @@ try {
 }
 
 # --- REGION: Wait for VM IP
+# See https://yuruna.link/42e220c4-0004
+# Bridged discovery can require the first-boot guest-agent installation, not just DHCP.
 Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_2c8ff2df499f232c')
 Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_b93b853caa0a1c89')
 

@@ -1,5 +1,6 @@
 // LICENSEURI https://yuruna.link/license
 // Copyright (c) 2019-2026 by Alisson Sol et al.
+// GUID: 4220858c-c9da-467c-8351-bf5b4628660b
 
 package imagestore
 
@@ -82,7 +83,9 @@ func (s *Store) ManualCandidate(id ImageID, now time.Time) (path string, info os
 	var bestName string
 	var best os.FileInfo
 	for _, e := range ents {
-		if e.IsDir() || !ValidGenerationName(e.Name()) {
+		// Only a regular file is media: a link would be hashed and adopted
+		// through to whatever it points at, and a folder is no image at all.
+		if !e.Type().IsRegular() || !ValidGenerationName(e.Name()) {
 			continue
 		}
 		fi, err := e.Info()

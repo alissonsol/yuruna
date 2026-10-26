@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.25
+.VERSION 2026.10.26
 .GUID 42f1c309-1ba8-498f-b2f0-a6425d163096
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -1153,5 +1153,3 @@ Export-ModuleMember -Function `
     Get-PoolWorkerStorageTier, Get-PoolWorkerServedShare, Get-PoolWorkerUnmountedTier, `
     Clear-PoolWorkerSupersededMount, Invoke-PoolWorkerShareWithdrawal, Connect-PoolWorkerStorage, `
     Test-PoolWorkerAddressIsThisHost, Test-PoolWorkerReady
-
-# Copyright (c) 2019-2026 by Alisson Sol et al.

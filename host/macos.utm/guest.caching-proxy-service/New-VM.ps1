@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.25
+.VERSION 2026.10.26
 .GUID 4220d762-3e46-4f5b-808c-166adb4d8b1b
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -115,8 +115,6 @@ if (-not (Test-Path $utmPlist)) {
 # --- REGION: Seek the base image
 # One cloud image backs every extension service on this host; this VM grows
 # its own copy below (host/modules/Yuruna.Image.psm1).
-# Auto-run Get-Image.ps1 once if the base image is missing; recheck and
-# only error out when it's still missing afterward.
 Import-Module -Name (Join-Path (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)) 'modules/Yuruna.Image.psm1') -Force
 $baseImageFile = (Get-UbuntuExtensionImageInfo -HostType 'macos.utm').BaseImageFile
 if (-not (Assert-YurunaBaseImage -BaseImageFile $baseImageFile -GuestFolder $PSScriptRoot)) { exit 1 }
@@ -157,11 +155,11 @@ New-Item -ItemType Directory -Force -Path $DataDir | Out-Null
 # backend, which these bundles do not use.
 
 # --- REGION: Copy base image -> per-VM disk
-# Copy the pre-built qcow2 cloud image into the bundle as the boot disk; no
-# conversion here. qcow2 (not raw) is deliberate: UTM's QEMU backend boots it
-# directly and it sidesteps the macOS F_PUNCHHOLE-alignment EINVAL a raw
-# disk hits under UTM's discard=unmap,detect-zeroes=unmap: qcow2 punches
-# holes only at its 64 KiB cluster boundaries, which are 4 KiB-aligned.
+# Copy the pre-built qcow2 cloud image into the bundle as the boot disk.
+# qcow2 (not raw) is deliberate: UTM's QEMU backend boots it directly and
+# it sidesteps the macOS F_PUNCHHOLE-alignment EINVAL a raw disk hits
+# under UTM's discard=unmap,detect-zeroes=unmap: qcow2 punches holes only
+# at its 64 KiB cluster boundaries, which are 4 KiB-aligned.
 $DiskImage = "$DataDir/disk.qcow2"
 Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_6288433a06ff55be')
 # `/bin/cp -c` triggers APFS clone (O(1), sparse-preserving). Falls back
@@ -182,7 +180,9 @@ if (-not (Expand-ExtensionVmDisk -Path $DiskImage -SizeBytes 512GB -Format 'qcow
 }
 
 # --- REGION: Stage the cloud-init seed directory
-# The source and in-progress ISO stay private until protected publication.
+# The seed carries the admin password. It is staged in a private (0700)
+# workspace inside the bundle and published as an owner-only image, and the
+# finally below removes the workspace on every exit, a failed build included.
 Import-Module (Join-Path $PSScriptRoot '../../modules/Yuruna.SeedMedia.psm1') -Force
 $seedWorkspace = $null
 try {
@@ -410,9 +410,8 @@ try {
 
     # --- REGION: Render user-data / meta-data
     # Render user-data from the shared base + UTM overlay (host/vmconfig/
-    # caching-proxy-service.*). New-CloudInitUserData resolves the SSH-key and
-    # password placeholders with literal .Replace(), so values with
-    # regex-special characters are safe.
+    # caching-proxy-service.*). New-CloudInitUserData resolves placeholders with literal
+    # .Replace(), so values carrying regex-special chars are safe.
     Import-Module (Join-Path $_repoRootForExt 'automation/Yuruna.CloudInitTemplate.psm1') -Force
     $UserData = New-CloudInitUserData `
         -BasePath    (Join-Path $_repoRootForExt 'host/vmconfig/caching-proxy-service.base.user-data') `
@@ -469,8 +468,8 @@ try {
 
     Publish-SeedMediaImage -Workspace $seedWorkspace -Path $SeedIso -Confirm:$false
 
-    # --- REGION: Clean up temporary files
 } finally {
+    # --- REGION: Clean up temporary files
     Remove-SeedMediaWorkspace -Workspace $seedWorkspace -Confirm:$false
 }
 
@@ -479,8 +478,6 @@ try {
 Import-Module (Join-Path $PSScriptRoot '../modules/Yuruna.Host.psm1') -DisableNameChecking -Verbose:$false
 New-UtmServiceBundleConfiguration -TemplatePath (Join-Path $ScriptDir 'config.plist.template') -BundlePath $UtmDir -VMName $VMName -NetworkMode $NetworkMode -MemoryMb $MemoryMb -MacAddress $MacAddress -Confirm:$false
 $VncDisplay = Get-VncDisplayForVm -VMName $VMName
-
-
 
 # --- REGION: Guidance
 # See https://yuruna.link/42e220c4-0004

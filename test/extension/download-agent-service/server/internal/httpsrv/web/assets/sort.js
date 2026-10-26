@@ -1,5 +1,6 @@
 // LICENSEURI https://yuruna.link/license
 // Copyright (c) 2019-2026 by Alisson Sol et al.
+// GUID: 42d28083-c811-48ef-8696-371ab4f7be87
 // Ordering rules for the Download pool table, kept apart from the DOM wiring so
 // every comparator reads in one screen. Sorting is comparison-only: it never
 // touches the document.

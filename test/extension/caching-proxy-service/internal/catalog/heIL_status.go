@@ -286,6 +286,7 @@ const DataheILstatus = `{
   "status.banner_idle": "אין נתוני בדיקה זמינים",
   "status.banner_incident_details": "זוהה אירוע — עיינו בפרטים להלן",
   "status.banner_pass": "כל האורחים פועלים כראוי",
+  "status.banner_recovery_disabled": "השחזור האוטומטי כבוי: לא ניתן לקרוא או לכתוב את יומן השחזור.",
   "status.banner_running": "בדיקה מתבצעת",
   "status.banner_stalled": [
     "בדיקה מתבצעת, אך אף שלב לא התקדם בתוך הגבול של ‏",

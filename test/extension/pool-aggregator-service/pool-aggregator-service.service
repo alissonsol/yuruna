@@ -1,5 +1,6 @@
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
+# GUID: 424635a2-7b56-4be7-aa45-0980c1619410
 # --- REGION: [Unit]
 [Unit]
 Description=Yuruna pool-aggregator-service (read-only multi-host pool view)

@@ -1,5 +1,6 @@
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
+# GUID: 42158dca-9b82-484f-a8bb-28f1dd03cce9
 $schema: https://json-schema.org/draft/2020-12/schema
 $id: https://yuruna.com/schemas/sequence.schema.yml
 title: Yuruna interaction sequence

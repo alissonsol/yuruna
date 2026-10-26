@@ -1,5 +1,6 @@
 // LICENSEURI https://yuruna.link/license
 // Copyright (c) 2019-2026 by Alisson Sol et al.
+// GUID: 424e34cf-3a44-4162-b88e-2a8ac67767d9
 // Content-class previews and downloads; deletion requires an unlocked session.
 
 (function () {
@@ -104,7 +105,13 @@
       case 'image':
         return renderMedia(wrap, Y.el('img', { class: 'viewer-img', alt: v.originalFilename || v.id }), raw, 'load');
       case 'pdf':
-        Y.append(wrap, Y.el('embed', { class: 'viewer-frame', src: raw, type: 'application/pdf', title: window.YurunaI18n.t("stash.value1_pdf_preview", {value1: (v.originalFilename || v.id)}) }));
+        // A browser with no inline PDF viewer (Android Chrome, for one) paints
+        // the embed as an empty box most of a screen tall, pushing the link
+        // below the fold on exactly the devices that need it. Those browsers
+        // report pdfViewerEnabled === false; older ones leave it undefined.
+        if (navigator.pdfViewerEnabled !== false) {
+          Y.append(wrap, Y.el('embed', { class: 'viewer-frame', src: raw, type: 'application/pdf', title: window.YurunaI18n.t("stash.value1_pdf_preview", {value1: (v.originalFilename || v.id)}) }));
+        }
         // The link stays usable when a mobile browser cannot render <embed>.
         Y.append(wrap, Y.el('p', { class: 'notice' },
           Y.el('a', { href: raw, target: '_blank', rel: 'noopener', text: window.YurunaI18n.t("stash.open_pdf") })));

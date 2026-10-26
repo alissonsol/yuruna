@@ -1,7 +1,8 @@
 #!/bin/bash
-# Version: 2026.10.25
+# Version: 2026.10.26
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
+# GUID: 4264e60b-dd01-4c00-badc-390705a63258
 # --- REGION: Initialize environment
 set -euo pipefail
 # Fixed-name downloads and the version probe's throwaway VS Code profile go on

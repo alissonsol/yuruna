@@ -7,6 +7,17 @@ package catalog
 // DataptBRremediation is the compiled catalog for this locale and domain. It is a
 // string so the package carries no init cost until a caller decodes it.
 const DataptBRremediation = `{
+  "remediation.guest_run_lost_action_inspect": "Leia o log de execução do convidado para saber o que encerrou o processo.",
+  "remediation.guest_run_lost_action_restore": "Restaure o último snapshot bom e execute a sequência de novo.",
+  "remediation.guest_run_lost_rationale": [
+    "A execução em ",
+    {
+      "arg": "vmName",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    " foi perdida: o supervisor do convidado respondeu, mas não soube dar conta dela; o processo deixou de existir, e reconectar não o traz de volta."
+  ],
   "remediation.hypervisor_unresponsive_action_evidence": "Leia utm-control-snapshot.*.json e utm-log-show.*.txt na pasta do ciclo: um PID ou horário de início do UTM que mudou no meio do ciclo indica uma falha seguida de reinicialização, e o trecho do log unificado mostra o que a precedeu",
   "remediation.hypervisor_unresponsive_action_restart": "Reinicie o aplicativo de controle do hipervisor na máquina: no macOS, encerre o UTM.app na sessão da área de trabalho (ou execute test/lab/Invoke-HostRefresh.ps1) e confirme que ` + "`" + `utmctl stop` + "`" + ` em uma VM parada retorna imediatamente",
   "remediation.hypervisor_unresponsive_action_resume": "Retome o executor quando um verbo de ciclo de vida voltar a responder; o próximo ciclo sonda o canal de controle antes de construir qualquer coisa",
@@ -713,6 +724,16 @@ const DataptBRremediation = `{
       "type": "detail",
       "trust": "external"
     }
+  ],
+  "remediation.vm_not_stopped_action_inspect": "Se acontecer de novo, verifique no console do convidado o que está impedindo o desligamento.",
+  "remediation.vm_not_stopped_action_power": "Desligue a VM pelo hospedeiro -- um retry com restartVmBeforeRetry: coldPowerCycle faz isso -- e execute a etapa de novo.",
+  "remediation.vm_not_stopped_rationale": [
+    {
+      "arg": "vmName",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    " nunca chegou ao estado parado que a etapa esperava: o convidado ignorou o pedido de desligamento, e esperar de novo não muda isso. Um ciclo de energia a frio pode mudar."
   ]
 }
 `

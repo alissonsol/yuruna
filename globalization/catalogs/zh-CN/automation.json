@@ -1823,11 +1823,6 @@
       "origin": "machine",
       "message": "{problemTag}：“{tool} {join}”返回退出码{lASTEXITCODE}。"
     },
-    "automation.operator_483ad55e8c49c6d8": {
-      "sourceHash": "d503abf8d7cb6bb31f7c19f912eaf56a14821a0a37ea41e61598e259a275b5a8",
-      "origin": "machine",
-      "message": "-- 警告：tofu已初始化：{terraformPath} \n   资源可能不会创建。请使用'yuruna clear'清除tofu状态。"
-    },
     "automation.operator_485fb74637bada2f": {
       "sourceHash": "b9d1df2f21aae34f789c6ae6da7e0e8486cfd1a8bb1bb0cc1fc7e251184a640e",
       "origin": "machine",

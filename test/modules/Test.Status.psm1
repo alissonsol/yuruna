@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.25
+.VERSION 2026.10.26
 .GUID 42994da6-e051-4570-a609-afe6e87fdcf8
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -31,6 +31,8 @@ $script:PreserveNested = $false
 # from the global session; the primitive is stateless, so the reimport wipes no
 # per-cycle $script: state.
 Import-Module (Join-Path $PSScriptRoot 'Test.StateFile.psm1') -Global -Force -DisableNameChecking
+# Resolve-RoutingClass: the summary names the class a consumer routes on.
+Import-Module (Join-Path $PSScriptRoot 'Test.FailureTaxonomy.psm1') -DisableNameChecking
 
 <#
 .SYNOPSIS
@@ -463,12 +465,22 @@ function Set-LastFailureSummary {
         [string]$GuestKey     = '',
         [string]$StepName     = '',
         [string]$ErrorMessage = '',
-        [string]$VmName       = ''
+        [string]$VmName       = '',
+        # The cause a wrapper class hides, how the class was derived and the
+        # record's reason (step, crash, infra), so the summary and the history
+        # rows it feeds say what failed, not only that a retry gave up.
+        [string]$InnerFailureClass    = '',
+        [string]$ClassificationSource = '',
+        [string]$Reason               = ''
     )
     if (-not $script:Doc) { return }
     if (-not $PSCmdlet.ShouldProcess('lastFailure', (Format-YurunaOperatorMessage -Key 'runner.operator_0074e7b362cc1375' -Arguments @{ failureClass = "$FailureClass" }))) { return }
     $script:Doc.lastFailure = [ordered]@{
         failureClass = $FailureClass
+        routingClass = (Resolve-RoutingClass -FailureClass $FailureClass -InnerFailureClass $InnerFailureClass).RoutingClass
+        innerFailureClass    = $InnerFailureClass
+        classificationSource = $ClassificationSource
+        reason               = $Reason
         severity     = $Severity
         stepNumber   = [int]$StepNumber
         sequenceName = $SequenceName

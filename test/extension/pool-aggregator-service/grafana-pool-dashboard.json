@@ -238,7 +238,7 @@
           {
             "matcher": { "id": "byName", "options": "Status" },
             "properties": [
-              { "id": "custom.width", "value": 240 },
+              { "id": "custom.width", "value": 120 },
               { "id": "custom.cellOptions", "value": { "type": "color-background", "mode": "basic" } },
               {
                 "id": "mappings",
@@ -304,7 +304,7 @@
           {
             "matcher": { "id": "byName", "options": "Commit" },
             "properties": [
-              { "id": "custom.width", "value": 150 },
+              { "id": "custom.width", "value": 300 },
               { "id": "links", "value": [
                 { "title": "Open framework commit", "url": "${__data.fields.commitUrl}", "targetBlank": true },
                 { "title": "Open project commit", "url": "${__data.fields.projectCommitUrl}", "targetBlank": true }

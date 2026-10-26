@@ -1,5 +1,6 @@
 // LICENSEURI https://yuruna.link/license
 // Copyright (c) 2019-2026 by Alisson Sol et al.
+// GUID: 42ef4661-cb2c-4a25-8935-9683bae99e4e
 
 // Package servicecfg holds the shared daemon configuration readers.
 package servicecfg

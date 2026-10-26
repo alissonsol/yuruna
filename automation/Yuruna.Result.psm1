@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.25
+.VERSION 2026.10.26
 .GUID 42770e9b-1161-4f72-bdeb-a3f05fc207ec
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -198,6 +198,12 @@ function Complete-YurunaRun {
         tail of a successful-looking transcript and no reason. The transcript is still
         emitted in full for consumers that do capture all of stdout.
 
+        The last line starts with YURUNA_RESULT and carries the manifest with its
+        canonicalFailureClass (ConvertTo-CanonicalFailureClass), so the host that
+        ran the entry point over ssh files the deploy failure under that class
+        instead of a generic script error. It is one line, so it survives where
+        only the final screenful does.
+
         CALL AS A STATEMENT (not `$x = Complete-YurunaRun`): it streams the report to
         stdout and may terminate the process. $Result is intentionally not
         [Mandatory] so a $null / $false / non-hashtable result still routes through
@@ -212,10 +218,53 @@ function Complete-YurunaRun {
     )
     if (-Not (Test-YurunaResultManifestOk $Result)) {
         Write-Output $(Get-Content -Path $TranscriptFile)
-        Write-Output ($Result | ConvertTo-Json -Depth 4 -Compress)
+        $record = [ordered]@{}
+        if ($Result -is [System.Collections.IDictionary]) { foreach ($key in $Result.Keys) { $record[[string]$key] = $Result[$key] } }
+        else { $record['success'] = $false; $record['failureClass'] = 'unknown' }
+        $record['canonicalFailureClass'] = ConvertTo-CanonicalFailureClass ([string]$record['failureClass'])
+        Write-Output ('YURUNA_RESULT ' + ($record | ConvertTo-Json -Depth 4 -Compress))
         exit 1
     }
     Write-Debug "`n-- See transcript with command: Write-Output `$(Get-Content -Path $TranscriptFile)"
 }
 
-Export-ModuleMember -Function New-YurunaResultManifest, New-YurunaValidationResult, Test-YurunaResultManifestOk, Complete-YurunaRun, ConvertTo-CanonicalFailureClass
+function Invoke-YurunaEntrypoint {
+    <#
+    .SYNOPSIS
+        Run an entry point's operation inside its transcript, so a throw still
+        ends the transcript and still yields a failure result.
+    .DESCRIPTION
+        An operation that throws past its manifest otherwise ends the process
+        with neither: the transcript is never stopped, and the completion tail
+        has no result to report, so the caller sees only an exit code. Here the
+        throw becomes the failure result the entry point's own tail already
+        handles: a manifest (failureClass unknown, the exception and where it
+        was thrown as errorMessage), or with -BooleanResult a false validation
+        result carrying the same text as its Reason.
+    .OUTPUTS
+        The operation's result, or the failure result built from its throw.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][scriptblock]$Operation,
+        [Parameter(Mandatory)][string]$TranscriptFile,
+        [switch]$BooleanResult
+    )
+    $null = Start-Transcript $TranscriptFile
+    try {
+        return (& $Operation)
+    } catch {
+        $message = [string]$_.Exception.Message
+        $info = $_.InvocationInfo
+        if ($info -and $info.ScriptName) { $message = "$message (at $(Split-Path -Leaf $info.ScriptName):$($info.ScriptLineNumber))" }
+        # An exception can quote the command that failed, secrets included, and
+        # this text is printed for anyone who can read the guest's console.
+        if (Get-Command Protect-YurunaSecretText -ErrorAction SilentlyContinue) { $message = Protect-YurunaSecretText $message }
+        if ($BooleanResult) { return (New-YurunaValidationResult -Success $false -Reason $message) }
+        return (New-YurunaResultManifest -Success $false -ErrorMessage $message -FailureClass 'unknown' -ExitCode 1)
+    } finally {
+        $null = Stop-Transcript
+    }
+}
+
+Export-ModuleMember -Function New-YurunaResultManifest, New-YurunaValidationResult, Test-YurunaResultManifestOk, Complete-YurunaRun, ConvertTo-CanonicalFailureClass, Invoke-YurunaEntrypoint

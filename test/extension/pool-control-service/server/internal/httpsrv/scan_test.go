@@ -1,5 +1,6 @@
 // LICENSEURI https://yuruna.link/license
 // Copyright (c) 2019-2026 by Alisson Sol et al.
+// GUID: 42687387-e1a1-458f-959b-4724e33456e6
 
 package httpsrv
 
@@ -245,7 +246,6 @@ func TestScanPageServed(t *testing.T) {
 }
 
 // --- REGION: One machine with two IDs
-//
 // A host mints its id into its runtime directory, so a reimage or a re-clone
 // leaves the same machine running under a new one. Both halves of the list can
 // then carry two entries for it: the aggregator keeps each id until its own TTL

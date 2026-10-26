@@ -1,5 +1,6 @@
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
+# GUID: 42405b0e-b312-47a5-b46b-2d926859ffc2
 variable "name" { type = any }
 variable "cidr" { type = any }
 variable "azs" { type = any }

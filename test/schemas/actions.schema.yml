@@ -1,5 +1,6 @@
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
+# GUID: 4266f224-13ed-4f66-a770-b90f74a994e9
 $schema: https://json-schema.org/draft/2020-12/schema
 $id: https://yuruna.com/schemas/actions.schema.yml
 title: Yuruna action catalog

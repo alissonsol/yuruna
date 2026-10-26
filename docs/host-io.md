@@ -106,18 +106,25 @@ connection when the server has closed it. Each open, each closed connection
 found, and each failed write is kept as a connection event
 (`Get-VncConnectionEvent`), which a GUI fetch adds to its transfer evidence.
 `Test.VncProvider`'s `Repair-VncConnection` is the recovery primitive that
-forces the next call to re-handshake. It is invoked from `Wait-ForText`'s bounded no-text self-heal
-(several consecutive polls with no OCR text is a likely sign the cached
-handle is feeding frozen frames) and is available to any `host_io_blocked`
-recovery path.
+forces the next call to re-handshake, and is available to any `host_io_blocked`
+recovery path. The handle carries keystrokes only: no capture path reads it.
+`Wait-ForText`'s bounded no-text self-heal still calls `Repair-VncConnection` after several polls
+with no OCR text, but a repair earns that wait no deadline grace by having run.
+Each repair returns `{ Attempted, Effective, Mechanism }`, and the grace is
+paid only when a frame captured afterward differs from the one the repair was
+made against; the console reconnect for a frozen feed works the same way. A
+feed the repair did not reach keeps its normal budget.
 
 **Screenshot capture is the same shape**, in `Test.ScreenshotProvider`:
 per-host capture implementations register, and `Wait-ForText` /
 `saveDebugScreenshot` dispatch through `Invoke-ScreenshotProvider`. The
 legacy `Yuruna.Host\Get-VMScreenshot` contract still works; the registry is
 the seam for adding a fast-path capturer (a delta-only frame grabber, say)
-or a fallback for when WMI / `virsh screenshot` times out. Its own
-self-healing primitive is `Repair-ScreenshotRing`.
+or a fallback for when WMI / `virsh screenshot` times out.
+`Repair-ScreenshotRing` clears the ring of earlier frames after a cold recovery
+restarted the VM. Clearing it changes nothing about how the next frame is
+captured, and the ring holds the run-up a failure is read against, so
+`Wait-ForText` never clears it to repair a feed.
 
 **The SSH driver is a parallel path, not another backend in this table.**
 `Test.Ssh.psm1` bypasses the GUI keystroke flow entirely: selected by
@@ -351,6 +358,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.25
+Last review: 2026.10.26
 
 Back to [Yuruna](../README.md)

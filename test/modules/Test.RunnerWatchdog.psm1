@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.25
+.VERSION 2026.10.26
 .GUID 42547b68-a60f-4a35-be1d-21d02f08f7bf
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -210,9 +210,14 @@ function Start-Watchdog {
             return $true
         }
         Add-Content -LiteralPath $outerLog -Value "$((Get-Date).ToString('o')) [watchdog] armed: innerPid=$innerPid startUtc=$innerStartUtc thresholdSeconds=$thresholdSeconds preambleSeconds=$preambleSeconds pollSeconds=$pollSeconds signal=runner.stepHeartbeat"
-        # Arm timestamp: when no step heartbeat has been published yet, staleness is aged from
-        # here so a hang BEFORE the first step write is still detected (not ignored forever).
-        $armedAt = Get-Date
+        # Staleness is the heartbeat's age when this job first saw it, read once
+        # in UTC, plus monotonic time since it last changed. Subtracting a local
+        # mtime from Get-Date moved by an hour at each daylight-saving change, so
+        # a healthy inner was killed in spring. With no heartbeat published yet,
+        # the age runs from arm, so a hang before the first step is still caught.
+        $staleWatch = [Diagnostics.Stopwatch]::StartNew()
+        $hbSeenUtc = $null
+        $hbAgeAtSeen = 0.0
         while ($true) {
             Start-Sleep -Seconds $pollSeconds
             if (& $sameInnerConfirmedGone $innerPid $innerStartUtc) {
@@ -236,13 +241,13 @@ function Start-Watchdog {
             }
             $effectiveThreshold = if ($phase) { $preambleSeconds } else { $thresholdSeconds }
             try {
-                if (Test-Path $stepHbFile) {
-                    $age = ((Get-Date) - (Get-Item -LiteralPath $stepHbFile).LastWriteTime).TotalSeconds
-                } else {
-                    # No step heartbeat file yet -> age from arm time so a never-published heartbeat
-                    # (inner wedged before its first step write) is treated as stale past the threshold.
-                    $age = ((Get-Date) - $armedAt).TotalSeconds
+                $hbUtc = if (Test-Path $stepHbFile) { (Get-Item -LiteralPath $stepHbFile).LastWriteTimeUtc } else { $null }
+                if ($hbUtc -and $hbUtc -ne $hbSeenUtc) {
+                    $hbAgeAtSeen = if ($null -eq $hbSeenUtc) { [math]::Max(0.0, ([datetime]::UtcNow - $hbUtc).TotalSeconds) } else { 0.0 }
+                    $hbSeenUtc = $hbUtc
+                    $staleWatch.Restart()
                 }
+                $age = $hbAgeAtSeen + $staleWatch.Elapsed.TotalSeconds
             } catch {
                 # A transient read failure (file replaced between Test-Path and
                 # Get-Item, AV lock) must not crash the job -- a dead watchdog

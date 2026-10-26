@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.25
+.VERSION 2026.10.26
 .GUID 425ba29c-8d06-4e43-bef3-ad4d3ee670fd
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -141,7 +141,8 @@ exec bash "$driver"
 Import-Module (Join-Path $repoRoot 'automation/Yuruna.CloudInitTemplate.psm1') -Force -DisableNameChecking
 Import-Module (Join-Path $repoRoot 'automation/Yuruna.GitHubSource.psm1') -Force -DisableNameChecking
 $modAst = [System.Management.Automation.Language.Parser]::ParseFile($modPath, [ref]$null, [ref]$null)
-foreach ($name in @('Get-FetchExecutionCommand', 'Get-FetchExecutionContext')) {
+$script:FetchArchiveDigest = @{}
+foreach ($name in @('Get-FetchExecutionCommand', 'Get-FetchExecutionContext', 'Get-FetchArchiveField')) {
     $fnAst = $modAst.Find({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq $name }, $true)
     if (-not $fnAst) { throw "Missing function: $name" }
     . ([scriptblock]::Create($fnAst.Extent.Text))
@@ -156,6 +157,61 @@ $script:fetchContext = @{ Step = @{}; RepoRoot = $repoRoot; StepInvocationId = '
 # at that line, so the cases that run it under the host's bash skip there.
 $hostBash = Get-Command bash -ErrorAction SilentlyContinue
 $script:hostBashHasAssociativeArrays = [bool]$hostBash -and ((& $hostBash.Source -c 'declare -A probe 2>/dev/null && echo yes') -eq 'yes')
+}
+
+# An update script unpacked the framework and project archives over plain HTTP
+# with nothing to check them against; only the script itself carried a digest.
+Describe 'Get-FetchExecutionContext names the trees an update script unpacks' {
+    BeforeAll {
+        Import-Module (Join-Path $repoRoot 'test/modules/Test.HostGit.psm1') -Global -DisableNameChecking
+        function Add-UpdatePayload {
+            param([Parameter(Mandatory)][string]$Root)
+            $payload = Join-Path $Root 'guest/fixture/fixture.update.sh'
+            $null = New-Item -ItemType Directory -Force -Path (Split-Path -Parent $payload)
+            [IO.File]::WriteAllText($payload, "printf 'fixture update\n'`n", [Text.UTF8Encoding]::new($false))
+            return 'guest/fixture/fixture.update.sh'
+        }
+    }
+
+    It 'gives each tree its commit and the digest of the archive the host builds for it' {
+        $fixture = New-FetchProjectFixture -Root (Join-Path $TestDrive 'archive-fields') -Confirm:$false
+        $rel = Add-UpdatePayload -Root $fixture.Root
+        $context = @{ Step = @{}; RepoRoot = $fixture.Root; StepInvocationId = 'step'; SequenceInvocationId = 'sequence' }
+        $result = Get-FetchExecutionContext -Context $context -CommandLine "fetch-and-execute.sh $rel" -WarningAction SilentlyContinue
+        $result.Fields.E_ARCHIVE_COMMIT | Should -BeExactly $fixture.FrameworkRef
+        $result.Fields.E_ARCHIVE_SHA | Should -BeExactly (Get-YurunaGitArchiveDigest -RepoDir $fixture.Root -Commit $fixture.FrameworkRef -ExcludePath (Get-YurunaFrameworkArchiveExcludePath))
+        $result.Fields.E_PROJECT_ARCHIVE_COMMIT | Should -BeExactly $fixture.ProjectRef
+        $result.Fields.E_PROJECT_ARCHIVE_SHA | Should -BeExactly (Get-YurunaGitArchiveDigest -RepoDir $fixture.ProjectRoot -Commit $fixture.ProjectRef)
+        $result.Bytes.Length | Should -BeLessOrEqual 4096
+    }
+
+    It 'names no archive for a payload that unpacks none' {
+        $fixture = New-FetchProjectFixture -Root (Join-Path $TestDrive 'archive-none') -Confirm:$false
+        $context = @{ Step = @{}; RepoRoot = $fixture.Root; StepInvocationId = 'step'; SequenceInvocationId = 'sequence' }
+        $result = Get-FetchExecutionContext -Context $context -CommandLine "fetch-and-execute.sh $($fixture.RelativePath)" -WarningAction SilentlyContinue
+        @($result.Fields.Keys | Where-Object { $_ -like '*ARCHIVE*' }) | Should -BeNullOrEmpty
+    }
+
+    It 'leaves the project out while the host holds no checkout of its own' {
+        $fixture = New-FetchProjectFixture -Root (Join-Path $TestDrive 'archive-plain') -PlainProject -Confirm:$false
+        $rel = Add-UpdatePayload -Root $fixture.Root
+        $context = @{ Step = @{}; RepoRoot = $fixture.Root; StepInvocationId = 'step'; SequenceInvocationId = 'sequence' }
+        $result = Get-FetchExecutionContext -Context $context -CommandLine "fetch-and-execute.sh $rel" -WarningAction SilentlyContinue
+        $result.Fields.E_ARCHIVE_COMMIT | Should -BeExactly $fixture.FrameworkRef
+        $result.Fields.Contains('E_PROJECT_ARCHIVE_COMMIT') | Should -BeFalse
+        $result.Fields.Contains('E_PROJECT_ARCHIVE_SHA') | Should -BeFalse
+    }
+}
+
+Describe 'The seeded context launcher passes its own shell checks' {
+    It 'runs test/shell/test-yuruna-fetch-context.sh to the end' {
+        $bash = Get-Command bash -ErrorAction SilentlyContinue
+        if (-not $bash) { Set-ItResult -Skipped -Because 'bash is not available on this host'; return }
+        if (-not $script:hostBashHasAssociativeArrays) { Set-ItResult -Skipped -Because 'the host bash predates 4.0 (no associative arrays); the context script targets a Linux guest'; return }
+        $output = (& $bash.Source (Join-Path $repoRoot 'test/shell/test-yuruna-fetch-context.sh') 2>&1 | Out-String)
+        $LASTEXITCODE | Should -Be 0 -Because $output
+        $output | Should -Match 'yuruna-fetch-context: all checks passed'
+    }
 }
 
 Describe 'Get-FetchExecutionContext (host-side integrity binding)' {
@@ -387,6 +443,62 @@ yfe() { bash automation/yuruna-fetch-context.sh "$@"; }
         try { $run = Invoke-BashDriver -BashPath $bash.Source -Script $driver } finally { Pop-Location }
         $run.Output | Should -Match 'YFE_CONTEXT_FIELD'
         $run.Output | Should -Match 'STATUS=125'
+    }
+}
+
+# The guest's GitHub token used to be answered to any host a remote named, and
+# sat in world-readable shell startup files.
+Describe 'The guest GitHub token reaches github.com alone' {
+    BeforeAll {
+        function Get-SeedAskpass {
+            param([string]$Seed)
+            $lines = [IO.File]::ReadAllLines((Join-Path $repoRoot "host/vmconfig/$Seed"))
+            $start = [Array]::FindIndex($lines, [Predicate[string]] { param($l) $l.Trim() -eq '#!/bin/sh' })
+            $end = [Array]::FindIndex($lines, $start, [Predicate[string]] { param($l) $l.Trim() -eq 'esac' })
+            $indent = $lines[$start].Length - $lines[$start].TrimStart().Length
+            return (($lines[$start..$end] | ForEach-Object { if ($_.Length -ge $indent) { $_.Substring($indent) } else { $_.TrimStart() } }) -join "`n") + "`n"
+        }
+    }
+    It 'answers <Prompt> in <Seed> with <Expected>' -Skip:(-not (Get-Command sh -ErrorAction SilentlyContinue)) -TestCases @(
+        foreach ($seed in 'ubuntu.server.base.user-data', 'amazon.linux.2023.base.user-data') {
+            @{ Seed = $seed; Prompt = "Username for 'https://github.com': "; Token = 'env-token'; Expected = 'x-access-token' }
+            @{ Seed = $seed; Prompt = "Password for 'https://x-access-token@github.com': "; Token = 'env-token'; Expected = 'env-token' }
+            @{ Seed = $seed; Prompt = "Password for 'https://x-access-token@github.com': "; Token = ''; Expected = 'file-token' }
+            @{ Seed = $seed; Prompt = "Password for 'https://x-access-token@mirror.lab.example': "; Token = 'env-token'; Expected = '' }
+            @{ Seed = $seed; Prompt = "Username for 'https://notgithub.com': "; Token = 'env-token'; Expected = '' }
+        }
+    ) {
+        param($Seed, $Prompt, $Token, $Expected)
+        $fakeHome = Join-Path $TestDrive ([guid]::NewGuid().ToString('N'))
+        $null = New-Item -ItemType Directory -Path (Join-Path $fakeHome '.config/yuruna') -Force
+        Set-Content -LiteralPath (Join-Path $fakeHome '.config/yuruna/github-token') -Value 'file-token' -NoNewline
+        $script = Join-Path $fakeHome 'askpass.sh'
+        [IO.File]::WriteAllText($script, (Get-SeedAskpass -Seed $Seed))
+        $priorHome = $env:HOME; $priorToken = $env:GH_TOKEN
+        try {
+            $env:HOME = $fakeHome
+            if ($Token) { $env:GH_TOKEN = $Token } else { Remove-Item Env:GH_TOKEN -ErrorAction SilentlyContinue }
+            $answer = (& sh $script $Prompt | Out-String).Trim()
+        } finally {
+            $env:HOME = $priorHome
+            if ($null -eq $priorToken) { Remove-Item Env:GH_TOKEN -ErrorAction SilentlyContinue } else { $env:GH_TOKEN = $priorToken }
+        }
+        $answer | Should -BeExactly $Expected
+    }
+    It 'keeps the token out of every shell startup file in <Seed>' -TestCases @(
+        @{ Seed = 'ubuntu.server.base.user-data' }, @{ Seed = 'amazon.linux.2023.base.user-data' }
+    ) {
+        param($Seed)
+        $text = [IO.File]::ReadAllText((Join-Path $repoRoot "host/vmconfig/$Seed"))
+        $text | Should -Not -Match 'export GH_TOKEN="GH_TOKEN_PLACEHOLDER"'
+        $text | Should -Match "printf '%s' 'GH_TOKEN_PLACEHOLDER' > \S+/\.config/yuruna/github-token"
+        $text | Should -Match 'chmod 0600 \S+/\.config/yuruna/github-token'
+    }
+    It 'gates the Windows askpass on github.com' {
+        $text = [IO.File]::ReadAllText((Join-Path $repoRoot 'automation/windows-guest-bootstrap.ps1'))
+        $text | Should -Match ([regex]::Escape(@'
+findstr /i /c:"//github.com'" /c:"@github.com'" >nul
+'@.Trim()))
     }
 }
 

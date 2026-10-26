@@ -54,6 +54,11 @@ Invoke-TestRunnerInnerLoop's shape but uses a single 'Sequence' step: the
 inner runner's fixed phase pills -- New-VM / Start-VM / Start-GuestOS / ...
 -- would render four "pending" chips that never animate, since
 Debug-TestSequence skips those phase boundaries.
+The owner path calls Register-StandaloneCycle (Test.Orchestrator), the one
+definition an orchestration sequence shares, so the two owners cannot drift
+apart. status.json is served without authentication, so the framework URL is
+published only after the rules the project link already followed: userinfo
+stripped, ssh and local clone sources walked back to their web origin.
 $nestedNodeId is the id of this run's node in the owner's `nested` map; it
 stays $null for an owner run and is read again in the finally{} to finalize
 the node, so it must live in the script scope BEFORE the branch.
@@ -258,14 +263,27 @@ the operator can inspect post-mortem via virsh / vmconnect / utmctl.
 
 `yuruna/test/Debug-TestSequence.ps1`
 
-Refuse to start when a Start-TestRunner already owns the runtime dir.
-Debug-TestSequence is a dev entry point: it does not coordinate the runner
-state machine, so a concurrent run would race the runner's pidfile,
-status.json registrations, and VM operations. Get-RunnerInstanceState
-(Test.SingleInstance) does the read; Assert-NoOtherRunner wraps it
-with the "refuse + banner" semantics this entry point needs --
+Claim the runtime before the first side effect, and refuse when another run
+owns it. Debug-TestSequence is a dev entry point: it does not coordinate the
+runner state machine, so a concurrent run would race the runner's pidfile,
+status.json registrations, and VM operations. The claim sits right after the
+config gate, ahead of the checkout refresh that replaces `<RepoRoot>/project`
+and the status-service restart, both of which a live cycle depends on.
+
+Initialize-YurunaOneShotEntryPoint (Test.Prelude) publishes the runtime and
+log directories, takes the one-shot lease (`oneshot.pid` + `oneshot.start`,
+the same pair shape as `runner.pid`), then runs Assert-NoOtherRunner, which
+refuses beside a live Start-TestRunner, another live one-shot run, or a host
+refresh. The lease comes first, and Start-TestRunner reads the lease after it
+writes `runner.pid`, so of two starts at the same moment at least one sees the
+other. A lease whose holder exited, or whose PID now names another process, is
+removed as that exact generation and taken; one whose holder cannot be proven
+refuses and is never removed. Everything after the claim runs inside a
+`try`/`finally` that releases the lease, because a run started in an
+interactive shell holds it under that shell's PID: a lease left behind by an
+`exit` would block the lab's runner for as long as the shell stays open.
 Start-TestRunner's takeover path is the opposite (Stop-StaleRunner).
-Nested runs skip the guard: they don't own the runtime dir (the outer cycle
+Nested runs skip the claim: they don't own the runtime dir (the outer cycle
 owner does), and the owner already passed this same check. Enforcing it here
 would make every nested stage refuse to start the moment the owner registered.
 
@@ -375,57 +393,63 @@ just-imported engine.
 
 <a id="42010605-001a"></a>
 
-### Build the parameter set Invoke-TestProject must pass to the inner. -NoGitPull and -NoProjectClone ar
+<a id="build-the-parameter-set-invoke-testproject-must-pass-to-the-inner--nogitpull-and--noprojectclone-ar"></a>
+
+### The cycle state Invoke-TestProject hands the runner's dispatcher
 
 `yuruna/test/Invoke-TestProject.ps1`
 
-Build the parameter set Invoke-TestProject must pass to the inner. -NoGitPull
-and -NoProjectClone are *always* forced here -- Invoke-TestProject does a fresh
-clone itself and tests the local tree as-is; a mid-test framework update
-would conflate signals. logLevel is forwarded only if the operator passed
-it on this script's command line (PSBoundParameters), so the inner falls
-back to its config-file default otherwise.
--NoConfigGate is forced too: the gate above already cleared this same config
-seconds ago, ahead of the fresh checkout replacement this entry point
-performs. The inner gating again would re-probe every remote for a verdict
-nothing has had a chance to invalidate.
+Invoke-TestProject runs its one cycle through `Invoke-OuterCycleDispatch`, the
+dispatcher of Start-TestRunner's loop, with a cycle state that names the
+per-cycle script (`Invoke-TestCycleRunner.ps1`), the configuration path, the
+shared Ctrl+C flag and a fresh cycle generation. `-NoGitPull` is always set:
+Invoke-TestProject tests the project against the framework as installed, and
+a mid-test framework update would conflate signals. `-NoStatusService` and
+`-NoConfigGate` are forwarded as the operator gave them, and logLevel only when
+the operator passed it on this script's command line (PSBoundParameters), so
+the inner falls back to its config-file default otherwise. The inner runs the
+configuration gate itself, as it does in every runner cycle, so this script
+does not gate a second time.
 
 <a id="42010605-001b"></a>
 
-### Step 3: spawn one inner cycle
+<a id="step-3-spawn-one-inner-cycle"></a>
+
+### Run one runner cycle
 
 `yuruna/test/Invoke-TestProject.ps1`
 
-Invoke-TestProject uses the shared typed-argument builder to invoke a fresh
-inner process directly; the recurring runner launches it from a cycle worker:
-  * call operator (not Start-Process) -- this one-shot entry point's inner
-    inherits its environment, stdio, and signal context
-  * -Command (not -File) -- pwsh -File coerces every argv to [string],
-    which would break [switch] / [int] parameters
-  * -NoProfile -- $PROFILE can't clobber YURUNA_* env vars
-  * YURUNA_RUNNER_RELAUNCH=1 -- inner skips its own pidfile-takeover guard
-    (it can't safely take over us; we're the legitimate parent)
-  * -NoProjectClone -- step 1+2 already produced a fresh tree; the
-    inner trusts it and skips Update-ProjectClone
-  * -NoGitPull -- Invoke-TestProject is a project test, not a framework test;
-    a mid-test framework update would conflate signals
+The dispatcher starts the per-cycle process and waits on it under the runner's
+absolute cycle ceiling, polling the Ctrl+C flag so a requested stop kills the
+whole cycle tree. The per-cycle process runs `Invoke-RunnerOuterCycle`: it syncs
+the pool configuration (a drained or paused pool returns without a cycle),
+clears the last cycle's runtime files, arms the step watchdog, starts the inner
+with YURUNA_RUNNER_RELAUNCH=1 and runs the cycle-end hooks (pool storage
+archiving, the event forwarder, the pool notifier). The dispatcher scores the
+cycle from the outcome record the per-cycle process leaves, never from a bare
+exit code, so a cycle that recorded nothing reads as `outcome-unrecorded`. The
+result is the one a Start-TestRunner cycle produces, so a regression in any of
+these parts surfaces here first.
 
 <a id="42010605-001c"></a>
 
 <a id="step-12-wipe--re-clone-project"></a>
 
-### Step 1+2: clone, verify, and swap the project checkout
+<a id="step-12-clone-verify-and-swap-the-project-checkout"></a>
+
+### The cycle replaces the project checkout
 
 `yuruna/test/Invoke-TestProject.ps1`
 
-Update-ProjectClone is the same helper Invoke-TestRunnerInnerLoop uses every
-cycle -- by calling it here, a regression in checkout replacement, git clone
-itself, or the safety check (refuse to delete outside RepoRoot) surfaces
-in Invoke-TestProject before it ever bites Start-TestRunner. The function
-clones beside the current checkout, verifies the clone, then swaps it in; a
-failed clone leaves the previous checkout in place. Splitting those operations
-in Invoke-TestProject would duplicate the safety check without adding value.
-Test.HostContract was imported by Initialize-YurunaEntryPointModuleSet above.
+The inner refreshes <RepoRoot>/project through `Invoke-CycleProjectRefresh`
+(Test.RunnerInnerLoop), as it does in every runner cycle. `Update-ProjectClone`
+clones the project pin the configuration gate selected for this cycle's
+generation beside the current checkout, verifies it and swaps it in, so a
+project tip that moves after the gate does not change what the cycle tests, and
+a failed clone leaves the previous checkout in place. The installed provenance
+is recorded only after a refresh that succeeded. A failed refresh is a failed
+cycle with a `bootstrap_sync` record at stage ProjectClone, which the one-shot
+result reads as an infrastructure fault.
 
 <a id="42010605-001d"></a>
 
@@ -438,9 +462,8 @@ inner. -Scope PreSpawn archives a leftover break-active.json and clears
 leftover pause flags (control.step-pause / .cycle-pause) so the spawned
 inner doesn't inherit the parked break state -- the status UI would
 otherwise keep the previous run's Continue button live. Invoke-TestProject
-spawns Invoke-TestRunnerInnerLoop directly (bypassing the outer
-Start-TestRunner that normally hosts Invoke-YurunaBootRecovery), so
-this sweep has to happen here. PreSpawn deliberately leaves
+dispatches its cycle without the outer Start-TestRunner that normally
+hosts Invoke-YurunaBootRecovery, so this sweep has to happen here. PreSpawn deliberately leaves
 control.cycle-restart for the child inner to consume as ITS own restart.
 
 <a id="42010605-001e"></a>
@@ -449,15 +472,18 @@ control.cycle-restart for the child inner to consume as ITS own restart.
 
 `yuruna/test/Invoke-TestProject.ps1`
 
-Refuse to start when a Start-TestRunner already owns the runtime dir.
-Invoke-TestProject spawns its own inner with YURUNA_RUNNER_RELAUNCH=1 below,
-which tells inner to skip its own pidfile-takeover guard -- safe only
-when Invoke-TestProject itself is the legitimate parent. If a real
+Claim the runtime, and refuse when another run owns it.
+The cycle this run dispatches starts its inner with YURUNA_RUNNER_RELAUNCH=1,
+which tells the inner to skip its own pidfile-takeover guard -- safe only
+when this run itself is the legitimate owner. If a real
 Start-TestRunner is already running, that contract would let our inner race
-the live cycle's runner.pid + status.json updates. Assert-NoOtherRunner
-(Test.Prelude, backed by Test.SingleInstance) reads runner.pid +
-runner.start and refuses; Start-TestRunner's takeover path is the
-opposite (Stop-StaleRunner) and stays in the outer.
+the live cycle's runner.pid + status.json updates. Initialize-YurunaOneShotEntryPoint
+(Test.Prelude, backed by Test.SingleInstance) takes the one-shot lease and
+runs Assert-NoOtherRunner, which reads runner.pid + runner.start and the lease
+of any other one-shot run, and refuses; Start-TestRunner refuses to start while
+this run holds the lease. Stop-WithReason and the `finally` block at the end of
+the script release it. Start-TestRunner's takeover path is the opposite
+(Stop-StaleRunner) and stays in the outer.
 
 <a id="42010605-001f"></a>
 
@@ -476,46 +502,54 @@ introduce a UAC or sudo demand on a path that never needed one.
 
 <a id="exit-code-contract-0--success-1--anything-else-a-binary-code-is-what-passfail-consumers-want"></a>
 
-### Exit-code contract: setup failure is 1; completed cycles forward the inner exit code
+<a id="exit-code-contract-setup-failure-is-1-completed-cycles-forward-the-inner-exit-code"></a>
+
+### Exit-code contract: setup failure is 1; a dispatched cycle reports its own code
 
 `yuruna/test/Invoke-TestProject.ps1`
 
-Preflight, clone and inner-spawn failures exit with 1; a completed inner
-cycle forwards its exact exit code, with 0 meaning success. A CI consumer
-that needs to discriminate between "preflight" / "clone failed" / "inner
-spawn failed" reads the Stop-WithReason banner ("STOP (exit 1) at <Step>").
-The $Step + $Reason in the banner carry the "why".
+Preflight and dispatch failures exit with 1. A cycle that ran reports its own
+exit code through `Get-OneShotCycleExitCode` (Test.RecoveryContract): 0 passed,
+1 failed, 75 failed nothing but skipped a planned guest, 78 the configuration
+gate refused, 70 the cycle left no usable outcome record. A dispatch that held
+or stopped the cycle before a verdict -- a drained or paused pool, a host
+refresh, Ctrl+C -- exits 2. A CI consumer that needs to discriminate between
+the preflight steps reads the Stop-WithReason banner ("STOP (exit 1) at
+<Step>"). The $Step + $Reason in the banner carry the "why".
 
 <a id="42010605-0021"></a>
 
 <a id="one-shot-project-test-wipe-reporootproject-re-clone-from-repositories"></a>
 
-### One-shot project test: prepare the project clone and invoke the inner runner
+<a id="one-shot-project-test-prepare-the-project-clone-and-invoke-the-inner-runner"></a>
+
+### One-shot project test: one runner cycle against a fresh project clone
 
 `yuruna/test/Invoke-TestProject.ps1`
 
 Each step is gated and reports its own reason on failure:
 
-  Step 1+2 verify a fresh clone and replace <RepoRoot>/project via the same
-            Test.HostContract\Update-ProjectClone helper Invoke-TestRunnerInnerLoop
-            calls every cycle. A failure here stops with a clear
-            "what + why" line; the inner is never spawned.
+  Pre-flight  elevation, the repository layout, test.config.yml,
+              powershell-yaml and a non-empty repositories.projectUrl, then
+              the runtime lease. A failure stops with a clear "what + why"
+              line before anything is changed.
 
-  Step 3   spawns Invoke-TestRunnerInnerLoop.ps1 in a fresh pwsh using
-            Test.InnerSpawn's shared typed-argument builder,
-            with -NoProjectClone (the clone is already fresh) and
-            -NoGitPull (Invoke-TestProject tests the project as it stands
-            locally; a mid-test framework update would muddle the
-            signal). The inner does the full cycle, records it as a
-            regular cycle in status.json, and exits.
+  Cycle       one runner cycle through the runner's dispatcher, with
+              -NoGitPull (the project is tested against the framework as
+              installed). Its inner runs the configuration gate, replaces
+              <RepoRoot>/project with a fresh clone of the pin the gate
+              selected, runs the cycle, and records it as a regular cycle
+              in status.json.
 
-  Step 4   surface the inner's exit code as our own and stop. Not
-            resumed; the operator (or CI) re-invokes Invoke-TestProject
-            explicitly if they want another pass.
+  Stop        report the cycle's exit code as our own and stop. Not
+              resumed; the operator (or CI) re-invokes Invoke-TestProject
+              explicitly if they want another pass.
 
-By calling Update-ProjectClone + Invoke-TestRunnerInnerLoop directly,
-Invoke-TestProject exercises the same code paths Start-TestRunner does --
-a regression in either surfaces here first.
+Because the cycle runs through the dispatcher, per-cycle process and inner of
+a Start-TestRunner cycle, Invoke-TestProject exercises the code paths
+Start-TestRunner does -- the watchdog, the cycle ceiling, the checkout
+replacement and the cycle-end hooks included -- and a regression in any of
+them surfaces here first.
 
 <a id="42010605-0022"></a>
 
@@ -876,7 +910,7 @@ loop and the failure-pause loop also poll the flag before continuing.
 
 <a id="42010605-0036"></a>
 
-### Sync-ForwardEnv lives in [Test.RunnerOuterLoop](../test/modules/Test.RunnerOuterLoop.psm1) and Write-OuterLo
+### Sync-ForwardEnv lives in Test.RunnerOuterLoop and Write-OuterLog in Test.OuterLog
 
 `yuruna/test/Start-TestRunner.ps1`
 
@@ -917,12 +951,12 @@ rationale (sg + initgroups, why $env: would leak, etc.).
 
 <a id="42010605-0039"></a>
 
-### Publish the resolved config path so every cross-module reload site (Sync-RuntimeConfig in the inner
+### Publish the resolved config path so every cross-module reload site (Sync-RunnerCycleConfig in the inner
 
 `yuruna/test/Start-TestRunner.ps1`
 
 Publish the resolved config path so every cross-module reload site
-(Sync-RuntimeConfig in the inner runner, Update-TransportDefault in
+(Sync-RunnerCycleConfig in the inner runner, Update-TransportDefault in
 Test.Transport, future similar callers) reads the SAME file when the
 operator passes -ConfigPath <elsewhere>. Without this, Test.Transport
 falls back to the in-tree template and the operator's dashboard edits
@@ -2506,7 +2540,7 @@ the real thing first.
 
 <a id="42010605-008f"></a>
 
-### LAST, and that ordering is load-bearing. Test.HostContract re-exports Test.HostDetection's Get-HostT
+### Test.HostContract imports LAST, and that ordering is load-bearing
 
 `yuruna/test/pool/Convert-ToPoolWorker.ps1`
 

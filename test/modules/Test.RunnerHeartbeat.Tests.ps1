@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.25
+.VERSION 2026.10.26
 .GUID 42fba86f-4ea4-4dbf-82c2-0ea57b04218c
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -89,6 +89,48 @@ Describe 'Start/Stop-RunnerHeartbeat' {
     }
 }
 
+
+# The watchdog judges the inner by runner.stepHeartbeat, and its writers
+# swallowed a failed write on Verbose: a full disk or a write lock then read as
+# a wedged runspace, and the error reporting guarded a file nothing reads.
+Describe 'Write-RunnerStepHeartbeat reports a heartbeat it cannot write' {
+    BeforeEach {
+        $script:BeatDir = Join-Path ([System.IO.Path]::GetTempPath()) ("yrn-beat-{0}" -f [guid]::NewGuid().ToString('N'))
+        $null = New-Item -ItemType Directory -Path $script:BeatDir -Force
+        & (Get-Module Test.RunnerHeartbeat) { $script:StepHeartbeatConsecutiveErrors = 0; $script:StepHeartbeatLastReportUtc = [DateTime]::MinValue }
+    }
+    AfterEach { Remove-Item -LiteralPath $script:BeatDir -Recurse -Force -ErrorAction SilentlyContinue }
+
+    It 'counts failures, warns once a minute with an error log line, and resets on the next good write' {
+        # A directory where the file belongs: every write fails the way a lock does.
+        $blocked = Join-Path $script:BeatDir 'runner.stepHeartbeat'
+        $null = New-Item -ItemType Directory -Path $blocked -Force
+        $warnings = @()
+        Write-RunnerStepHeartbeat -Path $blocked -WarningVariable +warnings -WarningAction SilentlyContinue
+        Write-RunnerStepHeartbeat -Path $blocked -WarningVariable +warnings -WarningAction SilentlyContinue
+        Assert-Equal -Expected 2 -Actual (Get-RunnerHeartbeatError) -Because 'every failed write is counted'
+        Assert-Equal -Expected 1 -Actual @($warnings).Count -Because 'a failing writer is reported once a minute, not once per poll'
+        Assert-Match -Pattern ([regex]::Escape($blocked)) -Actual ([string]$warnings[0]) -Because 'the warning names the file'
+        $log = Get-Content -Raw -LiteralPath "$blocked.errors.log"
+        Assert-Match -Pattern 'consecutive=1 ' -Actual $log -Because 'the error log keeps the error class for a later reader'
+        Remove-Item -LiteralPath $blocked -Recurse -Force
+        Write-RunnerStepHeartbeat -RuntimeDir $script:BeatDir
+        Assert-Equal -Expected 0 -Actual (Get-RunnerHeartbeatError) -Because 'a good write ends the streak'
+        Assert-True (Test-Path -LiteralPath $blocked -PathType Leaf) 'the heartbeat is written under the runtime directory'
+    }
+    It 'is the only writer of runner.stepHeartbeat in the inner runner' {
+        $root = Split-Path -Parent $here
+        foreach ($relative in 'modules/Test.RunnerHeartbeat.psm1', 'modules/Test.RunnerInnerLoop.psm1', 'modules/Invoke-TestRunnerInnerLoop.ps1') {
+            $ast = [System.Management.Automation.Language.Parser]::ParseFile((Join-Path $root $relative), [ref]$null, [ref]$null)
+            $direct = @($ast.FindAll({ param($n)
+                $n -is [System.Management.Automation.Language.InvokeMemberExpressionAst] -and [string]$n.Member -eq 'WriteAllText' -and
+                $n.Extent.Text -match 'stepHeartbeat|StepHeartbeatFile|\$target' }, $true) | Where-Object {
+                    $fn = $_; while ($fn -and $fn -isnot [System.Management.Automation.Language.FunctionDefinitionAst]) { $fn = $fn.Parent }
+                    -not ($fn -and $fn.Name -eq 'Write-RunnerStepHeartbeat') })
+            Assert-Equal -Expected 0 -Actual $direct.Count -Because "$relative writes the heartbeat through Write-RunnerStepHeartbeat"
+        }
+    }
+}
 
 Describe 'Runner phase evidence' {
     It 'retains earlier attempt phases after the live marker is replaced and cleared' {

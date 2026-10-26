@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.25
+.VERSION 2026.10.26
 .GUID 42f816f3-f8fb-4c0a-84b9-8070c8990937
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -262,6 +262,33 @@ Describe 'Publish-CycleOutcomeRecord' {
     }
     AfterEach { Remove-Item -LiteralPath $script:Dir -Recurse -Force -ErrorAction SilentlyContinue }
 
+    # The resident never syncs the pool, so a pool's switch for automatic
+    # recovery reached it only through this record.
+    It 'carries the pool''s testCycle override to the resident''s repair decisions' {
+        $pool = @{ autoRemediation = @{ enabled = $true; maxAttemptsPerCycle = 3 }; stepTimeoutSeconds = 900 }
+        $null = Publish-CycleOutcomeRecord -Result ([pscustomobject]@{ Outcome = 'completed'; ExitCode = 1; PoolTestCycle = $pool }) -OutcomeFile $script:File -CycleGeneration $script:Generation
+        $r = Read-CycleOutcomeRecord -Path $script:File -ExpectedGeneration $script:Generation
+        $r.Valid | Should -BeTrue
+        $r.PoolTestCycle['autoRemediation'] | Should -BeOfType [System.Collections.IDictionary]
+        $policy = InModuleScope Test.RunnerOuterLoop -Parameters @{ Snapshot = $r.PoolTestCycle } {
+            param($Snapshot)
+            Get-OuterAutoRemediation -ConfigPath (Join-Path ([IO.Path]::GetTempPath()) 'no-such-config.yml') -PoolTestCycleOverride (Get-OuterPoolPolicySnapshot -State @{ PoolTestCycleOverride = $Snapshot })
+        }
+        $policy.Enabled | Should -BeTrue -Because 'the pool turned recovery on, over the local default'
+        $policy.MaxAttempts | Should -Be 3
+    }
+    It 'never lets the pool override decide whether the record is valid' {
+        Set-Content -LiteralPath $script:File -Value ('{"outcome":"completed","exitCode":0,"cycleGeneration":"' + $script:Generation + '","poolTestCycle":"not a map"}')
+        $r = Read-CycleOutcomeRecord -Path $script:File -ExpectedGeneration $script:Generation
+        $r.Valid | Should -BeTrue
+        $r.PoolTestCycle | Should -BeNullOrEmpty
+    }
+    It 'decides repairs at every resident site with the recorded pool override' {
+        # The early end of the pause, the recovery probe and the repairs before it.
+        $text = Get-Content -Raw -LiteralPath (Join-Path $here 'Test.RunnerOuterLoop.psm1')
+        ([regex]::Matches($text, [regex]::Escape('Get-OuterAutoRemediation -ConfigPath $State.ConfigPath -PoolTestCycleOverride (Get-OuterPoolPolicySnapshot -State $State)'))).Count | Should -Be 3
+        ([regex]::Matches($text, 'Get-OuterAutoRemediation -ConfigPath \$State\.ConfigPath\s*$', 'Multiline')).Count | Should -Be 0
+    }
     It 'records the cycle''s own verdict and returns its exit code unchanged' -TestCases @(
         @{ Outcome = 'completed'; Code = 0 }, @{ Outcome = 'completed'; Code = 3 }, @{ Outcome = 'pull-error'; Code = 0 }
     ) {

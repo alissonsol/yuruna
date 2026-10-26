@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.25
+.VERSION 2026.10.26
 .GUID 42e6d9c8-1705-43a2-89f3-6013cc25bb54
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -50,6 +50,7 @@ Describe 'real sequence execution preserves source positions and current-step ca
                     recorder=@{ heartbeatAgeSeconds=256; clockAnalysis=@{ comparison='same-boot'; warnings=@(@{ code='cpu-idle-exceeds-boot-uptime'; cpu='cpu0' }) } } }
             }
             if ($context.Step.seedOldCause) { $state.StepGuestRunLost=$true; $state.WaitForTextOcrTail='old OCR text' }
+            if ($context.Step.throwNow) { throw 'fixture handler crash' }
             if ($context.Step.seedConsoleEvidence) {
                 $state.WaitForTextConsoleSecondOpinion = [pscustomobject]@{ Verdict='guest-wedged'; Detail='independent VNC read'; QemuPid=4321; VncPort=5983; CpuPercent=782; FramesChanged=$false }
             }
@@ -226,16 +227,60 @@ Describe 'real sequence execution preserves source positions and current-step ca
     It 'attributes a distinct outer crash to its own invocation after a failed child' {
         $script:FixtureEvents = [Collections.Generic.List[object]]::new()
         Mock Send-CycleEventSafely -ModuleName Test.SequenceEngine { $script:FixtureEvents.Add($EventRecord) }
+        # The thrown step now takes the step-failure path, which captures the screen.
+        Mock Get-VMScreenshot -ModuleName Test.SequenceEngine { $false }
         $script:FixtureSequence = @{steps=@(@{action='safetyFixture';children=@(@{action='safetyFixture';seedEvidence=$true;seedConsoleEvidence=$true;fail=$true});throwAfterChildren=$true})}
         Invoke-Sequence -HostType host.ubuntu.kvm -GuestKey guest.fixture -VMName never-a-real-vm -SequencePath $script:SequenceFile | Should -BeFalse
         $record = Get-Content (Join-Path $env:YURUNA_LOG_DIR 'last_failure.json') -Raw | ConvertFrom-Json
-        $record.reason | Should -Be crash
+        $record.reason | Should -Be step -Because 'a handler that throws fails its own step'
+        $record.classificationSource | Should -Be 'handler-exception'
         $record.stepInvocationId | Should -Be $script:FixtureRows[0].StepInvocationId
         $record.originatingStepInvocationId | Should -Be $record.stepInvocationId
         $record.originatingStepInvocationId | Should -Not -Be $script:FixtureRows[1].StepInvocationId
         $failure = @($script:FixtureEvents | Where-Object event -EQ step_failure)[-1]
         $failure.progressAdvisory | Should -BeNullOrEmpty
         $failure.consoleSecondOpinion | Should -BeNullOrEmpty -Because 'a distinct outer crash is not the earlier console timeout'
+    }
+    # A handler that threw skipped the step-failure path: the record named a
+    # stand-in verb and step 0, and a retry around the step never saw it fail.
+    It 'fails a step whose handler throws, naming the step and its verb' {
+        Mock Get-VMScreenshot -ModuleName Test.SequenceEngine { $false }
+        $script:FixtureSequence = @{ steps=@(@{action='safetyFixture'}, @{action='safetyFixture';throwNow=$true}) }
+        Invoke-Sequence -HostType host.ubuntu.kvm -GuestKey guest.fixture -VMName never-a-real-vm -SequencePath $script:SequenceFile -WarningAction SilentlyContinue | Should -BeFalse
+        $record = Get-Content (Join-Path $env:YURUNA_LOG_DIR 'last_failure.json') -Raw | ConvertFrom-Json
+        $record.reason | Should -Be step
+        $record.actionVerb | Should -Be safetyFixture
+        $record.stepNumber | Should -Be 2
+        $record.failureClass | Should -Be unknown -Because 'an unexpected exception says nothing about the verb''s own class'
+        $record.classificationSource | Should -Be 'handler-exception'
+        $record.action | Should -BeLike '*the handler threw: fixture handler crash*'
+    }
+    It 'lets a retry around a throwing step run it again' {
+        Mock Get-VMScreenshot -ModuleName Test.SequenceEngine { $false }
+        $script:FixtureSequence = @{ steps=@(@{action='retry';maxAttempts=2;steps=@(@{action='safetyFixture';throwNow=$true})}) }
+        Invoke-Sequence -HostType host.ubuntu.kvm -GuestKey guest.fixture -VMName never-a-real-vm -SequencePath $script:SequenceFile -WarningAction SilentlyContinue | Should -BeFalse
+        $script:FixtureRows.Count | Should -Be 2 -Because 'each attempt reached the handler'
+        $record = Get-Content (Join-Path $env:YURUNA_LOG_DIR 'last_failure.json') -Raw | ConvertFrom-Json
+        $record.failureClass | Should -Be retry_exhausted
+        $record.innerFailureClass | Should -Be unknown
+    }
+    # passwdPrompt filed every failure as credential_expired, so a prompt that
+    # never appeared read as a rejected password.
+    It 'files a passwdPrompt whose prompt never appeared as an OCR timeout, and a failed entry under its own class' {
+        Mock Get-VMScreenshot -ModuleName Test.SequenceEngine { $false }
+        Mock Send-TabNavigation -ModuleName Test.SequenceHandler { }
+        $script:FixtureSequence = @{ steps=@(@{action='passwdPrompt';pattern='Password:';text='fixture-secret'}) }
+        Mock Wait-ForText -ModuleName Test.SequenceHandler { $false }
+        Invoke-Sequence -HostType host.ubuntu.kvm -GuestKey guest.fixture -VMName never-a-real-vm -SequencePath $script:SequenceFile -WarningAction SilentlyContinue | Should -BeFalse
+        $record = Get-Content (Join-Path $env:YURUNA_LOG_DIR 'last_failure.json') -Raw | ConvertFrom-Json
+        $record.failureClass | Should -Be ocr_timeout -Because 'the screen never showed the prompt'
+        $record.context.stepFailurePhase | Should -Be wait
+        Mock Wait-ForText -ModuleName Test.SequenceHandler { $true }
+        Mock Invoke-TypeDrainEnter -ModuleName Test.SequenceHandler { $false }
+        Invoke-Sequence -HostType host.ubuntu.kvm -GuestKey guest.fixture -VMName never-a-real-vm -SequencePath $script:SequenceFile -WarningAction SilentlyContinue | Should -BeFalse
+        $record = Get-Content (Join-Path $env:YURUNA_LOG_DIR 'last_failure.json') -Raw | ConvertFrom-Json
+        $record.failureClass | Should -Be credential_expired
+        $record.context.stepFailurePhase | Should -Be input
     }
     It 'publishes the OCR sidecar writer to its handler module' {
         (Get-Command Save-OcrSidecar -ErrorAction Stop).ModuleName | Should -Be 'Test.SequenceEngine'

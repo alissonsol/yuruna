@@ -1,5 +1,6 @@
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
+# GUID: 4297a4fa-0da7-43f4-9b89-7bb8c7f7158c
 """Exercise index isolation, backup retention, and failure recovery in SBOM maintenance."""
 # --- REGION: Imports
 import importlib.util

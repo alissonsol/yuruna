@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.25
+.VERSION 2026.10.26
 .GUID 42bc0016-f193-426d-a72c-0c102ad1e5f2
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -554,6 +554,43 @@ exit "$YURUNA_HTTP_EXIT"
         }
     }
 
+    It '<Config> removes only what it installs and bounds every namespace delete' -ForEach @(
+        @{ Config = 'template/config/localhost/workloads.yml' },
+        @{ Config = 'example/website/config/localhost/workloads.yml' },
+        @{ Config = 'example/text-to-sql/config/localhost/workloads.yml' },
+        @{ Config = 'example/website/config/azure/workloads.yml' },
+        @{ Config = 'example/website/config/aws/workloads.yml' }
+    ) {
+        $config = ConvertFrom-File (Join-Path $script:ProjectRoot $Config)
+        $deployments = @($config.workloads | ForEach-Object { $_.deployments })
+        $kubectl = @($deployments | ForEach-Object { if ($_.kubectl) { [string]$_.kubectl } })
+        $helm = @($deployments | ForEach-Object { if ($_.helm) { [string]$_.helm } })
+        $namespaceDeletes = @($kubectl | Where-Object { $_ -match '^delete namespace\s' })
+        $namespaceDeletes.Count | Should -BeGreaterThan 0
+        foreach ($command in $namespaceDeletes) {
+            # kubectl's default wait for namespace finalizers is a week.
+            $command | Should -Match '\s--timeout=\d+s(\s|$)'
+        }
+        if (-not @($helm | Where-Object { $_ -match '^\s*install\s+cert-manager\s' })) {
+            @($kubectl | Where-Object { $_ -match 'cert-manager' }) | Should -BeNullOrEmpty
+        }
+    }
+
+    It 'every workload configuration is covered by the cleanup case' {
+        $covered = @(
+            'template/config/localhost/workloads.yml',
+            'example/website/config/localhost/workloads.yml',
+            'example/text-to-sql/config/localhost/workloads.yml',
+            'example/website/config/azure/workloads.yml',
+            'example/website/config/aws/workloads.yml'
+        )
+        $found = @(foreach ($area in 'example', 'template') {
+            Get-ChildItem -LiteralPath (Join-Path $script:ProjectRoot $area) -Recurse -File -Filter 'workloads.yml' |
+                ForEach-Object { [IO.Path]::GetRelativePath($script:ProjectRoot, $_.FullName).Replace('\', '/') }
+        })
+        @($found | Where-Object { $_ -notin $covered }) | Should -BeNullOrEmpty
+    }
+
     It 'Ubuntu 24 script labels agree with every localized script identity in <Sequence>' -ForEach @(
         @{ Sequence = 'workload.guest.ubuntu.server.24.k8s.website.yml' },
         @{ Sequence = 'workload.guest.ubuntu.server.24.k8s.website.ssh.yml' },
@@ -568,6 +605,165 @@ exit "$YURUNA_HTTP_EXIT"
                 $step.descriptionLocalized[$locale] | Should -Match ([regex]::Escape($step.description))
                 $step.descriptionLocalized[$locale] | Should -Not -Match 'ubuntu\.server\.26'
             }
+        }
+    }
+}
+
+Describe 'Nested-host verified install' -Skip:(-not $script:ProjectAvailable) {
+    BeforeAll {
+        $script:NestedInstallSource = Get-Content -LiteralPath (Join-Path $script:ProjectRoot 'example/nested.host/test/install-yuruna.sh') -Raw
+        $script:NestedOpenSsl = (Get-Command -Name openssl -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1).Source
+        $script:NestedBash = (Get-Command -Name bash -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1).Source
+        # Generating RSA keys is the slow part; every fixture reuses these two.
+        $script:PinnedKey = [Security.Cryptography.RSA]::Create(2048)
+        $script:OtherKey = [Security.Cryptography.RSA]::Create(2048)
+        function Get-KeyFingerprint {
+            param([Parameter(Mandatory)][Security.Cryptography.RSA]$Key)
+            [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($Key.ExportSubjectPublicKeyInfo())).ToLowerInvariant()
+        }
+        function Get-FileSha256 {
+            param([Parameter(Mandatory)][string]$Path)
+            [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData([IO.File]::ReadAllBytes($Path))).ToLowerInvariant()
+        }
+        # Serves a signed fixture release through a fake curl and runs a copy of
+        # the script whose only change is the pinned fingerprint, so every check
+        # runs as shipped.
+        function Invoke-NestedInstallFixture {
+            param(
+                [Parameter(Mandatory)][string]$Name,
+                [string]$FailDownload = '',
+                [switch]$ServeOtherKey,
+                [switch]$TamperManifest,
+                [switch]$TamperInstaller,
+                [switch]$HashUnderOtherRow
+            )
+            $root = Join-Path $TestDrive "nested-install-$Name"
+            $srv = Join-Path $root 'srv'; $bin = Join-Path $root 'bin'; $rec = Join-Path $root 'rec'
+            New-Item -ItemType Directory -Force -Path (Join-Path $srv 'install/keys'), $bin, $rec, (Join-Path $root 'home'), (Join-Path $root 'tmp') | Out-Null
+            $kvm = Join-Path $srv 'install/ubuntu.kvm.sh'
+            $mac = Join-Path $srv 'install/macos.utm.sh'
+            [IO.File]::WriteAllText($kvm, "#!/bin/bash`nread -r answer || answer='<none>'`nprintf '%s\n' `"`$answer`" > '$rec/ran'`n")
+            [IO.File]::WriteAllText($mac, "#!/bin/bash`nprintf 'macos.utm.sh\n' > '$rec/ran'`n")
+            $kvmHash = Get-FileSha256 $kvm
+            $rows = if ($HashUnderOtherRow) {
+                @("$(('0' * 63) + '1')  install/ubuntu.kvm.sh", "$kvmHash  install/macos.utm.sh")
+            } else {
+                @("$(Get-FileSha256 $mac)  install/macos.utm.sh", "$kvmHash  install/ubuntu.kvm.sh")
+            }
+            $manifestText = ($rows -join "`n") + "`n"
+            $signer = if ($ServeOtherKey) { $script:OtherKey } else { $script:PinnedKey }
+            $signature = $signer.SignData([Text.Encoding]::ASCII.GetBytes($manifestText),
+                [Security.Cryptography.HashAlgorithmName]::SHA256, [Security.Cryptography.RSASignaturePadding]::Pkcs1)
+            if ($TamperManifest) {
+                # Altered after signing on the other row, so the installer's own
+                # row still matches and only the signature can refuse it.
+                $manifestText = [regex]::Replace($manifestText, '^[0-9a-f]{64}', ('f' * 64))
+            }
+            [IO.File]::WriteAllText((Join-Path $srv 'install/install.sha256'), $manifestText)
+            [IO.File]::WriteAllBytes((Join-Path $srv 'install/install.sha256.sig'), $signature)
+            [IO.File]::WriteAllText((Join-Path $srv 'install/keys/yuruna-release-signing.pub.pem'), $signer.ExportSubjectPublicKeyInfoPem() + "`n")
+            if ($TamperInstaller) { [IO.File]::AppendAllText($kvm, "# changed after signing`n") }
+            [IO.File]::WriteAllText((Join-Path $root 'fail.list'), "$FailDownload`n")
+            $curl = @"
+#!/bin/bash
+url=''; out=''
+while [ `$# -gt 0 ]; do
+  case "`$1" in
+    -o|--retry) [ "`$1" = -o ] && out="`$2"; shift 2 ;;
+    -*) shift ;;
+    *)  url="`$1"; shift ;;
+  esac
+done
+printf '%s\n' "`$url" >> '$rec/curl.log'
+rel="`${url#https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/main/}"
+rel="`${rel%%\?*}"
+if grep -qxF "`$rel" '$root/fail.list'; then printf 'curl: (22) The requested URL returned error: 404\n' >&2; exit 22; fi
+[ -f '$srv/'"`$rel" ] || { printf 'curl: (22) The requested URL returned error: 404\n' >&2; exit 22; }
+cp '$srv/'"`$rel" "`$out"
+"@
+            [IO.File]::WriteAllText((Join-Path $bin 'curl'), $curl.Replace("`r`n", "`n"))
+            [IO.File]::SetUnixFileMode((Join-Path $bin 'curl'), [IO.UnixFileMode]'UserRead, UserWrite, UserExecute')
+            $pin = [regex]::Matches($script:NestedInstallSource, "(?m)^RELEASE_KEY_SHA256='[0-9a-f]{64}'$")
+            $pin.Count | Should -Be 1
+            $copy = Join-Path $root 'install-yuruna.sh'
+            [IO.File]::WriteAllText($copy, $script:NestedInstallSource.Replace($pin[0].Value, "RELEASE_KEY_SHA256='$(Get-KeyFingerprint $script:PinnedKey)'").Replace("`r`n", "`n"))
+            $pathPrefix = $bin
+            $openSslDir = Split-Path -Parent $script:NestedOpenSsl
+            if ($openSslDir -notin @('/usr/bin', '/bin')) { $pathPrefix = "${pathPrefix}:$openSslDir" }
+            $environment = @{
+                PATH = "${pathPrefix}:/usr/bin:/bin"; TMPDIR = (Join-Path $root 'tmp'); HOME = (Join-Path $root 'home')
+                BASH_ENV = ''; ENV = ''; LC_ALL = 'C'
+            }
+            $result = Invoke-BoundedNativeCommand -FilePath $script:NestedBash -ArgumentList @($copy) -Environment $environment -TimeoutSeconds 60
+            $ranPath = Join-Path $rec 'ran'
+            $logPath = Join-Path $rec 'curl.log'
+            return @{
+                ExitCode = $result.ExitCode
+                TimedOut = [bool]$result.TimedOut
+                Output   = "$($result.StdOut)`n$($result.StdErr)"
+                Ran      = if (Test-Path -LiteralPath $ranPath) { [IO.File]::ReadAllText($ranPath).Trim() } else { $null }
+                Urls     = @(if (Test-Path -LiteralPath $logPath) { Get-Content -LiteralPath $logPath })
+            }
+        }
+    }
+
+    It 'pins the fingerprint of the release key the framework bundles and publishes' {
+        $key = [Security.Cryptography.RSA]::Create()
+        $key.ImportFromPem((Get-Content -LiteralPath (Join-Path $script:RepoRoot 'install/keys/yuruna-release-signing.pub.pem') -Raw))
+        $fingerprint = Get-KeyFingerprint $key
+        $script:NestedInstallSource | Should -Match "(?m)^RELEASE_KEY_SHA256='$fingerprint'$"
+        Get-Content -LiteralPath (Join-Path $script:RepoRoot 'install/keys/README.md') -Raw |
+            Should -Match ([regex]::Escape("SHA-256(DER public key) = $fingerprint"))
+    }
+
+    It 'installs through the verified script and pipes no download into a shell' {
+        $sequence = ConvertFrom-File (Join-Path $script:ProjectRoot 'example/nested.host/test/nested.host.yml')
+        $steps = @($sequence.component) + @($sequence.workload)
+        $install = @($steps | Where-Object { [string]$_.command -like '*install-yuruna.sh*' })
+        $install.Count | Should -Be 1
+        $install[0].action | Should -BeExactly 'sshFetchAndExecute'
+        $install[0].command | Should -BeExactly '/usr/local/lib/yuruna/fetch-and-execute.sh project/example/nested.host/test/install-yuruna.sh'
+        foreach ($step in $steps) {
+            [string]$step.command | Should -Not -Match '<\(\s*curl|curl[^|;&]*\|\s*(sudo\s+)?(ba)?sh\b'
+        }
+    }
+
+    It 'runs the installer, answering its prompt, only after every check passed' {
+        if ($IsWindows -or -not $script:NestedOpenSsl -or -not $script:NestedBash) {
+            Set-ItResult -Skipped -Because 'The script runs under Bash with openssl on its Ubuntu guest.'; return
+        }
+        $run = Invoke-NestedInstallFixture -Name 'verified'
+        $run.TimedOut | Should -BeFalse
+        $run.ExitCode | Should -Be 0 -Because $run.Output
+        $run.Ran | Should -BeExactly 'y'
+        $run.Urls.Count | Should -Be 4
+        $stamps = @($run.Urls | ForEach-Object {
+            $_ | Should -Match '^https://raw\.githubusercontent\.com/alissonsol/yuruna/refs/heads/main/install/[a-z0-9./-]+\?nocache=\d{14}$'
+            ($_ -split '\?nocache=', 2)[1]
+        } | Select-Object -Unique)
+        $stamps.Count | Should -Be 1
+    }
+
+    It 'refuses before the installer runs when any download or check fails' {
+        if ($IsWindows -or -not $script:NestedOpenSsl -or -not $script:NestedBash) {
+            Set-ItResult -Skipped -Because 'The script runs under Bash with openssl on its Ubuntu guest.'; return
+        }
+        $cases = @(
+            foreach ($file in 'install/ubuntu.kvm.sh', 'install/install.sha256', 'install/install.sha256.sig', 'install/keys/yuruna-release-signing.pub.pem') {
+                @{ Name = "download-$([IO.Path]::GetFileName($file))"; Arguments = @{ FailDownload = $file }; Message = "DOWNLOAD FAILED: $file" }
+            }
+            @{ Name = 'other-key'; Arguments = @{ ServeOtherKey = $true }; Message = 'RELEASE KEY MISMATCH' }
+            @{ Name = 'tampered-manifest'; Arguments = @{ TamperManifest = $true }; Message = 'SIGNATURE INVALID' }
+            @{ Name = 'tampered-installer'; Arguments = @{ TamperInstaller = $true }; Message = 'INSTALLER HASH MISMATCH' }
+            @{ Name = 'hash-under-other-row'; Arguments = @{ HashUnderOtherRow = $true }; Message = 'INSTALLER HASH MISMATCH' }
+        )
+        foreach ($case in $cases) {
+            $arguments = $case.Arguments
+            $run = Invoke-NestedInstallFixture -Name $case.Name @arguments
+            $run.TimedOut | Should -BeFalse -Because $case.Name
+            $run.ExitCode | Should -Not -Be 0 -Because $case.Name
+            $run.Ran | Should -BeNullOrEmpty -Because "$($case.Name) must not run any installer"
+            $run.Output | Should -Match ([regex]::Escape($case.Message)) -Because $case.Name
         }
     }
 }
@@ -599,6 +795,8 @@ Describe 'Guest bootstrap account and phase consistency' {
         if ($HomeShape -eq 'spaces and quotes') { $fixture += " guest's home" }
         $null = New-Item -ItemType Directory -Path $fixture
         $source = Get-Content (Join-Path $script:RepoRoot 'guest/macos.26/macos.26.update.sh') -Raw
+        # The early block fetches through the script's own archive helper.
+        $fetchHelper = [regex]::Match($source, '(?ms)^yuruna_fetch_archive\(\) \{.*?^\}').Value
         if ($Stage -eq 'early') {
             $start = $source.IndexOf('# --- REGION: Early yuruna framework extraction')
             $end = $source.IndexOf('# --- REGION: Disable services that may suspend the machine', $start)
@@ -626,6 +824,7 @@ id() {
 }
 yuruna_host_livecheck() { return 0; }
 curl() { printf archive; }
+wget() { printf archive; }
 tar() {
     cat >/dev/null
     [ "$1" = -xz ] && [ "$2" = -C ] && [ "$3" = "$YURUNA_GUEST_FIXTURE/yuruna" ] || return 92
@@ -639,7 +838,7 @@ sudo() {
 '@
         $entrypoint = Join-Path $fixture 'fixture.sh'
         $callsFile = Join-Path $fixture 'calls.txt'
-        Set-Content -LiteralPath $entrypoint -Value ($prefix + "`n" + $source)
+        Set-Content -LiteralPath $entrypoint -Value ($prefix + "`n" + $fetchHelper + "`n" + $source)
         $result = Invoke-BoundedNativeCommand -FilePath bash -ArgumentList @($entrypoint) -TimeoutSeconds 10 `
             -Environment @{ YURUNA_GUEST_FIXTURE = $fixture; YURUNA_GUEST_CALLS = $callsFile }
         $result.ExitCode | Should -Be 0 -Because $result.StdErr

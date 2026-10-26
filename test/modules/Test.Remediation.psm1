@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.25
+.VERSION 2026.10.26
 .GUID 42bd6583-4d45-42df-b3b7-3411df4c5af9
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -67,6 +67,8 @@ Import-Module (Join-Path $PSScriptRoot 'Test.Registry.psm1') -Force -DisableName
 # the call site) so the write-back is always available wherever the
 # dispatcher runs.
 Import-Module (Join-Path $PSScriptRoot 'Test.StateFile.psm1') -Force -DisableNameChecking -Global
+# The class routing table: which classes may be retried unattended.
+Import-Module (Join-Path $PSScriptRoot 'Test.FailureTaxonomy.psm1') -DisableNameChecking
 
 $script:RemediationRegistry = New-YurunaRegistry -Name 'Remediation' -AnchorVar 'YurunaRemediationHandlers' -Comparer 'OrdinalIgnoreCase'
 
@@ -85,18 +87,19 @@ $script:RecommendationEnum = @(
 
 # --- REGION: Auto-remediation policy
 # See https://yuruna.link/4213a0b3-00da
-$script:AutoRemediationAllowList = [ordered]@{
-    # The transient three: the condition is external and usually gone by the
-    # next attempt, so the retry IS the repair.
-    'wait_timeout'           = (Format-YurunaOperatorMessage -Key 'remediation.operator_b9e5f8c44bec51fc')
-    'network_timeout'        = (Format-YurunaOperatorMessage -Key 'remediation.operator_4046c1f6949f7aad')
-    'ip_not_discovered'      = (Format-YurunaOperatorMessage -Key 'remediation.operator_787985aef3c53e0a')
-    # The staged command never reached the guest's shell as a runnable payload,
-    # so a retry repeats no work the guest already did.
-    'input_lost'             = (Format-YurunaOperatorMessage -Key 'remediation.operator_52e8af97f6901f58')
-    # Backed by a Repair-* primitive that is safe to run twice.
+# Which classes qualify is the taxonomy's UnattendedRetry attribute; this map
+# holds only the reason each one qualifies, for the operator.
+$script:AutoRemediationReason = @{
+    'wait_timeout'            = (Format-YurunaOperatorMessage -Key 'remediation.operator_b9e5f8c44bec51fc')
+    'network_timeout'         = (Format-YurunaOperatorMessage -Key 'remediation.operator_4046c1f6949f7aad')
+    'ip_not_discovered'       = (Format-YurunaOperatorMessage -Key 'remediation.operator_787985aef3c53e0a')
+    'input_lost'              = (Format-YurunaOperatorMessage -Key 'remediation.operator_52e8af97f6901f58')
     'instrumentation_failure' = (Format-YurunaOperatorMessage -Key 'remediation.operator_36573af397a13ade')
     'host_io_blocked'         = (Format-YurunaOperatorMessage -Key 'remediation.operator_70fab6da39ee36e1')
+}
+$script:AutoRemediationAllowList = [ordered]@{}
+foreach ($routedClass in (Get-FailureClassByRoute -Route UnattendedRetry)) {
+    $script:AutoRemediationAllowList[$routedClass] = [string]$script:AutoRemediationReason[$routedClass]
 }
 
 function Get-AutoRemediationAllowList {
@@ -333,7 +336,8 @@ function Invoke-Remediation {
     $innerClass = if ($FailureRecord.Contains('innerFailureClass') -and $FailureRecord['innerFailureClass']) { [string]$FailureRecord['innerFailureClass'] } else { '' }
     # Skip a self-equal inner class ($innerClass -ne $failureClass): routing to
     # the same class is a no-op that would only emit a misleading "routed" audit.
-    if ($failureClass -eq 'retry_exhausted' -and $innerClass -and $innerClass -ne $failureClass -and (Get-RecoveryHandler -FailureClass $innerClass)) {
+    $routing = Resolve-RoutingClass -FailureClass $failureClass -InnerFailureClass $innerClass
+    if ($routing.Wrapped -and (Get-RecoveryHandler -FailureClass $routing.RoutingClass)) {
         $routedFromClass = $failureClass
         $failureClass    = $innerClass
         # Severity follows the routed class: use the recorded innerSeverity, else
@@ -506,7 +510,7 @@ function Invoke-Remediation {
                 if ($null -ne $val -and "$val" -ne '') { $record[$key] = $val }
             }
             try {
-                $null = Write-YurunaStateFileJson -Path (Join-Path $targetDir 'last_remediation.json') -InputObject $record -Confirm:$false
+                $null = Write-YurunaStateFileJson -Path (Join-Path $targetDir 'last_remediation.json') -InputObject $record -WarnOnFailure -Confirm:$false
             } catch {
                 Write-Verbose (Format-YurunaOperatorMessage -Key 'remediation.operator_730dca21ad9eda73' -Arguments @{ message = "$($_.Exception.Message)" })
             }
@@ -770,6 +774,30 @@ function Register-BuiltinRecoveryHandler {
                 (Format-YurunaOperatorMessage -Key 'remediation.operator_c00ffc306428603b'),
                 (Format-YurunaOperatorMessage -Key 'remediation.operator_03c7dac9d2e3c13f'),
                 (Format-YurunaOperatorMessage -Key 'remediation.operator_16b7173fb133ad34')
+            )
+        }
+    }
+
+    Register-RecoveryHandler -FailureClass 'vm_not_stopped' -Handler {
+        param([hashtable]$c)
+        return @{
+            Recommendation = 'retry_with_backoff'
+            Rationale      = (Format-YurunaOperatorMessage -Key 'remediation.vm_not_stopped_rationale' -Arguments @{ vmName = "$($c.Context.vmName)" })
+            Actions        = @(
+                (Format-YurunaOperatorMessage -Key 'remediation.vm_not_stopped_action_power'),
+                (Format-YurunaOperatorMessage -Key 'remediation.vm_not_stopped_action_inspect')
+            )
+        }
+    }
+
+    Register-RecoveryHandler -FailureClass 'guest_run_lost' -Handler {
+        param([hashtable]$c)
+        return @{
+            Recommendation = 'restart_from_snapshot'
+            Rationale      = (Format-YurunaOperatorMessage -Key 'remediation.guest_run_lost_rationale' -Arguments @{ vmName = "$($c.Context.vmName)" })
+            Actions        = @(
+                (Format-YurunaOperatorMessage -Key 'remediation.guest_run_lost_action_restore'),
+                (Format-YurunaOperatorMessage -Key 'remediation.guest_run_lost_action_inspect')
             )
         }
     }

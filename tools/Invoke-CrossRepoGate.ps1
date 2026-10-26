@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.25
+.VERSION 2026.10.26
 .GUID 42c1f5b8-9a37-4e02-b6d4-5081e7c3a9f6
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -170,6 +170,17 @@ function Get-GateRemediation {
                 'shellcheck on each and fix the findings. Detail ''shellcheck is not installed on ' +
                 'this host'' is a prerequisite gap: install shellcheck and re-run. Detail ''the ' +
                 'project ships no shell scripts'' is not-applicable and needs nothing.' }
+        @{ Gate = 'project-tests'; Match = ''; Code = 'project-tests'
+            Action = 'The detail names each failing project test program and the last lines it printed. ' +
+                'Run it from its own folder (python3 -B -m unittest <module> for test_*.py, python3 -B ' +
+                '<file> for *_contracts.py, node <file> for *.test.js) and fix what it reports in the ' +
+                'project repository. Detail ''python3 is not installed'' or ''node is not installed'' ' +
+                'is a prerequisite gap: install the interpreter and re-run.' }
+        @{ Gate = 'amisad-tests'; Match = ''; Code = 'amisad-tests'
+            Action = 'The amisad.dev regression suite beside this checkout failed or produced no result. ' +
+                'Run pwsh -NoProfile -File tools/_InvokeOneSuite.ps1 -Suite <amisad.dev>/test/' +
+                'AmisAd.Regression.Tests.ps1 -Xml <file> and fix the failing cases in amisad.dev. ' +
+                'Detail ''no amisad.dev checkout'' is not-applicable and needs nothing.' }
         @{ Gate = 'project-locale-map'; Match = ''; Code = 'locale-map'
             Action = 'The project locale map no longer matches the project''s own localized surface. Run ' +
                 'pwsh -NoProfile -File tools/Invoke-ProjectLocaleMap.ps1 -ProjectRoot <project ' +
@@ -246,14 +257,16 @@ function Get-GateRemediation {
                 'whether the sibling was there, so a dirty tree bakes local scratch state into a ' +
                 'committed artifact. -Update always exits 0, even when it wrote.' }
         @{ Gate = 'catalog-compile'; Match = ''; Code = 'catalog-compile'
-            Action = 'The compiled catalog artifacts do not match their sources. Run pwsh -NoProfile ' +
-                '-File tools/Invoke-CatalogCompile.ps1 -Update and commit what it writes. It exits ' +
-                '1 when it SUCCESSFULLY WROTE and 0 only when nothing changed; only exit 2 is a ' +
-                'failure, so do not wrap it in a plain non-zero throw.' }
+            Action = 'The compiled catalog artifacts do not match their sources, or a source is invalid. ' +
+                'Run pwsh -NoProfile -File tools/Invoke-CatalogCompile.ps1 -Update and commit what it ' +
+                'writes. -Update exits 0 when it is done, whether or not it wrote; 1 means a source ' +
+                'is invalid (it names the problems), 2 that it could not run, and the check exits 3 ' +
+                'for stale artifacts.' }
         @{ Gate = 'catalog-embed'; Match = ''; Code = 'catalog-embed'
             Action = 'A runtime copy no longer matches the catalog sources. Compile FIRST, then run pwsh ' +
                 '-NoProfile -File tools/Invoke-CatalogEmbed.ps1 (writing is the default; there is ' +
-                'no -Update, and it exits 0 after writing). Regenerating the embed alone can never ' +
+                'no -Update, and it exits 0 after writing; the check exits 3 for a copy that would ' +
+                'change and 1 for one that cannot be embedded). Regenerating the embed alone can never ' +
                 'settle a stale compile, because the embed hashes catalog-set.json into every ' +
                 'runtime it writes.' }
         @{ Gate = 'utf8-catalog'; Match = ''; Code = 'utf8-catalog'
@@ -742,15 +755,16 @@ $focusedGates = @(
 
 $plannedStages = [Collections.Generic.List[string]]::new()
 $plannedStages.AddRange([string[]]@('doc-translation', 'region-anchors', 'project-lint',
-        'project-shellcheck', 'project-locale-map', 'project-utf8', 'affected-slice-map'))
+        'project-shellcheck', 'project-tests', 'amisad-tests', 'project-locale-map', 'project-utf8',
+        'affected-slice-map'))
 if ($isRelease) { $plannedStages.Add('staged-tree-hashes') }
 if ($runFramework) {
     $plannedStages.AddRange([string[]]@($frameworkGates | ForEach-Object { $_.Name }))
     $plannedStages.AddRange([string[]]@($focusedGates | ForEach-Object { $_.Gate }))
 }
-# Progress counts what runs one after another: the two inline project checks,
+# Progress counts what runs one after another: the four inline project checks,
 # the release tree hashes, and the pool as one stage.
-$script:StageTotal = 3 + [int]$isRelease
+$script:StageTotal = 5 + [int]$isRelease
 
 # --- REGION: Cross-repository gates
 # Every gate below reads the trees and writes nothing another gate reads, so
@@ -812,6 +826,77 @@ if (-not $shellDiscoveryFailed) {
         $shellCode = $LASTEXITCODE
         Add-Row -Gate 'project-shellcheck' -State $(if ($shellCode -eq 0) { 'pass' } else { 'fail' }) `
             -Detail $(if ($shellCode -eq 0) { "$($shell.Count) script(s) clean" } else { "shellcheck exit ${shellCode}: $($shellOutput.Trim())" })
+    }
+}
+
+# --- REGION: Project test programs
+# The project's tests are Python and Node programs that no runner of the
+# project starts, so they run here beside its other checks, each from its own
+# folder as its author runs it.
+Write-GateProgress -Stage 'project-tests'
+$testPrograms = @()
+$testDiscoveryFailed = $false
+try { $testPrograms = @(Get-GitCandidatePath -Root $ProjectRoot -Include @('test_*.py', '*/test_*.py', '*_contracts.py', '*.test.cjs', '*.test.js')) }
+catch {
+    $testDiscoveryFailed = $true
+    Add-Row -Gate 'project-tests' -State 'cannot-run' -Detail $_.Exception.Message
+}
+if (-not $testDiscoveryFailed) {
+    $python = Get-Command python3 -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
+    $node = Get-Command node -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
+    if ($testPrograms.Count -eq 0) {
+        Add-Row -Gate 'project-tests' -State 'not-applicable' -Detail 'the project ships no test programs'
+    } elseif (@($testPrograms | Where-Object { $_ -like '*.py' }).Count -and -not $python) {
+        Add-Row -Gate 'project-tests' -State 'cannot-run' -Detail 'python3 is not installed on this host'
+    } elseif (@($testPrograms | Where-Object { $_ -notlike '*.py' }).Count -and -not $node) {
+        Add-Row -Gate 'project-tests' -State 'cannot-run' -Detail 'node is not installed on this host'
+    } else {
+        $failedPrograms = [Collections.Generic.List[string]]::new()
+        foreach ($rel in $testPrograms) {
+            $full = Join-Path $ProjectRoot $rel
+            $leaf = Split-Path -Leaf $full
+            Push-Location -LiteralPath (Split-Path -Parent $full)
+            try {
+                $programOutput = if ($leaf -like 'test_*.py') { & $python.Source -B -m unittest ([IO.Path]::GetFileNameWithoutExtension($leaf)) 2>&1 }
+                    elseif ($leaf -like '*.py') { & $python.Source -B $leaf 2>&1 }
+                    else { & $node.Source $leaf 2>&1 }
+                if ($LASTEXITCODE -ne 0) {
+                    $failedPrograms.Add("$rel exit ${LASTEXITCODE}: $((@($programOutput) | Select-Object -Last 3) -join ' ')")
+                }
+            } finally { Pop-Location }
+        }
+        Add-Row -Gate 'project-tests' -State $(if ($failedPrograms.Count -eq 0) { 'pass' } else { 'fail' }) `
+            -Detail $(if ($failedPrograms.Count -eq 0) { "$($testPrograms.Count) program(s) passed" } else { $failedPrograms -join '; ' })
+    }
+}
+
+# --- REGION: amisad.dev regression suite
+# amisad.dev is deployed by this framework and tested by its own Pester suite,
+# which its hook does not run; where its checkout sits beside this one, it runs
+# here through the same suite shim as every framework suite.
+Write-GateProgress -Stage 'amisad-tests'
+$amisadRoot = Join-Path (Split-Path -Parent $RepoRoot) 'amisad.dev'
+$amisadSuite = Join-Path $amisadRoot 'test/AmisAd.Regression.Tests.ps1'
+if (-not (Test-Path -LiteralPath $amisadSuite -PathType Leaf)) {
+    Add-Row -Gate 'amisad-tests' -State 'not-applicable' -Detail 'no amisad.dev checkout beside this one'
+} else {
+    $amisadXml = Join-Path ([IO.Path]::GetTempPath()) ('amisad-regression-' + [guid]::NewGuid().ToString('N') + '.xml')
+    try {
+        $null = & (Get-Process -Id $PID).Path -NoProfile -NonInteractive -File (Join-Path $RepoRoot 'tools/_InvokeOneSuite.ps1') `
+            -Suite $amisadSuite -Xml $amisadXml 2>&1
+        if (-not (Test-Path -LiteralPath $amisadXml)) {
+            Add-Row -Gate 'amisad-tests' -State 'fail' -Detail 'the suite produced no result file'
+        } else {
+            $results = ([xml](Get-Content -LiteralPath $amisadXml -Raw)).'test-results'
+            $total = [int]$results.total
+            $broken = [int]$results.failures + [int]$results.errors
+            Add-Row -Gate 'amisad-tests' -State $(if ($total -gt 0 -and $broken -eq 0) { 'pass' } else { 'fail' }) `
+                -Detail "$total test(s), $broken failed, $([int]$results.skipped + [int]$results.'not-run' + [int]$results.ignored) skipped"
+        }
+    } catch {
+        Add-Row -Gate 'amisad-tests' -State 'cannot-run' -Detail $_.Exception.Message
+    } finally {
+        Remove-Item -LiteralPath $amisadXml -Force -ErrorAction SilentlyContinue
     }
 }
 

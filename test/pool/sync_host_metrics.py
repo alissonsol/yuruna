@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
-# Version: 2026.10.25
+# Version: 2026.10.26
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
+# GUID: 42e8f044-daf1-463f-a8b4-0b1c7ca964d0
 """Update only the pool-host metric filter; validate and roll back failed reloads.
 
 See https://yuruna.link/429f3d06-0046. This helper is invoked by the host's

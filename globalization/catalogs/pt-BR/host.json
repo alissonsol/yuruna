@@ -2535,8 +2535,9 @@
       "message": "Ponte '{bridgeName}' tem NO uplink port ('{nic}' não vai escravizar) -- os convidados nele nunca obteriam uma oferta DHCP. Rodando o netplan mudar de volta."
     },
     "host.operator_891e818fe6ad2659": {
-      "sourceHash": "4c4a9aaccd45a5f5774944f094ba4aded1cb51b6b3be4b1f02160c15185ab93d",
-      "message": "Assinatura SHA256SUMS não verificada (gpg/keyserver indisponível ou sem .gpg separado); procedendo apenas no hash."
+      "sourceHash": "55caf09b2df58413a3a69a99da8ea510cf62df49b8eb83b7961b07e29e7ee329",
+      "origin": "machine",
+      "message": "Assinatura do SHA256SUMS não verificada (o gpg ou o chaveiro fixado não está instalado); continuando apenas com o hash."
     },
     "host.operator_89af27dbbf79e963": {
       "sourceHash": "d821555169cc03abd1c248144fd85e73d0913a6d3f38e399e964ace0a795caa8",
@@ -4268,8 +4269,9 @@
       "message": "virsh --source agent : tenta (seed instala o qemu-guest-agent best-effort; confirma por convidado)"
     },
     "host.operator_f11ac5338e134c99": {
-      "sourceHash": "e288add86c27ce9adf52ac5833a49fe5d0e6c7a2f3e954ac7384711975dd0227",
-      "message": "Save-ImageWithChecksum: SHA256SUMS signature unverified (gpg/keyserver indisponível ou nenhum .gpg separado); continuando apenas no hash."
+      "sourceHash": "025859b6823167d9fbb715936657a771a78fea41c437be55cf7e22e17f10554d",
+      "origin": "machine",
+      "message": "Save-ImageWithChecksum: assinatura do SHA256SUMS não verificada (o gpg ou o chaveiro fixado não está instalado); continuando apenas com o hash."
     },
     "host.operator_f138be59eb9fb325": {
       "sourceHash": "e44152cad0f1d96f9994183ef52a5f7489cf3f613b457dc782345c2430855023",
@@ -4829,6 +4831,31 @@
       "sourceHash": "643de5f5e6aef1937e9ed81d27541922f0d9f67306cc88920fbd9f9dee30887a",
       "origin": "machine",
       "message": "'{vMName}' não foi criada: o proxy de cache em {cacheHost} serve uma CA na qual este hospedeiro não confia ({reason}). O convidado não é semeado contornando isso, e a falha é classificada como source_integrity."
+    },
+    "host.agent_image_unverifiable": {
+      "sourceHash": "ee96e9d45bc4a212644685e9f24f2d3ed01466c51ba3a84be74f0bc82aeb394a",
+      "origin": "machine",
+      "message": "O agente de download serviu {isoFileName} a partir de {sourceUrl}, mas nenhuma lista de somas de verificação do publicador o nomeia, então a imagem não é usada."
+    },
+    "host.snapshot_state_unknown": {
+      "sourceHash": "0c80dc7ea13c4d1bcf48f7e671df4e7bd3d0b47de472ef5163f735cd8339dda0",
+      "origin": "machine",
+      "message": "Não foi possível saber se o snapshot '{id}' existe em {vMName}: o hipervisor não respondeu."
+    },
+    "host.signature_could_not_be_checked": {
+      "sourceHash": "e1981edf8a70ecd44e5c2031b45f959b3a99fbcde406e1d266e1b6002d545b77",
+      "origin": "machine",
+      "message": "  A ASSINATURA GPG DO SHA256SUMS NÃO PÔDE SER VERIFICADA"
+    },
+    "host.signature_could_not_be_checked_detail": {
+      "sourceHash": "d0a392ea9fec5c3af72b58f5e9835f393c212763ef4e705316b9f56d572dcf97",
+      "origin": "machine",
+      "message": "  O gpg e as chaves de assinatura do Ubuntu fixadas estão presentes, mas a assinatura não pôde ser obtida nem verificada; a soma de verificação é recusada por não estar autenticada."
+    },
+    "host.base_image_publish_failed": {
+      "sourceHash": "891986811834ded8494d25e5df6050ca2f3681cf7e9737154ed2386097dcea1a",
+      "origin": "machine",
+      "message": "Não foi possível colocar o download no lugar como {baseImageFile}: {message} Nenhum sentinela ou registro de origem foi gravado para ele."
     }
   }
 }

@@ -1,5 +1,6 @@
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
+# GUID: 429bdf3b-b256-40e2-aee4-5ce09135bf12
 variable "name" { type = any }
 variable "kubernetes_version" { type = any }
 variable "endpoint_private_access" { type = any }

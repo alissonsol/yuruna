@@ -1,5 +1,6 @@
 // LICENSEURI https://yuruna.link/license
 // Copyright (c) 2019-2026 by Alisson Sol et al.
+// GUID: 428f33a8-3f41-4398-a845-e3d0d598baf0
 
 // pool-aggregator-service: read-only multi-host pool view for the Yuruna test harness.
 // See ../../../docs/pool-admin.md#architecture for the auto-discovery and
@@ -107,7 +108,6 @@ const (
 	maxAnnounce        = 512     // distinct (hostId,area) announce entries kept in memory
 	maxAnnounceBody    = 4 << 10 // bytes read from one announce POST
 	// --- REGION: https://yuruna.link/42fffc2c-0016
-	//
 	// A confirmed target that goes quiet is kept for extensionHealthGrace -- a
 	// service restart, a lost packet or a DHCP renewal must not empty the panel
 	// -- and is then refused for resolution: the address stops being published,
@@ -1705,7 +1705,7 @@ func fetchCurrentAction(client *http.Client, base string) (bool, error) {
 // served by the status service at /yuruna-repo/VERSION -- the SAME source the
 // host's own status pages read for their header (their getHostInfo() fetches
 // yuruna-repo/VERSION via JS, so the version is not embedded in the HTML). A tiny
-// plain-text file (one CalVer line, e.g. "2026.10.25"), so it is lighter than any
+// plain-text file (one CalVer line, e.g. "2026.10.26"), so it is lighter than any
 // status HTML page and fetchable server-side without a JS engine. Returns
 // ("", err) on any failure; the caller keeps the prior version on a transient
 // miss (the version is stable across polls). The value is capped + first-line
@@ -5897,7 +5897,6 @@ func writeJSONPayload(w http.ResponseWriter, payload map[string]any) {
 }
 
 // --- REGION: Incident and health as JSON
-//
 // Both of these existed only as Prometheus exposition. A dashboard could show
 // them and an operator could read them off a panel; nothing could ASK for them.
 // That is the gap the MCP surface exists to close, and it is closed with routes
@@ -6343,9 +6342,10 @@ func (s *poolState) handleHostAnnounce(w http.ResponseWriter, r *http.Request) {
 	s.mu.Unlock()
 
 	// 2xx means recorded, not merely received -- the same contract /announce
-	// keeps, and for the same reason: a beacon retries only until its first
-	// success, so a 2xx for a line that never reached Loki costs the pool a
-	// whole beacon period of a host it cannot resolve.
+	// keeps, and for the same reason: a beacon told 2xx waits a whole period
+	// before it announces again, so a 2xx for a line that never reached Loki
+	// costs the pool up to a beacon period of a host it cannot resolve after
+	// the next restart.
 	if err := pushHostAnnounce(s.httpClient, s.lokiURL, poolLabel, a.HostId, baseURL, now); err != nil {
 		localizedHTTPError(w, r, "aggregator.announce_accepted_but_not_recorded", http.StatusServiceUnavailable)
 		return
@@ -6526,7 +6526,7 @@ func (s *poolState) handleAnnounce(w http.ResponseWriter, r *http.Request) {
 	// a service that just came up is then resolvable immediately, which is what
 	// a lab bringing up its stash and its cycles together depends on. Costs one
 	// bounded probe, and only on an address this aggregator has no verdict for --
-	// the steady 15-minute re-announces of a known address skip it. The address
+	// the steady re-announces of a known address skip it. The address
 	// is the sender's own (bound above), so this can only ever probe back at the
 	// caller: an open route cannot be turned into a scan of the LAN.
 	if active {
@@ -6536,8 +6536,8 @@ func (s *poolState) handleAnnounce(w http.ResponseWriter, r *http.Request) {
 	// goodbyes are pushed too so the latest line decides restart state.
 	//
 	// The push OUTCOME is the reply, because 2xx is what stops the announcer:
-	// its beacon retries only until the first success, then sleeps a full
-	// re-announce period. Answering 2xx for a line that never reached Loki
+	// its beacon retries a non-2xx on its catch-up cadence and sleeps a full
+	// re-announce period after a 2xx. Answering 2xx for a line that never reached Loki
 	// therefore trades a retry the announcer would have made in seconds for an
 	// entry that exists only in this process's memory -- and the window where
 	// that matters is precisely a restart, which is also when an aggregator is
@@ -6900,6 +6900,7 @@ func newDualProtocolListener(inner net.Listener, tlsCfg *tls.Config) *dualProtoc
 // one client that connects and then stalls before its first byte cannot block
 // the accept path for everyone else.
 func (l *dualProtocolListener) acceptLoop() {
+	var delay time.Duration
 	for {
 		c, err := l.inner.Accept()
 		if err != nil {
@@ -6910,13 +6911,34 @@ func (l *dualProtocolListener) acceptLoop() {
 			if errors.Is(err, net.ErrClosed) {
 				return
 			}
-			// Transient accept failure (e.g. EMFILE): keep accepting; the
-			// parked error still surfaces through Accept so http.Server can
-			// apply its own temporary-error backoff.
+			// Transient accept failure (e.g. EMFILE): keep accepting, after the
+			// capped delay net/http.Server.Serve applies to its own Accept.
+			// That backoff paces only the wrapper's Accept; without one here
+			// this loop retries the inner listener at full speed and pins a core
+			// until descriptors free up. The parked error still surfaces through
+			// Accept.
+			delay = nextAcceptDelay(delay)
+			select {
+			case <-l.done:
+				return
+			case <-time.After(delay):
+			}
 			continue
 		}
+		delay = 0
 		go l.sniff(c)
 	}
+}
+
+// nextAcceptDelay doubles the wait after a failed accept, from 5ms up to 1s.
+func nextAcceptDelay(d time.Duration) time.Duration {
+	if d == 0 {
+		return 5 * time.Millisecond
+	}
+	if d *= 2; d > time.Second {
+		return time.Second
+	}
+	return d
 }
 
 func (l *dualProtocolListener) sniff(c net.Conn) {

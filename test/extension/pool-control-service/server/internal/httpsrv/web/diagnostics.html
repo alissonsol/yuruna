@@ -2,6 +2,7 @@
 <!--
   LICENSEURI https://yuruna.link/license
   Copyright (c) 2019-2026 by Alisson Sol et al.
+  GUID: 42ed50d3-4072-42b2-bf0c-717a0c62de72
 -->
 <html lang="en">
 <head>
@@ -38,29 +39,29 @@
     <div id="notice" role="alert" class="notice"></div>
     <div class="row"><button id="refresh" data-i18n="pool.re_run_checks">Re-run checks</button></div>
     <div id="summary" role="status"></div>
-    <table>
+    <div class="table-wrap" tabindex="0"><table>
       <thead>
         <tr><th data-i18n="pool.check">Check</th><th data-i18n="pool.result">Result</th><th data-i18n="pool.detail">Detail</th><th data-i18n="pool.what_to_do">What to do</th></tr>
       </thead>
       <tbody id="check-rows"></tbody>
-    </table>
+    </table></div>
     <h2 data-i18n="pool.configuration_read_raw_invocation">Configuration read &mdash; raw invocation</h2>
     <p class="muted" data-i18n="pool.the_exact_command_its_exit_code_and_both_streams_verbatim_the_poo">The exact command, its exit code, and both streams verbatim. The pool-admin CLIs report failures as JSON on stdout , so stdout is usually where the real message is.</p>
-    <table>
+    <div class="table-wrap" tabindex="0"><table>
       <tbody id="probe-rows"></tbody>
-    </table>
+    </table></div>
 
     <h2 data-i18n="pool.process_environment">Process environment</h2>
     <p class="muted" data-i18n="pool.what_the_daemon_was_launched_with_and_the_environment_its_pwsh_ch">What the daemon was launched with, and the environment its pwsh child processes inherit.</p>
-    <table>
+    <div class="table-wrap" tabindex="0"><table>
       <tbody id="env-rows"></tbody>
-    </table>
+    </table></div>
 
     <h2 data-i18n="pool.process">Process</h2>
     <p class="muted" data-i18n="pool.which_build_is_actually_running_and_for_how_long_establishes_whet">Which build is actually running, and for how long &mdash; establishes whether a fix was deployed at all.</p>
-    <table>
+    <div class="table-wrap" tabindex="0"><table>
       <tbody id="runtime-rows"></tbody>
-    </table>
+    </table></div>
 
     <h2 data-i18n="pool.persisted_health">Persisted health</h2>
     <p class="muted" data-i18n="pool.the_same_document_command1_serves_from_the_state_dir_on_the_pool_" data-i18n-args="{&quot;command1&quot;: &quot;/healthz&quot;}">The same document /healthz serves, from the state dir on the pool NAS.</p>

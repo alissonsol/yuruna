@@ -29,6 +29,7 @@ const DataptBRstash = `{
   "stash.api_invalid_host": "máquina inválida",
   "stash.api_invalid_json_body": "corpo JSON inválido",
   "stash.api_invalid_stash_path": "caminho inválido do stash",
+  "stash.api_large_text_busy": "outro texto grande está sendo armazenado; tente de novo em instantes",
   "stash.api_no_stashes_given": "nenhum stash fornecido",
   "stash.api_not_an_archive": "não é um arquivo",
   "stash.api_not_found": "não encontrado",

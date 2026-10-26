@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.25
+.VERSION 2026.10.26
 .GUID 42eb20ad-6a27-430a-ba01-796c50a077ed
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -219,7 +219,7 @@ function Get-ProjectFlatTestSearchDir {
 .SYNOPSIS
     Returns the single flat-project match for $FileName under any test/ folder.
 .DESCRIPTION
-    Flat-shape counterpart of Find-ProjectSequenceFile: scans every `test/` dir
+    The flat-project lookup Resolve-SequencePath uses: scans every `test/` dir
     from Get-ProjectFlatTestSearchDir for an exact $FileName. Returns the full
     path on a single hit, $null on none, and throws PlannerFatal on >=2 hits
     (an ambiguous plan the operator must resolve), mirroring the mode-folder rule.
@@ -459,7 +459,7 @@ function Get-SnippetMap {
     .DESCRIPTION
         Framework libraries load first (base); project libraries then override by
         name. Two PROJECT libraries defining the same name throw PlannerFatal (an
-        ambiguous plan), mirroring Find-ProjectSequenceFile's duplicate rule.
+        ambiguous plan), mirroring Find-ProjectFlatSequenceFile's duplicate rule.
     #>
     param([Parameter(Mandatory)][string]$SequencePath)
 

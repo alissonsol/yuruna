@@ -249,6 +249,7 @@ const DatazhCNstatus = `{
   "status.banner_idle": "暂无测试数据",
   "status.banner_incident_details": "检测到故障——请查看以下详情",
   "status.banner_pass": "所有客户机均运行正常",
+  "status.banner_recovery_disabled": "自动恢复已关闭：无法读取或写入恢复台账。",
   "status.banner_running": "测试正在进行中",
   "status.banner_stalled": [
     "测试正在进行，但在 ",

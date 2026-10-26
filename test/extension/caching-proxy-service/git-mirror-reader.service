@@ -1,5 +1,6 @@
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
+# GUID: 4252a460-e017-4351-8d99-2e75a61ee6da
 [Unit]
 Description=Yuruna read-only Git mirror file service
 After=git-mirror-worker.service

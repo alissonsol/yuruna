@@ -5204,9 +5204,9 @@
       "message": "הריצו ufw allow {statusPort}⁦/tcp⁩"
     },
     "host.operator_891e818fe6ad2659": {
-      "sourceHash": "4c4a9aaccd45a5f5774944f094ba4aded1cb51b6b3be4b1f02160c15185ab93d",
+      "sourceHash": "55caf09b2df58413a3a69a99da8ea510cf62df49b8eb83b7961b07e29e7ee329",
       "origin": "machine",
-      "message": "החתימה של SHA256SUMS לא אומתה (gpg⁦/keyserver⁩ אינו זמין או שאין קובץ .gpg נפרד); התהליך ממשיך בהסתמך על ערך הגיבוב בלבד."
+      "message": "החתימה של SHA256SUMS לא אומתה (gpg או צרור המפתחות המוצמד אינם מותקנים); ממשיכים על סמך הגיבוב בלבד."
     },
     "host.operator_89c416f7ffc8adfa": {
       "sourceHash": "6da629838b0d4e83006427c815aa0e7b37e799cf87bea8470353d34d9d4181a1",
@@ -5764,9 +5764,9 @@
       "message": "התקדמות: {mB} / {mB2} MB ({pct}%)"
     },
     "host.operator_f11ac5338e134c99": {
-      "sourceHash": "e288add86c27ce9adf52ac5833a49fe5d0e6c7a2f3e954ac7384711975dd0227",
+      "sourceHash": "025859b6823167d9fbb715936657a771a78fea41c437be55cf7e22e17f10554d",
       "origin": "machine",
-      "message": "⁦Save-ImageWithChecksum⁩: החתימה של SHA256SUMS לא אומתה (gpg⁦/keyserver⁩ אינו זמין או שאין חתימת .gpg נפרדת); ממשיכים על סמך הגיבוב בלבד."
+      "message": "⁦Save-ImageWithChecksum⁩: החתימה של SHA256SUMS לא אומתה (gpg או צרור המפתחות המוצמד אינם מותקנים); ממשיכים על סמך הגיבוב בלבד."
     },
     "host.operator_f20ec6dc25a27749": {
       "sourceHash": "e8b884a2f216ed5548c82e78d587342aa4425df833346bf474fca5c7e13fe71c",
@@ -5952,6 +5952,31 @@
       "sourceHash": "643de5f5e6aef1937e9ed81d27541922f0d9f67306cc88920fbd9f9dee30887a",
       "origin": "machine",
       "message": "'⁦{vMName}⁩' לא נבנתה: ה-proxy לשמירת מטמון ב-⁦{cacheHost}⁩ מגיש CA שמארח זה אינו סומך עליו (⁦{reason}⁩). האורח אינו מוזרע תוך עקיפה של זה, והכשל מסווג כ-⁦source_integrity⁩."
+    },
+    "host.agent_image_unverifiable": {
+      "sourceHash": "ee96e9d45bc4a212644685e9f24f2d3ed01466c51ba3a84be74f0bc82aeb394a",
+      "origin": "machine",
+      "message": "סוכן ההורדות סיפק את {isoFileName} מ-{sourceUrl}, אך אף רשימת סכומי ביקורת של המפרסם אינה מציינת אותו, ולכן התמונה אינה בשימוש."
+    },
+    "host.snapshot_state_unknown": {
+      "sourceHash": "0c80dc7ea13c4d1bcf48f7e671df4e7bd3d0b47de472ef5163f735cd8339dda0",
+      "origin": "machine",
+      "message": "לא ניתן לדעת אם תמונת המצב '{id}' קיימת ב-{vMName}: ה-⁦hypervisor⁩ לא ענה."
+    },
+    "host.signature_could_not_be_checked": {
+      "sourceHash": "e1981edf8a70ecd44e5c2031b45f959b3a99fbcde406e1d266e1b6002d545b77",
+      "origin": "machine",
+      "message": "  לא ניתן היה לבדוק את חתימת GPG של SHA256SUMS"
+    },
+    "host.signature_could_not_be_checked_detail": {
+      "sourceHash": "d0a392ea9fec5c3af72b58f5e9835f393c212763ef4e705316b9f56d572dcf97",
+      "origin": "machine",
+      "message": "  ⁦gpg⁩ ומפתחות החתימה המוצמדים של Ubuntu קיימים, אבל לא ניתן היה להוריד או לאמת את החתימה; סכום הביקורת נדחה כלא מאומת."
+    },
+    "host.base_image_publish_failed": {
+      "sourceHash": "891986811834ded8494d25e5df6050ca2f3681cf7e9737154ed2386097dcea1a",
+      "origin": "machine",
+      "message": "לא ניתן היה להציב את ההורדה במקומה בתור ⁦{baseImageFile}⁩: {message} לא נכתבו עבורה זקיף או רשומת מקור."
     }
   }
 }

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.25
+.VERSION 2026.10.26
 .GUID 425e6973-60a5-43b1-90b8-194b4331c1f8
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -3870,14 +3870,10 @@ public class HyperVCapture {
         }
     }
 
-    // Detects a fully-rendered framebuffer that came back essentially
-    // black -- the Hyper-V "headless host" symptom (DWM not rendering
-    // because no monitor is connected). Returns true when the fraction
-    // of "dark" pixels (every channel below `byteThreshold`) meets or
-    // exceeds `darkFraction`. Used by Get-HyperVScreenshot to surface a
-    // clear warning when the WMI thumbnail comes back all-black so the
-    // operator gets pointed at the troubleshooting page instead of
-    // chasing a silent OCR-times-out failure.
+    // True when at least `darkFraction` of the pixels are dark (every channel below
+    // `byteThreshold`): the all-black thumbnail of a host with no monitor attached,
+    // which Get-HyperVScreenshot reports instead of letting OCR time out.
+    // See https://yuruna.link/42dc5bb9-000a
     public static bool IsImageMostlyBlack(byte[] imageData, int w, int h, double darkFraction) {
         if (imageData == null || w <= 0 || h <= 0) return false;
         int expected16 = w * h * 2;
@@ -4554,14 +4550,42 @@ function Restore-VMDiskSnapshot {
     }
 }
 
+# --- REGION: Get-VMDiskSnapshotState
+function Get-VMDiskSnapshotState {
+    <#
+    .SYNOPSIS
+        Whether snapshot $Id exists on $VMName: 'present', 'absent', or
+        'unknown' when the hypervisor could not answer.
+    .DESCRIPTION
+        A probe that cannot answer is not an absence: read as one, it rebuilds a
+        baseline over a snapshot that may exist, or skips a restore that would
+        have worked. Only a VM that does not exist, or an answer that lists no
+        such snapshot, is 'absent'.
+    #>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param(
+        [Parameter(Mandatory)][string]$VMName,
+        [Parameter(Mandatory)][string]$Id
+    )
+    if ((Get-VMState -VMName $VMName) -eq 'absent') { return 'absent' }
+    # Every checkpoint, matched here, rather than a -Name lookup whose miss and
+    # whose failure are both errors: an existing VM with none lists nothing.
+    try { $checkpoints = @(Hyper-V\Get-VMCheckpoint -VMName $VMName -ErrorAction Stop) }
+    catch { return 'unknown' }
+    if (@($checkpoints | Where-Object { [string]$_.Name -eq $Id }).Count -gt 0) { return 'present' }
+    return 'absent'
+}
+
 # --- REGION: Test-VMDiskSnapshot
 function Test-VMDiskSnapshot {
     <#
     .SYNOPSIS
-        Returns $true when checkpoint $Id is present on $VMName, $false
-        otherwise (including when the VM does not exist). Used by
-        Debug-TestSequence.ps1's requiresSnapshot warm-path probe before
-        deciding whether to walk the baseline chain.
+        Returns $true when checkpoint $Id is present on $VMName, $false when
+        it is absent (including when the VM does not exist), and throws when
+        Hyper-V could not answer. Used by Debug-TestSequence.ps1's
+        requiresSnapshot warm-path probe before deciding whether to walk the
+        baseline chain.
     #>
     [CmdletBinding()]
     [OutputType([bool])]
@@ -4569,9 +4593,11 @@ function Test-VMDiskSnapshot {
         [Parameter(Mandatory)][string]$VMName,
         [Parameter(Mandatory)][string]$Id
     )
-    if ((Get-VMState -VMName $VMName) -eq 'absent') { return $false }
-    $cp = Hyper-V\Get-VMCheckpoint -VMName $VMName -Name $Id -ErrorAction SilentlyContinue
-    return [bool]$cp
+    $state = Get-VMDiskSnapshotState -VMName $VMName -Id $Id
+    # A probe that could not answer throws, so a caller's indeterminate branch
+    # runs instead of reading the blip as a missing snapshot.
+    if ($state -eq 'unknown') { throw (Format-YurunaOperatorMessage -Key 'host.snapshot_state_unknown' -Arguments @{ id = "$Id"; vMName = "$VMName" }) }
+    return ($state -eq 'present')
 }
 
 # --- REGION: VM console
@@ -4928,15 +4954,9 @@ function Start-VMSerialCapture {
         $statePath = Join-Path $env:TEMP "yuruna-serial-$VMName.state.json"
         Remove-Item -LiteralPath $logPath, $statePath -Force -ErrorAction SilentlyContinue
         $pipeName = Get-VMSerialPipeName -VMName $VMName
-        # A separate process, so a reader blocked in Connect or Read can never
-        # stall the cycle, and so stopping it is one Stop-Job away. The pipe
-        # server is created by the VM worker when the VM is on and goes away
-        # with each restart, so the reader reconnects for as long as it runs.
-        # The job keeps its connection history in a sidecar beside the log,
-        # rewritten at each change of state, because an empty log alone cannot
-        # say whether the reader never reached the pipe or reached it and heard
-        # nothing. The job calls no module function: it outlives module
-        # reloads and must keep working with nothing but .NET and the shell.
+        # See https://yuruna.link/42f52e37-001e
+        # A job reads the pipe, reconnects across VM restarts, records its connection
+        # history in the sidecar and calls no module function.
         $job = Start-Job -Name "yuruna-serial-$VMName" -ScriptBlock {
             $PipeName = $using:pipeName
             $LogPath = $using:logPath
@@ -7162,7 +7182,7 @@ function Wait-HyperVServiceGuestAddress {
 # --- REGION: Exports
 Export-ModuleMember -Function Remove-HyperVGuestDefinition, Repair-VMStorageLocation, Resolve-HyperVGuestSwitch, New-HyperVServiceGuest, Wait-HyperVServiceGuestAddress, `
     New-VM, Start-VM, Stop-VM, Stop-VMForce, Remove-VM, Rename-VM, Get-VMState, Get-VMName, Test-VirtualizationResponsive, Start-VirtualizationServiceIfStopped, `
-    Save-VMDiskSnapshot, Restore-VMDiskSnapshot, Test-VMDiskSnapshot, `
+    Save-VMDiskSnapshot, Restore-VMDiskSnapshot, Test-VMDiskSnapshot, Get-VMDiskSnapshotState, `
     Test-VMConsoleOpen, Restart-VMConsole, Set-VMInstallerMediaFirstBoot, `
     Get-Image, Get-ImagePath, `
     Send-Text, Send-Key, Send-Click, Get-VMScreenshot, Get-VMConsoleHandle, `
@@ -7199,7 +7219,7 @@ Import-Module (Join-Path -Path $PSScriptRoot -ChildPath '..' -AdditionalChildPat
 $null = Assert-YurunaHostContractCoverage -HostType 'windows.hyper-v' `
     -Module $ExecutionContext.SessionState.Module -ExportedFunction @(
     'New-VM','Start-VM','Stop-VM','Stop-VMForce','Remove-VM','Rename-VM','Get-VMState','Get-VMName',
-    'Save-VMDiskSnapshot','Restore-VMDiskSnapshot','Test-VMDiskSnapshot',
+    'Save-VMDiskSnapshot','Restore-VMDiskSnapshot','Test-VMDiskSnapshot','Get-VMDiskSnapshotState',
     'Test-VMConsoleOpen','Restart-VMConsole',
     'Get-Image','Get-ImagePath',
     'Send-Text','Send-Key','Send-Click','Get-VMScreenshot','Get-VMConsoleHandle',

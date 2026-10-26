@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.25
+.VERSION 2026.10.26
 .GUID 4270c5ae-4f32-42b7-a8e4-08bd28d7d218
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -242,6 +242,67 @@ Describe 'Standalone KVM Ubuntu cache selection follows the shared policy' {
         { & $script:CacheSelection } | Should -Throw '*host.kvm_running_cache_unreachable*'
     }
 }
+# The agent spares the origin the bytes, not the publisher its say on them.
+Describe 'An image the download agent serves is verified like a direct download' {
+    BeforeAll {
+        Import-Module (Join-Path $script:RepoRoot 'host/modules/Yuruna.UbuntuImage.psm1') -Force -DisableNameChecking
+        $script:Iso = 'ubuntu-26.04.1-live-server-amd64.iso'
+        $script:Base = 'host.ubuntu.kvm.guest.ubuntu.server.26'
+    }
+    BeforeEach {
+        $script:Dir = Join-Path $TestDrive ([guid]::NewGuid().ToString('N'))
+        $null = New-Item -ItemType Directory -Path $script:Dir
+        Set-Content -LiteralPath (Join-Path $script:Dir 'downloaded.iso') -Value 'agent bytes'
+        Set-Content -LiteralPath (Join-Path $script:Dir "$($script:Base).iso") -Value 'previous bytes'
+        $iso = $script:Iso
+        Mock -ModuleName Yuruna.UbuntuImage Invoke-DownloadAgentFirst {
+            @{ BaseUrl = 'http://192.0.2.10:8090'; Result = @{ outcome = 'downloaded'; filename = $iso; sourceUrl = "https://releases.example.invalid/26.04/$iso"; lastModified = '' } }
+        }.GetNewClosure()
+    }
+    It 'checks the publisher checksum list beside the origin, and keeps the old image when it fails' {
+        Mock -ModuleName Yuruna.UbuntuImage Test-UbuntuServerImageChecksum { $false }
+        { Save-UbuntuServerImage -ReleaseCodename resolute -Arch amd64 -DownloadDir $script:Dir -BaseImageName $script:Base } | Should -Throw
+        Should -Invoke -ModuleName Yuruna.UbuntuImage Test-UbuntuServerImageChecksum -Times 1 -Exactly -ParameterFilter { $ChecksumUrl -ceq 'https://releases.example.invalid/26.04/SHA256SUMS' }
+        Get-Content -LiteralPath (Join-Path $script:Dir "$($script:Base).iso") | Should -Be 'previous bytes'
+        Test-Path -LiteralPath (Join-Path $script:Dir 'downloaded.iso') | Should -BeFalse
+    }
+    It 'records a failed checksum as an integrity failure for the runner to file' {
+        Import-Module (Join-Path $script:RepoRoot 'host/modules/Yuruna.HostProvision.psm1') -Force -DisableNameChecking
+        $record = Join-Path $script:Dir 'provision/guest.GetImage.json'
+        $prior = $env:YURUNA_PROVISION_RESULT
+        $env:YURUNA_PROVISION_RESULT = $record
+        try {
+            Mock -ModuleName Yuruna.UbuntuImage Test-UbuntuServerImageChecksum { $false }
+            { Save-UbuntuServerImage -ReleaseCodename resolute -Arch amd64 -DownloadDir $script:Dir -BaseImageName $script:Base } | Should -Throw
+            $result = Read-YurunaProvisionResult -Path $record
+            $result.kind | Should -Be 'integrity'
+            $result.failureClass | Should -Be 'source_integrity' -Because 'the same bytes fail the same way, so a retry is no repair'
+        } finally { $env:YURUNA_PROVISION_RESULT = $prior }
+    }
+    It 'writes no sentinel for a swap that did not put the new image in place' {
+        Mock -ModuleName Yuruna.UbuntuImage Test-UbuntuServerImageChecksum { $true }
+        Mock -ModuleName Yuruna.UbuntuImage Publish-YurunaBaseImage { throw 'the base image is in use' }
+        { Save-UbuntuServerImage -ReleaseCodename resolute -Arch amd64 -DownloadDir $script:Dir -BaseImageName $script:Base 6>$null } | Should -Throw
+        Test-Path -LiteralPath (Join-Path $script:Dir "$($script:Base).txt") | Should -BeFalse -Because 'the skip guard would trust bytes that are not there'
+    }
+    It 'uses the image once the publisher checksum list vouches for it' {
+        Mock -ModuleName Yuruna.UbuntuImage Test-UbuntuServerImageChecksum { $true }
+        Save-UbuntuServerImage -ReleaseCodename resolute -Arch amd64 -DownloadDir $script:Dir -BaseImageName $script:Base 6>$null | Should -Be 'downloaded'
+        Get-Content -LiteralPath (Join-Path $script:Dir "$($script:Base).iso") | Should -Be 'agent bytes'
+    }
+    It 'refuses an image whose origin neither the agent nor the publisher listing names' {
+        $iso = $script:Iso
+        Mock -ModuleName Yuruna.UbuntuImage Invoke-DownloadAgentFirst {
+            @{ BaseUrl = 'http://192.0.2.10:8090'; Result = @{ outcome = 'downloaded'; filename = $iso; sourceUrl = "agent:http://192.0.2.10:8090/$iso"; lastModified = '' } }
+        }.GetNewClosure()
+        Mock -ModuleName Yuruna.UbuntuImage Resolve-UbuntuServerImage { $null }
+        Mock -ModuleName Yuruna.UbuntuImage Test-UbuntuServerImageChecksum { $true }
+        { Save-UbuntuServerImage -ReleaseCodename resolute -Arch amd64 -DownloadDir $script:Dir -BaseImageName $script:Base -WarningAction SilentlyContinue } | Should -Throw
+        Should -Invoke -ModuleName Yuruna.UbuntuImage Test-UbuntuServerImageChecksum -Times 0 -Exactly
+        Get-Content -LiteralPath (Join-Path $script:Dir "$($script:Base).iso") | Should -Be 'previous bytes'
+    }
+}
+
 Describe 'Image lookup includes every installed guest builder' {
     It 'resolves Ubuntu 26 and the UTM macOS image without loading a hypervisor' {
         foreach ($platform in 'ubuntu.kvm', 'macos.utm', 'windows.hyper-v') {
@@ -643,5 +704,159 @@ Describe 'Download agent provenance preserves local fingerprints' {
             -BaseImageFile (Join-Path $TestDrive 'origin.base-image') -OriginFile (Join-Path $TestDrive 'origin.origin.txt')
         $result.Result.sourceUrl | Should -BeExactly 'https://cdn.example.invalid/al2023-test.qcow2'
         $result.Result.lastModified | Should -BeExactly 'Fri, 09 Oct 2026 12:00:00 GMT'
+    }
+}
+
+Describe 'Get-Image failures carry the class their stage recorded' {
+    BeforeAll {
+        Import-Module (Join-Path $script:RepoRoot 'host/modules/Yuruna.HostProvision.psm1') -Force -DisableNameChecking
+        $script:ProvisionModule = Join-Path $script:RepoRoot 'host/modules/Yuruna.HostProvision.psm1'
+        function New-GetImageFixture {
+            param([string]$Body)
+            $root = Join-Path $TestDrive ([guid]::NewGuid().ToString('N'))
+            $folder = Join-Path $root 'host/fixture/guest.fixture'
+            $null = New-Item -ItemType Directory -Path $folder -Force
+            Set-Content -LiteralPath (Join-Path $folder 'Get-Image.ps1') -Value $Body
+            return $root
+        }
+        function Invoke-FixtureGetImage {
+            param([string]$Root)
+            return (Invoke-GetImage -HostSubdir 'host/fixture' -GuestKey 'guest.fixture' -RepoRoot $Root -Force `
+                -ResolveImagePath { param($GuestKey) $null = $GuestKey; $null } -WriteLine { param($Line) $null = $Line } -Confirm:$false)
+        }
+    }
+    BeforeEach {
+        $script:priorLogDir = $env:YURUNA_LOG_DIR
+        $env:YURUNA_LOG_DIR = Join-Path $TestDrive ([guid]::NewGuid().ToString('N'))
+    }
+    AfterEach { $env:YURUNA_LOG_DIR = $script:priorLogDir }
+
+    It 'files the class the stage recorded' {
+        $root = New-GetImageFixture -Body "Import-Module '$($script:ProvisionModule)' -DisableNameChecking; Write-YurunaProvisionResult -Kind integrity -Message 'checksum mismatch'; exit 1"
+        $r = Invoke-FixtureGetImage -Root $root
+        $r.success | Should -BeFalse
+        $r.failureClass | Should -Be 'source_integrity'
+        $r.kind | Should -Be 'integrity'
+        $env:YURUNA_PROVISION_RESULT | Should -BeNullOrEmpty -Because 'the path is named for the stage only'
+    }
+    It 'keeps the network default for a stage that recorded nothing, even with a record left from an earlier run' {
+        $stale = Join-Path $env:YURUNA_LOG_DIR 'provision/guest.fixture.GetImage.json'
+        $null = New-Item -ItemType Directory -Path (Split-Path -Parent $stale) -Force
+        Set-Content -LiteralPath $stale -Value '{"kind":"integrity","message":"old"}'
+        $root = New-GetImageFixture -Body 'exit 1'
+        $r = Invoke-FixtureGetImage -Root $root
+        $r.failureClass | Should -Be 'network_timeout'
+        $r.kind | Should -Be ''
+    }
+    It 'files a guest this host has no Get-Image for as a plan the host cannot run' {
+        $r = Invoke-GetImage -HostSubdir 'host/fixture' -GuestKey 'guest.absent' -RepoRoot $TestDrive -Force `
+            -ResolveImagePath { param($GuestKey) $null = $GuestKey; $null } -WriteLine { param($Line) $null = $Line } -Confirm:$false
+        $r.failureClass | Should -Be 'plan_invalid'
+    }
+    It 'reads no record that names an unknown kind' {
+        $path = Join-Path $TestDrive 'odd.json'
+        Set-Content -LiteralPath $path -Value '{"kind":"cosmic-ray"}'
+        Read-YurunaProvisionResult -Path $path | Should -BeNullOrEmpty
+    }
+}
+
+Describe 'Publish-YurunaBaseImage proves the swap before a sentinel can vouch for it' {
+    BeforeAll {
+        Import-Module (Join-Path $script:RepoRoot 'automation/Yuruna.Common.psm1') -DisableNameChecking
+        Import-Module (Join-Path $script:RepoRoot 'host/modules/Yuruna.Image.psm1') -Force -DisableNameChecking
+    }
+    BeforeEach {
+        $script:PubDir = Join-Path $TestDrive ([guid]::NewGuid().ToString('N'))
+        $null = New-Item -ItemType Directory -Path $script:PubDir
+        $script:Download = Join-Path $script:PubDir 'downloaded.iso'
+        $script:BaseFile = Join-Path $script:PubDir 'base.iso'
+        $script:Previous = Join-Path $script:PubDir 'base.previous.iso'
+        [IO.File]::WriteAllText($script:Download, 'new bytes')
+        [IO.File]::WriteAllText($script:BaseFile, 'old bytes')
+    }
+    It 'keeps the old image as the previous one and publishes the download' {
+        Publish-YurunaBaseImage -DownloadFile $script:Download -BaseImageFile $script:BaseFile -PreviousFile $script:Previous -ExpectedSize 9 -Confirm:$false | Should -BeTrue
+        [IO.File]::ReadAllText($script:BaseFile) | Should -Be 'new bytes'
+        [IO.File]::ReadAllText($script:Previous) | Should -Be 'old bytes'
+        Test-Path -LiteralPath "$($script:BaseFile).publish.lock" | Should -BeFalse -Because 'the lock is released'
+    }
+    It 'puts the previous image back when the download cannot be moved into place' {
+        Remove-Item -LiteralPath $script:Download
+        { Publish-YurunaBaseImage -DownloadFile $script:Download -BaseImageFile $script:BaseFile -PreviousFile $script:Previous -ExpectedSize 9 -Confirm:$false } | Should -Throw
+        [IO.File]::ReadAllText($script:BaseFile) | Should -Be 'old bytes'
+    }
+    It 'refuses a published image that does not hold the downloaded size and puts the previous one back' {
+        { Publish-YurunaBaseImage -DownloadFile $script:Download -BaseImageFile $script:BaseFile -PreviousFile $script:Previous -ExpectedSize 4096 -Confirm:$false } | Should -Throw
+        [IO.File]::ReadAllText($script:BaseFile) | Should -Be 'old bytes'
+    }
+    It 'leaves no base image behind when a first publish has the wrong size' {
+        Remove-Item -LiteralPath $script:BaseFile
+        { Publish-YurunaBaseImage -DownloadFile $script:Download -BaseImageFile $script:BaseFile -PreviousFile $script:Previous -ExpectedSize 4096 -Confirm:$false } | Should -Throw
+        Test-Path -LiteralPath $script:BaseFile | Should -BeFalse -Because 'an image that exists is all the Windows skip guard asks for'
+    }
+    It 'leaves the images alone while another process publishes the same one' {
+        $start = Get-YurunaProcessStartUtc -ProcessId $PID
+        [IO.File]::WriteAllText("$($script:BaseFile).publish.lock", (ConvertTo-Json -Compress -InputObject ([ordered]@{ pid = $PID; startTicks = $start.Ticks })))
+        { Publish-YurunaBaseImage -DownloadFile $script:Download -BaseImageFile $script:BaseFile -PreviousFile $script:Previous -ExpectedSize 9 -Confirm:$false } | Should -Throw
+        [IO.File]::ReadAllText($script:BaseFile) | Should -Be 'old bytes'
+        Test-Path -LiteralPath $script:Download | Should -BeTrue
+    }
+}
+
+Describe 'Snapshot probes can say they do not know' {
+    BeforeAll {
+        function Invoke-LiftedProbe {
+            param([string]$Driver, [string[]]$Name, [scriptblock]$Stubs, [scriptblock]$Call)
+            $source = ($Name | ForEach-Object { Get-SourceFunction -Path "host/$Driver/modules/Yuruna.Host.psm1" -Name $_ }) -join "`n"
+            # A module-qualified cmdlet cannot be shadowed; the lifted copy calls
+            # the stub by its bare name instead.
+            $source = $source.Replace('Hyper-V\Get-VMCheckpoint', 'Get-VMCheckpoint')
+            return (& { . $Stubs; . ([scriptblock]::Create($source)); & $Call })
+        }
+    }
+    It 'KVM reads the snapshot list, whatever language libvirt answers in' {
+        $stubs = { function Get-VMState { 'stopped' }; function Invoke-Virsh { param($VirshArgs) $null = $VirshArgs; $global:LASTEXITCODE = $script:VirshExit; $script:VirshLines } }
+        $script:VirshExit = 0; $script:VirshLines = @('base', 'ubuntu.server.24.base', '')
+        Invoke-LiftedProbe -Driver ubuntu.kvm -Name 'Get-VMDiskSnapshotState' -Stubs $stubs -Call { Get-VMDiskSnapshotState -VMName vm -Id 'ubuntu.server.24.base' } | Should -Be 'present'
+        Invoke-LiftedProbe -Driver ubuntu.kvm -Name 'Get-VMDiskSnapshotState' -Stubs $stubs -Call { Get-VMDiskSnapshotState -VMName vm -Id 'other' } | Should -Be 'absent'
+        $script:VirshExit = 1; $script:VirshLines = @('error: failed to connect to the hypervisor')
+        Invoke-LiftedProbe -Driver ubuntu.kvm -Name 'Get-VMDiskSnapshotState' -Stubs $stubs -Call { Get-VMDiskSnapshotState -VMName vm -Id 'base' } | Should -Be 'unknown'
+    }
+    It 'Hyper-V lists the checkpoints and reads a failed listing as unknown' {
+        $stubs = { function Get-VMState { 'stopped' }; function Get-VMCheckpoint { param($VMName, $ErrorAction) $null = $VMName, $ErrorAction; if ($script:CheckpointThrows) { throw 'WMI did not answer' }; $script:Checkpoints } }
+        $script:CheckpointThrows = $false; $script:Checkpoints = @([pscustomobject]@{ Name = 'base' })
+        Invoke-LiftedProbe -Driver windows.hyper-v -Name 'Get-VMDiskSnapshotState' -Stubs $stubs -Call { Get-VMDiskSnapshotState -VMName vm -Id 'base' } | Should -Be 'present'
+        $script:Checkpoints = @()
+        Invoke-LiftedProbe -Driver windows.hyper-v -Name 'Get-VMDiskSnapshotState' -Stubs $stubs -Call { Get-VMDiskSnapshotState -VMName vm -Id 'base' } | Should -Be 'absent'
+        $script:CheckpointThrows = $true
+        Invoke-LiftedProbe -Driver windows.hyper-v -Name 'Get-VMDiskSnapshotState' -Stubs $stubs -Call { Get-VMDiskSnapshotState -VMName vm -Id 'base' } | Should -Be 'unknown'
+    }
+    It 'UTM tells a missing bundle from a host that cannot look, and an unread disk from a bare one' {
+        $stubs = {
+            function Get-UtmBundleDisk { param($VMName) $null = $VMName; @{ Ready = -not $script:BundleReason; Reason = $script:BundleReason; Disk = @([pscustomobject]@{ FullName = '/b/Data/disk.qcow2' }) } }
+            function Invoke-UtmHostTool { param($Tool, $ArgumentList, $TimeoutSeconds) $null = $Tool, $ArgumentList, $TimeoutSeconds; @{ ExitCode = $script:QemuExit; StdOut = $script:QemuOut } }
+            function Test-BoundedNativeResultComplete { param($Result) $null = $Result; $true }
+        }
+        $names = @('Get-VMDiskSnapshotState', 'Get-UtmDiskSnapshotState')
+        $script:BundleReason = ''; $script:QemuExit = 0; $script:QemuOut = "Snapshot list:`nID TAG VM SIZE DATE`n1 base 0 B 2026-10-01"
+        Invoke-LiftedProbe -Driver macos.utm -Name $names -Stubs $stubs -Call { Get-VMDiskSnapshotState -VMName vm -Id 'base' } | Should -Be 'present'
+        Invoke-LiftedProbe -Driver macos.utm -Name $names -Stubs $stubs -Call { Get-VMDiskSnapshotState -VMName vm -Id 'other' } | Should -Be 'absent'
+        $script:QemuExit = 1
+        Invoke-LiftedProbe -Driver macos.utm -Name $names -Stubs $stubs -Call { Get-VMDiskSnapshotState -VMName vm -Id 'base' } | Should -Be 'unknown'
+        $script:BundleReason = 'missing-directory'
+        Invoke-LiftedProbe -Driver macos.utm -Name $names -Stubs $stubs -Call { Get-VMDiskSnapshotState -VMName vm -Id 'base' } | Should -Be 'absent'
+        $script:BundleReason = 'missing-tool'
+        Invoke-LiftedProbe -Driver macos.utm -Name $names -Stubs $stubs -Call { Get-VMDiskSnapshotState -VMName vm -Id 'base' } | Should -Be 'unknown'
+    }
+    It 'Test-VMDiskSnapshot throws for an unknown answer on every host, so a caller''s indeterminate branch runs' -TestCases @(
+        @{ Driver = 'ubuntu.kvm' }, @{ Driver = 'windows.hyper-v' }, @{ Driver = 'macos.utm' }) {
+        param($Driver)
+        $stubs = { function Get-VMDiskSnapshotState { param($VMName, $Id) $null = $VMName, $Id; $script:ProbeAnswer } }
+        $script:ProbeAnswer = 'unknown'
+        { Invoke-LiftedProbe -Driver $Driver -Name 'Test-VMDiskSnapshot' -Stubs $stubs -Call { Test-VMDiskSnapshot -VMName vm -Id 'base' } } | Should -Throw
+        $script:ProbeAnswer = 'absent'
+        Invoke-LiftedProbe -Driver $Driver -Name 'Test-VMDiskSnapshot' -Stubs $stubs -Call { Test-VMDiskSnapshot -VMName vm -Id 'base' } | Should -BeFalse
+        $script:ProbeAnswer = 'present'
+        Invoke-LiftedProbe -Driver $Driver -Name 'Test-VMDiskSnapshot' -Stubs $stubs -Call { Test-VMDiskSnapshot -VMName vm -Id 'base' } | Should -BeTrue
     }
 }

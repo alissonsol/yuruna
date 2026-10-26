@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.25
+.VERSION 2026.10.26
 .GUID 42647c3a-19a7-4931-b638-07791d5f0b1b
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -118,41 +118,21 @@ $proxyEnvVars = @(
     'YURUNA_CACHING_PROXY_SERVICE_IP'
 )
 # See https://yuruna.link/42e220c4-0008
-$envSidecarDir = if ($env:YURUNA_RUNTIME_DIR) { $env:YURUNA_RUNTIME_DIR } else { Join-Path $PSScriptRoot '../status/runtime' }
-$envSidecarPath = Join-Path $envSidecarDir '.caching-proxy-service.env.json'
+$cpRuntimeDir = if ($env:YURUNA_RUNTIME_DIR) { $env:YURUNA_RUNTIME_DIR } else { Join-Path $PSScriptRoot '../status/runtime' }
+# A proxy URL can carry a user and password, so the cleared values are
+# neither kept nor logged. An older copy of them, written for a restore that
+# nothing performs, is removed.
+Remove-Item -LiteralPath (Join-Path $cpRuntimeDir '.caching-proxy-service.env.json') -Force -ErrorAction SilentlyContinue
 $clearedProxy = @()
-Import-Module (Join-Path $PSScriptRoot '../modules/Test.StateFile.psm1') -Global -DisableNameChecking
-$sidecarPayload = [ordered]@{}
 foreach ($pv in $proxyEnvVars) {
     $envProvPath = "Env:$pv"
     if (Test-Path -LiteralPath $envProvPath) {
-        $val = (Get-Item -LiteralPath $envProvPath).Value
-        $clearedProxy += "$pv=$val"
-        $sidecarPayload[$pv] = [string]$val
+        $clearedProxy += $pv
         Remove-Item -LiteralPath $envProvPath -ErrorAction SilentlyContinue
     }
 }
 if ($clearedProxy.Count -gt 0) {
-    Write-Verbose "Pre-flight: cleared inherited proxy env vars from this process so cache bring-up reaches the public Internet directly (caller's shell untouched):"
-    foreach ($entry in $clearedProxy) {
-        Write-Verbose "  $entry"
-    }
-    try {
-        if (-not (Test-Path -LiteralPath $envSidecarDir)) {
-            New-Item -Path $envSidecarDir -ItemType Directory -Force -ErrorAction Stop | Out-Null
-        }
-        # Atomic write via the shared state-file helper so a crash
-        # mid-write can't leave a truncated JSON sidecar for a later
-        # cache-proxy bring-up to mis-parse.
-        $ok = Write-YurunaStateFileJson -Path $envSidecarPath -InputObject $sidecarPayload -Confirm:$false
-        if ($ok) {
-            Write-Verbose "  (persisted to $envSidecarPath for restore on re-invocation)"
-        } else {
-            Write-Verbose "Could not persist .caching-proxy-service.env.json (see Verbose stream)."
-        }
-    } catch {
-        Write-Verbose "Could not persist .caching-proxy-service.env.json: $($_.Exception.Message)"
-    }
+    Write-Verbose "Pre-flight: cleared inherited proxy env vars from this process so cache bring-up reaches the public Internet directly (caller's shell untouched): $($clearedProxy -join ', ')"
 }
 
 # --- REGION: Initialize host access
@@ -344,7 +324,7 @@ try {
 # --- REGION: Acquire the service lifecycle lock
 # Hold one lock across VM replacement and host port-map changes.
 # See https://yuruna.link/42e220c4-0008
-$cpLock = Enter-CachingProxyServiceLock -RuntimeDir $envSidecarDir -Role 'rebuild' -TimeoutSeconds 30
+$cpLock = Enter-CachingProxyServiceLock -RuntimeDir $cpRuntimeDir -Role 'rebuild' -TimeoutSeconds 30
 if (-not $cpLock.Acquired) {
     Write-Error "Another caching-proxy-service bring-up holds the lock (PID $($cpLock.HolderPid)). Refusing a second concurrent destroy/rebuild -- wait for it to finish (or stop that process), then re-run. Run Stop-CachingProxyServiceVM.ps1 to clear an abandoned lock."
     exit 1

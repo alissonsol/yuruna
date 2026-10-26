@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
-# Version: 2026.10.25
+# Version: 2026.10.26
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
+# GUID: 4262556e-d102-4fd8-9486-e85c4bde8f3e
 #
 # tofu data "external" hook -- emit the original public-IP address for
 # the AKS frontend as {"ip_address":"..."}. Bash + az only, no pwsh:

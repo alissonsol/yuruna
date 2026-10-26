@@ -1,5 +1,6 @@
 // LICENSEURI https://yuruna.link/license
 // Copyright (c) 2019-2026 by Alisson Sol et al.
+// GUID: 424319a1-f1d7-4d75-9fbf-f087c1c2a9c8
 
 package main
 
@@ -89,6 +90,12 @@ func (d *daemon) applyOffline(on bool) error {
 	if d.mode != modeLocal {
 		return errRemoteReadOnly
 	}
+	d.switchMu.Lock()
+	defer d.switchMu.Unlock()
+	previous, readErr := os.ReadFile(d.offlinePath)
+	if readErr != nil && !errors.Is(readErr, os.ErrNotExist) {
+		return fmt.Errorf("cannot read the current drop-in, so a failed change could not be rolled back: %w", readErr)
+	}
 	if on {
 		body := "" +
 			"# Serve only from cache; never contact origin. Miss returns 504. To\n" +
@@ -101,7 +108,18 @@ func (d *daemon) applyOffline(on bool) error {
 	} else if err := removeIfPresent(d.offlinePath); err != nil {
 		return err
 	}
-	return d.reconfigure()
+	if err := d.reconfigure(); err != nil {
+		// Squid did not load the change, so the drop-in goes back to what squid
+		// is running: a file that reads "on" over a squid running without it
+		// would apply itself, unannounced, at the next restart.
+		if readErr == nil {
+			_ = writeFileAtomic(d.offlinePath, string(previous))
+		} else {
+			_ = removeIfPresent(d.offlinePath)
+		}
+		return err
+	}
+	return nil
 }
 
 // applyNoUpstream delegates to the seed's helper rather than writing the
@@ -112,6 +130,8 @@ func (d *daemon) applyNoUpstream(on bool) error {
 	if d.mode != modeLocal {
 		return errRemoteReadOnly
 	}
+	d.switchMu.Lock()
+	defer d.switchMu.Unlock()
 	verb := "off"
 	if on {
 		verb = "on"

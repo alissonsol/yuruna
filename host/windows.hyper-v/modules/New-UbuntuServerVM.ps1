@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.25
+.VERSION 2026.10.26
 .GUID 42aeab54-8f84-4752-b632-c84283524072
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -60,7 +60,6 @@ $ProgressPreference = 'SilentlyContinue'
 # --- REGION: https://yuruna.link/42e220c4-0004
 # Stop on failed VM configuration; the child process exit is the caller's failure signal.
 $ErrorActionPreference = 'Stop'
-
 
 # --- REGION: Log level from environment
 # See https://yuruna.link/42e220c4-0003
@@ -218,7 +217,8 @@ try {
 
     # --- REGION: Detect the caching-proxy service
     # See https://yuruna.link/42e220c4-0004
-    # Missing or stopped cache permits direct fetching; a running but unresponsive cache fails.
+    # A bound URL, including empty for direct fetching, overrides discovery. A missing
+    # or stopped cache permits direct fetching; a running but unresponsive cache fails.
     if ($PSBoundParameters.ContainsKey('CachingProxyServiceUrl')) {
         # URL forwarded by the test runner. Skip discovery so this script
         # and the runner agree on one cache URL. On Hyper-V the race is
@@ -368,8 +368,6 @@ To intentionally skip the cache:
 
     # --- REGION: Create and configure the Hyper-V VM
     # See https://yuruna.link/42fa6f45-0016
-    # Static (min=max=startup, dynamic disabled) so a hung swap/paging never
-    # distorts a cycle -- see https://yuruna.link/429f3d06-001b.
     try { $vmMemoryBytes = ConvertTo-MemoryStartupBytes $MemoryStartupBytes } catch { Write-Error $_.Exception.Message; exit 1 }
     if ($vmMemoryBytes -le 0) { $vmMemoryBytes = 12288MB }
     Write-Verbose "VM memory: $([math]::Round($vmMemoryBytes / 1GB, 2)) GB ($vmMemoryBytes bytes)."
@@ -377,12 +375,9 @@ To intentionally skip the cache:
     Hyper-V\New-VM -Name $VMName -Generation 2 -MemoryStartupBytes $vmMemoryBytes -SwitchName $switchName -VHDPath $vhdxFile | Out-Null
 
     # --- REGION: https://yuruna.link/4220a755-000a
-    # Hyper-V takes bare hex, no separators.
-    # Keyed on the guest's durable identity, not on the name the VM carries now: a
-    # guest is built in a per-kind slot and renamed to its real name when its
-    # baseline is snapshotted, and an address that moved with that rename would
-    # re-DHCP a guest whose own state already records the one it was built on.
+    # Key the MAC by durable guest identity so rebuilds and VM renames keep the DHCP lease.
     $YurunaGuestMac = Get-YurunaGuestMacAddress -VMName $GuestHostname
+    # Hyper-V takes bare hex, no separators.
     Hyper-V\Set-VMNetworkAdapter -VMName $VMName -StaticMacAddress ($YurunaGuestMac -replace ':','')
     Write-Verbose "Deterministic guest MAC for '$GuestHostname': $YurunaGuestMac"
 
@@ -390,6 +385,8 @@ To intentionally skip the cache:
         Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_b99bf50072be5d3d' -Arguments @{ vMName = "$VMName" })
         exit 1
     }
+    # Static (min=max=startup, dynamic disabled) so a hung swap/paging never
+    # distorts a cycle -- see https://yuruna.link/429f3d06-001b.
     Set-VM -Name $VMName -MemoryStartupBytes $vmMemoryBytes -MemoryMinimumBytes $vmMemoryBytes -MemoryMaximumBytes $vmMemoryBytes -AutomaticCheckpointsEnabled $false | Out-Null
     Set-VMMemory -VMName $VMName -DynamicMemoryEnabled $false
     Set-VMFirmware -VMName $VMName -EnableSecureBoot Off | Out-Null
@@ -464,10 +461,8 @@ To intentionally skip the cache:
     # in waitForText sequence steps.
     Set-VMVideo -VMName $VMName -HorizontalResolution 1920 -VerticalResolution 1080 -ResolutionType Single
 
-    # --- REGION: Clean up temporary files
 } finally {
-    # The seed holds the guest's admin credentials; it must not outlive this
-    # script on any path, an early exit or a throw included.
+    # --- REGION: Clean up temporary files
     Remove-SeedMediaWorkspace -Workspace $seedWorkspace -Confirm:$false
 }
 

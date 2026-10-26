@@ -1,5 +1,6 @@
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
+# GUID: 42cdc524-b346-45da-9cde-39e3d7627996
 # macOS/UTM (QEMU) overlay for stash-service.base.user-data.
 # Anchor sections in base-file order. An empty section emits nothing at that anchor.
 # See https://yuruna.link/42e220c4-0006

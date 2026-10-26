@@ -1,5 +1,6 @@
 // LICENSEURI https://yuruna.link/license
 // Copyright (c) 2019-2026 by Alisson Sol et al.
+// GUID: 42bbd30d-c1b5-44ab-9c68-f2b95b7d404b
 //
 // The /archive/ route and the archive-aware half of /go/cycle: the read paths that
 // keep a dashboard link working after a host has moved its cycle results to the pool

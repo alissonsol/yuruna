@@ -1,5 +1,6 @@
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
+# GUID: 42450b33-4ca7-4ddf-92cc-32aa5798391a
 # Hyper-V overlay for pool-control-service.base.user-data.
 # Anchor sections in base-file order. An empty section emits nothing at that anchor.
 # See https://yuruna.link/42e220c4-0006

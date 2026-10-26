@@ -1,5 +1,6 @@
 // LICENSEURI https://yuruna.link/license
 // Copyright (c) 2019-2026 by Alisson Sol et al.
+// GUID: 4279e9e3-2c00-4420-b71a-dd0c01b2968c
 
 package main
 
@@ -21,7 +22,10 @@ import (
 const mirrorAPIVersion = 1
 
 var (
-	mirrorSlug    = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]{0,99}/[A-Za-z0-9][A-Za-z0-9_.-]{0,99}$`)
+	// GitHub's own limits: an owner of at most 39 characters, a name of at
+	// most 100. They also keep the encoded repository key, one path
+	// component, under the 255 bytes a file name may have.
+	mirrorSlug    = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]{0,38}/[A-Za-z0-9][A-Za-z0-9_.-]{0,99}$`)
 	mirrorOID     = regexp.MustCompile(`^[0-9a-f]{40}$`)
 	mirrorNonce   = regexp.MustCompile(`^[A-Za-z0-9_-]{22,128}$`)
 	errMirrorBusy = errors.New("mirror-capacity-exhausted")

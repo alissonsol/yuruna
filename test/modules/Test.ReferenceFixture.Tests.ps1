@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.25
+.VERSION 2026.10.26
 .GUID 425c19e6-01ab-4b44-b9fe-f6dbc6860439
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -264,8 +264,6 @@ Describe 'the recorded captures answer to the producers' {
             'the report does not say which exit code the row expected'
     }
 }
-
-# Copyright (c) 2019-2026 by Alisson Sol et al.
 
 Describe 'the document review reference uses private document state' {
     It 'derives only private hashes, retains machine origins, and still detects source drift' {

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.25
+.VERSION 2026.10.26
 .GUID 42b4865f-6a1d-415a-a630-1e2183bca862
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -78,6 +78,20 @@ Describe 'Get-YurunaHostId' {
             $a = Get-YurunaHostId
             $b = Get-YurunaHostId
             Assert-Equal -Expected $a -Actual $b -Because 'host id is stable across calls'
+        } finally { Remove-RuntimeFixture -Fixture $fx }
+    }
+
+    It 'repairs an empty host.uuid an interrupted claim left behind, and only a stale one' {
+        $fx = New-RuntimeFixture
+        try {
+            $file = Join-Path $fx.Tmp 'host.uuid'
+            [System.IO.File]::WriteAllBytes($file, [byte[]]@())
+            Get-YurunaHostId | Should -BeNullOrEmpty -Because 'a claim that has just been created may still be about to write its id'
+            (Get-Item -LiteralPath $file).Length | Should -Be 0
+            (Get-Item -LiteralPath $file).LastWriteTimeUtc = [DateTime]::UtcNow.AddMinutes(-10)
+            $id = Get-YurunaHostId
+            $id | Should -Match '^42[0-9a-fA-F]{30}$'
+            ([System.IO.File]::ReadAllText($file)).Trim() | Should -BeExactly $id
         } finally { Remove-RuntimeFixture -Fixture $fx }
     }
 

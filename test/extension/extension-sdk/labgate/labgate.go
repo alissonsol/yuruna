@@ -1,5 +1,6 @@
 // LICENSEURI https://yuruna.link/license
 // Copyright (c) 2019-2026 by Alisson Sol et al.
+// GUID: 426d546a-8893-4914-88d1-e571f07ce5e1
 
 // Package labgate is the write gate every Yuruna extension service puts in
 // front of a route that changes host or pool configuration. See
@@ -28,6 +29,7 @@ import (
 
 	"yuruna.com/test/extension/extension-sdk/controlproof"
 	"yuruna.com/test/extension/extension-sdk/i18n"
+	"yuruna.com/test/extension/extension-sdk/jsonbody"
 )
 
 const (
@@ -470,16 +472,18 @@ func (g *Gate) HandleLogin(w http.ResponseWriter, r *http.Request) {
 	// Throttling stays here even though the aggregator throttles too. Its bucket
 	// is the source address, which for every operator is this service: one
 	// guesser would otherwise burn the whole lab's attempts and lock everyone out
-	// of enrollment.
+	// of enrollment. An attempt the throttle turns away is not audited: the
+	// refusals that reached the cap are the record of the burst, and auditing
+	// each later one would let an anonymous caller turn every request into an
+	// audit line.
 	if g.throttled(ip) {
-		g.auditLogin(ip, "throttled", "")
 		g.refuse(w, r, http.StatusTooManyRequests, "auth.attempts_throttled", "", map[string]any{"minutes": int(FailWindow.Minutes())})
 		return
 	}
 	var body struct {
 		LabToken string `json:"labToken"`
 	}
-	if err := json.NewDecoder(io.LimitReader(r.Body, maxLoginBody)).Decode(&body); err != nil {
+	if err := jsonbody.DecodeRequest(w, r, &body, maxLoginBody, false); err != nil {
 		g.refuse(w, r, http.StatusBadRequest, "auth.malformed_request", "", nil)
 		return
 	}
@@ -494,6 +498,11 @@ func (g *Gate) HandleLogin(w http.ResponseWriter, r *http.Request) {
 	}
 	switch verdict, detail := g.verify(context.WithValue(r.Context(), authLocaleKey{}, g.locale.Resolve(r).ResolvedTag), code); verdict {
 	case Unavailable:
+		// No answer still spends an attempt. The aggregator may be refusing this
+		// service's address for the guesses already sent, and an attempt that
+		// cost nothing could be repeated without end, each one a call out and an
+		// audit line.
+		g.recordFail(ip)
 		g.auditLogin(ip, "unavailable", detail)
 		g.refuse(w, r, http.StatusServiceUnavailable, "auth.token_check_failed", ReasonUnavailable, map[string]any{"detail": detail})
 		return
@@ -548,14 +557,13 @@ func (g *Gate) HandleProofUnlock(w http.ResponseWriter, r *http.Request) {
 	// same act against the same gate, and counting them separately would hand a
 	// guesser a second allowance.
 	if g.throttled(ip) {
-		g.auditLogin(ip, "throttled", "control proof")
 		g.refuse(w, r, http.StatusTooManyRequests, "auth.attempts_throttled", "", map[string]any{"minutes": int(FailWindow.Minutes())})
 		return
 	}
 	var body struct {
 		Proof string `json:"proof"`
 	}
-	if err := json.NewDecoder(io.LimitReader(r.Body, maxLoginBody)).Decode(&body); err != nil {
+	if err := jsonbody.DecodeRequest(w, r, &body, maxLoginBody, false); err != nil {
 		g.refuse(w, r, http.StatusBadRequest, "auth.malformed_request", "", nil)
 		return
 	}
@@ -568,6 +576,7 @@ func (g *Gate) HandleProofUnlock(w http.ResponseWriter, r *http.Request) {
 	}
 	switch verdict, detail := g.verifyProof(context.WithValue(r.Context(), authLocaleKey{}, g.locale.Resolve(r).ResolvedTag), proof); verdict {
 	case Unavailable:
+		g.recordFail(ip)
 		g.auditLogin(ip, "unavailable", "control proof: "+detail)
 		g.refuse(w, r, http.StatusServiceUnavailable, "auth.proof_check_failed", ReasonUnavailable, map[string]any{"detail": detail})
 		return

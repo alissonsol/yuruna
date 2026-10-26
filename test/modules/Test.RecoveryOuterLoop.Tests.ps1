@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.25
+.VERSION 2026.10.26
 .GUID 4277cde3-5e56-4d5e-beb5-7bed391f35c5
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -165,6 +165,239 @@ Describe 'The failure pause shortcut is budgeted by the ledger' {
         }
         $null = Invoke-FakeLoop -ConfigPath $script:Config -Cycle @('x')
         Read-RecoveryResult -RuntimeDir $script:Dir | Should -BeNullOrEmpty
+    }
+}
+
+# A host that cannot start a cycle process used to retry every 30 s all day,
+# with nothing on the status page to say so.
+Describe 'A run of attempts that produce no verdict' {
+    BeforeEach {
+        $script:Dir = Join-Path ([System.IO.Path]::GetTempPath()) ('rol-' + [guid]::NewGuid().ToString('N'))
+        New-Item -ItemType Directory -Path $script:Dir -Force | Out-Null
+        $script:SavedRuntime = $env:YURUNA_RUNTIME_DIR
+        $env:YURUNA_RUNTIME_DIR = $script:Dir
+        $script:Config = New-LoopConfig -Enabled $false -MaxAttempts 1
+        $script:Holds = [System.Collections.Generic.List[int]]::new()
+        $script:Faults = [System.Collections.Generic.List[string]]::new()
+        Mock -ModuleName Test.RunnerOuterLoop Write-OuterLog { }
+        Mock -ModuleName Test.RunnerOuterLoop Import-OuterRefreshTriggerModule { $false }
+        Mock -ModuleName Test.RunnerOuterLoop Get-OuterCommitSha { 'sha0' }
+        Mock -ModuleName Test.RunnerOuterLoop Wait-OuterInterruptible { $script:Holds.Add([int]$Seconds) }
+        Mock -ModuleName Test.RunnerOuterLoop Update-RunnerFaultStatus { $script:Faults.Add([string]$FailureClass); $true }
+        Mock -ModuleName Test.RunnerOuterLoop Invoke-OuterCycleDispatch {
+            $next = $script:Script.Dequeue()
+            if ($next -eq 'stop') {
+                $State.ShutdownState['Requested'] = $true
+                return [pscustomobject]@{ Outcome = 'drain'; ExitCode = 0 }
+            }
+            if ($next -eq 'spawn') { return [pscustomobject]@{ Outcome = 'spawn-failed'; ExitCode = 0 } }
+            return [pscustomobject]@{ Outcome = 'completed'; ExitCode = 0 }
+        }
+    }
+    AfterEach {
+        if ($null -eq $script:SavedRuntime) { Remove-Item Env:\YURUNA_RUNTIME_DIR -ErrorAction SilentlyContinue } else { $env:YURUNA_RUNTIME_DIR = $script:SavedRuntime }
+        Remove-Item -LiteralPath $script:Config -Force -ErrorAction SilentlyContinue
+        Remove-Item -LiteralPath $script:Dir -Recurse -Force -ErrorAction SilentlyContinue
+    }
+    It 'doubles the hold after each cycle process that would not start, and says so' {
+        $null = Invoke-FakeLoop -ConfigPath $script:Config -Cycle @('spawn', 'spawn', 'spawn', 'stop')
+        @($script:Holds) | Should -Be @(1, 2, 4)
+        @($script:Faults | Where-Object { $_ -eq 'cycle_spawn_failed' }).Count | Should -Be 3
+    }
+    It 'starts the run over after a cycle that ran' {
+        $null = Invoke-FakeLoop -ConfigPath $script:Config -Cycle @('spawn', 'spawn', 'ok', 'spawn', 'stop')
+        $script:Holds[0] | Should -Be 1
+        $script:Holds[1] | Should -Be 2
+        $script:Holds[-1] | Should -Be 1 -Because 'the cycle that ran ended the run'
+    }
+    It 'holds <Expected> s after <Streak> attempt(s) from a <Base> s base' -TestCases @(
+        @{ Base = 30; Streak = 1; Expected = 30 }, @{ Base = 30; Streak = 2; Expected = 60 }
+        @{ Base = 30; Streak = 5; Expected = 480 }, @{ Base = 30; Streak = 6; Expected = 900 }
+        @{ Base = 30; Streak = 40; Expected = 900 }, @{ Base = 0; Streak = 1; Expected = 1 }
+    ) {
+        param($Base, $Streak, $Expected)
+        InModuleScope Test.RunnerOuterLoop -Parameters @{ B = $Base; S = $Streak } { param($B, $S) Get-OuterRetryHoldSeconds -BaseSeconds $B -Streak $S } | Should -Be $Expected
+    }
+}
+
+# A cycle whose guests were all quarantined exits 0 having tested nothing, and
+# used to refill every repair budget as if a repair had worked.
+Describe 'A passing cycle that skipped a guest' {
+    BeforeEach {
+        $script:Dir = Join-Path ([System.IO.Path]::GetTempPath()) ('rol-' + [guid]::NewGuid().ToString('N'))
+        New-Item -ItemType Directory -Path $script:Dir -Force | Out-Null
+        $script:SavedRuntime = $env:YURUNA_RUNTIME_DIR
+        $script:SavedLog = $env:YURUNA_LOG_DIR
+        $env:YURUNA_RUNTIME_DIR = $script:Dir
+        $env:YURUNA_LOG_DIR = $script:Dir
+        $script:Config = New-LoopConfig -Enabled $true -MaxAttempts 1
+        Set-Content -LiteralPath (Join-Path $script:Dir 'recovery.ledger.ndjson') -Value ''
+        $script:Refills = 0
+        Mock -ModuleName Test.RunnerOuterLoop Write-OuterLog { }
+        Mock -ModuleName Test.RunnerOuterLoop Import-OuterRefreshTriggerModule { $false }
+        Mock -ModuleName Test.RunnerOuterLoop Get-OuterCommitSha { 'sha0' }
+        Mock -ModuleName Test.RunnerOuterLoop Complete-RecoveryFingerprint { $script:Refills++; $true }
+        Mock -ModuleName Test.RunnerOuterLoop Invoke-OuterCycleDispatch {
+            $next = $script:Script.Dequeue()
+            if ($next -eq 'stop') {
+                $State.ShutdownState['Requested'] = $true
+                return [pscustomobject]@{ Outcome = 'drain'; ExitCode = 0 }
+            }
+            return [pscustomobject]@{ Outcome = 'completed'; ExitCode = 0 }
+        }
+    }
+    AfterEach {
+        if ($null -eq $script:SavedRuntime) { Remove-Item Env:\YURUNA_RUNTIME_DIR -ErrorAction SilentlyContinue } else { $env:YURUNA_RUNTIME_DIR = $script:SavedRuntime }
+        if ($null -eq $script:SavedLog) { Remove-Item Env:\YURUNA_LOG_DIR -ErrorAction SilentlyContinue } else { $env:YURUNA_LOG_DIR = $script:SavedLog }
+        Remove-Item -LiteralPath $script:Config -Force -ErrorAction SilentlyContinue
+        Remove-Item -LiteralPath $script:Dir -Recurse -Force -ErrorAction SilentlyContinue
+    }
+    It 're-arms <Expected> budget refill(s) when the guests were <Statuses>' -TestCases @(
+        @{ Statuses = @('skipped', 'skipped'); Expected = 0 }
+        @{ Statuses = @('pass', 'skipped'); Expected = 0 }
+        @{ Statuses = @('pass', 'pass'); Expected = 1 }
+    ) {
+        param($Statuses, $Expected)
+        $guests = @(for ($n = 0; $n -lt $Statuses.Count; $n++) { @{ guestKey = "guest.$n"; status = $Statuses[$n] } })
+        Set-Content -LiteralPath (Join-Path $script:Dir 'status.json') -Value (@{ overallStatus = 'pass'; guests = $guests } | ConvertTo-Json -Depth 4)
+        $null = Invoke-FakeLoop -ConfigPath $script:Config -Cycle @('ok', 'stop')
+        $script:Refills | Should -Be $Expected
+    }
+}
+
+# A cycle whose planned guests were all quarantined exited 0, so the resident
+# counted a host that tested nothing as a pass.
+Describe 'A cycle that failed nothing but skipped a planned guest' {
+    BeforeEach {
+        $script:Dir = Join-Path ([System.IO.Path]::GetTempPath()) ('rol-' + [guid]::NewGuid().ToString('N'))
+        New-Item -ItemType Directory -Path $script:Dir -Force | Out-Null
+        $script:SavedRuntime = $env:YURUNA_RUNTIME_DIR
+        $script:SavedLog = $env:YURUNA_LOG_DIR
+        $env:YURUNA_RUNTIME_DIR = $script:Dir
+        $env:YURUNA_LOG_DIR = $script:Dir
+        $script:Config = New-LoopConfig -Enabled $true -MaxAttempts 1
+        Set-Content -LiteralPath (Join-Path $script:Dir 'recovery.ledger.ndjson') -Value ''
+        $guests = @(@{ guestKey = 'guest.0'; status = 'pass' }, @{ guestKey = 'guest.1'; status = 'skipped' })
+        Set-Content -LiteralPath (Join-Path $script:Dir 'status.json') -Value (@{ overallStatus = 'pass'; cycle = 7; guests = $guests } | ConvertTo-Json -Depth 4)
+        $script:Refills = 0
+        $script:Faults = 0
+        Mock -ModuleName Test.RunnerOuterLoop Write-OuterLog { }
+        Mock -ModuleName Test.RunnerOuterLoop Import-OuterRefreshTriggerModule { $false }
+        Mock -ModuleName Test.RunnerOuterLoop Get-OuterCommitSha { 'sha0' }
+        Mock -ModuleName Test.RunnerOuterLoop Complete-RecoveryFingerprint { $script:Refills++; $true }
+        Mock -ModuleName Test.RunnerOuterLoop Update-RunnerFaultStatus { $script:Faults++; $true }
+        Mock -ModuleName Test.RunnerOuterLoop Invoke-OuterCycleDispatch {
+            $next = $script:Script.Dequeue()
+            if ($next -eq 'stop') {
+                $State.ShutdownState['Requested'] = $true
+                return [pscustomobject]@{ Outcome = 'drain'; ExitCode = 0 }
+            }
+            return [pscustomobject]@{ Outcome = 'completed'; ExitCode = (Get-DegradedCycleExitCode) }
+        }
+    }
+    AfterEach {
+        if ($null -eq $script:SavedRuntime) { Remove-Item Env:\YURUNA_RUNTIME_DIR -ErrorAction SilentlyContinue } else { $env:YURUNA_RUNTIME_DIR = $script:SavedRuntime }
+        if ($null -eq $script:SavedLog) { Remove-Item Env:\YURUNA_LOG_DIR -ErrorAction SilentlyContinue } else { $env:YURUNA_LOG_DIR = $script:SavedLog }
+        Remove-Item -LiteralPath $script:Config -Force -ErrorAction SilentlyContinue
+        Remove-Item -LiteralPath $script:Dir -Recurse -Force -ErrorAction SilentlyContinue
+    }
+    It 'raises no fault and re-arms no repair budget, and says how many guests it skipped' {
+        $out = Invoke-FakeLoop -ConfigPath $script:Config -Cycle @('degraded', 'stop')
+        $script:Faults | Should -Be 0
+        $script:Refills | Should -Be 0
+        $out | Should -Match 'Cycle 000007 - DEGRADED \(1 of 2 guests skipped\)'
+        $result = Get-Content -Raw -LiteralPath (Join-Path $script:Dir 'recovery.result.json') | ConvertFrom-Json
+        $result.outcome | Should -Be 'degraded'
+        $result.exitCode | Should -Be 75
+    }
+}
+
+# A pool share that had room again, a hypervisor that answered again: the host
+# still waited out the whole failure pause, because nothing asked.
+Describe 'A host condition whose probe says it cleared' {
+    BeforeEach {
+        $script:Dir = Join-Path ([System.IO.Path]::GetTempPath()) ('rol-' + [guid]::NewGuid().ToString('N'))
+        New-Item -ItemType Directory -Path $script:Dir -Force | Out-Null
+        $script:SavedRuntime = $env:YURUNA_RUNTIME_DIR
+        $script:SavedLog = $env:YURUNA_LOG_DIR
+        $env:YURUNA_RUNTIME_DIR = $script:Dir
+        $env:YURUNA_LOG_DIR = $script:Dir
+        $script:Config = New-LoopConfig -Enabled $true -MaxAttempts 2
+        $script:Probes = 0
+        $script:ProbeClears = $true
+        Mock -ModuleName Test.RunnerOuterLoop Write-OuterLog { }
+        Mock -ModuleName Test.RunnerOuterLoop Import-OuterRefreshTriggerModule { $false }
+        Mock -ModuleName Test.RunnerOuterLoop Get-OuterCommitSha { 'sha0' }
+        Mock -ModuleName Test.RunnerOuterLoop Get-OuterProjectUrl { '' }
+        Mock -ModuleName Test.RunnerOuterLoop Get-OuterConfigMtime { $null }
+        Mock -ModuleName Test.RunnerOuterLoop Test-OuterNewCommitsAvailable { $false }
+        # Every poll may probe: the registered interval is minutes, the fixture pause is a second.
+        Mock -ModuleName Test.RunnerOuterLoop Get-RecoveryProbe { [pscustomobject]@{ FailureClass = 'pool_storage_full'; IntervalSeconds = 0; TimeoutSeconds = 5 } } `
+            -ParameterFilter { $FailureClass -eq 'pool_storage_full' }
+        Mock -ModuleName Test.RunnerOuterLoop Invoke-RecoveryProbe {
+            $script:Probes++
+            [pscustomobject]@{ Ran = $true; Cleared = $script:ProbeClears; ExitCode = $(if ($script:ProbeClears) { 0 } else { 1 }); Detail = 'pool storage: fixture' }
+        }
+        Mock -ModuleName Test.RunnerOuterLoop Invoke-OuterCycleDispatch {
+            $next = $script:Script.Dequeue()
+            if ($next -eq 'stop') {
+                $State.ShutdownState['Requested'] = $true
+                return [pscustomobject]@{ Outcome = 'drain'; ExitCode = 0 }
+            }
+            return [pscustomobject]@{ Outcome = 'storage-full'; ExitCode = 1 }
+        }
+    }
+    AfterEach {
+        if ($null -eq $script:SavedRuntime) { Remove-Item Env:\YURUNA_RUNTIME_DIR -ErrorAction SilentlyContinue } else { $env:YURUNA_RUNTIME_DIR = $script:SavedRuntime }
+        if ($null -eq $script:SavedLog) { Remove-Item Env:\YURUNA_LOG_DIR -ErrorAction SilentlyContinue } else { $env:YURUNA_LOG_DIR = $script:SavedLog }
+        Remove-Item -LiteralPath $script:Config -Force -ErrorAction SilentlyContinue
+        Remove-Item -LiteralPath $script:Dir -Recurse -Force -ErrorAction SilentlyContinue
+    }
+    It 'ends the pause through the ledger once the probe says the share has room' {
+        $out = Invoke-FakeLoop -ConfigPath $script:Config -Cycle @('full', 'stop')
+        $out | Should -Match 'the pool_storage_full condition has cleared \(pool storage: fixture\)'
+        $script:Probes | Should -Be 1
+        $lines = @(Read-RecoveryLedger -RuntimeDir $script:Dir).Records
+        @($lines | Where-Object { $_.action -eq 'end_failure_pause_on_probe' -and $_.phase -eq 'succeeded' }).Count | Should -Be 1
+        (Read-RecoveryResult -RuntimeDir $script:Dir)['recovery']['action'] | Should -Be 'end_failure_pause_on_probe'
+    }
+    It 'writes nothing to the ledger while the probe says the condition holds' {
+        $script:ProbeClears = $false
+        $out = Invoke-FakeLoop -ConfigPath $script:Config -Cycle @('full', 'stop')
+        $out | Should -Not -Match 'condition has cleared'
+        $script:Probes | Should -BeGreaterOrEqual 1
+        @(Read-RecoveryLedger -RuntimeDir $script:Dir).Records | Where-Object { $_.action -eq 'end_failure_pause_on_probe' } | Should -BeNullOrEmpty
+    }
+    It 'does not probe while automatic recovery is off' {
+        Remove-Item -LiteralPath $script:Config -Force
+        $script:Config = New-LoopConfig -Enabled $false
+        $null = Invoke-FakeLoop -ConfigPath $script:Config -Cycle @('full', 'stop')
+        $script:Probes | Should -Be 0
+        @((Read-RecoveryResult -RuntimeDir $script:Dir)['recovery']['advised']) | Should -Contain 'end_failure_pause_on_probe'
+    }
+}
+
+# The early end of a failure pause came after one poll interval however many
+# times the same failure had already been retried.
+Describe 'The hold before an unattended retry ends a pause' {
+    It 'doubles with each early end the ledger holds for the failure, to at most 15 minutes' {
+        $dir = Join-Path ([System.IO.Path]::GetTempPath()) ('rol-' + [guid]::NewGuid().ToString('N'))
+        New-Item -ItemType Directory -Path $dir -Force | Out-Null
+        try {
+            $result = New-RecoveryResult -EntryPoint runner -CycleGeneration (('c' * 32) + ':1') -Outcome failed -ExitCode 1 `
+                -FailureClass wait_timeout -SequenceName 'workload.x' -ActionVerb waitForText -Reason 'timed out'
+            $fingerprint = [string]$result['fingerprint']
+            $hold = { & (Get-Module Test.RunnerOuterLoop) { param($d, $f) Get-OuterEarlyEndHoldSeconds -PollSeconds 300 -RuntimeDir $d -Fingerprint $f } $dir $fingerprint }
+            & $hold | Should -Be 300
+            foreach ($expected in 600, 900, 900) {
+                $ended = Invoke-RecoveryAction -Name 'end_failure_pause_early' -Context @{ Result = $result; RuntimeDir = $dir } -RuntimeDir $dir -MaxAttempts 10
+                $ended.Decision | Should -Be 'applied'
+                & $hold | Should -Be $expected
+            }
+            $null = Complete-RecoveryFingerprint -RuntimeDir $dir -Generation (('c' * 32) + ':2')
+            & $hold | Should -Be 300 -Because 'a pass re-arms the backoff with the budget'
+            & (Get-Module Test.RunnerOuterLoop) { Get-OuterEarlyEndHoldSeconds -PollSeconds 300 -RuntimeDir '' -Fingerprint '' } | Should -Be 300
+        } finally { Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction SilentlyContinue }
     }
 }
 

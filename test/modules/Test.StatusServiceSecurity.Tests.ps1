@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.25
+.VERSION 2026.10.26
 .GUID 427642c0-6914-46fa-a327-c4a7e4ddc547
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -117,12 +117,14 @@ $res.OutputStream.Dispose()
     Assert-True ($getStart -ge 0 -and $getEnd -gt $getStart) 'the config GET redaction must exist'
     $script:ReadView = [scriptblock]::Create('param([string]$testConfigFile)' + "`n" +
         $script:ServerText.Substring($getStart, $getEnd - $getStart) + "`nreturn `$json")
-    $mergeStart = $script:ServerText.IndexOf('                    # Re-merge the on-disk secrets node', [StringComparison]::Ordinal)
-    $mergeEnd = $script:ServerText.IndexOf('                    $tmp = "$testConfigFile.', $mergeStart, [StringComparison]::Ordinal)
+    # The save runs in Invoke-TestConfigWrite once the body is read, where its
+    # steps sit at the function's own indentation.
+    $mergeStart = $script:ServerText.IndexOf("`n    # Re-merge the on-disk secrets node", [StringComparison]::Ordinal) + 1
+    $mergeEnd = $script:ServerText.IndexOf("`n    `$tmp = `"`$testConfigFile.", $mergeStart, [StringComparison]::Ordinal) + 1
     Assert-True ($mergeStart -ge 0 -and $mergeEnd -gt $mergeStart) 'the config save re-merge must exist'
     $script:MergeView = [scriptblock]::Create('param([string]$testConfigFile, [System.Collections.IDictionary]$parsedDoc)' + "`n" +
         $script:ServerText.Substring($mergeStart, $mergeEnd - $mergeStart) + "`nreturn ,`$parsedDoc")
-    $writeEnd = $script:ServerText.IndexOf('                    $body = [System.Text.Encoding]::UTF8.GetBytes', $mergeEnd, [StringComparison]::Ordinal)
+    $writeEnd = $script:ServerText.IndexOf("`n    `$body = [System.Text.Encoding]::UTF8.GetBytes", $mergeEnd, [StringComparison]::Ordinal) + 1
     Assert-True ($writeEnd -gt $mergeEnd) 'the configuration writer must exist'
     $script:WriteView = [scriptblock]::Create(@'
 param([string]$testConfigFile, [System.Collections.IDictionary]$parsedDoc)
@@ -137,9 +139,10 @@ function Send-JsonError {
     $Response.StatusCode = $StatusCode
 }
 function ConvertTo-JsonEscapedString { param($Value) return [string]$Value }
-foreach ($request in 1) {
+function Invoke-ConfigWriteSlice {
 '@ + "`n" + $script:ServerText.Substring($mergeStart, $writeEnd - $mergeStart) + @'
 }
+Invoke-ConfigWriteSlice
 return [pscustomobject]@{Status=$res.StatusCode;Reports=$reports.ToArray()}
 '@)
     $rsa = [Security.Cryptography.RSA]::Create(3072)
@@ -422,6 +425,109 @@ Describe 'control routes accept the scope that covers them' {
     }
 }
 
+# The page shows a stalled cycle and disabled recovery from this route alone, so
+# what it reports is checked against the files it reads.
+Describe 'runner status reports what the runtime files say' {
+    BeforeAll {
+        $start = $script:ServerText.IndexOf("if (`$path -eq 'control/runner-status') {", [StringComparison]::Ordinal)
+        $end = $script:ServerText.IndexOf('# --- REGION: /control/control-status', $start, [StringComparison]::Ordinal)
+        Assert-True ($start -ge 0 -and $end -gt $start) 'the runner-status route must exist'
+        $script:RunnerStatus = [scriptblock]::Create(@'
+param([string]$runtimeDir)
+$serverConfigPath = 'unused'
+function Test-RunnerAlive { [pscustomobject]@{ Running = $true; RunnerPid = 4242 } }
+function Read-TestConfig { $null }
+function Get-TestConfigValue { $null }
+function Write-ServerErr { param($Message) $null = $Message }
+$res = [pscustomobject]@{ ContentType = ''; Headers = [System.Collections.Generic.Dictionary[string, string]]::new(); ContentLength64 = 0; OutputStream = [IO.MemoryStream]::new() }
+$path = 'control/runner-status'
+foreach ($one in 0) {
+'@ + "`n" + $script:ServerText.Substring($start, $end - $start) + "`n" + @'
+}
+[Text.Encoding]::UTF8.GetString($res.OutputStream.ToArray()) | ConvertFrom-Json
+'@)
+    }
+    It 'names a recovery ledger that cannot be used, and nothing when it can' {
+        $runtime = Join-Path $script:Work ('runner-status-' + [guid]::NewGuid().ToString('N'))
+        $null = New-Item -ItemType Directory -Path $runtime -Force
+        (& $script:RunnerStatus $runtime).recoveryDisabled | Should -Be ''
+        Set-Content -LiteralPath (Join-Path $runtime 'recovery.health.json') -Value '{"schemaVersion":1,"state":"ledger-unwritable"}'
+        (& $script:RunnerStatus $runtime).recoveryDisabled | Should -Be 'ledger-unwritable'
+    }
+    It 'ages the step heartbeat in UTC' {
+        $runtime = Join-Path $script:Work ('runner-status-' + [guid]::NewGuid().ToString('N'))
+        $null = New-Item -ItemType Directory -Path $runtime -Force
+        $heartbeat = Join-Path $runtime 'runner.stepHeartbeat'
+        Set-Content -LiteralPath $heartbeat -Value 'step'
+        (Get-Item -LiteralPath $heartbeat).LastWriteTimeUtc = [datetime]::UtcNow.AddSeconds(-100)
+        $age = (& $script:RunnerStatus $runtime).stepHeartbeatAgeSeconds
+        $age | Should -BeGreaterOrEqual 99
+        $age | Should -BeLessOrEqual 105
+    }
+}
+
+# The runner obeys the flag files, not this reply, so an ok for a flag that was
+# never written is an operator watching a pause or a release that never happens.
+Describe 'pause, resume and lab-hold release answer what the flag file holds' {
+    BeforeAll {
+        function Get-RouteHarness {
+            param([string]$StartMarker, [string]$EndMarker, [string]$Parameters)
+            $start = $script:ServerText.IndexOf($StartMarker, [StringComparison]::Ordinal)
+            $end = $script:ServerText.IndexOf($EndMarker, $start, [StringComparison]::Ordinal)
+            Assert-True ($start -ge 0 -and $end -gt $start) "the route at '$StartMarker' must exist"
+            return [scriptblock]::Create("param($Parameters)`n" + @'
+$script:Refused = $null
+function Write-ServerErr { param($Message) $null = $Message }
+function Send-JsonError { param($Response, [int]$StatusCode, $Request, [string]$Key, [hashtable]$Arguments) $null = $Response, $Request, $Arguments; $script:Refused = [pscustomobject]@{ Status = $StatusCode; Key = $Key } }
+$req = [pscustomobject]@{ HttpMethod = 'POST' }
+$res = [pscustomobject]@{ ContentType = ''; Headers = [System.Collections.Generic.Dictionary[string, string]]::new(); ContentLength64 = 0; OutputStream = [IO.MemoryStream]::new() }
+foreach ($one in 0) {
+'@ + "`n" + $script:ServerText.Substring($start, $end - $start) + "`n" + @'
+}
+if ($script:Refused) { return $script:Refused }
+[Text.Encoding]::UTF8.GetString($res.OutputStream.ToArray()) | ConvertFrom-Json
+'@)
+        }
+        $script:PauseRoute = Get-RouteHarness -StartMarker "if (`$path -eq 'control/step-pause' -or" -EndMarker '# --- REGION: /control/lab-hold-release' `
+            -Parameters '[string]$path, [string]$stepPauseFile, [string]$cyclePauseFile, [string]$statusJsonFile'
+        $script:ReleaseRoute = Get-RouteHarness -StartMarker "if (`$path -eq 'control/lab-hold-release') {" -EndMarker '# --- REGION: /control/break-continue' `
+            -Parameters '[string]$path, [string]$labHoldFile, [string]$labHoldReleaseFile'
+    }
+    It 'answers ok and leaves the flag for a pause it wrote' {
+        $dir = Join-Path $script:Work ('pause-' + [guid]::NewGuid().ToString('N'))
+        $null = New-Item -ItemType Directory -Path $dir -Force
+        $flag = Join-Path $dir 'control.step-pause'
+        $reply = & $script:PauseRoute 'control/step-pause' $flag (Join-Path $dir 'control.cycle-pause') (Join-Path $dir 'status.json')
+        $reply.ok | Should -BeTrue
+        $reply.stepPaused | Should -BeTrue
+        Test-Path -LiteralPath $flag | Should -BeTrue
+    }
+    It 'refuses a pause whose flag cannot be written' {
+        $dir = Join-Path $script:Work ('pause-' + [guid]::NewGuid().ToString('N'))
+        $reply = & $script:PauseRoute 'control/cycle-pause' (Join-Path $dir 'control.step-pause') (Join-Path $dir 'missing/control.cycle-pause') (Join-Path $dir 'status.json')
+        $reply.Status | Should -Be 500
+        $reply.Key | Should -BeExactly 'status.api_write_failed_detail_c07681e1'
+    }
+    It 'refuses a resume whose flag cannot be removed' {
+        $dir = Join-Path $script:Work ('pause-' + [guid]::NewGuid().ToString('N'))
+        $flag = Join-Path $dir 'control.step-pause'
+        $null = New-Item -ItemType Directory -Path $flag -Force
+        Set-Content -LiteralPath (Join-Path $flag 'child') -Value 'x'
+        $reply = & $script:PauseRoute 'control/step-resume' $flag (Join-Path $dir 'control.cycle-pause') (Join-Path $dir 'status.json')
+        $reply.Status | Should -Be 500
+    }
+    It 'refuses a lab-hold release whose flag cannot be written' {
+        $dir = Join-Path $script:Work ('hold-' + [guid]::NewGuid().ToString('N'))
+        $null = New-Item -ItemType Directory -Path $dir -Force
+        $hold = Join-Path $dir 'control.lab-hold'
+        Set-Content -LiteralPath $hold -Value 'held'
+        $reply = & $script:ReleaseRoute 'control/lab-hold-release' $hold (Join-Path $dir 'missing/control.lab-hold-release')
+        $reply.Status | Should -Be 500
+        $written = & $script:ReleaseRoute 'control/lab-hold-release' $hold (Join-Path $dir 'control.lab-hold-release')
+        $written.labHoldRelease | Should -BeTrue
+    }
+}
+
 Describe 'configuration redaction preserves the cached and on-disk secrets' {
     It 'redacts only the response and preserves secrets across repeated reads and a UI save' {
         $config = Join-Path $script:Work 'roundtrip.yml'
@@ -490,5 +596,90 @@ Describe 'control configuration writer preserves and validates mirror enrollment
         $result.Status | Should -Be 500
         [IO.File]::ReadAllBytes($script:MirrorConfig) | Should -BeExactly $before
         @($result.Reports | Where-Object text -Like '*mirror-key-invalid*').Count | Should -Be 1
+    }
+}
+
+Describe 'anonymous request bodies never hold the listener' {
+    It 'reads <Route> through the pending reads, bounded in size and time' -TestCases @(
+        @{ Route = 'control/test-config'; Kind = 'test-config' }
+        @{ Route = 'control/perf-checkpoints'; Kind = 'perf-checkpoints' }
+    ) {
+        param($Route, $Kind)
+        $start = $script:ServerText.IndexOf("if (`$path -eq '$Route') {", [StringComparison]::Ordinal)
+        $start | Should -BeGreaterThan 0
+        $end = $script:ServerText.IndexOf('# --- REGION: ', $start, [StringComparison]::Ordinal)
+        $block = $script:ServerText.Substring($start, $end - $start)
+        $block | Should -Not -Match 'InputStream' -Because 'a body read on the listener thread waits as long as the client takes'
+        $block | Should -Match ("Add-PendingRequestBody -RequestContext \`$ctx -Completion \(\[pscustomobject\]@\{\s+Kind = '" + $Kind + "'[^}]*Anonymous = \`$true")
+        $script:ServerText | Should -Match ("'" + $Kind + "'\s+\{ Invoke-")
+    }
+    It 'keeps two of the four body slots for callers that are not anonymous' {
+        $ast = [Management.Automation.Language.Parser]::ParseInput($script:ServerText, [ref]$null, [ref]$null)
+        $add = $ast.Find({ param($node) $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq 'Add-PendingRequestBody' }, $true)
+        $add | Should -Not -BeNullOrEmpty
+        $probe = [scriptblock]::Create(@'
+param($AddSource)
+$replies = [Collections.Generic.List[int]]::new()
+function Send-JsonReply { param($Response, $Request, $StatusCode, [switch]$Close, $RetryAfter, $Body, $MessageKey) $null = $Response, $Request, $Close, $RetryAfter, $Body, $MessageKey; $replies.Add([int]$StatusCode) }
+function Import-RouteModule { param($ModuleRelativePath, $RequiredCommand) $null = $ModuleRelativePath, $RequiredCommand; $true }
+function New-StatusBoundedBodyRead { param($Stream, $MaxBytes, $TimeoutMs, $Tag) $null = $Stream, $MaxBytes, $TimeoutMs; [pscustomobject]@{ Tag = $Tag } }
+function Step-PendingRequestBody { }
+. ([scriptblock]::Create($AddSource))
+$anonymous = [pscustomobject]@{ Kind = 'perf-checkpoints'; MaximumBytes = 256KB; SizeMessage = 'm'; Anonymous = $true }
+$pendingBodies = [Collections.Generic.List[object]]::new()
+$context = [pscustomobject]@{ Request = [pscustomobject]@{ InputStream = $null }; Response = $null }
+Add-PendingRequestBody -RequestContext $context -Completion $anonymous
+Add-PendingRequestBody -RequestContext $context -Completion $anonymous
+Add-PendingRequestBody -RequestContext $context -Completion $anonymous
+$afterAnonymous = $pendingBodies.Count
+Add-PendingRequestBody -RequestContext $context -Loopback $true
+[pscustomobject]@{ AfterAnonymous = $afterAnonymous; Total = $pendingBodies.Count; Refused = @($replies) }
+'@)
+        $result = & $probe $add.Extent.Text
+        $result.AfterAnonymous | Should -Be 2 -Because 'a third anonymous body waits for a slot'
+        @($result.Refused) | Should -Be @(503)
+        $result.Total | Should -Be 3 -Because 'a refresh is still read beside them'
+    }
+}
+
+Describe 'page code is revalidated, not downloaded on every view' {
+    BeforeAll {
+        $ast = [Management.Automation.Language.Parser]::ParseInput($script:ServerText, [ref]$null, [ref]$null)
+        $helpers = (@('Get-RepresentationETag', 'Test-RepresentationETagMatch') | ForEach-Object {
+            $name = $_
+            $ast.Find({ param($node) $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq $name }, $true).Extent.Text
+        }) -join "`n"
+        $open = "} elseif (`$ext -in '.css','.js') {"
+        $start = $script:ServerText.IndexOf($open, [StringComparison]::Ordinal)
+        $end = $script:ServerText.IndexOf("} elseif (`$ext -in '.json'", $start, [StringComparison]::Ordinal)
+        Assert-True ($start -ge 0 -and $end -gt $start) 'the page-code branch must exist'
+        $branch = $script:ServerText.Substring($start + $open.Length, $end - $start - $open.Length)
+        $script:ServePageCode = [scriptblock]::Create("param(`$file, `$req, `$res)`n" + $helpers + "`n`$assetBytes = `$null`nforeach (`$once in 1) {`n" + $branch + "`n}`nreturn ,`$assetBytes")
+        function Get-AssetResponse {
+            $headers = [System.Net.WebHeaderCollection]::new()
+            return [pscustomobject]@{ StatusCode = 200; Headers = $headers; OutputStream = [IO.MemoryStream]::new() }
+        }
+    }
+    It 'sends a first load with a strong validator, answers an unchanged copy with 304, and a changed one in full' {
+        $file = Join-Path $TestDrive 'yuruna.common.css'
+        [IO.File]::WriteAllText($file, 'body { color: red; }')
+        $first = Get-AssetResponse
+        $served = & $script:ServePageCode $file ([pscustomobject]@{ Headers = @{} }) $first
+        $first.Headers['Cache-Control'] | Should -Be 'no-cache'
+        $etag = $first.Headers['ETag']
+        $etag | Should -Match '^"[0-9a-f]{64}"$'
+        $first.StatusCode | Should -Be 200
+        [Text.Encoding]::UTF8.GetString($served) | Should -Be 'body { color: red; }' -Because 'the response carries the bytes the validator names'
+        $again = Get-AssetResponse
+        $null = & $script:ServePageCode $file ([pscustomobject]@{ Headers = @{ 'If-None-Match' = $etag } }) $again
+        $again.StatusCode | Should -Be 304
+        [IO.File]::WriteAllText($file, 'body { color: blue; }')
+        $changed = Get-AssetResponse
+        $null = & $script:ServePageCode $file ([pscustomobject]@{ Headers = @{ 'If-None-Match' = $etag } }) $changed
+        $changed.StatusCode | Should -Be 200
+        $changed.Headers['ETag'] | Should -Not -Be $etag
+    }
+    It 'keeps runtime data out of any cache' {
+        $script:ServerText | Should -Match "\} elseif \(\`$ext -in '\.json','\.txt','\.sh','\.ps1','\.psm1','\.yml','\.yaml','\.md'\) \{\s+\`$res\.Headers\.Add\('Cache-Control', 'no-store, no-cache, must-revalidate'\)"
     }
 }

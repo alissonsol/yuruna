@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.25
+.VERSION 2026.10.26
 .GUID 42f8395b-50cf-4a59-bfc3-49af26e60079
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -177,7 +177,9 @@ if (-not (Expand-ExtensionVmDisk -Path $diskImg -SizeBytes 512GB -Format 'qcow2'
 }
 
 # --- REGION: Stage the cloud-init seed directory
-# The source and in-progress ISO stay private until protected publication.
+# The seed carries the admin password. It is staged in a private (0700)
+# workspace beside the disk and published as an owner-only image, and the
+# finally below removes the workspace on every exit, a failed build included.
 Import-Module (Join-Path $PSScriptRoot '../../modules/Yuruna.SeedMedia.psm1') -Force
 $seedWorkspace = $null
 try {
@@ -406,9 +408,8 @@ try {
 
     # --- REGION: Render user-data / meta-data
     # Render user-data from the shared base + KVM overlay (host/vmconfig/
-    # caching-proxy-service.*). New-CloudInitUserData resolves the SSH-key and
-    # password placeholders with literal .Replace(), so regex-special chars
-    # in the values are safe.
+    # caching-proxy-service.*). New-CloudInitUserData resolves placeholders with literal
+    # .Replace(), so values carrying regex-special chars are safe.
     Import-Module (Join-Path $repoRoot 'automation/Yuruna.CloudInitTemplate.psm1') -Force
     $userData = New-CloudInitUserData `
         -BasePath    $baseUserData `
@@ -469,8 +470,8 @@ try {
 
     Publish-SeedMediaImage -Workspace $seedWorkspace -Path $seedImg -Confirm:$false
 
-    # --- REGION: Clean up temporary files
 } finally {
+    # --- REGION: Clean up temporary files
     Remove-SeedMediaWorkspace -Workspace $seedWorkspace -Confirm:$false
 }
 
@@ -517,7 +518,9 @@ if ($networkName -eq 'default') {
     Write-Warning ""
 } else {
     Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_a2981769678f97b3' -Arguments @{ networkName = "$networkName" })
-    # --- REGION: https://yuruna.link/42e220c4-0004
+
+    # --- REGION: Bridge-uplink preflight
+    # See https://yuruna.link/42e220c4-0004
     # Require a physical uplink only for bridge-mode networks; NAT bridges need none.
     $netXml = & virsh --connect $virshUri net-dumpxml $networkName 2>&1
     $isBridgeMode = $false
@@ -542,7 +545,6 @@ if ($networkName -eq 'default') {
 # --- REGION: Create and configure the libvirt domain
 if (-not (New-KvmServiceDomain -VMName $VMName -DiskPath $diskImg -SeedPath $seedImg -NetworkName $networkName -MemoryMb $MemoryMb -MacAddress $MacAddress -Confirm:$false)) { exit 1 }
 
-
 # --- REGION: Wait for VM IP
 # On the bridged 'yuruna-external' network the host is NOT the DHCP
 # server, so `virsh domifaddr` (default --source lease) returns nothing.
@@ -553,15 +555,14 @@ Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_2c8ff2df499f232c'
 Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_9e6aad8fd131bdbe')
 Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_e6346c74a10ae90e')
 
+# --- REGION: https://yuruna.link/42e220c4-0004
+# Use shared address discovery to reject loopback and link-local agent rows.
 $cacheIp = $null
 $maxIterations = 240  # 240 * 5s = 20 minutes
 $startTime = Get-Date
 $baselineSizeMB = [math]::Round((Get-Item $diskImg).Length / 1MB, 0)
-# See https://yuruna.link/42e220c4-0004
 
 for ($i = 0; $i -lt $maxIterations; $i++) {
-    # --- REGION: https://yuruna.link/42e220c4-0004
-    # Use shared address discovery to reject loopback and link-local agent rows.
     $cacheIp = Get-VMIp -VMName $VMName
     if ($cacheIp) { break }
     Start-Sleep -Seconds 5

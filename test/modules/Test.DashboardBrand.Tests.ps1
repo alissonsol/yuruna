@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.25
+.VERSION 2026.10.26
 .GUID 42536ec8-4d7e-4727-b52e-55f7f0ca8688
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -178,7 +178,7 @@ function Invoke-Brander {
     param(
         [Parameter(Mandatory)][string]$DashboardDir,
         [string]$Name = 'Yurunadev',
-        [string]$Version = '2026.10.25',
+        [string]$Version = '2026.10.26',
         [switch]$NoEnvFile
     )
     $envFile = Join-Path $DashboardDir '..' | Join-Path -ChildPath 'brand.env'
@@ -322,7 +322,7 @@ Describe 'the brand banner is one line across the top of the dashboards this VM 
         # A line that broke would need a taller banner to be legible, which is
         # the whole cost the layout was chosen to avoid.
         $dir = Get-DashboardFixture -Dashboard $script:RealDashboards
-        Invoke-Brander -DashboardDir $dir -Name 'Yurunadev' -Version '2026.10.25' | Out-Null
+        Invoke-Brander -DashboardDir $dir -Name 'Yurunadev' -Version '2026.10.26' | Out-Null
 
         foreach ($name in $script:RealDashboards.Keys) {
             $doc = Get-Content -Raw (Join-Path $dir "$name.json") | ConvertFrom-Json
@@ -331,7 +331,7 @@ Describe 'the brand banner is one line across the top of the dashboards this VM 
             # nothing, so it is not part of the line being measured.
             $rendered = ($content -replace '(?s)^.*?-->\s*', '')
             Assert-True ($rendered -notmatch '[\r\n]') -Because "$name's banner must be a single line: got [$rendered]"
-            Assert-Equal -Expected ("**Yurunadev**" + $script:Separator + '`v2026.10.25`') -Actual $rendered `
+            Assert-Equal -Expected ("**Yurunadev**" + $script:Separator + '`v2026.10.26`') -Actual $rendered `
                 -Because "$name's banner must hold the name and version apart with non-breaking spaces"
         }
     }
@@ -434,7 +434,7 @@ Describe 'the brand banner is safe to re-run' {
         # The version is a variable, not a literal repeated in the assertion.
         # Written twice, the two copies drift the first time the version moves,
         # and the assertion then checks for a string the test never asked for.
-        $version = '2026.10.25'
+        $version = '2026.10.26'
 
         $dir = Get-DashboardFixture -Dashboard $script:RealDashboards
         Invoke-Brander -DashboardDir $dir -Name 'Yurunadev' -Version $version | Out-Null
@@ -856,5 +856,3 @@ Describe 'every host that builds a cache VM seeds the identity into it' {
         }
     }
 }
-
-# Copyright (c) 2019-2026 by Alisson Sol et al.

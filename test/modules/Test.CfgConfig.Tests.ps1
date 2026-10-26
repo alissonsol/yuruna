@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.25
+.VERSION 2026.10.26
 .GUID 42306286-6637-4762-aa48-42757ab30e79
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -116,6 +116,36 @@ Describe 'Read-TestConfig cache is case-sensitive (Ordinal) and FIFO-bounded' {
 
     It 'bounds the cache with a real order.Count -gt max comparison node' {
         (Get-BoundComparisonCount -Ast (Get-FileAst $configMod)) | Should -BeGreaterOrEqual 1
+    }
+}
+
+# A half-saved edit made the resident runner read no configuration at all, so
+# its decisions fell back to defaults -- automatic recovery off among them.
+Describe 'A reader that keeps the last configuration that parsed' {
+    BeforeEach {
+        & (Get-Module Test.Config) { Initialize-TestConfigCacheStore }
+        $script:LastGoodPath = Join-Path $TestDrive ('cfg-' + [guid]::NewGuid().ToString('N') + '.yml')
+        Set-Content -LiteralPath $script:LastGoodPath -Value "testCycle:`n  autoRemediation:`n    enabled: true" -Encoding utf8
+    }
+    It 'returns the last good parse over a file that no longer parses, and warns once per broken content' {
+        $good = Read-TestConfig -Path $script:LastGoodPath -NoCache -LastGoodOnError
+        Assert-True ([bool]$good.testCycle.autoRemediation.enabled) 'fixture sanity: the good file parses'
+        Set-Content -LiteralPath $script:LastGoodPath -Value "testCycle: [unclosed" -Encoding utf8
+        $warnings = @()
+        $kept = Read-TestConfig -Path $script:LastGoodPath -NoCache -LastGoodOnError -WarningVariable +warnings -WarningAction SilentlyContinue
+        Assert-True ([bool]$kept.testCycle.autoRemediation.enabled) 'the decision keeps the last good value'
+        $again = Read-TestConfig -Path $script:LastGoodPath -NoCache -LastGoodOnError -WarningVariable +warnings -WarningAction SilentlyContinue
+        Assert-True ([bool]$again.testCycle.autoRemediation.enabled) 'and keeps it on the next read'
+        Assert-Equal -Expected 1 -Actual @($warnings).Count -Because 'one warning per broken content'
+        Assert-True ($null -eq (Read-TestConfig -Path $script:LastGoodPath -NoCache)) 'a reader that did not ask still gets $null'
+    }
+    It 'keeps it over a root that is not a mapping, and gives $null with no good parse to fall back on' {
+        $null = Read-TestConfig -Path $script:LastGoodPath -NoCache -LastGoodOnError
+        Set-Content -LiteralPath $script:LastGoodPath -Value "- a list, not a mapping" -Encoding utf8
+        Assert-True ([bool](Read-TestConfig -Path $script:LastGoodPath -NoCache -LastGoodOnError -WarningAction SilentlyContinue).testCycle.autoRemediation.enabled) 'a list root keeps the last good parse'
+        $fresh = Join-Path $TestDrive ('cfg-' + [guid]::NewGuid().ToString('N') + '.yml')
+        Set-Content -LiteralPath $fresh -Value "testCycle: [unclosed" -Encoding utf8
+        Assert-True ($null -eq (Read-TestConfig -Path $fresh -NoCache -LastGoodOnError -WarningAction SilentlyContinue)) 'nothing parsed before: $null'
     }
 }
 

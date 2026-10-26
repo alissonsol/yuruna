@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.25
+.VERSION 2026.10.26
 .GUID 425779d7-e711-456a-80b5-6b5e2f85b853
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -937,6 +937,50 @@ function Send-RecoveryActionEvent {
     }
 }
 
+function Set-RecoveryLedgerHealth {
+    <#
+    .SYNOPSIS
+        Record whether automatic recovery can use its ledger, and warn once when
+        it stops being able to.
+    .DESCRIPTION
+        Every repair runs under the ledger, so a ledger that cannot be read or
+        written stops all automatic recovery while each refusal looks like an
+        ordinary declined repair. recovery.health.json in the runtime directory
+        names the state (ledger-unreadable or ledger-unwritable) until a later
+        attempt writes a ledger line again; /control/runner-status reports it
+        and the status page shows it. The warning is written when the state
+        changes, not on every refusal.
+    #>
+    [CmdletBinding(SupportsShouldProcess)]
+    param(
+        [Parameter(Mandatory)][string]$RuntimeDir,
+        [Parameter(Mandatory)][ValidateSet('ok', 'ledger-unreadable', 'ledger-unwritable')][string]$State
+    )
+    $path = Join-Path $RuntimeDir 'recovery.health.json'
+    $previous = ''
+    try {
+        if (Test-Path -LiteralPath $path) { $previous = [string]((Get-Content -LiteralPath $path -Raw | ConvertFrom-Json -AsHashtable)['state']) }
+    } catch { $previous = 'unreadable-marker' }
+    if ($State -ceq 'ok') {
+        if ($previous -and $PSCmdlet.ShouldProcess($path, 'Clear the recovery health marker')) {
+            Remove-Item -LiteralPath $path -Force -ErrorAction SilentlyContinue
+        }
+        return
+    }
+    if ($previous -ceq $State) { return }
+    $ledgerPath = Get-RecoveryLedgerPath -RuntimeDir $RuntimeDir
+    Write-Warning (Format-YurunaOperatorMessage -Key 'runner.recovery_disabled' -Arguments @{ reason = $State; ledgerPath = $ledgerPath })
+    if (-not $PSCmdlet.ShouldProcess($path, 'Record that automatic recovery is disabled')) { return }
+    try {
+        $doc = [ordered]@{ schemaVersion = 1; state = $State; ledgerPath = $ledgerPath; sinceUtc = [datetime]::UtcNow.ToString('o') }
+        $temp = $path + '.' + [guid]::NewGuid().ToString('N') + '.tmp'
+        [IO.File]::WriteAllText($temp, ($doc | ConvertTo-Json -Compress))
+        [IO.File]::Move($temp, $path, $true)
+    } catch {
+        Write-Verbose "Set-RecoveryLedgerHealth: the marker was not written: $($_.Exception.Message)"
+    }
+}
+
 function Write-RecoveryAttemptLine {
     <#
     .SYNOPSIS
@@ -1039,7 +1083,9 @@ function Invoke-RecoveryAction {
     $refuse = {
         param([string]$Phase, [string]$Decision, [string]$State, [int]$Attempt, [string]$Reason, [object[]]$Evidence)
         $template['Attempt'] = $Attempt
-        $null = Write-RecoveryAttemptLine -Template $template -Phase $Phase -At (& $clock) -Reason $Reason -Evidence $Evidence
+        if (Write-RecoveryAttemptLine -Template $template -Phase $Phase -At (& $clock) -Reason $Reason -Evidence $Evidence) {
+            Set-RecoveryLedgerHealth -RuntimeDir $RuntimeDir -State 'ok' -Confirm:$false
+        }
         return (New-RecoveryOutcome -Action $actionName -Decision $Decision -RecoveryState $State -Attempt $Attempt -AttemptId $attemptId -Reason $Reason -Evidence $Evidence)
     }
 
@@ -1060,6 +1106,8 @@ function Invoke-RecoveryAction {
         if (-not (Write-RecoveryAttemptLine -Template $staleTemplate -Phase 'abandoned' -At (& $clock) -Reason 'abandoned-unfinished')) { break }
     }
     if (-not $summary.LedgerReadable) {
+        # No ledger line can say so, so the refusal is published beside it.
+        Set-RecoveryLedgerHealth -RuntimeDir $RuntimeDir -State 'ledger-unreadable' -Confirm:$false
         return (New-RecoveryOutcome -Action $actionName -Decision 'ledger-unavailable' -RecoveryState 'declined' -AttemptId $attemptId -Reason 'ledger-unavailable')
     }
     $used = [int]$summary.Used
@@ -1089,8 +1137,10 @@ function Invoke-RecoveryAction {
     # The line that makes the attempt countable is on disk before anything is
     # changed: a crash from here on is an unfinished attempt, never an invisible one.
     if (-not (Write-RecoveryAttemptLine -Template $template -Phase 'started' -At (& $clock) -Reason $pre.Reason -Evidence $pre.Evidence)) {
+        Set-RecoveryLedgerHealth -RuntimeDir $RuntimeDir -State 'ledger-unwritable' -Confirm:$false
         return (New-RecoveryOutcome -Action $actionName -Decision 'ledger-unavailable' -RecoveryState 'declined' -Attempt $used -AttemptId $attemptId -Reason 'ledger-unavailable' -Evidence $pre.Evidence)
     }
+    Set-RecoveryLedgerHealth -RuntimeDir $RuntimeDir -State 'ok' -Confirm:$false
 
     $evidence = [Collections.Generic.List[object]]::new()
     $evidence.AddRange([object[]]@($pre.Evidence))

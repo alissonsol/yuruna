@@ -10968,7 +10968,7 @@
       }
     },
     "runner.operator_4fb40cac594a7bbc": {
-      "message": "[Invoke-TestProject] Step 1+2: wipe and re-clone <RepoRoot>/project from {projectUrl}",
+      "message": "[Invoke-TestProject] Step 1+2: the cycle's inner replaces <RepoRoot>/project with a fresh clone of {projectUrl}",
       "description": "Whole Write-Output message in test/Invoke-TestProject.ps1; preserve command names, paths, codes, and argument boundaries.",
       "lifecycle": "active",
       "placeholders": {
@@ -11577,7 +11577,7 @@
       "lifecycle": "active"
     },
     "runner.operator_554a120b73560a96": {
-      "message": "[Invoke-TestProject] Step 3: spawning Invoke-TestRunnerInnerLoop for one test cycle.",
+      "message": "[Invoke-TestProject] Step 3: running one runner cycle through Invoke-TestCycleRunner.",
       "description": "Whole Write-Output message in test/Invoke-TestProject.ps1; preserve command names, paths, codes, and argument boundaries.",
       "lifecycle": "active"
     },
@@ -33263,6 +33263,455 @@
           "type": "token",
           "trust": "internal",
           "example": "statement-key-not-enrolled"
+        }
+      }
+    },
+    "runner.recovery_disabled": {
+      "message": "Automatic recovery is disabled ({reason}): no repair runs until the recovery ledger at {ledgerPath} can be read and written again.",
+      "description": "Write-Warning from Set-RecoveryLedgerHealth in test/modules/Test.RecoveryLedger.psm1 when the recovery ledger cannot be read (ledger-unreadable) or written (ledger-unwritable). It is written once per change of state; recovery.health.json keeps the state until a ledger line is written again.",
+      "lifecycle": "active",
+      "placeholders": {
+        "reason": {
+          "type": "token",
+          "trust": "internal",
+          "example": "ledger-unwritable"
+        },
+        "ledgerPath": {
+          "type": "detail",
+          "trust": "internal",
+          "example": "test/status/runtime/recovery.ledger.ndjson"
+        }
+      }
+    },
+    "runner.oneshot_lease_take_action": {
+      "message": "Take the one-shot runtime lease",
+      "description": "ShouldProcess action in test/modules/Test.SingleInstance.psm1 (Enter-YurunaOneShotLease) and test/modules/Test.Prelude.psm1 (Initialize-YurunaOneShotEntryPoint) when Invoke-TestProject or Debug-TestSequence claims the runtime directory for its run.",
+      "lifecycle": "active"
+    },
+    "runner.oneshot_lease_release_action": {
+      "message": "Release the one-shot runtime lease",
+      "description": "ShouldProcess action in test/modules/Test.SingleInstance.psm1 (Exit-YurunaOneShotLease) when a one-shot entry point releases the runtime directory it claimed.",
+      "lifecycle": "active"
+    },
+    "runner.oneshot_lease_held": {
+      "message": "{callerName}: a one-shot run (PID {pid}) holds this runtime directory ({leasePath}); refusing to start. Wait for it to finish, or run from a different YURUNA_RUNTIME_DIR.",
+      "description": "Write-Information in test/modules/Test.Prelude.psm1 (Initialize-YurunaOneShotEntryPoint, Assert-NoOtherRunner) when an entry point refuses to start because another live Invoke-TestProject or Debug-TestSequence run holds the one-shot lease; keep the environment variable name.",
+      "lifecycle": "active",
+      "placeholders": {
+        "callerName": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "Debug-TestSequence"
+        },
+        "pid": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "48213"
+        },
+        "leasePath": {
+          "type": "detail",
+          "trust": "internal",
+          "example": "/home/ops/git/yuruna/test/status/runtime/oneshot.pid"
+        }
+      }
+    },
+    "runner.oneshot_lease_unknown": {
+      "message": "{callerName}: the one-shot lease {leasePath} names PID {pid}, whose identity cannot be confirmed ({reason}); refusing to start. If no one-shot run is active, remove the file and run again.",
+      "description": "Write-Information in test/modules/Test.Prelude.psm1 (Initialize-YurunaOneShotEntryPoint) when the one-shot lease exists but its holder cannot be proven alive or gone; the lease is never removed automatically in that state.",
+      "lifecycle": "active",
+      "placeholders": {
+        "callerName": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "Debug-TestSequence"
+        },
+        "pid": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "48213"
+        },
+        "leasePath": {
+          "type": "detail",
+          "trust": "internal",
+          "example": "/home/ops/git/yuruna/test/status/runtime/oneshot.pid"
+        },
+        "reason": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "no-exact-identity"
+        }
+      }
+    },
+    "runner.oneshot_blocks_start": {
+      "message": "Start-TestRunner: a one-shot run (PID {pid}) holds this runtime directory ({leasePath}); not starting the runner. Start it again once that run finishes.",
+      "description": "Write-Warning and outer.log line in test/Start-TestRunner.ps1 when a start refuses because a live Invoke-TestProject or Debug-TestSequence run holds the one-shot lease.",
+      "lifecycle": "active",
+      "placeholders": {
+        "pid": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "48213"
+        },
+        "leasePath": {
+          "type": "detail",
+          "trust": "internal",
+          "example": "/home/ops/git/yuruna/test/status/runtime/oneshot.pid"
+        }
+      }
+    },
+    "runner.oneshot_lease_unconfirmed": {
+      "message": "Start-TestRunner: the one-shot lease {leasePath} names PID {pid}, whose identity cannot be confirmed ({reason}); starting the runner anyway.",
+      "description": "Write-Warning and outer.log line in test/Start-TestRunner.ps1 when the one-shot lease exists but its holder cannot be proven alive or gone; the runner starts rather than wait on a file only an operator could remove.",
+      "lifecycle": "active",
+      "placeholders": {
+        "pid": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "48213"
+        },
+        "leasePath": {
+          "type": "detail",
+          "trust": "internal",
+          "example": "/home/ops/git/yuruna/test/status/runtime/oneshot.pid"
+        },
+        "reason": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "no-exact-identity"
+        }
+      }
+    },
+    "runner.project_checkout_replace_action": {
+      "message": "Replace with a fresh checkout of {projectUrl}, then run one test cycle",
+      "description": "ShouldProcess action in test/Invoke-TestProject.ps1, checked before the run claims the runtime and replaces <RepoRoot>/project; -WhatIf prints it and stops with nothing changed.",
+      "lifecycle": "active",
+      "placeholders": {
+        "projectUrl": {
+          "type": "detail",
+          "trust": "external",
+          "example": "https://github.com/example/yuruna-project"
+        }
+      }
+    },
+    "runner.step_heartbeat_write_failed": {
+      "message": "The step heartbeat {path} could not be written ({count} in a row): {detail}. The watchdog judges the cycle by this file and stops it as wedged once it goes stale; check free space and file locks there.",
+      "description": "Write-Warning from Write-RunnerStepHeartbeat in test/modules/Test.RunnerHeartbeat.psm1, at most once a minute, when runner.stepHeartbeat cannot be written; the same line goes to <path>.errors.log.",
+      "lifecycle": "active",
+      "placeholders": {
+        "path": {
+          "type": "detail",
+          "trust": "internal",
+          "example": "/home/ops/git/yuruna/test/status/runtime/runner.stepHeartbeat"
+        },
+        "count": {
+          "type": "integer",
+          "trust": "internal",
+          "example": "3"
+        },
+        "detail": {
+          "type": "detail",
+          "trust": "external",
+          "example": "IOException: No space left on device"
+        }
+      }
+    },
+    "runner.step_handler_threw": {
+      "message": "Step {step} ({action}): the handler threw: {message}. The step fails, and a retry around it may run it again.",
+      "description": "Write-Warning in test/modules/Test.SequenceEngine.psm1 (Invoke-Sequence) when a step's handler throws; the step is failed as if the handler had returned false, with the exception in the failure record.",
+      "lifecycle": "active",
+      "placeholders": {
+        "step": {
+          "type": "integer",
+          "trust": "internal",
+          "example": "4"
+        },
+        "action": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "waitForText"
+        },
+        "message": {
+          "type": "detail",
+          "trust": "external",
+          "example": "You cannot call a method on a null-valued expression."
+        }
+      }
+    },
+    "runner.pool_notifier_busy": {
+      "message": "Another pool notifier run holds its lock on this host; this one delivered nothing.",
+      "description": "Invoke-PoolNotifierCycle summary reason in test/modules/Test.PoolNotifier.psm1 when the resident's run and a cycle's run overlap; the next run delivers what is queued.",
+      "lifecycle": "active",
+      "placeholders": {}
+    },
+    "runner.cycle_telemetry_gap": {
+      "message": "The cycle ended without {missing}: a reader joining this cycle finds no record there. The folder keeps telemetry_gaps.json naming what is missing.",
+      "description": "Write-Warning from Stop-LogFile in test/modules/Test.Log.psm1 when a sealed cycle folder lacks its event stream or, for a failed cycle, any failure record.",
+      "lifecycle": "active",
+      "placeholders": {
+        "missing": {
+          "type": "detail",
+          "trust": "internal",
+          "example": "cycle.events.ndjson, last_failure.json"
+        }
+      }
+    },
+    "runner.pool_notifier_spool_errors": {
+      "message": "[outer cycle {cycle}] pool notifier: {count} spool step(s) failed, so a message can be sent twice or retried without end; first: {detail}",
+      "description": "Write-OuterLog in test/modules/Test.RunnerOuterLoop.psm1 after the pool notifier drain, when moving or rewriting a spool message failed.",
+      "lifecycle": "active",
+      "placeholders": {
+        "cycle": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$cycle"
+        },
+        "count": {
+          "type": "detail",
+          "trust": "external",
+          "example": "2"
+        },
+        "detail": {
+          "type": "detail",
+          "trust": "external",
+          "example": "move to delivered 20261025T101500Z.json: access denied"
+        }
+      }
+    },
+    "runner.cycle_degraded": {
+      "message": "  Cycle {cycleCount} failed nothing but skipped {skipped} of {planned} planned guest(s) ({guests}): it is degraded, not a pass, so the failure streak and the alert stay as they were.",
+      "description": "Write-Output from Invoke-RunnerInnerCycle in test/modules/Test.RunnerInnerLoop.psm1 when every guest that ran passed but a quarantined guest was skipped; the inner then exits with the degraded cycle exit code.",
+      "lifecycle": "active",
+      "placeholders": {
+        "cycleCount": {
+          "type": "integer",
+          "trust": "internal",
+          "example": "42"
+        },
+        "skipped": {
+          "type": "integer",
+          "trust": "internal",
+          "example": "1"
+        },
+        "planned": {
+          "type": "integer",
+          "trust": "internal",
+          "example": "3"
+        },
+        "guests": {
+          "type": "detail",
+          "trust": "external",
+          "example": "guest.ubuntu.desktop"
+        }
+      }
+    },
+    "runner.project_cycle_not_run": {
+      "message": "  Cycle NOT RUN ({outcome}): a drained or paused pool, a host refresh or Ctrl+C held it before a verdict.",
+      "description": "Write-Output in test/Invoke-TestProject.ps1 when the dispatched cycle stopped before a verdict; the run then exits with the cannot-run code.",
+      "lifecycle": "active",
+      "placeholders": {
+        "outcome": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "paused"
+        }
+      }
+    },
+    "runner.project_cycle_degraded": {
+      "message": "  Cycle DEGRADED: it failed nothing but skipped a planned guest. See {dIR} for the per-cycle log.",
+      "description": "Write-Output in test/Invoke-TestProject.ps1 when the dispatched cycle exited with the degraded cycle exit code.",
+      "lifecycle": "active",
+      "placeholders": {
+        "dIR": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$env:YURUNA_LOG_DIR"
+        }
+      }
+    },
+    "runner.refresh_gate_boot_resume": {
+      "message": "Start-TestRunner: host refresh {requestId} was left unfinished by an earlier boot; resuming it once with test/lab/Invoke-HostRefresh.ps1 -Resume (pid {pid}). This start still refuses; the refresh starts the runner when it completes, and its errors go to {stdErrPath}.",
+      "description": "Write-Warning and outer.log line in test/Start-TestRunner.ps1 when a refused start launches the once-per-boot resume of a refresh whose gate owner started before this boot; keep the script path and switch.",
+      "lifecycle": "active",
+      "placeholders": {
+        "requestId": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "6f1c2d3e-4a5b-4c6d-8e7f-0a1b2c3d4e5f"
+        },
+        "pid": {
+          "type": "integer",
+          "trust": "internal",
+          "example": "4242"
+        },
+        "stdErrPath": {
+          "type": "detail",
+          "trust": "internal",
+          "example": "/home/user/.yuruna/host-refresh/boot-resume.err"
+        }
+      }
+    },
+    "runner.refresh_gate_boot_resume_tried": {
+      "message": "Start-TestRunner: host refresh {requestId}, left unfinished by an earlier boot, was already resumed once in this boot; resume it again with test/lab/Invoke-HostRefresh.ps1 -Resume.",
+      "description": "Write-Warning and outer.log line in test/Start-TestRunner.ps1 when the once-per-boot resume of an orphaned refresh already ran in this boot; keep the script path and switch.",
+      "lifecycle": "active",
+      "placeholders": {
+        "requestId": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "6f1c2d3e-4a5b-4c6d-8e7f-0a1b2c3d4e5f"
+        }
+      }
+    },
+    "runner.refresh_gate_boot_resume_failed": {
+      "message": "Start-TestRunner: host refresh {requestId} was left unfinished by an earlier boot, and resuming it failed ({reason}); resume it with test/lab/Invoke-HostRefresh.ps1 -Resume.",
+      "description": "Write-Warning and outer.log line in test/Start-TestRunner.ps1 when the once-per-boot resume of an orphaned refresh could not be launched; the reason is a code; keep the script path and switch.",
+      "lifecycle": "active",
+      "placeholders": {
+        "requestId": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "6f1c2d3e-4a5b-4c6d-8e7f-0a1b2c3d4e5f"
+        },
+        "reason": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "launch-failed:launcher-failed"
+        }
+      }
+    },
+    "runner.ocr_known_answer_failed": {
+      "message": "OCR cannot read a known frame ({detail}); the cycle stops before any guest depends on it, as the host's instrumentation failure.",
+      "description": "Write-Warning from Invoke-RunnerInnerCycle in test/modules/Test.RunnerInnerLoop.psm1 when the cycle-start known-answer read of test/fixtures/ocr/selftest.png fails; the detail lists each OCR provider and the words it missed.",
+      "lifecycle": "active",
+      "placeholders": {
+        "detail": {
+          "type": "detail",
+          "trust": "internal",
+          "example": "tesseract read 0 of 9 known words (missing: YURUNA, OCR)"
+        }
+      }
+    },
+    "runner.ocr_known_answer_degraded": {
+      "message": "An OCR provider cannot read a known frame ({detail}); waits read through the providers that can.",
+      "description": "Write-Warning from Invoke-RunnerInnerCycle in test/modules/Test.RunnerInnerLoop.psm1 when, under the Or combine mode, at least one OCR provider reads the known frame and another does not.",
+      "lifecycle": "active",
+      "placeholders": {
+        "detail": {
+          "type": "detail",
+          "trust": "internal",
+          "example": "tesseract read 0 of 9 known words (missing: YURUNA, OCR)"
+        }
+      }
+    },
+    "runner.recovery_probe_cleared": {
+      "message": "Cycle {cycle}: the {failureClass} condition has cleared ({detail}); ending the failure pause (attempt {attempt} of {maxAttempts}).",
+      "description": "Write-Output and outer.log line from the failure pause in test/modules/Test.RunnerOuterLoop.psm1 when the recovery probe for the cycle's failure class reports the host condition cleared and the end_failure_pause_on_probe repair applied.",
+      "lifecycle": "active",
+      "placeholders": {
+        "cycle": {
+          "type": "integer",
+          "trust": "internal",
+          "example": "12"
+        },
+        "failureClass": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "pool_storage_full"
+        },
+        "detail": {
+          "type": "detail",
+          "trust": "internal",
+          "example": "pool storage: room for a cycle"
+        },
+        "attempt": {
+          "type": "integer",
+          "trust": "internal",
+          "example": "1"
+        },
+        "maxAttempts": {
+          "type": "integer",
+          "trust": "internal",
+          "example": "2"
+        }
+      }
+    },
+    "runner.config_last_good_used": {
+      "message": "{path} does not parse ({problem}); the runner keeps deciding from the last configuration that did until the file is fixed.",
+      "description": "Write-Warning from Read-TestConfig in test/modules/Test.Config.psm1, once per broken content, when a reader that keeps the last good parse finds the file broken.",
+      "lifecycle": "active",
+      "placeholders": {
+        "path": {
+          "type": "detail",
+          "trust": "internal",
+          "example": "/home/user/yuruna/test/test.config.yml"
+        },
+        "problem": {
+          "type": "detail",
+          "trust": "external",
+          "example": "while parsing a flow sequence"
+        }
+      }
+    },
+    "runner.host_network_sweep_timed_out": {
+      "message": "The stranded-VM sweep on the host-network refusal path did not finish within {seconds} s and was stopped; the cycle still refuses.",
+      "description": "Write-Warning in test/modules/Invoke-TestRunnerInnerLoop.ps1 when the bounded Remove-TestVMFiles.ps1 run that a host-network refusal makes once per loss reaches its timeout.",
+      "lifecycle": "active",
+      "placeholders": {
+        "seconds": {
+          "type": "integer",
+          "trust": "internal",
+          "example": "300"
+        }
+      }
+    },
+    "runner.orchestration_before_seal_failed": {
+      "message": "The step that records orchestration {setName}'s failure decision before its cycle is sealed failed: {message}",
+      "description": "Write-Warning from Invoke-OrchestrationSequence in test/modules/Test.Orchestrator.psm1 when the -BeforeSeal block throws; the cycle is still completed and its transcript sealed.",
+      "lifecycle": "active",
+      "placeholders": {
+        "setName": {
+          "type": "detail",
+          "trust": "internal",
+          "example": "amisad.e2e"
+        },
+        "message": {
+          "type": "detail",
+          "trust": "external",
+          "example": "The ledger could not be read."
+        }
+      }
+    },
+    "runner.state_file_write_failed": {
+      "message": "Could not write {path}: {message} Readers of this record will not see this change.",
+      "description": "Write-Warning from Write-YurunaStateFile and Write-YurunaStateFileJson in test/modules/Test.StateFile.psm1 when a caller that passed -WarnOnFailure (failure records, their history, remediation decisions) could not have its write made.",
+      "lifecycle": "active",
+      "placeholders": {
+        "path": {
+          "type": "detail",
+          "trust": "internal",
+          "example": "/home/user/yuruna/test/status/log/last_failure.json"
+        },
+        "message": {
+          "type": "detail",
+          "trust": "external",
+          "example": "No space left on device."
+        }
+      }
+    },
+    "runner.fetch_archive_digest_unavailable": {
+      "message": "The digest of the archive of {repoDir} at {commit} could not be built, so the update script unpacks that tree without checking it.",
+      "description": "Write-Warning from Get-FetchArchiveField in test/modules/Test.SequenceHandler.psm1 when the archive an update script will unpack cannot be built on the host to be hashed; the context then carries no digest for it.",
+      "lifecycle": "active",
+      "placeholders": {
+        "repoDir": {
+          "type": "detail",
+          "trust": "internal",
+          "example": "/home/user/git/yuruna/project"
+        },
+        "commit": {
+          "type": "detail",
+          "trust": "internal",
+          "example": "889a86e24112235a1380e584435e45e46a15bed5"
         }
       }
     }

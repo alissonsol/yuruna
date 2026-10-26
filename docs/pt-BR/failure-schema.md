@@ -74,11 +74,12 @@ Campos de nível superior, em ordem:
 | `vmName` / `guestKey` | string | Identidade do convidado que falhou. |
 | `timestamp` | string | UTC `yyyy-MM-dd HH:mm:ss`. |
 | `failureClass` | enum | Classe que permite encaminhamento por máquina. O conjunto canônico está em [`Test.FailureTaxonomy`](../../test/modules/Test.FailureTaxonomy.psm1) (fonte única para o `ValidateSet` dos verbos e o validador do esquema de eventos). As classes de convidado/sequência vêm do registro do verbo que falhou; `unknown` quando o verbo não é resolvido; `pattern_matched_failure` quando `Wait-ForText` interrompeu a espera ao encontrar um padrão de bloqueio definitivo; as classes de infraestrutura do hospedeiro `provisioning_failure` / `bootstrap_sync` / `plan_invalid` / `network_timeout` / `hypervisor_unresponsive` vêm das etapas de infraestrutura do executor (consulte [Registros de etapas de infraestrutura](#infra-stage-records)). |
+| `docUrl` | string | Onde o significado da classe e a primeira verificação estão documentados: o link do esquema de falhas com a âncora da classe, como em `https://yuruna.link/42820e91#failure-class-network_timeout`, a linha da [tabela de classes](#why-each-infra-failure-class-exists) para a qual o painel do pool também aponta; o próprio esquema para um valor fora da taxonomia. Espelhado no evento. |
 | `severity` | enum | `hard` / `soft` do verbo; `unknown` quando não resolvido. |
 | `suggestedRecoveries` | string[] | `SuggestedRecoveries` do verbo (sempre um array JSON, nunca `null`). |
 | `actionVerb` | string | Nome do verbo que falhou (`script_error` para uma falha do mecanismo sem atribuição; o nome da etapa para um registro de infraestrutura). |
 | `reason` | enum | `step` (uma etapa falhou), `crash` (o mecanismo travou durante uma etapa), `infra` (uma etapa do hospedeiro falhou fora do mecanismo de sequências) ou `watchdog_kill` (o watchdog externo enviou SIGKILL a um processo interno travado; consulte [Registros sintéticos](#synthetic--infra-records)). |
-| `classificationSource` | enum | Como `failureClass` foi derivada: `verb-registry`, `pattern-match` (um padrão OCR de bloqueio definitivo reclassificou a etapa), `unresolved-verb` (`unknown` apenas porque o verbo não tem registro -- registre-o, não escale), `crash`, `infra-stage` (uma etapa de infraestrutura do executor) ou `synthetic` (um registro sintetizado pelo watchdog). Permite que um consumidor diferencie uma causa realmente nova da falta de metadados. |
+| `classificationSource` | enum | Como `failureClass` foi derivada: `verb-registry`, `pattern-match` (um padrão OCR de bloqueio definitivo reclassificou a etapa), `unresolved-verb` (`unknown` apenas porque o verbo não tem registro -- registre-o, não escale), `handler-exception` (o handler da etapa lançou uma exceção: a etapa falhou como qualquer outra, então um `retry` em volta dela a executou de novo, e a classe é `unknown` porque a exceção nada diz sobre a classe do próprio verbo), `deploy-result` (um verbo ssh leu a linha `YURUNA_RESULT` do convidado: um ponto de entrada de implantação ou uma carga de exemplo nomeou a própria classe de falha, que substitui o `script_error` do verbo), `crash`, `infra-stage` (uma etapa de infraestrutura do executor) ou `synthetic` (um registro sintetizado pelo watchdog). Permite que um consumidor diferencie uma causa realmente nova da falta de metadados. |
 | `sequenceName` | string | Nome base da sequência que falhou (sem `.yml`) -- identidade de primeira classe para encaminhamento e reprodução (o caminho continua em `context.sequencePath`). |
 | `stepInvocationId` / `sequenceInvocationId` | string | Identidades da invocação externa que falhou, compartilhadas com os eventos dessa etapa. Uma tentativa que falhou mantém os IDs de seu wrapper. Vazias quando uma falha do mecanismo ou da infraestrutura ocorreu antes de existir uma invocação. |
 | `originatingStepInvocationId` / `originatingSequenceInvocationId` | string | Identidades da etapa interna que falhou quando uma nova tentativa propaga uma falha interna, vinculando suas evidências de fetch e seu parecer de progresso. Nos demais casos, os IDs da própria invocação que falhou, inclusive quando um handler externo lança um erro distinto. |
@@ -108,6 +109,7 @@ Eles aparecem em registros **tanto** de etapa quanto de falha do mecanismo (uma 
 | Campo | Tipo | Observações |
 |---|---|---|
 | `lastSucceededStepNumber` | int | Limite de reexecução -- a etapa N teve êxito; a falha ocorreu em N+1. Um marcador de "até onde é seguro avançar na reexecução", não um ponteiro de retomada automática. |
+| `stepEffect` / `stepEffectSource` | string / string | O que está provado que a etapa que falhou fez no convidado: `none-proven` quando o próprio handler dela mostrou que nada foi executado, com a forma como ele sabe disso -- `address-unresolved` (nenhum endereço foi descoberto e o próprio ssh falhou, portanto nenhuma sessão foi aberta) ou `no-source-served` (o wrapper de busca informou que nenhuma fonte serviu seu script) --; caso contrário, `unknown` e `''`. Só conta a prova da própria etapa que falhou, portanto um wrapper `retry` nunca herda a de uma etapa dentro dele, e um padrão de falha encontrado ou um handler que lançou exceção deixa o valor `unknown`. Registros de crash trazem `unknown`. Espelhado no evento. A retomada a quente reexecuta uma etapa `none-proven` no ponto em que falhou ([recuo](#42820e91-0010)). |
 | `innerActionVerb` / `innerFailureClass` / `innerSeverity` / `innerSuggestedRecoveries` | string / string / string / string[] | Definidos apenas quando a falha passou por um `retry` esgotado; carregam a classificação do verbo interno mais profundo, para que um remediador encaminhe pela causa interna, em vez do `retry_exhausted` externo. O [despachante](#remediation-dispatcher) encaminha por `innerFailureClass` quando a classe externa é `retry_exhausted` e existe um manipulador interno. `null` (array vazio) nos demais casos. |
 
 <a id="42820e91-0005"></a>
@@ -118,6 +120,7 @@ Eles aparecem em registros **tanto** de etapa quanto de falha do mecanismo (uma 
 |---|---|
 | `hostType` | Por exemplo, `host.windows.hyper-v`. |
 | `matchedFailurePattern` | O padrão de bloqueio definitivo que `Wait-ForText` encontrou, ou `null`. |
+| `stepFailurePhase` | Qual parte de uma etapa de esperar e digitar falhou: `wait` (a tela nunca mostrou o que a etapa esperava), `input` ou vazio. Uma etapa que falhou na espera é registrada como `ocr_timeout`, qualquer que seja a classe registrada pelo verbo, porque a classe do verbo descreve a parte posterior à espera: um `passwdPrompt` cujo prompt nunca apareceu não é uma senha rejeitada. |
 | `sequencePath` | Caminho do YAML da sequência que falhou. |
 | `cycleFolder` | Identidade estável do ciclo (apenas falhas de etapa) -- o mesmo valor registrado pelo fluxo NDJSON, para que este arquivo possa ser associado ao fluxo de eventos e resolvido para a pasta no disco. |
 | `failureScreenshotPath` / `failureOcrPath` | Nomes relativos ao diretório do ciclo das evidências de tela desta falha (apenas falhas de etapa). **Ausentes** a menos que o artefato exista e tenha sido gravado por último depois que a etapa que falhou começou: ambos são arquivos persistentes por VM que apenas os verbos de leitura de tela regravam, portanto uma falha em um verbo que não lê texto apontaria, de outra forma, para a tela de uma etapa anterior. Um leitor segue esses ponteiros; nada os audita, portanto um nome presente é uma afirmação que o registro precisa conseguir sustentar. |
@@ -296,8 +299,8 @@ remediação possa encaminhá-los como qualquer outra falha. Contêm `reason` =
 `infra`, `classificationSource` = `infra-stage`, `stepNumber` = `0` e
 `actionVerb` = o nome da etapa. A classe mapeia a etapa para uma recuperação
 que permite encaminhamento: `provisioning_failure` (New-VM/Start-VM -- `retry_with_backoff`),
-`network_timeout` (GetImage, e uma falha do git cuja sondagem DNS/TCP falhou
--- `retry_with_backoff`), `bootstrap_sync` (ProjectClone, ou uma divergência
+`network_timeout` (GetImage, salvo quando a etapa disse outra coisa -- abaixo --, e uma
+falha do git cuja sondagem DNS/TCP falhou -- `retry_with_backoff`), `bootstrap_sync` (ProjectClone, ou uma divergência
 do git não relacionada à rede -- `operator_intervention_required`), `plan_invalid`
 (Resolve-CyclePlan / capability gate / folder-check --
 `operator_intervention_required`) e `pool_storage_full`
@@ -306,9 +309,23 @@ gravado pelo laço EXTERNO, em vez do mecanismo de sequências, pois um comparti
 não pode armazenar os resultados é identificado antes da criação do ciclo ou depois que ele
 termina) e `hypervisor_unresponsive` (HypervisorControl, a sondagem pré-ciclo do
 canal de controle do hipervisor, ou uma ação do hospedeiro cujo início de VM
-relatou o canal travado -- `operator_intervention_required`). O executor nunca sobrescreve um registro mais rico
-gravado pelo mecanismo, e a gravação é totalmente protegida para que a telemetria não possa
-fazer o ciclo falhar.
+relatou o canal travado -- `operator_intervention_required`). Uma etapa GetImage
+que sabe por que falhou informa isso antes de sair: `Write-YurunaProvisionResult`
+grava `{ kind, failureClass, message }` em `<log>/provision/<guestKey>.GetImage.json`,
+o caminho que `Invoke-GetImage` nomeia em `YURUNA_PROVISION_RESULT` para essa execução
+depois de apagar qualquer registro anterior. `kind` é fechado: `network` (`network_timeout`),
+`integrity` (`source_integrity`: uma falha de checksum ou de assinatura, que outro
+download dos mesmos bytes repete), `unsupported` (`plan_invalid`) e `tool`
+(`provisioning_failure`). O pipeline de imagens Ubuntu registra `network` e
+`integrity`; uma etapa que não registra nada mantém `network_timeout`, e um convidado sem
+`Get-Image.ps1` no hospedeiro é `plan_invalid`. Um registro que já está
+na raiz de logs só é substituído quando foi gravado antes do início da iteração atual
+do convidado -- de outro convidado, ou deste convidado em uma iteração anterior --, para
+que uma falha nunca seja arquivada sob a classe de uma falha anterior. Um registro
+gravado durante a iteração (o relato mais rico do mecanismo sobre a mesma falha, ou o
+registro da dependência que uma etapa de orquestração herda) é mantido, assim como
+qualquer registro fora de uma iteração de convidado. A gravação é totalmente protegida
+para que a telemetria não possa fazer o ciclo falhar.
 
 Uma ação do hospedeiro (uma sequência `host:` de um projeto, como `initialize-lab`)
 que termina com código diferente de zero é registrada sob o próprio nome, com a
@@ -334,6 +351,17 @@ existente. A admissão de armazenamento antes de um ciclo usa o caminho de falha
 da barreira de configuração (amarelo no painel do grupo); uma falha de
 inicialização de VM durante um ciclo continua sendo uma falha de provisionamento,
 com suas evidências originais.
+
+Duas classes trazem campos de nível superior que seu manipulador de recuperação
+cita. Um registro gravado ou regravado como `host_network_degraded` traz
+`hostNetworkSwitch` (os comutadores virtuais External do host, separados por
+vírgula) e `hostNetworkVerdict` (o veredito do classificador para cada um, na
+mesma ordem). Um registro `dhcp_identity_unbounded` traz `previousAddress` e
+`currentAddress`, os dois endereços do primeiro convidado que foi reconstruído
+com a própria identidade e recebeu outro endereço. Toda gravação de um registro
+de falha, do seu histórico e da decisão de remediação relata uma gravação que
+não aconteceu como um aviso que nomeia o caminho, porque um registro ausente se
+lê igual a nenhuma falha para tudo o que vem depois.
 
 <a id="42820e91-000b"></a>
 
@@ -592,6 +620,15 @@ ausente são todos considerados inseguros. Um ponto de restauração cujo snapsh
 existe no hospedeiro é considerado ausência de limite, portanto não pode autorizar uma reexecução. Um checkpoint que já
 está sobre o limite não é um recuo.
 
+Um registro cujo `stepEffect` é `none-proven` não precisa de nenhuma dessas leituras: o próprio
+handler da etapa mostrou que ela não fez nada, portanto o convidado está como as etapas anteriores
+o deixaram -- o estado para o qual a etapa foi escrita -- e a etapa é reexecutada no ponto em que
+falhou, sem recuo, qualquer que seja a classe de reexecução do seu verbo. A classe ainda decide
+se haverá retomada: a prova diz que reexecutar é seguro, não que dará certo. Um comando digitado
+que o console nunca aceitou (`input_lost` de `fetchAndExecute`) não traz prova, porque o shell
+ainda pode manter a entrada aberta. Uma etapa provada que o arquivo da sequência não tem mais é
+lida como acima. O evento `warm_resume` nomeia a prova em `stepEffectSource`.
+
 Uma retomada que era elegível e foi recusada informa isso por um evento
 `warm_resume_declined`: `timestamp`, `event`, `guestKey`, `sequenceName`, `resumeFromStep` e um
 token `reason` -- `no-restore-point`, `restore-point-missing` ou
@@ -717,9 +754,14 @@ de o escopo estar no evento:
 
 Para o dashboard ativo, `Set-LastFailureSummary` registra um objeto
 `lastFailure` desnormalizado no nível superior de `status.json` no momento da falha:
-`{ failureClass, severity, stepNumber, sequenceName, guestKey, stepName,
-errorMessage, reproCommand, relPath, vmName, recordedAt }` -- `null` em um
-ciclo aprovado. `relPath` aponta para o `last_failure.json` na pasta de ciclo
+`{ failureClass, routingClass, innerFailureClass, classificationSource, reason,
+severity, stepNumber, sequenceName, guestKey, stepName, errorMessage,
+reproCommand, relPath, vmName, recordedAt }` -- `null` em um ciclo aprovado.
+`routingClass` é a classe pela qual um consumidor roteia: para uma classe envoltória
+como `retry_exhausted`, é a classe interna que o registro carrega; assim, o resumo diz
+o que continuou falhando, e não apenas que as tentativas se esgotaram. Uma única
+função, `Resolve-RoutingClass` em `Test.FailureTaxonomy`, decide isso para o resumo,
+o despachante de remediação e `Get-LastFailureFact`. `relPath` aponta para o `last_failure.json` na pasta de ciclo
 por convidado (o dashboard o resolve em relação à URL da pasta
 por convidado). `Complete-Run` captura uma cópia dele na linha do histórico (junto com
 `failureClass` / `errorMessage` por convidado em `guestSummary`), para que uma linha seja
@@ -784,6 +826,8 @@ antes de escolher uma recuperação. A lista canônica vem de
 | <a id="failure-class-input_lost"></a>`input_lost` | A entrada digitada no shell não iniciou o payload; verificações no convidado confirmaram que ele nunca foi executado. | Examine o console e os diagnósticos de entrega de entrada antes de repetir a etapa. |
 | <a id="failure-class-hypervisor_unresponsive"></a>`hypervisor_unresponsive` | O hipervisor responde a consultas de estado, mas suas solicitações de controle do ciclo de vida expiram. | Examine o snapshot de controle e os registros de processo ou de falha do aplicativo do hipervisor. |
 | <a id="failure-class-source_integrity"></a>`source_integrity` | A assinatura da origem ou o conteúdo obtido falhou na verificação. Uma alternativa verificada na origem pode ter sucesso e preservar este aviso. | Confira o recibo, os identificadores das chaves cadastradas, o commit selecionado e as tentativas de transporte. Nunca ignore a verificação da assinatura ou do commit. |
+| <a id="failure-class-vm_not_stopped"></a>`vm_not_stopped` | O convidado nunca chegou ao estado parado que a etapa esperava: ignorou o pedido de desligamento. Não é uma espera a repetir -- esperar de novo só aguarda o desligamento que ele já ignorou. | Desligue a VM pelo hospedeiro (um `retry` com `restartVmBeforeRetry: coldPowerCycle` faz isso) e, se acontecer de novo, verifique o console. |
+| <a id="failure-class-guest_run_lost"></a>`guest_run_lost` | O supervisor do convidado respondeu, mas não soube dar conta da execução; o processo do payload deixou de existir. Não é uma falha de instrumentação a executar de novo, nem uma falha de rede a reconectar. | Restaure o último snapshot bom e leia o log de execução do convidado para saber o que encerrou o processo. |
 | <a id="failure-class-unknown"></a>`unknown` | A falha não tem uma classificação utilizável. | Leia `classificationSource` e os artefatos; verifique se falta o registro do verbo antes de atribuir uma causa. |
 
 <a id="42820e91-0015"></a>
@@ -796,6 +840,12 @@ Um token só ganha uma classe própria quando a política de novas tentativas ou
 corrigi-lo difere de todas as classes já existentes na enumeração. As classes de infraestrutura são
 onde é mais fácil definir esse limite incorretamente -- à distância, todas parecem "o ambiente
 falhou" --, portanto a razão de cada uma está registrada aqui.
+
+O roteamento que essas razões decidem -- se o executor pode repetir uma classe sem
+supervisão, se uma etapa que falhou com ela pode ser retomada no lugar e se ela é uma
+recusa de rede apenas de transporte -- é uma única tabela em `Test.FailureTaxonomy`, que a
+lista de permissões da remediação automática, a retomada a quente e as verificações de rede
+leem. Uma classe que a tabela não nomeia não é roteada para lugar nenhum.
 
 - **`elevation_required`** -- o hospedeiro pediu uma senha de sudo sem operador
   presente. Tem uma classe própria porque é a única falha comprovadamente
@@ -1080,7 +1130,8 @@ como a execução termina.
 | `resultId` | Um GUID novo (formato N) por resultado. |
 | `entryPoint` | `runner`, `project` ou `sequence`. |
 | `cycleGeneration` | `<runnerInstanceId>:<cycle>` para o executor. Um ponto de entrada de execução única cria `<new guid>:1`, o exporta como `YURUNA_CYCLE_GENERATION`, e tudo o que inicia o compartilha. |
-| `outcome` | `passed`; `failed` (os testes foram executados e falharam); `infrastructure-fault` (o mecanismo ao redor dos testes falhou); `cannot-run` (uma pré-condição, como a admissão de VM, recusou o ciclo); `aborted` (um processo filho morreu antes que pudesse executar um ciclo). |
+| `durationSeconds` | Quanto tempo a execução levou, do início ao resultado; `0` para um ponto de entrada de execução única. O orçamento de minutos do executor de uma classe de falha soma as durações dos ciclos do executor que falharam com ela. |
+| `outcome` | `passed`; `degraded` (nada falhou, mas o ciclo pulou um convidado planejado, um em quarentena; código de saída 75); `failed` (os testes foram executados e falharam); `infrastructure-fault` (o mecanismo ao redor dos testes falhou); `cannot-run` (uma pré-condição, como a admissão de VM, recusou o ciclo); `aborted` (um processo filho morreu antes que pudesse executar um ciclo). |
 | `exitCode` | O código de saída com que o ponto de entrada (ou, para o executor, o ciclo) terminou. |
 | `failureClass` | Vazio, uma [classe de falha](#why-each-infra-failure-class-exists) da taxonomia compartilhada, ou uma classe de falha do executor (abaixo). |
 | `fingerprint` | `fp1-` mais 16 caracteres hexadecimais: o SHA-256 da classe de falha, etapa, nome de sequência e verbo da ação, cada um sem espaços nas extremidades e convertido para minúsculas. Contagens, carimbos de data/hora, nomes de VM e endereços nunca são entradas, portanto a mesma falha tem a mesma impressão digital no próximo ciclo e depois de uma reinicialização. Vazio em uma aprovação ou em uma falha sem classe. |
@@ -1199,6 +1250,13 @@ Regras:
    segundos trata a linha como não gravada, o que significa nenhum reparo.
 6. O arquivo é compactado ao ultrapassar 256 KB, mantendo sete dias, cada tentativa inacabada
    e a linha `resolved` mais recente de cada escopo.
+7. Um registro que não pode ser lido nem gravado interrompe todos os reparos, e nenhuma
+   linha do registro pode dizer isso. `recovery.health.json` no diretório de runtime nomeia
+   o estado (`ledger-unreadable` ou `ledger-unwritable`) até que uma tentativa posterior
+   grave uma linha de novo; `/control/runner-status` o informa como `recoveryDisabled`, e a
+   página de status acrescenta uma nota ao seu banner. O executor avisa quando o estado
+   começa, não a cada recusa. Nenhum evento `recovery_action` é emitido, porque os eventos
+   espelham as linhas do registro.
 
 <a id="42820e91-0024"></a>
 
@@ -1220,11 +1278,16 @@ temporários e funções substitutas.
 | `clear_stale_git_lock` | uma falha `bootstrap_sync` na etapa `FrameworkPull` ou `ProjectClone` cujo motivo nomeia um arquivo `.lock` | um arquivo `*.lock` diretamente no `.git` de um repositório (ou em `.git/refs`, com três níveis de profundidade) tem mais de 10 minutos, e nenhum processo `git` está em execução na máquina (uma lista de processos que não pode ser lida conta como em execução, assim como um daemon residente de monitoramento do sistema de arquivos) | move cada bloqueio para `runtime/recovery.quarantine/<attemptId>/<framework or project>/<path inside the repository>` (nunca exclui; nada limpa a pasta depois) | `git --no-optional-locks status --porcelain` (somente leitura, portanto não pode recriar o bloqueio) termina com 0 em até 30 segundos em cada repositório afetado | move os bloqueios de volta, e nunca sobre um bloqueio que reapareceu |
 | `reclone_project` | uma falha `bootstrap_sync` na etapa `ProjectClone` | uma URL de projeto é resolvida (uma atribuição do grupo em `project.access.json` que não seja `denied`, senão `repositories.projectUrl`), e o `project/` atual ainda não está saudável | `Update-ProjectClone`: clona ao lado, verifica, troca; o checkout anterior é mantido quando falha | o checkout passa na verificação de saúde | restaura uma troca interrompida |
 | `end_failure_pause_early` | uma classe de falha que o despachante mapeia para uma repetição claramente segura (`wait_timeout`, `network_timeout`, `ip_not_discovered`, `input_lost`, `instrumentation_failure`, `host_io_blocked`) | a classe está nessa lista | nenhuma: o efeito é que a pausa termina | sempre | nenhuma |
+| `end_failure_pause_on_probe` | uma classe de falha com uma sonda de recuperação registrada (`hypervisor_unresponsive`, `host_network_degraded`, `pool_storage_full`) | a sonda, executada pela pausa em um processo de curta duração, informa que a condição foi resolvida | nenhuma: o efeito é que a pausa termina | sempre | nenhuma |
 
 `clear_stale_git_lock` e `reclone_project` executam antes da pausa por falha (e
 `clear_stale_git_lock` também antes da suspensão que segue uma atualização do framework que falhou);
-`end_failure_pause_early` executa dentro da pausa, depois do primeiro intervalo de consulta, como
-sempre fez. Um reparo aplicado substitui a pausa, e o próximo ciclo é sua
+`end_failure_pause_early` executa dentro da pausa, depois de uma espera de um intervalo de consulta
+que dobra a cada encerramento antecipado que o registro já contém para a impressão digital, até no
+máximo 15 minutos, e `end_failure_pause_on_probe` também executa ali, gravando suas linhas no
+registro só quando uma sonda informa que a condição foi resolvida. Ambos recusam com
+`class-budget-spent` quando os ciclos do executor que falharam com a classe consumiram seu orçamento
+de minutos (`RetryMinutesPerDay`, 180 por padrão) nas últimas 24 horas. Um reparo aplicado substitui a pausa, e o próximo ciclo é sua
 prova: uma aprovação rearma todos os orçamentos, e uma repetição da mesma impressão digital os consome.
 Quando um orçamento se esgota, o resultado informa `exhausted` e a pausa normal de falha
 se aplica.
@@ -1254,6 +1317,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.25
+Last review: 2026.10.26
 
 Voltar para [Yuruna](../../README.md)

@@ -1334,15 +1334,6 @@ const DatazhCNautomation = `{
     },
     "。"
   ],
-  "automation.operator_483ad55e8c49c6d8": [
-    "-- 警告：tofu已初始化：",
-    {
-      "arg": "terraformPath",
-      "type": "detail",
-      "trust": "external"
-    },
-    " \n   资源可能不会创建。请使用'yuruna clear'清除tofu状态。"
-  ],
   "automation.operator_485fb74637bada2f": "连接探测（ping -c 3 -W 2 1.1.1.1）",
   "automation.operator_48a01e8836cadcfb": "DNS解析器状态",
   "automation.operator_48ffd650c4a65b3b": "ecr身份验证器：PATH中没有'docker'命令行工具；无法完成登录。",

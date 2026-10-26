@@ -1,6 +1,7 @@
 #!/bin/sh
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
+# GUID: 42c1dc1e-b531-4a5a-a45e-d2e88310bd5a
 #
 # Yuruna pre-commit hook -- block a commit that would put a UTF-8/UTF-16 BOM or
 # a non-ASCII byte into the irm|iex / curl|bash bootstrap installers or the
@@ -35,7 +36,7 @@ export DOTNET_MultiCoreJitProfile
 
 repo_root=$(git rev-parse --show-toplevel 2>/dev/null) || exit 0
 # --- REGION: run_sbom
-# See https://yuruna.link/sbom
+# See https://yuruna.link/427fb0be
 run_sbom() {
     sbom_generator="$repo_root/tools/Sync-Sbom.py"
     if [ ! -f "$sbom_generator" ]; then
@@ -741,22 +742,14 @@ if [ -f "$catalog_compile" ] && [ -f "$catalog_embed" ] &&
     echo "pre-commit: WARNING: automation is compiling the message catalogs and embedding the results (Invoke-CatalogCompile.ps1 -Update, Invoke-CatalogEmbed.ps1)." >&2
 
     # Both tools run without -Quiet, because what they print is the list of
-    # files they own. The compiler exits 1 both when it wrote an artifact and
-    # when a source is invalid, so success is read from its summary line.
-    # Carriage returns are dropped first (pwsh on Windows ends lines with
-    # them), and NO_COLOR keeps a captured error free of escape sequences.
+    # files they own; whether they succeeded is their exit code, 0 whether or
+    # not they wrote anything. Carriage returns are dropped first (pwsh on
+    # Windows ends lines with them), and NO_COLOR keeps a captured error free
+    # of escape sequences.
     catalog_out=$(NO_COLOR=1 pwsh -NoProfile -ExecutionPolicy Bypass -File "$catalog_compile" -Update 2>&1)
     catalog_rc=$?
     printf '%s\n' "$catalog_out" | tr -d '\r' > "$catalog_tmp/compile.out"
-    catalog_ok=false
-    case $catalog_rc in
-        0) catalog_ok=true ;;
-        1) if grep -Eq '; wrote [0-9]+ artifact\(s\)\.' "$catalog_tmp/compile.out" &&
-            ! grep -q '^Catalog validation failed' "$catalog_tmp/compile.out"; then
-            catalog_ok=true
-        fi ;;
-    esac
-    if [ "$catalog_ok" != true ]; then
+    if [ "$catalog_rc" -ne 0 ]; then
         grep -v '^PASS ' "$catalog_tmp/compile.out" >&2
         echo "pre-commit: the catalog compiler failed (exit $catalog_rc); nothing was staged." >&2
         # Only the hard error carries "; expected"; a planned locale's WARN line

@@ -1,5 +1,6 @@
 // LICENSEURI https://yuruna.link/license
 // Copyright (c) 2019-2026 by Alisson Sol et al.
+// GUID: 4220c9cb-c176-4105-8c3f-66692170fde8
 
 // HTTP handlers + routing for the stash UI/API.
 package httpsrv
@@ -75,7 +76,11 @@ func (s *Server) routes() http.Handler {
 	// 404s -- so this is the catch-all of last resort.
 	mux.HandleFunc("GET /v/{id}", s.handleShortRedirect)
 	mux.HandleFunc("GET /{id}", s.handleShortRedirect)
-	return mux
+	// Any page an operator opens can make the browser POST here, so a
+	// cross-site unsafe request is refused. Hosts and scripts send neither
+	// Origin nor Sec-Fetch-Site and pass; this service's own pages are
+	// same-origin.
+	return http.NewCrossOriginProtection().Handler(mux)
 }
 
 // handleShortRedirect maps a bare 4-char id to the stash's canonical
@@ -182,12 +187,14 @@ func validID(id string) bool {
 
 // safeSegment accepts a single path segment that cannot traverse out of its
 // parent dir: non-empty, no separators, and no "." / ".." (so a crafted
-// hostId can't escape stashRoot in resolve's filepath.Join).
+// hostId can't escape stashRoot in resolve's filepath.Join). A NUL or other
+// control character names no folder the stash writes, and would reach the
+// file system calls only to come back as an error naming share paths.
 func safeSegment(s string) bool {
 	if s == "" || s == "." || s == ".." {
 		return false
 	}
-	return !strings.ContainsAny(s, "/\\") && !strings.Contains(s, "..")
+	return !strings.ContainsAny(s, "/\\") && !strings.Contains(s, "..") && strings.IndexFunc(s, unicode.IsControl) < 0
 }
 
 // resolved is a record plus the on-disk artifact path and owning host.
@@ -446,7 +453,9 @@ func (s *Server) serveBytes(w http.ResponseWriter, r *http.Request, attachment b
 	}
 	res, found, err := s.resolve(k)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		// The cause names share paths: it goes to the log, not to an open reply.
+		log.Printf("stash: resolve %s/%s for bytes: %v", k.hostID, k.id, err)
+		s.writeLocalizedHTTPError(w, r, "stash.api_open_artifact", http.StatusInternalServerError)
 		return
 	}
 	if !found || res.artifact == "" {
@@ -479,13 +488,43 @@ func (s *Server) serveBytes(w http.ResponseWriter, r *http.Request, attachment b
 	http.ServeContent(w, r, "", fi.ModTime(), f)
 }
 
+// textBodyReadTimeout is config.TextBodyReadTimeout in a variable, so a test
+// can watch a stalled body be cut off without waiting minutes for it.
+var textBodyReadTimeout = config.TextBodyReadTimeout
+
 func (s *Server) handleCreate(w http.ResponseWriter, r *http.Request) {
 	clientIP := clientIP(r)
 	ct := r.Header.Get("Content-Type")
 	// Bound the whole request body before any parse so an unauthenticated POST
 	// can't fill /tmp (multipart spill) or the stash: the per-file 100 MB cap
-	// bounds individual files, not the whole request.
-	r.Body = http.MaxBytesReader(w, r.Body, config.MaxRequestBytes)
+	// bounds individual files, not the whole request. A text body (JSON or
+	// urlencoded) is different: it is held in memory whole and then decoded
+	// beside itself, so it is bounded like the one file it becomes, and only
+	// one large text body is read at a time, within TextBodyReadTimeout.
+	// ParseMultipartForm parses a urlencoded body first, so the bound is set
+	// before it.
+	limit := int64(config.MaxRequestBytes)
+	text := !strings.HasPrefix(ct, "multipart/")
+	if text {
+		limit = config.PerFileSizeLimit + 1024
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, limit)
+	bodyIn := func() {}
+	if text && (r.ContentLength < 0 || r.ContentLength > config.InlineTextPreviewCap) {
+		select {
+		case s.largeText <- struct{}{}:
+			defer func() { <-s.largeText }()
+		default:
+			w.Header().Set("Retry-After", "30")
+			s.writeLocalizedError(w, r, http.StatusServiceUnavailable, "stash.api_large_text_busy", "", nil)
+			return
+		}
+		control := http.NewResponseController(w)
+		_ = control.SetReadDeadline(time.Now().Add(textBodyReadTimeout))
+		// Cleared once the body is in: a deadline that fired during the
+		// ingest would cancel the request.
+		bodyIn = func() { _ = control.SetReadDeadline(time.Time{}) }
+	}
 
 	// JSON paste body: {text, title, author}.
 	if strings.HasPrefix(ct, "application/json") {
@@ -494,7 +533,9 @@ func (s *Server) handleCreate(w http.ResponseWriter, r *http.Request) {
 			Title  string `json:"title"`
 			Author string `json:"author"`
 		}
-		if err := jsonbody.Decode(r.Body, &body, config.PerFileSizeLimit+1024, false); err != nil {
+		err := jsonbody.Decode(r.Body, &body, config.PerFileSizeLimit+1024, false)
+		bodyIn()
+		if err != nil {
 			s.writeLocalizedError(w, r, http.StatusBadRequest, "stash.api_invalid_json_body", "", nil)
 			return
 		}
@@ -516,6 +557,7 @@ func (s *Server) handleCreate(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	bodyIn()
 	// ParseMultipartForm spills form parts larger than its in-memory limit to temp files under
 	// os.TempDir(); those are only removed by MultipartForm.RemoveAll(). Without this, every
 	// multi-megabyte or many-file POST leaves orphaned temp files that accumulate until the disk

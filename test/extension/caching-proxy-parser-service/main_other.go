@@ -1,5 +1,6 @@
 // LICENSEURI https://yuruna.link/license
 // Copyright (c) 2019-2026 by Alisson Sol et al.
+// GUID: 426481cf-ed07-43a2-8ce6-984183b88001
 
 // The daemon runs on the caching-proxy-service VM, which is Linux; this entry
 // point exists so the package still BUILDS on a harness host that is not.

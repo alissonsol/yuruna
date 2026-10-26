@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.25
+.VERSION 2026.10.26
 .GUID 42322a4d-f414-3c38-3588-7ad936bc7aa9
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -1395,15 +1395,6 @@
             'trust' = 'external'
         }
         '''.'
-    )
-    'automation.operator_483ad55e8c49c6d8' = @(
-        '-- אזהרה: tofu כבר אותחל: '
-        @{
-            'arg' = 'terraformPath'
-            'type' = 'detail'
-            'trust' = 'external'
-        }
-        " `n   ייתכן שהמשאב לא ייווצר. השתמשו בפקודה 'yuruna clear' כדי לנקות את המצב של tofu."
     )
     'automation.operator_485fb74637bada2f' = 'בדיקת קישוריות (ping -c 3 -W 2 ⁦1.1.1.1⁩)'
     'automation.operator_48a01e8836cadcfb' = 'מצב פותר שמות DNS'

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.25
+.VERSION 2026.10.26
 .GUID 42430431-3a59-45e7-9caa-8e653f023904
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -133,6 +133,21 @@ Describe 'Invoke-Remediation persists last_remediation.json' {
             $env:YURUNA_LOG_DIR = $savedLogDir
             Remove-Item -LiteralPath $tmp -Recurse -Force -ErrorAction SilentlyContinue
         }
+    }
+}
+
+Describe 'Invoke-Remediation quotes the fields the producers record' {
+    It 'names the switch and its verdict for host_network_degraded' {
+        $r = Invoke-Remediation -FailureRecord @{ failureClass = 'host_network_degraded'; severity = 'hard'; hostNetworkSwitch = 'LabBridge'; hostNetworkVerdict = 'no-uplink' }
+        $r.Recommendation | Should -Be 'operator_intervention_required'
+        ($r.Actions -join ' ') | Should -Match 'LabBridge'
+        ($r.Actions -join ' ') | Should -Match 'no-uplink'
+    }
+
+    It 'names both addresses for dhcp_identity_unbounded' {
+        $r = Invoke-Remediation -FailureRecord @{ failureClass = 'dhcp_identity_unbounded'; severity = 'hard'; previousAddress = '192.0.2.10'; currentAddress = '192.0.2.11' }
+        $r.Rationale | Should -Match '192\.0\.2\.10'
+        $r.Rationale | Should -Match '192\.0\.2\.11'
     }
 }
 

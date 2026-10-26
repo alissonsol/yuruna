@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.25
+.VERSION 2026.10.26
 .GUID 42f8008d-9acf-4ba5-8a9f-c29d843ce6a5
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -143,12 +143,17 @@ $downloadedSize = (Get-Item -LiteralPath $downloadFile).Length
 
 # --- REGION: Preserve previous and finalize
 $previousFile = Join-Path $downloadDir "$baseImageName.previous.qcow2"
-Remove-Item -LiteralPath $previousFile -Force -ErrorAction SilentlyContinue
-if (Test-Path -LiteralPath $baseImageFile) {
-    Move-Item -LiteralPath $baseImageFile -Destination $previousFile
+# The sentinel below vouches for the base image, so it follows only a swap
+# that is proven to have put the downloaded bytes there.
+try {
+    $keptPrevious = Publish-YurunaBaseImage -DownloadFile $downloadFile -BaseImageFile $baseImageFile -PreviousFile $previousFile -ExpectedSize $downloadedSize -Confirm:$false
+} catch {
+    Write-Error (Format-YurunaOperatorMessage -Key 'host.base_image_publish_failed' -Arguments @{ baseImageFile = "$baseImageFile"; message = "$($_.Exception.Message)" })
+    exit 1
+}
+if ($keptPrevious) {
     Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_05027812540d620c' -Arguments @{ previousFile = "$previousFile" })
 }
-Move-Item -LiteralPath $downloadFile -Destination $baseImageFile
 
 # --- REGION: https://yuruna.link/42ec97cd-0006
 # Only Write-ImageSentinel emits the 4-line shape the reader matches. On the

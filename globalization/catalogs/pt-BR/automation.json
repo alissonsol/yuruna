@@ -772,10 +772,6 @@
       "sourceHash": "a7f708f5006ef4376b96d4b63193f3d0f06f90bc375560dfdcc664f44ec1cfbe",
       "message": "{problemTag}: código de saída {lASTEXITCODE} de '{tool} {join}'."
     },
-    "automation.operator_483ad55e8c49c6d8": {
-      "sourceHash": "d503abf8d7cb6bb31f7c19f912eaf56a14821a0a37ea41e61598e259a275b5a8",
-      "message": "-- AVISO: tofu já inicializado: {terraformPath}\nO recurso pode não ser criado. Use 'yuruna clear' para limpar o estado do tofu."
-    },
     "automation.operator_485fb74637bada2f": {
       "sourceHash": "b9d1df2f21aae34f789c6ae6da7e0e8486cfd1a8bb1bb0cc1fc7e251184a640e",
       "message": "Sonda de conectividade (ping -c 3 -W 2 1.1.1.1)"

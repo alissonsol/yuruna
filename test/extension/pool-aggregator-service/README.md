@@ -261,20 +261,39 @@ Every `-interval` (default 30s) it:
    `yuruna_pool_host_incident` / `yuruna_pool_host_recent_fail_count` (Prometheus)
    and pushed to Loki as `incident_open` / `incident_resolved` lifecycle lines
    (`{pool,hostId,src=incident}`, with `failCount` / `peakFails` / `durationSeconds`).
+   Each line also carries the incident's failure-class breakdown:
+   `classHistogram` counts the classes in the fail window and `dominantClass`
+   names the most frequent one (lexical tiebreak, `unknown` when the cycles
+   carried no classified failure). The open line has the counts at open; the
+   resolve line has the counts at the incident's peak, like `peakFails`.
    Hysteresis (open at >=N, resolve at 0) keeps a still-failing host in one
-   incident. On restart the fail window rehydrates from the cycle feed, and any
-   **open** incident is restored from the `src=incident` feed with its
-   **original** `incidentId` + `startedAt` -- so the eventual `incident_resolved`
-   still pairs with its `incident_open` and reports the true duration (no
-   duplicate announce, no dangling open).
+   incident. The resolve is **time-based**: an incident closes when its last
+   fail ages out of the window, not on evidence of recovery. A host that goes
+   dark or whose runner stops after a burst reads as resolved once the window
+   empties, and a host that recovered keeps its incident open until its last
+   fail ages out. On restart the fail window rehydrates from the cycle feed,
+   and any **open** incident is restored from the `src=incident` feed with its
+   **original** `incidentId` + `startedAt`, so the eventual `incident_resolved`
+   pairs with its `incident_open` and reports the true duration. Known gaps:
+   forgetting a host (`/api/v1/forget-host`) or handing its identity over
+   (`/api/v1/handover-host`) drops its open incident without writing an
+   `incident_resolved` line, and lifecycle pushes are best-effort (a line Loki
+   refuses is not retried), so the feed can hold an open line with no close.
 8. **Correlates cross-host (pool-wide) incidents.** When `-cross-host-fails`
    distinct hosts each fail within `-cross-host-window` (default 3 hosts in 15m)
-   it opens a **pool-wide** incident -- a systemic signal (shared cause: proxy,
-   network, a bad commit) rather than one flaky host. Exposed as
+   **with the same failure class**, it opens a **pool-wide** incident -- a
+   systemic signal (shared cause: proxy, network, a bad commit hitting one class
+   everywhere) rather than unrelated single-host failures that merely coincide in
+   time. The class with the most distinct failing hosts opens the incident and
+   is pinned to it: the incident resolves when fewer than `-cross-host-fails`
+   minus one hosts (at least one) still show a fail of that class in the window,
+   and a different class reaching the threshold opens a new incident with a new
+   id rather than taking the old one over. Exposed as
    `yuruna_pool_wide_incident` / `yuruna_pool_wide_incident_hosts` (Prometheus)
    and `pool_incident_open` / `pool_incident_resolved` lines
-   (`{pool,src=incident,scope=pool}`, with `affectedHosts` / `peakHosts` /
-   `durationSeconds`); restored from the incident feed on restart like per-host.
+   (`{pool,src=incident,scope=pool}`, with `class`, `affectedHostCount` /
+   `affectedHosts` at open and `peakHosts` / `durationSeconds` at resolve);
+   restored from the incident feed on restart like per-host.
 9. **Serves the lab connection token exchange.** Every `-lab-token-rotate`
    (default 60s) it mints a 6-character **lab connection token** (lowercase
    a-z0-9) and exposes it as `yuruna_pool_lab_token{pool,token}` -- an info
@@ -622,13 +641,13 @@ dashboard's 30s refresh, with no Grafana or dashboard action.
 - Per-step NDJSON events are tailed into Loki for the
   step-failure / event-stream drill-down, surfaced as Loki logs panels.
 - Incident correlation covers **per-host** (N-failures-in-M-minutes) and
-  **cross-host / pool-wide** (K hosts failing within a short window). The
-  failure-class + severity breakdown is a dashboard panel over the Loki
-  `step_failure` events (not yet attached to the incident *object* itself). A
-  collector restart re-derives fail windows + restores open incidents (per-host
-  and pool-wide) from Loki's retained feeds; fails older than that retention
-  aren't reconstructed. Cross-host correlation is temporal only -- it does not
-  yet require the SAME failure class across hosts.
+  **cross-host / pool-wide** (K hosts failing with the same class within a
+  short window); per-host incident lines carry the failure-class breakdown
+  and pool-wide ones the class their hosts share (points 7 and 8). Incidents resolve when their fails age out of the window,
+  not on evidence of recovery, and a forgotten or handed-over host leaves its
+  open incident without a resolve line. A collector restart re-derives fail
+  windows + restores open incidents (per-host and pool-wide) from Loki's
+  retained feeds; fails older than that retention aren't reconstructed.
 - Only the **current** cycle's events are tailed, so a cycle that completes and
   rolls to a new folder between 30s polls can drop its trailing events. A failed
   cycle lingers in the runner's failure-pause, so its `step_failure` is reliably
@@ -686,6 +705,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.25
+Last review: 2026.10.26
 
 Back to [Yuruna](../../../README.md)

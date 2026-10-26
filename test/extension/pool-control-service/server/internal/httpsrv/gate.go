@@ -1,5 +1,6 @@
 // LICENSEURI https://yuruna.link/license
 // Copyright (c) 2019-2026 by Alisson Sol et al.
+// GUID: 42998ee9-bf5e-45cf-baf4-c0513834d336
 
 package httpsrv
 
@@ -12,7 +13,6 @@ import (
 )
 
 // --- REGION: https://yuruna.link/42fffc2c-0009
-//
 // The write gate in front of the operator board. See
 // ../../../../../../docs/pool-admin.md#unlocking-the-actions for what it does
 // and does not guarantee.

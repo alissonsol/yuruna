@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
-# Version: 2026.10.25
+# Version: 2026.10.26
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
+# GUID: 42fc3dee-f570-4a05-aa4e-be5b3681fdd8
 #
 # The AWS CLI's default context name is the cluster ARN. Assign the caller's
 # requested alias during import rather than renaming a nonexistent short name.

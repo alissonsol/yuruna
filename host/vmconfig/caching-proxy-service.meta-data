@@ -1,5 +1,6 @@
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
+# GUID: 42b495c9-94f8-418b-9502-ba7cea96f04b
 # See https://yuruna.link/429f3d06-0002
 # --- REGION: instance-id
 # Fixed identity keeps per-instance setup tied to this persistent service VM.

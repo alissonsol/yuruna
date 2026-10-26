@@ -1,9 +1,11 @@
 // LICENSEURI https://yuruna.link/license
 // Copyright (c) 2019-2026 by Alisson Sol et al.
+// GUID: 42347475-a7b0-4b00-a711-6f3f2d644cb8
 
 package main
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -84,6 +86,13 @@ func (c *squidClient) page(name string) (string, error) {
 	}
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
+		// A transport error names the URL it failed on, and that URL carries the
+		// manager password. The message reaches open status routes, so only the
+		// page and the cause are kept.
+		var failed *url.Error
+		if errors.As(err, &failed) {
+			return "", fmt.Errorf("squid manager page %q: %w", name, failed.Err)
+		}
 		return "", err
 	}
 	defer func() { _, _ = io.Copy(io.Discard, resp.Body); _ = resp.Body.Close() }()

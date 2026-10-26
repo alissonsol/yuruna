@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.25
+.VERSION 2026.10.26
 .GUID 42f19503-4d18-8300-0c4e-b20b03572b60
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -814,6 +814,14 @@
             'trust' = 'internal'
         }
         ' do worker de host-refresh não corresponde aos parâmetros do script de entrada; recusando iniciar um worker que o ponto de entrada não aceitaria.'
+    )
+    'exceptions.host_signature_could_not_be_checked' = @(
+        'A assinatura GPG do SHA256SUMS não pôde ser verificada para '
+        @{
+            'arg' = 'checksumUrl'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
     )
     'exceptions.host_utm_sudo_requires_noninteractive' = 'Invoke-UtmHostTool: o sudo deve ser chamado com -n como primeiro argumento, para que nunca fique bloqueado em uma solicitação de senha.'
     'exceptions.host_utmctl_kill_requires_stop' = @(

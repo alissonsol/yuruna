@@ -190,6 +190,18 @@ executing downloaded bytes. No token or command body is stored in the
 context. Missing, changed, or oversized context data fails before the
 payload runs.
 
+An update script (`guest/*.update.sh`) also receives the commit and SHA-256 of
+the framework archive the host serves, and of the project archive when the
+host holds a project checkout of its own: `E_ARCHIVE_COMMIT` and
+`E_ARCHIVE_SHA`, `E_PROJECT_ARCHIVE_COMMIT` and `E_PROJECT_ARCHIVE_SHA`. The
+digest is of the archive `Export-YurunaGitArchive` builds for that commit,
+which is what the status service sends for `?commit=`. The script asks for
+each archive by its commit and unpacks it only when the bytes match; a mismatch
+is reported, and the script falls back as it does when the host serves
+nothing. Only these scripts carry the fields, because a console guest types the
+whole context. A run by hand has no context and unpacks the archive as served,
+and the Windows updater, which does not run under this envelope, does too.
+
 Console input can arrive damaged: a key whose release reaches the guest late
 repeats, and one extra character makes the compact envelope's base64 invalid.
 `yfe --gui` then prints `NONZERO SCRIPT EXIT: YFE_<code>` and, keyed by the
@@ -527,12 +539,16 @@ username, which hangs an unattended guest (or fails outright under
 `GIT_TERMINAL_PROMPT=0`). What makes the clone work is `GIT_ASKPASS`: the
 seed installs a shim at `/usr/local/lib/yuruna/git-askpass.sh` (Windows:
 `C:\ProgramData\yuruna\git-askpass.cmd`) that answers git's credential
-prompts from `$GH_TOKEN`, and exports `GH_TOKEN` + `GIT_ASKPASS` +
+prompts with the token, and exports `GH_TOKEN` + `GIT_ASKPASS` +
 `GIT_TERMINAL_PROMPT=0` into the guest's shell environment. Every
 `clone` / `fetch` / `pull` then authenticates with no change at any call
-site. The token stays in the environment -- never in `~/.gitconfig` or a
-remote URL -- so it cannot leak through `git remote -v` or the process
-list. Leave `repositories.ghToken` empty for public repositories and none of
+site. The shim answers only a prompt for `github.com`; any other remote gets
+an empty answer, so a project that clones from another host never receives
+the token. On Linux guests the token lives in
+`~/.config/yuruna/github-token` (mode 0600, owned by the guest user) and
+the login profile reads it from there, rather than in a world-readable
+profile script. The token is never in `~/.gitconfig` or a remote URL, so it
+cannot leak through `git remote -v` or the process list. Leave `repositories.ghToken` empty for public repositories and none of
 this is installed.
 
 **Scope it read-only.** The guests only ever pull, but the token is copied
@@ -1870,6 +1886,7 @@ runtime-only files live under `<runtimeDir>/` (typically
 | `cycle.events.ndjson` | cycle folder | `Write-CycleNdjsonEvent` in [Test.Log.psm1](../test/modules/Test.Log.psm1) -- every emit site routes through the `Send-CycleEventSafely` wrapper | append-only for the life of the cycle | JSON-Lines event stream stamped with `cycleStartUtc` + `cycleFolder` so multi-host pool consumers can join events without parsing folder names. |
 | `cycle.events.gaps` | cycle folder | `Write-CycleNdjsonEvent` failure sentinel | append-only | One line per failed NDJSON append (open-handle race, disk full). Surfaces stream gaps to a remediator that would otherwise consume truncated truth. |
 | `last_failure.json` | `$YURUNA_LOG_DIR`, mirrored in cycle and per-guest folders | the failure-emit blocks in [Test.SequenceEngine.psm1](../test/modules/Test.SequenceEngine.psm1) | root copy cleared at each sequence start and before ordinary cycle spawns by [Start-TestRunner.ps1](../test/Start-TestRunner.ps1); mirrors are removed on pass and retained on non-pass | Schema-v2 record (failureClass, severity, suggestedRecoveries, action, vmName, guestKey, hostType) that an out-of-process remediator consumes to choose a recovery handler. |
+| `cycle_failures.json` | `$YURUNA_LOG_DIR`; archived into the cycle folder as `failures.json` | `Add-CycleFailureIndexRow` in [Test.Log.psm1](../test/modules/Test.Log.psm1), from every `Copy-CycleFailureRecord` | belongs to one cycle generation and starts over when another cycle writes to it; a sequence start does not clear it | One row per failing guest or stage, in the order the failures happened. `Get-LastFailureFact` reads its first row -- the cycle's first failure -- before the root `last_failure.json`, which by the end of a cycle that ran on past a failure is gone or names a later guest. |
 | `current-action.json` | `<runtimeDir>` | retry-with-backoff write loop in [Test.SequenceEngine.psm1](../test/modules/Test.SequenceEngine.psm1) | every action transition rewrites it; cleared at cycle end | In-flight action breadcrumb the dashboard reads to display "running step N of M: `<verb>` `<description>`". |
 | `break-active.json` | `<runtimeDir>` | retry-with-backoff write loop in [Test.SequenceHandler.psm1](../test/modules/Test.SequenceHandler.psm1) `break` handler | break handler removes on resume; pre-wiped by [Start-TestRunner.ps1](../test/Start-TestRunner.ps1) before each spawn | Marks a cooperative breakpoint as parked so the status UI can render a Resume button. |
 | `runner.pid` + `runner.start` | `<runtimeDir>` | `Write-RunnerPidFile` in [Test.SingleInstance.psm1](../test/modules/Test.SingleInstance.psm1) | rewritten by every outer launch; an atomic temp->rename keeps the pair consistent | Outer's pidfile + StartTime sidecar so a re-launched outer can classify the prior occupant as Self / Stale / OtherRunner without misreading via cmdline regex. |
@@ -1877,9 +1894,10 @@ runtime-only files live under `<runtimeDir>/` (typically
 | `runner.heartbeat` | `<runtimeDir>` | C# `Yuruna.HeartbeatWriter` timer in [Test.RunnerHeartbeat.psm1](../test/modules/Test.RunnerHeartbeat.psm1), started by [Invoke-TestRunnerInnerLoop.ps1](../test/modules/Invoke-TestRunnerInnerLoop.ps1) | overwritten every 30 s | Process-level proof of life. Stays fresh even when the runspace is wedged inside a long SSH/OCR call. |
 | `runner.stepHeartbeat` | `<runtimeDir>` | runspace-side touch at step boundaries and after completed pause polls or lab-health probes; outer pre-wipes + force-touches before each spawn | overwritten on completed progress | Runspace-level proof of life. Deliberate holds remain live; blocked calls still age beyond `testCycle.stepTimeoutSeconds` and trigger the watchdog. |
 | `runner.configGate.json` + `runner-attempts/<attempt>/config-gate.{json,log}` | `<runtimeDir>` | [Test.ConfigPreflight.psm1](../test/modules/Test.ConfigPreflight.psm1) after a gate verdict | latest pointer replaced; 20 attempt folders retained | Structured configuration findings and transcript with attempt generation, timestamps and framework commit. Separate from completed cycle artifacts. |
+| `recovery.health.json` | `<runtimeDir>` | `Set-RecoveryLedgerHealth` in [Test.RecoveryLedger.psm1](../test/modules/Test.RecoveryLedger.psm1) when the recovery ledger cannot be read or written | removed once a ledger line is written again | Why automatic recovery is disabled (`ledger-unreadable` or `ledger-unwritable`); `/control/runner-status` reports it as `recoveryDisabled` and the status page shows it. |
 | `runner.watchdog-kill.json` | `<runtimeDir>` | [Test.RunnerWatchdog.psm1](../test/modules/Test.RunnerWatchdog.psm1) before terminating a matching stale inner; `Write-OuterStopRecord` in [Test.RunnerOuterLoop.psm1](../test/modules/Test.RunnerOuterLoop.psm1), in the same shape, for a cycle the resident stopped | cleared before the next spawn | Attempt-bound evidence that termination was initiated by the watchdog; a nonzero gate exit alone is not a stall. |
 | `.test.config.snapshot.json` | `<runtimeDir>` | `Publish-TestConfigSnapshot` in [Test.Config.psm1](../test/modules/Test.Config.psm1), auto-fired by every `Read-TestConfig` parse | overwritten on next parse | Cross-process parsed-config snapshot (envelope: sourcePath, sourceMtime, sourceHash, publishedAt, publisherPid, config). `Read-TestConfigOrSnapshot` validates the envelope's mtime+hash against the live YAML and uses the snapshot when both still match, avoiding a redundant YAML parse in the inner. |
-| `.caching-proxy-service.env.json` | `<runtimeDir>` | atomic temp->rename in [test/service/Start-CachingProxyServiceVM.ps1](../test/service/Start-CachingProxyServiceVM.ps1) | wiped by `Remove-TestVMFiles.ps1` | Cleared `*_proxy` env-var snapshot so a re-invocation of Start-CachingProxyServiceVM can restore them without operator re-typing. |
+| `.caching-proxy-service.env.json` | `<runtimeDir>` | no longer written | removed by [test/service/Start-CachingProxyServiceVM.ps1](../test/service/Start-CachingProxyServiceVM.ps1) | Older versions kept the cleared `*_proxy` values here for a restore that was never built. A proxy URL can carry credentials, so the cleared names are logged and the values are not kept. |
 | `yuruna-caching-proxy-service.yml` | `<runtimeDir>` | `Save-CachingProxyServiceState` in [Test.CachingProxyService.psm1](../test/modules/Test.CachingProxyService.psm1) (temp-file + Move-Item + `.backup` rotation) | merged on next save | Cache-VM password + IP. Has a `.backup` sibling rotated on each successful write; `Read-CachingProxyServiceState` falls back to the backup when the main is corrupt and rotates the bad copy to `.corrupt.<UTC>` for forensics. |
 
 Conventions:
@@ -2485,6 +2503,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.25
+Last review: 2026.10.26
 
 Back to [Yuruna](../README.md)

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.25
+.VERSION 2026.10.26
 .GUID 424987be-221a-49fe-a0ac-06e90a13e1b0
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -24,7 +24,7 @@
     Uses the Server live ISO. The Server ISO's cdrom has linux-generic
     and a network-configured ubuntu.sources, so subiquity's
     install_kernel step always succeeds. First boot lands at the
-    text-mode login prompt; the test harness's Test-Start sequence
+    text-mode login prompt; the test harness's start sequence
     drives that prompt directly.
 #>
 

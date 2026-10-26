@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.25
+.VERSION 2026.10.26
 .GUID 42ab6606-a979-4194-9acd-a8d1c653dace
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -36,7 +36,7 @@ $script:YurunaHostContract = @(
     # Inventory errors must throw; they cannot authorize cleanup as an empty host.
     'Get-VMName',
     # --- REGION: Disk snapshots
-    'Save-VMDiskSnapshot', 'Restore-VMDiskSnapshot', 'Test-VMDiskSnapshot',
+    'Save-VMDiskSnapshot', 'Restore-VMDiskSnapshot', 'Test-VMDiskSnapshot', 'Get-VMDiskSnapshotState',
     # --- REGION: VM console
     'Test-VMConsoleOpen', 'Restart-VMConsole',
     # --- REGION: Image

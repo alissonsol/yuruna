@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.25
+.VERSION 2026.10.26
 .GUID 42c24ab4-c6de-46b2-84f3-6852dccf9a66
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -94,20 +94,32 @@ function Repair-VncConnection {
         Test.Transport. If a per-host provider is registered, it runs
         afterward (for cleanup of platform-specific state -- e.g., a
         Windows port forward or an AppleScript window-focus reset).
+
+        The handle carries keystrokes only; no screenshot path reads it, so
+        dropping it cannot revive a capture feed. A caller that hopes it
+        did judges by a later frame, never by this result.
+    .OUTPUTS
+        [pscustomobject] Attempted (something was reset), Effective (the reset
+        completed: the cache was cleared, or the host provider reported
+        success) and Mechanism ('vnc-input-handle', 'host-provider' or 'none').
     #>
     [CmdletBinding(SupportsShouldProcess)]
-    [OutputType([bool])]
+    [OutputType([pscustomobject])]
     param(
         [Parameter(Mandatory)][string]$VMName,
         [string]$HostType
     )
-    if (-not $PSCmdlet.ShouldProcess($VMName, (Format-YurunaOperatorMessage -Key 'runner.operator_1cbf528eda6cfdb7'))) { return $true }
+    $outcome = { param([bool]$Attempted, [bool]$Effective, [string]$Mechanism) [pscustomobject]@{ Attempted = $Attempted; Effective = $Effective; Mechanism = $Mechanism } }
+    if (-not $PSCmdlet.ShouldProcess($VMName, (Format-YurunaOperatorMessage -Key 'runner.operator_1cbf528eda6cfdb7'))) { return (& $outcome $false $false 'none') }
+    $mechanism = 'none'
+    $effective = $false
     if (Get-Command Disconnect-VNC -ErrorAction SilentlyContinue) {
-        try { Disconnect-VNC -VMName $VMName } catch { Write-Verbose "Disconnect-VNC threw: $($_.Exception.Message)" }
+        $mechanism = 'vnc-input-handle'
+        try { Disconnect-VNC -VMName $VMName; $effective = $true } catch { Write-Verbose "Disconnect-VNC threw: $($_.Exception.Message)" }
     }
     if ($HostType -and (& $script:Reg.Has $HostType)) {
         try {
-            return [bool](& (& $script:Reg.Get $HostType) $VMName)
+            return (& $outcome $true ([bool](& (& $script:Reg.Get $HostType) $VMName)) 'host-provider')
         } catch {
             $vncErr = $_
             Write-Verbose "VNC reconnect threw: $($vncErr.Exception.Message)"
@@ -127,10 +139,10 @@ function Repair-VncConnection {
                     severity     = 'soft'
                 }
             }
-            return $false
+            return (& $outcome $true $false 'host-provider')
         }
     }
-    return $true
+    return (& $outcome ($mechanism -ne 'none') $effective $mechanism)
 }
 
 function Clear-VncProvider {

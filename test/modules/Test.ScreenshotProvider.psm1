@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.25
+.VERSION 2026.10.26
 .GUID 424e571a-0f6b-4eef-b112-0794f8d85952
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -106,32 +106,39 @@ function Repair-ScreenshotRing {
         buffer for a given VM so the next Wait-ForText poll starts
         fresh against the live framebuffer.
     .DESCRIPTION
-        Called when OCR recovery needs the next poll to start against a fresh
-        framebuffer. The canonical ring lives under the active cycle folder as
-        screens_<VMName>/ (with the log root as the pre-cycle fallback), resolved
-        by Get-CycleScreenDir. Best-effort: a missing directory or in-flight
-        write is logged Verbose and returns $true so the caller can proceed.
+        Called after a cold recovery restarted the VM, whose earlier frames no
+        longer describe its screen. The canonical ring lives under the active
+        cycle folder as screens_<VMName>/ (with the log root as the pre-cycle
+        fallback), resolved by Get-CycleScreenDir. It holds the run-up frames a
+        failure record is read against, and clearing it changes nothing about
+        how the next frame is captured, so it is never a repair of a stale
+        capture feed. Best-effort: a missing directory or in-flight write is
+        logged Verbose.
+    .OUTPUTS
+        [pscustomobject] Attempted (a ring was there to clear), Effective (at
+        least one frame was removed) and Mechanism ('screenshot-ring').
     #>
     [CmdletBinding(SupportsShouldProcess)]
-    [OutputType([bool])]
+    [OutputType([pscustomobject])]
     param([Parameter(Mandatory)][string]$VMName)
+    $outcome = { param([bool]$Attempted, [bool]$Effective) [pscustomobject]@{ Attempted = $Attempted; Effective = $Effective; Mechanism = 'screenshot-ring' } }
     $ringDir = $null
     if (Get-Command Get-CycleScreenDir -ErrorAction SilentlyContinue) {
         try { $ringDir = Get-CycleScreenDir -VMName $VMName -Confirm:$false } catch { $ringDir = $null }
     }
     if (-not $ringDir) {
-        if (-not $env:YURUNA_LOG_DIR) { return $true }
+        if (-not $env:YURUNA_LOG_DIR) { return (& $outcome $false $false) }
         $ringDir = Join-Path $env:YURUNA_LOG_DIR "screens_${VMName}"
     }
-    if (-not (Test-Path -LiteralPath $ringDir)) { return $true }
-    if (-not $PSCmdlet.ShouldProcess($ringDir, (Format-YurunaOperatorMessage -Key 'runner.operator_eb4ca73c6f91b714'))) { return $true }
+    if (-not (Test-Path -LiteralPath $ringDir)) { return (& $outcome $false $false) }
+    if (-not $PSCmdlet.ShouldProcess($ringDir, (Format-YurunaOperatorMessage -Key 'runner.operator_eb4ca73c6f91b714'))) { return (& $outcome $false $false) }
     try {
-        Get-ChildItem -LiteralPath $ringDir -Filter '*.png' -ErrorAction SilentlyContinue |
-            Remove-Item -Force -ErrorAction SilentlyContinue
-        return $true
+        $frames = @(Get-ChildItem -LiteralPath $ringDir -Filter '*.png' -ErrorAction SilentlyContinue)
+        $frames | Remove-Item -Force -ErrorAction SilentlyContinue
+        return (& $outcome $true ($frames.Count -gt 0))
     } catch {
         Write-Verbose "Repair-ScreenshotRing: $($_.Exception.Message)"
-        return $false
+        return (& $outcome $true $false)
     }
 }
 

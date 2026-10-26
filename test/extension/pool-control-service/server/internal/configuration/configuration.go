@@ -1,5 +1,6 @@
 // LICENSEURI https://yuruna.link/license
 // Copyright (c) 2019-2026 by Alisson Sol et al.
+// GUID: 42ce2c4f-afca-4820-915e-107f63163bbf
 
 // Package configuration is the pool-control-service write/read layer. Rather than reimplement
 // the git-clone + YAML + schema-validation + commit/push/rebase-retry logic, it
@@ -14,8 +15,45 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"sync"
 	"time"
 )
+
+// stateScript is the one read-only CLI. Every other CLI changes the
+// configuration store, so it invalidates the cached read.
+const stateScript = "pool/Get-PoolConfiguration.ps1"
+
+// stateTTL bounds how long one configuration read answers the open read
+// routes. Each read starts pwsh and takes the admin clone's exclusive lock, so
+// a read per request let any client of the board queue processes behind it.
+const stateTTL = 15 * time.Second
+
+// stateReadTimeout bounds the shared read. It runs detached from the request
+// that started it, so one client disconnecting cannot fail every caller
+// waiting on the same read.
+const stateReadTimeout = 2 * time.Minute
+
+// maxConcurrentCLI caps the pwsh processes the CLIs run at once.
+const maxConcurrentCLI = 4
+
+// stateFlight is one configuration read in progress; every caller that
+// arrives while it runs receives its result.
+type stateFlight struct {
+	done   chan struct{}
+	result Result
+}
+
+// stateCache holds the last successful configuration read. generation moves
+// on every invalidation, so a read that started before a change is not cached
+// over it.
+type stateCache struct {
+	mu         sync.Mutex
+	result     Result
+	at         time.Time
+	valid      bool
+	generation uint64
+	flight     *stateFlight
+}
 
 // Runner invokes the pool-admin CLIs via pwsh. RepoDir is the yuruna framework
 // checkout (the CLIs live at RepoDir/test/pool/). ConfigurationGitUrl, when set, is
@@ -29,6 +67,26 @@ type Runner struct {
 	// correcting a wrong one would mean rebuilding the VM; with this an operator
 	// edits the file, restarts nothing, and the next request uses the new value.
 	ConfigPath string
+
+	cache     stateCache
+	slots     chan struct{}
+	slotsOnce sync.Once
+}
+
+// cliSlots is the semaphore exec acquires; created on first use because a
+// Runner is built as a struct literal.
+func (r *Runner) cliSlots() chan struct{} {
+	r.slotsOnce.Do(func() { r.slots = make(chan struct{}, maxConcurrentCLI) })
+	return r.slots
+}
+
+// invalidateState drops the cached configuration read after a CLI that may
+// have changed the store.
+func (r *Runner) invalidateState() {
+	r.cache.mu.Lock()
+	r.cache.valid = false
+	r.cache.generation++
+	r.cache.mu.Unlock()
 }
 
 // configurationURLKey is the assignment the config file is scanned for. It matches the
@@ -127,6 +185,18 @@ func cliErrorFromStdout(stdout string) string {
 // script is relative to test/ and names its subfolder ("pool/New-Pool.ps1"),
 // so a CLI that changes folders is one edit at the call site.
 func (r *Runner) exec(ctx context.Context, script string, args ...string) Result {
+	slots := r.cliSlots()
+	select {
+	case slots <- struct{}{}:
+		defer func() { <-slots }()
+	case <-ctx.Done():
+		return Result{Exit: 1, Error: ctx.Err().Error()}
+	}
+	if script != stateScript {
+		// Invalidated whatever the outcome: a CLI that failed after its commit
+		// still changed the store.
+		defer r.invalidateState()
+	}
 	full := append([]string{"-NoProfile", "-NonInteractive", "-File", r.RepoDir + "/test/" + script}, args...)
 	// Resolved per invocation, not captured at construction: the operator fix for
 	// a wrong configuration URL is a file edit, and it must take effect without a restart.
@@ -176,8 +246,44 @@ func (r *Runner) exec(ctx context.Context, script string, args ...string) Result
 
 // State runs Get-PoolConfiguration.ps1 (read-only) which emits a single JSON object
 // {ok, pools, autoEnrollment} on stdout. Returned verbatim so the handler can relay it.
+//
+// A successful read answers for stateTTL, and concurrent callers share one
+// read in progress; any other CLI invalidates the cached result.
 func (r *Runner) State(ctx context.Context) Result {
-	return r.exec(ctx, "pool/Get-PoolConfiguration.ps1")
+	r.cache.mu.Lock()
+	if r.cache.valid && time.Since(r.cache.at) < stateTTL {
+		cached := r.cache.result
+		r.cache.mu.Unlock()
+		return cached
+	}
+	if f := r.cache.flight; f != nil {
+		r.cache.mu.Unlock()
+		select {
+		case <-f.done:
+			return f.result
+		case <-ctx.Done():
+			return Result{Exit: 1, Error: ctx.Err().Error()}
+		}
+	}
+	f := &stateFlight{done: make(chan struct{})}
+	r.cache.flight = f
+	generation := r.cache.generation
+	r.cache.mu.Unlock()
+
+	readCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), stateReadTimeout)
+	f.result = r.exec(readCtx, stateScript)
+	cancel()
+
+	r.cache.mu.Lock()
+	if f.result.OK && r.cache.generation == generation {
+		r.cache.result = f.result
+		r.cache.at = time.Now()
+		r.cache.valid = true
+	}
+	r.cache.flight = nil
+	r.cache.mu.Unlock()
+	close(f.done)
+	return f.result
 }
 
 func (r *Runner) NewPool(ctx context.Context, poolID, displayName, configuredState string) Result {

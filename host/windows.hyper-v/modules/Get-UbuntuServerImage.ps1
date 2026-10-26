@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.25
+.VERSION 2026.10.26
 .GUID 423f79d6-9915-4deb-9ea1-8dfbc55e6cf8
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -52,7 +52,8 @@ if (-not ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdent
 }
 
 # --- REGION: Host architecture
-# OSArchitecture remains native when x64 PowerShell runs under ARM64 emulation.
+# See https://yuruna.link/42e220c4-0003
+# Use native OS architecture even when the current PowerShell process is emulated.
 switch ([System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture) {
     'X64'   { $hostArch = 'amd64' }
     'Arm64' { $hostArch = 'arm64' }

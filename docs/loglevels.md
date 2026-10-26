@@ -47,7 +47,7 @@ except Debug.
    `Start-TestRunner.ps1` / `Invoke-TestRunnerInnerLoop.ps1` /
    `Debug-TestSequence.ps1` / `install/setup.ps1`.
 2. **`logLevel:` in `test.config.yml`** -- hot-reloadable; the inner
-   runner re-resolves on every `Sync-RuntimeConfig`, so an operator can
+   runner re-resolves on every `Sync-RunnerStepConfig`, so an operator can
    edit the YAML mid-cycle and the next step picks it up.
 3. **Default `Information`** -- invalid values fall back here with a
    one-line warning, so a YAML typo does not silently silence the
@@ -174,6 +174,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.25
+Last review: 2026.10.26
 
 Back to [Yuruna](../README.md)

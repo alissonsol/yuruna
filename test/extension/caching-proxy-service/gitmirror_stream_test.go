@@ -1,10 +1,12 @@
 // LICENSEURI https://yuruna.link/license
 // Copyright (c) 2019-2026 by Alisson Sol et al.
+// GUID: 42a3d030-5623-4322-bd0c-39c2dbb81a6f
 
 package main
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/cgi"
@@ -208,5 +210,48 @@ func TestMirrorRawBoundAcceptsExactLimit(t *testing.T) {
 		if _, err := writer.Write([]byte("x")); err == nil {
 			t.Fatal("cap exceeded " + strconv.FormatInt(length, 10))
 		}
+	}
+}
+
+// A repository's use folder stops growing at the cap, whatever clients ask
+// for: resolve, raw reads and clones still answer, and only the record of the
+// use is dropped, so /run cannot be filled through the mirror.
+func TestMirrorUseRecordsStopAtTheCap(t *testing.T) {
+	h := newMirrorHarness(t)
+	ready := h.resolve(t, "HEAD")
+	uses := filepath.Join(mirrorReaderDir(h.c.options, "example/repo"), "uses")
+	if err := os.MkdirAll(uses, 0750); err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < mirrorUseCap; i++ {
+		if err := os.WriteFile(filepath.Join(uses, fmt.Sprintf("%040x.%016x", i, i)), nil, 0640); err != nil {
+			t.Fatal(err)
+		}
+	}
+	count := func() int {
+		entries, err := os.ReadDir(uses)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return len(entries)
+	}
+	before := count()
+	if again := h.resolve(t, "HEAD"); !again.ObjectReady || again.SelectedSHA != ready.SelectedSHA {
+		t.Fatalf("resolve with a full use folder: %+v", again)
+	}
+	server := mirrorTestHTTP(t, h)
+	resp, err := server.Client().Get(server.URL + "/git-raw/example/repo/" + ready.SelectedSHA + "/payload.txt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != 200 {
+		t.Fatalf("raw read with a full use folder: %d", resp.StatusCode)
+	}
+	dir := t.TempDir()
+	mirrorTestGit(t, dir, "init", "-q")
+	mirrorTestGit(t, dir, "fetch", "--depth=1", server.URL+"/git/example/repo.git", ready.SelectedSHA)
+	if after := count(); after != before {
+		t.Fatalf("the use folder grew past the cap: %d -> %d", before, after)
 	}
 }

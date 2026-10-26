@@ -1,5 +1,6 @@
 // LICENSEURI https://yuruna.link/license
 // Copyright (c) 2019-2026 by Alisson Sol et al.
+// GUID: 4212fbdc-da3f-4513-8bec-3235ac3ab69f
 
 package httpsrv
 
@@ -20,7 +21,6 @@ import (
 // observed working.
 //
 // --- REGION: https://yuruna.link/4207d71a-0014
-//
 // Two invariants the `inAPool || excluded` skip below encodes: a host already
 // in a pool is never touched, which keeps "a host belongs to at most one pool"
 // true by construction; and a host an operator removed from the target pool is

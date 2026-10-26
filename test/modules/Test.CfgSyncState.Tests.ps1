@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.25
+.VERSION 2026.10.26
 .GUID 4241d9f0-ad34-48bf-acbd-de2cff3f7bf7
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -180,5 +180,60 @@ Describe 'Update-TestConfigFromTemplate rewrites test.config.yml atomically (AST
         Get-Module Test.StateFile, Test.ConfigSync | Remove-Module -Force -ErrorAction SilentlyContinue
         Import-Module $script:configSync -Force -DisableNameChecking
         (Get-Command Write-YurunaStateFile -ErrorAction SilentlyContinue) | Should -Not -BeNullOrEmpty
+    }
+}
+
+# A failure record that could not be written was reported only at Verbose, so a
+# cycle filed nothing a router or a remediator could read and said nothing.
+Describe 'Write-YurunaStateFile reports a write that did not happen' {
+    BeforeAll {
+        Import-Module (Join-Path $PSScriptRoot 'Test.StateFile.psm1') -Force -DisableNameChecking
+    }
+
+    It 'warns, naming the path, when the caller asks for it' {
+        $path = Join-Path $TestDrive 'no-such-folder/last_failure.json'
+        $warnings = $null
+        $written = Write-YurunaStateFile -Path $path -Content '{}' -WarnOnFailure -Confirm:$false -WarningVariable warnings -WarningAction SilentlyContinue
+        $written | Should -BeFalse
+        @($warnings).Count | Should -Be 1
+        [string]@($warnings)[0] | Should -Match ([regex]::Escape($path))
+    }
+
+    It 'warns through the JSON writer too' {
+        $path = Join-Path $TestDrive 'no-such-folder/last_remediation.json'
+        $warnings = $null
+        $written = Write-YurunaStateFileJson -Path $path -InputObject @{ recommendation = 'retry' } -WarnOnFailure -Confirm:$false -WarningVariable warnings -WarningAction SilentlyContinue
+        $written | Should -BeFalse
+        @($warnings).Count | Should -Be 1
+    }
+
+    It 'stays quiet for a best-effort write' {
+        $warnings = $null
+        $written = Write-YurunaStateFile -Path (Join-Path $TestDrive 'no-such-folder/runner.pid') -Content '1' -Confirm:$false -WarningVariable warnings -WarningAction SilentlyContinue
+        $written | Should -BeFalse
+        @($warnings).Count | Should -Be 0
+    }
+
+    It 'is asked for at every write of a failure record, its history or a remediation decision' {
+        $checked = 0
+        foreach ($module in 'Test.SequenceEngine', 'Test.RunnerInnerLoop', 'Test.RunnerOuterLoop', 'Test.RecoveryContract', 'Test.Remediation') {
+            $ast = [Management.Automation.Language.Parser]::ParseFile((Join-Path $PSScriptRoot "$module.psm1"), [ref]$null, [ref]$null)
+            $writes = @($ast.FindAll({ param($node)
+                $node -is [Management.Automation.Language.CommandAst] -and $node.GetCommandName() -in @('Write-YurunaStateFile', 'Write-YurunaStateFileJson') }, $true))
+            foreach ($write in $writes) {
+                $elements = @($write.CommandElements)
+                $pathIndex = -1
+                for ($i = 0; $i -lt $elements.Count; $i++) {
+                    if ($elements[$i] -is [Management.Automation.Language.CommandParameterAst] -and $elements[$i].ParameterName -eq 'Path') { $pathIndex = $i }
+                }
+                if ($pathIndex -lt 0) { continue }
+                $pathText = $elements[$pathIndex + 1].Extent.Text
+                if ($pathText -notmatch '(?i)fail|remediation|\.History') { continue }
+                $checked++
+                $asked = @($elements | Where-Object { $_ -is [Management.Automation.Language.CommandParameterAst] -and $_.ParameterName -eq 'WarnOnFailure' })
+                $asked.Count | Should -Be 1 -Because "$module writes $pathText"
+            }
+        }
+        $checked | Should -BeGreaterOrEqual 8
     }
 }

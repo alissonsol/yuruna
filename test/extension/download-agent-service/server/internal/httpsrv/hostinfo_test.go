@@ -1,5 +1,6 @@
 // LICENSEURI https://yuruna.link/license
 // Copyright (c) 2019-2026 by Alisson Sol et al.
+// GUID: 423aa59f-1ba0-4bd6-bd8f-5266d923d3af
 
 package httpsrv
 
@@ -35,7 +36,7 @@ func TestHostInfo(t *testing.T) {
 	if err := json.Unmarshal(b, &info); err != nil {
 		t.Fatalf("hostinfo: %v (body %s)", err, b)
 	}
-	if !info.OK || info.LocalHostID != testHostID || info.Version != "2026.10.25" {
+	if !info.OK || info.LocalHostID != testHostID || info.Version != "2026.10.26" {
 		t.Fatalf("hostinfo should carry the host id and version; got %+v", info)
 	}
 	// Every reported line must be a comma-list of parseable IPs (no stray

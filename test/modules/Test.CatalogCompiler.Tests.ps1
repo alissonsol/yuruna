@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.25
+.VERSION 2026.10.26
 .GUID 42f81d3c-9e04-4a72-b5c8-6d190af7be21
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -178,6 +178,23 @@ Describe 'the shipped catalogs compile and their artifacts are current' {
             Assert-Match -Pattern ([regex]::Escape($document)) -Actual $run.Output `
                 "the default encoding scope does not reach $document"
         }
+    }
+}
+
+Describe 'the parallel emitters run the same functions the compiler defines' {
+    It 'hands every function the script defines to the runspaces, not a list kept by hand' {
+        $ast = Get-YurunaTestFileAst -Path $script:Compiler
+        $defined = @($ast.FindAll({ param($node) $node -is [Management.Automation.Language.FunctionDefinitionAst] }, $false) | ForEach-Object Name)
+        $defined.Count | Should -BeGreaterThan 10
+        $emitSetup = @($ast.FindAll({ param($node)
+                    $node -is [Management.Automation.Language.AssignmentStatementAst] -and
+                    $node.Left.Extent.Text -eq '$emitFunctions' }, $true))
+        $emitSetup.Count | Should -Be 1 -Because 'one place builds the runspace function set'
+        $listed = @($ast.FindAll({ param($node)
+                    $node -is [Management.Automation.Language.StringConstantExpressionAst] -and
+                    $node.StringConstantType -ne [Management.Automation.Language.StringConstantType]::BareWord -and
+                    $node.Value -in $defined }, $true))
+        $listed.Count | Should -Be 0 -Because 'a hand-kept list of function names misses the next helper an emitter calls, which then fails only inside a runspace'
     }
 }
 
@@ -380,7 +397,7 @@ Describe 'the compiler refuses a source that would ship a defect' {
             '"Path C:\\logs and a \"quoted\" word."')
         $root = New-CatalogRoot -Name 'go-escaping' -DomainJson $json
         $run = Invoke-Compile -Root $root -Update
-        Assert-Equal -Expected 1 -Actual $run.ExitCode "the fixture should compile:`n$($run.Output)"
+        Assert-Equal -Expected 0 -Actual $run.ExitCode "the fixture should compile:`n$($run.Output)"
         $go = Get-Content -Raw -LiteralPath (Join-Path $root 'generated/go/catalog/enUS_sample.go')
         Assert-Match -Pattern 'C:\\\\logs' -Actual $go `
             'the JSON escape for a backslash must survive unchanged into the raw literal'
@@ -428,7 +445,7 @@ Describe 'the compiler refuses a source that would ship a defect' {
 '@
         $root = New-CatalogRoot -Name 'exclusive-forms-hostile-keys' -DomainJson $json
         $run = Invoke-Compile -Root $root -Update
-        Assert-Equal -Expected 1 -Actual $run.ExitCode "the three valid exclusive forms should compile:`n$($run.Output)"
+        Assert-Equal -Expected 0 -Actual $run.ExitCode "the three valid exclusive forms should compile:`n$($run.Output)"
 
         $psd1 = Join-Path $root 'generated/powershell/en-US.sample.psd1'
         $catalog = Import-PowerShellDataFile -LiteralPath $psd1

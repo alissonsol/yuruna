@@ -1,5 +1,6 @@
 // LICENSEURI https://yuruna.link/license
 // Copyright (c) 2019-2026 by Alisson Sol et al.
+// GUID: 42447b0b-7095-4ffa-a075-813053eae209
 
 package hostrefresh
 

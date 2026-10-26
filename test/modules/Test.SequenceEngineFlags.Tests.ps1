@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.25
+.VERSION 2026.10.26
 .GUID 422650f8-dbc0-42cf-8dcf-e365f9c7de11
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -157,8 +157,10 @@ Describe 'Independent console observations remain available after the timeout' {
         $script:Fail.WaitForTextConsoleSecondOpinion.Verdict | Should -Be 'unavailable'
         $script:Fail.WaitForTextConsoleSecondOpinion.Detail | Should -Match 'fixture native probe failed'
     }
-    It 'clears independent observations at both wait and step boundaries' {
-        $script:SecondOpinionResets.Count | Should -Be 2
+    It 'clears independent observations at the wait and step boundaries and for a step whose handler threw' {
+        # The third reset keeps a child's or a half-run's observation off the
+        # record of a step that failed by throwing.
+        $script:SecondOpinionResets.Count | Should -Be 3
         foreach ($reset in $script:SecondOpinionResets) {
             $script:Fail = @{ WaitForTextConsoleSecondOpinion = @{ Verdict = 'guest-wedged' } }
             . ([scriptblock]::Create($reset.Extent.Text))

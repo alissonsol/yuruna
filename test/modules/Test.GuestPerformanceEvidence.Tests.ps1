@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.25
+.VERSION 2026.10.26
 .GUID 42f463f6-e84a-4c17-b6df-5f7f46b59e05
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -241,6 +241,7 @@ function Invoke-GuestSsh { param($Command) $script:sent=$Command; $script:order+
 function Publish-GuestRetryMarker { return 0 }
 function Test-GuestPayloadUnavailable { return $false }
 function Get-GuestAptIndexMismatch { return $null }
+function Get-GuestDeployResult { return $null }
 function Save-FetchExecutionEvidence { param($Context,$Succeeded,$ElapsedSeconds) $script:order+='capture'; $script:succeeded=$Succeeded }
 '@
             $charDelayHelper=Get-ObservationFunction $script:handlerAst 'Resolve-SequenceCharDelay'

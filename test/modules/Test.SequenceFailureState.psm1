@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.25
+.VERSION 2026.10.26
 .GUID 428d5583-549b-428b-9150-dfe8fe3266a4
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -21,6 +21,7 @@
 # registry-backed store rather than per-module $script: variables. -- Test.SequenceFailureState.psm1
 
 Import-Module (Join-Path $PSScriptRoot 'Test.Registry.psm1') -Global -Force
+Import-Module (Join-Path $PSScriptRoot 'Test.FailureTaxonomy.psm1') -DisableNameChecking
 
 function Initialize-SequenceFailureStateStore {
     # Private: seed every slot on $Store with its default, in place (callers
@@ -177,6 +178,33 @@ function Initialize-SequenceFailureStateStore {
     # and hypervisor evidence captured at that moment.
     # @{ observedState; waitedSeconds; requestedAtUtc; action } or $null.
     $Store['StepVmNotStopped'] = $null
+    # The step and verb whose handler is running, recorded before the handler is
+    # invoked, so a crash names the step it happened in rather than the last
+    # step that failed in the ordinary way.
+    $Store['CurrentAction'] = $null
+    $Store['CurrentStepNumber'] = 0
+    # A handler that threw on the current attempted step: @{ stepInvocationId;
+    # message; origin }, else $null. The step fails like a handler that
+    # returned $false, so a retry wrapping it can run it again; the record keeps
+    # the class unknown, because an unexpected exception says nothing about the
+    # verb's own failure class, and names the exception.
+    $Store['StepHandlerError'] = $null
+    # Which part of a wait-then-type step failed: 'wait' (the screen never
+    # showed what the step waited for), 'input' or 'confirm'. A verb's
+    # registered class describes the part that can only fail after the wait --
+    # passwdPrompt's credential_expired is a rejected password -- so a step that
+    # never got past its wait is filed as the wait's timeout instead.
+    $Store['StepFailurePhase'] = $null
+    # A handler's proof that the current attempted step did nothing to the
+    # guest: @{ effect = 'none-proven'; source; stepInvocationId }, else $null.
+    # Set through Set-StepEffectNoneProven by the handlers that hold such
+    # evidence; read only for the step that published it.
+    $Store['StepEffect'] = $null
+    # The deploy result a guest entry point reported on its YURUNA_RESULT line,
+    # read by the ssh verbs: @{ failureClass (canonical); deployFailureClass;
+    # errorMessage }, else $null. The guest said why its deploy failed, which
+    # the verb's registered script_error cannot.
+    $Store['StepDeployResult'] = $null
     # The earliest moment in the current top-level sequence at which the guest
     # stopped answering: a dropped SSH transport, typed input the console never
     # acknowledged, a diagnostic that no rung could reach, or a shutdown request
@@ -287,7 +315,11 @@ function New-SequenceFailureRecord {
     # (the typed-array-cast-if-empty trap); the NDJSON field always renders as
     # a JSON array.
     $actionName = [string]$fail.LastFailedAction
-    if ($Reason -eq 'crash' -and -not $actionName) { $actionName = 'script_error' }
+    if ($Reason -eq 'crash' -and -not $actionName) {
+        $actionName = if ($fail.CurrentAction) { [string]$fail.CurrentAction } else { 'script_error' }
+    }
+    $handlerError = if ($fail.StepHandlerError -and $Reason -eq 'step' -and
+        [string]$fail.StepHandlerError['stepInvocationId'] -ceq [string]$fail.LastFailedStepInvocationId) { $fail.StepHandlerError } else { $null }
     $verbEntry    = if ($fail.LastFailedAction) { Get-SequenceAction -Name $fail.LastFailedAction } else { $null }
     $failureClass = if ($verbEntry) { [string]$verbEntry.FailureClass } else { 'unknown' }
     $severity     = if ($verbEntry) { [string]$verbEntry.Severity }     else { 'unknown' }
@@ -297,10 +329,11 @@ function New-SequenceFailureRecord {
     $originatingSequenceInvocationId = [string]$fail.LastFailedSequenceInvocationId
     $progressAdvisory = $fail.StepProgressAdvisory
     $consoleSecondOpinion = $fail.WaitForTextConsoleSecondOpinion
-    if ($Reason -eq 'step' -and $fail.OriginatingStepInvocationId -and $fail.OriginatingSequenceInvocationId) {
+    # A handler that threw is a distinct failure in the same way a crash is.
+    if ($Reason -eq 'step' -and -not $handlerError -and $fail.OriginatingStepInvocationId -and $fail.OriginatingSequenceInvocationId) {
         $originatingStepInvocationId = [string]$fail.OriginatingStepInvocationId
         $originatingSequenceInvocationId = [string]$fail.OriginatingSequenceInvocationId
-    } elseif ($Reason -eq 'crash' -and $fail.OriginatingStepInvocationId -and
+    } elseif (($Reason -eq 'crash' -or $handlerError) -and $fail.OriginatingStepInvocationId -and
         $fail.OriginatingStepInvocationId -ne $fail.LastFailedStepInvocationId) {
         $progressAdvisory = $null
         $consoleSecondOpinion = $null
@@ -393,14 +426,29 @@ function New-SequenceFailureRecord {
         $pauseReleasedAtUtc = [string]$fail.LastPauseRelease.releasedAtUtc
     }
     $stepNumber = if ($fail.LastFailedStepNumber) { [int]$fail.LastFailedStepNumber } else { 0 }
+    if ($Reason -eq 'crash' -and $stepNumber -eq 0 -and $fail.CurrentStepNumber) { $stepNumber = [int]$fail.CurrentStepNumber }
     if ($Reason -eq 'crash') {
         $label = if ($fail.LastFailureLabel) { [string]$fail.LastFailureLabel } else { "engine crash: $($CrashError.Exception.Message)" }
         $desc  = if ($fail.LastFailureDescription) { [string]$fail.LastFailureDescription } else { '(crash before step completion)' }
     } else {
+        # The handler threw before it could say how the step failed: the
+        # registry's class describes the verb's own failure, not this one.
+        if ($handlerError) {
+            $failureClass = 'unknown'
+            [string[]]$suggested = @('pause_and_inspect')
+        }
         # See https://yuruna.link/4213a0b3-0150
-        if ($matchedFailPattern) {
+        elseif ($matchedFailPattern) {
             $failureClass = 'pattern_matched_failure'
             [string[]]$suggested = @('pause_and_inspect')
+        }
+        # The guest's deploy entry point named its own failure class. Ordered
+        # after the pattern match, which is likewise the guest's own statement,
+        # and before the transport signals: a result line means the run ended
+        # and reported.
+        elseif ($fail.StepDeployResult -is [System.Collections.IDictionary]) {
+            $failureClass = [string]$fail.StepDeployResult['failureClass']
+            [string[]]$suggested = if ($failureClass -ceq 'network_timeout') { @('retry_with_backoff','pause_and_inspect') } else { @('pause_and_inspect') }
         }
         # See https://yuruna.link/4213a0b3-0150
         elseif ($fail.StepInputLost) {
@@ -411,9 +459,11 @@ function New-SequenceFailureRecord {
         # registry's provisioning_failure describes a start or resize that
         # failed; nothing here was started. Retrying the wait immediately only
         # waits again for a shutdown the guest already ignored, so the hint is
-        # the cold restart a retry wrapper performs, then an operator look.
+        # the cold restart a retry wrapper performs, then an operator look --
+        # and the class is its own, because wait_timeout is retried unattended
+        # as a transient.
         elseif ($fail.StepVmNotStopped) {
-            $failureClass = 'wait_timeout'
+            $failureClass = 'vm_not_stopped'
             [string[]]$suggested = @('retry_with_backoff','pause_and_inspect')
         }
         elseif ($fail.WaitForTextConsoleFlood) {
@@ -446,7 +496,10 @@ function New-SequenceFailureRecord {
         # network_timeout -- reconnecting is precisely what will not help -- and
         # not script_error either, because no script reported anything.
         elseif ($fail.StepGuestRunLost) {
-            $failureClass = 'instrumentation_failure'
+            # Its own class: instrumentation_failure is retried unattended on the
+            # strength of a repair that is safe to run twice, and a lost run is
+            # not one a re-run of the same instrumentation brings back.
+            $failureClass = 'guest_run_lost'
             [string[]]$suggested = @('restart_from_snapshot','pause_and_inspect')
         }
         # See https://yuruna.link/4213a0b3-0152
@@ -454,8 +507,28 @@ function New-SequenceFailureRecord {
             $failureClass = 'payload_unavailable'
             [string[]]$suggested = @('retry_with_backoff')
         }
+        # A wait-then-type step that never got past its wait timed out on the
+        # screen, whatever the verb's class says about its later parts.
+        elseif ([string]$fail.StepFailurePhase -ceq 'wait' -and $failureClass -cne 'ocr_timeout') {
+            $waitEntry = Get-SequenceAction -Name 'waitForText'
+            $failureClass = 'ocr_timeout'
+            [string[]]$suggested = if ($waitEntry -and $null -ne $waitEntry.SuggestedRecoveries) { @($waitEntry.SuggestedRecoveries) } else { @('pause_and_inspect') }
+        }
         $label = $fail.LastFailureLabel
         $desc  = $fail.LastFailureDescription
+    }
+    # What the failing step is proven to have done to the guest. Only its own
+    # handler's proof counts: an inner step's says nothing about the wrapper
+    # that ran it. A thrown handler or a matched failure pattern -- the guest
+    # announcing its own failure -- outranks the proof, as it outranks the
+    # address signal in the class chain above.
+    $stepEffect = 'unknown'
+    $stepEffectSource = ''
+    if ($Reason -eq 'step' -and -not $handlerError -and -not $matchedFailPattern -and
+        $fail.StepEffect -is [System.Collections.IDictionary] -and [string]$fail.StepEffect['effect'] -ceq 'none-proven' -and
+        [string]$fail.StepEffect['stepInvocationId'] -ceq [string]$fail.LastFailedStepInvocationId) {
+        $stepEffect = 'none-proven'
+        $stepEffectSource = [string]$fail.StepEffect['source']
     }
 
     # --- REGION: Actionability enrichment (schema v2, additive)
@@ -470,7 +543,9 @@ function New-SequenceFailureRecord {
     # fix-the-registration vs. escalate decision instead of blind retry.
     $classificationSource =
         if ($Reason -eq 'crash')     { 'crash' }
+        elseif ($handlerError)       { 'handler-exception' }
         elseif ($matchedFailPattern) { 'pattern-match' }
+        elseif ($fail.StepDeployResult -is [System.Collections.IDictionary]) { 'deploy-result' }
         elseif ($verbEntry)          { 'verb-registry' }
         else                         { 'unresolved-verb' }
 
@@ -539,6 +614,7 @@ function New-SequenceFailureRecord {
             guestKey      = $GuestKey
             timestamp     = $tsFile
             failureClass         = $failureClass
+            docUrl               = (Get-FailureClassDocUrl -FailureClass $failureClass)
             severity             = $severity
             suggestedRecoveries  = $suggested
             actionVerb           = $actionName
@@ -549,6 +625,8 @@ function New-SequenceFailureRecord {
             # step N began still has a safe-to-replay-past boundary and, if it
             # bubbled through an exhausted retry, an inner cause worth routing on.
             lastSucceededStepNumber = [int]$fail.LastSucceededStepNumber
+            stepEffect               = $stepEffect
+            stepEffectSource         = $stepEffectSource
             innerActionVerb          = $fail.LastInnerFailedAction
             innerFailureClass        = $fail.LastInnerFailureClass
             innerSeverity            = $fail.LastInnerSeverity
@@ -576,6 +654,7 @@ function New-SequenceFailureRecord {
             guestKey      = $GuestKey
             timestamp     = $tsFile
             failureClass         = $failureClass
+            docUrl               = (Get-FailureClassDocUrl -FailureClass $failureClass)
             severity             = $severity
             suggestedRecoveries  = $suggested
             actionVerb           = $actionName
@@ -583,12 +662,15 @@ function New-SequenceFailureRecord {
             sequenceName         = $sequenceName
             repro                = $repro
             lastSucceededStepNumber = [int]$fail.LastSucceededStepNumber
+            stepEffect                 = $stepEffect
+            stepEffectSource           = $stepEffectSource
             innerActionVerb            = $fail.LastInnerFailedAction
             innerFailureClass          = $fail.LastInnerFailureClass
             innerSeverity              = $fail.LastInnerSeverity
             innerSuggestedRecoveries   = @($fail.LastInnerSuggestedRecoveries)
             context             = [ordered]@{
                 hostType              = $HostType
+                stepFailurePhase      = [string]$fail.StepFailurePhase
                 matchedFailurePattern = $matchedFailPattern
                 sequencePath          = $SequencePath
                 cycleFolder           = $cycleIdentity
@@ -680,10 +762,13 @@ function New-SequenceFailureRecord {
         ok                      = $false
         durationMs              = $null
         failureClass            = $failureClass
+        docUrl                  = (Get-FailureClassDocUrl -FailureClass $failureClass)
         severity                = $severity
         classificationSource    = $classificationSource
         suggestedRecoveries     = $suggested
         lastSucceededStepNumber = [int]$fail.LastSucceededStepNumber
+        stepEffect                 = $stepEffect
+        stepEffectSource           = $stepEffectSource
         innerActionVerb            = $fail.LastInnerFailedAction
         innerFailureClass          = $fail.LastInnerFailureClass
         innerSeverity              = $fail.LastInnerSeverity
@@ -790,6 +875,7 @@ function New-InfraFailureRecord {
         guestKey             = $GuestKey
         timestamp            = $tsFile
         failureClass         = $FailureClass
+        docUrl               = (Get-FailureClassDocUrl -FailureClass $FailureClass)
         severity             = $Severity
         suggestedRecoveries  = $suggested
         actionVerb           = $Stage
@@ -810,6 +896,7 @@ function New-InfraFailureRecord {
         ok                   = $false
         durationMs           = $null
         failureClass         = $FailureClass
+        docUrl               = (Get-FailureClassDocUrl -FailureClass $FailureClass)
         severity             = $Severity
         classificationSource = 'infra-stage'
         suggestedRecoveries  = $suggested

@@ -1,5 +1,6 @@
 // LICENSEURI https://yuruna.link/license
 // Copyright (c) 2019-2026 by Alisson Sol et al.
+// GUID: 42c20149-fd9b-4ed8-8901-2097e494c609
 
 // Linux-only half of caching-proxy-parser-service: following the squid log
 // means noticing a logrotate, and the only reliable signal for that is the

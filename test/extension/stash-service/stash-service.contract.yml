@@ -1,5 +1,6 @@
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
+# GUID: 4259ab5e-c9a0-454b-aef9-8ec83c90ec13
 # Yuruna extension contract for area: stash-service
 # Every extension implementation (<name>.psm1) in this directory MUST
 # export the verbs listed in `requiredFunction`. Test.Extension's

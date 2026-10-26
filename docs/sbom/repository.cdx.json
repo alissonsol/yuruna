@@ -1,7 +1,7 @@
 {
   "bomFormat": "CycloneDX",
   "specVersion": "1.7",
-  "serialNumber": "urn:uuid:3b42bf25-ddb0-5c2e-962b-552764bca2af",
+  "serialNumber": "urn:uuid:dcbb4360-7561-59e5-90e9-183c35589e03",
   "version": 1,
   "metadata": {
     "component": {
@@ -11,14 +11,14 @@
       "properties": [
         {
           "name": "yuruna:source-inputs-sha256",
-          "value": "da04881c42935e3b80984529dd4224594d5aa1582c951fb9f8607be8f6cee949"
+          "value": "7b1506f64b70f7dd2a8474270cb8c33079ef25acd040ec30e2da8b5236854071"
         },
         {
           "name": "yuruna:inventory-kind",
           "value": "declared-source"
         }
       ],
-      "version": "2026.10.25"
+      "version": "2026.10.26"
     }
   },
   "components": [
@@ -29,7 +29,7 @@
       "properties": [
         {
           "name": "yuruna:declaration",
-          "value": "{\"completeness\": \"unresolved\", \"ecosystem\": \"git\", \"evidence\": [{\"detail\": \"Index snapshot and generated-file staging use the installed Git CLI\", \"line\": 38, \"path\": \"tools/Sync-Sbom.py\"}], \"notes\": [\"The repository does not pin the installed Git version.\"], \"scope\": \"build\"}"
+          "value": "{\"completeness\": \"unresolved\", \"ecosystem\": \"git\", \"evidence\": [{\"detail\": \"Index snapshot and generated-file staging use the installed Git CLI\", \"line\": 39, \"path\": \"tools/Sync-Sbom.py\"}], \"notes\": [\"The repository does not pin the installed Git version.\"], \"scope\": \"build\"}"
         }
       ]
     },
@@ -40,7 +40,7 @@
       "properties": [
         {
           "name": "yuruna:declaration",
-          "value": "{\"completeness\": \"declared\", \"ecosystem\": \"go\", \"evidence\": [{\"detail\": \"Go module declaration\", \"line\": 3, \"path\": \"test/extension/download-agent-service/server/go.mod\"}], \"notes\": [\"Go dependency graph was not resolved.\"], \"scope\": \"runtime\"}"
+          "value": "{\"completeness\": \"declared\", \"ecosystem\": \"go\", \"evidence\": [{\"detail\": \"Go module declaration\", \"line\": 4, \"path\": \"test/extension/download-agent-service/server/go.mod\"}], \"notes\": [\"Go dependency graph was not resolved.\"], \"scope\": \"runtime\"}"
         }
       ],
       "purl": "pkg:golang/download-agent-service"
@@ -71,7 +71,7 @@
       "properties": [
         {
           "name": "yuruna:declaration",
-          "value": "{\"completeness\": \"declared\", \"ecosystem\": \"go\", \"evidence\": [{\"detail\": \"Declared dependency\", \"line\": 18, \"path\": \"test/extension/stash-service/server/go.mod\"}, {\"detail\": \"Recorded Go module content checksum\", \"line\": 3, \"path\": \"test/extension/stash-service/server/go.sum\"}], \"notes\": [\"Go h1 is a canonical directory hash, not an archive checksum.\", \"Transitive Go module selection was not resolved.\", \"go.sum records do not establish selected transitive versions or edges.\"], \"scope\": \"runtime\"}"
+          "value": "{\"completeness\": \"declared\", \"ecosystem\": \"go\", \"evidence\": [{\"detail\": \"Declared dependency\", \"line\": 19, \"path\": \"test/extension/stash-service/server/go.mod\"}, {\"detail\": \"Recorded Go module content checksum\", \"line\": 3, \"path\": \"test/extension/stash-service/server/go.sum\"}], \"notes\": [\"Go h1 is a canonical directory hash, not an archive checksum.\", \"Transitive Go module selection was not resolved.\", \"go.sum records do not establish selected transitive versions or edges.\"], \"scope\": \"runtime\"}"
         }
       ],
       "version": "v1.1.0",
@@ -109,7 +109,7 @@
       "properties": [
         {
           "name": "yuruna:declaration",
-          "value": "{\"completeness\": \"declared\", \"ecosystem\": \"go\", \"evidence\": [{\"detail\": \"Declared dependency\", \"line\": 10, \"path\": \"test/extension/stash-service/server/go.mod\"}, {\"detail\": \"Recorded Go module content checksum\", \"line\": 7, \"path\": \"test/extension/stash-service/server/go.sum\"}], \"notes\": [\"Go h1 is a canonical directory hash, not an archive checksum.\", \"Transitive Go module selection was not resolved.\", \"go.sum records do not establish selected transitive versions or edges.\"], \"scope\": \"runtime\"}"
+          "value": "{\"completeness\": \"declared\", \"ecosystem\": \"go\", \"evidence\": [{\"detail\": \"Declared dependency\", \"line\": 11, \"path\": \"test/extension/stash-service/server/go.mod\"}, {\"detail\": \"Recorded Go module content checksum\", \"line\": 7, \"path\": \"test/extension/stash-service/server/go.sum\"}], \"notes\": [\"Go h1 is a canonical directory hash, not an archive checksum.\", \"Transitive Go module selection was not resolved.\", \"go.sum records do not establish selected transitive versions or edges.\"], \"scope\": \"runtime\"}"
         }
       ],
       "version": "v1.0.0",
@@ -147,7 +147,7 @@
       "properties": [
         {
           "name": "yuruna:declaration",
-          "value": "{\"completeness\": \"declared\", \"ecosystem\": \"go\", \"evidence\": [{\"detail\": \"Declared dependency\", \"line\": 19, \"path\": \"test/extension/stash-service/server/go.mod\"}, {\"detail\": \"Recorded Go module content checksum\", \"line\": 11, \"path\": \"test/extension/stash-service/server/go.sum\"}], \"notes\": [\"Go h1 is a canonical directory hash, not an archive checksum.\", \"Transitive Go module selection was not resolved.\", \"go.sum records do not establish selected transitive versions or edges.\"], \"scope\": \"runtime\"}"
+          "value": "{\"completeness\": \"declared\", \"ecosystem\": \"go\", \"evidence\": [{\"detail\": \"Declared dependency\", \"line\": 20, \"path\": \"test/extension/stash-service/server/go.mod\"}, {\"detail\": \"Recorded Go module content checksum\", \"line\": 11, \"path\": \"test/extension/stash-service/server/go.sum\"}], \"notes\": [\"Go h1 is a canonical directory hash, not an archive checksum.\", \"Transitive Go module selection was not resolved.\", \"go.sum records do not establish selected transitive versions or edges.\"], \"scope\": \"runtime\"}"
         }
       ],
       "version": "v1.6.0",
@@ -185,7 +185,7 @@
       "properties": [
         {
           "name": "yuruna:declaration",
-          "value": "{\"completeness\": \"declared\", \"ecosystem\": \"go\", \"evidence\": [{\"detail\": \"Declared dependency\", \"line\": 20, \"path\": \"test/extension/stash-service/server/go.mod\"}, {\"detail\": \"Recorded Go module content checksum\", \"line\": 15, \"path\": \"test/extension/stash-service/server/go.sum\"}], \"notes\": [\"Go h1 is a canonical directory hash, not an archive checksum.\", \"Transitive Go module selection was not resolved.\", \"go.sum records do not establish selected transitive versions or edges.\"], \"scope\": \"runtime\"}"
+          "value": "{\"completeness\": \"declared\", \"ecosystem\": \"go\", \"evidence\": [{\"detail\": \"Declared dependency\", \"line\": 21, \"path\": \"test/extension/stash-service/server/go.mod\"}, {\"detail\": \"Recorded Go module content checksum\", \"line\": 15, \"path\": \"test/extension/stash-service/server/go.sum\"}], \"notes\": [\"Go h1 is a canonical directory hash, not an archive checksum.\", \"Transitive Go module selection was not resolved.\", \"go.sum records do not establish selected transitive versions or edges.\"], \"scope\": \"runtime\"}"
         }
       ],
       "version": "v0.1.0",
@@ -204,7 +204,7 @@
       "properties": [
         {
           "name": "yuruna:declaration",
-          "value": "{\"completeness\": \"declared\", \"ecosystem\": \"go\", \"evidence\": [{\"detail\": \"Declared dependency\", \"line\": 21, \"path\": \"test/extension/stash-service/server/go.mod\"}, {\"detail\": \"Recorded Go module content checksum\", \"line\": 17, \"path\": \"test/extension/stash-service/server/go.sum\"}], \"notes\": [\"Go h1 is a canonical directory hash, not an archive checksum.\", \"Transitive Go module selection was not resolved.\", \"go.sum records do not establish selected transitive versions or edges.\"], \"scope\": \"runtime\"}"
+          "value": "{\"completeness\": \"declared\", \"ecosystem\": \"go\", \"evidence\": [{\"detail\": \"Declared dependency\", \"line\": 22, \"path\": \"test/extension/stash-service/server/go.mod\"}, {\"detail\": \"Recorded Go module content checksum\", \"line\": 17, \"path\": \"test/extension/stash-service/server/go.sum\"}], \"notes\": [\"Go h1 is a canonical directory hash, not an archive checksum.\", \"Transitive Go module selection was not resolved.\", \"go.sum records do not establish selected transitive versions or edges.\"], \"scope\": \"runtime\"}"
         }
       ],
       "version": "v0.0.24",
@@ -223,7 +223,7 @@
       "properties": [
         {
           "name": "yuruna:declaration",
-          "value": "{\"completeness\": \"declared\", \"ecosystem\": \"go\", \"evidence\": [{\"detail\": \"Declared dependency\", \"line\": 22, \"path\": \"test/extension/stash-service/server/go.mod\"}, {\"detail\": \"Recorded Go module content checksum\", \"line\": 19, \"path\": \"test/extension/stash-service/server/go.sum\"}], \"notes\": [\"Go h1 is a canonical directory hash, not an archive checksum.\", \"Transitive Go module selection was not resolved.\", \"go.sum records do not establish selected transitive versions or edges.\"], \"scope\": \"runtime\"}"
+          "value": "{\"completeness\": \"declared\", \"ecosystem\": \"go\", \"evidence\": [{\"detail\": \"Declared dependency\", \"line\": 23, \"path\": \"test/extension/stash-service/server/go.mod\"}, {\"detail\": \"Recorded Go module content checksum\", \"line\": 19, \"path\": \"test/extension/stash-service/server/go.sum\"}], \"notes\": [\"Go h1 is a canonical directory hash, not an archive checksum.\", \"Transitive Go module selection was not resolved.\", \"go.sum records do not establish selected transitive versions or edges.\"], \"scope\": \"runtime\"}"
         }
       ],
       "version": "v1.1.0",
@@ -242,7 +242,7 @@
       "properties": [
         {
           "name": "yuruna:declaration",
-          "value": "{\"completeness\": \"declared\", \"ecosystem\": \"go\", \"evidence\": [{\"detail\": \"Declared dependency\", \"line\": 11, \"path\": \"test/extension/stash-service/server/go.mod\"}, {\"detail\": \"Recorded Go module content checksum\", \"line\": 21, \"path\": \"test/extension/stash-service/server/go.sum\"}], \"notes\": [\"Go h1 is a canonical directory hash, not an archive checksum.\", \"Transitive Go module selection was not resolved.\", \"go.sum records do not establish selected transitive versions or edges.\"], \"scope\": \"runtime\"}"
+          "value": "{\"completeness\": \"declared\", \"ecosystem\": \"go\", \"evidence\": [{\"detail\": \"Declared dependency\", \"line\": 12, \"path\": \"test/extension/stash-service/server/go.mod\"}, {\"detail\": \"Recorded Go module content checksum\", \"line\": 21, \"path\": \"test/extension/stash-service/server/go.sum\"}], \"notes\": [\"Go h1 is a canonical directory hash, not an archive checksum.\", \"Transitive Go module selection was not resolved.\", \"go.sum records do not establish selected transitive versions or edges.\"], \"scope\": \"runtime\"}"
         }
       ],
       "version": "v1.13.11",
@@ -280,7 +280,7 @@
       "properties": [
         {
           "name": "yuruna:declaration",
-          "value": "{\"completeness\": \"declared\", \"ecosystem\": \"go\", \"evidence\": [{\"detail\": \"Declared dependency\", \"line\": 23, \"path\": \"test/extension/stash-service/server/go.mod\"}, {\"detail\": \"Recorded Go module content checksum\", \"line\": 25, \"path\": \"test/extension/stash-service/server/go.sum\"}], \"notes\": [\"Go h1 is a canonical directory hash, not an archive checksum.\", \"Transitive Go module selection was not resolved.\", \"go.sum records do not establish selected transitive versions or edges.\"], \"scope\": \"runtime\"}"
+          "value": "{\"completeness\": \"declared\", \"ecosystem\": \"go\", \"evidence\": [{\"detail\": \"Declared dependency\", \"line\": 24, \"path\": \"test/extension/stash-service/server/go.mod\"}, {\"detail\": \"Recorded Go module content checksum\", \"line\": 25, \"path\": \"test/extension/stash-service/server/go.sum\"}], \"notes\": [\"Go h1 is a canonical directory hash, not an archive checksum.\", \"Transitive Go module selection was not resolved.\", \"go.sum records do not establish selected transitive versions or edges.\"], \"scope\": \"runtime\"}"
         }
       ],
       "version": "v0.0.0-20230129092748-24d4a6f8daec",
@@ -318,7 +318,7 @@
       "properties": [
         {
           "name": "yuruna:declaration",
-          "value": "{\"completeness\": \"declared\", \"ecosystem\": \"go\", \"evidence\": [{\"detail\": \"Declared dependency\", \"line\": 12, \"path\": \"test/extension/stash-service/server/go.mod\"}, {\"detail\": \"Recorded Go module content checksum\", \"line\": 29, \"path\": \"test/extension/stash-service/server/go.sum\"}], \"notes\": [\"Go h1 is a canonical directory hash, not an archive checksum.\", \"Transitive Go module selection was not resolved.\", \"go.sum records do not establish selected transitive versions or edges.\"], \"scope\": \"runtime\"}"
+          "value": "{\"completeness\": \"declared\", \"ecosystem\": \"go\", \"evidence\": [{\"detail\": \"Declared dependency\", \"line\": 13, \"path\": \"test/extension/stash-service/server/go.mod\"}, {\"detail\": \"Recorded Go module content checksum\", \"line\": 29, \"path\": \"test/extension/stash-service/server/go.sum\"}], \"notes\": [\"Go h1 is a canonical directory hash, not an archive checksum.\", \"Transitive Go module selection was not resolved.\", \"go.sum records do not establish selected transitive versions or edges.\"], \"scope\": \"runtime\"}"
         }
       ],
       "version": "v0.58.0",
@@ -375,7 +375,7 @@
       "properties": [
         {
           "name": "yuruna:declaration",
-          "value": "{\"completeness\": \"declared\", \"ecosystem\": \"go\", \"evidence\": [{\"detail\": \"Declared dependency\", \"line\": 24, \"path\": \"test/extension/stash-service/server/go.mod\"}, {\"detail\": \"Recorded Go module content checksum\", \"line\": 35, \"path\": \"test/extension/stash-service/server/go.sum\"}], \"notes\": [\"Go h1 is a canonical directory hash, not an archive checksum.\", \"Transitive Go module selection was not resolved.\", \"go.sum records do not establish selected transitive versions or edges.\"], \"scope\": \"runtime\"}"
+          "value": "{\"completeness\": \"declared\", \"ecosystem\": \"go\", \"evidence\": [{\"detail\": \"Declared dependency\", \"line\": 25, \"path\": \"test/extension/stash-service/server/go.mod\"}, {\"detail\": \"Recorded Go module content checksum\", \"line\": 35, \"path\": \"test/extension/stash-service/server/go.sum\"}], \"notes\": [\"Go h1 is a canonical directory hash, not an archive checksum.\", \"Transitive Go module selection was not resolved.\", \"go.sum records do not establish selected transitive versions or edges.\"], \"scope\": \"runtime\"}"
         }
       ],
       "version": "v0.49.0",
@@ -413,7 +413,7 @@
       "properties": [
         {
           "name": "yuruna:declaration",
-          "value": "{\"completeness\": \"declared\", \"ecosystem\": \"go\", \"evidence\": [{\"detail\": \"Declared dependency\", \"line\": 13, \"path\": \"test/extension/stash-service/server/go.mod\"}, {\"detail\": \"Recorded Go module content checksum\", \"line\": 39, \"path\": \"test/extension/stash-service/server/go.sum\"}], \"notes\": [\"Go h1 is a canonical directory hash, not an archive checksum.\", \"Transitive Go module selection was not resolved.\", \"go.sum records do not establish selected transitive versions or edges.\"], \"scope\": \"runtime\"}"
+          "value": "{\"completeness\": \"declared\", \"ecosystem\": \"go\", \"evidence\": [{\"detail\": \"Declared dependency\", \"line\": 14, \"path\": \"test/extension/stash-service/server/go.mod\"}, {\"detail\": \"Recorded Go module content checksum\", \"line\": 39, \"path\": \"test/extension/stash-service/server/go.sum\"}], \"notes\": [\"Go h1 is a canonical directory hash, not an archive checksum.\", \"Transitive Go module selection was not resolved.\", \"go.sum records do not establish selected transitive versions or edges.\"], \"scope\": \"runtime\"}"
         }
       ],
       "version": "v0.43.0",
@@ -584,7 +584,7 @@
       "properties": [
         {
           "name": "yuruna:declaration",
-          "value": "{\"completeness\": \"declared\", \"ecosystem\": \"go\", \"evidence\": [{\"detail\": \"Declared dependency\", \"line\": 25, \"path\": \"test/extension/stash-service/server/go.mod\"}, {\"detail\": \"Recorded Go module content checksum\", \"line\": 57, \"path\": \"test/extension/stash-service/server/go.sum\"}], \"notes\": [\"Go h1 is a canonical directory hash, not an archive checksum.\", \"Transitive Go module selection was not resolved.\", \"go.sum records do not establish selected transitive versions or edges.\"], \"scope\": \"runtime\"}"
+          "value": "{\"completeness\": \"declared\", \"ecosystem\": \"go\", \"evidence\": [{\"detail\": \"Declared dependency\", \"line\": 26, \"path\": \"test/extension/stash-service/server/go.mod\"}, {\"detail\": \"Recorded Go module content checksum\", \"line\": 57, \"path\": \"test/extension/stash-service/server/go.sum\"}], \"notes\": [\"Go h1 is a canonical directory hash, not an archive checksum.\", \"Transitive Go module selection was not resolved.\", \"go.sum records do not establish selected transitive versions or edges.\"], \"scope\": \"runtime\"}"
         }
       ],
       "version": "v1.77.1",
@@ -603,7 +603,7 @@
       "properties": [
         {
           "name": "yuruna:declaration",
-          "value": "{\"completeness\": \"declared\", \"ecosystem\": \"go\", \"evidence\": [{\"detail\": \"Declared dependency\", \"line\": 26, \"path\": \"test/extension/stash-service/server/go.mod\"}, {\"detail\": \"Recorded Go module content checksum\", \"line\": 59, \"path\": \"test/extension/stash-service/server/go.sum\"}], \"notes\": [\"Go h1 is a canonical directory hash, not an archive checksum.\", \"Transitive Go module selection was not resolved.\", \"go.sum records do not establish selected transitive versions or edges.\"], \"scope\": \"runtime\"}"
+          "value": "{\"completeness\": \"declared\", \"ecosystem\": \"go\", \"evidence\": [{\"detail\": \"Declared dependency\", \"line\": 27, \"path\": \"test/extension/stash-service/server/go.mod\"}, {\"detail\": \"Recorded Go module content checksum\", \"line\": 59, \"path\": \"test/extension/stash-service/server/go.sum\"}], \"notes\": [\"Go h1 is a canonical directory hash, not an archive checksum.\", \"Transitive Go module selection was not resolved.\", \"go.sum records do not establish selected transitive versions or edges.\"], \"scope\": \"runtime\"}"
         }
       ],
       "version": "v1.7.1",
@@ -622,7 +622,7 @@
       "properties": [
         {
           "name": "yuruna:declaration",
-          "value": "{\"completeness\": \"declared\", \"ecosystem\": \"go\", \"evidence\": [{\"detail\": \"Declared dependency\", \"line\": 27, \"path\": \"test/extension/stash-service/server/go.mod\"}, {\"detail\": \"Recorded Go module content checksum\", \"line\": 61, \"path\": \"test/extension/stash-service/server/go.sum\"}], \"notes\": [\"Go h1 is a canonical directory hash, not an archive checksum.\", \"Transitive Go module selection was not resolved.\", \"go.sum records do not establish selected transitive versions or edges.\"], \"scope\": \"runtime\"}"
+          "value": "{\"completeness\": \"declared\", \"ecosystem\": \"go\", \"evidence\": [{\"detail\": \"Declared dependency\", \"line\": 28, \"path\": \"test/extension/stash-service/server/go.mod\"}, {\"detail\": \"Recorded Go module content checksum\", \"line\": 61, \"path\": \"test/extension/stash-service/server/go.sum\"}], \"notes\": [\"Go h1 is a canonical directory hash, not an archive checksum.\", \"Transitive Go module selection was not resolved.\", \"go.sum records do not establish selected transitive versions or edges.\"], \"scope\": \"runtime\"}"
         }
       ],
       "version": "v1.12.1",
@@ -679,7 +679,7 @@
       "properties": [
         {
           "name": "yuruna:declaration",
-          "value": "{\"completeness\": \"declared\", \"ecosystem\": \"go\", \"evidence\": [{\"detail\": \"Declared dependency\", \"line\": 14, \"path\": \"test/extension/stash-service/server/go.mod\"}, {\"detail\": \"Recorded Go module content checksum\", \"line\": 67, \"path\": \"test/extension/stash-service/server/go.sum\"}], \"notes\": [\"Go h1 is a canonical directory hash, not an archive checksum.\", \"Transitive Go module selection was not resolved.\", \"go.sum records do not establish selected transitive versions or edges.\"], \"scope\": \"runtime\"}"
+          "value": "{\"completeness\": \"declared\", \"ecosystem\": \"go\", \"evidence\": [{\"detail\": \"Declared dependency\", \"line\": 15, \"path\": \"test/extension/stash-service/server/go.mod\"}, {\"detail\": \"Recorded Go module content checksum\", \"line\": 67, \"path\": \"test/extension/stash-service/server/go.sum\"}], \"notes\": [\"Go h1 is a canonical directory hash, not an archive checksum.\", \"Transitive Go module selection was not resolved.\", \"go.sum records do not establish selected transitive versions or edges.\"], \"scope\": \"runtime\"}"
         }
       ],
       "version": "v1.60.1",
@@ -736,7 +736,7 @@
       "properties": [
         {
           "name": "yuruna:declaration",
-          "value": "{\"completeness\": \"declared\", \"ecosystem\": \"go\", \"evidence\": [{\"detail\": \"Go module declaration\", \"line\": 3, \"path\": \"test/extension/pool-control-service/server/go.mod\"}], \"notes\": [\"Go dependency graph was not resolved.\"], \"scope\": \"runtime\"}"
+          "value": "{\"completeness\": \"declared\", \"ecosystem\": \"go\", \"evidence\": [{\"detail\": \"Go module declaration\", \"line\": 4, \"path\": \"test/extension/pool-control-service/server/go.mod\"}], \"notes\": [\"Go dependency graph was not resolved.\"], \"scope\": \"runtime\"}"
         }
       ],
       "purl": "pkg:golang/pool-control-service"
@@ -748,7 +748,7 @@
       "properties": [
         {
           "name": "yuruna:declaration",
-          "value": "{\"completeness\": \"declared\", \"ecosystem\": \"go\", \"evidence\": [{\"detail\": \"Go module declaration\", \"line\": 3, \"path\": \"test/extension/stash-service/server/go.mod\"}], \"notes\": [\"Go dependency graph was not resolved.\"], \"scope\": \"runtime\"}"
+          "value": "{\"completeness\": \"declared\", \"ecosystem\": \"go\", \"evidence\": [{\"detail\": \"Go module declaration\", \"line\": 4, \"path\": \"test/extension/stash-service/server/go.mod\"}], \"notes\": [\"Go dependency graph was not resolved.\"], \"scope\": \"runtime\"}"
         }
       ],
       "purl": "pkg:golang/stash-service"
@@ -760,7 +760,7 @@
       "properties": [
         {
           "name": "yuruna:declaration",
-          "value": "{\"completeness\": \"declared\", \"ecosystem\": \"go\", \"evidence\": [{\"detail\": \"Go module declaration\", \"line\": 3, \"path\": \"test/extension/caching-proxy-parser-service/go.mod\"}], \"notes\": [\"Go dependency graph was not resolved.\"], \"scope\": \"runtime\"}"
+          "value": "{\"completeness\": \"declared\", \"ecosystem\": \"go\", \"evidence\": [{\"detail\": \"Go module declaration\", \"line\": 4, \"path\": \"test/extension/caching-proxy-parser-service/go.mod\"}], \"notes\": [\"Go dependency graph was not resolved.\"], \"scope\": \"runtime\"}"
         }
       ],
       "purl": "pkg:golang/yuruna.com/test/extension/caching-proxy-parser-service"
@@ -772,7 +772,7 @@
       "properties": [
         {
           "name": "yuruna:declaration",
-          "value": "{\"completeness\": \"declared\", \"ecosystem\": \"go\", \"evidence\": [{\"detail\": \"Go module declaration\", \"line\": 3, \"path\": \"test/extension/caching-proxy-service/go.mod\"}], \"notes\": [\"Go dependency graph was not resolved.\"], \"scope\": \"runtime\"}"
+          "value": "{\"completeness\": \"declared\", \"ecosystem\": \"go\", \"evidence\": [{\"detail\": \"Go module declaration\", \"line\": 4, \"path\": \"test/extension/caching-proxy-service/go.mod\"}], \"notes\": [\"Go dependency graph was not resolved.\"], \"scope\": \"runtime\"}"
         }
       ],
       "purl": "pkg:golang/yuruna.com/test/extension/caching-proxy-service"
@@ -784,7 +784,7 @@
       "properties": [
         {
           "name": "yuruna:declaration",
-          "value": "{\"completeness\": \"declared\", \"ecosystem\": \"go\", \"evidence\": [{\"detail\": \"Go module declaration\", \"line\": 3, \"path\": \"test/extension/extension-sdk/go.mod\"}, {\"detail\": \"Locally replaced Go module\", \"line\": 28, \"path\": \"test/extension/stash-service/server/go.mod\"}, {\"detail\": \"Locally replaced Go module\", \"line\": 9, \"path\": \"test/extension/caching-proxy-parser-service/go.mod\"}, {\"detail\": \"Locally replaced Go module\", \"line\": 9, \"path\": \"test/extension/caching-proxy-service/go.mod\"}, {\"detail\": \"Locally replaced Go module\", \"line\": 9, \"path\": \"test/extension/download-agent-service/server/go.mod\"}, {\"detail\": \"Locally replaced Go module\", \"line\": 9, \"path\": \"test/extension/pool-aggregator-service/go.mod\"}, {\"detail\": \"Locally replaced Go module\", \"line\": 9, \"path\": \"test/extension/pool-control-service/server/go.mod\"}], \"notes\": [\"Go dependency graph was not resolved.\", \"Local replacement is not present at the declared repository path; deployment may stage it.\", \"Local replacement: ../extension-sdk (declared requirement yuruna.com/test/extension/extension-sdk@v0.0.0).\", \"Transitive Go module selection was not resolved.\"], \"scope\": \"runtime\"}"
+          "value": "{\"completeness\": \"declared\", \"ecosystem\": \"go\", \"evidence\": [{\"detail\": \"Go module declaration\", \"line\": 4, \"path\": \"test/extension/extension-sdk/go.mod\"}, {\"detail\": \"Locally replaced Go module\", \"line\": 10, \"path\": \"test/extension/caching-proxy-parser-service/go.mod\"}, {\"detail\": \"Locally replaced Go module\", \"line\": 10, \"path\": \"test/extension/caching-proxy-service/go.mod\"}, {\"detail\": \"Locally replaced Go module\", \"line\": 10, \"path\": \"test/extension/download-agent-service/server/go.mod\"}, {\"detail\": \"Locally replaced Go module\", \"line\": 10, \"path\": \"test/extension/pool-aggregator-service/go.mod\"}, {\"detail\": \"Locally replaced Go module\", \"line\": 10, \"path\": \"test/extension/pool-control-service/server/go.mod\"}, {\"detail\": \"Locally replaced Go module\", \"line\": 29, \"path\": \"test/extension/stash-service/server/go.mod\"}], \"notes\": [\"Go dependency graph was not resolved.\", \"Local replacement is not present at the declared repository path; deployment may stage it.\", \"Local replacement: ../extension-sdk (declared requirement yuruna.com/test/extension/extension-sdk@v0.0.0).\", \"Transitive Go module selection was not resolved.\"], \"scope\": \"runtime\"}"
         }
       ],
       "purl": "pkg:golang/yuruna.com/test/extension/extension-sdk"
@@ -796,7 +796,7 @@
       "properties": [
         {
           "name": "yuruna:declaration",
-          "value": "{\"completeness\": \"declared\", \"ecosystem\": \"go\", \"evidence\": [{\"detail\": \"Go module declaration\", \"line\": 3, \"path\": \"test/extension/pool-aggregator-service/go.mod\"}], \"notes\": [\"Go dependency graph was not resolved.\"], \"scope\": \"runtime\"}"
+          "value": "{\"completeness\": \"declared\", \"ecosystem\": \"go\", \"evidence\": [{\"detail\": \"Go module declaration\", \"line\": 4, \"path\": \"test/extension/pool-aggregator-service/go.mod\"}], \"notes\": [\"Go dependency graph was not resolved.\"], \"scope\": \"runtime\"}"
         }
       ],
       "purl": "pkg:golang/yuruna.com/test/extension/pool-aggregator-service"
@@ -808,7 +808,7 @@
       "properties": [
         {
           "name": "yuruna:declaration",
-          "value": "{\"completeness\": \"declared\", \"ecosystem\": \"opentofu-config\", \"evidence\": [{\"detail\": \"OpenTofu/Terraform configuration directory\", \"line\": 12, \"path\": \"global/resources/aws/eks-cluster/cluster.tf\"}, {\"detail\": \"OpenTofu/Terraform configuration directory\", \"line\": 5, \"path\": \"global/resources/aws/eks-cluster/versions.tf\"}], \"notes\": [], \"scope\": \"build\"}"
+          "value": "{\"completeness\": \"declared\", \"ecosystem\": \"opentofu-config\", \"evidence\": [{\"detail\": \"OpenTofu/Terraform configuration directory\", \"line\": 13, \"path\": \"global/resources/aws/eks-cluster/cluster.tf\"}, {\"detail\": \"OpenTofu/Terraform configuration directory\", \"line\": 6, \"path\": \"global/resources/aws/eks-cluster/versions.tf\"}], \"notes\": [], \"scope\": \"build\"}"
         }
       ]
     },
@@ -819,7 +819,7 @@
       "properties": [
         {
           "name": "yuruna:declaration",
-          "value": "{\"completeness\": \"declared\", \"ecosystem\": \"opentofu-config\", \"evidence\": [{\"detail\": \"OpenTofu/Terraform configuration directory\", \"line\": 7, \"path\": \"global/resources/aws/registry/versions.tf\"}], \"notes\": [], \"scope\": \"build\"}"
+          "value": "{\"completeness\": \"declared\", \"ecosystem\": \"opentofu-config\", \"evidence\": [{\"detail\": \"OpenTofu/Terraform configuration directory\", \"line\": 8, \"path\": \"global/resources/aws/registry/versions.tf\"}], \"notes\": [], \"scope\": \"build\"}"
         }
       ]
     },
@@ -830,7 +830,7 @@
       "properties": [
         {
           "name": "yuruna:declaration",
-          "value": "{\"completeness\": \"declared\", \"ecosystem\": \"opentofu-config\", \"evidence\": [{\"detail\": \"OpenTofu/Terraform configuration directory\", \"line\": 7, \"path\": \"global/resources/azure/aks-cluster/versions.tf\"}], \"notes\": [], \"scope\": \"build\"}"
+          "value": "{\"completeness\": \"declared\", \"ecosystem\": \"opentofu-config\", \"evidence\": [{\"detail\": \"OpenTofu/Terraform configuration directory\", \"line\": 8, \"path\": \"global/resources/azure/aks-cluster/versions.tf\"}], \"notes\": [], \"scope\": \"build\"}"
         }
       ]
     },
@@ -841,7 +841,7 @@
       "properties": [
         {
           "name": "yuruna:declaration",
-          "value": "{\"completeness\": \"declared\", \"ecosystem\": \"opentofu-config\", \"evidence\": [{\"detail\": \"OpenTofu/Terraform configuration directory\", \"line\": 7, \"path\": \"global/resources/azure/postgresql/versions.tf\"}], \"notes\": [], \"scope\": \"build\"}"
+          "value": "{\"completeness\": \"declared\", \"ecosystem\": \"opentofu-config\", \"evidence\": [{\"detail\": \"OpenTofu/Terraform configuration directory\", \"line\": 8, \"path\": \"global/resources/azure/postgresql/versions.tf\"}], \"notes\": [], \"scope\": \"build\"}"
         }
       ]
     },
@@ -852,7 +852,7 @@
       "properties": [
         {
           "name": "yuruna:declaration",
-          "value": "{\"completeness\": \"declared\", \"ecosystem\": \"opentofu-config\", \"evidence\": [{\"detail\": \"OpenTofu/Terraform configuration directory\", \"line\": 7, \"path\": \"global/resources/azure/registry/versions.tf\"}], \"notes\": [], \"scope\": \"build\"}"
+          "value": "{\"completeness\": \"declared\", \"ecosystem\": \"opentofu-config\", \"evidence\": [{\"detail\": \"OpenTofu/Terraform configuration directory\", \"line\": 8, \"path\": \"global/resources/azure/registry/versions.tf\"}], \"notes\": [], \"scope\": \"build\"}"
         }
       ]
     },
@@ -863,7 +863,7 @@
       "properties": [
         {
           "name": "yuruna:declaration",
-          "value": "{\"completeness\": \"declared\", \"ecosystem\": \"opentofu-config\", \"evidence\": [{\"detail\": \"OpenTofu/Terraform configuration directory\", \"line\": 7, \"path\": \"global/resources/azure/resource-group/versions.tf\"}], \"notes\": [], \"scope\": \"build\"}"
+          "value": "{\"completeness\": \"declared\", \"ecosystem\": \"opentofu-config\", \"evidence\": [{\"detail\": \"OpenTofu/Terraform configuration directory\", \"line\": 8, \"path\": \"global/resources/azure/resource-group/versions.tf\"}], \"notes\": [], \"scope\": \"build\"}"
         }
       ]
     },
@@ -874,7 +874,7 @@
       "properties": [
         {
           "name": "yuruna:declaration",
-          "value": "{\"completeness\": \"declared\", \"ecosystem\": \"opentofu-config\", \"evidence\": [{\"detail\": \"OpenTofu/Terraform configuration directory\", \"line\": 7, \"path\": \"global/resources/azure/storage-share/versions.tf\"}], \"notes\": [], \"scope\": \"build\"}"
+          "value": "{\"completeness\": \"declared\", \"ecosystem\": \"opentofu-config\", \"evidence\": [{\"detail\": \"OpenTofu/Terraform configuration directory\", \"line\": 8, \"path\": \"global/resources/azure/storage-share/versions.tf\"}], \"notes\": [], \"scope\": \"build\"}"
         }
       ]
     },
@@ -885,7 +885,7 @@
       "properties": [
         {
           "name": "yuruna:declaration",
-          "value": "{\"completeness\": \"declared\", \"ecosystem\": \"opentofu-config\", \"evidence\": [{\"detail\": \"OpenTofu/Terraform configuration directory\", \"line\": 7, \"path\": \"global/resources/azure/vm-linux/versions.tf\"}], \"notes\": [], \"scope\": \"build\"}"
+          "value": "{\"completeness\": \"declared\", \"ecosystem\": \"opentofu-config\", \"evidence\": [{\"detail\": \"OpenTofu/Terraform configuration directory\", \"line\": 8, \"path\": \"global/resources/azure/vm-linux/versions.tf\"}], \"notes\": [], \"scope\": \"build\"}"
         }
       ]
     },
@@ -896,7 +896,7 @@
       "properties": [
         {
           "name": "yuruna:declaration",
-          "value": "{\"completeness\": \"declared\", \"ecosystem\": \"opentofu-config\", \"evidence\": [{\"detail\": \"OpenTofu/Terraform configuration directory\", \"line\": 9, \"path\": \"global/resources/localhost/context-copy/versions.tf\"}], \"notes\": [], \"scope\": \"build\"}"
+          "value": "{\"completeness\": \"declared\", \"ecosystem\": \"opentofu-config\", \"evidence\": [{\"detail\": \"OpenTofu/Terraform configuration directory\", \"line\": 10, \"path\": \"global/resources/localhost/context-copy/versions.tf\"}], \"notes\": [], \"scope\": \"build\"}"
         }
       ]
     },
@@ -907,7 +907,7 @@
       "properties": [
         {
           "name": "yuruna:declaration",
-          "value": "{\"completeness\": \"declared\", \"ecosystem\": \"opentofu-config\", \"evidence\": [{\"detail\": \"OpenTofu/Terraform configuration directory\", \"line\": 9, \"path\": \"global/resources/localhost/registry/versions.tf\"}], \"notes\": [], \"scope\": \"build\"}"
+          "value": "{\"completeness\": \"declared\", \"ecosystem\": \"opentofu-config\", \"evidence\": [{\"detail\": \"OpenTofu/Terraform configuration directory\", \"line\": 10, \"path\": \"global/resources/localhost/registry/versions.tf\"}], \"notes\": [], \"scope\": \"build\"}"
         }
       ]
     },
@@ -918,7 +918,7 @@
       "properties": [
         {
           "name": "yuruna:declaration",
-          "value": "{\"completeness\": \"declared\", \"ecosystem\": \"python\", \"evidence\": [{\"detail\": \"SBOM collector uses Python 3.11 tomllib and the standard library\", \"line\": 12, \"path\": \"tools/sbom_dependencies.py\"}], \"notes\": [\"No Python package installation is required.\"], \"scope\": \"build\", \"versionConstraint\": \">=3.11\"}"
+          "value": "{\"completeness\": \"declared\", \"ecosystem\": \"python\", \"evidence\": [{\"detail\": \"SBOM collector uses Python 3.11 tomllib and the standard library\", \"line\": 13, \"path\": \"tools/sbom_dependencies.py\"}], \"notes\": [\"No Python package installation is required.\"], \"scope\": \"build\", \"versionConstraint\": \">=3.11\"}"
         }
       ]
     },
@@ -929,7 +929,7 @@
       "properties": [
         {
           "name": "yuruna:declaration",
-          "value": "{\"completeness\": \"unresolved\", \"ecosystem\": \"terraform-module\", \"evidence\": [{\"detail\": \"Module eks; declared source=terraform-aws-modules/eks/aws\", \"line\": 12, \"path\": \"global/resources/aws/eks-cluster/cluster.tf\"}], \"notes\": [\"Declared source only; no provider/module restore, lock selection, or transitive graph was resolved.\"], \"scope\": \"build\", \"versionConstraint\": \"~> 21.24\"}"
+          "value": "{\"completeness\": \"unresolved\", \"ecosystem\": \"terraform-module\", \"evidence\": [{\"detail\": \"Module eks; declared source=terraform-aws-modules/eks/aws\", \"line\": 13, \"path\": \"global/resources/aws/eks-cluster/cluster.tf\"}], \"notes\": [\"Declared source only; no provider/module restore, lock selection, or transitive graph was resolved.\"], \"scope\": \"build\", \"versionConstraint\": \"~> 21.24\"}"
         }
       ]
     },
@@ -940,7 +940,7 @@
       "properties": [
         {
           "name": "yuruna:declaration",
-          "value": "{\"completeness\": \"unresolved\", \"ecosystem\": \"terraform-module\", \"evidence\": [{\"detail\": \"Module vpc; declared source=terraform-aws-modules/vpc/aws\", \"line\": 65, \"path\": \"global/resources/aws/eks-cluster/cluster.tf\"}], \"notes\": [\"Declared source only; no provider/module restore, lock selection, or transitive graph was resolved.\"], \"scope\": \"build\", \"versionConstraint\": \"~> 6.6\"}"
+          "value": "{\"completeness\": \"unresolved\", \"ecosystem\": \"terraform-module\", \"evidence\": [{\"detail\": \"Module vpc; declared source=terraform-aws-modules/vpc/aws\", \"line\": 66, \"path\": \"global/resources/aws/eks-cluster/cluster.tf\"}], \"notes\": [\"Declared source only; no provider/module restore, lock selection, or transitive graph was resolved.\"], \"scope\": \"build\", \"versionConstraint\": \"~> 6.6\"}"
         }
       ]
     },
@@ -951,7 +951,7 @@
       "properties": [
         {
           "name": "yuruna:declaration",
-          "value": "{\"completeness\": \"unresolved\", \"ecosystem\": \"terraform-provider\", \"evidence\": [{\"detail\": \"Required provider aws; declared source=hashicorp/aws\", \"line\": 10, \"path\": \"global/resources/aws/registry/versions.tf\"}, {\"detail\": \"Required provider aws; declared source=hashicorp/aws\", \"line\": 8, \"path\": \"global/resources/aws/eks-cluster/versions.tf\"}], \"notes\": [\"Declared source only; no provider/module restore, lock selection, or transitive graph was resolved.\"], \"scope\": \"build\", \"versionConstraint\": \"~> 6.54\"}"
+          "value": "{\"completeness\": \"unresolved\", \"ecosystem\": \"terraform-provider\", \"evidence\": [{\"detail\": \"Required provider aws; declared source=hashicorp/aws\", \"line\": 11, \"path\": \"global/resources/aws/registry/versions.tf\"}, {\"detail\": \"Required provider aws; declared source=hashicorp/aws\", \"line\": 9, \"path\": \"global/resources/aws/eks-cluster/versions.tf\"}], \"notes\": [\"Declared source only; no provider/module restore, lock selection, or transitive graph was resolved.\"], \"scope\": \"build\", \"versionConstraint\": \"~> 6.54\"}"
         }
       ]
     },
@@ -962,7 +962,7 @@
       "properties": [
         {
           "name": "yuruna:declaration",
-          "value": "{\"completeness\": \"unresolved\", \"ecosystem\": \"terraform-provider\", \"evidence\": [{\"detail\": \"Required provider azurerm; declared source=hashicorp/azurerm\", \"line\": 10, \"path\": \"global/resources/azure/aks-cluster/versions.tf\"}, {\"detail\": \"Required provider azurerm; declared source=hashicorp/azurerm\", \"line\": 10, \"path\": \"global/resources/azure/postgresql/versions.tf\"}, {\"detail\": \"Required provider azurerm; declared source=hashicorp/azurerm\", \"line\": 10, \"path\": \"global/resources/azure/registry/versions.tf\"}, {\"detail\": \"Required provider azurerm; declared source=hashicorp/azurerm\", \"line\": 10, \"path\": \"global/resources/azure/resource-group/versions.tf\"}, {\"detail\": \"Required provider azurerm; declared source=hashicorp/azurerm\", \"line\": 10, \"path\": \"global/resources/azure/storage-share/versions.tf\"}, {\"detail\": \"Required provider azurerm; declared source=hashicorp/azurerm\", \"line\": 10, \"path\": \"global/resources/azure/vm-linux/versions.tf\"}], \"notes\": [\"Declared source only; no provider/module restore, lock selection, or transitive graph was resolved.\"], \"scope\": \"build\", \"versionConstraint\": \"~> 4.80\"}"
+          "value": "{\"completeness\": \"unresolved\", \"ecosystem\": \"terraform-provider\", \"evidence\": [{\"detail\": \"Required provider azurerm; declared source=hashicorp/azurerm\", \"line\": 11, \"path\": \"global/resources/azure/aks-cluster/versions.tf\"}, {\"detail\": \"Required provider azurerm; declared source=hashicorp/azurerm\", \"line\": 11, \"path\": \"global/resources/azure/postgresql/versions.tf\"}, {\"detail\": \"Required provider azurerm; declared source=hashicorp/azurerm\", \"line\": 11, \"path\": \"global/resources/azure/registry/versions.tf\"}, {\"detail\": \"Required provider azurerm; declared source=hashicorp/azurerm\", \"line\": 11, \"path\": \"global/resources/azure/resource-group/versions.tf\"}, {\"detail\": \"Required provider azurerm; declared source=hashicorp/azurerm\", \"line\": 11, \"path\": \"global/resources/azure/storage-share/versions.tf\"}, {\"detail\": \"Required provider azurerm; declared source=hashicorp/azurerm\", \"line\": 11, \"path\": \"global/resources/azure/vm-linux/versions.tf\"}], \"notes\": [\"Declared source only; no provider/module restore, lock selection, or transitive graph was resolved.\"], \"scope\": \"build\", \"versionConstraint\": \"~> 4.80\"}"
         }
       ]
     },
@@ -973,7 +973,7 @@
       "properties": [
         {
           "name": "yuruna:declaration",
-          "value": "{\"completeness\": \"unresolved\", \"ecosystem\": \"terraform-provider\", \"evidence\": [{\"detail\": \"Required provider external; declared source=hashicorp/external\", \"line\": 14, \"path\": \"global/resources/azure/aks-cluster/versions.tf\"}], \"notes\": [\"Declared source only; no provider/module restore, lock selection, or transitive graph was resolved.\"], \"scope\": \"build\", \"versionConstraint\": \"~> 2.4\"}"
+          "value": "{\"completeness\": \"unresolved\", \"ecosystem\": \"terraform-provider\", \"evidence\": [{\"detail\": \"Required provider external; declared source=hashicorp/external\", \"line\": 15, \"path\": \"global/resources/azure/aks-cluster/versions.tf\"}], \"notes\": [\"Declared source only; no provider/module restore, lock selection, or transitive graph was resolved.\"], \"scope\": \"build\", \"versionConstraint\": \"~> 2.4\"}"
         }
       ]
     },
@@ -984,7 +984,7 @@
       "properties": [
         {
           "name": "yuruna:declaration",
-          "value": "{\"completeness\": \"unresolved\", \"ecosystem\": \"terraform-provider\", \"evidence\": [{\"detail\": \"Required provider kubernetes; declared source=hashicorp/kubernetes\", \"line\": 14, \"path\": \"global/resources/aws/registry/versions.tf\"}, {\"detail\": \"Required provider kubernetes; declared source=hashicorp/kubernetes\", \"line\": 14, \"path\": \"global/resources/azure/postgresql/versions.tf\"}, {\"detail\": \"Required provider kubernetes; declared source=hashicorp/kubernetes\", \"line\": 14, \"path\": \"global/resources/azure/registry/versions.tf\"}, {\"detail\": \"Required provider kubernetes; declared source=hashicorp/kubernetes\", \"line\": 14, \"path\": \"global/resources/azure/resource-group/versions.tf\"}, {\"detail\": \"Required provider kubernetes; declared source=hashicorp/kubernetes\", \"line\": 14, \"path\": \"global/resources/azure/storage-share/versions.tf\"}, {\"detail\": \"Required provider kubernetes; declared source=hashicorp/kubernetes\", \"line\": 14, \"path\": \"global/resources/azure/vm-linux/versions.tf\"}, {\"detail\": \"Required provider kubernetes; declared source=hashicorp/kubernetes\", \"line\": 18, \"path\": \"global/resources/azure/aks-cluster/versions.tf\"}, {\"detail\": \"Required provider kubernetes; declared source=hashicorp/kubernetes\", \"line\": 33, \"path\": \"global/resources/aws/eks-cluster/versions.tf\"}], \"notes\": [\"Declared source only; no provider/module restore, lock selection, or transitive graph was resolved.\"], \"scope\": \"build\", \"versionConstraint\": \"~> 3.2\"}"
+          "value": "{\"completeness\": \"unresolved\", \"ecosystem\": \"terraform-provider\", \"evidence\": [{\"detail\": \"Required provider kubernetes; declared source=hashicorp/kubernetes\", \"line\": 15, \"path\": \"global/resources/aws/registry/versions.tf\"}, {\"detail\": \"Required provider kubernetes; declared source=hashicorp/kubernetes\", \"line\": 15, \"path\": \"global/resources/azure/postgresql/versions.tf\"}, {\"detail\": \"Required provider kubernetes; declared source=hashicorp/kubernetes\", \"line\": 15, \"path\": \"global/resources/azure/registry/versions.tf\"}, {\"detail\": \"Required provider kubernetes; declared source=hashicorp/kubernetes\", \"line\": 15, \"path\": \"global/resources/azure/resource-group/versions.tf\"}, {\"detail\": \"Required provider kubernetes; declared source=hashicorp/kubernetes\", \"line\": 15, \"path\": \"global/resources/azure/storage-share/versions.tf\"}, {\"detail\": \"Required provider kubernetes; declared source=hashicorp/kubernetes\", \"line\": 15, \"path\": \"global/resources/azure/vm-linux/versions.tf\"}, {\"detail\": \"Required provider kubernetes; declared source=hashicorp/kubernetes\", \"line\": 19, \"path\": \"global/resources/azure/aks-cluster/versions.tf\"}, {\"detail\": \"Required provider kubernetes; declared source=hashicorp/kubernetes\", \"line\": 34, \"path\": \"global/resources/aws/eks-cluster/versions.tf\"}], \"notes\": [\"Declared source only; no provider/module restore, lock selection, or transitive graph was resolved.\"], \"scope\": \"build\", \"versionConstraint\": \"~> 3.2\"}"
         }
       ]
     },
@@ -995,7 +995,7 @@
       "properties": [
         {
           "name": "yuruna:declaration",
-          "value": "{\"completeness\": \"unresolved\", \"ecosystem\": \"terraform-provider\", \"evidence\": [{\"detail\": \"Required provider local; declared source=hashicorp/local\", \"line\": 18, \"path\": \"global/resources/aws/eks-cluster/versions.tf\"}, {\"detail\": \"Required provider local; declared source=hashicorp/local\", \"line\": 18, \"path\": \"global/resources/aws/registry/versions.tf\"}, {\"detail\": \"Required provider local; declared source=hashicorp/local\", \"line\": 18, \"path\": \"global/resources/azure/postgresql/versions.tf\"}, {\"detail\": \"Required provider local; declared source=hashicorp/local\", \"line\": 18, \"path\": \"global/resources/azure/registry/versions.tf\"}, {\"detail\": \"Required provider local; declared source=hashicorp/local\", \"line\": 18, \"path\": \"global/resources/azure/resource-group/versions.tf\"}, {\"detail\": \"Required provider local; declared source=hashicorp/local\", \"line\": 18, \"path\": \"global/resources/azure/storage-share/versions.tf\"}, {\"detail\": \"Required provider local; declared source=hashicorp/local\", \"line\": 18, \"path\": \"global/resources/azure/vm-linux/versions.tf\"}, {\"detail\": \"Required provider local; declared source=hashicorp/local\", \"line\": 22, \"path\": \"global/resources/azure/aks-cluster/versions.tf\"}], \"notes\": [\"Declared source only; no provider/module restore, lock selection, or transitive graph was resolved.\"], \"scope\": \"build\", \"versionConstraint\": \"~> 2.9\"}"
+          "value": "{\"completeness\": \"unresolved\", \"ecosystem\": \"terraform-provider\", \"evidence\": [{\"detail\": \"Required provider local; declared source=hashicorp/local\", \"line\": 19, \"path\": \"global/resources/aws/eks-cluster/versions.tf\"}, {\"detail\": \"Required provider local; declared source=hashicorp/local\", \"line\": 19, \"path\": \"global/resources/aws/registry/versions.tf\"}, {\"detail\": \"Required provider local; declared source=hashicorp/local\", \"line\": 19, \"path\": \"global/resources/azure/postgresql/versions.tf\"}, {\"detail\": \"Required provider local; declared source=hashicorp/local\", \"line\": 19, \"path\": \"global/resources/azure/registry/versions.tf\"}, {\"detail\": \"Required provider local; declared source=hashicorp/local\", \"line\": 19, \"path\": \"global/resources/azure/resource-group/versions.tf\"}, {\"detail\": \"Required provider local; declared source=hashicorp/local\", \"line\": 19, \"path\": \"global/resources/azure/storage-share/versions.tf\"}, {\"detail\": \"Required provider local; declared source=hashicorp/local\", \"line\": 19, \"path\": \"global/resources/azure/vm-linux/versions.tf\"}, {\"detail\": \"Required provider local; declared source=hashicorp/local\", \"line\": 23, \"path\": \"global/resources/azure/aks-cluster/versions.tf\"}], \"notes\": [\"Declared source only; no provider/module restore, lock selection, or transitive graph was resolved.\"], \"scope\": \"build\", \"versionConstraint\": \"~> 2.9\"}"
         }
       ]
     },
@@ -1006,7 +1006,7 @@
       "properties": [
         {
           "name": "yuruna:declaration",
-          "value": "{\"completeness\": \"unresolved\", \"ecosystem\": \"terraform-provider\", \"evidence\": [{\"detail\": \"Required provider null; declared source=hashicorp/null\", \"line\": 22, \"path\": \"global/resources/aws/registry/versions.tf\"}, {\"detail\": \"Required provider null; declared source=hashicorp/null\", \"line\": 22, \"path\": \"global/resources/azure/postgresql/versions.tf\"}, {\"detail\": \"Required provider null; declared source=hashicorp/null\", \"line\": 22, \"path\": \"global/resources/azure/registry/versions.tf\"}, {\"detail\": \"Required provider null; declared source=hashicorp/null\", \"line\": 22, \"path\": \"global/resources/azure/resource-group/versions.tf\"}, {\"detail\": \"Required provider null; declared source=hashicorp/null\", \"line\": 22, \"path\": \"global/resources/azure/storage-share/versions.tf\"}, {\"detail\": \"Required provider null; declared source=hashicorp/null\", \"line\": 22, \"path\": \"global/resources/azure/vm-linux/versions.tf\"}, {\"detail\": \"Required provider null; declared source=hashicorp/null\", \"line\": 23, \"path\": \"global/resources/aws/eks-cluster/versions.tf\"}, {\"detail\": \"Required provider null; declared source=hashicorp/null\", \"line\": 26, \"path\": \"global/resources/azure/aks-cluster/versions.tf\"}], \"notes\": [\"Declared source only; no provider/module restore, lock selection, or transitive graph was resolved.\"], \"scope\": \"build\", \"versionConstraint\": \"~> 3.3\"}"
+          "value": "{\"completeness\": \"unresolved\", \"ecosystem\": \"terraform-provider\", \"evidence\": [{\"detail\": \"Required provider null; declared source=hashicorp/null\", \"line\": 23, \"path\": \"global/resources/aws/registry/versions.tf\"}, {\"detail\": \"Required provider null; declared source=hashicorp/null\", \"line\": 23, \"path\": \"global/resources/azure/postgresql/versions.tf\"}, {\"detail\": \"Required provider null; declared source=hashicorp/null\", \"line\": 23, \"path\": \"global/resources/azure/registry/versions.tf\"}, {\"detail\": \"Required provider null; declared source=hashicorp/null\", \"line\": 23, \"path\": \"global/resources/azure/resource-group/versions.tf\"}, {\"detail\": \"Required provider null; declared source=hashicorp/null\", \"line\": 23, \"path\": \"global/resources/azure/storage-share/versions.tf\"}, {\"detail\": \"Required provider null; declared source=hashicorp/null\", \"line\": 23, \"path\": \"global/resources/azure/vm-linux/versions.tf\"}, {\"detail\": \"Required provider null; declared source=hashicorp/null\", \"line\": 24, \"path\": \"global/resources/aws/eks-cluster/versions.tf\"}, {\"detail\": \"Required provider null; declared source=hashicorp/null\", \"line\": 27, \"path\": \"global/resources/azure/aks-cluster/versions.tf\"}], \"notes\": [\"Declared source only; no provider/module restore, lock selection, or transitive graph was resolved.\"], \"scope\": \"build\", \"versionConstraint\": \"~> 3.3\"}"
         }
       ]
     },
@@ -1017,7 +1017,7 @@
       "properties": [
         {
           "name": "yuruna:declaration",
-          "value": "{\"completeness\": \"unresolved\", \"ecosystem\": \"terraform-provider\", \"evidence\": [{\"detail\": \"Required provider random; declared source=hashicorp/random\", \"line\": 13, \"path\": \"global/resources/aws/eks-cluster/versions.tf\"}, {\"detail\": \"Required provider random; declared source=hashicorp/random\", \"line\": 26, \"path\": \"global/resources/aws/registry/versions.tf\"}, {\"detail\": \"Required provider random; declared source=hashicorp/random\", \"line\": 26, \"path\": \"global/resources/azure/postgresql/versions.tf\"}, {\"detail\": \"Required provider random; declared source=hashicorp/random\", \"line\": 26, \"path\": \"global/resources/azure/registry/versions.tf\"}, {\"detail\": \"Required provider random; declared source=hashicorp/random\", \"line\": 26, \"path\": \"global/resources/azure/resource-group/versions.tf\"}, {\"detail\": \"Required provider random; declared source=hashicorp/random\", \"line\": 26, \"path\": \"global/resources/azure/storage-share/versions.tf\"}, {\"detail\": \"Required provider random; declared source=hashicorp/random\", \"line\": 26, \"path\": \"global/resources/azure/vm-linux/versions.tf\"}, {\"detail\": \"Required provider random; declared source=hashicorp/random\", \"line\": 30, \"path\": \"global/resources/azure/aks-cluster/versions.tf\"}], \"notes\": [\"Declared source only; no provider/module restore, lock selection, or transitive graph was resolved.\"], \"scope\": \"build\", \"versionConstraint\": \"~> 3.9\"}"
+          "value": "{\"completeness\": \"unresolved\", \"ecosystem\": \"terraform-provider\", \"evidence\": [{\"detail\": \"Required provider random; declared source=hashicorp/random\", \"line\": 14, \"path\": \"global/resources/aws/eks-cluster/versions.tf\"}, {\"detail\": \"Required provider random; declared source=hashicorp/random\", \"line\": 27, \"path\": \"global/resources/aws/registry/versions.tf\"}, {\"detail\": \"Required provider random; declared source=hashicorp/random\", \"line\": 27, \"path\": \"global/resources/azure/postgresql/versions.tf\"}, {\"detail\": \"Required provider random; declared source=hashicorp/random\", \"line\": 27, \"path\": \"global/resources/azure/registry/versions.tf\"}, {\"detail\": \"Required provider random; declared source=hashicorp/random\", \"line\": 27, \"path\": \"global/resources/azure/resource-group/versions.tf\"}, {\"detail\": \"Required provider random; declared source=hashicorp/random\", \"line\": 27, \"path\": \"global/resources/azure/storage-share/versions.tf\"}, {\"detail\": \"Required provider random; declared source=hashicorp/random\", \"line\": 27, \"path\": \"global/resources/azure/vm-linux/versions.tf\"}, {\"detail\": \"Required provider random; declared source=hashicorp/random\", \"line\": 31, \"path\": \"global/resources/azure/aks-cluster/versions.tf\"}], \"notes\": [\"Declared source only; no provider/module restore, lock selection, or transitive graph was resolved.\"], \"scope\": \"build\", \"versionConstraint\": \"~> 3.9\"}"
         }
       ]
     },
@@ -1028,7 +1028,7 @@
       "properties": [
         {
           "name": "yuruna:declaration",
-          "value": "{\"completeness\": \"unresolved\", \"ecosystem\": \"terraform-provider\", \"evidence\": [{\"detail\": \"Required provider tls; declared source=hashicorp/tls\", \"line\": 28, \"path\": \"global/resources/aws/eks-cluster/versions.tf\"}], \"notes\": [\"Declared source only; no provider/module restore, lock selection, or transitive graph was resolved.\"], \"scope\": \"build\", \"versionConstraint\": \"~> 4.3\"}"
+          "value": "{\"completeness\": \"unresolved\", \"ecosystem\": \"terraform-provider\", \"evidence\": [{\"detail\": \"Required provider tls; declared source=hashicorp/tls\", \"line\": 29, \"path\": \"global/resources/aws/eks-cluster/versions.tf\"}], \"notes\": [\"Declared source only; no provider/module restore, lock selection, or transitive graph was resolved.\"], \"scope\": \"build\", \"versionConstraint\": \"~> 4.3\"}"
         }
       ]
     },
@@ -1039,7 +1039,7 @@
       "properties": [
         {
           "name": "yuruna:declaration",
-          "value": "{\"completeness\": \"declared\", \"ecosystem\": \"toolchain\", \"evidence\": [{\"detail\": \"Declared Go toolchain\", \"line\": 7, \"path\": \"test/extension/caching-proxy-parser-service/go.mod\"}, {\"detail\": \"Declared Go toolchain\", \"line\": 7, \"path\": \"test/extension/caching-proxy-service/go.mod\"}, {\"detail\": \"Declared Go toolchain\", \"line\": 7, \"path\": \"test/extension/download-agent-service/server/go.mod\"}, {\"detail\": \"Declared Go toolchain\", \"line\": 7, \"path\": \"test/extension/extension-sdk/go.mod\"}, {\"detail\": \"Declared Go toolchain\", \"line\": 7, \"path\": \"test/extension/pool-aggregator-service/go.mod\"}, {\"detail\": \"Declared Go toolchain\", \"line\": 7, \"path\": \"test/extension/pool-control-service/server/go.mod\"}, {\"detail\": \"Declared Go toolchain\", \"line\": 7, \"path\": \"test/extension/stash-service/server/go.mod\"}], \"notes\": [], \"scope\": \"build\"}"
+          "value": "{\"completeness\": \"declared\", \"ecosystem\": \"toolchain\", \"evidence\": [{\"detail\": \"Declared Go toolchain\", \"line\": 8, \"path\": \"test/extension/caching-proxy-parser-service/go.mod\"}, {\"detail\": \"Declared Go toolchain\", \"line\": 8, \"path\": \"test/extension/caching-proxy-service/go.mod\"}, {\"detail\": \"Declared Go toolchain\", \"line\": 8, \"path\": \"test/extension/download-agent-service/server/go.mod\"}, {\"detail\": \"Declared Go toolchain\", \"line\": 8, \"path\": \"test/extension/extension-sdk/go.mod\"}, {\"detail\": \"Declared Go toolchain\", \"line\": 8, \"path\": \"test/extension/pool-aggregator-service/go.mod\"}, {\"detail\": \"Declared Go toolchain\", \"line\": 8, \"path\": \"test/extension/pool-control-service/server/go.mod\"}, {\"detail\": \"Declared Go toolchain\", \"line\": 8, \"path\": \"test/extension/stash-service/server/go.mod\"}], \"notes\": [], \"scope\": \"build\"}"
         }
       ],
       "version": "1.27.2"
@@ -1051,7 +1051,7 @@
       "properties": [
         {
           "name": "yuruna:declaration",
-          "value": "{\"completeness\": \"unresolved\", \"ecosystem\": \"toolchain\", \"evidence\": [{\"detail\": \"Compatible HCL engine requirement\", \"line\": 5, \"path\": \"global/resources/aws/eks-cluster/versions.tf\"}, {\"detail\": \"Compatible HCL engine requirement\", \"line\": 7, \"path\": \"global/resources/aws/registry/versions.tf\"}, {\"detail\": \"Compatible HCL engine requirement\", \"line\": 7, \"path\": \"global/resources/azure/aks-cluster/versions.tf\"}, {\"detail\": \"Compatible HCL engine requirement\", \"line\": 7, \"path\": \"global/resources/azure/postgresql/versions.tf\"}, {\"detail\": \"Compatible HCL engine requirement\", \"line\": 7, \"path\": \"global/resources/azure/registry/versions.tf\"}, {\"detail\": \"Compatible HCL engine requirement\", \"line\": 7, \"path\": \"global/resources/azure/resource-group/versions.tf\"}, {\"detail\": \"Compatible HCL engine requirement\", \"line\": 7, \"path\": \"global/resources/azure/storage-share/versions.tf\"}, {\"detail\": \"Compatible HCL engine requirement\", \"line\": 7, \"path\": \"global/resources/azure/vm-linux/versions.tf\"}, {\"detail\": \"Compatible HCL engine requirement\", \"line\": 9, \"path\": \"global/resources/localhost/context-copy/versions.tf\"}, {\"detail\": \"Compatible HCL engine requirement\", \"line\": 9, \"path\": \"global/resources/localhost/registry/versions.tf\"}], \"notes\": [\"Declared source only; no provider/module restore, lock selection, or transitive graph was resolved.\"], \"scope\": \"build\", \"versionConstraint\": \">= 1.13.1\"}"
+          "value": "{\"completeness\": \"unresolved\", \"ecosystem\": \"toolchain\", \"evidence\": [{\"detail\": \"Compatible HCL engine requirement\", \"line\": 10, \"path\": \"global/resources/localhost/context-copy/versions.tf\"}, {\"detail\": \"Compatible HCL engine requirement\", \"line\": 10, \"path\": \"global/resources/localhost/registry/versions.tf\"}, {\"detail\": \"Compatible HCL engine requirement\", \"line\": 6, \"path\": \"global/resources/aws/eks-cluster/versions.tf\"}, {\"detail\": \"Compatible HCL engine requirement\", \"line\": 8, \"path\": \"global/resources/aws/registry/versions.tf\"}, {\"detail\": \"Compatible HCL engine requirement\", \"line\": 8, \"path\": \"global/resources/azure/aks-cluster/versions.tf\"}, {\"detail\": \"Compatible HCL engine requirement\", \"line\": 8, \"path\": \"global/resources/azure/postgresql/versions.tf\"}, {\"detail\": \"Compatible HCL engine requirement\", \"line\": 8, \"path\": \"global/resources/azure/registry/versions.tf\"}, {\"detail\": \"Compatible HCL engine requirement\", \"line\": 8, \"path\": \"global/resources/azure/resource-group/versions.tf\"}, {\"detail\": \"Compatible HCL engine requirement\", \"line\": 8, \"path\": \"global/resources/azure/storage-share/versions.tf\"}, {\"detail\": \"Compatible HCL engine requirement\", \"line\": 8, \"path\": \"global/resources/azure/vm-linux/versions.tf\"}], \"notes\": [\"Declared source only; no provider/module restore, lock selection, or transitive graph was resolved.\"], \"scope\": \"build\", \"versionConstraint\": \">= 1.13.1\"}"
         }
       ]
     }

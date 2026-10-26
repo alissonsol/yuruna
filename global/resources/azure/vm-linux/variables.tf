@@ -1,5 +1,6 @@
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
+# GUID: 421392f4-291b-4060-9e1c-3d478a209f0d
 variable "resourceGroup" {
   description = "Resource group"
 }

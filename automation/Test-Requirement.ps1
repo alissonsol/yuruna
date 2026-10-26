@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.25
+.VERSION 2026.10.26
 .GUID 421cce10-e006-4347-9b80-8e0984aa3c10
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -68,8 +68,6 @@ Get-Module Yuruna.* | Remove-Module *>&1 | Write-Verbose
 $requirementsModulePath = Join-Path -Path $yuruna_root -ChildPath "automation/Yuruna.Requirement.psm1"
 Import-Module -Name $requirementsModulePath -Force
 
-$null = Start-Transcript $transcriptFileName
-
 # `pwsh -File` passes every argument as a STRING, so `-Tool a,b` arrives as one
 # element "a,b" rather than two. Every caller of this script is a shell
 # installer using -File, so splitting here is what makes the filter work at all
@@ -78,9 +76,9 @@ $null = Start-Transcript $transcriptFileName
 $toolFilter = @($Tool | ForEach-Object { $_ -split ',' } | ForEach-Object { $_.Trim() } | Where-Object { $_ })
 $confirmArgs = @{}
 if ($toolFilter.Count) { $confirmArgs['Tool'] = $toolFilter }
-$result = Confirm-RequirementList @confirmArgs
-
-$null = Stop-Transcript
+# The harness starts and stops the transcript, so a throw still ends it and
+# still reports a failure.
+$result = Invoke-YurunaEntrypoint -TranscriptFile $transcriptFileName -BooleanResult -Operation { Confirm-RequirementList @confirmArgs }
 if ($WarnOnly) {
     # One machine-readable line per problem, for a shell installer collecting
     # them into its own end-of-run summary. Formatted from the result's Reason

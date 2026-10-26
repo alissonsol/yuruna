@@ -2,6 +2,7 @@
 
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
+# GUID: 42e312e4-fa23-4287-8144-888ef6b17209
 # Active provider for the pool-aggregator-service extension. Single-provider area;
 # the Go source under main.go is fetched + built into the caching-proxy-service VM
 # (the pool services host) via that VM's cloud-init user-data.

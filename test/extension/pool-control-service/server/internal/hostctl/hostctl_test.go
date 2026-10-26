@@ -1,5 +1,6 @@
 // LICENSEURI https://yuruna.link/license
 // Copyright (c) 2019-2026 by Alisson Sol et al.
+// GUID: 42155202-dad2-4fda-b042-94f1cedd23b9
 
 package hostctl
 

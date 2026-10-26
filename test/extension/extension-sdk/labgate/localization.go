@@ -1,5 +1,6 @@
 // LICENSEURI https://yuruna.link/license
 // Copyright (c) 2019-2026 by Alisson Sol et al.
+// GUID: 4273c42e-924a-4df3-bef9-efe5eac6627f
 
 package labgate
 

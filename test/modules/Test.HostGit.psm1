@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.25
+.VERSION 2026.10.26
 .GUID 42bb2613-9d4e-4ac0-aeb2-0784a83e7a8a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -1649,7 +1649,11 @@ function Restore-ProjectCloneSwap {
         after setting the checkout aside and before the replacement arrived.
         The set-aside copy is the last known good one, so it goes back.
       - project/ exists and project.previous/ exists: the swap finished and only
-        the cleanup did not. The displaced copy is deleted.
+        the cleanup did not. The displaced copy is deleted -- unless project/ is
+        not a complete checkout and the displaced copy is: a clone moved across
+        file systems is copied, and an interruption leaves part of it. The
+        complete copy goes back, and the partial one is deleted as an unfinished
+        clone. When neither is a complete checkout, the newer one stays.
       - project.incoming/ exists: a clone that never finished. It is deleted,
         because nothing proved it complete.
 
@@ -1679,7 +1683,18 @@ function Restore-ProjectCloneSwap {
     }
     if (Test-Path -LiteralPath $previous) {
         if (Test-Path -LiteralPath $project) {
-            if (Remove-ProjectCloneDirectory -Path $previous -Confirm:$false) { $actions.Add('removed-previous') }
+            if (-not (Test-ProjectCloneHealth -Path $project).Healthy -and (Test-ProjectCloneHealth -Path $previous).Healthy) {
+                try {
+                    if (Test-Path -LiteralPath $incoming) { $null = Remove-ProjectCloneDirectory -Path $incoming -Confirm:$false }
+                    Move-ProjectCloneDirectory -Path $project -Destination $incoming
+                    Move-ProjectCloneDirectory -Path $previous -Destination $project
+                    $actions.Add('restored-previous')
+                } catch {
+                    Write-Verbose "Restore-ProjectCloneSwap: could not put the complete $previous back over a partial checkout: $($_.Exception.Message)"
+                }
+            } elseif (Remove-ProjectCloneDirectory -Path $previous -Confirm:$false) {
+                $actions.Add('removed-previous')
+            }
         }
     }
     if (Test-Path -LiteralPath $incoming) {
@@ -2340,7 +2355,7 @@ function Install-PowerShellYamlIfMissing {
 .DESCRIPTION
     Test.SequencePlanner.Resolve-CyclePlan reads project/test/
     test.runner.yml and every per-sequence baseline file via
-    Read-SequenceFile, which Import-Modules powershell-yaml on demand.
+    Read-SequenceFile, which imports powershell-yaml on demand.
     pwsh 7 doesn't ship it, so on a freshly-imaged host the planner
     throws -- the inner runner's try/catch then falls back to the
     legacy guestSequence list, which leaves Start-GuestOS with an

@@ -1,5 +1,6 @@
 // LICENSEURI https://yuruna.link/license
 // Copyright (c) 2019-2026 by Alisson Sol et al.
+// GUID: 42197e5f-74d9-4f4a-bdde-1b3478054598
 //
 // Operator board. Every value here comes from an operator or a project repo, so
 // nothing is ever written with innerHTML -- Y.el sets textContent.

@@ -84,8 +84,10 @@ download-agent builders reject a dead bridge inside Select the guest network.
 This validation can exit, and moving it ahead of the vault, internal
 authentication key, client certificate and seed phases would change which of
 their side effects a failed run leaves behind, so it stays after the seed.
-Its checks also differ: it warns at length about the NAT fallback and
-requires a physical uplink only for a bridge-mode network.
+It also warns at length about the NAT fallback. Its Bridge-uplink preflight is
+the same check as the other builders', requiring a physical uplink only for a
+bridge-mode network, nested in this validation instead of in Select the guest
+network.
 
 Every KVM service builder checks its seed templates right after the vault
 phase, before any network work, so a missing template fails before the guest
@@ -360,6 +362,24 @@ switch's management vNIC, then the metric. The middle rank is what
 answers the case with no default route to rank by at all -- a host
 between DHCP leases -- where the pick would otherwise fall to
 whichever unrelated NAT adapter happened to sort first.
+
+<a id="42f52e37-001e"></a>
+
+## host/windows.hyper-v/modules/Yuruna.Host.psm1: Serial console capture
+
+Related topic: https://yuruna.link/42dc5bb9-0004
+
+**`host/windows.hyper-v/modules/Yuruna.Host.psm1`.**
+
+`Start-VMSerialCapture` reads the COM1 pipe from a separate process, a
+PowerShell job, so a reader blocked in `Connect` or `Read` can never stall the
+cycle, and stopping it is one `Stop-Job` away. The pipe server is created by the
+VM worker when the VM is on and goes away with each restart, so the reader
+reconnects for as long as it runs. The job keeps its connection history in a
+sidecar beside the log, rewritten at each change of state, because an empty log
+alone cannot say whether the reader never reached the pipe or reached it and
+heard nothing. The job calls no module function: it outlives module reloads and
+must keep working with nothing but .NET and the shell.
 
 <a id="42f52e37-001b"></a>
 
@@ -661,12 +681,16 @@ only the launch is bounded (five seconds). The listener never waits for the
 worker itself, and a worker's failure after launch is published by the
 worker, never inferred here.
 
-Refresh and artifact uploads read bodies without parking the request loop: the read
-is issued asynchronously and the loop keeps accepting and serving while it
-is pending, waking for whichever comes first -- the next request, a read
-completing, or the earliest body deadline. At most four bodies are read at
-once. A finished body is validated and admitted serially, like any other
-request, and every reply goes to the context the read carries.
+Refresh, artifact uploads, the configuration save (`POST /control/test-config`,
+1 MB) and guest checkpoints (`POST /control/perf-checkpoints`, 256 KB) read bodies
+without parking the request loop: the read is issued asynchronously and the loop
+keeps accepting and serving while it is pending, waking for whichever comes
+first -- the next request, a read completing, or the earliest body deadline. At
+most four bodies are read at once, and the two anonymous routes share two of
+the four, so a burst of them cannot keep a refresh or an upload from being read;
+an anonymous body that finds both of its slots taken answers `503 listener_busy`. A finished body is validated
+and admitted serially, like any other request, and every reply goes to the
+context the read carries.
 
 Admission has recorded a pending launch that names this listener
 as its requester, and only this listener can close it: left

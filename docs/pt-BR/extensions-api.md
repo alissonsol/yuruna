@@ -278,7 +278,7 @@ módulo Go próprio. Os pacotes usados diretamente por um serviço:
 
 | Pacote | O que o serviço recebe |
 |---|---|
-| `beacon` | Presença por `POST /announce`: saudação na inicialização (com novas tentativas em uma cadência de recuperação que dobra), novo anúncio a cada intervalo e despedida `active:false`. O agregador que recebe os anúncios é definido uma vez, na criação por `New-VM` -- consulte [Quando o caching proxy é reconstruído](#when-the-caching-proxy-is-rebuilt). |
+| `beacon` | Presença por `POST /announce`: saudação na inicialização, novo anúncio a cada intervalo (qualquer anúncio que falhe é repetido em uma cadência de recuperação que dobra) e despedida `active:false`. O agregador que recebe os anúncios é definido uma vez, na criação por `New-VM` -- consulte [Quando o caching proxy é reconstruído](#when-the-caching-proxy-is-rebuilt). |
 | `pool` | Cliente de leitura para o **provedor de informações**: `Status`, `ExtensionHost(s)`, `ExtensionTarget`, `Healthz` e `Get`/`GetURL` para rotas sem tipagem. |
 | `labgate` | Controle de escrita: `Require`, `RequireBearer`, `HandleLogin`, `Session`. |
 | `hostrefresh` | Autorização de atualização remota do hospedeiro: a prova de atualização versionada (`Proof`, `Verify` com relógio explícito e tolerância temporal em ambas as direções), o `Signer` que a emite a partir da autoridade de assinatura, o carregador do arquivo secreto e o `Gate` da credencial de atualização, que lê apenas `X-Yuruna-Refresh-Credential`. Apenas pool-control o importa; consulte [Atualização remota do hospedeiro](../pool-admin.md#remote-host-refresh). |
@@ -435,11 +435,15 @@ O controle oferece três propriedades:
 - **Falhe de forma fechada e informe a causa.** Um validador inacessível
   responde `503` com motivo `lab-token-unavailable`, nunca `401` -- um
   operador que não distingue código incorreto de validador indisponível
-  redigita um código correto até desistir. Um serviço sem nenhuma das
+  redigita um código correto até desistir. Essa tentativa ainda conta para o
+  limite de tentativas da origem, para que não possa ser repetida sem fim
+  enquanto o validador recusa este serviço. Um serviço sem nenhuma das
   credenciais configurada responde `503` `auth-unconfigured`, em vez de
   executar uma escrita sem controle.
 - **Auditoria no serviço.** Toda tentativa de desbloqueio é registrada com
-  o endereço de origem. A auditoria do próprio agregador não consegue
+  o endereço de origem, até a que atinge o limite de tentativas; as que o
+  limite recusa depois disso não são, para que um chamador anônimo não possa
+  fazer a auditoria crescer. A auditoria do próprio agregador não consegue
   responder a essa questão: vista de lá, todos os operadores do laboratório
   têm um único endereço de origem.
 
@@ -1132,12 +1136,13 @@ do coletor; a linha que o manipulador grava no Loki é a única cópia que sobre
 a uma reinicialização, e a reidratação restaura a linha do painel depois.
 Por isso, quando essa gravação não é concluída, o manipulador responde `503` —
 o anúncio é mantido e disponibilizado, mas o anunciante recebe a indicação de
-tentar novamente. Um beacon só repete as tentativas até o seu *primeiro* sucesso
-e depois aguarda um período inteiro de novo anúncio; assim, um `2xx` para um
-anúncio não registrado deixaria o grupo sem exibir um serviço saudável por um
-período inteiro, em troca de uma repetição que levaria segundos. Os anunciantes
+tentar novamente. Um beacon que recebe `2xx` aguarda um período inteiro de novo
+anúncio; assim, um `2xx` para um anúncio não registrado deixaria o grupo sem
+exibir um serviço saudável por um período inteiro após a próxima reinicialização
+do coletor, em troca de uma repetição que levaria segundos. Os anunciantes
 devem, portanto, tratar qualquer resposta diferente de `2xx` como "não concluído"
-e manter a frequência de recuperação, como faz o `beacon` do SDK.
+e voltar à frequência de recuperação, no primeiro anúncio e em cada um dos
+seguintes, como faz o `beacon` do SDK.
 Um grupo configurado sem Loki escolhe não manter histórico de anúncios e ainda
 responde `2xx`.
 
@@ -1303,6 +1308,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.25
+Last review: 2026.10.26
 
 Voltar a [Yuruna](../../README.md)

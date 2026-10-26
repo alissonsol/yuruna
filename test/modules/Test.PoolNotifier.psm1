@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.25
+.VERSION 2026.10.26
 .GUID 42e65ede-af28-4c1f-8f0d-b5461e23110d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -502,7 +502,11 @@ function Invoke-PoolNotifierDelivery {
     .SYNOPSIS
         Drain outgoing/: claim each message (atomic rename to sending/), deliver + confirm,
         then move to delivered/ -- or back to outgoing/ (retry next cycle), then failed/
-        after MaxAttempts. Bounded by MaxMessages per call. Returns @{delivered;failed;retried}.
+        after MaxAttempts. Bounded by MaxMessages per call. Returns
+        @{delivered;failed;retried;spoolErrors}: spoolErrors names each move or
+        rewrite that failed, because a message left in sending/ is sent again
+        after the reclaim grace, and one whose attempt count was not saved is
+        retried without end.
     #>
     [CmdletBinding()]
     [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
@@ -515,7 +519,7 @@ function Invoke-PoolNotifierDelivery {
         [Parameter()][int]$MaxAttempts = 5,
         [Parameter()][int]$ReclaimGraceSeconds = 600
     )
-    $result = @{ delivered = 0; failed = 0; retried = 0 }
+    $result = @{ delivered = 0; failed = 0; retried = 0; spoolErrors = [System.Collections.Generic.List[string]]::new() }
     $outDir  = Join-Path $SpoolRoot 'outgoing'
     $sendDir = Join-Path $SpoolRoot 'sending'
     $doneDir = Join-Path $SpoolRoot 'delivered'
@@ -540,7 +544,7 @@ function Invoke-PoolNotifierDelivery {
         } catch { $null = $_ }
         if (-not $haveClaimed) { $claimedUtc = $stale.LastWriteTimeUtc }
         if ($claimedUtc -lt $reclaimCutoffUtc) {
-            try { Move-Item -LiteralPath $stale.FullName -Destination (Join-Path $outDir $stale.Name) -Force -ErrorAction Stop } catch { $null = $_ }
+            try { Move-Item -LiteralPath $stale.FullName -Destination (Join-Path $outDir $stale.Name) -Force -ErrorAction Stop } catch { $result.spoolErrors.Add("reclaim $($stale.Name): $($_.Exception.Message)") }
         }
     }
     $ledger = Join-Path $WorkDir 'notification.delivery.json'
@@ -553,7 +557,7 @@ function Invoke-PoolNotifierDelivery {
         $msg = $null
         try { $msg = Get-Content -Raw -LiteralPath $claim -ErrorAction Stop | ConvertFrom-Json -AsHashtable -ErrorAction Stop } catch { $null = $_ }
         if (-not ($msg -is [System.Collections.IDictionary])) {
-            try { Move-Item -LiteralPath $claim -Destination (Join-Path $failDir $f.Name) -Force -ErrorAction Stop } catch { $null = $_ }
+            try { Move-Item -LiteralPath $claim -Destination (Join-Path $failDir $f.Name) -Force -ErrorAction Stop } catch { $result.spoolErrors.Add("move to failed $($f.Name): $($_.Exception.Message)") }
             $result.failed++
             continue
         }
@@ -562,9 +566,9 @@ function Invoke-PoolNotifierDelivery {
         # claimed rather than the file's preserved content-write mtime. Best-effort: on a write
         # failure the reclaim falls back to the file mtime.
         $msg['claimedUtc'] = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", [Globalization.CultureInfo]::InvariantCulture)
-        try { [System.IO.File]::WriteAllText($claim, ($msg | ConvertTo-Json -Depth 6), [System.Text.UTF8Encoding]::new($false)) } catch { $null = $_ }
+        try { [System.IO.File]::WriteAllText($claim, ($msg | ConvertTo-Json -Depth 6), [System.Text.UTF8Encoding]::new($false)) } catch { $result.spoolErrors.Add("stamp claim $($f.Name): $($_.Exception.Message)") }
         if (Send-PoolAlertViaExtension -Message $msg -WorkDir $WorkDir -Ledger $ledger) {
-            try { Move-Item -LiteralPath $claim -Destination (Join-Path $doneDir $f.Name) -Force -ErrorAction Stop } catch { $null = $_ }
+            try { Move-Item -LiteralPath $claim -Destination (Join-Path $doneDir $f.Name) -Force -ErrorAction Stop } catch { $result.spoolErrors.Add("move to delivered $($f.Name): $($_.Exception.Message)") }
             $result.delivered++
             continue
         }
@@ -572,12 +576,12 @@ function Invoke-PoolNotifierDelivery {
         $attempts++
         $msg['attempts'] = $attempts
         $msg['lastAttemptUtc'] = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", [Globalization.CultureInfo]::InvariantCulture)
-        try { [System.IO.File]::WriteAllText($claim, ($msg | ConvertTo-Json -Depth 6), [System.Text.UTF8Encoding]::new($false)) } catch { $null = $_ }
+        try { [System.IO.File]::WriteAllText($claim, ($msg | ConvertTo-Json -Depth 6), [System.Text.UTF8Encoding]::new($false)) } catch { $result.spoolErrors.Add("record attempt $($f.Name): $($_.Exception.Message)") }
         if ($attempts -ge $MaxAttempts) {
-            try { Move-Item -LiteralPath $claim -Destination (Join-Path $failDir $f.Name) -Force -ErrorAction Stop } catch { $null = $_ }
+            try { Move-Item -LiteralPath $claim -Destination (Join-Path $failDir $f.Name) -Force -ErrorAction Stop } catch { $result.spoolErrors.Add("move to failed $($f.Name): $($_.Exception.Message)") }
             $result.failed++
         } else {
-            try { Move-Item -LiteralPath $claim -Destination (Join-Path $outDir $f.Name) -Force -ErrorAction Stop } catch { $null = $_ }
+            try { Move-Item -LiteralPath $claim -Destination (Join-Path $outDir $f.Name) -Force -ErrorAction Stop } catch { $result.spoolErrors.Add("requeue $($f.Name): $($_.Exception.Message)") }
             $result.retried++
         }
     }
@@ -605,7 +609,7 @@ function Invoke-PoolNotifierCycle {
         [Parameter()][int]$HttpTimeoutSeconds = 10,
         [Parameter()][int]$MaxMessages = 25
     )
-    $summary = @{ ran = $false; ready = $false; enqueued = 0; delivered = 0; failed = 0; retried = 0; reason = '' }
+    $summary = @{ ran = $false; ready = $false; enqueued = 0; delivered = 0; failed = 0; retried = 0; spoolErrors = @(); reason = '' }
     try {
         if (-not (Get-Command Get-YurunaPoolStorageConfig -ErrorAction SilentlyContinue)) { $summary.reason = (Format-YurunaOperatorMessage -Key 'runner.operator_0c7a486afc64143a'); return $summary }
         $psCfg = Get-YurunaPoolStorageConfig -Config $Config
@@ -631,6 +635,20 @@ function Invoke-PoolNotifierCycle {
 
         $runtimeDir = $env:YURUNA_RUNTIME_DIR
         if ([string]::IsNullOrWhiteSpace($runtimeDir)) { $summary.reason = (Format-YurunaOperatorMessage -Key 'runner.operator_b94d536e714a3aba'); return $summary }
+        # The resident runs this between cycles and a cycle at its end; one run
+        # at a time keeps an alert edge from being read, and queued, twice.
+        # A lock that could not be taken for any other reason does not silence
+        # delivery: only a live holder does.
+        $lockPath = Join-Path $runtimeDir 'pool.notifier.lock'
+        $locked = $false
+        if (Get-Command Enter-YurunaPidFileLock -ErrorAction SilentlyContinue) {
+            $locked = [bool](Enter-YurunaPidFileLock -Path $lockPath)
+            if (-not $locked -and (Test-YurunaPidFileLockLive -Path $lockPath)) {
+                $summary.reason = (Format-YurunaOperatorMessage -Key 'runner.pool_notifier_busy')
+                return $summary
+            }
+        }
+        try {
         $null = Initialize-PoolNotifierSpool -SpoolRoot $spoolRoot -Confirm:$false
 
         if (-not $unreadable) {
@@ -663,7 +681,11 @@ function Invoke-PoolNotifierCycle {
         $summary.delivered = $deliv.delivered
         $summary.failed    = $deliv.failed
         $summary.retried   = $deliv.retried
+        $summary.spoolErrors = @($deliv.spoolErrors)
         $summary.ran = $true
+        } finally {
+            if ($locked) { $null = Exit-YurunaPidFileLock -Path $lockPath }
+        }
     } catch {
         $summary.reason = "error: $($_.Exception.Message)"
         Write-Verbose "Invoke-PoolNotifierCycle: $($_.Exception.Message)"

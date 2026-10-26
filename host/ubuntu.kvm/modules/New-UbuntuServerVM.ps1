@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.25
+.VERSION 2026.10.26
 .GUID 42ada8e8-3ff4-49bc-88b3-4e1d20a217de
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -172,7 +172,8 @@ try {
 
     # --- REGION: Detect the caching-proxy service
     # See https://yuruna.link/42e220c4-0004
-    # A bound URL, including empty for direct fetching, overrides discovery.
+    # A bound URL, including empty for direct fetching, overrides discovery. A missing
+    # or stopped cache permits direct fetching; a running but unresponsive cache fails.
     if (-not $PSBoundParameters.ContainsKey('CachingProxyServiceUrl')) {
         $CachingProxyServiceUrl = Test-CachingProxyServiceAvailable
         if (-not $CachingProxyServiceUrl -and
@@ -225,6 +226,8 @@ try {
     }
 
     # --- REGION: Render user-data / meta-data
+    # See https://yuruna.link/4220a755-0003
+    # Embed the guest libraries as base64 write_files entries so bootstrap needs no download.
     # user-data AND meta-data are shared under host/vmconfig/ (the meta-data is
     # byte-identical across the three host platforms; ubuntu.server.24 and .26
     # share one file). Anchor contract: automation/Yuruna.CloudInitTemplate.psm1.
@@ -321,10 +324,7 @@ try {
     $vmMemoryMb = if ($vmMemoryBytes -gt 0) { [int]($vmMemoryBytes / 1MB) } else { 8192 }
 
     # --- REGION: https://yuruna.link/4220a755-000a
-    # Keyed on the guest's durable identity, not on the name the VM carries now: a
-    # guest is built in a per-kind slot and renamed to its real name when its
-    # baseline is snapshotted, and an address that moved with that rename would
-    # re-DHCP a guest whose own state already records the one it was built on.
+    # Key the MAC by durable guest identity so rebuilds and VM renames keep the DHCP lease.
     $YurunaGuestMac = Get-YurunaGuestMacAddress -VMName $GuestHostname
     Write-Verbose "Deterministic guest MAC for '$GuestHostname': $YurunaGuestMac"
 

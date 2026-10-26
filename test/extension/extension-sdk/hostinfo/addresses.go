@@ -1,5 +1,6 @@
 // LICENSEURI https://yuruna.link/license
 // Copyright (c) 2019-2026 by Alisson Sol et al.
+// GUID: 42aaca70-161f-4e73-b4fd-4044219d9ca5
 
 // Package hostinfo supplies the host facts shared by extension-service UIs.
 package hostinfo

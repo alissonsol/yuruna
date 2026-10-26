@@ -1,5 +1,6 @@
 // LICENSEURI https://yuruna.link/license
 // Copyright (c) 2019-2026 by Alisson Sol et al.
+// GUID: 42dacf95-e914-4683-a5c2-471a45184762
 
 // UI-facing ingest + delete entry points. The browser UI creates stashes
 // (pasted text or uploaded files) and deletes its own host's stashes. Both

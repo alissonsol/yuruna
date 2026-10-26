@@ -1,5 +1,6 @@
 // LICENSEURI https://yuruna.link/license
 // Copyright (c) 2019-2026 by Alisson Sol et al.
+// GUID: 421c8fb2-6405-4728-b7a6-e579381077b5
 
 // Parser, ring, counters, and HTTP handlers; see https://yuruna.link/caching-proxy-parser-service.
 package main

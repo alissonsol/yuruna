@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.25
+.VERSION 2026.10.26
 .GUID 4232820e-f96a-47ea-863b-f94b73f9c76f
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -69,6 +69,58 @@ function Test-GuestPayloadUnavailable {
         if ($Output.Contains($reason)) { return $true }
     }
     return $false
+}
+
+function Get-GuestDeployResult {
+    <#
+    .SYNOPSIS
+        The deploy result a guest entry point reported on its last
+        YURUNA_RESULT line, when it names a canonical failure class.
+    .DESCRIPTION
+        Complete-YurunaRun ends a failed deploy with that line: the manifest
+        and its canonicalFailureClass. A verb that ran the entry point over ssh
+        files the failure under that class instead of its registered
+        script_error. The class is used only when it is a canonical value other
+        than unknown; anything else is no result.
+    .OUTPUTS
+        [hashtable] failureClass, deployFailureClass, errorMessage; or $null.
+    #>
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param([AllowNull()][string]$Output)
+    if ([string]::IsNullOrEmpty($Output)) { return $null }
+    $found = [regex]::Matches($Output, '(?m)^YURUNA_RESULT (\{.*\})\r?$')
+    if ($found.Count -lt 1) { return $null }
+    try { $record = $found[$found.Count - 1].Groups[1].Value | ConvertFrom-Json -AsHashtable -ErrorAction Stop } catch { return $null }
+    if ($record -isnot [System.Collections.IDictionary]) { return $null }
+    $class = [string]$record['canonicalFailureClass']
+    if ($class -ceq 'unknown' -or $class -cnotin @(Get-FailureClassEnum)) { return $null }
+    return @{ failureClass = $class; deployFailureClass = [string]$record['failureClass']; errorMessage = [string]$record['errorMessage'] }
+}
+
+function Set-StepEffectNoneProven {
+    <#
+    .SYNOPSIS
+        Record that the running step provably did nothing to the guest, and how
+        the handler knows.
+    .DESCRIPTION
+        Only a handler holding evidence calls this: an ssh session that never
+        opened (address-unresolved) or a fetch wrapper that reported no source
+        served its script (no-source-served). The record builder reads the
+        proof only for the step that published it, so an inner step's proof
+        never vouches for the wrapper that ran it, and warm resume replays such
+        a step where it failed. A typed command the console never took is not
+        on the list: its shell may still hold the open input, so nothing ran
+        but the console is not where the step left it.
+    #>
+    [CmdletBinding()]
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+        Justification = 'Writes one slot of the in-memory failure state; nothing outside the process changes.')]
+    param(
+        [Parameter(Mandatory)][hashtable]$Context,
+        [Parameter(Mandatory)][ValidateSet('address-unresolved', 'no-source-served')][string]$Source
+    )
+    $script:Fail.StepEffect = [ordered]@{ effect = 'none-proven'; source = $Source; stepInvocationId = [string]$Context.StepInvocationId }
 }
 
 # See https://yuruna.link/4220a755-005e
@@ -701,6 +753,24 @@ function Save-GuestConsoleFrame {
         return $null
     }
 }
+function Test-GuestConsoleFrameChanged {
+    <#
+    .SYNOPSIS
+        Whether a console frame shows something new since an earlier one.
+    .DESCRIPTION
+        A cursor blink changes the raw frame and not what it says, so when both
+        frames were read their text decides, compared with whitespace collapsed;
+        the raw hash decides only for a console the OCR could not read.
+    #>
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param([Parameter(Mandatory)]$Before, [Parameter(Mandatory)]$After)
+    $beforeText = ([string]$Before.Text -replace '\s+', ' ').Trim()
+    $afterText = ([string]$After.Text -replace '\s+', ' ').Trim()
+    if ($beforeText -and $afterText) { return ($beforeText -cne $afterText) }
+    return ([string]$Before.Hash -ne [string]$After.Hash)
+}
+
 # Poll the host for the VM to report stopped, capturing a console frame every
 # -FrameIntervalSeconds so a guest that ignores the request leaves a dated
 # record of what its console showed meanwhile. Returns @{ Stopped;
@@ -717,8 +787,12 @@ function Wait-VmStopped {
     $deadline = $started.AddSeconds($TimeoutSeconds)
     $nextFrame = if ($FrameIntervalSeconds -gt 0) { $started.AddSeconds($FrameIntervalSeconds) } else { [DateTime]::MaxValue }
     $state = 'unknown'
+    # Each finished probe moves the step heartbeat, so the watchdog's bound
+    # measures a probe that stuck rather than this bounded wait.
+    $beat = Get-Command Write-RunnerStepHeartbeat -ErrorAction SilentlyContinue
     do {
         try { $state = [string](Get-VMState -VMName $Context.VMName) } catch { $state = 'unknown' }
+        if ($beat) { & $beat }
         $waited = [int]([DateTime]::UtcNow - $started).TotalSeconds
         if ($state -eq 'stopped') { return @{ Stopped = $true; ObservedState = $state; WaitedSeconds = $waited } }
         if ($state -eq 'absent' -or [DateTime]::UtcNow -ge $deadline) {
@@ -1013,8 +1087,22 @@ Register-SequenceAction -Name 'break' -ReplaySafety 'observe' -HostIORequirement
             try { $breakMaxSeconds = [int]$breakMaxRaw }
             catch { Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_87e7326472d5d6bd' -Arguments @{ breakMaxRaw = "$breakMaxRaw" }) }
         }
+        if ($breakMaxSeconds -le 0) {
+            # Unbounded, a break outlived the step watchdog's bound and the whole
+            # cycle was killed. It now ends at that bound by itself, with the
+            # timeout warning, and the sequence carries on.
+            $breakMaxSeconds = 2700
+            try {
+                if ($breakCfg -and $breakCfg.testCycle -and [int]$breakCfg.testCycle.stepTimeoutSeconds -gt 0) { $breakMaxSeconds = [int]$breakCfg.testCycle.stepTimeoutSeconds }
+            } catch { $null = $_ }
+        }
         $breakDeadlineUtc = if ($breakMaxSeconds -gt 0) { [DateTime]::UtcNow.AddSeconds($breakMaxSeconds) } else { $null }
+        # The waiting itself is the work: the heartbeat moves while the break
+        # holds, at most every 10 s, so the break ends on its own deadline.
+        $breakBeat = Get-Command Write-RunnerStepHeartbeat -ErrorAction SilentlyContinue
+        $breakBeatWatch = [Diagnostics.Stopwatch]::StartNew()
         while ($true) {
+            if ($breakBeat -and $breakBeatWatch.Elapsed.TotalSeconds -ge 10) { & $breakBeat; $breakBeatWatch.Restart() }
             if (Test-Path -LiteralPath $breakContinueFlag) {
                 $resumedVia = 'continue-button'
                 Remove-Item -LiteralPath $breakContinueFlag -Force -ErrorAction SilentlyContinue
@@ -1421,7 +1509,7 @@ Register-SequenceAction -Name 'inputTextAndEnter' -ReplaySafety 'input' -HostIOR
         do {
             Start-Sleep -Seconds 1
             $after = Save-GuestConsoleFrame -Context $c -Label 'after typing'
-            if ($after -and $after.Hash -ne $before.Hash) { return $true }
+            if ($after -and (Test-GuestConsoleFrameChanged -Before $before -After $after)) { return $true }
         } while ([DateTime]::UtcNow -lt $deadline)
         $script:Fail.StepInputLost = $true
         Write-Warning (Format-YurunaOperatorMessage -Key 'runner.m38857d4ae5' -Arguments @{ action = 'inputTextAndEnter'; vMName = "$($c.VMName)"; seconds = "$ackSeconds" })
@@ -1619,14 +1707,16 @@ Register-SequenceAction -Name 'passwdPrompt' -ReplaySafety 'input' -HostIORequir
             -TimeoutSeconds $p.timeout -PollSeconds $p.poll -FreshMatch $p.fresh `
             -FreshMatchTailLines $p.tailLines -SinceStepStart:$p.sinceStepStart `
             -NoSegmentMatch:$p.noSegmentMatch -FailurePattern $p.failurePatterns
-        if ($ok -eq $false) { return $false }
+        if ($ok -eq $false) { $script:Fail.StepFailurePhase = 'wait'; return $false }
         Send-TabNavigation -Context $c
         $text = & $c.ExpandVariable $c.Step.text $c.Vars
         $masked = $c.ShowSensitive ? $text : '***'
         $delaySeconds = ($null -ne $c.Step.delaySeconds) ? [double]$c.Step.delaySeconds : 2
         $charDelay = (Resolve-SequenceCharDelay -Context $c)
         Write-Debug "      Typing: '$masked' + Enter (charDelay=${charDelay}ms, delay ${delaySeconds}s)"
-        return (Invoke-TypeDrainEnter -Context $c -Text $text -DelaySeconds $delaySeconds -CharDelayMs $charDelay -Activity 'passwdPrompt')
+        $typed = Invoke-TypeDrainEnter -Context $c -Text $text -DelaySeconds $delaySeconds -CharDelayMs $charDelay -Activity 'passwdPrompt'
+        if (-not $typed) { $script:Fail.StepFailurePhase = 'input' }
+        return $typed
     }
 
 Register-SequenceAction -Name 'tapOn' -ReplaySafety 'input' -HostIORequirement @('Send-Click') -OcrRequired $true `
@@ -2035,6 +2125,57 @@ function Confirm-GuiFetchSubmission {
     return $record
 }
 
+# Per process and commit: an archive is built to be hashed, which takes seconds,
+# and every update script a cycle launches names the same commits.
+$script:FetchArchiveDigest = @{}
+
+function Get-FetchArchiveField {
+    <#
+    .SYNOPSIS
+        The commit and archive digest of each tree the host serves to an update
+        script: the framework, and the project when it is a checkout of its own.
+    .DESCRIPTION
+        The digest is of the archive Export-YurunaGitArchive builds for the
+        commit, which is the one the status service sends for ?commit=. A tree
+        whose digest cannot be built is left out with a warning, and the script
+        then unpacks that archive unchecked, as before.
+    .OUTPUTS
+        [ordered] context field names to values.
+    #>
+    [CmdletBinding()]
+    [OutputType([System.Collections.Specialized.OrderedDictionary])]
+    param([Parameter(Mandatory)][string]$RepoRoot)
+    $result = [ordered]@{}
+    if (-not (Get-Command Get-YurunaGitArchiveDigest -ErrorAction SilentlyContinue)) {
+        Import-Module (Join-Path $PSScriptRoot 'Test.HostGit.psm1') -Global -DisableNameChecking -ErrorAction SilentlyContinue
+    }
+    if (-not (Get-Command Get-YurunaGitArchiveDigest -ErrorAction SilentlyContinue)) { return $result }
+    $archives = @(
+        @{ Prefix = 'E_ARCHIVE'; Directory = $RepoRoot; Exclude = @(Get-YurunaFrameworkArchiveExcludePath) }
+        @{ Prefix = 'E_PROJECT_ARCHIVE'; Directory = (Join-Path $RepoRoot 'project'); Exclude = @() }
+    )
+    foreach ($archive in $archives) {
+        # The project route serves only a checkout of its own; git would
+        # otherwise answer for the framework checkout around it.
+        if (-not (Test-Path -LiteralPath (Join-Path $archive.Directory '.git'))) { continue }
+        $head = & git -C $archive.Directory rev-parse HEAD 2>$null
+        $commit = if ($LASTEXITCODE -eq 0) { ([string]$head).Trim() } else { '' }
+        if ($commit -cnotmatch '^[0-9a-f]{40}$') { continue }
+        $key = "$($archive.Directory)|$commit"
+        if (-not $script:FetchArchiveDigest.ContainsKey($key)) {
+            $digest = [string](Get-YurunaGitArchiveDigest -RepoDir $archive.Directory -Commit $commit -ExcludePath $archive.Exclude)
+            if ($digest -cnotmatch '^[0-9a-f]{64}$') {
+                Write-Warning (Format-YurunaOperatorMessage -Key 'runner.fetch_archive_digest_unavailable' -Arguments @{ repoDir = "$($archive.Directory)"; commit = "$commit" })
+                continue
+            }
+            $script:FetchArchiveDigest[$key] = $digest
+        }
+        $result["$($archive.Prefix)_COMMIT"] = $commit
+        $result["$($archive.Prefix)_SHA"] = $script:FetchArchiveDigest[$key]
+    }
+    return $result
+}
+
 function Get-FetchExecutionContext {
     <#
     .SYNOPSIS
@@ -2152,6 +2293,13 @@ function Get-FetchExecutionContext {
             } else {
                 Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_f1e69844d12e14d2' -Arguments @{ repoRoot = "$projectRoot" })
             }
+        }
+        if ($rel -like 'guest/*.update.sh') {
+            # See https://yuruna.link/42fa6f45-0005
+            # An update script unpacks the framework and project trees; these
+            # let it check them the way E_SHA lets the launcher check the script.
+            $archiveFields = Get-FetchArchiveField -RepoRoot $root
+            foreach ($name in $archiveFields.Keys) { $fields[$name] = $archiveFields[$name] }
         }
     }
 
@@ -2637,6 +2785,8 @@ Register-SequenceAction -Name 'sshExec' -ReplaySafety 'state-changing' -HostIORe
                 return $true
             }
             if (-not $result.addressResolved) { $script:Fail.StepGuestAddressUnresolved = $true }
+            if ([int]$result.exitCode -eq -2) { Set-StepEffectNoneProven -Context $c -Source 'address-unresolved' }
+            $script:Fail.StepDeployResult = Get-GuestDeployResult -Output $result.output
             if ($result.transportLost) {
                 $script:Fail.StepGuestTransportLost = $true
                 [void](Set-GuestSilenceMarker -Context $c -Source 'sshExec: transport dropped mid-command')
@@ -2689,9 +2839,14 @@ Register-SequenceAction -Name 'sshFetchAndExecute' -ReplaySafety 'state-changing
         [void](Publish-GuestRetryMarker -Output $result.output -GuestKey $c.GuestKey -VmName $c.VMName)
         if (-not $result.success) {
             if (-not $result.addressResolved) { $script:Fail.StepGuestAddressUnresolved = $true }
+            if ([int]$result.exitCode -eq -2) { Set-StepEffectNoneProven -Context $c -Source 'address-unresolved' }
+            $script:Fail.StepDeployResult = Get-GuestDeployResult -Output $result.output
             if ($result.transportLost) { $script:Fail.StepGuestTransportLost = $true }
             if ($result.runLost) { $script:Fail.StepGuestRunLost = $true }
-            if (Test-GuestPayloadUnavailable -Output $result.output) { $script:Fail.StepGuestPayloadUnavailable = $true }
+            if (Test-GuestPayloadUnavailable -Output $result.output) {
+                $script:Fail.StepGuestPayloadUnavailable = $true
+                Set-StepEffectNoneProven -Context $c -Source 'no-source-served'
+            }
             $aptMismatch = Get-GuestAptIndexMismatch -Output $result.output
             if ($aptMismatch) {
                 $script:Fail.StepAptIndexMismatch = $aptMismatch
@@ -3044,7 +3199,11 @@ Register-SequenceAction -Name 'retry' -ReplaySafety 'composite' -HostIORequireme
             # the inner cause (OCR timeout vs host_io_blocked vs ...).
             $innerVerbEntry = Get-SequenceAction -Name $script:Fail.LastFailedAction
             $script:Fail.LastInnerFailedAction        = [string]$script:Fail.LastFailedAction
-            $script:Fail.LastInnerFailureClass        = if ($innerVerbEntry) { [string]$innerVerbEntry.FailureClass } else { 'unknown' }
+            # An inner handler that threw is classified unknown, as its own
+            # record is: the verb's registered class describes another failure.
+            $innerThrew = $script:Fail.StepHandlerError -and
+                [string]$script:Fail.StepHandlerError['stepInvocationId'] -ceq [string]$script:Fail.LastFailedStepInvocationId
+            $script:Fail.LastInnerFailureClass        = if ($innerVerbEntry -and -not $innerThrew) { [string]$innerVerbEntry.FailureClass } else { 'unknown' }
             $script:Fail.LastInnerSeverity            = if ($innerVerbEntry) { [string]$innerVerbEntry.Severity }     else { 'unknown' }
             # [string[]] cast prevents the single-element unwrap so a
             # downstream consumer of $script:Fail.LastInnerSuggestedRecoveries

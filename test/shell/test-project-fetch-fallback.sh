@@ -1,6 +1,7 @@
 #!/bin/bash
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
+# GUID: 4267e3a2-15ca-4cce-a12f-02cd98b1750f
 # The Pester driver supplies a redirected production wrapper; every request is local.
 unset E_SHA EXEC_SHA256 E_RETRY_SHA EXEC_RETRY_SHA256 EXEC_REQUIRE_SHA256 EXEC_ALLOW_UNVERIFIED \
       E_FB_REPO E_FB_REF E_PROJECT_REPO E_PROJECT_REF EXEC_FALLBACK_REPO EXEC_FALLBACK_REF \

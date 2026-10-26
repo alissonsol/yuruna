@@ -2,6 +2,7 @@
 
 LICENSEURI https://yuruna.link/license
 Copyright (c) 2019-2026 by Alisson Sol et al.
+GUID: 42b230f9-1f7f-468f-b7ec-9e12c4815523
 """
 
 import importlib.util

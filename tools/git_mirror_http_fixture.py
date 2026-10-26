@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
+# GUID: 42ed7982-6486-4854-8c6f-cc503c652848
 """Exercise the seed's real Apache/CGI routes against a disposable Go worker."""
 
 from __future__ import annotations

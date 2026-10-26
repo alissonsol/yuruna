@@ -1,5 +1,6 @@
 // LICENSEURI https://yuruna.link/license
 // Copyright (c) 2019-2026 by Alisson Sol et al.
+// GUID: 4237e422-4c68-4026-8b60-723741d9f167
 
 package main
 
@@ -59,6 +60,26 @@ func mirrorReadLease(options mirrorOptions, repo string) (func(), error) {
 		return nil, errMirrorBusy
 	}
 	return func() { mirrorUnlock(file); _ = file.Close() }, nil
+}
+
+// mirrorUseCap bounds the use records waiting in one repository's reader
+// folder. A clone names the objects it wants, real or not; the folder lives on
+// the /run tmpfs the whole VM shares; and only the weekly maintenance collects
+// it. Past the cap a use goes unrecorded, so a pin keeps the retention it
+// already has instead of /run filling up.
+const mirrorUseCap = 8192
+
+// mirrorUseRoom reports whether a repository's use folder is under the cap. A
+// folder that cannot be read is reported as having room, so the write that
+// follows names what is wrong.
+func mirrorUseRoom(options mirrorOptions, repo string) bool {
+	dir, err := os.Open(filepath.Join(mirrorReaderDir(options, repo), "uses"))
+	if err != nil {
+		return true
+	}
+	defer dir.Close()
+	names, _ := dir.Readdirnames(mirrorUseCap)
+	return len(names) < mirrorUseCap
 }
 
 func mirrorRecordUse(options mirrorOptions, repo, sha string) error {
@@ -272,9 +293,11 @@ func (r *mirrorReader) raw(w http.ResponseWriter, request *http.Request) {
 		http.Error(w, "raw object exceeds limit", 413)
 		return
 	}
-	if err = mirrorRecordUse(r.options, repo, sha); err != nil {
-		http.Error(w, "mirror unavailable", 503)
-		return
+	if mirrorUseRoom(r.options, repo) {
+		if err = mirrorRecordUse(r.options, repo, sha); err != nil {
+			http.Error(w, "mirror unavailable", 503)
+			return
+		}
 	}
 	w.Header().Set("Content-Type", "application/octet-stream")
 	w.Header().Set("Content-Length", strconv.FormatInt(size, 10))
@@ -370,7 +393,15 @@ func runMirrorCGI(parent context.Context, options mirrorOptions) error {
 	ctx, cancel := context.WithTimeout(parent, options.Limits.CGI)
 	defer cancel()
 	options.Credentials = ""
-	input := &mirrorWantReader{reader: os.Stdin, seen: map[string]bool{}, record: func(sha string) error { return mirrorRecordUse(options, repo, sha) }}
+	// The room is judged once per request: counting the folder per want would
+	// cost a directory read for each of up to 4096 of them.
+	room := mirrorUseRoom(options, repo)
+	input := &mirrorWantReader{reader: os.Stdin, seen: map[string]bool{}, record: func(sha string) error {
+		if !room {
+			return nil
+		}
+		return mirrorRecordUse(options, repo, sha)
+	}}
 	g := &mirrorGit{options: options, stdin: input, env: []string{"GIT_PROJECT_ROOT=" + options.Root, "GIT_HTTP_EXPORT_ALL=1", "GIT_PROTOCOL=" + os.Getenv("HTTP_GIT_PROTOCOL")}}
 	_, err = g.command(ctx, path, os.Stdout, "http-backend")
 	return err

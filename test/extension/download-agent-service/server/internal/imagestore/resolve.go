@@ -1,5 +1,6 @@
 // LICENSEURI https://yuruna.link/license
 // Copyright (c) 2019-2026 by Alisson Sol et al.
+// GUID: 42b4e172-3db4-49db-a47c-d656c81a43b2
 
 package imagestore
 
@@ -10,6 +11,7 @@ import (
 	"net/http"
 	"path"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 )
@@ -114,13 +116,22 @@ func CodenameFor(imageKey string) (string, bool) {
 	return c, ok
 }
 
-// Supported reports whether the agent has a resolver for this identity. It is a
-// statement about the identity alone: whether the resolver can actually run on
-// THIS agent is a separate question, because a best-effort family depends on
-// tooling the agent VM may not have.
+// Supported reports whether the agent has a resolver for this identity and its
+// host type can use it. It is a statement about the identity alone: whether the
+// resolver can actually run on THIS agent is a separate question, because a
+// best-effort family depends on tooling the agent VM may not have.
 func Supported(id ImageID) bool {
 	family := FamilyOf(id.ImageKey)
 	if family == "" {
+		return false
+	}
+	// An arch the host type cannot run, or a best-effort family it does not
+	// take, is media no guest will ever boot from; answering for it would let
+	// any LAN client start a multi-gigabyte download that never serves a host.
+	if !slices.Contains(ArchesForHostType(id.HostType), id.Arch) {
+		return false
+	}
+	if IsBestEffort(id.ImageKey) && !slices.Contains(bestEffortKeysFor(id.HostType), id.ImageKey) {
 		return false
 	}
 	// Only the Ubuntu ISO family has a daily preference; everything else is

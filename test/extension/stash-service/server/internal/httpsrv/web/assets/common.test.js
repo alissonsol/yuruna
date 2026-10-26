@@ -1,5 +1,6 @@
 // LICENSEURI https://yuruna.link/license
 // Copyright (c) 2019-2026 by Alisson Sol et al.
+// GUID: 420dd548-a5ae-4aa5-a1a4-5a16ea4baf7f
 /*
   Framework-free checks for the browser runtime this page set is built on. Run:
   node common.test.js (exit 0 = pass). There is no JS test runner in the repo,

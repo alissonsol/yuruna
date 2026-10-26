@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.25
+.VERSION 2026.10.26
 .GUID 4224d5e4-9d07-4231-afd5-1a7a005a431d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -156,7 +156,7 @@ if ($LASTEXITCODE -ne 0) {
 }
 
 # --- REGION: Render the autounattend.xml + build a CD with it
-# Generate autounattend seed ISO (Windows Setup scans all drives for autounattend.xml)
+# Autounattend seed ISO: Windows Setup scans all drives for autounattend.xml.
 # The answer file and the bootstrap carry the repository token. They are staged
 # in a private (0700) workspace inside the bundle and published as an
 # owner-only image, and the finally below removes the workspace on every exit,
@@ -225,8 +225,9 @@ try {
     $DiskId = [guid]::NewGuid().ToString().ToUpper()
     $IsoId = [guid]::NewGuid().ToString().ToUpper()
     $SeedId = [guid]::NewGuid().ToString().ToUpper()
-    # Deterministic per (host, VM name): a rebuilt guest presents the SAME MAC,
-    # so the DHCP server returns the SAME lease instead of consuming a new one.
+
+    # --- REGION: https://yuruna.link/4220a755-000a
+    # Key the MAC by VM name so a rebuild presents the same address and keeps its DHCP lease.
     $MacAddress = Get-YurunaGuestMacAddress -VMName $VMName
 
     # --- REGION: https://yuruna.link/42fa6f45-0015
@@ -252,7 +253,6 @@ try {
         '__MEMORY_SIZE__' = '12288'
     }
     Write-UtmBundleConfiguration -TemplatePath $TemplatePath -BundlePath $UtmDir -Replacement $plistValues -Confirm:$false
-
 
     if ($NetworkMode -eq "Bridged") {
         # Each plutil call needs its own exit-code test: a failed -replace leaves

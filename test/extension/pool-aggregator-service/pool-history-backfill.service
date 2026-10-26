@@ -1,5 +1,6 @@
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
+# GUID: 42e81a6e-0b2b-408b-a910-9c85d32d7a98
 # --- REGION: [Unit]
 [Unit]
 Description=Yuruna pool history backfill (restores past cycles of the pool's hosts to the dashboard)

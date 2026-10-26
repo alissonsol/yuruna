@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.25
+.VERSION 2026.10.26
 .GUID 42c1e552-e3c2-4c54-b73a-ac2577a100fc
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -42,6 +42,10 @@ function Initialize-TestConfigCacheStore {
     param()
     $script:TestConfigCache      = [System.Collections.Hashtable]::new([System.StringComparer]::Ordinal)
     $script:TestConfigCacheOrder = [System.Collections.Generic.List[string]]::new()
+    # The last parse that succeeded per path, kept apart from the freshness
+    # cache, and the broken contents already warned about.
+    $script:TestConfigLastGood   = [System.Collections.Hashtable]::new([System.StringComparer]::Ordinal)
+    $script:TestConfigLastGoodWarned = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
 }
 Initialize-TestConfigCacheStore
 
@@ -113,6 +117,14 @@ function Read-TestConfig {
         Re-throw parse exceptions instead of returning $null. Use when the
         caller cannot tolerate a silent missing/broken config (e.g. the
         outer runner's startup gate).
+    .PARAMETER LastGoodOnError
+        When the file does not parse or its root is not a mapping, return the
+        last configuration this process parsed from the same path, with one
+        warning per broken content. A long-lived process that decides from
+        the file -- the resident runner -- would otherwise read a half-saved
+        edit as no configuration and fall back to defaults, automatic recovery
+        off among them. Without a good parse to fall back on it returns $null,
+        as without the switch.
     #>
     [CmdletBinding()]
     [OutputType([System.Collections.IDictionary])]
@@ -120,6 +132,7 @@ function Read-TestConfig {
         [Parameter(Mandatory)][string]$Path,
         [switch]$NoCache,
         [switch]$ThrowOnError,
+        [switch]$LastGoodOnError,
         # Freshness triple already computed by the caller (Read-TestConfigOrSnapshot
         # computes it to compare against the snapshot envelope). When all three are
         # supplied, skip recomputing the 64 KB SHA-256 a second time on fallthrough.
@@ -151,13 +164,16 @@ function Read-TestConfig {
     } catch {
         if ($ThrowOnError) { throw }
         Write-Verbose "Read-TestConfig: could not parse $resolved : $($_.Exception.Message)"
+        if ($LastGoodOnError) { return (Get-TestConfigLastGood -ResolvedPath $resolved -Hash $hash -Problem $_.Exception.Message) }
         return $null
     }
     if ($parsed -isnot [System.Collections.IDictionary]) {
         if ($ThrowOnError) { throw (Format-YurunaOperatorMessage -Key 'exceptions.runner_192d44cf22fa5b5c' -Arguments @{ resolved = "$resolved" }) }
         Write-Verbose "Read-TestConfig: root of $resolved is not a mapping; returning `$null."
+        if ($LastGoodOnError) { return (Get-TestConfigLastGood -ResolvedPath $resolved -Hash $hash -Problem 'its root is not a mapping') }
         return $null
     }
+    $script:TestConfigLastGood[$resolved] = $parsed
     $script:TestConfigCache[$resolved] = @{ Mtime = $mtime; Hash = $hash; Config = $parsed }
     if (-not $script:TestConfigCacheOrder.Contains($resolved)) { $script:TestConfigCacheOrder.Add($resolved) }
     while ($script:TestConfigCacheOrder.Count -gt $script:TestConfigCacheMax) {
@@ -168,6 +184,26 @@ function Read-TestConfig {
     # A parsed config can contain repository tokens and other credentials.
     # Keep this read in memory; it must not create another credential file.
     return $parsed
+}
+
+function Get-TestConfigLastGood {
+    <#
+    .SYNOPSIS
+        The last configuration parsed from a path, for a reader that asked to
+        keep it over a file that does not parse; warns once per broken content.
+    #>
+    [CmdletBinding()]
+    [OutputType([System.Collections.IDictionary])]
+    param(
+        [Parameter(Mandatory)][string]$ResolvedPath,
+        [AllowEmptyString()][string]$Hash = '',
+        [AllowEmptyString()][string]$Problem = ''
+    )
+    if (-not $script:TestConfigLastGood.ContainsKey($ResolvedPath)) { return $null }
+    if ($script:TestConfigLastGoodWarned.Add("$ResolvedPath|$Hash")) {
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.config_last_good_used' -Arguments @{ path = $ResolvedPath; problem = $Problem })
+    }
+    return $script:TestConfigLastGood[$ResolvedPath]
 }
 
 function Clear-TestConfigCache {

@@ -1,5 +1,6 @@
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
+# GUID: 42c83206-9fd0-498c-b7db-7672151f9d88
 locals {
   name             = var.clusterName
   cluster_version  = var.clusterVersion

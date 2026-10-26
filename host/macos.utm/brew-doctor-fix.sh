@@ -1,7 +1,8 @@
 #!/bin/bash
-# Version: 2026.10.25
+# Version: 2026.10.26
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
+# GUID: 4231eb74-b879-4987-aca4-800f850eef17
 # brew-doctor-fix.sh -- fixes common `brew doctor` issues on Apple Silicon:
 #   1. PATH order: /opt/homebrew/{bin,sbin} before /usr/bin
 #   2. Shadowed tools: verifies Homebrew versions take precedence

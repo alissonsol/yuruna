@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.25
+.VERSION 2026.10.26
 .GUID 4219b525-eda6-4092-a1ab-0224926173fe
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -172,8 +172,8 @@ Describe 'Rename-VM does not leave the service VMs suspended' {
         # UTM ingests its library asynchronously after launch. utmctl answers
         # "not found" until that finishes and the start is silently dropped,
         # which reads as a resume that worked. The wait now uses a shared
-        # boot-relative deadline (New-YurunaDeadline / Test-YurunaDeadline
-        # Expired) rather than a per-call (Get-Date).AddSeconds wall clock, so
+        # boot-relative deadline (New-YurunaDeadline and
+        # Test-YurunaDeadlineExpired) rather than a per-call (Get-Date).AddSeconds wall clock, so
         # the same budget can be threaded into Invoke-UtmVMStartWithRetry
         # instead of being spent twice.
         $body = Get-FunctionBody -Path $script:SuspendHostModule -Name 'Resume-YurunaServiceVM'

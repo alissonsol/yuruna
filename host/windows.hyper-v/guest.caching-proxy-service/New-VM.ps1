@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.25
+.VERSION 2026.10.26
 .GUID 4242f187-1ce6-46a5-a5a4-7c2435ed1ac1
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -164,16 +164,18 @@ Copy-Item -Path $baseImageFile -Destination $vhdxFile -Force
 
 # --- REGION: Grow the per-VM disk to 512 GB
 # See https://yuruna.link/42e220c4-0004
-# The dynamic 512 GiB disk must fit Squid's 384 GiB cache plus OS, logs, and headroom.
+# Keep enough virtual capacity for the Squid cache and OS/log headroom.
 if (-not (Expand-ExtensionVmDisk -Path $vhdxFile -SizeBytes 512GB -Format 'vhdx')) {
     Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_af869066056e98b8' -Arguments @{ vhdxFile = "$vhdxFile" })
     exit 1
 }
 
 # --- REGION: Stage the cloud-init seed directory
+# The seed carries the admin password. It is staged in a private workspace
+# beside the disk (owner, SYSTEM and Administrators only), published as an
+# image only the new VM may read, and removed on every exit by the finally below.
 # meta-data is shared under host/vmconfig/ (byte-identical across all 3 host platforms).
 $hostVmConfigDir = Join-Path (Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSScriptRoot))) 'host/vmconfig'
-# Seed-only staging has an explicit protected ACL before any secret is written.
 Import-Module (Join-Path $PSScriptRoot '../../modules/Yuruna.SeedMedia.psm1') -Force
 $seedWorkspace = $null
 try {
@@ -395,10 +397,9 @@ try {
     $proxyCaStatementB64 = [Convert]::ToBase64String([System.Text.UTF8Encoding]::new($false).GetBytes($proxyCaStatement))
 
     # --- REGION: Render user-data / meta-data
-    # Render user-data from the shared base + Hyper-V overlay
-    # (host/vmconfig/caching-proxy-service.*). New-CloudInitUserData resolves the
-    # SSH-key and password placeholders with literal .Replace(), so values
-    # carrying regex-special chars are safe.
+    # Render user-data from the shared base + Hyper-V overlay (host/vmconfig/
+    # caching-proxy-service.*). New-CloudInitUserData resolves placeholders with literal
+    # .Replace(), so values carrying regex-special chars are safe.
     Import-Module (Join-Path $_repoRootForExt 'automation/Yuruna.CloudInitTemplate.psm1') -Force
     $UserData = New-CloudInitUserData `
         -BasePath    (Join-Path $_repoRootForExt 'host/vmconfig/caching-proxy-service.base.user-data') `
@@ -469,10 +470,8 @@ try {
     $createdVm = Hyper-V\Get-VM -Name $VMName -ErrorAction Stop
     Grant-SeedMediaVmRead -Path $SeedIso -VMId $createdVm.Id -Confirm:$false
 
-    # --- REGION: Clean up temporary files
 } finally {
-    # The seed holds the guest's admin credentials; it must not outlive this
-    # script on any path, an early exit or a throw included.
+    # --- REGION: Clean up temporary files
     Remove-SeedMediaWorkspace -Workspace $seedWorkspace -Confirm:$false
 }
 

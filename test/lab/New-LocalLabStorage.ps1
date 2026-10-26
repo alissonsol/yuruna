@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.25
+.VERSION 2026.10.26
 .GUID 425548c6-683c-4519-9712-2f32b36e15e8
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -586,5 +586,3 @@ if ($failed.Count -gt 0 -and -not $WhatIfPreference) {
     exit (Get-EntryPointExitCode -Outcome 'Failure')
 }
 exit (Get-EntryPointExitCode -Outcome 'Ok')
-
-# Copyright (c) 2019-2026 by Alisson Sol et al.

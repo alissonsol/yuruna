@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.25
+.VERSION 2026.10.26
 .GUID 42a28f50-90bf-4aa0-a8f6-cda286b79d39
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -236,10 +236,12 @@ chown() { :; }
             Library { 'automation/yuruna-retry.sh' }
         }
         $source = Get-Content (Join-Path $script:RepoRoot $relative) -Raw
+        # The file's own copy of the archive fetch, which the sliced region calls.
+        $fetchHelper = [regex]::Match($source, '(?ms)^yuruna_fetch_archive\(\) \{.*?^\}').Value + "`n"
         if ($Platform -eq 'Library') {
             $start = $source.IndexOf('yuruna_materialize_repositories() {')
             $end = $source.IndexOf('# --- REGION: yuruna_wait_network', $start)
-            return $source.Substring($start, $end - $start) + "`n" + 'yuruna_materialize_repositories "$REAL_HOME" fixture "$FRAMEWORK_URL" ""'
+            return $fetchHelper + $source.Substring($start, $end - $start) + "`n" + 'yuruna_materialize_repositories "$REAL_HOME" fixture "$FRAMEWORK_URL" ""'
         }
         if ($Early) {
             $start = $source.IndexOf('# --- REGION: Early yuruna framework extraction')
@@ -248,7 +250,7 @@ chown() { :; }
             $start = $source.IndexOf('# --- REGION: Materialize the yuruna framework and project repos')
             $end = if ($Platform -eq 'MacOS') { $source.IndexOf('# Tarball extraction', $start) } else { $source.IndexOf('# --- REGION: Wait for network convergence', $start) }
         }
-        return $source.Substring($start, $end - $start).Replace('/etc/yuruna/host.env', '"$FIXTURE_ROOT/absent-host.env"')
+        return $fetchHelper + $source.Substring($start, $end - $start).Replace('/etc/yuruna/host.env', '"$FIXTURE_ROOT/absent-host.env"')
     }
     function Invoke-UpdateFrameworkFixture {
         param([string]$Platform, [string]$Mode, [switch]$Early)

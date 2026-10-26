@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.25
+.VERSION 2026.10.26
 .GUID 42418995-a462-47f5-816a-8709623807f8
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -290,6 +290,14 @@ function Test-UbuntuServerImageChecksum {
             switch (& $sigVerifier -ChecksumUrl $ChecksumUrl -ChecksumFilePath $sumsFile) {
                 'good'       { Write-Information (Format-YurunaOperatorMessage -Key 'host.operator_16b618147c03a190') -InformationAction Continue }
                 'unverified' { Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_891e818fe6ad2659') }
+                'unavailable' {
+                    Write-Warning ('=' * 72)
+                    Write-Warning (Format-YurunaOperatorMessage -Key 'host.signature_could_not_be_checked')
+                    Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_0a2316bbbe70c189' -Arguments @{ checksumUrl = "$ChecksumUrl" })
+                    Write-Warning (Format-YurunaOperatorMessage -Key 'host.signature_could_not_be_checked_detail')
+                    Write-Warning ('=' * 72)
+                    return $false
+                }
                 'bad'        {
                     Write-Warning ('=' * 72)
                     Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_ad8085714f2d476d')
@@ -357,6 +365,20 @@ function Test-UbuntuServerImageAlreadyCurrent {
         if (-not [int64]::TryParse([string]$lengthHeader, [ref]$remoteLen)) { return $false }
     } catch { $null = $_; return $false }
     return ([int64]$prior[2] -eq $remoteLen)
+}
+
+function Write-UbuntuImageFailureKind {
+    <#
+    .SYNOPSIS
+        Tell the runner which kind of failure stopped the image, when the host
+        driver that ran this pipeline records provisioning results.
+    .DESCRIPTION
+        An integrity failure and a network one end the script the same way, and
+        only the second is one a retry can clear.
+    #>
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][ValidateSet('network', 'integrity', 'tool')][string]$Kind, [AllowEmptyString()][string]$Message = '')
+    if (Get-Command Write-YurunaProvisionResult -ErrorAction SilentlyContinue) { Write-YurunaProvisionResult -Kind $Kind -Message $Message }
 }
 
 function Save-UbuntuServerImage {
@@ -455,6 +477,7 @@ function Save-UbuntuServerImage {
             if ($EmitProxyDiagnosticOnFailure) {
                 Write-UbuntuImageProxyDiagnostic -ProbeUrls @("$($url.StableReleaseUrl)/", "$($url.DailyBaseUrl)/$($url.DailyIsoFileName)")
             }
+            Write-UbuntuImageFailureKind -Kind network -Message $msg
             throw $msg
         }
 
@@ -492,7 +515,9 @@ function Save-UbuntuServerImage {
                 Invoke-WebRequest -Uri $sourceUrl -OutFile $downloadFile -ErrorAction Stop
             }
         } catch {
-            throw (Format-YurunaOperatorMessage -Key 'exceptions.host_78d93fd740dd1ed5' -Arguments @{ message = "$($_.Exception.Message)" })
+            $failure = Format-YurunaOperatorMessage -Key 'exceptions.host_78d93fd740dd1ed5' -Arguments @{ message = "$($_.Exception.Message)" }
+            Write-UbuntuImageFailureKind -Kind network -Message $failure
+            throw $failure
         }
         $downloadedSize = (Get-Item -LiteralPath $downloadFile).Length
 
@@ -500,18 +525,50 @@ function Save-UbuntuServerImage {
         if (-not (Test-UbuntuServerImageChecksum -ChecksumUrl $checksumUrl -IsoFileName $isoFileName -DownloadFile $downloadFile)) {
             # See https://yuruna.link/42e220c4-0003
             Remove-Item -LiteralPath $downloadFile -Force -ErrorAction SilentlyContinue
-            throw (Format-YurunaOperatorMessage -Key 'exceptions.host_9bbc5dc302229fc3' -Arguments @{ isoFileName = "$isoFileName" })
+            $failure = Format-YurunaOperatorMessage -Key 'exceptions.host_9bbc5dc302229fc3' -Arguments @{ isoFileName = "$isoFileName" }
+            Write-UbuntuImageFailureKind -Kind integrity -Message $failure
+            throw $failure
+        }
+    }
+
+    if ($agentServed) {
+        # The agent is a byte source, not a trust anchor: what it served is
+        # checked against the publisher's signed checksum list, fetched through
+        # the cache from the directory the image came from, as a direct download
+        # is. An agent that cannot name the origin leaves the publisher's own
+        # listing, which must name the same file.
+        $checksumUrl = ''
+        if ($sourceUrl -match '^https?://.+/[^/]+$') {
+            $checksumUrl = $sourceUrl.Substring(0, $sourceUrl.LastIndexOf('/')) + '/SHA256SUMS'
+        } else {
+            $resolved = Resolve-UbuntuServerImage -ReleaseCodename $ReleaseCodename -Arch $Arch -PreferDaily:$PreferDaily
+            if ($resolved -and [string]$resolved.IsoFileName -ceq $isoFileName) { $checksumUrl = [string]$resolved.ChecksumUrl }
+        }
+        if (-not $checksumUrl) {
+            Write-Warning (Format-YurunaOperatorMessage -Key 'host.agent_image_unverifiable' -Arguments @{ isoFileName = "$isoFileName"; sourceUrl = "$sourceUrl" })
+        }
+        if (-not $checksumUrl -or -not (Test-UbuntuServerImageChecksum -ChecksumUrl $checksumUrl -IsoFileName $isoFileName -DownloadFile $downloadFile)) {
+            Remove-Item -LiteralPath $downloadFile -Force -ErrorAction SilentlyContinue
+            $failure = Format-YurunaOperatorMessage -Key 'exceptions.host_9bbc5dc302229fc3' -Arguments @{ isoFileName = "$isoFileName" }
+            Write-UbuntuImageFailureKind -Kind integrity -Message $failure
+            throw $failure
         }
     }
 
     # --- REGION: Preserve previous and finalize
     $previousFile = Join-Path $DownloadDir "$BaseImageName.previous.iso"
-    Remove-Item $previousFile -Force -ErrorAction SilentlyContinue
-    if (Test-Path -LiteralPath $baseImageFile) {
-        Move-Item -Path $baseImageFile -Destination $previousFile
+    # The sentinel below vouches for the base image, so it follows only a swap
+    # that is proven to have put the downloaded bytes there.
+    Import-Module (Join-Path $PSScriptRoot 'Yuruna.Image.psm1') -DisableNameChecking -Verbose:$false
+    try {
+        $keptPrevious = Publish-YurunaBaseImage -DownloadFile $downloadFile -BaseImageFile $baseImageFile -PreviousFile $previousFile -ExpectedSize $downloadedSize -Confirm:$false
+    } catch {
+        Write-UbuntuImageFailureKind -Kind tool -Message $_.Exception.Message
+        throw
+    }
+    if ($keptPrevious) {
         Write-Information (Format-YurunaOperatorMessage -Key 'host.operator_3484688671544ee8' -Arguments @{ previousFile = "$previousFile" }) -InformationAction Continue
     }
-    Move-Item -Path $downloadFile -Destination $baseImageFile
 
     # See https://yuruna.link/42e220c4-0003
     if (Get-Command -Name Test-DownloadAlreadyCurrent -ErrorAction SilentlyContinue) {

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.25
+.VERSION 2026.10.26
 .GUID 42b0f4a9-1c73-4e58-8d61-9a5207ebd3f4
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -56,12 +56,17 @@
     that no longer fits an English edit to its placeholders, variants, kind
     or lifecycle.
 
-    Exit codes follow the entry-point contract:
-        0  Sources are valid and the generated artifacts are current.
-        1  A source is invalid, or the artifacts are stale (-Check), or
-           they were rewritten (-Update).
-        2  The catalog root or the locale manifest is missing, so nothing
-           could be compiled.
+    Exit codes follow the entry-point contract, so a caller reads the outcome
+    from the code and never from the text:
+        0  Sources are valid, and the generated artifacts are current (-Check)
+           or were brought up to date (-Update), whether or not anything was
+           written. The WROTE and REMOVED lines name what changed.
+        1  A source is invalid; nothing was compared or written.
+        2  Nothing could be compiled: the catalog root, the locale manifest,
+           the schema or the catalogs folder is missing, or the run failed
+           before it finished.
+        3  -Check only: the sources are valid and an artifact is stale or
+           orphaned. -Update would rewrite it.
 
 .PARAMETER Check
     Validate and compare against the generated artifacts without writing.
@@ -79,7 +84,7 @@
 
 .EXAMPLE
     pwsh tools/Invoke-CatalogCompile.ps1 -Update
-    Regenerates every artifact; exits 1 when anything changed.
+    Regenerates every stale artifact and exits 0; the WROTE lines name them.
 #>
 
 [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseBOMForUnicodeEncodedFile', '',
@@ -120,6 +125,13 @@ if (-not $ServerCollector -and -not [Runtime.GCSettings]::IsServerGC) {
     exit $LASTEXITCODE
 }
 
+# An error that stops the run leaves nothing compiled that a caller can trust,
+# and must not read as an invalid source (1).
+trap {
+    Write-Error -ErrorRecord $_ -ErrorAction Continue
+    exit 2
+}
+
 Import-Module (Join-Path $PSScriptRoot '../test/modules/Test.LocalizationExchange.psm1') -DisableNameChecking
 
 $ErrorActionPreference = 'Stop'
@@ -152,6 +164,12 @@ namespace Yuruna {
                     case '\'': output.Append("\\'"); break;
                     case '\n': output.Append("\\n"); break;
                     case '\r': output.Append("\\r"); break;
+                    // Browser catalogs are also inlined into a <script> on the
+                    // self-contained pages, where catalog text holding
+                    // </script or <!-- would end or derail the script.
+                    case '<': output.Append("\\x3c"); break;
+                    case '>': output.Append("\\x3e"); break;
+                    case '&': output.Append("\\x26"); break;
                     default:
                         if (c > 126) output.Append("\\u").Append(((int)c).ToString("x4", CultureInfo.InvariantCulture));
                         else output.Append(c);
@@ -414,7 +432,7 @@ function ConvertTo-CompiledMessage {
         $branch = $Message.$kind
         if ($null -eq $branch) { continue }
         $variants = [ordered]@{}
-        foreach ($p in ($branch.variants.PSObject.Properties | Sort-Object Name)) {
+        foreach ($p in ($branch.variants.PSObject.Properties | Sort-Object -Culture iv Name)) {
             $variants[$p.Name] = ConvertTo-CompiledForm -Text ([string]$p.Value) -Placeholders $placeholders
         }
         return [ordered]@{ kind = $kind; selector = $branch.selector; variants = $variants }
@@ -463,7 +481,7 @@ function ConvertTo-PseudoCatalog {
     param([Parameter(Mandatory)]$Catalog, [switch]$Mirrored)
 
     $messages = [ordered]@{}
-    foreach ($prop in ($Catalog.messages.PSObject.Properties | Sort-Object Name)) {
+    foreach ($prop in ($Catalog.messages.PSObject.Properties | Sort-Object -Culture iv Name)) {
         $msg = $prop.Value
         if ($msg.lifecycle -eq 'tombstone') { continue }
         $clone = [ordered]@{ lifecycle = $msg.lifecycle }
@@ -475,7 +493,7 @@ function ConvertTo-PseudoCatalog {
             $branch = $msg.$kind
             if ($null -eq $branch) { continue }
             $variants = [ordered]@{}
-            foreach ($p in ($branch.variants.PSObject.Properties | Sort-Object Name)) {
+            foreach ($p in ($branch.variants.PSObject.Properties | Sort-Object -Culture iv Name)) {
                 $variants[$p.Name] = ConvertTo-PseudoText -Text ([string]$p.Value) -Mirrored:$Mirrored
             }
             # The compile step reads these back through PSObject.Properties, so
@@ -501,28 +519,6 @@ function ConvertTo-PseudoCatalog {
 function ConvertTo-CanonicalJson {
     param([Parameter(Mandatory)]$Value)
     return (($Value | ConvertTo-Json -Depth 20).Replace("`r`n", "`n").TrimEnd() + "`n")
-}
-
-function ConvertTo-SortedValue {
-    <# Recursively sort object keys before hashing a semantic record. #>
-    param([Parameter(Mandatory)][AllowNull()]$Value)
-
-    if ($null -eq $Value -or $Value -is [string] -or $Value -is [ValueType]) { return $Value }
-    if ($Value -is [System.Collections.IDictionary]) {
-        $ordered = [ordered]@{}
-        foreach ($key in @($Value.Keys | ForEach-Object { [string]$_ } | Sort-Object)) {
-            $ordered[$key] = ConvertTo-SortedValue -Value $Value[$key]
-        }
-        return $ordered
-    }
-    if ($Value -is [System.Collections.IEnumerable] -and $Value -isnot [string]) {
-        return @($Value | ForEach-Object { ConvertTo-SortedValue -Value $_ })
-    }
-    $ordered = [ordered]@{}
-    foreach ($property in @($Value.PSObject.Properties | Sort-Object Name)) {
-        $ordered[$property.Name] = ConvertTo-SortedValue -Value $property.Value
-    }
-    return $ordered
 }
 
 function Get-Sha256 {
@@ -622,7 +618,7 @@ function Get-PowerShellArtifact {
     $guid = Get-DerivedGuid -Seed "$Locale|$Domain"
     $header = @(
         '<#PSScriptInfo'
-        '.VERSION 2026.10.25'
+        '.VERSION 2026.10.26'
         ".GUID $guid"
         '.AUTHOR Alisson Sol et al.'
         '.COPYRIGHT (c) 2019-2026 by Alisson Sol et al.'
@@ -722,7 +718,7 @@ if (-not (Test-Path -LiteralPath $catalogRoot -PathType Container)) {
 # PowerShell hides them on Linux and macOS but not on Windows, where -Force
 # also brings in Hidden and System files the other platforms never had.
 $sourceLocale = @(Get-ChildItem -LiteralPath $catalogRoot -Directory -Force |
-        Where-Object { -not $_.Name.StartsWith('.', [StringComparison]::Ordinal) } | Sort-Object Name)
+        Where-Object { -not $_.Name.StartsWith('.', [StringComparison]::Ordinal) } | Sort-Object -Culture iv Name)
 $catalogs = [System.Collections.Generic.List[hashtable]]::new()
 $seenKey = @{}
 
@@ -737,7 +733,7 @@ foreach ($dir in $sourceLocale) {
     # The same dot-name rule: an editor's lock or draft file beside a catalog
     # must not compile into the artifacts on any platform.
     foreach ($file in (Get-ChildItem -LiteralPath $dir.FullName -Filter '*.json' -File -Force |
-            Where-Object { -not $_.Name.StartsWith('.', [StringComparison]::Ordinal) } | Sort-Object Name)) {
+            Where-Object { -not $_.Name.StartsWith('.', [StringComparison]::Ordinal) } | Sort-Object -Culture iv Name)) {
         $text = [IO.File]::ReadAllText($file.FullName)
         $parsed = $null
         try { $parsed = ConvertFrom-Json -InputObject $text }
@@ -775,9 +771,9 @@ if ($catalogs.Count -eq 0) { Add-Problem 'no source catalogs were found' }
 $baseByDomain = @{}
 $messageSourceHash = [ordered]@{}
 $translationProvenance = [ordered]@{}
-foreach ($entry in @($catalogs | Where-Object Locale -EQ $defaultLocale | Sort-Object Domain)) {
+foreach ($entry in @($catalogs | Where-Object Locale -EQ $defaultLocale | Sort-Object -Culture iv Domain)) {
     $baseByDomain[$entry.Domain] = $entry
-    foreach ($p in @($entry.Parsed.messages.PSObject.Properties | Sort-Object Name)) {
+    foreach ($p in @($entry.Parsed.messages.PSObject.Properties | Sort-Object -Culture iv Name)) {
         $messageSourceHash[$p.Name] = Get-MessageSourceHash -Key $p.Name -Message $p.Value
     }
 }
@@ -789,7 +785,7 @@ foreach ($entry in @($catalogs | Where-Object Locale -NE $defaultLocale)) {
         continue
     }
     $mergedMessages = [ordered]@{}
-    foreach ($p in @($entry.Parsed.messages.PSObject.Properties | Sort-Object Name)) {
+    foreach ($p in @($entry.Parsed.messages.PSObject.Properties | Sort-Object -Culture iv Name)) {
         $key = $p.Name
         $translation = $p.Value
         $sourceProperty = $baseEntry.Parsed.messages.PSObject.Properties[$key]
@@ -839,14 +835,14 @@ foreach ($entry in @($catalogs | Where-Object Locale -NE $defaultLocale)) {
         if ($sourceKind -eq 'message') {
             $merged.message = [string]$translation.message
         } else {
-            $sourceVariants = @($source.$sourceKind.variants.PSObject.Properties.Name | Sort-Object)
+            $sourceVariants = @($source.$sourceKind.variants.PSObject.Properties.Name | Sort-Object -Culture iv)
             if ($sourceKind -eq 'plural') {
                 # Plural forms belong to the target language. Requiring English's
                 # categories rejects a valid Portuguese 'many' form and cannot
                 # express a locale with more grammatical forms than English.
-                $sourceVariants = @($manifest.locales.$($entry.Locale).pluralCategories | Sort-Object)
+                $sourceVariants = @($manifest.locales.$($entry.Locale).pluralCategories | Sort-Object -Culture iv)
             }
-            $translatedVariants = @($translation.$sourceKind.variants.PSObject.Properties.Name | Sort-Object)
+            $translatedVariants = @($translation.$sourceKind.variants.PSObject.Properties.Name | Sort-Object -Culture iv)
             foreach ($variant in $sourceVariants) {
                 if ($translatedVariants -notcontains $variant) {
                     Add-Problem "$($entry.SourcePath)`: '$key' has no translated '$variant' $sourceKind form"
@@ -884,7 +880,6 @@ foreach ($entry in @($catalogs | Where-Object Locale -NE $defaultLocale)) {
 }
 
 # --- REGION: Validate supported locales
-#
 # The manifest's status field decides which locales a reader can actually be
 # served. Nothing enforced what that claim required, so a locale could be
 # marked supported while carrying a fraction of the default's keys and no
@@ -926,7 +921,7 @@ foreach ($p in $manifest.locales.PSObject.Properties) {
         continue
     }
     $missing = @()
-    foreach ($key in ($keysByLocale[$defaultLocale].Keys | Sort-Object)) {
+    foreach ($key in ($keysByLocale[$defaultLocale].Keys | Sort-Object -Culture iv)) {
         if (-not $keysByLocale[$name].ContainsKey($key)) { $missing += $key }
     }
     if ($missing.Count -gt 0) {
@@ -961,13 +956,14 @@ $inventory = [System.Collections.Generic.List[object]]::new()
 # artifacts and the inventory are the bytes a one-at-a-time loop writes.
 # A planned locale is validated above but emits nothing: no runtime can load
 # it, and the orphan sweep below removes anything an earlier run left.
-$emitEntries = @($catalogs | Sort-Object { $_.Locale }, { $_.Domain } |
+$emitEntries = @($catalogs | Sort-Object -Culture iv { $_.Locale }, { $_.Domain } |
         Where-Object { [string]$manifest.locales.$($_.Locale).status -ne 'planned' })
+# Every function this script defines goes to the runspaces, not a list of the
+# ones the emitters call today: a helper missing from such a list fails only
+# inside a runspace, where it reads as a compile that produced too few files.
 $emitFunctions = [ordered]@{}
-foreach ($name in @('ConvertTo-CompiledForm', 'ConvertTo-CompiledMessage', 'ConvertTo-CanonicalJson', 'Get-Sha256',
-        'Get-DerivedGuid', 'ConvertTo-PowerShellLiteral', 'Get-PowerShellArtifact', 'ConvertTo-JsLiteral',
-        'Get-BrowserArtifact', 'Get-GoArtifact')) {
-    $emitFunctions[$name] = (Get-Item -LiteralPath "function:$name").ScriptBlock.ToString()
+foreach ($function in @(Get-ChildItem -LiteralPath 'function:' | Where-Object { $_.ScriptBlock.File -eq $PSCommandPath } | Sort-Object -Culture iv -Property Name)) {
+    $emitFunctions[$function.Name] = $function.ScriptBlock.ToString()
 }
 $emitCulture = [Globalization.CultureInfo]::CurrentCulture
 $emitUiCulture = [Globalization.CultureInfo]::CurrentUICulture
@@ -985,7 +981,7 @@ $emitted = @(@(0..($emitEntries.Count - 1)) | Where-Object { $emitEntries.Count 
             $entry = ($using:emitEntries)[$index]
             $compiled = [ordered]@{}
             $activeCount = 0
-            foreach ($p in ($entry.Parsed.messages.PSObject.Properties | Sort-Object Name)) {
+            foreach ($p in ($entry.Parsed.messages.PSObject.Properties | Sort-Object -Culture iv Name)) {
                 if ($p.Value.lifecycle -eq 'tombstone') { continue }
                 $compiled[$p.Name] = ConvertTo-CompiledMessage -Message $p.Value
                 $activeCount++
@@ -1003,7 +999,7 @@ $emitted = @(@(0..($emitEntries.Count - 1)) | Where-Object { $emitEntries.Count 
                 Go = Get-GoArtifact -Locale $entry.Locale -Domain $entry.Domain -Json $json
                 CompiledHash = Get-Sha256 -Text $json
             }
-        } | Sort-Object Index)
+        } | Sort-Object -Culture iv Index)
 if ($emitted.Count -ne $emitEntries.Count) { throw "Compiled $($emitted.Count) of $($emitEntries.Count) catalog entries." }
 
 foreach ($result in $emitted) {
@@ -1043,7 +1039,7 @@ $wanted[(Join-Path $Root 'manifests/inventory.json')] = $inventoryJson
 # is the identity carried at run time, so it is not stored inside itself.
 $artifactHash = [ordered]@{}
 $artifactBytes = [ordered]@{}
-foreach ($k in ($wanted.Keys | Sort-Object)) {
+foreach ($k in ($wanted.Keys | Sort-Object -Culture iv)) {
     $rel = ([IO.Path]::GetRelativePath($RepoRoot, $k)) -replace '\\', '/'
     $artifactHash[$rel] = Get-Sha256 -Text $wanted[$k]
     $artifactBytes[$rel] = [Text.UTF8Encoding]::new($false).GetByteCount($wanted[$k])
@@ -1053,14 +1049,14 @@ foreach ($path in @($schemaPath, $manifestPath)) {
     $rel = ([IO.Path]::GetRelativePath($RepoRoot, $path)) -replace '\\', '/'
     $inputHash[$rel] = Get-Sha256 -Text ([IO.File]::ReadAllText($path))
 }
-foreach ($entry in @($catalogs | Where-Object { -not $_.GeneratedFrom } | Sort-Object SourcePath)) {
+foreach ($entry in @($catalogs | Where-Object { -not $_.GeneratedFrom } | Sort-Object -Culture iv SourcePath)) {
     $path = Join-Path $Root $entry.SourcePath
     $rel = ([IO.Path]::GetRelativePath($RepoRoot, $path)) -replace '\\', '/'
     $inputHash[$rel] = $entry.InputHash
 }
 $sourceProvenance = [ordered]@{}
-foreach ($entry in @($base | Sort-Object Domain)) {
-    foreach ($p in @($entry.Parsed.messages.PSObject.Properties | Sort-Object Name)) {
+foreach ($entry in @($base | Sort-Object -Culture iv Domain)) {
+    foreach ($p in @($entry.Parsed.messages.PSObject.Properties | Sort-Object -Culture iv Name)) {
         $sourceProvenance[$p.Name] = [ordered]@{
             domain     = $entry.Domain
             source     = $entry.SourcePath
@@ -1080,7 +1076,7 @@ foreach ($translationKey in $translationProvenance.Keys) {
 }
 $setManifest = ConvertTo-CanonicalJson -Value ([ordered]@{
     schema          = 'yuruna.catalog-set/v1'
-    compilerVersion = '2026.10.25'
+    compilerVersion = '2026.10.26'
     catalogSchema   = 'yuruna.catalog/v1'
     localeManifest  = Get-Sha256 -Text ([IO.File]::ReadAllText($manifestPath))
     inputs           = $inputHash
@@ -1167,13 +1163,12 @@ foreach ($dir in @((Join-Path $generatedRoot 'powershell'), (Join-Path $generate
 
 foreach ($w in $script:Warning) { Write-Output "WARN  $w" }
 Write-Output ''
-$domains = @($catalogs | ForEach-Object { $_.Domain } | Sort-Object -Unique).Count
-$locales = @($catalogs | ForEach-Object { $_.Locale } | Sort-Object -Unique).Count
+$domains = @($catalogs | ForEach-Object { $_.Domain } | Sort-Object -Culture iv -Unique).Count
+$locales = @($catalogs | ForEach-Object { $_.Locale } | Sort-Object -Culture iv -Unique).Count
 if ($Update) {
     Write-Output "Compiled $domains domain(s) in $locales locale(s); wrote $written artifact(s)."
-    if ($written -gt 0) { exit 1 }
     exit 0
 }
 Write-Output "Compiled $domains domain(s) in $locales locale(s); $($stale.Count) artifact(s) stale."
-if ($stale.Count -gt 0) { exit 1 }
+if ($stale.Count -gt 0) { exit 3 }
 exit 0

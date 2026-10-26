@@ -189,9 +189,9 @@ takes any script that exists in all (or some) of the host folders.
 
 The one definition of what a step rule looks like.
 
-The transcript's document outline is built from these lines, and until this
-was shared the shape lived twice: once in the orchestrator that writes the
-rule and once in a regex here that recovers it. Two copies of a format drift,
+The transcript's document outline is built from these lines, so the shape is
+defined once and shared, never kept twice -- once in the orchestrator that
+writes the rule and once in a regex that recovers it. Two copies of a format drift,
 and the failure is silent in the worst way -- the transcript still renders,
 it has no headings, so a reader navigating tens of kilobytes of one
 <pre> loses every landmark and nothing reports a problem.
@@ -466,7 +466,11 @@ every guest is guaranteed to fail identically, can refuse.
 Placed after the VM admission so a refusal never strands guests the previous
 cycle left running: refusing before the stop leaves the host dirtier than a
 normal cycle, and the leftovers are exactly what keeps the condition from
-clearing. The refusal path runs the VM sweep for the same reason.
+clearing. The refusal path runs the VM sweep for the same reason, once per loss
+(`sweptUtc` in `runner.hostNetwork.json`; no cycle runs between two refusals
+that could strand another VM) and in a process of its own bounded to 300 s, so
+a hypervisor that stopped answering cannot hold the refusal until the preamble
+watchdog kills it.
 
 <a id="4213a0b3-001d"></a>
 
@@ -2321,6 +2325,11 @@ Why -Command (not -File):
 Why -NoProfile:
   $PROFILE in the launching shell can re-set YURUNA_* env vars in the
   child AFTER the parent's snapshot pinned the right values.
+Why the exit trailer:
+  -Command reports whether its last statement succeeded, not the
+  script's exit code. The command ends with the trailer the libvirt
+  group relaunch uses, so the inner's 2, 70 and 78 reach the runner
+  unchanged and a terminating error still exits 1.
 Why a helper module:
   Start-TestRunner.ps1, Invoke-TestProject.ps1 and Invoke-TestCycleRunner.ps1
   all need the same single-quote escaping + -Command construction; duplicated,
@@ -4112,6 +4121,13 @@ applying a recommendation is a separate, default-off feature
 that needs a per-cycle attempt cap and a class allow-list
 (and enough human review) before it can act.
 
+The decision is made before the cycle's transcript closes, so its record and
+event belong to that cycle. A runner cycle decides before Complete-CycleRun. An
+orchestration cycle seals its own transcript inside Invoke-OrchestrationSequence,
+so the runner hands it the same decision as `-BeforeSeal`. The orchestrator runs
+it once the outcome is known and before Complete-Run and Stop-LogFile, and the
+alert ships that payload without deciding again.
+
 <a id="4213a0b3-00fd"></a>
 
 ## test/modules/Test.RunnerInnerLoop.psm1: Invoke-RunnerInnerCycle
@@ -4456,6 +4472,16 @@ gauge fetch AND the Resend POST, plus a per-cycle message cap) and never throws,
 so it is safe on the bare-pwsh-INTERACTIVE outer loop (the cycle-end hook
 prompt-safe + subprocess-bounded contract). IN-PROCESS so the dispatcher's delivery
 ledger (the confirmation channel) is readable; no detached spawn needed.
+
+A cycle that ends early, or a host held between cycles -- a failure pause, a gate,
+a non-verdict hold -- would deliver nothing, so the resident runner also runs the
+notifier from its waits and its dispatch poll (`Invoke-OuterPoolNotifierTick`):
+at most once a minute, in a thread job it never waits on. Each tick collects the
+run the previous one started, and sets one still going after the same 120 s cap
+aside for the reaper. A PID-file lock in the runtime folder (`pool.notifier.lock`)
+keeps the resident's run and a cycle's run apart, so an alert edge is read and
+queued once; only a live holder makes a run step aside, so a lock that cannot be
+created never silences delivery.
 
 <a id="4213a0b3-0112"></a>
 
@@ -5673,7 +5699,7 @@ opposite: that the wrapper printed its failure tag. Nothing re-checked it,
 so a plain timeout was reported as a script-reported failure, routed to
 pause_and_inspect ("auto-retry would just re-trigger it") and excluded from
 warm resume -- turning a transient upstream stall into a dead cycle needing
-an operator. Build-SequenceFailureRecord still reclassifies to
+an operator. New-SequenceFailureRecord still reclassifies to
 pattern_matched_failure when a pattern actually matched, so that case keeps
 its own label and its no-retry routing.
 

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.25
+.VERSION 2026.10.26
 .GUID 429be071-3a67-44e5-91dc-fd9c3fe536b4
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -147,7 +147,6 @@ function Invoke-PerGuestNewVm {
     }
     return @{ success = $true; errorMessage = $null }
 }
-
 
 function Write-GetImageLine {
     <#
@@ -333,6 +332,82 @@ function Invoke-ResolveVmIp {
     return $null
 }
 
+# --- REGION: Provisioning results
+# A stage's own account of why it failed, recorded beside the log so the runner
+# files the failure under the class it names instead of reading one into an
+# exit code. Kind is closed, and each kind maps to one canonical class.
+$script:HostResultKindClass = [ordered]@{
+    # A source could not be reached, or served nothing.
+    network     = 'network_timeout'
+    # What was served failed its checksum or signature: another download of
+    # the same bytes fails the same way, so it is not a network fault.
+    integrity   = 'source_integrity'
+    # The host cannot run this stage at all (platform or architecture).
+    unsupported = 'plan_invalid'
+    # A local tool or step failed.
+    tool        = 'provisioning_failure'
+}
+
+function New-YurunaHostResult {
+    <#
+    .SYNOPSIS
+        The record of a host stage's failure: its kind and the canonical class
+        the kind maps to.
+    .OUTPUTS
+        [System.Collections.Specialized.OrderedDictionary] kind, failureClass, message.
+    #>
+    [CmdletBinding()]
+    [OutputType([System.Collections.Specialized.OrderedDictionary])]
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+        Justification = 'Pure builder: returns a record; changes no state.')]
+    param(
+        [Parameter(Mandatory)][ValidateSet('network', 'integrity', 'unsupported', 'tool')][string]$Kind,
+        [AllowEmptyString()][string]$Message = ''
+    )
+    return [ordered]@{ kind = $Kind; failureClass = [string]$script:HostResultKindClass[$Kind]; message = $Message }
+}
+
+function Write-YurunaProvisionResult {
+    <#
+    .SYNOPSIS
+        Record why the running host stage failed, at the path the runner named
+        for it in $env:YURUNA_PROVISION_RESULT; nothing when it named none.
+    .DESCRIPTION
+        Called where the failure is known, before the stage throws or exits:
+        the exit code that reaches the runner says only that it failed. A write
+        that fails is reported Verbose and leaves the runner's default class.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][ValidateSet('network', 'integrity', 'unsupported', 'tool')][string]$Kind,
+        [AllowEmptyString()][string]$Message = ''
+    )
+    $path = [string]$env:YURUNA_PROVISION_RESULT
+    if ([string]::IsNullOrWhiteSpace($path)) { return }
+    try {
+        $folder = Split-Path -Parent $path
+        if ($folder -and -not (Test-Path -LiteralPath $folder)) { $null = New-Item -ItemType Directory -Path $folder -Force -ErrorAction Stop }
+        [IO.File]::WriteAllText($path, ((New-YurunaHostResult -Kind $Kind -Message $Message) | ConvertTo-Json -Compress))
+    } catch {
+        Write-Verbose "Write-YurunaProvisionResult: $path not written ($($_.Exception.Message))."
+    }
+}
+
+function Read-YurunaProvisionResult {
+    <#
+    .SYNOPSIS
+        The failure record a host stage left at -Path, or $null when there is
+        none or it names no known kind.
+    #>
+    [CmdletBinding()]
+    [OutputType([System.Collections.Specialized.OrderedDictionary])]
+    param([AllowEmptyString()][string]$Path)
+    if ([string]::IsNullOrWhiteSpace($Path) -or -not (Test-Path -LiteralPath $Path)) { return $null }
+    try { $record = Get-Content -Raw -LiteralPath $Path -ErrorAction Stop | ConvertFrom-Json -AsHashtable -ErrorAction Stop } catch { return $null }
+    if ($record -isnot [System.Collections.IDictionary] -or -not $script:HostResultKindClass.Contains([string]$record['kind'])) { return $null }
+    return (New-YurunaHostResult -Kind ([string]$record['kind']) -Message ([string]$record['message']))
+}
+
 function Invoke-GetImage {
     <#
     .SYNOPSIS
@@ -347,8 +422,15 @@ function Invoke-GetImage {
         scope, not the driver's). -WriteLine is an optional log-line writer
         CommandInfo; when omitted the in-module Write-GetImageLine is used
         (win/mac), and the kvm driver passes Write-Information instead.
+
+        A failed run also carries failureClass and kind: the class the stage
+        recorded through Write-YurunaProvisionResult at
+        <log>/provision/<GuestKey>.GetImage.json, else network_timeout (a
+        script with no record says only that it failed), and plan_invalid for
+        a guest with no Get-Image.ps1 on this host.
     .OUTPUTS
-        [hashtable] @{ success = [bool]; skipped = [bool]; errorMessage = [string] }
+        [hashtable] @{ success = [bool]; skipped = [bool]; errorMessage = [string];
+        failureClass = [string]; kind = [string] }
     #>
     [CmdletBinding(SupportsShouldProcess)]
     [OutputType([hashtable])]
@@ -364,7 +446,7 @@ function Invoke-GetImage {
     if (-not $PSCmdlet.ShouldProcess($GuestKey, (Format-YurunaOperatorMessage -Key 'host.operator_5745d88e0f9ad1e5'))) { return @{ success = $false; skipped = $false; errorMessage = 'WhatIf' } }
     $scriptPath = Join-Path $RepoRoot (Join-Path $HostSubdir (Join-Path $GuestKey 'Get-Image.ps1'))
     if (-not (Test-Path $scriptPath)) {
-        return @{ success = $false; skipped = $false; errorMessage = "Get-Image.ps1 not found at: $scriptPath" }
+        return @{ success = $false; skipped = $false; errorMessage = "Get-Image.ps1 not found at: $scriptPath"; failureClass = 'plan_invalid'; kind = '' }
     }
     if (-not $Force) {
         $imagePath = & $ResolveImagePath -GuestKey $GuestKey
@@ -374,12 +456,24 @@ function Invoke-GetImage {
         }
     }
     & $writer "Running: $scriptPath"
-    & pwsh -NoProfile -File $scriptPath 2>&1 | ForEach-Object {
-        & $writer ([string]$_)
+    $resultRoot = if ($env:YURUNA_LOG_DIR) { $env:YURUNA_LOG_DIR } else { [IO.Path]::GetTempPath() }
+    $resultPath = Join-Path (Join-Path $resultRoot 'provision') "$GuestKey.GetImage.json"
+    Remove-Item -LiteralPath $resultPath -Force -ErrorAction SilentlyContinue
+    $priorResultPath = $env:YURUNA_PROVISION_RESULT
+    $env:YURUNA_PROVISION_RESULT = $resultPath
+    try {
+        & pwsh -NoProfile -File $scriptPath 2>&1 | ForEach-Object {
+            & $writer ([string]$_)
+        }
+        $code = $LASTEXITCODE
+    } finally {
+        $env:YURUNA_PROVISION_RESULT = $priorResultPath
     }
-    $code = $LASTEXITCODE
     if ($code -ne 0) {
-        return @{ success = $false; skipped = $false; errorMessage = "Get-Image.ps1 exited with code $code" }
+        $hostResult = Read-YurunaProvisionResult -Path $resultPath
+        $failureClass = if ($hostResult) { [string]$hostResult.failureClass } else { 'network_timeout' }
+        $kind = if ($hostResult) { [string]$hostResult.kind } else { '' }
+        return @{ success = $false; skipped = $false; errorMessage = "Get-Image.ps1 exited with code $code"; failureClass = $failureClass; kind = $kind }
     }
     return @{ success = $true; skipped = $false; errorMessage = $null }
 }
@@ -612,4 +706,5 @@ function Get-HostOwnIpVerdict {
 }
 
 # --- REGION: Exports
-Export-ModuleMember -Function Invoke-PerGuestNewVm, Write-GetImageLine, Invoke-WaitVmIp, Invoke-ResolveVmIp, Invoke-GetImage, Invoke-CachingProxyServiceAvailableProbe, Test-HostOwnIpAddress, Get-HostOwnIpVerdict
+Export-ModuleMember -Function Invoke-PerGuestNewVm, Write-GetImageLine, Invoke-WaitVmIp, Invoke-ResolveVmIp, Invoke-GetImage, Invoke-CachingProxyServiceAvailableProbe, Test-HostOwnIpAddress, Get-HostOwnIpVerdict, `
+    New-YurunaHostResult, Write-YurunaProvisionResult, Read-YurunaProvisionResult

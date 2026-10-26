@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.25
+.VERSION 2026.10.26
 .GUID 4241a322-99ef-c7cf-96e0-a7d07ed683f0
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -19,6 +19,36 @@
 # locale: he-IL  domain: host
 
 @{
+    'host.agent_image_unverifiable' = @(
+        'סוכן ההורדות סיפק את '
+        @{
+            'arg' = 'isoFileName'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        ' מ-'
+        @{
+            'arg' = 'sourceUrl'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ', אך אף רשימת סכומי ביקורת של המפרסם אינה מציינת אותו, ולכן התמונה אינה בשימוש.'
+    )
+    'host.base_image_publish_failed' = @(
+        'לא ניתן היה להציב את ההורדה במקומה בתור ⁦'
+        @{
+            'arg' = 'baseImageFile'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+        '⁩: '
+        @{
+            'arg' = 'message'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' לא נכתבו עבורה זקיף או רשומת מקור.'
+    )
     'host.clock_service_description' = 'שירות הזמן של Windows (W32Time)'
     'host.enable_automation_no_prompt_confirm_conflict' = '⁦Enable-TestAutomation⁩: לא ניתן לשלב את ⁦-NoOperatorPrompt⁩ עם ⁦-Confirm⁩, שמבקש אישור לפני כל שינוי; דבר לא תועד או שונה.'
     'host.enable_automation_no_prompt_mode' = '⁦Enable-TestAutomation⁩: פועל עם ⁦-NoOperatorPrompt⁩ -- ללא תיבות דו-שיח להסכמה, ללא הפעלה מחדש של Dock או שומר המסך, ללא התקנת מודולים, ללא בקשת sudo וללא שאלון networkStorage. הגדרות הדורשות התערבות מפעיל מדווחות ככאלה שטרם מולאו.'
@@ -4865,7 +4895,7 @@
         }
         ''' אינו מצטרף לגשר) -- אורחים בו לעולם לא יקבלו הצעת DHCP. השינוי ב-netplan מבוטל.'
     )
-    'host.operator_891e818fe6ad2659' = 'החתימה של SHA256SUMS לא אומתה (gpg⁦/keyserver⁩ אינו זמין או שאין קובץ .gpg נפרד); התהליך ממשיך בהסתמך על ערך הגיבוב בלבד.'
+    'host.operator_891e818fe6ad2659' = 'החתימה של SHA256SUMS לא אומתה (gpg או צרור המפתחות המוצמד אינם מותקנים); ממשיכים על סמך הגיבוב בלבד.'
     'host.operator_89af27dbbf79e963' = @(
         'הנתיב אינו קיים: '
         @{
@@ -8185,7 +8215,7 @@
     )
     'host.operator_f08765755eb06413' = 'חבילות apt‏ (qemu-kvm, libvirt-daemon-system, cifs-utils, acl, ...) ומודולים של PSGallery'
     'host.operator_f0fd9838eca3f370' = '  virsh --source agent     : בוצע ניסיון (תצורת האתחול מנסה להתקין את qemu-guest-agent ללא הבטחת הצלחה; ודאו זאת עבור כל אורח)'
-    'host.operator_f11ac5338e134c99' = '⁦Save-ImageWithChecksum⁩: החתימה של SHA256SUMS לא אומתה (gpg⁦/keyserver⁩ אינו זמין או שאין חתימת .gpg נפרדת); ממשיכים על סמך הגיבוב בלבד.'
+    'host.operator_f11ac5338e134c99' = '⁦Save-ImageWithChecksum⁩: החתימה של SHA256SUMS לא אומתה (gpg או צרור המפתחות המוצמד אינם מותקנים); ממשיכים על סמך הגיבוב בלבד.'
     'host.operator_f138be59eb9fb325' = 'הממשק הגרפי של libvirt, לצפייה באורח ששלב ללא ממשק גרפי נתקע בו'
     'host.operator_f14a8d0740e60f7c' = @(
         '⁦Save-VMDiskSnapshot⁩: לא ניתן היה לכבות את '''
@@ -8719,6 +8749,23 @@
             'trust' = 'external'
         }
         ''' לא שונה והחבילה שלה לא נערכה.'
+    )
+    'host.signature_could_not_be_checked' = '  לא ניתן היה לבדוק את חתימת GPG של SHA256SUMS'
+    'host.signature_could_not_be_checked_detail' = '  ⁦gpg⁩ ומפתחות החתימה המוצמדים של Ubuntu קיימים, אבל לא ניתן היה להוריד או לאמת את החתימה; סכום הביקורת נדחה כלא מאומת.'
+    'host.snapshot_state_unknown' = @(
+        'לא ניתן לדעת אם תמונת המצב '''
+        @{
+            'arg' = 'id'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ''' קיימת ב-'
+        @{
+            'arg' = 'vMName'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ': ה-⁦hypervisor⁩ לא ענה.'
     )
     'host.unified_screen_lock_description' = 'נעילת מסך מאוחדת של sysadminctl'
     'host.utm_app_census_unknown' = @(

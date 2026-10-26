@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.25
+.VERSION 2026.10.26
 .GUID 4210ad59-ce3d-4890-bc1a-eb6a22a42087
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -106,6 +106,7 @@ if (Test-Path -LiteralPath $diskImg) { Remove-Item -Force -LiteralPath $diskImg 
 if ($LASTEXITCODE -ne 0) { Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_919e5b9a9a611298'); exit 1 }
 
 # --- REGION: Render the autounattend.xml + build a CD with it
+# Autounattend seed ISO: Windows Setup scans all drives for autounattend.xml.
 $autoTemplate = Join-Path $ScriptDir 'vmconfig/autounattend.xml'
 if (-not (Test-Path -LiteralPath $autoTemplate)) {
     Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_b416f0c3ecd65028' -Arguments @{ autoTemplate = "$autoTemplate" })
@@ -186,10 +187,8 @@ try {
     # Reserve at least one host thread while applying the shared guest core policy.
     $vmCores = [math]::Min($hostCores - 1, [math]::Max(2, [math]::Floor($hostCores / 2)))
 
-    # Deterministic per (host, VM name): a rebuilt guest presents the SAME MAC, so
-    # the DHCP server returns the SAME lease instead of consuming a new one. Random
-    # MACs make every rebuild a fresh lease request, which drains a shared pool until
-    # guests boot with no IPv4 at all.
+    # --- REGION: https://yuruna.link/4220a755-000a
+    # Key the MAC by VM name so a rebuild presents the same address and keeps its DHCP lease.
     $YurunaGuestMac = Get-YurunaGuestMacAddress -VMName $VMName
     Write-Verbose "Deterministic guest MAC for '$VMName': $YurunaGuestMac"
 

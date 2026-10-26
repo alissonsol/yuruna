@@ -1,5 +1,6 @@
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
+# GUID: 425c88b5-16b6-4ea3-85eb-763b12f6e726
 # Yuruna extension contract for area: digest
 # Every extension implementation (<name>.psm1) in this directory MUST
 # export the verbs listed in `requiredFunction`. Test.Extension's

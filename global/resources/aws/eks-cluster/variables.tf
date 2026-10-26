@@ -1,5 +1,6 @@
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
+# GUID: 42bf167d-376c-4ebb-aac9-a66e28e916b3
 variable "clusterDnsPrefix" {
   description = "Cluster DNS prefix"
 }

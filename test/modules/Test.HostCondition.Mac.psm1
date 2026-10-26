@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.25
+.VERSION 2026.10.26
 .GUID 42ed1667-e5c7-4bea-b28b-0e6c1706de72
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -236,7 +236,7 @@ function Confirm-MacDefaultWrite {
     Write a `defaults` key, then re-read it and confirm it took. A bare
     `defaults write ... 2>$null | Out-Null` swallows the exit code, so a
     failed write (locked domain, MDM-reverted key, typo) reads back as
-    silent success. This writes, re-reads, and Write-Warnings when the value
+    silent success. This writes, re-reads, and warns when the value
     doesn't match -- callers gate $changed on the returned [bool] so a phantom
     success can't claim the host was configured when it wasn't.
     .PARAMETER DefaultsArgs

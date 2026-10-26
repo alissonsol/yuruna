@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
+# GUID: 4289ad85-4acb-4bf5-8db5-d78b1bb562a5
 """Disposable fault-control regression tests; never invoke systemd or SSH."""
 import importlib.util
 import json

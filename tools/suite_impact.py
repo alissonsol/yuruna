@@ -1,5 +1,6 @@
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
+# GUID: 42adc9f2-8067-4573-a3de-607fd89ea9b8
 """Record what a test suite reads, and tell whether a recorded pass still holds.
 
 `run` executes one suite process under strace and keeps every path the process

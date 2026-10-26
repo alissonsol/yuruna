@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.25
+.VERSION 2026.10.26
 .GUID 4211664b-fb87-4dab-a225-c1006746d404
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -208,8 +208,6 @@ Describe 'hyper-v DHCP capture: one line says whether the guest ever asked' {
         $script:RunnerText | Should -Match 'dhcp\.capture\.summary\.json' -Because 'the runner states the result in the cycle log'
     }
 }
-
-# Copyright (c) 2019-2026 by Alisson Sol et al.
 
 Describe 'hyper-v serial console capture: the guest-side record of a silence' {
     BeforeAll {

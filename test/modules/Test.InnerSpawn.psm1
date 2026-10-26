@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.25
+.VERSION 2026.10.26
 .GUID 42a27240-9228-4384-9324-f2bcf259469f
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -31,6 +31,11 @@ function New-InnerRunnerArgList {
         [double] / [SwitchParameter] types by emitting the appropriate
         literal form. The caller invokes pwsh with the returned array:
             & $pwshExe @argList
+        The child exits with the script's own exit code. -Command reports only
+        whether its last statement succeeded, so without the exit trailer the
+        2 (cannot run), 70 (unrecorded) and 78 (configuration) a script returns
+        would all reach the caller as 1. The trailer is the one the libvirt
+        group relaunch uses: a terminating error still exits 1.
     .PARAMETER ScriptPath
         Absolute path to the .ps1 to run.
     .PARAMETER Parameters
@@ -76,10 +81,12 @@ function New-InnerRunnerArgList {
             $cmdParts += "'$escaped'"
         }
     }
+    $invocation = $cmdParts -join ' '
+    $command = "`$global:LASTEXITCODE = 0; try { $invocation; if (-not `$?) { if (`$LASTEXITCODE) { exit `$LASTEXITCODE }; exit 1 } } catch { Write-Error `$_; exit 1 }; exit 0"
     if ($NonInteractive) {
-        return @('-NoLogo', '-NoProfile', '-NonInteractive', '-Command', ($cmdParts -join ' '))
+        return @('-NoLogo', '-NoProfile', '-NonInteractive', '-Command', $command)
     }
-    return @('-NoLogo', '-NoProfile', '-Command', ($cmdParts -join ' '))
+    return @('-NoLogo', '-NoProfile', '-Command', $command)
 }
 
 function Get-PwshExePath {

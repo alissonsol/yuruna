@@ -1,7 +1,8 @@
 #!/bin/bash
-# Version: 2026.10.25
+# Version: 2026.10.26
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
+# GUID: 42ef384e-ac45-406f-811f-b88d5290b043
 # See https://yuruna.link/42e220c4-0005
 # See https://yuruna.link/4268e4cb
 # --- REGION: Initialize environment
@@ -57,12 +58,14 @@ done
 
 # --- REGION: Service locale
 # See https://yuruna.link/42fffc2c-000d
+# Use the canonical seeded locale; pseudo locales require explicit opt-in.
 SERVICE_LANGUAGE="$(sed -n 's/^YURUNA_LANGUAGE=//p' /etc/yuruna/globalization.env 2>/dev/null | head -1 || true)"
 [ -n "$SERVICE_LANGUAGE" ] || SERVICE_LANGUAGE=auto
 SERVICE_ALLOW_PSEUDO_LOCALE="$(sed -n 's/^YURUNA_ALLOW_PSEUDO_LOCALE=//p' /etc/yuruna/globalization.env 2>/dev/null | head -1 || true)"
 [ "$SERVICE_ALLOW_PSEUDO_LOCALE" = true ] || SERVICE_ALLOW_PSEUDO_LOCALE=false
 
 # --- REGION: Service tunables
+# See https://yuruna.link/42fffc2c-000d
 HTTP_ADDR="${DOWNLOAD_AGENT_HTTP_ADDR:-0.0.0.0:80}"
 PRESENCE_INTERVAL="${DOWNLOAD_AGENT_PRESENCE_INTERVAL:-2m}"
 AUTH_TOKEN_FILE="${DOWNLOAD_AGENT_AUTH_TOKEN_FILE:-/etc/yuruna/internal-auth.key}"

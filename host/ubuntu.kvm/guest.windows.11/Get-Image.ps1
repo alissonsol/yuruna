@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.25
+.VERSION 2026.10.26
 .GUID 422c7a57-c395-4a3c-9648-066af9dbee1a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -69,6 +69,10 @@ $virtioOrigin  = Join-Path $downloadDir 'virtio-win.txt'
 
 New-Item -ItemType Directory -Force -Path $downloadDir | Out-Null
 
+# Publish-YurunaBaseImage proves each swap below before its origin record is
+# written, so a failed move cannot end in a reported success.
+Import-Module -Name (Join-Path (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)) 'modules/Yuruna.Image.psm1') -DisableNameChecking
+
 # --- REGION: Seek the base image
 $downloadPage = 'https://www.microsoft.com/en-us/software-download/windows11'
 if (-not (Test-Path -LiteralPath $winIso)) {
@@ -79,7 +83,12 @@ if (-not (Test-Path -LiteralPath $winIso)) {
         Select-Object -First 1
     if ($candidate) {
         $candidateOriginalPath = $candidate.FullName
-        Move-Item -Path $candidate.FullName -Destination $winIso
+        try {
+            $null = Publish-YurunaBaseImage -DownloadFile $candidateOriginalPath -BaseImageFile $winIso -PreviousFile (Join-Path $downloadDir "$baseImageName.previous.iso") -ExpectedSize $candidate.Length -Confirm:$false
+        } catch {
+            Write-Error (Format-YurunaOperatorMessage -Key 'host.base_image_publish_failed' -Arguments @{ baseImageFile = "$winIso"; message = "$($_.Exception.Message)" })
+            exit 1
+        }
         # Provenance sidecar for Write-BaseImageProvenance (original filename +
         # adopted-from URI), matching the Hyper-V/UTM variants.
         $baseImageOrigin = Join-Path $downloadDir "$baseImageName.txt"
@@ -121,12 +130,16 @@ if (-not (Test-Path -LiteralPath $winIso)) {
             if ($agentResult -and $agentResult.outcome -eq 'downloaded') {
                 Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_22010fb874c3c316' -Arguments @{ agentBaseUrl = "$agentBaseUrl"; filename = "$($agentResult.filename)"; agentStagingFile = "$agentStagingFile" })
                 $previousFile = Join-Path $downloadDir "$baseImageName.previous.iso"
-                Remove-Item $previousFile -Force -ErrorAction SilentlyContinue
-                if (Test-Path -LiteralPath $winIso) {
-                    Move-Item -Path $winIso -Destination $previousFile
+                try {
+                    $stagedSize = (Get-Item -LiteralPath $agentStagingFile -ErrorAction Stop).Length
+                    $keptPrevious = Publish-YurunaBaseImage -DownloadFile $agentStagingFile -BaseImageFile $winIso -PreviousFile $previousFile -ExpectedSize $stagedSize -Confirm:$false
+                } catch {
+                    Write-Error (Format-YurunaOperatorMessage -Key 'host.base_image_publish_failed' -Arguments @{ baseImageFile = "$winIso"; message = "$($_.Exception.Message)" })
+                    exit 1
+                }
+                if ($keptPrevious) {
                     Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_05027812540d620c' -Arguments @{ previousFile = "$previousFile" })
                 }
-                Move-Item -Path $agentStagingFile -Destination $winIso -Force
                 # The 2-line sidecar (filename + URL) Write-BaseImageProvenance
                 # reads, the same shape the adoption path above writes.
                 $baseImageOrigin = Join-Path $downloadDir "$baseImageName.txt"
@@ -278,10 +291,14 @@ if ($virtioAgentSkipped) {
         }
     }
     $size = (Get-Item -LiteralPath $tmp).Length
-    if (Test-Path -LiteralPath $virtioIso) {
-        Move-Item -Path $virtioIso -Destination (Join-Path $downloadDir 'virtio-win.previous.iso') -Force
+    # The sentinel below vouches for the media, so it follows only a swap that
+    # is proven to have put the downloaded bytes there.
+    try {
+        $null = Publish-YurunaBaseImage -DownloadFile $tmp -BaseImageFile $virtioIso -PreviousFile (Join-Path $downloadDir 'virtio-win.previous.iso') -ExpectedSize $size -Confirm:$false
+    } catch {
+        Write-Error (Format-YurunaOperatorMessage -Key 'host.base_image_publish_failed' -Arguments @{ baseImageFile = "$virtioIso"; message = "$($_.Exception.Message)" })
+        exit 1
     }
-    Move-Item -Path $tmp -Destination $virtioIso
     if ($virtioAgentServed) {
         # --- REGION: https://yuruna.link/42e220c4-0003
         # Preserve the agent's origin URL and timestamp without probing the origin again.

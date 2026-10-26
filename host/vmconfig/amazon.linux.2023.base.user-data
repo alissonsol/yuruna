@@ -1,6 +1,7 @@
 #cloud-config
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
+# GUID: 4296ee06-831e-461d-b808-924f7f6d29f0
 #vim:syntax=yaml
 # --- REGION: users
 users:
@@ -131,9 +132,15 @@ write_files:
     permissions: '0755'
     content: |
       #!/bin/sh
+      # Answers github.com alone: the token must never reach another host a
+      # remote points at (a LAN mirror, a forwarder, any other server).
       case "$1" in
-          Username*) echo "x-access-token" ;;
-          *)         echo "${GH_TOKEN}" ;;
+          "Username for 'https://github.com'"*) echo "x-access-token" ;;
+          "Password for 'https://x-access-token@github.com'"*)
+              if [ -n "${GH_TOKEN:-}" ]; then echo "${GH_TOKEN}"
+              elif [ -r "$HOME/.config/yuruna/github-token" ]; then cat "$HOME/.config/yuruna/github-token"
+              else echo ""; fi ;;
+          *) echo "" ;;
       esac
   # --- REGION: https://yuruna.link/4220a755-000b
   # See https://yuruna.link/4220a755-000c
@@ -249,14 +256,20 @@ runcmd:
   # See https://yuruna.link/4220a755-004f
   - |
     if [ -n 'GH_TOKEN_PLACEHOLDER' ]; then
+    # The token lives only in the guest user's own 0600 file; the shell
+    # startup files, which any user can read, load it from there.
+    install -d -m 0700 /home/USERNAME_PLACEHOLDER/.config/yuruna
+    printf '%s' 'GH_TOKEN_PLACEHOLDER' > /home/USERNAME_PLACEHOLDER/.config/yuruna/github-token
+    chmod 0600 /home/USERNAME_PLACEHOLDER/.config/yuruna/github-token
+    chown -R USERNAME_PLACEHOLDER:USERNAME_PLACEHOLDER /home/USERNAME_PLACEHOLDER/.config
     cat > /etc/profile.d/yuruna-github.sh << 'EOF'
-    export GH_TOKEN="GH_TOKEN_PLACEHOLDER"
+    if [ -r "$HOME/.config/yuruna/github-token" ]; then GH_TOKEN="$(cat "$HOME/.config/yuruna/github-token")"; export GH_TOKEN; fi
     export GIT_ASKPASS=/usr/local/lib/yuruna/git-askpass.sh
     export GIT_TERMINAL_PROMPT=0
     EOF
     chmod 0644 /etc/profile.d/yuruna-github.sh
     cat >> /home/USERNAME_PLACEHOLDER/.bashrc << 'EOF'
-    export GH_TOKEN="GH_TOKEN_PLACEHOLDER"
+    if [ -r "$HOME/.config/yuruna/github-token" ]; then GH_TOKEN="$(cat "$HOME/.config/yuruna/github-token")"; export GH_TOKEN; fi
     export GIT_ASKPASS=/usr/local/lib/yuruna/git-askpass.sh
     export GIT_TERMINAL_PROMPT=0
     EOF

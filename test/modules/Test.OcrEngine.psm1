@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.25
+.VERSION 2026.10.26
 .GUID 425af8de-0326-440d-a6ef-cfcf1c3376cb
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -45,7 +45,6 @@ Import-Module (Join-Path $PSScriptRoot 'Test.OcrPath.psm1') -Global -Force
 #>
 
 # --- REGION: Provider registry
-#
 # Backed by Test.Registry's New-YurunaRegistry primitive so the shape
 # matches Test.SequenceAction and Test.HostIO. An autonomous remediator
 # can introspect all three registries through the same closure-bundle
@@ -290,6 +289,70 @@ function Invoke-AllEnabledOcr {
     return $results
 }
 
+# --- REGION: Known-answer check
+# test/fixtures/ocr/selftest.png holds exactly these words, rendered in DejaVu
+# Sans Mono at 28 px, black on white; a change to one is a change to both.
+$script:OcrKnownAnswerWords = @('YURUNA', 'OCR', 'SELF', 'TEST', 'login', 'operator', 'Password', 'check', '2468')
+# The fraction of those words a provider must read for its answer to count.
+$script:OcrKnownAnswerMinimumRecall = 0.8
+function Test-OcrKnownAnswer {
+    <#
+    .SYNOPSIS
+        Read a committed frame with known words through every enabled OCR
+        provider, and say whether the cycle's waits can still read text.
+    .DESCRIPTION
+        An engine that is installed but cannot read -- a missing language
+        pack, a helper that crashes, a permission the host withdrew -- returns
+        empty text, so every wait times out as if the guest were slow and the
+        failure is filed against a guest and its repair. This check runs
+        before any guest depends on OCR. A provider passes when it reads at
+        least 80% of the frame's words, case-insensitive. With the default Or
+        combine mode the check fails only when no provider passes, because a
+        wait reads through any one of them, and a provider that fails beside a
+        passing one is reported as degraded; with And every provider must
+        pass, because a wait then needs all of them.
+    .PARAMETER FixturePath
+        The frame to read; the committed one by default.
+    .OUTPUTS
+        [pscustomobject] @{ Passed; Degraded; CombineMode; Providers; Detail }.
+        Providers holds one @{ Name; Recall; Missing; Error } per enabled
+        provider.
+    #>
+    [CmdletBinding()]
+    [OutputType([pscustomobject])]
+    param([string]$FixturePath = (Join-Path $PSScriptRoot '../fixtures/ocr/selftest.png'))
+    $combine = if ($env:YURUNA_OCR_COMBINE -eq 'And') { 'And' } else { 'Or' }
+    $expected = @($script:OcrKnownAnswerWords | ForEach-Object { $_.ToUpperInvariant() })
+    $rows = [System.Collections.Generic.List[object]]::new()
+    if (-not [System.IO.File]::Exists($FixturePath)) {
+        return [pscustomobject]@{ Passed = $false; Degraded = $false; CombineMode = $combine; Providers = @()
+            Detail = "the known-answer frame is missing: $FixturePath" }
+    }
+    foreach ($name in @(Get-EnabledOcrProvider)) {
+        $row = [ordered]@{ Name = [string]$name; Recall = 0.0; Missing = @($script:OcrKnownAnswerWords); Error = '' }
+        $text = ''
+        try { $text = [string](Invoke-OcrProvider -Name $name -ImagePath $FixturePath | Out-String) }
+        catch { $row.Error = [string]$_.Exception.Message }
+        $read = @([regex]::Matches($text.ToUpperInvariant(), '[A-Z0-9]+') | ForEach-Object { $_.Value })
+        $row.Missing = @($script:OcrKnownAnswerWords | Where-Object { $read -cnotcontains $_.ToUpperInvariant() })
+        $row.Recall = [Math]::Round(($expected.Count - $row.Missing.Count) / $expected.Count, 2)
+        $rows.Add([pscustomobject]$row)
+    }
+    $passing = @($rows | Where-Object { $_.Recall -ge $script:OcrKnownAnswerMinimumRecall })
+    $passed = if ($rows.Count -eq 0) { $false } elseif ($combine -eq 'And') { $passing.Count -eq $rows.Count } else { $passing.Count -gt 0 }
+    $detail = if ($rows.Count -eq 0) { 'no OCR provider is enabled and available' } else {
+        @($rows | ForEach-Object {
+            $line = '{0} read {1} of {2} known words' -f $_.Name, ($expected.Count - $_.Missing.Count), $expected.Count
+            if ($_.Missing.Count -gt 0) { $line += " (missing: $($_.Missing -join ', '))" }
+            if ($_.Error) { $line += " (error: $($_.Error))" }
+            $line
+        }) -join '; '
+    }
+    return [pscustomobject]@{
+        Passed = $passed; Degraded = ($passed -and $passing.Count -lt $rows.Count); CombineMode = $combine
+        Providers = $rows.ToArray(); Detail = $detail
+    }
+}
 # --- REGION: Built-in provider: Tesseract
 # See https://yuruna.link/4213a0b3-00ad
 Import-Module (Join-Path $PSScriptRoot "Test.Tesseract.psm1") -Force -Global -Verbose:$false
@@ -1257,6 +1320,7 @@ Export-ModuleMember -Function @(
     'Test-OcrProviderAvailable'
     'Invoke-OcrProvider'
     'Get-EnabledOcrProvider'
+    'Test-OcrKnownAnswer'
     'Clear-EnabledOcrProviderCache'
     'Clear-OcrResultCache'
     'Clear-VisionOcrBinaryCache'

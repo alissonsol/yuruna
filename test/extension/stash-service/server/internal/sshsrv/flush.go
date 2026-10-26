@@ -1,5 +1,6 @@
 // LICENSEURI https://yuruna.link/license
 // Copyright (c) 2019-2026 by Alisson Sol et al.
+// GUID: 42c5f7c7-7d71-4afc-830a-bd3453938cae
 
 // Flush worker for the NAS-offline buffer (section 8.4). Artifacts that arrived
 // while the share was offline live in the VM-local buffer with

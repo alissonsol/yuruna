@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.25
+.VERSION 2026.10.26
 .GUID 42838e67-6737-f31a-bcd5-9af7d0d12cfc
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -815,6 +815,14 @@
             'trust' = 'internal'
         }
         ' does not match the entry script''s parameters; refusing to launch a worker the entry point would not accept.'
+    )
+    'exceptions.host_signature_could_not_be_checked' = @(
+        'SHA256SUMS GPG signature could not be checked for '
+        @{
+            'arg' = 'checksumUrl'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
     )
     'exceptions.host_utm_sudo_requires_noninteractive' = 'Invoke-UtmHostTool: sudo must be called with -n as its first argument so it can never wait on a password prompt.'
     'exceptions.host_utmctl_kill_requires_stop' = @(

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.25
+.VERSION 2026.10.26
 .GUID 42509e7a-733b-48f3-a663-0952f4326255
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -82,7 +82,9 @@ $ExitFailure = Get-EntryPointExitCode -Outcome Failure
 Import-Module powershell-yaml -ErrorAction Stop
 
 # --- REGION: Validate the arguments
-if ($PoolId -notmatch '^[a-z0-9][a-z0-9-]{0,62}$') {
+# -cnotmatch: -notmatch ignores case and admitted 'Pool-A', which is not the
+# dns-safe id every consumer of the pool id expects.
+if ($PoolId -cnotmatch '^[a-z0-9][a-z0-9-]{0,62}$') {
     Write-Error (Format-YurunaOperatorMessage -Key 'runner.operator_627006c4c8c7c0a8' -Arguments @{ poolId = "$PoolId" }) -ErrorAction Continue
     exit $ExitFailure
 }

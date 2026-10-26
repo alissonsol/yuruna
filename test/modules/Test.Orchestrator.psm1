@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.25
+.VERSION 2026.10.26
 .GUID 42fb91f9-ac3c-48ec-849f-108167698afd
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -185,9 +185,9 @@ function Invoke-OrchestratorHostAction {
         output handed straight to the console host would reach the terminal
         and no artifact. But a host script is free to fan its real work out
         into child processes with their OWN redirected output -- e.g. the
-        AmisAd set-resource.yml runs Set-Resource.ps1, whose Invoke-Stage
-        launches each guest build as a hidden child `pwsh` (Start-Process
-        -WindowStyle Hidden -RedirectStandardOutput <name>.out.log). When it
+        AmisAd set-resource.yml runs Set-Resource.ps1, whose Invoke-AmisAdStage
+        runs each guest build as a child `pwsh` with its own redirected output
+        (<name>.out.log). When it
         does, the parent console shows ONLY the boundary lines the host
         script writes directly (`===== [<name>] ... =====` / `exited N`);
         the per-stage step-by-step detail is NOT on the console. That detail
@@ -322,6 +322,12 @@ function Invoke-OrchestratorGuestRun {
         $newVmArgs = @{ GuestKey = $guestKey; RepoRoot = $RepoRoot; VMName = $vmName; CachingProxyServiceUrl = $CachingProxyServiceUrl }
         if ($effectiveUser) { $newVmArgs.Username = $effectiveUser }
         if ($effectiveHost) { $newVmArgs.Hostname = $effectiveHost }
+        # The inner sequence's VM sizing, forwarded on the same declare-or-drop
+        # terms as in Debug-TestSequence: a New-VM.ps1 that does not declare the
+        # parameter has it dropped and reported on Verbose.
+        if ($plan.effectiveMemoryStartupBytes) { $newVmArgs.MemoryStartupBytes = $plan.effectiveMemoryStartupBytes }
+        if ($plan.effectiveCores) { $newVmArgs.Cores = $plan.effectiveCores }
+        if ($plan.effectiveExposeVirtualizationExtensions) { $newVmArgs.ExposeVirtualizationExtensions = $plan.effectiveExposeVirtualizationExtensions }
         $r = New-VM @newVmArgs -Confirm:$false
         if (-not $r.success) { return & $fail "New-VM failed for inner '$Name': $($r.errorMessage)" }
         Write-OrchestratorLine "VM '$vmName' created."
@@ -372,6 +378,12 @@ function Invoke-OrchestrationSequence {
         chain) under ONE status.json cycle, and return an exit code
         (0 = all passed). Stops at the first failure unless the outer
         sequence sets `continueOnError: true`.
+    .PARAMETER BeforeSeal
+        Runs once when this run owns the cycle and no exception escaped, after
+        the outcome is known and before Complete-Run and Stop-LogFile seal the
+        cycle, with the overall status and the first failure's reason. What it
+        records lands in this cycle's folder and stream; its output goes to the
+        transcript.
     #>
     [CmdletBinding()]
     [OutputType([int])]
@@ -385,7 +397,8 @@ function Invoke-OrchestrationSequence {
         [Parameter(Mandatory)][string]$TestRoot,
         [Parameter(Mandatory)][string]$HostType,
         [Parameter(Mandatory)]$Config,
-        [switch]$ShowSensitive
+        [switch]$ShowSensitive,
+        [scriptblock]$BeforeSeal
     )
 
     $setName = if ($Sequence.Contains('name') -and $Sequence['name']) {
@@ -487,35 +500,15 @@ function Invoke-OrchestrationSequence {
         $cycleStartUtc = [string]$ctx.cycleStartUtc
         Write-OrchestratorLine (Format-YurunaOperatorMessage -Key 'runner.operator_3e560fa5dd1ee982' -Arguments @{ logFile = "$($nlog.LogFile)" })
     } else {
-        Reset-StatusDocumentForCycleStart -StatusFilePath $statusFile -Confirm:$false
         $guestKeys = @($entries | ForEach-Object { $_.name })
         $sequences = @($entries | ForEach-Object { [ordered]@{ name = $_.name; guests = @($_.name) } })
-
-        $frameworkUrl = if ($Config.repositories -is [System.Collections.IDictionary] -and $Config.repositories.frameworkUrl) {
-            [string]$Config.repositories.frameworkUrl
-        } else { '' }
-        $frameworkCommit = ''
-        if (Get-Command Get-CurrentGitCommit -ErrorAction SilentlyContinue) {
-            try { $frameworkCommit = [string](Get-CurrentGitCommit -RepoRoot $RepoRoot) } catch { $frameworkCommit = '' }
-        }
-        $gitCommitsList = @()
-        if ($frameworkCommit) { $gitCommitsList += [ordered]@{ sha = $frameworkCommit; repoUrl = $frameworkUrl } }
-        $projectCommitReference = $null
-        if ($Config.repositories -is [System.Collections.IDictionary] -and
-            (Get-Command Get-ProjectGitCommitReference -ErrorAction SilentlyContinue)) {
-            $projectCommitReference = Get-ProjectGitCommitReference -RepoRoot $RepoRoot -ProjectUrl $Config.repositories.projectUrl
-        }
-        $projectCommit = if ($projectCommitReference) { [string]$projectCommitReference.sha } else { $null }
-        if ($projectCommitReference) { $gitCommitsList += $projectCommitReference }
-
-        $cycleStartUtc = Initialize-StatusDocument `
-            -StatusFilePath $statusFile -HostType $HostType -Hostname (hostname) `
-            -GitCommit $frameworkCommit -RepoUrl $frameworkUrl -GitCommits $gitCommitsList `
-            -GuestList $guestKeys -Sequences $sequences -StepNames @('Run')
+        $registered = Register-StandaloneCycle -StatusFilePath $statusFile -HostType $HostType -Config $Config `
+            -RepoRoot $RepoRoot -TestRoot $TestRoot -GuestList $guestKeys -Sequences $sequences -StepNames @('Run')
+        $cycleStartUtc   = $registered.CycleStartUtc
+        $frameworkCommit = $registered.FrameworkCommit
+        $projectCommit   = $registered.ProjectCommit
+        $logFile         = $registered.LogFile
         foreach ($e in $entries) { Set-GuestTopLevel -GuestKey $e.name -TopLevel $e.name -Confirm:$false }
-
-        $cycleNumber = Get-CycleNumber
-        $logFile = Start-LogFile -TestRoot $TestRoot -CycleStartUtc $cycleStartUtc -Hostname (hostname) -CycleNumber $cycleNumber -GitCommits $gitCommitsList
         Write-OrchestratorLine (Format-YurunaOperatorMessage -Key 'runner.operator_254906044fad17f7' -Arguments @{ logFile = "$logFile" })
 
         # Open the per-step perf log for the cycle this orchestration owns.
@@ -793,6 +786,13 @@ function Invoke-OrchestrationSequence {
             }
             if (Get-Command Stop-NestedLogFile -ErrorAction SilentlyContinue) { Stop-NestedLogFile }
         } else {
+            if ($BeforeSeal -and -not $escapedException) {
+                try {
+                    & $BeforeSeal $overall $firstFailureReason | Write-OrchestratorLine
+                } catch {
+                    Write-Warning (Format-YurunaOperatorMessage -Key 'runner.orchestration_before_seal_failed' -Arguments @{ setName = "$setName"; message = "$($_.Exception.Message)" })
+                }
+            }
             $maxHistory = 30
             if ($Config -is [System.Collections.IDictionary] -and $Config.testCycle -is [System.Collections.IDictionary] -and $Config.testCycle.recentDisplayCount) {
                 $maxHistory = [int]$Config.testCycle.recentDisplayCount
@@ -820,4 +820,69 @@ function Invoke-OrchestrationSequence {
     if ($failCount -eq 0 -and $skipCount -eq 0) { return 0 } else { return 1 }
 }
 
-Export-ModuleMember -Function Test-IsOrchestrationSequence, Invoke-OrchestrationSequence, Write-CycleStepEvent
+function Register-StandaloneCycle {
+    <#
+    .SYNOPSIS
+        Register a run that owns its own cycle -- a standalone Debug-TestSequence
+        run or an orchestration sequence -- in status.json and open its transcript.
+    .DESCRIPTION
+        One definition for both owners, which had drifted into separate copies:
+        the status document is reset and initialized with the framework and
+        project revisions, then the per-cycle transcript opens under the cycle
+        number the initialization incremented. status.json is served without
+        authentication, so a repository URL is published only after the rules
+        Get-ProjectGitCommitReference applies to the project: userinfo stripped,
+        ssh and local clone sources walked back to their web origin.
+    .OUTPUTS
+        [hashtable] CycleStartUtc, CycleNumber, LogFile, FrameworkCommit,
+        ProjectCommit and GitCommits.
+    #>
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param(
+        [Parameter(Mandatory)][string]$StatusFilePath,
+        [Parameter(Mandatory)][string]$HostType,
+        [AllowNull()]$Config,
+        [Parameter(Mandatory)][string]$RepoRoot,
+        [Parameter(Mandatory)][string]$TestRoot,
+        [Parameter(Mandatory)][string[]]$GuestList,
+        [object[]]$Sequences = @(),
+        [Parameter(Mandatory)][string[]]$StepNames
+    )
+    Reset-StatusDocumentForCycleStart -StatusFilePath $StatusFilePath -Confirm:$false
+    $repositories = if ($Config -is [System.Collections.IDictionary] -and $Config.repositories -is [System.Collections.IDictionary]) { $Config.repositories } else { $null }
+    $frameworkUrl = ''
+    if ($repositories -and $repositories.frameworkUrl) {
+        $configuredUrl = [string]$repositories.frameworkUrl
+        $frameworkUrl = Resolve-GitRepositoryWebUrl -Url $configuredUrl
+        if (-not $frameworkUrl) { $frameworkUrl = (Resolve-GitRemoteLink -Url $configuredUrl).Url }
+        if (-not $frameworkUrl) { $frameworkUrl = $configuredUrl }
+    }
+    $frameworkCommit = ''
+    if (Get-Command Get-CurrentGitCommit -ErrorAction SilentlyContinue) {
+        try { $frameworkCommit = [string](Get-CurrentGitCommit -RepoRoot $RepoRoot) } catch { $frameworkCommit = '' }
+    }
+    $gitCommits = @()
+    if ($frameworkCommit) { $gitCommits += [ordered]@{ sha = $frameworkCommit; repoUrl = $frameworkUrl } }
+    $projectReference = $null
+    if ($repositories -and (Get-Command Get-ProjectGitCommitReference -ErrorAction SilentlyContinue)) {
+        $projectReference = Get-ProjectGitCommitReference -RepoRoot $RepoRoot -ProjectUrl $repositories.projectUrl
+    }
+    if ($projectReference) { $gitCommits += $projectReference }
+    $statusArgs = @{
+        StatusFilePath = $StatusFilePath; HostType = $HostType; Hostname = (hostname)
+        GitCommit = $frameworkCommit; RepoUrl = $frameworkUrl; GitCommits = $gitCommits
+        GuestList = $GuestList; StepNames = $StepNames
+    }
+    if ($Sequences.Count -gt 0) { $statusArgs.Sequences = $Sequences }
+    $cycleStartUtc = Initialize-StatusDocument @statusArgs
+    $cycleNumber = Get-CycleNumber
+    $logFile = Start-LogFile -TestRoot $TestRoot -CycleStartUtc $cycleStartUtc -Hostname (hostname) -CycleNumber $cycleNumber -GitCommits $gitCommits
+    return @{
+        CycleStartUtc = $cycleStartUtc; CycleNumber = $cycleNumber; LogFile = $logFile
+        FrameworkCommit = $frameworkCommit; ProjectCommit = $(if ($projectReference) { [string]$projectReference.sha } else { $null })
+        GitCommits = $gitCommits
+    }
+}
+
+Export-ModuleMember -Function Test-IsOrchestrationSequence, Invoke-OrchestrationSequence, Write-CycleStepEvent, Register-StandaloneCycle

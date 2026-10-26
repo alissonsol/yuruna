@@ -17,8 +17,10 @@ The **download-agent service** is an extension service VM
 (`yuruna-download-agent-service`) that owns a **Download pool** on the pool
 share. It resolves each guest image the way the host scripts do, downloads it
 once, verifies the publisher checksum, stores it under a content-addressed
-generation name, and serves the bytes over HTTP with `Range` support. A
-background scanner re-checks each image against its origin on a schedule so the
+generation name, and serves the bytes over HTTP with `Range` support. A host
+does not take the agent's word for an Ubuntu image: it checks the bytes against
+the publisher's checksum list itself, and deletes and refuses an image no list
+names. A background scanner re-checks each image against its origin on a schedule so the
 pool never drifts silently out of date, and an embedded web UI shows what the
 pool holds and what it costs in disk, and can force a refresh, a delete, or a
 prune.
@@ -342,7 +344,7 @@ its own by the `{hostType}/{imageKey}` pair the pool catalog names it with:
 | GET | `/api/v1/status` | none | agent-level state: pool availability, lease holder, scanner cadence, last and next scan |
 | GET | `/api/v1/images/{hostType}/{imageKey}` | none | one image's catalog entry -- its generations, freshness and current verdict |
 | GET | `/api/v1/images/{hostType}/{imageKey}/file/{generation}` | none | the artifact bytes for one generation, which is how a host fetches an image rather than downloading it from upstream |
-| POST | `/api/v1/images/{hostType}/{imageKey}/ensure` | none | make sure this generation is present, downloading it if it is not. **Deliberately ungated**: it is the call a host makes for itself on the read path, and gating it would mean a host could not fetch an image without an operator credential. It creates no new artifact an unauthenticated caller could not already request |
+| POST | `/api/v1/images/{hostType}/{imageKey}/ensure` | none | make sure this generation is present, downloading it if it is not. **Deliberately ungated**: it is the call a host makes for itself on the read path, and gating it would mean a host could not fetch an image without an operator credential. It creates no new artifact an unauthenticated caller could not already request. An identity the host type cannot use -- an arch it does not run, or a best-effort family it does not take -- answers `404` `unsupported`, and a request a browser marks cross-site answers `403`, so a page elsewhere cannot start downloads through an operator's browser |
 | POST | `/api/v1/images/{hostType}/{imageKey}/refresh` | lab-token | re-check this one image upstream now |
 | POST | `/api/v1/images/{hostType}/{imageKey}/delete` | lab-token | delete a generation |
 | POST | `/api/v1/images/{hostType}/{imageKey}/prune` | lab-token | drop the superseded generations of this image |
@@ -652,6 +654,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.25
+Last review: 2026.10.26
 
 Back to [Yuruna](../README.md)

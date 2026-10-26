@@ -1,5 +1,6 @@
 // LICENSEURI https://yuruna.link/license
 // Copyright (c) 2019-2026 by Alisson Sol et al.
+// GUID: 4256a128-873a-485d-aa44-00805f28c1de
 //
 // What the download-agent UI adds to the shared runtime: the control-proof
 // exchange its gated controls wait on. Everything page-agnostic -- Y.el, Y.api,

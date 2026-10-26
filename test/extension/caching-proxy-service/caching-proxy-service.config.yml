@@ -2,6 +2,7 @@
 
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
+# GUID: 42c7df64-a9bc-44a4-b18e-84c8981c4b88
 # Active provider for the caching-proxy-service extension. Single-provider area.
 # The Go daemon beside this file is fetched + built into the caching-proxy VM by
 # that VM's cloud-init user-data, the same way its two sibling services there are.

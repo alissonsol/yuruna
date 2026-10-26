@@ -682,7 +682,11 @@ A small Go daemon (`test/extension/pool-control-service/server`, module `pool-co
   `Add-HostToPool.ps1`, `Remove-HostFromPool.ps1`, `Move-PoolHostIdentity.ps1`,
   `Set-PoolRepository.ps1`) rather than reimplementing
   git + YAML + schema validation + commit/push in Go &mdash; one authoritative
-  implementation. A failed push surfaces to the UI as an error.
+  implementation. A failed push surfaces to the UI as an error. A read starts
+  pwsh and takes the admin clone's exclusive lock, so one successful read
+  answers the open read routes for 15 seconds, callers that arrive while it
+  runs share it, and every other CLI invalidates it; at most four CLIs run at
+  once.
 - **Drives the members' own control routes** for Pool Status
   (`/api/pool/host-control`): the one thing here that acts on other machines
   rather than on the configuration store. Membership comes from configuration and addresses
@@ -1176,6 +1180,8 @@ These have no dedicated command yet -- author them directly in `pools.yml` (vali
 
 - **`config.testCycle`** -- override test-cycle knobs for the whole pool (e.g.
   `stepTimeoutSeconds`, `autoRemediation.enabled`); pool value wins over each host's config.
+  The cycle records the override it applied in its outcome record, so the resident
+  runner's repair decisions after a failed cycle follow `autoRemediation` too.
 - **`gating`** -- pool health-alert thresholds (the healthy-member quorum + how long before a
   pool is flagged "degraded"). Advisory: it drives alerting + the dashboard, never gating a
   cycle. Delivery is configured separately on the alert host (see the notifier docs).
@@ -1209,6 +1215,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.25
+Last review: 2026.10.26
 
 Back to [Yuruna](../README.md)

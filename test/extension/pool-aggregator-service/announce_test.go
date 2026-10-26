@@ -1,5 +1,6 @@
 // LICENSEURI https://yuruna.link/license
 // Copyright (c) 2019-2026 by Alisson Sol et al.
+// GUID: 42608587-6098-46ac-bc9c-5300dc53bc2e
 
 package main
 
@@ -362,8 +363,8 @@ func announceStateWithLoki(lokiURL string, client *http.Client) *poolState {
 // the announcer's beacon stops retrying the moment it is told 2xx. So an
 // announce whose push did not land must NOT read as success: answering 2xx
 // there buys a row that disappears at the next restart and does not come back
-// until the announcer's next period -- fifteen minutes of a healthy service
-// missing from the pool, for a retry that would have cost seconds.
+// until the announcer's next period -- minutes of a healthy service missing
+// from the pool, for a retry that would have cost seconds.
 func TestAnnounceReportsAPushLokiRejected(t *testing.T) {
 	loki := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		http.Error(w, "loki not ready", http.StatusInternalServerError)

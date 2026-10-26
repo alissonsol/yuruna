@@ -1,5 +1,6 @@
 // LICENSEURI https://yuruna.link/license
 // Copyright (c) 2019-2026 by Alisson Sol et al.
+// GUID: 4220cfdd-06dc-4793-a8ff-18bab584857b
 
 // Command pool-control-service is the Yuruna pool-control service daemon: a small HTTP service
 // that serves the operator UI (board, hosts, pools, scan, diagnostics) and drives

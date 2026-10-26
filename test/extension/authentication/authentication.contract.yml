@@ -1,5 +1,6 @@
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
+# GUID: 42510ef7-8215-46be-bbc7-232fb29df3c3
 # Yuruna extension contract for area: authentication
 # Every extension implementation (<name>.psm1) in this directory MUST
 # export the verbs listed in `requiredFunction`. Test.Extension's

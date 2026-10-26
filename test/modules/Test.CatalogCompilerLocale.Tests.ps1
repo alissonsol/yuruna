@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.25
+.VERSION 2026.10.26
 .GUID 42dbe8fd-155c-4f36-ac80-9131843b5460
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -83,7 +83,7 @@ Describe 'translation files carry only wording reviewed against one source messa
         [IO.File]::WriteAllText((Join-Path $ptDir 'sample.json'), $translation, [Text.UTF8Encoding]::new($false))
 
         $run = Invoke-Compile -Root $root -Update
-        Assert-Equal -Expected 1 -Actual $run.ExitCode "a current translation should compile:`n$($run.Output)"
+        Assert-Equal -Expected 0 -Actual $run.ExitCode "a current translation should compile:`n$($run.Output)"
         $set = ConvertFrom-Json -InputObject ([IO.File]::ReadAllText((Join-Path $root 'manifests/catalog-set.json')))
         Assert-StringEqual -Expected $plainHash -Actual ([string]$set.translations.'pt-BR/sample.plain'.sourceHash) `
             'the release set lost the exact English message the translation reviewed'
@@ -350,7 +350,7 @@ Describe 'a planned locale is validated but never shipped' {
     It 'compiles a stale planned entry with a warning and no artifact' {
         $root = New-TranslatedRoot -Name 'planned-stale' -MessagesJson $script:StalePlain
         $run = Invoke-Compile -Root $root -Update
-        $run.ExitCode | Should -Be 1 -Because $run.Output
+        $run.ExitCode | Should -Be 0 -Because $run.Output
         $run.Output | Should -Match '; wrote \d+ artifact\(s\)\.'
         $run.Output | Should -Not -Match 'Catalog validation failed'
         $run.Output | Should -Match "(?m)^WARN  catalogs/xx-XX/sample\.json: 'sample\.plain' sourceHash is stale"
@@ -386,7 +386,7 @@ Describe 'a planned locale is validated but never shipped' {
         New-Item -ItemType Directory -Path (Split-Path -Parent $leftover) -Force | Out-Null
         [IO.File]::WriteAllText($leftover, "// left by an earlier run`n", [Text.UTF8Encoding]::new($false))
         $run = Invoke-Compile -Root $root -Update
-        $run.ExitCode | Should -Be 1 -Because $run.Output
+        $run.ExitCode | Should -Be 0 -Because $run.Output
         # The path is reported relative to the repository, and the sandbox is not inside it.
         $run.Output | Should -Match '(?m)^REMOVED .*generated/browser/xx-XX\.sample\.js\r?$'
         Test-Path -LiteralPath $leftover | Should -BeFalse

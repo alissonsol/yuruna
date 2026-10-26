@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.25
+.VERSION 2026.10.26
 .GUID 42a07001-0b1b-e8af-74b4-0c25e481f7c5
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -74,6 +74,21 @@
             'trust' = 'internal'
         }
         ' משום שאימות התצורה נכשל. לא התחיל מחזור בדיקה חדש. יש לתקן את התצורה לפני ניסיון נוסף.'
+    )
+    'runner.config_last_good_used' = @(
+        'לא ניתן לפענח את '
+        @{
+            'arg' = 'path'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+        ' ('
+        @{
+            'arg' = 'problem'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '); המריץ ממשיך להחליט לפי התצורה האחרונה שפוענחה עד שהקובץ יתוקן.'
     )
     'runner.config_naming_backup' = @(
         'גיבוי התצורה אל '
@@ -152,6 +167,33 @@
             'trust' = 'internal'
         }
         ' s, שני זמני קצובה של שלב לכל הרצה.'
+    )
+    'runner.cycle_degraded' = @(
+        '  במחזור '
+        @{
+            'arg' = 'cycleCount'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        ' שום דבר לא נכשל, אבל '
+        @{
+            'arg' = 'skipped'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        ' מתוך '
+        @{
+            'arg' = 'planned'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        ' אורחים מתוכננים דולגו ('
+        @{
+            'arg' = 'guests'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '): המחזור פגום ואינו נחשב הצלחה, ולכן רצף הכשלים וההתראה נשארים כפי שהיו.'
     )
     'runner.cycle_outcome_rejected_kept' = @(
         '[מחזור חיצוני '
@@ -246,6 +288,15 @@
         }
         ' במקום 0.'
     )
+    'runner.cycle_telemetry_gap' = @(
+        'המחזור הסתיים בלי '
+        @{
+            'arg' = 'missing'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+        ': מי שמצטרף למחזור הזה לא ימצא שם רשומה. התיקייה שומרת את ⁦telemetry_gaps.json⁩ עם מה שחסר.'
+    )
     'runner.detached_handshake_write_action' = 'כתבו את לחיצת היד לזיהוי תהליך העבודה המנותק'
     'runner.detached_launch_action' = 'הפעילו תהליך עבודה מנותק'
     'runner.diagnostic_budget_exhausted' = @(
@@ -329,6 +380,21 @@
             )
         }
     }
+    'runner.fetch_archive_digest_unavailable' = @(
+        'לא ניתן היה לבנות את התקציר של הארכיון של ⁦'
+        @{
+            'arg' = 'repoDir'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+        '⁩ בגרסה ⁦'
+        @{
+            'arg' = 'commit'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+        '⁩, ולכן סקריפט העדכון פורס את העץ הזה בלי לבדוק אותו.'
+    )
     'runner.fetch_context_deadline' = @(
         'fetchAndExecute: מגבלת הזמן של '
         @{
@@ -530,6 +596,15 @@
             'trust' = 'internal'
         }
         ' תווים]'
+    )
+    'runner.host_network_sweep_timed_out' = @(
+        'סריקת המכונות הווירטואליות שננטשו, בנתיב הדחייה בגלל רשת המארח, לא הסתיימה בתוך '
+        @{
+            'arg' = 'seconds'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        ' שניות ונעצרה; המחזור עדיין נדחה.'
     )
     'runner.host_refresh_action_dispose_obligations' = @(
         'השלב הבא: לאחר בדיקה ידנית של כל פריט, תעדו אותו באמצעות: pwsh test⁦/lab/Invoke-HostRefresh.ps1⁩ ⁦-DisposeObligation⁩ '
@@ -2103,6 +2178,108 @@
             'trust' = 'internal'
         }
         '); ההפעלה נדחתה. המתינו לסיומו, או המשיכו אותו באמצעות test⁦/lab/Invoke-HostRefresh.ps1⁩ ⁦-Resume⁩.'
+    )
+    'runner.ocr_known_answer_degraded' = @(
+        'ספק זיהוי תווים (OCR) לא מצליח לקרוא מסגרת ידועה ('
+        @{
+            'arg' = 'detail'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+        '); ההמתנות קוראות דרך הספקים שמצליחים.'
+    )
+    'runner.ocr_known_answer_failed' = @(
+        'זיהוי התווים (OCR) לא מצליח לקרוא מסגרת ידועה ('
+        @{
+            'arg' = 'detail'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+        '); המחזור נעצר לפני שאורח כלשהו תלוי בו, ככשל מכשור של המארח.'
+    )
+    'runner.oneshot_blocks_start' = @(
+        '⁦Start-TestRunner⁩: הרצה חד-פעמית (⁦PID⁩ '
+        @{
+            'arg' = 'pid'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ') מחזיקה בספריית זמן הריצה הזו ('
+        @{
+            'arg' = 'leasePath'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+        '); המריץ לא יופעל. הפעילו אותו שוב לאחר שההרצה תסתיים.'
+    )
+    'runner.oneshot_lease_held' = @(
+        @{
+            'arg' = 'callerName'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ': הרצה חד-פעמית (⁦PID⁩ '
+        @{
+            'arg' = 'pid'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ') מחזיקה בספריית זמן הריצה הזו ('
+        @{
+            'arg' = 'leasePath'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+        '); ההפעלה נדחתה. המתינו לסיומה, או הריצו מ-⁦YURUNA_RUNTIME_DIR⁩ אחר.'
+    )
+    'runner.oneshot_lease_release_action' = 'שחרור חכירת ההרצה החד-פעמית של ספריית זמן הריצה'
+    'runner.oneshot_lease_take_action' = 'נטילת חכירת ההרצה החד-פעמית של ספריית זמן הריצה'
+    'runner.oneshot_lease_unconfirmed' = @(
+        '⁦Start-TestRunner⁩: חכירת ההרצה החד-פעמית '
+        @{
+            'arg' = 'leasePath'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+        ' מציינת את ⁦PID⁩ '
+        @{
+            'arg' = 'pid'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ', שאת זהותו לא ניתן לאמת ('
+        @{
+            'arg' = 'reason'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        '); המריץ יופעל בכל זאת.'
+    )
+    'runner.oneshot_lease_unknown' = @(
+        @{
+            'arg' = 'callerName'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ': חכירת ההרצה החד-פעמית '
+        @{
+            'arg' = 'leasePath'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+        ' מציינת את ⁦PID⁩ '
+        @{
+            'arg' = 'pid'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ', שאת זהותו לא ניתן לאמת ('
+        @{
+            'arg' = 'reason'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        '); ההפעלה נדחתה. אם אין הרצה חד-פעמית פעילה, הסירו את הקובץ והריצו שוב.'
     )
     'runner.operator_00041714738b26ad' = 'הגדירו טופולוגיית שכפול (העתקה)'
     'runner.operator_0021edc0297e700d' = @(
@@ -8304,7 +8481,7 @@
         's) ...'
     )
     'runner.operator_4fb40cac594a7bbc' = @(
-        '[⁦Invoke-TestProject⁩] שלב 1+2: מחיקה ושכפול מחדש של ⁦<RepoRoot>⁩⁦/project⁩ מתוך '
+        '[⁦Invoke-TestProject⁩] שלב 1+2: המריץ הפנימי של המחזור מחליף את ⁦<RepoRoot>⁩⁦/project⁩ בשכפול חדש של '
         @{
             'arg' = 'projectUrl'
             'type' = 'detail'
@@ -8742,7 +8919,7 @@
     )
     'runner.operator_55110b53e7e30cf1' = 'לא נבנה במארח הזה'
     'runner.operator_55420bdecd564874' = 'השביתו (sysadminctl -screenLock off)'
-    'runner.operator_554a120b73560a96' = '[⁦Invoke-TestProject⁩] שלב 3: הפעלת ⁦Invoke-TestRunnerInnerLoop⁩ למחזור בדיקה אחד.'
+    'runner.operator_554a120b73560a96' = '[⁦Invoke-TestProject⁩] שלב 3: מריץ מחזור אחד של המריץ באמצעות ⁦Invoke-TestCycleRunner⁩.'
     'runner.operator_55583f4e86287622' = @(
         'הטקסט '''
         @{
@@ -22541,6 +22718,20 @@
         }
         ' -- עליו להיות 0 (מושבת) או מספר שלם חיובי.'
     )
+    'runner.orchestration_before_seal_failed' = @(
+        'השלב שרושם את החלטת הכשל של התזמור ⁦'
+        @{
+            'arg' = 'setName'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+        '⁩ לפני שהמחזור נחתם נכשל: '
+        @{
+            'arg' = 'message'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+    )
     'runner.outer_attempt_failed' = 'ניסיון ההרצה נכשל'
     'runner.outer_log_runtime_dir_unset' = @(
         '⁦Write-OuterLog⁩: המשתנה YURUNA_RUNTIME_DIR אינו מוגדר, ולכן לא ניתן לאתר את ⁦outer.log⁩; שורה זו והשורות הבאות אינן נכתבות אליו: '
@@ -22661,6 +22852,27 @@
         }
         '). עדכנו את ה-checkout לפני שינוי תצורת המאגר.'
     )
+    'runner.pool_notifier_busy' = 'הרצה אחרת של מודיע ה-⁦pool⁩ מחזיקה בנעילה במארח הזה; ההרצה הזו לא מסרה דבר.'
+    'runner.pool_notifier_spool_errors' = @(
+        '[מחזור חיצוני '
+        @{
+            'arg' = 'cycle'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '] מתריע הקבוצה: '
+        @{
+            'arg' = 'count'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' שלבים בתור נכשלו, ולכן הודעה עשויה להישלח פעמיים או להישלח שוב בלי סוף; הראשון: '
+        @{
+            'arg' = 'detail'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+    )
     'runner.pool_repositories_cleared' = @(
         'מאגרי הקוד נוקו במאגר '''
         @{
@@ -22717,6 +22929,33 @@
     )
     'runner.prior_runner_cleanup_action' = "  פעולה:  עצירתו והרצת`n           ⁦Remove-TestVMFiles.ps1⁩ לפני ההפעלה"
     'runner.process_start_record_write_action' = 'כתבו רשומה של זמן תחילת התהליך'
+    'runner.project_checkout_replace_action' = @(
+        'החלפה בעותק עבודה חדש של '
+        @{
+            'arg' = 'projectUrl'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ', ולאחר מכן הרצת מחזור בדיקה אחד'
+    )
+    'runner.project_cycle_degraded' = @(
+        '  המחזור פגום: שום דבר לא נכשל, אבל אורח מתוכנן דולג. עיינו ב-'
+        @{
+            'arg' = 'dIR'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' ליומן המחזור.'
+    )
+    'runner.project_cycle_not_run' = @(
+        '  המחזור לא רץ ('
+        @{
+            'arg' = 'outcome'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        '): מאגר מרוקן או מושהה, רענון של המארח או ⁦Ctrl+C⁩ עצרו אותו לפני הכרעה.'
+    )
     'runner.project_previous_cleanup_failed' = @(
         'לא ניתן למחוק את עותק הפרויקט הקודם ב-'
         @{
@@ -22827,6 +23066,54 @@
         }
         '); ההשהיה בעקבות הכשל מדולגת והמחזור הבא מתחיל מיד.'
     )
+    'runner.recovery_disabled' = @(
+        'השחזור האוטומטי מושבת ('
+        @{
+            'arg' = 'reason'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+        '): שום תיקון לא יופעל עד שניתן יהיה לקרוא ולכתוב שוב את יומן השחזור בנתיב '
+        @{
+            'arg' = 'ledgerPath'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+        '.'
+    )
+    'runner.recovery_probe_cleared' = @(
+        'מחזור '
+        @{
+            'arg' = 'cycle'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        ': מצב '
+        @{
+            'arg' = 'failureClass'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ' נפתר ('
+        @{
+            'arg' = 'detail'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+        '); ההשהיה שאחרי הכשל מסתיימת (ניסיון '
+        @{
+            'arg' = 'attempt'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        ' מתוך '
+        @{
+            'arg' = 'maxAttempts'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        ').'
+    )
     'runner.recovery_result_write_failed' = @(
         'לא ניתן לרשום את תוצאת השחזור ב-'
         @{
@@ -22897,6 +23184,51 @@
             'trust' = 'internal'
         }
         '); מריץ נוסף לא יופעל. המתינו לסיום הרענון, או חדשו אותו באמצעות test⁦/lab/Invoke-HostRefresh.ps1⁩ ⁦-Resume⁩.'
+    )
+    'runner.refresh_gate_boot_resume' = @(
+        '⁦Start-TestRunner⁩: רענון המארח '
+        @{
+            'arg' = 'requestId'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ' נותר לא גמור מאתחול קודם; מחדשים אותו פעם אחת באמצעות test⁦/lab/Invoke-HostRefresh.ps1⁩ ⁦-Resume⁩ (pid '
+        @{
+            'arg' = 'pid'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        '). ההפעלה הזו עדיין נדחית; הרענון יפעיל את המריץ בסיומו, והשגיאות שלו נכתבות אל '
+        @{
+            'arg' = 'stdErrPath'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+        '.'
+    )
+    'runner.refresh_gate_boot_resume_failed' = @(
+        '⁦Start-TestRunner⁩: רענון המארח '
+        @{
+            'arg' = 'requestId'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ' נותר לא גמור מאתחול קודם, וחידושו נכשל ('
+        @{
+            'arg' = 'reason'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        '); חדשו אותו באמצעות test⁦/lab/Invoke-HostRefresh.ps1⁩ ⁦-Resume⁩.'
+    )
+    'runner.refresh_gate_boot_resume_tried' = @(
+        '⁦Start-TestRunner⁩: רענון המארח '
+        @{
+            'arg' = 'requestId'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ', שנותר לא גמור מאתחול קודם, כבר חודש פעם אחת באתחול הזה; חדשו אותו שוב באמצעות test⁦/lab/Invoke-HostRefresh.ps1⁩ ⁦-Resume⁩.'
     )
     'runner.refresh_gate_hold' = @(
         '[מחזור חיצוני '
@@ -23923,6 +24255,21 @@
             )
         }
     }
+    'runner.state_file_write_failed' = @(
+        'לא ניתן היה לכתוב את ⁦'
+        @{
+            'arg' = 'path'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+        '⁩: '
+        @{
+            'arg' = 'message'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' מי שקורא את הרשומה הזו לא יראה את השינוי הזה.'
+    )
     'runner.status_beacon_start_failed' = @(
         'לא ניתן היה להפעיל את משדר כתובת המארח: '
         @{
@@ -24084,6 +24431,48 @@
     )
     'runner.status_worker_directory_prepare_action' = 'הכינו את הספרייה הפרטית של תהליך העבודה'
     'runner.status_worker_state_write_action' = 'פרסמו את רשומת המצב של תהליך העבודה'
+    'runner.step_handler_threw' = @(
+        'שלב '
+        @{
+            'arg' = 'step'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        ' ('
+        @{
+            'arg' = 'action'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        '): ה-⁦handler⁩ זרק חריגה: '
+        @{
+            'arg' = 'message'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '. השלב נכשל, ו-⁦retry⁩ שעוטף אותו עשוי להריץ אותו שוב.'
+    )
+    'runner.step_heartbeat_write_failed' = @(
+        'לא ניתן היה לכתוב את פעימת השלב '
+        @{
+            'arg' = 'path'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+        ' ('
+        @{
+            'arg' = 'count'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        ' פעמים ברציפות): '
+        @{
+            'arg' = 'detail'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '. ה-⁦watchdog⁩ שופט את המחזור לפי קובץ זה ועוצר אותו כתקוע כשהקובץ מתיישן; בדקו את השטח הפנוי ואת נעילות הקבצים שם.'
+    )
     'runner.telemetry_event_dropped' = @(
         'לא ניתן לרשום אירוע מחזור ('''
         @{

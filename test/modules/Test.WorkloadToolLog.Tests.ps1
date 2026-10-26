@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.25
+.VERSION 2026.10.26
 .GUID 42386fcb-9b22-4111-8798-b33f5405c9ec
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -238,7 +238,7 @@ Describe 'the workload publisher keeps its tool logs byte for byte' {
             Confirm-LogContent (Join-Path $work 'helm.stderr.log') @(
                 '== helm lint (exit=0) =='
                 '==> Linting .', '[INFO] Chart.yaml: icon is recommended', '', '1 chart(s) linted, 0 chart(s) failed'
-                '== helm upgrade --install --atomic fixture --debug (exit=0) =='
+                "== $script:Stamp helm upgrade --install --atomic fixture --debug attempt 1/5 (exit=0) =="
                 'Release "fixture" does not exist. Installing it now.', 'NAME: fixture', 'STATUS: deployed')
             Confirm-ExitCodeFile (Join-Path $work 'helm.rc') 0
             Assert-StringEqual $script:OriginalLocation (Get-Location).Path
@@ -271,7 +271,7 @@ Describe 'the workload publisher keeps its tool logs byte for byte' {
             $null = Invoke-ChartFixture -Root $script:Root
             Confirm-LogContent (Join-Path $work 'helm.stderr.log') @(
                 '== helm lint (exit=0) =='
-                '== helm upgrade --install --atomic fixture --debug (exit=0) ==')
+                "== $script:Stamp helm upgrade --install --atomic fixture --debug attempt 1/5 (exit=0) ==")
             Confirm-ExitCodeFile (Join-Path $work 'helm.rc') 0
         }
 
@@ -291,7 +291,7 @@ Describe 'the workload publisher keeps its tool logs byte for byte' {
                 '== helm lint (exit=0) ==', '1 chart(s) linted, 0 chart(s) failed'
                 '== pre-flight helm status (state=pending-upgrade; recovering) ==', 'NAME: fixture', 'STATUS: pending-upgrade', 'REVISION: 3'
                 '== helm rollback fixture 0 (exit=0) ==', 'Rollback was a success! Happy Helming!'
-                '== helm upgrade --install --atomic fixture --debug (exit=0) ==', 'STATUS: deployed')
+                "== $script:Stamp helm upgrade --install --atomic fixture --debug attempt 1/5 (exit=0) ==", 'STATUS: deployed')
             Confirm-ExitCodeFile (Join-Path $work 'helm.rc') 0
         }
 
@@ -313,7 +313,7 @@ Describe 'the workload publisher keeps its tool logs byte for byte' {
                 '== pre-flight helm status (state=pending-install; recovering) ==', 'NAME: fixture', 'STATUS: pending-install'
                 '== helm rollback fixture 0 (exit=1) ==', 'Error: release has no 0 version'
                 '== helm uninstall fixture --no-hooks (exit=0) ==', 'release "fixture" uninstalled'
-                '== helm upgrade --install --atomic fixture --debug (exit=0) ==', 'STATUS: deployed')
+                "== $script:Stamp helm upgrade --install --atomic fixture --debug attempt 1/5 (exit=0) ==", 'STATUS: deployed')
             Confirm-ExitCodeFile (Join-Path $work 'helm.rc') 0
         }
 
@@ -330,7 +330,7 @@ Describe 'the workload publisher keeps its tool logs byte for byte' {
             Assert-Equal 1 $failure.exitCode
             Confirm-LogContent (Join-Path $work 'helm.stderr.log') @(
                 '== helm lint (exit=0) =='
-                '== helm upgrade --install --atomic fixture --debug (exit=1) =='
+                "== $script:Stamp helm upgrade --install --atomic fixture --debug attempt 1/5 (exit=1) =="
                 'history.go:56: [debug] getting history for release fixture', 'Error: UPGRADE FAILED: timed out waiting for the condition')
             Confirm-ExitCodeFile (Join-Path $work 'helm.rc') 1
         }
@@ -347,7 +347,7 @@ Describe 'the workload publisher keeps its tool logs byte for byte' {
             $null = Invoke-ChartFixture -Root $script:Root
             Confirm-LogContent (Join-Path $work 'helm.stderr.log') @(
                 '== helm lint (exit=0) ==', $accented, 'trailing spaces   ', "one object`ntwo lines"
-                '== helm upgrade --install --atomic fixture --debug (exit=0) ==')
+                "== $script:Stamp helm upgrade --install --atomic fixture --debug attempt 1/5 (exit=0) ==")
         }
 
         It 'writes one empty line for a call whose whole output is a null object' {
@@ -361,7 +361,7 @@ Describe 'the workload publisher keeps its tool logs byte for byte' {
             $null = Invoke-ChartFixture -Root $script:Root
             Confirm-LogContent (Join-Path $work 'helm.stderr.log') @(
                 '== helm lint (exit=0) ==', ''
-                '== helm upgrade --install --atomic fixture --debug (exit=0) ==', 'a', '', 'b')
+                "== $script:Stamp helm upgrade --install --atomic fixture --debug attempt 1/5 (exit=0) ==", 'a', '', 'b')
         }
 
         It 'starts each chart run from an empty log and sidecar' {
@@ -377,7 +377,7 @@ Describe 'the workload publisher keeps its tool logs byte for byte' {
             $null = Invoke-ChartFixture -Root $script:Root
             Confirm-LogContent (Join-Path $work 'helm.stderr.log') @(
                 '== helm lint (exit=0) ==', 'second run'
-                '== helm upgrade --install --atomic fixture --debug (exit=0) ==')
+                "== $script:Stamp helm upgrade --install --atomic fixture --debug attempt 1/5 (exit=0) ==")
         }
     }
 
@@ -507,7 +507,8 @@ Describe 'the workload publisher appends once per chart section' {
             @($Value).Count -eq 41 -and @($Value)[0] -ceq '== helm lint (exit=0) =='
         }
         Should -Invoke Add-Content -ModuleName 'Yuruna.Retry' -Times 1 -Exactly -ParameterFilter {
-            @($Value).Count -eq 301 -and @($Value)[0] -ceq '== helm upgrade --install --atomic fixture --debug (exit=0) =='
+            # The retry helper stamps the header with the time, which this Describe does not fix.
+            @($Value).Count -eq 301 -and @($Value)[0] -cmatch '^== \S+ helm upgrade --install --atomic fixture --debug attempt 1/5 \(exit=0\) ==$'
         }
     }
 
@@ -522,5 +523,97 @@ Describe 'the workload publisher appends once per chart section' {
         $null = Invoke-ChartFixture -Root $script:Root
         Should -Invoke Add-Content -ModuleName 'Yuruna.Workload' -Times 0 -Exactly
         Should -Invoke Add-Content -ModuleName 'Yuruna.Retry' -Times 2 -Exactly
+    }
+}
+
+# A chart was copied over whatever an earlier copy left, with copy errors
+# ignored, so a template the chart dropped was still installed; the install
+# never retried a fetch that failed for a passing reason; and at the default
+# -logLevel Error a failure said which command failed but not why.
+Describe 'the chart deployment starts from a fresh copy, retries a passing fetch failure and says why it failed' {
+    BeforeEach {
+        $script:OriginalLocation = (Get-Location).Path
+        $script:OriginalExit = $global:LASTEXITCODE
+        $script:SavedEnvironment = Save-YurunaTestEnvironment -Name $script:EnvironmentName
+        Remove-Item -LiteralPath 'Env:YURUNA_RETRY_MAX_ATTEMPTS', 'Env:YURUNA_RETRY_DELAY_SECONDS' -ErrorAction SilentlyContinue
+        $script:Root = Join-Path $TestDrive ([guid]::NewGuid().ToString('N'))
+        Mock -ModuleName 'Yuruna.Retry' Start-Sleep { }
+        Mock -ModuleName 'Yuruna.Retry' Get-Date { [datetime]::new(2026, 9, 27, 12, 34, 56, [DateTimeKind]::Utc) }
+    }
+    AfterEach {
+        Remove-Item -Path Function:/helm, Function:/kubectl -ErrorAction SilentlyContinue
+        Set-Location -LiteralPath $script:OriginalLocation
+        $global:LASTEXITCODE = $script:OriginalExit
+        Restore-YurunaTestEnvironment -Saved $script:SavedEnvironment
+    }
+    It 'removes what an earlier copy left before it copies the chart' {
+        $work = New-ChartFixture -Root $script:Root
+        $null = New-Item -ItemType Directory -Force -Path (Join-Path $work 'templates')
+        [System.IO.File]::WriteAllText((Join-Path $work 'templates/dropped.yaml'), "kind: ConfigMap`n")
+        Set-ToolStandIn -Name helm -Plan (New-ToolPlan -Step @{
+            lint = @{ Exit = 0; Emit = @() }; status = @{ Exit = 1; Emit = @() }; upgrade = @{ Exit = 0; Emit = @('STATUS: deployed') } })
+        $result = Invoke-ChartFixture -Root $script:Root
+        Assert-True ($null -eq $result) 'the chart applied'
+        Assert-False (Test-Path -LiteralPath (Join-Path $work 'templates/dropped.yaml')) 'a template the chart no longer has is gone'
+        Assert-True (Test-Path -LiteralPath (Join-Path $work 'Chart.yaml')) 'the chart was copied'
+    }
+    It 'refuses a work folder outside the project''s .yuruna tree and removes nothing' {
+        $null = New-ChartFixture -Root $script:Root
+        $outside = Join-Path $script:Root 'outside'
+        $null = New-Item -ItemType Directory -Force -Path $outside
+        [System.IO.File]::WriteAllText((Join-Path $outside 'keep.txt'), 'keep')
+        $result = InModuleScope Yuruna.Workload -Parameters @{ Root = $script:Root } {
+            Invoke-WorkloadChartDeployment -project_root $Root -config_subfolder 'lab' -contextName 'fixture-context' `
+                -deployment @{ chart = 'sample'; variables = @{ installName = '../../../../outside' } } `
+                -deploymentVars ([ordered]@{}) -workloadsFile 'workloads.yml' -sw ([System.Diagnostics.Stopwatch]::StartNew())
+        }
+        Assert-False $result.success
+        Assert-Equal -Expected 'config_error' -Actual $result.failureClass
+        Assert-True (Test-Path -LiteralPath (Join-Path $outside 'keep.txt')) 'nothing outside .yuruna was removed'
+    }
+    It 'retries an install whose fetch failed for a passing reason, and logs both attempts' {
+        $work = New-ChartFixture -Root $script:Root
+        $flip = @{ Calls = 0 }
+        $upgrade = @{ Exit = 1; Emit = @(@{ Error = 'Error: failed to fetch https://charts.example.test/index.yaml : 503 Service Unavailable' }) }
+        $upgrade['Before'] = {
+            $flip.Calls++
+            if ($flip.Calls -gt 1) { $upgrade.Exit = 0; $upgrade.Emit = @('STATUS: deployed') }
+        }.GetNewClosure()
+        $plan = New-ToolPlan -Step @{ lint = @{ Exit = 0; Emit = @() }; status = @{ Exit = 1; Emit = @() }; upgrade = $upgrade }
+        Set-ToolStandIn -Name helm -Plan $plan
+        $result = Invoke-ChartFixture -Root $script:Root
+        Assert-True ($null -eq $result) 'the second attempt installed the chart'
+        Assert-Equal -Expected 2 -Actual @($plan.Call | Where-Object { $_ -like 'upgrade *' }).Count
+        Confirm-LogContent (Join-Path $work 'helm.stderr.log') @(
+            '== helm lint (exit=0) =='
+            "== $script:Stamp helm upgrade --install --atomic fixture --debug attempt 1/5 (exit=1) =="
+            'Error: failed to fetch https://charts.example.test/index.yaml : 503 Service Unavailable'
+            "== $script:Stamp helm upgrade --install --atomic fixture --debug attempt 2/5 (exit=0) =="
+            'STATUS: deployed')
+    }
+    It 'puts the reason a chart or a tool failed into the failure message' {
+        $null = New-ChartFixture -Root $script:Root
+        Set-ToolStandIn -Name helm -Plan (New-ToolPlan -Step @{
+            lint = @{ Exit = 0; Emit = @() }; status = @{ Exit = 1; Emit = @() }
+            upgrade = @{ Exit = 1; Emit = @('history.go:56: [debug] getting history', @{ Error = 'Error: UPGRADE FAILED: timed out waiting for the condition' }) } })
+        $chart = Invoke-ChartFixture -Root $script:Root
+        Assert-Match -Pattern 'UPGRADE FAILED: timed out waiting for the condition$' -Actual $chart.errorMessage
+        Set-ToolStandIn -Name kubectl -Plan (New-ToolPlan -Step @{
+            delete = @{ Exit = 3; Emit = @(@{ Error = 'Error from server (NotFound): pods "gone" not found' }) } })
+        $tool = Invoke-ToolFixture -Root $script:Root -Arguments 'delete pod gone'
+        Assert-Equal -Expected 3 -Actual $tool.exitCode
+        Assert-Match -Pattern 'kubectl exit 3 for: kubectl delete pod gone: Error from server \(NotFound\): pods "gone" not found$' -Actual $tool.errorMessage
+    }
+}
+
+Describe 'the failure tail' {
+    It 'keeps the last lines, redacted, within its bound' {
+        $lines = @(1..10 | ForEach-Object { "line $_" }) + @('', '   ', 'token=s3cret-value')
+        $tail = Get-YurunaOutputTail -Output $lines -SecretValue @('s3cret-value')
+        Assert-Equal -Expected 'line 7 | line 8 | line 9 | line 10 | token=<redacted>' -Actual $tail
+        $long = Get-YurunaOutputTail -Output @('x' * 900) -MaxChars 100 -SecretValue @()
+        Assert-Equal -Expected 100 -Actual $long.Length
+        Assert-True ($long.StartsWith('...')) 'a cut tail says so'
+        Assert-Equal -Expected '' -Actual (Get-YurunaOutputTail -Output @() -SecretValue @())
     }
 }

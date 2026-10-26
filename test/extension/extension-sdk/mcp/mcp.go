@@ -1,5 +1,6 @@
 // LICENSEURI https://yuruna.link/license
 // Copyright (c) 2019-2026 by Alisson Sol et al.
+// GUID: 42775fd0-06f9-4761-8b6f-a57a4d7120ef
 
 // Package mcp serves the Model Context Protocol over HTTP. See
 // ../../../../docs/extensions-api.md#mcp-endpoints for the protocol-not-a-
@@ -262,7 +263,7 @@ func (s *Server) Handler() http.HandlerFunc {
 			return
 		}
 		var req rpcRequest
-		if err := jsonbody.Decode(r.Body, &req, MaxRequestBytes, false); err != nil {
+		if err := jsonbody.DecodeRequest(w, r, &req, MaxRequestBytes, false); err != nil {
 			writeRPC(w, rpcResponse{JSONRPC: "2.0", Error: &rpcError{Code: CodeParse, Message: "request is not JSON"}})
 			return
 		}
@@ -469,23 +470,11 @@ func (rec *recorder) Write(p []byte) (int, error) {
 }
 func (rec *recorder) WriteHeader(code int) { rec.status = code }
 
-// FromRoute builds a tool handler that INVOKES an existing route handler
-// in-process and returns what it wrote.
-//
-// This is how a tool is kept from becoming a second implementation. These
-// daemons build their read payloads inside the handler rather than in a
-// function a tool could share, so wrapping one by hand would mean writing the
-// same shape twice and maintaining both. Calling the handler means the tool
-// cannot answer differently from the route: there is one body, produced once.
-//
-// The cost is a JSON round-trip in the same process, which is nothing next to
-// the reads themselves. A non-2xx from the handler becomes an error carrying
-// the body, so a route that refuses still refuses through the tool.
 // FromRouteWithArgs is FromRoute for a route that takes parameters. build turns
 // the tool's arguments into the final request target -- query string, path
 // segments, or both -- so the tool can reach everything the route can.
 //
-// FromRoute below is the NO-ARGUMENT form and discards args deliberately. That
+// FromRoute is the NO-ARGUMENT form and discards args deliberately. That
 // is safe only when the route has nothing to vary; using it on a route that
 // does means the argument is silently swallowed and the caller gets an answer
 // to a question it did not ask. Reach for this one whenever the target is not
@@ -534,6 +523,18 @@ func FromRouteWithBody(h http.HandlerFunc, method, target string, build func(jso
 	}
 }
 
+// FromRoute builds a tool handler that INVOKES an existing route handler
+// in-process and returns what it wrote.
+//
+// This is how a tool is kept from becoming a second implementation. These
+// daemons build their read payloads inside the handler rather than in a
+// function a tool could share, so wrapping one by hand would mean writing the
+// same shape twice and maintaining both. Calling the handler means the tool
+// cannot answer differently from the route: there is one body, produced once.
+//
+// The cost is a JSON round-trip in the same process, which is nothing next to
+// the reads themselves. A non-2xx from the handler becomes an error carrying
+// the body, so a route that refuses still refuses through the tool.
 func FromRoute(h http.HandlerFunc, method, target string) func(context.Context, json.RawMessage) (any, error) {
 	return func(ctx context.Context, _ json.RawMessage) (any, error) {
 		return callRoute(ctx, h, method, target)

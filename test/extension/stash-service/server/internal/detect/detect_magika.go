@@ -1,5 +1,6 @@
 // LICENSEURI https://yuruna.link/license
 // Copyright (c) 2019-2026 by Alisson Sol et al.
+// GUID: 42c180e4-4274-4541-9ce2-0ecc5309ea79
 
 //go:build magika
 

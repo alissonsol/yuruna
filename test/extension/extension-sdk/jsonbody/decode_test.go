@@ -1,12 +1,19 @@
 // LICENSEURI https://yuruna.link/license
 // Copyright (c) 2019-2026 by Alisson Sol et al.
+// GUID: 428aac13-c858-4744-b505-1e9886927bd5
 
 package jsonbody
 
 import (
 	"errors"
+	"fmt"
+	"io"
+	"net"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestBoundaries(t *testing.T) {
@@ -23,5 +30,68 @@ func TestBoundaries(t *testing.T) {
 		if !errors.Is(err, c.want) {
 			t.Errorf("%q: %v want %v", c.body, err, c.want)
 		}
+	}
+}
+
+// shortBodyTimeout lowers the body read timeout for one test.
+func shortBodyTimeout(t *testing.T, d time.Duration) {
+	t.Helper()
+	saved := bodyReadTimeout
+	bodyReadTimeout = d
+	t.Cleanup(func() { bodyReadTimeout = saved })
+}
+
+// A client that sends its headers and then stalls is cut off at the body read
+// timeout instead of holding the connection for as long as it likes.
+func TestDecodeRequestCutsOffAStalledBody(t *testing.T) {
+	shortBodyTimeout(t, 200*time.Millisecond)
+	result := make(chan error, 1)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var dst map[string]any
+		result <- DecodeRequest(w, r, &dst, 1024, false)
+	}))
+	t.Cleanup(srv.Close)
+	conn, err := net.Dial("tcp", srv.Listener.Addr().String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { conn.Close() })
+	fmt.Fprintf(conn, "POST / HTTP/1.1\r\nHost: fixture\r\nContent-Type: application/json\r\nContent-Length: 64\r\n\r\n{\"a\":")
+	select {
+	case err := <-result:
+		if err == nil {
+			t.Fatal("a body that never finished arriving decoded")
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("the stalled body was never cut off")
+	}
+}
+
+// The deadline ends with the body: a handler still working after it is not
+// canceled, which a deadline left to fire would do to the request.
+func TestDecodeRequestClearsTheDeadlineOnceTheBodyIsIn(t *testing.T) {
+	shortBodyTimeout(t, 100*time.Millisecond)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var dst map[string]any
+		if err := DecodeRequest(w, r, &dst, 1024, false); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		select {
+		case <-r.Context().Done():
+			http.Error(w, "canceled", http.StatusInternalServerError)
+		case <-time.After(500 * time.Millisecond):
+			_, _ = io.WriteString(w, "done")
+		}
+	}))
+	t.Cleanup(srv.Close)
+	resp, err := srv.Client().Post(srv.URL, "application/json", strings.NewReader(`{"a":1}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK || string(body) != "done" {
+		t.Fatalf("handler past the body deadline answered %d %q, want 200 done", resp.StatusCode, body)
 	}
 }

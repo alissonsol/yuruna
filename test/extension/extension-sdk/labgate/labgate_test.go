@@ -1,5 +1,6 @@
 // LICENSEURI https://yuruna.link/license
 // Copyright (c) 2019-2026 by Alisson Sol et al.
+// GUID: 4220c134-148d-4fd8-8f7f-d9eb05d37bf6
 
 package labgate
 
@@ -643,6 +644,69 @@ func TestAuditSeesEveryUnlockAttempt(t *testing.T) {
 	defer mu.Unlock()
 	if len(outcomes) != 2 || outcomes[0] != "refused" || outcomes[1] != "ok" {
 		t.Fatalf("audited outcomes = %v, want [refused ok]", outcomes)
+	}
+}
+
+// Once a source is throttled its further attempts are turned away without an
+// audit line each: the refusals that reached the cap already record the burst,
+// and one line per retry would let an anonymous caller grow the audit at will.
+func TestAThrottledSourceIsNotAuditedForEveryRetry(t *testing.T) {
+	agg := newFakeAggregator(t, labCode)
+	agg.verifiesProofsFor(labAuthToken)
+	var mu sync.Mutex
+	var outcomes []string
+	srv, _ := gated(t, Options{
+		AggregatorURL: agg.srv.URL,
+		Audit: func(_, outcome, _ string) {
+			mu.Lock()
+			outcomes = append(outcomes, outcome)
+			mu.Unlock()
+		},
+	})
+	for i := 0; i < MaxFailedAttempts; i++ {
+		login(t, srv, "zzzzzz")
+	}
+	for i := 0; i < 20; i++ {
+		if r := login(t, srv, "zzzzzz"); r.StatusCode != http.StatusTooManyRequests {
+			t.Fatalf("throttled code = %d, want 429", r.StatusCode)
+		}
+		if r := unlockProof(t, srv, mintProof("not-the-token", time.Now().Add(time.Minute).Unix())); r.StatusCode != http.StatusTooManyRequests {
+			t.Fatalf("throttled proof = %d, want 429", r.StatusCode)
+		}
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if len(outcomes) != MaxFailedAttempts {
+		t.Fatalf("audited %d outcomes, want only the %d refusals: %v", len(outcomes), MaxFailedAttempts, outcomes)
+	}
+}
+
+// An attempt the aggregator could not judge still spends one, so a source cannot
+// keep forwarding guesses -- each a call out and an audit line -- while the
+// aggregator refuses this service's address.
+func TestAnUnjudgedAttemptCountsTowardTheThrottle(t *testing.T) {
+	agg := newFakeAggregator(t, labCode)
+	agg.verifiesProofsFor(labAuthToken)
+	agg.force(http.StatusTooManyRequests)
+	srv, _ := gated(t, Options{AggregatorURL: agg.srv.URL})
+	for i := 0; i < MaxFailedAttempts; i++ {
+		var r *http.Response
+		if i%2 == 0 {
+			r = login(t, srv, "zzzzzz")
+		} else {
+			r = unlockProof(t, srv, mintProof(labAuthToken, time.Now().Add(time.Minute).Unix()))
+		}
+		if r.StatusCode != http.StatusServiceUnavailable {
+			t.Fatalf("attempt %d against a refusing aggregator = %d, want 503", i+1, r.StatusCode)
+		}
+	}
+	if r := login(t, srv, "zzzzzz"); r.StatusCode != http.StatusTooManyRequests {
+		t.Fatalf("attempt past the cap = %d, want 429", r.StatusCode)
+	}
+	agg.mu.Lock()
+	defer agg.mu.Unlock()
+	if sent := len(agg.asked) + len(agg.proofsAsked); sent != MaxFailedAttempts {
+		t.Fatalf("the aggregator was asked %d times, want %d", sent, MaxFailedAttempts)
 	}
 }
 

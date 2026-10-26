@@ -343,6 +343,14 @@ the flag files on each write. Each flag file carries the moment it was armed,
 mirrored as `stepPausedSinceUtc` / `cyclePausedSinceUtc`, so the banner can
 report a hold's age and not just its existence.
 
+The route stamps `status.json` itself as well as the flag file. During a hold
+there are no step boundaries to trigger the runner's own status write, so
+without the route's stamp the dashboard would show a
+hold with no age for as long as it lasts, which is exactly the reading that
+matters on a step-pause. The flag file is what the runner obeys, so a flag the
+route could not write is a refused request, never an `ok`: the operator would
+otherwise watch a pause or resume that never takes effect.
+
 <a id="42185271-000a"></a>
 
 ### Which pause to use
@@ -927,6 +935,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.25
+Last review: 2026.10.26
 
 Back to [Yuruna](../README.md)

@@ -1,5 +1,6 @@
 // LICENSEURI https://yuruna.link/license
 // Copyright (c) 2019-2026 by Alisson Sol et al.
+// GUID: 42cac9d4-c765-4adb-9a39-c3ec93670af1
 //
 // The small set of behavior a page with no shared runtime still needs.
 //

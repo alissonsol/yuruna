@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.25
+.VERSION 2026.10.26
 .GUID 42c6e83b-159d-4f27-8a0e-6b7d2c4901fa
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -162,7 +162,9 @@ foreach ($step in $script:Step) {
     $output = (& $script:PowerShellPath @arguments 2>&1 | Out-String).Trim()
     $code = $LASTEXITCODE
     $ran++
-    if ($step.writes -and $code -in @(0, 1)) {
+    # A writing step exits 0 when it finished, whether or not it wrote; its
+    # check then proves what it left behind.
+    if ($step.writes -and $code -eq 0) {
         $verifyArguments = @($arguments | Where-Object { $_ -cne '-Update' }) + '-Check'
         $verification = (& $script:PowerShellPath @verifyArguments 2>&1 | Out-String).Trim()
         $code = $LASTEXITCODE
@@ -181,5 +183,3 @@ foreach ($problem in $failed) { Write-Warning $problem }
 Write-Output ('Publish-Localization: {0} step(s) ran, {1} failed.' -f $ran, $failed.Count)
 if ($failed.Count -gt 0) { exit 2 }
 exit 0
-
-# Copyright (c) 2019-2026 by Alisson Sol et al.

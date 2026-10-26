@@ -1,5 +1,6 @@
 // LICENSEURI https://yuruna.link/license
 // Copyright (c) 2019-2026 by Alisson Sol et al.
+// GUID: 427b390b-cbd4-457e-ae7f-9402d10f967e
 const test=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs'),vm=require('node:vm');
 const source=fs.readFileSync(__dirname+'/../assets/yuruna.core.js','utf8');
 const block=source.slice(source.indexOf('  function isPlainBody('),source.indexOf('  // --- REGION: Control proof'));

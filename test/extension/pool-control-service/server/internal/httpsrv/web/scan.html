@@ -2,6 +2,7 @@
 <!--
   LICENSEURI https://yuruna.link/license
   Copyright (c) 2019-2026 by Alisson Sol et al.
+  GUID: 42f993f1-a7c3-49ca-bfaf-968ffe354637
 -->
 <html lang="en">
 <head>
@@ -68,24 +69,24 @@
 
     <h2 data-i18n="pool.found_and_added">Found and added</h2>
     <p class="muted" data-i18n="pool.only_hosts_this_scan_added_a_yuruna_host_that_was_already_monitor">Only hosts this scan added. A Yuruna host that was already monitored is counted above, not listed again.</p>
-    <table>
+    <div class="table-wrap" tabindex="0"><table>
       <thead>
         <tr><th data-i18n="pool.address">Address</th><th data-i18n="pool.host_id">Host ID</th><th data-i18n="pool.hostname">Hostname</th><th data-i18n="pool.type">Type</th><th data-i18n="pool.found">Found</th></tr>
       </thead>
       <tbody id="found-rows"></tbody>
-    </table>
+    </table></div>
 
     <h2 data-i18n="pool.monitored_by_discovery">Monitored by discovery</h2>
     <p class="muted">
       Every host this service has found by scanning, newest sighting first on the right.
       They also appear on the <a href="/hosts" data-i18n="pool.hosts">Hosts</a> page, where they can be put into a pool.
     </p>
-    <table>
+    <div class="table-wrap" tabindex="0"><table>
       <thead>
         <tr><th data-i18n="pool.address">Address</th><th data-i18n="pool.host_id">Host ID</th><th data-i18n="pool.hostname">Hostname</th><th data-i18n="pool.type">Type</th><th data-i18n="pool.first_seen">First seen</th><th data-i18n="pool.last_seen">Last seen</th><th></th></tr>
       </thead>
       <tbody id="host-rows"></tbody>
-    </table>
+    </table></div>
   </main>
   <footer id="footer-bar">
     <span id="footer-ips"><span class="label" id="footer-ips-label" data-i18n="pool.ips">IPs:</span><textarea id="footer-ip-list" readonly rows="1" spellcheck="false" inputmode="none" autocorrect="off" autocapitalize="off" aria-labelledby="footer-ips-label">--</textarea></span>

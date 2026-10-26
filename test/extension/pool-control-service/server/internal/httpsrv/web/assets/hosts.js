@@ -1,5 +1,6 @@
 // LICENSEURI https://yuruna.link/license
 // Copyright (c) 2019-2026 by Alisson Sol et al.
+// GUID: 42f9d29a-3da2-48a4-bed5-daa64910d420
 // Host-centric pool assignment. No innerHTML on data.
 (function () {
   var pools = [];

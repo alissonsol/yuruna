@@ -1,5 +1,6 @@
 // LICENSEURI https://yuruna.link/license
 // Copyright (c) 2019-2026 by Alisson Sol et al.
+// GUID: 42c38683-662f-4aa2-a5ee-f57155f40235
 
 // Package store owns the filesystem side of the stash service: path
 // resolution under the StashFolder (section 6), per-day file directories,

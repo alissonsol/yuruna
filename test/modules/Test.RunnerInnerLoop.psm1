@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.25
+.VERSION 2026.10.26
 .GUID 42479415-ffbe-4fef-9daa-15edda547208
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -41,6 +41,8 @@ Import-Module (Join-Path $PSScriptRoot 'Test.SequenceResolve.psm1') -DisableName
 # The refresh gate the cycle-start sites consult and the readiness helpers the
 # preflight inner uses; imported here so no inner can run without them.
 Import-Module (Join-Path $PSScriptRoot 'Test.SingleInstance.psm1') -DisableNameChecking
+# Write-RunnerStepHeartbeat, the one writer of the heartbeat the watchdog judges.
+Import-Module (Join-Path $PSScriptRoot 'Test.RunnerHeartbeat.psm1') -DisableNameChecking
 Import-Module (Join-Path $PSScriptRoot 'Test.DiagnosticPreservation.psm1') -DisableNameChecking
 Import-Module (Join-Path $PSScriptRoot 'Test.SourceSelection.psm1') -DisableNameChecking
 function Get-StableCycleBaseName {
@@ -1112,7 +1114,8 @@ function Complete-CycleRun {
             if ($HostType -and (Get-Command Write-CycleInfraFailure -ErrorAction SilentlyContinue)) {
                 Write-CycleInfraFailure -Stage 'GuestAddressBound' -HostType $HostType -FailureClass 'dhcp_identity_unbounded' `
                     -Severity 'hard' -GuestKey '(guest addressing)' `
-                    -VMName ($first ? [string]$first.vmName : '') -ErrorMessage $detail
+                    -VMName ($first ? [string]$first.vmName : '') -ErrorMessage $detail `
+                    -ClassDetail ($first ? @{ previousAddress = [string]$first.previous; currentAddress = [string]$first.current } : $null)
             }
         }
     }
@@ -1128,6 +1131,101 @@ function Complete-CycleRun {
     Save-CycleHostSample
     Stop-LogFile -Outcome $FinalStatus -Reason $cycleEndReason
     return $FinalStatus
+}
+
+function Invoke-CycleProjectRefresh {
+    <#
+    .SYNOPSIS
+        Replace <RepoRoot>/project with a fresh clone of the cycle's project pin
+        and record where the clone came from.
+    .DESCRIPTION
+        The pin is the selection the cycle's source handoff carries: the
+        configuration gate chose it for this cycle's generation, so a project tip
+        that moves after the gate does not change what the cycle tests. The
+        installed provenance is written only after a refresh that succeeded, so a
+        failed clone never claims the checkout it left in place.
+    .OUTPUTS
+        The checkout step result from Invoke-CycleCheckoutStep.
+    #>
+    [CmdletBinding()]
+    [OutputType([pscustomobject])]
+    param(
+        [Parameter(Mandatory)][string]$RepoRoot,
+        [AllowNull()][AllowEmptyString()][string]$ProjectUrl = '',
+        [AllowNull()][System.Collections.IDictionary]$SourceSelection,
+        [AllowNull()]$SelectionAcceptedAt,
+        [AllowNull()][System.Collections.IDictionary]$SourceContext,
+        [AllowNull()][System.Collections.IDictionary]$InstalledProvenance
+    )
+    $sourceArguments = @{}
+    if ($SourceContext) { $sourceArguments.SourceContext = $SourceContext }
+    if ($InstalledProvenance) { $sourceArguments.InstalledProvenance = $InstalledProvenance }
+    if ($SourceSelection) {
+        $sourceArguments.SourceSelection = $SourceSelection
+        if ($SelectionAcceptedAt) { $sourceArguments.SelectionAcceptedAt = [DateTimeOffset]$SelectionAcceptedAt }
+    }
+    $step = Invoke-CycleCheckoutStep -RepoRoot $RepoRoot -ProjectUrl $ProjectUrl @sourceArguments
+    if ($step.Ok -and $step.SourceSelection -and
+        -not (Write-InstalledGitSource -RepoRoot $RepoRoot -Kind project -Selection $step.SourceSelection -Confirm:$false)) {
+        throw 'source-provenance-write-failed'
+    }
+    return $step
+}
+
+function Resolve-CycleVerdict {
+    <#
+    .SYNOPSIS
+        How a finalized cycle counts -- passed, degraded or failed -- and the
+        alert-gating counters a pass or a degraded cycle leaves.
+    .DESCRIPTION
+        The verdict comes from the status the cycle was finalized with, because
+        Complete-CycleRun can turn a pass into a failure (an unbounded guest
+        address footprint) after the caller decided it had passed.
+
+        A pass that skipped a planned guest (a quarantined one) is degraded:
+        nothing failed, but the cycle proved nothing about that guest, so it ends
+        no failure streak and counts toward no alert re-arm. It still ends a
+        crash streak, because the engine ran the cycle to its end.
+
+        A failure leaves the counters to the caller's failure branch, which owns
+        the failure streak and the alert.
+    .OUTPUTS
+        [pscustomobject] Verdict ('passed', 'degraded' or 'failed'), the four
+        counters, and Rearmed when this pass re-armed the alert.
+    #>
+    [CmdletBinding()]
+    [OutputType([pscustomobject])]
+    param(
+        [Parameter(Mandatory)][AllowEmptyString()][string]$FinalStatus,
+        [ValidateRange(0, [int]::MaxValue)][int]$SkippedGuestCount = 0,
+        [int]$ConsecutiveCrashes = 0,
+        [int]$ConsecutiveFailures = 0,
+        [int]$ConsecutiveSuccesses = 0,
+        [bool]$AlertArmed = $true,
+        [int]$SuccessesBeforeRearm = 1
+    )
+    $result = [pscustomobject]@{
+        Verdict              = 'failed'
+        ConsecutiveCrashes   = $ConsecutiveCrashes
+        ConsecutiveFailures  = $ConsecutiveFailures
+        ConsecutiveSuccesses = $ConsecutiveSuccesses
+        AlertArmed           = $AlertArmed
+        Rearmed              = $false
+    }
+    if ($FinalStatus -cne 'pass') { return $result }
+    $result.ConsecutiveCrashes = 0
+    if ($SkippedGuestCount -gt 0) {
+        $result.Verdict = 'degraded'
+        return $result
+    }
+    $result.Verdict = 'passed'
+    $result.ConsecutiveFailures = 0
+    $result.ConsecutiveSuccesses = $ConsecutiveSuccesses + 1
+    if (-not $AlertArmed -and $result.ConsecutiveSuccesses -ge $SuccessesBeforeRearm) {
+        $result.AlertArmed = $true
+        $result.Rearmed = $true
+    }
+    return $result
 }
 
 function Resolve-CycleVmNamingStrategy {
@@ -1817,6 +1915,7 @@ function Test-CycleHostNetworkDegraded {
     if ($null -ne $script:CycleHostNetworkDegraded) { return [bool]$script:CycleHostNetworkDegraded }
     $degraded = $false
     $verdictText = 'unknown'
+    $recordField = $null
     try {
         $classifier = Get-Command Test-YurunaExternalSwitchUplink -ErrorAction SilentlyContinue
         if ($classifier -and (Get-Command Get-VMSwitch -ErrorAction SilentlyContinue)) {
@@ -1835,6 +1934,12 @@ function Test-CycleHostNetworkDegraded {
                     $verdictText = (@(for ($i = 0; $i -lt $externalSwitches.Count; $i++) {
                         "$($externalSwitches[$i].Name)=$($verdicts[$i])"
                     }) -join ', ')
+                    # The host_network_degraded handler quotes these two fields
+                    # from the record a degraded cycle files.
+                    $recordField = [ordered]@{
+                        hostNetworkSwitch  = (@($externalSwitches | ForEach-Object { [string]$_.Name }) -join ', ')
+                        hostNetworkVerdict = ($verdicts -join ', ')
+                    }
                 }
             }
         }
@@ -1846,6 +1951,7 @@ function Test-CycleHostNetworkDegraded {
     }
     $script:CycleHostNetworkDegraded = $degraded
     $script:CycleHostNetworkVerdict  = $verdictText
+    $script:CycleHostNetworkRecordField = $recordField
     return $degraded
 }
 
@@ -1917,7 +2023,10 @@ function Write-CycleHostNetworkReclassification {
         $reclassified = Resolve-HostNetworkFailureClass -FailureClass $current -GuestKey $GuestKey
         if ($reclassified -eq $current) { return }
         $rec['failureClass'] = $reclassified
-        $null = Write-YurunaStateFile -Path $failFile -Content ($rec | ConvertTo-Json -Depth 12) -Confirm:$false
+        if ($reclassified -eq 'host_network_degraded' -and $script:CycleHostNetworkRecordField) {
+            foreach ($name in $script:CycleHostNetworkRecordField.Keys) { $rec[$name] = $script:CycleHostNetworkRecordField[$name] }
+        }
+        $null = Write-YurunaStateFile -Path $failFile -Content ($rec | ConvertTo-Json -Depth 12) -WarnOnFailure -Confirm:$false
         # Re-mirror so the cycle folder's copy carries the re-filed class the
         # retry consumers route on rather than the symptom it replaced.
         if (Get-Command Copy-CycleFailureRecord -ErrorAction SilentlyContinue) {
@@ -1995,7 +2104,7 @@ function Write-CycleFailureExecutionTail {
             $cause['executionTail']    = ($tailLines -join "`n")
             $cause['executionLogPath'] = $LogPath
         }
-        $null = Write-YurunaStateFile -Path $failFile -Content ($rec | ConvertTo-Json -Depth 12) -Confirm:$false
+        $null = Write-YurunaStateFile -Path $failFile -Content ($rec | ConvertTo-Json -Depth 12) -WarnOnFailure -Confirm:$false
         # Re-mirror so the cycle folder's copy carries the verbatim tail too.
         if (Get-Command Copy-CycleFailureRecord -ErrorAction SilentlyContinue) {
             $null = Copy-CycleFailureRecord
@@ -2006,6 +2115,27 @@ function Write-CycleFailureExecutionTail {
     } catch {
         Write-Verbose "Execution-tail enrichment of $failFile skipped: $($_.Exception.Message)"
     }
+}
+
+function Test-InfraFailureRecordReplaceable {
+    <#
+    .SYNOPSIS
+        $true when an infra-failure record may replace the record at -Path.
+    .DESCRIPTION
+        A record written before the current guest iteration began belongs to an
+        earlier failure -- another guest's, or this guest's from an earlier
+        iteration -- and keeping it would file this failure under that one's
+        class. A record written since then is this iteration's own: the engine's
+        richer account of the same failure, or the record of the dependency whose
+        failure an orchestration stage inherits, so it is kept. Outside a guest
+        iteration nothing shows a record to be stale, and it is kept.
+    #>
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param([Parameter(Mandatory)][string]$Path)
+    if (-not (Test-Path -LiteralPath $Path)) { return $true }
+    if (-not $script:GuestIterationStartedUtc) { return $false }
+    return ([IO.File]::GetLastWriteTimeUtc($Path) -lt [datetime]$script:GuestIterationStartedUtc)
 }
 
 function Write-CycleInfraFailure {
@@ -2020,9 +2150,12 @@ function Write-CycleInfraFailure {
         Writes to the LOG ROOT ($env:YURUNA_LOG_DIR) when set -- where the engine
         writes last_failure.json and where the routing consumers (Get-Outer-
         LastFailureClass, Invoke-Remediation) read it -- else the per-cycle folder
-        (bootstrap stages before Start-LogFile). Never clobbers a richer engine-
-        written record (writes only when last_failure.json is absent), and is
-        fully guarded (every builder call gated on Get-Command; one catch) so
+        (bootstrap stages before Start-LogFile). An existing last_failure.json
+        is replaced only when it was written before the current guest iteration
+        began -- another guest's, or this guest's from an earlier iteration --
+        so this failure is not filed under that one's class; a record from the
+        current iteration is the richer account of the same failure and is kept
+        (Test-InfraFailureRecordReplaceable). It is fully guarded (every builder call gated on Get-Command; one catch) so
         telemetry can never fail the cycle. The builders (New-InfraFailureRecord,
         Write-YurunaStateFile, Send-CycleEventSafely, Set-LastFailureSummary) are
         imported -Global by the runner and resolved from the global scope; if none
@@ -2049,7 +2182,10 @@ function Write-CycleInfraFailure {
         # reading of its own here, seconds and one teardown later.
         [AllowNull()][hashtable]$HostMemory,
         [AllowNull()][hashtable]$HostStorage,
-        [hashtable[]]$DependencyFailures = @()
+        [hashtable[]]$DependencyFailures = @(),
+        # Top-level record fields the class's recovery handler quotes, such as
+        # the two addresses of a dhcp_identity_unbounded move.
+        [AllowNull()][hashtable]$ClassDetail
     )
     try {
         $dir = if ($env:YURUNA_LOG_DIR) { $env:YURUNA_LOG_DIR }
@@ -2066,9 +2202,14 @@ function Write-CycleInfraFailure {
         $rec = New-InfraFailureRecord -Stage $Stage -FailureClass $effectiveClass -Severity $Severity `
             -GuestKey $GuestKey -VMName $VMName -HostType $HostType -ErrorMessage $ErrorMessage `
             -HostMemory $HostMemory -HostStorage $HostStorage -DependencyFailures $DependencyFailures
+        $detailSets = @(
+            if ($effectiveClass -eq 'host_network_degraded' -and $script:CycleHostNetworkRecordField) { $script:CycleHostNetworkRecordField }
+            if ($ClassDetail) { $ClassDetail }
+        )
+        foreach ($set in $detailSets) { foreach ($name in $set.Keys) { $rec.File[$name] = $set[$name] } }
         $failFile = Join-Path $dir 'last_failure.json'
-        if (-not (Test-Path -LiteralPath $failFile) -and (Get-Command Write-YurunaStateFile -ErrorAction SilentlyContinue)) {
-            $null = Write-YurunaStateFile -Path $failFile -Content ($rec.File | ConvertTo-Json -Depth 12) -Confirm:$false
+        if ((Test-InfraFailureRecordReplaceable -Path $failFile) -and (Get-Command Write-YurunaStateFile -ErrorAction SilentlyContinue)) {
+            $null = Write-YurunaStateFile -Path $failFile -Content ($rec.File | ConvertTo-Json -Depth 12) -WarnOnFailure -Confirm:$false
             # Mirror into the cycle folder at classification time: the record
             # above sits at the shared log root, which the next guest's first
             # sequence start clears, so an infra failure on a non-final guest
@@ -2085,7 +2226,7 @@ function Write-CycleInfraFailure {
         if (Get-Command Set-LastFailureSummary -ErrorAction SilentlyContinue) {
             Set-LastFailureSummary -FailureClass $effectiveClass -Severity $Severity `
                 -SequenceName $Stage -GuestKey $GuestKey -StepName $Stage `
-                -ErrorMessage $ErrorMessage -VmName $VMName -Confirm:$false
+                -ErrorMessage $ErrorMessage -VmName $VMName -ClassificationSource 'infra-stage' -Reason 'infra' -Confirm:$false
         }
     } catch { $null = $_ }
 }
@@ -2300,11 +2441,7 @@ function Wait-CyclePauseFlag {
     # See https://yuruna.link/4213a0b3-00ee
     $pauseAttempt = 1
     while ((Test-Path $FlagFile) -and (-not $ShutdownState['Requested'])) {
-        try {
-            [System.IO.File]::WriteAllText($StepHeartbeatFile, [DateTime]::UtcNow.ToString('o'))
-        } catch {
-            Write-Verbose "runner.stepHeartbeat refresh during cycle pause failed: $($_.Exception.Message)"
-        }
+        Write-RunnerStepHeartbeat -Path $StepHeartbeatFile
         Start-Sleep -Milliseconds (Get-PollDelay -Attempt $pauseAttempt)
         $pauseAttempt++
     }
@@ -2420,6 +2557,8 @@ $MaxConsecutiveCrashes = 3
 # are untouched: a held cycle is neither a pass nor a failure.
 $refreshGated         = $false
 $configGateFailed     = $false
+$skippedGuests        = [System.Collections.Generic.List[string]]::new()
+$cycleDegraded        = $false
 
 # Run-once scope: per-cycle iteration is owned by the outer Start-TestRunner.ps1,
 # so this body executes exactly once. do/while($false) states that single pass
@@ -2653,8 +2792,8 @@ do {
     }
     $cloneStep = $null
     if ($NoProjectClone) {
-        # Invoke-TestProject.ps1 spawn path: the wipe + clone happened in the
-        # parent before we were invoked. Trust the on-disk state; just
+        # A caller that replaced the checkout itself before invoking the
+        # inner by hand. Trust the on-disk state; just
         # verify the project's .git is present so the cycle's downstream
         # consumers (HEAD capture, sequence planner, fetch-and-execute
         # tarball builders) don't trip over a missing tree.
@@ -2667,16 +2806,10 @@ do {
             $cloneRes = @{ success = $true; skipped = $false; errorMessage = $null }
         }
     } else {
-        $sourceArguments = @{}
-        if ($sourceContext) { $sourceArguments.SourceContext = $sourceContext }
-        if ($installedSources.project) { $sourceArguments.InstalledProvenance = $installedSources.project }
-        if ($projectSourceSelection) {
-            $sourceArguments.SourceSelection = $projectSourceSelection
-            if ($sourceHandoff.projectAcceptedAt) { $sourceArguments.SelectionAcceptedAt = [DateTimeOffset]$sourceHandoff.projectAcceptedAt }
-        }
-        $cloneStep = Invoke-CycleCheckoutStep -RepoRoot $RepoRoot -ProjectUrl $projUrl @sourceArguments
+        $acceptedAt = if ($projectSourceSelection -and $sourceHandoff -and $sourceHandoff.projectAcceptedAt) { $sourceHandoff.projectAcceptedAt } else { $null }
+        $cloneStep = Invoke-CycleProjectRefresh -RepoRoot $RepoRoot -ProjectUrl $projUrl -SourceSelection $projectSourceSelection `
+            -SelectionAcceptedAt $acceptedAt -SourceContext $sourceContext -InstalledProvenance $installedSources.project
         $projectSourceSelection = $cloneStep.SourceSelection
-        if ($cloneStep.Ok -and $projectSourceSelection -and -not (Write-InstalledGitSource -RepoRoot $RepoRoot -Kind project -Selection $projectSourceSelection -Confirm:$false)) { throw 'source-provenance-write-failed' }
         $cloneRes = @{ success = $cloneStep.Ok; skipped = $cloneStep.Skipped; errorMessage = $cloneStep.ErrorMessage; revision = $cloneStep.Revision }
     }
     if (-not $cloneRes.success) {
@@ -2774,6 +2907,41 @@ do {
         $ConsecutiveSuccesses = $controlGateState.ConsecutiveSuccesses
         $AlertArmed           = $controlGateState.AlertArmed
         break
+    }
+
+    # A known-answer read through the enabled OCR engines, before any guest
+    # depends on them: an engine that is installed but cannot read fails here,
+    # as the host's instrumentation, instead of later as a guest's wait timeout.
+    # Same exit shape as the control gate above.
+    $ocrCheck = Test-OcrKnownAnswer
+    if (-not $ocrCheck.Passed) {
+        $ocrMessage = Format-YurunaOperatorMessage -Key 'runner.ocr_known_answer_failed' -Arguments @{ detail = [string]$ocrCheck.Detail }
+        Write-Warning $ocrMessage
+        $staleFailureRecord = if ($env:YURUNA_LOG_DIR) { Join-Path $env:YURUNA_LOG_DIR 'last_failure.json' } else { $null }
+        if ($staleFailureRecord -and (Test-Path -LiteralPath $staleFailureRecord)) {
+            Remove-Item -LiteralPath $staleFailureRecord -Force -ErrorAction SilentlyContinue
+        }
+        $OverallPassed = $false
+        Write-CycleInfraFailure -Stage 'OcrKnownAnswer' -FailureClass 'instrumentation_failure' -HostType $HostType `
+            -Severity 'hard' -GuestKey '(host)' -ErrorMessage $ocrMessage
+        Sync-RunnerBootstrapGateCounter -State $gatingState -Failures $ConsecutiveFailures -Successes $ConsecutiveSuccesses -Armed $AlertArmed
+        $ocrGateState = $gatingState
+        Invoke-RunnerBootstrapFailureGate -GatingState $ocrGateState -Stage 'OcrKnownAnswer' `
+            -ErrorMessage $ocrMessage -GitCommit (Get-CurrentGitCommit -RepoRoot $RepoRoot) `
+            -FailureClass 'instrumentation_failure' -HostType $HostType
+        $ConsecutiveFailures  = $ocrGateState.ConsecutiveFailures
+        $ConsecutiveSuccesses = $ocrGateState.ConsecutiveSuccesses
+        $AlertArmed           = $ocrGateState.AlertArmed
+        break
+    }
+    if ($ocrCheck.Degraded) {
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.ocr_known_answer_degraded' -Arguments @{ detail = [string]$ocrCheck.Detail })
+        if (Get-Command Send-CycleEventSafely -ErrorAction SilentlyContinue) {
+            Send-CycleEventSafely -EventRecord @{
+                timestamp = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", [Globalization.CultureInfo]::InvariantCulture)
+                event = 'ocr_known_answer_degraded'; failureClass = 'instrumentation_failure'; severity = 'soft'; detail = [string]$ocrCheck.Detail
+            }
+        }
     }
 
     # See https://yuruna.link/4213a0b3-00f4
@@ -2962,7 +3130,7 @@ do {
             -HostType       $HostType `
             -Hostname       (hostname) `
             -GitCommit      $GitCommit `
-            -RepoUrl        $Config.repositories.frameworkUrl `
+            -RepoUrl        (ConvertTo-GitSourceSafeUrl $Config.repositories.frameworkUrl) `
             -GitCommits     $GitCommitsList `
             -GuestList      $GuestList `
             -Sequences      $SequenceList `
@@ -3050,7 +3218,7 @@ do {
                 [void]$FailedGuests.Add($GuestKey)
                 $OverallPassed = $false
                 if (-not $FailedGuest) { $FailedGuest = $GuestKey; $FailedStep = "GetImage"; $FailureMessage = $r.errorMessage }
-                Write-CycleInfraFailure -Stage 'GetImage' -FailureClass 'network_timeout' -GuestKey $GuestKey -ErrorMessage $r.errorMessage -HostType $HostType
+                Write-CycleInfraFailure -Stage 'GetImage' -FailureClass $(if ($r.failureClass) { [string]$r.failureClass } else { 'network_timeout' }) -GuestKey $GuestKey -ErrorMessage $r.errorMessage -HostType $HostType
                 if ($StopOnFailure) { break }
                 continue
             }
@@ -3081,7 +3249,7 @@ do {
                     [void]$FailedGuests.Add($GuestKey)
                     $OverallPassed = $false
                     if (-not $FailedGuest) { $FailedGuest = $GuestKey; $FailedStep = "GetImage"; $FailureMessage = $r.errorMessage }
-                    Write-CycleInfraFailure -Stage 'GetImage' -FailureClass 'network_timeout' -GuestKey $GuestKey -ErrorMessage $r.errorMessage -HostType $HostType
+                    Write-CycleInfraFailure -Stage 'GetImage' -FailureClass $(if ($r.failureClass) { [string]$r.failureClass } else { 'network_timeout' }) -GuestKey $GuestKey -ErrorMessage $r.errorMessage -HostType $HostType
                     $missingAny = $true
                     if ($StopOnFailure) { break }
                     continue
@@ -3146,6 +3314,7 @@ do {
                 Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_709a778095714d42' -Arguments @{ guestKey = "$GuestKey" })
                 Set-GuestStatus     -GuestKey $GuestKey -Status 'skipped'
                 Set-GuestQuarantine -GuestKey $GuestKey -Quarantined $true -UntilCommit $GitCommit
+                $skippedGuests.Add([string]$GuestKey)
                 continue
             }
         }
@@ -3217,6 +3386,33 @@ do {
         if ($guestIterState.Control -eq 'continue') { continue }
     }
 
+    # --- REGION: Remediation decision
+    # Every failed cycle gets the dispatcher's decision while its transcript is
+    # still open: Stop-LogFile then archives last_remediation.json into this
+    # cycle's folder, and the remediation_recommended event lands in this
+    # cycle's stream for the pool. Made after the cycle closed, and only on a
+    # cycle that also alerted, it reached neither. The alert below stays gated
+    # on its latch and ships this same payload. An orchestration cycle seals its
+    # own transcript, so the orchestrator makes the same decision through
+    # -BeforeSeal before it does.
+    $cycleFailureEventData = $null
+    if (-not $isOrchestrationCycle -and -not $OverallPassed -and $FailedGuest) {
+        $cycleFailureEventData = Get-FailureEventData `
+            -HostType      $HostType `
+            -Hostname      (hostname) `
+            -GuestKey      $FailedGuest `
+            -StepName      $FailedStep `
+            -ErrorMessage  $FailureMessage `
+            -CycleStartUtc       $CycleStartUtc `
+            -GitCommit     $GitCommit `
+            -ProjectCommit $ProjectGitCommit
+        # See https://yuruna.link/4213a0b3-00fc
+        if (Get-Command Invoke-Remediation -ErrorAction SilentlyContinue) {
+            $remediation = Invoke-Remediation -FailureRecord $cycleFailureEventData
+            if ($remediation) { Write-Output "  Remediation: $($remediation.Recommendation) -- $($remediation.Rationale)" }
+        }
+    }
+
     # --- REGION: Finalize cycle
     if ($isOrchestrationCycle) {
         # Delegate the whole cycle to the orchestration runner: it owns Reset/
@@ -3227,10 +3423,32 @@ do {
         # result the gating/notification tail below reads.
         Write-Output ""
         Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_d6d232856028e02f' -Arguments @{ orchestrationName = "$orchestrationName" })
+        $orchestrationDecision = @{ EventData = $null }
+        $decideBeforeSeal = {
+            param($Status, $Reason)
+            $null = $Reason
+            if ($Status -cne 'fail') { return }
+            $orchestrationDecision.EventData = Get-FailureEventData `
+                -HostType      $HostType `
+                -Hostname      (hostname) `
+                -GuestKey      '(orchestration)' `
+                -StepName      $orchestrationName `
+                -ErrorMessage  "orchestration '$orchestrationName' reported one or more failures" `
+                -CycleStartUtc       $CycleStartUtc `
+                -GitCommit     $GitCommit `
+                -ProjectCommit $ProjectGitCommit
+            # See https://yuruna.link/4213a0b3-00fc
+            if (Get-Command Invoke-Remediation -ErrorAction SilentlyContinue) {
+                $remediation = Invoke-Remediation -FailureRecord $orchestrationDecision.EventData
+                if ($remediation) { Write-Output "  Remediation: $($remediation.Recommendation) -- $($remediation.Rationale)" }
+            }
+        }
         $orchRc = Invoke-OrchestrationSequence `
             -Sequence $orchestrationDoc -SequencePath $orchestrationPath `
             -RepoRoot $RepoRoot -SequencesDir $SequencesDir -TestRoot $TestRoot `
-            -HostType $HostType -Config $Config
+            -HostType $HostType -Config $Config -BeforeSeal $decideBeforeSeal
+        # The alert below ships this payload rather than deciding a second time.
+        if ($orchestrationDecision.EventData) { $cycleFailureEventData = $orchestrationDecision.EventData }
         $OverallPassed = ($orchRc -eq 0)
         if (-not $OverallPassed -and -not $FailedGuest) {
             $FailedGuest    = "(orchestration)"
@@ -3247,13 +3465,29 @@ do {
     Write-Output ""
     Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_9bc0ca0cc8ac34fe' -Arguments @{ cycleCount = "$CycleCount"; finalStatus = "$FinalStatus" })
 
+    # Complete-CycleRun fails a pass whose guests left unbounded address
+    # footprints, and records it under the guest-addressing name it gives the
+    # infra failure.
+    if ($OverallPassed -and $FinalStatus -cne 'pass' -and -not $FailedGuest) {
+        $FailedGuest = '(guest addressing)'
+        $FailedStep  = 'guest-address-bound'
+    }
+    $verdict = Resolve-CycleVerdict -FinalStatus $FinalStatus -SkippedGuestCount $skippedGuests.Count `
+        -ConsecutiveCrashes $ConsecutiveCrashes -ConsecutiveFailures $ConsecutiveFailures `
+        -ConsecutiveSuccesses $ConsecutiveSuccesses -AlertArmed $AlertArmed -SuccessesBeforeRearm $SuccessesBeforeRearm
+    $OverallPassed = $verdict.Verdict -cne 'failed'
+    $cycleDegraded = $verdict.Verdict -ceq 'degraded'
     if ($OverallPassed) {
-        $ConsecutiveCrashes  = 0
-        $ConsecutiveFailures = 0
-        $ConsecutiveSuccesses++
-        if (-not $AlertArmed -and $ConsecutiveSuccesses -ge $SuccessesBeforeRearm) {
-            $AlertArmed = $true
+        $ConsecutiveCrashes   = $verdict.ConsecutiveCrashes
+        $ConsecutiveFailures  = $verdict.ConsecutiveFailures
+        $ConsecutiveSuccesses = $verdict.ConsecutiveSuccesses
+        $AlertArmed           = $verdict.AlertArmed
+        if ($verdict.Rearmed) {
             Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_8c308c4766c63a88' -Arguments @{ consecutiveSuccesses = "$ConsecutiveSuccesses" })
+        }
+        if ($cycleDegraded) {
+            Write-Output (Format-YurunaOperatorMessage -Key 'runner.cycle_degraded' -Arguments @{
+                cycleCount = "$CycleCount"; skipped = "$($skippedGuests.Count)"; planned = "$(@($GuestList).Count)"; guests = ($skippedGuests -join ', ') })
         }
     }
 
@@ -3286,19 +3520,22 @@ do {
 
             if ($AlertArmed -and $ConsecutiveFailures -ge $FailuresBeforeAlert) {
                 # See https://yuruna.link/4213a0b3-00fb
-                $inCycleEventData = Get-FailureEventData `
-                    -HostType      $HostType `
-                    -Hostname      (hostname) `
-                    -GuestKey      $FailedGuest `
-                    -StepName      $FailedStep `
-                    -ErrorMessage  $FailureMessage `
-                    -CycleStartUtc       $CycleStartUtc `
-                    -GitCommit     $GitCommit `
-                    -ProjectCommit $ProjectGitCommit
-                # See https://yuruna.link/4213a0b3-00fc
-                if (Get-Command Invoke-Remediation -ErrorAction SilentlyContinue) {
-                    $remediation = Invoke-Remediation -FailureRecord $inCycleEventData
-                    if ($remediation) { Write-Output "  Remediation: $($remediation.Recommendation) -- $($remediation.Rationale)" }
+                $inCycleEventData = $cycleFailureEventData
+                if (-not $inCycleEventData) {
+                    $inCycleEventData = Get-FailureEventData `
+                        -HostType      $HostType `
+                        -Hostname      (hostname) `
+                        -GuestKey      $FailedGuest `
+                        -StepName      $FailedStep `
+                        -ErrorMessage  $FailureMessage `
+                        -CycleStartUtc       $CycleStartUtc `
+                        -GitCommit     $GitCommit `
+                        -ProjectCommit $ProjectGitCommit
+                    # See https://yuruna.link/4213a0b3-00fc
+                    if (Get-Command Invoke-Remediation -ErrorAction SilentlyContinue) {
+                        $remediation = Invoke-Remediation -FailureRecord $inCycleEventData
+                        if ($remediation) { Write-Output "  Remediation: $($remediation.Recommendation) -- $($remediation.Rationale)" }
+                    }
                 }
                 # Payload was built and remediated on above; pass it
                 # pre-built so the helper ships the exact same hashtable
@@ -3430,11 +3667,7 @@ do {
         Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_4dfa05bd02a0171f' -Arguments @{ backoffSeconds = "${backoffSeconds}"; consecutiveCrashes = "$ConsecutiveCrashes" })
         $backoffDeadline = [DateTime]::UtcNow.AddSeconds($backoffSeconds)
         while ([DateTime]::UtcNow -lt $backoffDeadline -and -not $ShutdownState['Requested']) {
-            try {
-                [System.IO.File]::WriteAllText($StepHeartbeatFile, [DateTime]::UtcNow.ToString('o'))
-            } catch {
-                Write-Verbose "stepHeartbeat refresh during auto-retry backoff failed: $($_.Exception.Message)"
-            }
+            Write-RunnerStepHeartbeat -Path $StepHeartbeatFile
             Start-Sleep -Seconds 1
         }
     }
@@ -3482,8 +3715,7 @@ do {
         Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_916d918c356e6338' -Arguments @{ cycleCount = "$CycleCount"; effectiveDelay = "$effectiveDelay" })
         $exitReason = Wait-WithProgress -Activity (Format-YurunaOperatorMessage -Key 'runner.operator_2b005d6a24fc7a36' -Arguments @{ cycleCount = "$CycleCount" }) `
             -TotalSeconds $effectiveDelay -PollSeconds 1 -Id $delayId -Test {
-                try { [System.IO.File]::WriteAllText($StepHeartbeatFile, [DateTime]::UtcNow.ToString('o')) }
-                catch { Write-Verbose "stepHeartbeat refresh during cycle delay failed: $($_.Exception.Message)" }
+                Write-RunnerStepHeartbeat -Path $StepHeartbeatFile
                 if ($ShutdownState['Requested']) { return 'shutdown' }
                 # A cycle-pause armed during the wait does NOT cut the countdown
                 # short: the operator asked to pause "after the cycleDelaySeconds",
@@ -3534,6 +3766,8 @@ do {
     $State.GatingFile           = $GatingFile
     $State.RefreshGated         = $refreshGated
     $State.ConfigGateFailed     = $configGateFailed
+    $State.Degraded             = $cycleDegraded
+    $State.SkippedGuests        = @($skippedGuests)
 }
 
 function Complete-GuestStepFailure {
@@ -3578,7 +3812,9 @@ function Complete-GuestStepFailure {
                 Set-LastFailureSummary -FailureClass ([string]$fe.failureClass) -Severity ([string]$fe.severity) `
                     -StepNumber ([int]($fe.stepNumber)) -SequenceName ([string]$fe.sequenceName) -ReproCommand $feRepro `
                     -RelPath $feRelPath `
-                    -GuestKey $GuestKey -StepName $StepName -ErrorMessage $ErrorMessage -VmName $VMName -Confirm:$false
+                    -GuestKey $GuestKey -StepName $StepName -ErrorMessage $ErrorMessage -VmName $VMName `
+                    -InnerFailureClass ([string]$fe.innerFailureClass) -ClassificationSource ([string]$fe.classificationSource) `
+                    -Reason ([string]$fe.reason) -Confirm:$false
             } catch { $null = $_ }
         }
     }
@@ -3630,6 +3866,9 @@ function Invoke-GuestProvisionIteration {
     }
     $VMName = $VMNames[$GuestKey]
     $script:ActiveVMName = $VMName
+    # Write-CycleInfraFailure tells a failure record this iteration wrote from one
+    # an earlier guest or iteration left at the log root by this start time.
+    $script:GuestIterationStartedUtc = [datetime]::UtcNow
     Write-Output ""
     Write-Output "== $GuestKey (VM: $VMName) =="
     # No per-cycle keystroke-mechanism switch: each sequence carries its own
@@ -3939,7 +4178,7 @@ function Invoke-GuestProvisionIteration {
                         if (Get-Command Send-CycleEventSafely -ErrorAction SilentlyContinue) {
                             $wrEv = New-WarmResumeEvent -GuestKey $GuestKey -VmName $VMName -SequenceName $wrDec.ResumeSequence `
                                 -ResumeFromStep $wrStep -FailureClass $wrCp.FailureClass -Attempt $wrAttempt -HostType $HostType `
-                                -CheckpointStep ([int]$wrCp.ResumeFromStep)
+                                -CheckpointStep ([int]$wrCp.ResumeFromStep) -StepEffectSource ([string]$wrPlan.StepEffectSource)
                             Send-CycleEventSafely -EventRecord ([hashtable]$wrEv)
                         }
                         $r = Start-GuestWorkload -HostType $HostType -GuestKey $GuestKey -VMName $VMName -RepoRoot $RepoRoot `
@@ -4129,9 +4368,7 @@ function Invoke-YurunaRefreshPreflight {
         [string]$RuntimeDir = $env:YURUNA_RUNTIME_DIR
     )
     if (Get-Command Write-RunnerPhase -ErrorAction SilentlyContinue) { Write-RunnerPhase -Phase 'refresh-preflight' }
-    try { [System.IO.File]::WriteAllText($StepHeartbeatFile, [DateTime]::UtcNow.ToString('o')) } catch {
-        Write-Verbose "stepHeartbeat refresh before the refresh preflight failed: $($_.Exception.Message)"
-    }
+    Write-RunnerStepHeartbeat -Path $StepHeartbeatFile
     $failure = $null
     $probe = $null
     if (-not $Mode.Token -or -not $Mode.Token.Valid) {
@@ -4228,9 +4465,7 @@ function Wait-YurunaRefreshRelease {
     if ($Purpose -eq 'resident-outer') { return [pscustomobject]@{ Outcome = 'not-parked' } }
     while ($true) {
         if ($ShutdownState['Requested']) { return [pscustomobject]@{ Outcome = 'shutdown' } }
-        try { [System.IO.File]::WriteAllText($StepHeartbeatFile, [DateTime]::UtcNow.ToString('o')) } catch {
-            Write-Verbose "stepHeartbeat refresh while parked for release failed: $($_.Exception.Message)"
-        }
+        Write-RunnerStepHeartbeat -Path $StepHeartbeatFile
         $gate = Get-YurunaRefreshGateState -RuntimeDir $RuntimeDir -TokenId $TokenId
         if ($gate.State -eq 'open') { return [pscustomobject]@{ Outcome = 'released' } }
         if ($gate.State -ne 'handoff') { return [pscustomobject]@{ Outcome = 'revoked' } }
@@ -4301,9 +4536,7 @@ function Wait-YurunaHeldControlBarrier {
     }
     while ($true) {
         if ($ShutdownState['Requested']) { return (& $finish 'shutdown') }
-        try { [System.IO.File]::WriteAllText($StepHeartbeatFile, [DateTime]::UtcNow.ToString('o')) } catch {
-            Write-Verbose "stepHeartbeat refresh at the held-control barrier failed: $($_.Exception.Message)"
-        }
+        Write-RunnerStepHeartbeat -Path $StepHeartbeatFile
         $pauses = @($script:RefreshPauseName | Where-Object { Test-Path -LiteralPath (Join-Path $RuntimeDir $_) })
         $labHold = Test-Path -LiteralPath (Join-Path $RuntimeDir 'control.lab-hold')
         if ($pauses.Count -eq 0 -and -not $labHold) {
@@ -4407,4 +4640,4 @@ Export-ModuleMember -Function `
     Resolve-RunnerLogLevel, Copy-FailureArtifactsToStatusLog, Invoke-RunnerInnerCycle, `
     Write-CycleInfraFailure, Get-YurunaRefreshInnerMode, Invoke-YurunaRefreshPreflight, `
     Wait-YurunaRefreshRelease, Wait-YurunaHeldControlBarrier, Test-YurunaRefreshCycleGate, `
-    Test-RunnerHypervisorControlGate, Invoke-RunnerTempHousekeeping
+    Test-RunnerHypervisorControlGate, Invoke-RunnerTempHousekeeping, Invoke-CycleProjectRefresh, Test-CycleHostNetworkDegraded

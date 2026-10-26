@@ -1,5 +1,6 @@
 // LICENSEURI https://yuruna.link/license
 // Copyright (c) 2019-2026 by Alisson Sol et al.
+// GUID: 42495a2f-ffee-4535-9a82-8bb160e66eb7
 
 // Package httpsrv serves the browser UI and JSON API for the stash service. It
 // runs as a second listener inside the same Go daemon as the SCP/SFTP sink
@@ -51,6 +52,8 @@ type Server struct {
 	listener     *http.Server
 	// gate authorizes DELETE (gate.go). Everything else is open on the LAN.
 	gate *labgate.Gate
+	// largeText admits one large text create at a time (handleCreate).
+	largeText chan struct{}
 }
 
 // Options carries the VM-side configurable knobs.
@@ -93,6 +96,7 @@ func New(sshServer *sshsrv.Server, opts Options) *Server {
 		}),
 		defaultLimit: defaultLimit,
 		version:      opts.Version,
+		largeText:    make(chan struct{}, 1),
 	}
 	// No BearerToken: this VM is never given the lab auth token, so the
 	// aggregator is the only judge of a lab token or a control proof, and the

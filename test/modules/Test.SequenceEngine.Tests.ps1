@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.25
+.VERSION 2026.10.26
 .GUID 42b8bc4c-f5b0-463b-9fd9-76f8a65ee16f
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -121,6 +121,18 @@ function Invoke-GatedWait {
 # unwraps a one-element return, so callers wrap to keep array semantics.
 }
 
+# A text wait its own timeout bounds read as a wedge once it outlasted the
+# watchdog's bound; each finished poll now moves the step heartbeat.
+Describe 'Wait-ForText moves the step heartbeat on every finished poll' {
+    It 'calls Write-RunnerStepHeartbeat at the top of its poll loop' {
+        $ast = Get-YurunaTestFileAst -Path (Join-Path $PSScriptRoot 'Test.SequenceEngine.psm1')
+        $function = $ast.Find({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq 'Wait-ForText' }, $true)
+        $loop = $function.Body.Find({ param($n) $n -is [System.Management.Automation.Language.WhileStatementAst] -and $n.Condition.Extent.Text -match 'deadlineUtc' }, $true)
+        $loop | Should -Not -BeNullOrEmpty
+        $loop.Body.Statements[0].Extent.Text | Should -Be 'Write-RunnerStepHeartbeat'
+    }
+}
+
 Describe 'Select-SequenceStepWindow' {
     It 'returns all steps for a whole-sequence window (default)' {
         $s = New-StepList -Count 6
@@ -209,6 +221,29 @@ Describe 'Get-OcrDegradationGrace' {
         try { [void](Get-OcrDegradationGrace -Action 'reboot-guest' -AlreadyGrantedSeconds 0 -MaxGrantSeconds 120 -BaseWindowSeconds 45) }
         catch { $threw = $true }
         Assert-True $threw 'ValidateSet should reject an unknown action'
+    }
+}
+
+Describe 'Resolve-CaptureRepairGrace' {
+    It 'pays nothing without a pending repair' {
+        $r = Resolve-CaptureRepairGrace -Pending $null -FrameHash 'b' -AlreadyGrantedSeconds 0 -MaxGrantSeconds 120 -BaseWindowSeconds 45
+        Assert-Equal 0 $r.Grace
+        Assert-True ($null -eq $r.Pending) 'nothing is invented'
+    }
+    It 'keeps waiting while every frame matches the one the repair was made against' {
+        $pending = @{ Action = 'console-restart'; FrameHash = 'a' }
+        $r = Resolve-CaptureRepairGrace -Pending $pending -FrameHash 'a' -AlreadyGrantedSeconds 0 -MaxGrantSeconds 120 -BaseWindowSeconds 45
+        Assert-Equal 0 $r.Grace
+        Assert-Equal 'a' $r.Pending.FrameHash -Because 'the repair has not shown an effect yet'
+        $unknown = Resolve-CaptureRepairGrace -Pending $pending -FrameHash '' -AlreadyGrantedSeconds 0 -MaxGrantSeconds 120 -BaseWindowSeconds 45
+        Assert-Equal 0 $unknown.Grace -Because 'a frame that could not be hashed shows nothing'
+    }
+    It 'pays the action''s grace once a frame differs, then stops waiting' {
+        $restart = Resolve-CaptureRepairGrace -Pending @{ Action = 'console-restart'; FrameHash = 'a' } -FrameHash 'b' -AlreadyGrantedSeconds 0 -MaxGrantSeconds 120 -BaseWindowSeconds 45
+        Assert-Equal 45 $restart.Grace
+        Assert-True ($null -eq $restart.Pending) 'paid once'
+        $ring = Resolve-CaptureRepairGrace -Pending @{ Action = 'ring-repair'; FrameHash = 'a' } -FrameHash 'b' -AlreadyGrantedSeconds 110 -MaxGrantSeconds 120 -BaseWindowSeconds 45
+        Assert-Equal 10 $ring.Grace -Because 'still bounded by the per-wait cap'
     }
 }
 
@@ -585,6 +620,58 @@ Describe 'Select-ConsoleTextSinceBaseline' {
     }
     It 'returns empty for an empty capture' {
         Assert-Equal -Expected '' -Actual (Select-ConsoleTextSinceBaseline -Text '' -BaselineSignature $script:baseSig) -Because 'no text, no evidence'
+    }
+}
+
+# Wait-ForText re-imported Test.Log with -Force on every call, which reset the
+# module's cycle-scoped state -- the event-delivery ledger the cycle-end
+# telemetry check reads -- once per wait.
+Describe 'Wait-ForText keeps the cycle state its helper modules hold' {
+    BeforeAll {
+        Import-Module (Join-Path $here 'Test.Log.psm1') -Global -DisableNameChecking -WarningAction SilentlyContinue
+        . (Get-Module Test.SequenceEngine) {
+            function Get-EnabledOcrProvider { return @('scripted') }
+            function Get-CycleScreenDir {
+                [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter', '',
+                    Justification = 'Stub: the signature has to match the real helper so the caller binds.')]
+                [CmdletBinding(SupportsShouldProcess)]
+                param($VMName)
+                $null = $PSCmdlet.ShouldProcess($script:TextProbe.ScreenDir, 'Ensure cycle screen dir exists')
+                return $script:TextProbe.ScreenDir
+            }
+            function Get-VMScreenshot {
+                [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter', '',
+                    Justification = 'Stub: the signature has to match the real helper so the caller binds.')]
+                param($VMName, $OutFile, $HostType)
+                Set-Content -LiteralPath $OutFile -Value 'png' -NoNewline
+                return $true
+            }
+            function Test-CombinedOcrMatch {
+                [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter', '',
+                    Justification = 'Stub: the signature has to match the real helper so the caller binds.')]
+                param($ImagePath, $Pattern, $FreshMatchTailLines, [switch]$NoSegmentMatch)
+                return @{ Match = $true; AnyText = 'login:'; EngineResults = [ordered]@{ scripted = @{ Text = 'login:'; Matched = $true } } }
+            }
+            function Reset-TextProbeState {
+                [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+                    Justification = 'Test stub helper: reseeds an in-memory recording bag; no external state.')]
+                param([string]$ScreenDir, [string[]]$Frames)
+                $script:TextProbe = @{ ScreenDir = $ScreenDir; Poll = 0; Frames = $Frames }
+                return $script:TextProbe
+            }
+        }
+    }
+    It 'leaves the event-delivery ledger as it was across two waits' {
+        $dir = Join-Path ([System.IO.Path]::GetTempPath()) ("yuruna-wft-ledger-{0}" -f [guid]::NewGuid().ToString('N').Substring(0, 8))
+        $null = New-Item -ItemType Directory -Path $dir -Force
+        try {
+            & (Get-Module Test.Log) { $script:CycleEventDelivery.delivered = 7; $script:CycleEventDelivery.attempted = 7 }
+            Assert-True (Invoke-GatedWait -ScreenDir $dir -Frames @('login:') -Pattern @('login:') -Since $false) 'the first wait matches'
+            Assert-True (Invoke-GatedWait -ScreenDir $dir -Frames @('login:') -Pattern @('login:') -Since $false) 'the second wait matches'
+            Assert-True ((Get-CycleEventDelivery).delivered -ge 7) 'the counts a cycle accumulated survive the waits it runs'
+        } finally {
+            Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction SilentlyContinue
+        }
     }
 }
 
@@ -1039,5 +1126,93 @@ Describe 'Wait-ForText ends on a display the emulator keeps reporting inactive' 
         } finally {
             . (Get-Module Test.SequenceEngine) { Set-Item -Path Function:\Get-VMConsoleSecondOpinion -Value $script:DisplayOpinionStub }
         }
+    }
+}
+
+Describe 'Wait-ForText pays a capture repair''s grace only for a feed that moved' {
+    BeforeAll {
+        . (Get-Module Test.SequenceEngine) {
+            function Get-EnabledOcrProvider { return @('scripted') }
+            function Get-CycleScreenDir {
+                [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter', '',
+                    Justification = 'Stub: the signature has to match the real helper so the caller binds.')]
+                [CmdletBinding(SupportsShouldProcess)]
+                param($VMName)
+                $null = $PSCmdlet.ShouldProcess($script:RepairProbe.ScreenDir, 'Ensure cycle screen dir exists')
+                return $script:RepairProbe.ScreenDir
+            }
+            function Get-VMScreenshot {
+                [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter', '',
+                    Justification = 'Stub: the signature has to match the real helper so the caller binds.')]
+                param($VMName, $OutFile, $HostType)
+                $body = if ($script:RepairProbe.FrameMoves) { 'png{0}' -f $script:RepairProbe.Poll } else { 'png-frozen' }
+                Set-Content -LiteralPath $OutFile -Value $body -NoNewline
+                return $true
+            }
+            function Test-CombinedOcrMatch {
+                [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter', '',
+                    Justification = 'Stub: the signature has to match the real helper so the caller binds.')]
+                param($ImagePath, $Pattern, $FreshMatchTailLines, [switch]$NoSegmentMatch)
+                $script:RepairProbe.Poll++
+                return @{ Match = $false; AnyText = ''; EngineResults = [ordered]@{ scripted = @{ Text = ''; Matched = $false } } }
+            }
+            function Get-GuestLivelockVerdict {
+                [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter', '',
+                    Justification = 'Stub: the signature has to match the real helper so the caller binds.')]
+                param($VMName, $Since)
+                return $null
+            }
+            function Repair-VncConnection {
+                [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter', '',
+                    Justification = 'Stub: the signature has to match the real primitive so the caller binds.')]
+                [CmdletBinding(SupportsShouldProcess)]
+                param($VMName, $HostType)
+                $null = $PSCmdlet.ShouldProcess($VMName, 'stub reset')
+                $script:RepairProbe.VncRepairs++
+                return [pscustomobject]@{ Attempted = $true; Effective = $true; Mechanism = 'vnc-input-handle' }
+            }
+            function Repair-ScreenshotRing {
+                [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter', '',
+                    Justification = 'Stub: the signature has to match the real primitive so the caller binds.')]
+                [CmdletBinding(SupportsShouldProcess)]
+                param($VMName)
+                $null = $PSCmdlet.ShouldProcess($VMName, 'stub clear')
+                $script:RepairProbe.RingRepairs++
+                return [pscustomobject]@{ Attempted = $true; Effective = $true; Mechanism = 'screenshot-ring' }
+            }
+            function Reset-RepairProbe {
+                [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+                    Justification = 'Test stub helper: reseeds an in-memory recording bag; no external state.')]
+                param([string]$ScreenDir, [bool]$FrameMoves)
+                $script:RepairProbe = @{ ScreenDir = $ScreenDir; FrameMoves = $FrameMoves; Poll = 0; VncRepairs = 0; RingRepairs = 0 }
+            }
+        }
+        function Invoke-RepairWait {
+            [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+                Justification = 'Test helper: drives the function under test against scripted frames.')]
+            param([bool]$FrameMoves)
+            & (Get-Module Test.SequenceEngine) { param($d, $m) Reset-RepairProbe -ScreenDir $d -FrameMoves $m } $script:repairDir $FrameMoves
+            Clear-CarriedConsoleBaseline
+            $stream = Wait-ForText -VMName 'vm-01' -Pattern @('login:') -TimeoutSeconds 6 -PollSeconds 1 -InformationAction SilentlyContinue 3>&1
+            return @($stream | Where-Object { $_ -is [System.Management.Automation.WarningRecord] } | ForEach-Object { $_.Message })
+        }
+        function Get-RepairProbe { param([string]$Name) & (Get-Module Test.SequenceEngine) { param($n) $script:RepairProbe[$n] } $Name }
+    }
+    BeforeEach {
+        $script:repairDir = Join-Path ([System.IO.Path]::GetTempPath()) ("yuruna-wfr-{0}-{1}" -f $PID, [guid]::NewGuid().ToString('N').Substring(0, 8))
+        New-Item -ItemType Directory -Path $script:repairDir -Force | Out-Null
+    }
+    AfterEach { Remove-Item -LiteralPath $script:repairDir -Recurse -Force -ErrorAction SilentlyContinue }
+
+    It 'grants nothing for a repair the next frames show did not reach the feed, and keeps the run-up frames' {
+        $warnings = Invoke-RepairWait -FrameMoves $false
+        (Get-RepairProbe 'VncRepairs') | Should -BeGreaterOrEqual 1 -Because 'four blank polls still ask for the repair'
+        (Get-RepairProbe 'RingRepairs') | Should -Be 0 -Because 'the ring holds the frames a failure is read against'
+        ($warnings -join "`n") | Should -Not -Match 'degradation grace' -Because 'a frozen feed keeps its normal budget'
+        @(Get-ChildItem -LiteralPath $script:repairDir -Filter 'raw_*.png').Count | Should -BeGreaterThan 1
+    }
+    It 'grants the grace once a frame after the repair differs' {
+        $warnings = Invoke-RepairWait -FrameMoves $true
+        ($warnings -join "`n") | Should -Match '\+\d+s degradation grace'
     }
 }

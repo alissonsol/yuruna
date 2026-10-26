@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.25
+.VERSION 2026.10.26
 .GUID 4215a4b8-4fbf-82d7-effd-933fdbd2dd43
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -1345,15 +1345,6 @@
             'trust' = 'external'
         }
         '。'
-    )
-    'automation.operator_483ad55e8c49c6d8' = @(
-        '-- 警告：tofu已初始化：'
-        @{
-            'arg' = 'terraformPath'
-            'type' = 'detail'
-            'trust' = 'external'
-        }
-        " `n   资源可能不会创建。请使用'yuruna clear'清除tofu状态。"
     )
     'automation.operator_485fb74637bada2f' = '连接探测（ping -c 3 -W 2 1.1.1.1）'
     'automation.operator_48a01e8836cadcfb' = 'DNS解析器状态'

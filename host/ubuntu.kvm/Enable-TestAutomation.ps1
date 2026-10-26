@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.25
+.VERSION 2026.10.26
 .GUID 4202d0ff-c419-4c17-bf82-ec1f841f72c7
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -433,7 +433,8 @@ if ($gsettings) {
     Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_21fe3d6e5b9c0ade')
 }
 
-# --- REGION: https://yuruna.link/42d69dfa-0022
+# --- REGION: Group membership
+# See https://yuruna.link/42d69dfa-0022
 $activeGroups = (& id -nG 2>$null) -split '\s+'
 foreach ($grp in @('libvirt','kvm')) {
     $line    = & getent group $grp 2>$null

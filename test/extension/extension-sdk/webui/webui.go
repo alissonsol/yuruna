@@ -1,5 +1,6 @@
 // LICENSEURI https://yuruna.link/license
 // Copyright (c) 2019-2026 by Alisson Sol et al.
+// GUID: 424383b2-cfb5-4f72-a6f3-f6a87d99ab2d
 
 // Package webui ships the browser assets every Yuruna extension service UI
 // shares. See ../../../../docs/extensions-api.md#filesystem-layout for why

@@ -1384,15 +1384,6 @@ const DataheILautomation = `{
     },
     "'."
   ],
-  "automation.operator_483ad55e8c49c6d8": [
-    "-- אזהרה: tofu כבר אותחל: ",
-    {
-      "arg": "terraformPath",
-      "type": "detail",
-      "trust": "external"
-    },
-    " \n   ייתכן שהמשאב לא ייווצר. השתמשו בפקודה 'yuruna clear' כדי לנקות את המצב של tofu."
-  ],
   "automation.operator_485fb74637bada2f": "בדיקת קישוריות (ping -c 3 -W 2 ⁦1.1.1.1⁩)",
   "automation.operator_48a01e8836cadcfb": "מצב פותר שמות DNS",
   "automation.operator_48ffd650c4a65b3b": "מאמת ecr: ממשק שורת הפקודה 'docker' אינו נמצא בנתיב PATH; לא ניתן להשלים את הכניסה.",

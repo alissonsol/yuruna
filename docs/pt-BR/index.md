@@ -45,3 +45,13 @@ Nomes de arquivos, comandos, chaves de configuração, identificadores e
 todo o conteúdo dentro de blocos de código permanecem em inglês de
 propósito -- o operador precisa digitá-los exatamente como aparecem no
 sistema.
+
+---
+
+LICENSEURI https://yuruna.link/license
+
+Copyright (c) 2019-2026 by Alisson Sol et al.
+
+Last review: 2026.10.26
+
+Voltar para [Yuruna](../../README.md)

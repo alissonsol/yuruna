@@ -1,5 +1,6 @@
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
+# GUID: 42e156c0-2752-43ce-95c0-b7887bc5f33b
 """Collect declared host and guest provisioning inputs without executing them.
 
 This is an inventory of source declarations, including conditional alternatives.

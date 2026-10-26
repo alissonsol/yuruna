@@ -1,5 +1,6 @@
 // LICENSEURI https://yuruna.link/license
 // Copyright (c) 2019-2026 by Alisson Sol et al.
+// GUID: 42b6fa97-6a35-4839-9673-ffb55b1b470d
 'use strict';
 const fs = require('fs');
 const path = require('path');

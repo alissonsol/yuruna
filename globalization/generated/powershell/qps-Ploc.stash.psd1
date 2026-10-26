@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.25
+.VERSION 2026.10.26
 .GUID 42657bca-c5d4-bb2d-4f14-23543be96736
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -44,6 +44,7 @@
     'stash.api_invalid_host' = '[íñṽáļíď ħóšţ ~~~~~]'
     'stash.api_invalid_json_body' = '[íñṽáļíď ĴŠÓÑ ƀóďý ~~~~~~~]'
     'stash.api_invalid_stash_path' = '[íñṽáļíď šţášħ ƥáţħ ~~~~~~~~]'
+    'stash.api_large_text_busy' = '[áñóţħéř ļářğé ţéẋţ íš ƀéíñğ šţóřéď; ţřý áğáíñ šħóřţļý ~~~~~~~~~~~~~~~~~~~~~~]'
     'stash.api_no_stashes_given' = '[ñó šţášħéš ğíṽéñ ~~~~~~~]'
     'stash.api_not_an_archive' = '[ñóţ áñ ářçħíṽé ~~~~~~]'
     'stash.api_not_found' = '[ñóţ ƒóúñď ~~~~]'

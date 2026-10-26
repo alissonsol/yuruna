@@ -1,7 +1,8 @@
 #!/bin/bash
-# Version: 2026.10.25
+# Version: 2026.10.26
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
+# GUID: 42fc7e43-f135-4fab-9d9e-0dd25dc8e800
 #
 # Start-or-attach supervisor for a guest-side payload, so the work outlives the
 # ssh session that started it.

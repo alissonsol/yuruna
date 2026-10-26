@@ -1,6 +1,7 @@
-# Version: 2026.10.25
+# Version: 2026.10.26
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
+# GUID: 422be02a-af80-4daf-a685-5d5c309c6896
 """Offline transaction tests; no Prometheus, SSH, or service is contacted."""
 import importlib.util
 from pathlib import Path

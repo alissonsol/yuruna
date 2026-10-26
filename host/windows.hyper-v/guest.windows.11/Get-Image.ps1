@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.25
+.VERSION 2026.10.26
 .GUID 42a337f9-dcb7-4dfa-9c51-9ddba462035e
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -121,6 +121,10 @@ if (!(Test-Path -Path $downloadDir)) {
     exit 1
 }
 
+# Publish-YurunaBaseImage proves each swap below before its origin record is
+# written, so a failed move cannot end in a reported success.
+Import-Module -Name (Join-Path (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)) 'modules/Yuruna.Image.psm1') -DisableNameChecking
+
 # --- REGION: Seek the base image
 if (-not (Test-Path -LiteralPath $baseImageFile) -and $downloadDir -ne $defaultDownloadDir -and
     (Test-Path -LiteralPath $defaultBaseFile)) {
@@ -142,13 +146,16 @@ if ($existingIso) {
     Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_3a7a4395e08fe54e' -Arguments @{ hostArch = "$hostArch"; fullName = "$($existingIso.FullName)" })
     Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_e7d3ecc0c4541317' -Arguments @{ baseImageFile = "$baseImageFile" })
     $previousFile = Join-Path $downloadDir "$baseImageName.previous.iso"
-    Remove-Item $previousFile -Force -ErrorAction SilentlyContinue
-    if (Test-Path $baseImageFile) {
-        Move-Item -Path $baseImageFile -Destination $previousFile
+    $existingIsoOriginalPath = $existingIso.FullName
+    try {
+        $keptPrevious = Publish-YurunaBaseImage -DownloadFile $existingIsoOriginalPath -BaseImageFile $baseImageFile -PreviousFile $previousFile -ExpectedSize $existingIso.Length -Confirm:$false
+    } catch {
+        Write-Error (Format-YurunaOperatorMessage -Key 'host.base_image_publish_failed' -Arguments @{ baseImageFile = "$baseImageFile"; message = "$($_.Exception.Message)" })
+        exit 1
+    }
+    if ($keptPrevious) {
         Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_05027812540d620c' -Arguments @{ previousFile = "$previousFile" })
     }
-    $existingIsoOriginalPath = $existingIso.FullName
-    Move-Item -Path $existingIso.FullName -Destination $baseImageFile
     $baseImageOrigin = Join-Path $downloadDir "$baseImageName.txt"
     Set-Content -Path $baseImageOrigin -Value @($existingIso.Name, [System.Uri]::new($existingIsoOriginalPath).AbsoluteUri)
     Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_69295e2d532ea585' -Arguments @{ baseImageOrigin = "$baseImageOrigin" })
@@ -195,12 +202,16 @@ if ((Get-Command -Name Resolve-DownloadAgentEndpoint -ErrorAction SilentlyContin
         if ($agentResult -and $agentResult.outcome -eq 'downloaded') {
             Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_22010fb874c3c316' -Arguments @{ agentBaseUrl = "$agentBaseUrl"; filename = "$($agentResult.filename)"; agentStagingFile = "$agentStagingFile" })
             $previousFile = Join-Path $downloadDir "$baseImageName.previous.iso"
-            Remove-Item $previousFile -Force -ErrorAction SilentlyContinue
-            if (Test-Path -LiteralPath $baseImageFile) {
-                Move-Item -Path $baseImageFile -Destination $previousFile
+            try {
+                $stagedSize = (Get-Item -LiteralPath $agentStagingFile -ErrorAction Stop).Length
+                $keptPrevious = Publish-YurunaBaseImage -DownloadFile $agentStagingFile -BaseImageFile $baseImageFile -PreviousFile $previousFile -ExpectedSize $stagedSize -Confirm:$false
+            } catch {
+                Write-Error (Format-YurunaOperatorMessage -Key 'host.base_image_publish_failed' -Arguments @{ baseImageFile = "$baseImageFile"; message = "$($_.Exception.Message)" })
+                exit 1
+            }
+            if ($keptPrevious) {
                 Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_98c81fc58f9efc47' -Arguments @{ previousFile = "$previousFile" })
             }
-            Move-Item -Path $agentStagingFile -Destination $baseImageFile -Force
             # The 2-line sidecar (filename + URL) this family has always written;
             # the 4-line sentinel reader is not wired up here, and an asymmetric
             # writer would only produce a shape nothing reads.
@@ -309,13 +320,11 @@ try {
         throw (Format-YurunaOperatorMessage -Key 'exceptions.host_88e5a12c10f16189')
     }
 
+    # A refused swap throws into the catch below, which reports the failure.
     $previousFile = Join-Path $downloadDir "$baseImageName.previous.iso"
-    Remove-Item $previousFile -Force -ErrorAction SilentlyContinue
-    if (Test-Path $baseImageFile) {
-        Move-Item -Path $baseImageFile -Destination $previousFile
+    if (Publish-YurunaBaseImage -DownloadFile $downloadFile -BaseImageFile $baseImageFile -PreviousFile $previousFile -ExpectedSize $fileSize -Confirm:$false) {
         Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_98c81fc58f9efc47' -Arguments @{ previousFile = "$previousFile" })
     }
-    Move-Item -Path $downloadFile -Destination $baseImageFile -Force
     $baseImageOrigin = Join-Path $downloadDir "$baseImageName.txt"
     $originalName = [System.IO.Path]::GetFileName(([System.Uri]$downloadUrl).LocalPath)
     Set-Content -Path $baseImageOrigin -Value @($originalName, $downloadUrl)

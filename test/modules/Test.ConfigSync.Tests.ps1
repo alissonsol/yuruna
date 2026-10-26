@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.25
+.VERSION 2026.10.26
 .GUID 42dc6e9c-5264-4b7f-9cb1-cbc552391717
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -252,6 +252,134 @@ Describe 'Hide-SecretsInConfig' {
         $noSec = [ordered]@{ a = 1 }
         Hide-SecretsInConfig $noSec   # must not throw
         Assert-Equal -Expected 1 -Actual $noSec.a -Because 'no-secrets no-op'
+    }
+}
+
+# An empty or comment-only test.config.yml read as no settings at all: the
+# reconcile wrote the template defaults over it, and its backup over the
+# backup that still held the operator's values.
+Describe 'A test.config.yml that holds no mapping' {
+    BeforeAll {
+        $script:NoMapTemplate = Join-Path (New-TempDir) 'template.yml'
+        Set-Content -LiteralPath $script:NoMapTemplate -Value "repositories:`n  projectUrl: ''`nstatusService:`n  port: 8080`n"
+    }
+    It 'refuses <Case> before writing anything, and keeps the backup' -TestCases @(
+        @{ Case = 'an empty file'; Text = '' }
+        @{ Case = 'a comment-only file'; Text = "# operator notes`n# nothing else`n" }
+        @{ Case = 'a bare list'; Text = "- one`n- two`n" }
+    ) {
+        param($Case, $Text)
+        $null = $Case
+        $dir = New-TempDir
+        $configPath = Join-Path $dir 'test.config.yml'
+        [IO.File]::WriteAllText($configPath, $Text)
+        $backup = "$configPath.backup"
+        [IO.File]::WriteAllText($backup, "repositories:`n  projectUrl: 'file:///operator/project'`n")
+        { Update-TestConfigFromTemplate -ConfigPath $configPath -TemplatePath $script:NoMapTemplate -Confirm:$false } | Should -Throw '*config-corrupt*'
+        [IO.File]::ReadAllText($configPath) | Should -BeExactly $Text
+        [IO.File]::ReadAllText($backup) | Should -Match ([regex]::Escape('file:///operator/project'))
+        $template = Get-Content -Raw -LiteralPath $script:NoMapTemplate | ConvertFrom-Yaml -Ordered
+        $parsed = ConvertFrom-Yaml -Yaml $Text -Ordered
+        if ($null -eq $parsed) {
+            # A file that parses to nothing cannot bind the mandatory -Current; the binder refuses first.
+            { Sync-TestConfigToTemplate -Template $template -Current $parsed -ConfigPath $configPath -TemplatePath $script:NoMapTemplate -Confirm:$false } | Should -Throw
+        } else {
+            { Sync-TestConfigToTemplate -Template $template -Current $parsed -ConfigPath $configPath -TemplatePath $script:NoMapTemplate -Confirm:$false } | Should -Throw '*config-corrupt*'
+        }
+        [IO.File]::ReadAllText($configPath) | Should -BeExactly $Text
+        [IO.File]::ReadAllText($backup) | Should -Match ([regex]::Escape('file:///operator/project'))
+    }
+}
+
+# Knobs the docs name but the template did not define were stripped by every
+# reconcile: an operator's value moved to the obsolete block and the run used
+# the code default. Two of them have no single default (it depends on the host
+# or the mode), so the template states them as null and the rewrite must keep
+# that spelling: '""' reads back as a string that casts to 0 or false.
+Describe 'Documented knobs survive the reconcile' {
+    BeforeAll {
+        $script:ShippedTemplate = Join-Path -Path (Split-Path -Parent $PSScriptRoot) -ChildPath 'test.config.yml.template'
+        $script:KnobCase = @(
+            @{ Path = 'vmCommunication.settleMs'; Operator = 40; Default = 200 }
+            @{ Path = 'vmCommunication.batchedTextSend'; Operator = $false; Default = $null }
+            @{ Path = 'vmStart.cachingProxyRegistryWaitSeconds'; Operator = 1800; Default = 900 }
+            @{ Path = 'downloadAgentService.enabled'; Operator = $false; Default = $null }
+        )
+        function script:New-KnobSeed {
+            param([switch]$WithOperatorValue)
+            $seed = Get-Content -Raw -LiteralPath $script:ShippedTemplate | ConvertFrom-Yaml -Ordered
+            $seed.repositories.projectUrl = 'file:///operator/project'
+            foreach ($case in $script:KnobCase) {
+                $node, $leaf = $case.Path -split '\.'
+                if ($WithOperatorValue) { $seed[$node][$leaf] = $case.Operator }
+                elseif ($seed[$node].Contains($leaf)) { $seed[$node].Remove($leaf) }
+            }
+            $dir = New-TempDir
+            $configPath = Join-Path $dir 'test.config.yml'
+            Set-Content -LiteralPath $configPath -Value ($seed | ConvertTo-Yaml) -NoNewline
+            return $configPath
+        }
+        function script:Get-KnobOnDisk {
+            param([string]$ConfigPath, [string]$Path)
+            $node, $leaf = $Path -split '\.'
+            $onDisk = Get-Content -Raw -LiteralPath $ConfigPath | ConvertFrom-Yaml -Ordered
+            [pscustomobject]@{ Present = $onDisk[$node].Contains($leaf); Value = $onDisk[$node][$leaf]; ProjectUrl = $onDisk.repositories.projectUrl }
+        }
+    }
+    It 'keeps the operator value of every documented knob at cycle start' {
+        $configPath = New-KnobSeed -WithOperatorValue
+        $null = Update-TestConfigFromTemplate -ConfigPath $configPath -TemplatePath $script:ShippedTemplate -Confirm:$false 6>$null
+        foreach ($case in $script:KnobCase) {
+            $knob = Get-KnobOnDisk -ConfigPath $configPath -Path $case.Path
+            $knob.Present | Should -BeTrue -Because "$($case.Path) is a documented knob"
+            $knob.Value | Should -Be $case.Operator -Because "$($case.Path) keeps the operator's value"
+            $knob.Value.GetType() | Should -Be $case.Operator.GetType()
+        }
+        (Get-KnobOnDisk -ConfigPath $configPath -Path 'vmStart.startTimeoutSeconds').ProjectUrl | Should -Be 'file:///operator/project'
+    }
+    It 'keeps the operator value of every documented knob in Test-Config' {
+        $configPath = New-KnobSeed -WithOperatorValue
+        $template = Get-Content -Raw -LiteralPath $script:ShippedTemplate | ConvertFrom-Yaml -Ordered
+        $current = Get-Content -Raw -LiteralPath $configPath | ConvertFrom-Yaml -Ordered
+        $null = Sync-TestConfigToTemplate -Template $template -Current $current -ConfigPath $configPath -TemplatePath $script:ShippedTemplate -Confirm:$false
+        foreach ($case in $script:KnobCase) {
+            $knob = Get-KnobOnDisk -ConfigPath $configPath -Path $case.Path
+            $knob.Present | Should -BeTrue -Because "$($case.Path) is a documented knob"
+            $knob.Value | Should -Be $case.Operator -Because "$($case.Path) keeps the operator's value"
+        }
+        (Get-KnobOnDisk -ConfigPath $configPath -Path 'vmStart.startTimeoutSeconds').ProjectUrl | Should -Be 'file:///operator/project'
+    }
+    It 'fills an absent knob with its default, keeps null as null, and rewrites nothing on the next pass' {
+        $configPath = New-KnobSeed
+        $null = Update-TestConfigFromTemplate -ConfigPath $configPath -TemplatePath $script:ShippedTemplate -Confirm:$false 6>$null
+        foreach ($case in $script:KnobCase) {
+            $knob = Get-KnobOnDisk -ConfigPath $configPath -Path $case.Path
+            $knob.Present | Should -BeTrue -Because "$($case.Path) is added from the template"
+            if ($null -eq $case.Default) {
+                $knob.Value | Should -BeNullOrEmpty
+                $null -eq $knob.Value | Should -BeTrue -Because "$($case.Path) stays unstated, not an empty string that casts to false"
+            } else {
+                $knob.Value | Should -Be $case.Default
+            }
+        }
+        $text = [IO.File]::ReadAllText($configPath)
+        $text | Should -Match '(?m)^  enabled: null$'
+        $text | Should -Match '(?m)^  batchedTextSend: null$'
+        $null = Update-TestConfigFromTemplate -ConfigPath $configPath -TemplatePath $script:ShippedTemplate -Confirm:$false 6>$null
+        [IO.File]::ReadAllText($configPath) | Should -BeExactly $text
+    }
+    It 'renders a null template leaf as null and an operator value in its place' {
+        $templateText = "block:`n  flag: null`n  other: ''`n"
+        $config = [ordered]@{ block = [ordered]@{ flag = $null; other = $null } }
+        foreach ($pass in 1..3) {
+            $rendered = ConvertTo-DocumentedConfigYaml -TemplateText $templateText -Config $config
+            $rendered | Should -Match '(?m)^  flag: null$'
+            $config = ConvertFrom-Yaml -Yaml $rendered -Ordered
+            $null -eq $config.block.flag | Should -BeTrue
+        }
+        $rendered | Should -Match ([regex]::Escape("  other: `"`""))
+        $config.block.flag = $true
+        ConvertTo-DocumentedConfigYaml -TemplateText $templateText -Config $config | Should -Match '(?m)^  flag: true$'
     }
 }
 

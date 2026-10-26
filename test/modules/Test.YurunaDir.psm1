@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.25
+.VERSION 2026.10.26
 .GUID 4201fdd8-53b7-4416-b2a6-1f61d3cff3af
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -98,6 +98,11 @@ function Initialize-YurunaRuntimeDir {
 
 Import-Module (Join-Path $PSScriptRoot 'Test.HostIdentitySeed.psm1') -DisableNameChecking
 
+# A claim writes its id within milliseconds of creating host.uuid; one still
+# empty after this long was interrupted and is safe to clear.
+$script:HostIdEmptyRepairSeconds = 60
+$script:HostIdRepairing = $false
+
 function Get-YurunaHostId {
     <#
     .SYNOPSIS
@@ -171,8 +176,28 @@ function Get-YurunaHostId {
         } catch { Write-Verbose "Get-YurunaHostId: winner re-read failed: $($_.Exception.Message)" }
         Start-Sleep -Milliseconds 20
     }
-    # A present-but-empty/corrupt host.uuid also lands here: yield $null rather than
-    # overwrite it, so the operator removes the file to deliberately re-key.
+    # An empty host.uuid that stayed empty long past any winner's flush is the
+    # remains of a claim that crashed between create and write: it holds no
+    # identity to protect, so it is cleared and claimed once more (the seeded
+    # derivation above brings the same machine back as the same host). The age
+    # is read again just before the delete, so a fresh claim that appeared in
+    # between is never removed. A non-empty file is never overwritten: an
+    # operator removes it to deliberately re-key.
+    if (-not $script:HostIdRepairing) {
+        try {
+            $info = [System.IO.FileInfo]::new($uuidFile)
+            if ($info.Exists -and -not ([System.IO.File]::ReadAllText($uuidFile)).Trim() -and
+                $info.LastWriteTimeUtc -lt [DateTime]::UtcNow.AddSeconds(-$script:HostIdEmptyRepairSeconds)) {
+                $info.Refresh()
+                if ($info.Length -eq 0 -and $info.LastWriteTimeUtc -lt [DateTime]::UtcNow.AddSeconds(-$script:HostIdEmptyRepairSeconds)) {
+                    [System.IO.File]::Delete($uuidFile)
+                    Write-Verbose "Get-YurunaHostId: cleared an empty host.uuid left by an interrupted claim."
+                    $script:HostIdRepairing = $true
+                    try { return (Get-YurunaHostId -RuntimeDir $runtimeDir) } finally { $script:HostIdRepairing = $false }
+                }
+            }
+        } catch { Write-Verbose "Get-YurunaHostId: empty host.uuid repair failed: $($_.Exception.Message)" }
+    }
     Write-Verbose "Get-YurunaHostId: host.uuid could not be persisted; returning null."
     return $null
 }

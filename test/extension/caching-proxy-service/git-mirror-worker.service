@@ -1,5 +1,6 @@
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
+# GUID: 4283336e-d172-4034-b7c3-8956615aa316
 [Unit]
 Description=Yuruna Git mirror refresh and signing worker
 After=network-online.target

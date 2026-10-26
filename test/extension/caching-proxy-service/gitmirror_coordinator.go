@@ -1,5 +1,6 @@
 // LICENSEURI https://yuruna.link/license
 // Copyright (c) 2019-2026 by Alisson Sol et al.
+// GUID: 426ad73e-90b6-4b41-90c6-9f0affb70cd4
 
 package main
 
@@ -58,6 +59,9 @@ type mirrorCoordinator struct {
 	storageFree     uint64
 	storageUsed     uint64
 	storageError    error
+	// reloadError is the last registry reload failure, "" once one succeeds: a
+	// mirror that cannot reload stops learning new pool repositories.
+	reloadError string
 }
 
 func newMirrorCoordinator(ctx context.Context, options mirrorOptions) (*mirrorCoordinator, error) {
@@ -734,7 +738,9 @@ func (c *mirrorCoordinator) receipt(request mirrorRequest, j *mirrorJob, reason 
 	// with a newer refresh must not overwrite that refresh's durable snapshot.
 	release, err := mirrorReadLease(c.options, request.Repository)
 	if err == nil {
-		err = mirrorRecordUse(c.options, request.Repository, ref.CommitSHA)
+		if mirrorUseRoom(c.options, request.Repository) {
+			err = mirrorRecordUse(c.options, request.Repository, ref.CommitSHA)
+		}
 		release()
 	}
 	if err != nil {
@@ -761,7 +767,7 @@ func (c *mirrorCoordinator) startTimer() {
 			case <-timer.C:
 			}
 			discovery, cancel := context.WithTimeout(c.ctx, c.options.Limits.Query)
-			_ = c.registry.reload(discovery)
+			c.noteReload(c.registry.reload(discovery))
 			cancel()
 			for _, repo := range c.registry.list() {
 				c.mu.Lock()
@@ -769,7 +775,10 @@ func (c *mirrorCoordinator) startTimer() {
 				busy := r != nil && (r.active != nil || r.next != nil || r.maintenance || c.options.Now().Before(r.retryAt))
 				c.mu.Unlock()
 				if !busy {
-					_, _ = c.admit(mirrorRequest{Repository: repo, Ref: "HEAD"})
+					// A full queue refuses too, so this is counted, not logged.
+					if _, refusal := c.admit(mirrorRequest{Repository: repo, Ref: "HEAD"}); refusal != "" {
+						c.countFailure("refresh-admit-failures")
+					}
 				}
 			}
 			now := c.options.Now()
@@ -779,7 +788,13 @@ func (c *mirrorCoordinator) startTimer() {
 					c.lastMaintenance = key
 					for _, repo := range c.registry.list() {
 						c.wg.Add(1)
-						go func(repo string) { defer c.wg.Done(); _ = c.maintain(c.ctx, repo) }(repo)
+						go func(repo string) {
+							defer c.wg.Done()
+							if err := c.maintain(c.ctx, repo); err != nil {
+								c.countFailure("maintenance-failures")
+								log.Printf("git-mirror repository=%s maintenance failed: %v", repo, err)
+							}
+						}(repo)
 					}
 				}
 			}
@@ -788,6 +803,33 @@ func (c *mirrorCoordinator) startTimer() {
 			timer.Reset(c.options.Limits.Refresh + time.Duration(jitter[0])*c.options.Limits.Refresh/2560)
 		}
 	}()
+}
+
+// noteReload keeps the last registry reload failure for status, and logs each
+// change, so a mirror that stopped learning repositories says so once.
+func (c *mirrorCoordinator) noteReload(err error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	text := ""
+	if err != nil {
+		text = err.Error()
+		c.metrics["registry-reload-failures"]++
+	}
+	if text == c.reloadError {
+		return
+	}
+	if text != "" {
+		log.Printf("git-mirror registry reload failed: %s", text)
+	} else {
+		log.Printf("git-mirror registry reload succeeded again")
+	}
+	c.reloadError = text
+}
+
+func (c *mirrorCoordinator) countFailure(key string) {
+	c.mu.Lock()
+	c.metrics[key]++
+	c.mu.Unlock()
 }
 
 func (c *mirrorCoordinator) status() map[string]any {
@@ -822,11 +864,15 @@ func (c *mirrorCoordinator) status() map[string]any {
 	if c.storageError != nil {
 		detail = "storage-unavailable"
 	}
-	return map[string]any{"apiVersion": 1, "capabilities": []string{"resolve", "git", "raw"}, "keyId": keyID, "version": version,
+	out := map[string]any{"apiVersion": 1, "capabilities": []string{"resolve", "git", "raw"}, "keyId": keyID, "version": version,
 		"buildSource": c.options.BuildSource, "refreshIntervalSeconds": c.options.Limits.Refresh.Seconds(),
 		"pinRetentionDays": c.options.Limits.Retention.Hours() / 24, "pinRetentionGraceSeconds": c.options.Limits.RetentionGrace.Seconds(),
 		"storage":      map[string]any{"freeBytes": c.storageFree, "usedBytes": c.storageUsed, "reserveBytes": c.options.Limits.ReserveBytes, "capBytes": c.options.Limits.CapBytes},
 		"repositories": rows, "detail": detail}
+	if c.reloadError != "" {
+		out["registryError"] = c.reloadError
+	}
+	return out
 }
 
 func (c *mirrorCoordinator) metricsText() string {

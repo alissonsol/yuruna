@@ -2304,6 +2304,18 @@
           "example": "default"
         }
       }
+    },
+    "exceptions.host_signature_could_not_be_checked": {
+      "message": "SHA256SUMS GPG signature could not be checked for {checksumUrl}",
+      "description": "Whole operator-visible throw failure in host/modules/Yuruna.Image.psm1 when gpg and the pinned keys are present but the signature could not be fetched or verified; preserve command names, error identity, paths, and external details.",
+      "lifecycle": "active",
+      "placeholders": {
+        "checksumUrl": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$ChecksumUrl"
+        }
+      }
     }
   }
 }

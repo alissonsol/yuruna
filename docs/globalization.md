@@ -53,8 +53,12 @@ pwsh tools/Invoke-CatalogCompile.ps1 -Check
 pwsh tools/Invoke-CatalogEmbed.ps1 -Check
 ```
 
-The compiler returns `1` when `-Update` changes artifacts; a subsequent check
-must return `0`. Do not hand-edit generated files. Supported locale delivery is
+Both tools exit `0` when they are done, whether or not they wrote anything,
+and their `WROTE`, `REMOVED` and `updated` lines name what changed. A check
+exits `3` when the sources are sound and something would change, `1` when a
+source is invalid or a runtime cannot be embedded, and the compiler exits `2`
+when it cannot run at all. A caller reads the outcome from the code, never from
+the text. Do not hand-edit generated files. Supported locale delivery is
 derived from the manifest for PowerShell, browser assets, and Go registries.
 Plural rules and number separators are pinned in that same authority; host
 locale databases do not decide message variants.

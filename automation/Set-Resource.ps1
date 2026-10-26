@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.25
+.VERSION 2026.10.26
 .GUID 429746c7-cf5b-4f84-8ccd-0d7f99927afa
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -78,14 +78,10 @@ Get-Module Yuruna.* | Remove-Module *>&1 | Write-Verbose
 $resourcesModulePath = Join-Path -Path $yuruna_root -ChildPath "automation/Yuruna.Resource.psm1"
 Import-Module -Name $resourcesModulePath -Force
 
-# --- REGION: Start transcript
-$null = Start-Transcript $transcriptFileName
-
 # --- REGION: Run operation
-$result = Publish-ResourceList $project_root $config_subfolder
-
-# --- REGION: Stop transcript
-$null = Stop-Transcript
+# The harness starts and stops the transcript, so an operation that throws
+# still ends it and still reports a result.
+$result = Invoke-YurunaEntrypoint -TranscriptFile $transcriptFileName -Operation { Publish-ResourceList $project_root $config_subfolder }
 
 # --- REGION: Completion
 Complete-YurunaRun -Result $result -TranscriptFile $transcriptFileName

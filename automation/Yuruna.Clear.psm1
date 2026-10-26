@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.25
+.VERSION 2026.10.26
 .GUID 42d48379-bb62-43d9-b80a-bcbb0440f82e
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -54,6 +54,13 @@ function Clear-Configuration {
     foreach ($resourceName in $resourceNames) {
         Write-Debug "resource: $resourceName"
         $workFolder = Join-Path -Path $project_root -ChildPath ".yuruna/$config_subfolder/resources/$resourceName"
+        # The recovery Set-Resource makes: a kill between the two moves of its
+        # folder swap leaves the state only in <resource>.old, and a clear that
+        # missed it would leave the resources it describes running.
+        if (-not (Test-Path -LiteralPath $workFolder) -and (Test-Path -LiteralPath "$workFolder.old")) {
+            Write-Verbose "Clear-Configuration: recovering '$resourceName' from .old before the destroy."
+            Move-Item -LiteralPath "$workFolder.old" -Destination $workFolder -Force -ErrorAction Stop
+        }
         $workFolder = Resolve-Path -Path $workFolder -ErrorAction SilentlyContinue
         # No work folder: already destroyed and removed by an earlier run, so
         # there is no local tfstate left to destroy from.

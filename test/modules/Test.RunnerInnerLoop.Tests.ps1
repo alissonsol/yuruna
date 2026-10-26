@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.25
+.VERSION 2026.10.26
 .GUID 422a68fe-a953-4858-a4d5-e3de9fbbbaf8
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -827,6 +827,57 @@ Describe 'Write-CycleInfraFailure' {
             $global:__YurunaCycleFolder = $oldCycleFolder
         }
     }
+    # A provisioning failure on the second guest used to be filed under the
+    # first guest's record, which the root still held.
+    It 'replaces <Case>' -TestCases @(
+        @{ Case = 'another guest''s record from before this iteration'; RecordedGuest = 'guest.a'; IterationOffsetSeconds = 60; Replaced = $true }
+        @{ Case = 'this guest''s record from an earlier iteration'; RecordedGuest = 'guest.b'; IterationOffsetSeconds = 60; Replaced = $true }
+        @{ Case = 'nothing written during this iteration'; RecordedGuest = 'guest.a'; IterationOffsetSeconds = -60; Replaced = $false }
+        @{ Case = 'nothing outside a guest iteration'; RecordedGuest = 'guest.a'; IterationOffsetSeconds = $null; Replaced = $false }
+    ) {
+        param($Case, $RecordedGuest, $IterationOffsetSeconds, $Replaced)
+        $null = $Case
+        $tmp = Join-Path $TestDrive ([guid]::NewGuid().ToString('N'))
+        New-Item -ItemType Directory -Path $tmp -Force | Out-Null
+        $oldLogDir = $env:YURUNA_LOG_DIR
+        $env:YURUNA_LOG_DIR = $tmp
+        $failFile = Join-Path $tmp 'last_failure.json'
+        Set-Content -LiteralPath $failFile -Value (@{ guestKey = $RecordedGuest; failureClass = 'ocr_timeout'; stage = 'Sequence' } | ConvertTo-Json)
+        function global:New-InfraFailureRecord {
+            [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter', '',
+                Justification = 'Stub mirrors the -Global builder signature Write-CycleInfraFailure binds by name; the test reads back only the fields it threads through.')]
+            param($Stage, $FailureClass, $Severity, $GuestKey, $VMName, $HostType, $ErrorMessage, $HostMemory, $HostStorage, $DependencyFailures)
+            @{ File = [ordered]@{ guestKey = $GuestKey; failureClass = $FailureClass; stage = $Stage }; Event = [ordered]@{ stage = $Stage } }
+        }
+        function global:Write-YurunaStateFile {
+            [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter', '',
+                Justification = 'Stub mirrors the -Global writer signature bound by name; -Confirm is part of that contract even though this stub writes unconditionally.')]
+            [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseSupportsShouldProcess', '',
+                Justification = '-Confirm is a plain pass-through switch in the real builder signature being mirrored; SupportsShouldProcess would add a real confirmation prompt and hang the unattended run.')]
+            param($Path, $Content, [switch]$Confirm)
+            [System.IO.File]::WriteAllText($Path, $Content); $Path
+        }
+        try {
+            InModuleScope Test.RunnerInnerLoop -Parameters @{ Offset = $IterationOffsetSeconds } {
+                param($Offset)
+                $prior = $script:GuestIterationStartedUtc
+                try {
+                    $script:GuestIterationStartedUtc = if ($null -eq $Offset) { $null } else { [datetime]::UtcNow.AddSeconds($Offset) }
+                    Write-CycleInfraFailure -Stage 'Start-VM' -FailureClass 'provisioning_failure' -GuestKey 'guest.b' -HostType 'host.test'
+                } finally { $script:GuestIterationStartedUtc = $prior }
+            }
+            $doc = Get-Content -LiteralPath $failFile -Raw | ConvertFrom-Json
+            if ($Replaced) {
+                $doc.guestKey | Should -Be 'guest.b'
+                $doc.failureClass | Should -Be 'provisioning_failure'
+            } else {
+                $doc.failureClass | Should -Be 'ocr_timeout' -Because 'a record this iteration wrote, or one nothing shows to be stale, is kept'
+            }
+        } finally {
+            Remove-Item function:global:New-InfraFailureRecord, function:global:Write-YurunaStateFile -ErrorAction SilentlyContinue
+            if ($null -eq $oldLogDir) { Remove-Item Env:YURUNA_LOG_DIR -ErrorAction SilentlyContinue } else { $env:YURUNA_LOG_DIR = $oldLogDir }
+        }
+    }
     It 'every call site threads -HostType $HostType and the closure is gone' {
         $src = Get-Content -LiteralPath (Join-Path $here 'Test.RunnerInnerLoop.psm1') -Raw
         Assert-True (-not ($src -match '\$writeInfraFailure')) 'the $writeInfraFailure closure must be fully removed'
@@ -1149,10 +1200,10 @@ Describe 'Invoke-RunnerBootstrapFailureGate (shared bootstrap-failure gating)' {
         $src = Get-Content -LiteralPath (Join-Path $here 'Test.RunnerInnerLoop.psm1') -Raw
         $callCount = ([regex]::Matches($src, 'Invoke-RunnerBootstrapFailureGate\s+-GatingState')).Count
         # One per pre-cycle stage that can end the cycle before its first guest:
-        # HostCondition, HypervisorControl, GitPull, ProjectAccess, ProjectClone. A deliberate
-        # golden -- bump it when a stage is added or removed, so a site that
-        # quietly re-inlines its own gating shows up here.
-        Assert-True ($callCount -eq 5) "expected 5 Invoke-RunnerBootstrapFailureGate call sites, found $callCount"
+        # HostCondition, HypervisorControl, OcrKnownAnswer, GitPull, ProjectAccess,
+        # ProjectClone. A deliberate golden -- bump it when a stage is added or
+        # removed, so a site that quietly re-inlines its own gating shows up here.
+        Assert-True ($callCount -eq 6) "expected 6 Invoke-RunnerBootstrapFailureGate call sites, found $callCount"
         Assert-True (-not ($src -match "-SubjectSuffix\s+'GitPull'")) 'inline GitPull notification block must be gone (helper uses -SubjectSuffix $Stage)'
         Assert-True (-not ($src -match "-SubjectSuffix\s+'ProjectClone'")) 'inline ProjectClone notification block must be gone'
     }
@@ -1165,15 +1216,17 @@ Describe 'Inner-cycle control-flow shape (guest dispatch + single-pass invariant
     # early exit or a step-failure arm. The helper signals the caller through
     # $IterState.Control instead of a break/continue that would (wrongly) return from
     # the whole cycle; these assertions pin that discipline.
-    It 'runs the cycle body once via do{...}while($false): 18 unlabeled breaks, 0 continues' {
-        # Three of the eighteen are the host-refresh gate sites (cycle start,
+    It 'runs the cycle body once via do{...}while($false): 19 unlabeled breaks, 0 continues' {
+        # Three of the nineteen are the host-refresh gate sites (cycle start,
         # before the pull, before the cycle-start VM sweep): each ends the
         # cycle before any change while a host refresh holds the runner. One
         # more is the hypervisor control gate, which ends the cycle before any
-        # guest when the hypervisor no longer acts on lifecycle verbs. Storage
-        # admission also ends the attempt before cycle accounting can start.
+        # guest when the hypervisor no longer acts on lifecycle verbs, and one
+        # the OCR known-answer read, which ends it when no engine can read.
+        # Storage admission also ends the attempt before cycle accounting can
+        # start.
         $f = Get-InnerCycleControlFlow -Psm1Path (Join-Path $here 'Test.RunnerInnerLoop.psm1')
-        Assert-True ($f.DoWhileBreaks -eq 18) "do/while must have 18 break arms, found $($f.DoWhileBreaks)"
+        Assert-True ($f.DoWhileBreaks -eq 19) "do/while must have 19 break arms, found $($f.DoWhileBreaks)"
         Assert-True ($f.DoWhileContinues -eq 0) "do/while must have 0 continue arms (a continue would re-run the single-pass body), found $($f.DoWhileContinues)"
         Assert-True ($f.LabeledFlow -eq 0) "inner cycle must have 0 labeled break/continue, found $($f.LabeledFlow)"
     }
@@ -1475,6 +1528,9 @@ Describe 'Runner config and exit safety' {
         Assert-NotNull $wait
         $callback = @($wait.CommandElements | Where-Object { $_ -is [System.Management.Automation.Language.ScriptBlockExpressionAst] })[0]
         $body = [scriptblock]::Create($callback.ScriptBlock.Extent.Text.Trim().Substring(1).TrimEnd('}'))
+        # The extracted callback runs here, outside the module, so the writer it
+        # calls must be importable here too.
+        Import-Module (Join-Path $here 'Test.RunnerHeartbeat.psm1') -Global -DisableNameChecking
         $StepHeartbeatFile = Join-Path $TestDrive 'heartbeat'
         $cycleRestartFlagFile = Join-Path $TestDrive 'restart'
         $null = $cycleRestartFlagFile # Read by the extracted production callback.
@@ -1600,5 +1656,245 @@ Describe 'Post-sync storage refusal preserves the completed cycle' {
                 $fault.Evidence.structuredResult.storageAdmission.status | Should -Be 'invalid'
             }
         }
+    }
+}
+
+# status.json is served without authentication. The cycle published the
+# configured framework URL as typed in its top-level repoUrl, so a token
+# written into the URL reached every reader of the status page.
+Describe 'Cycle status provenance carries no repository credentials' {
+    It 'passes every repository URL it publishes through ConvertTo-GitSourceSafeUrl' {
+        $path = Join-Path $PSScriptRoot 'Test.RunnerInnerLoop.psm1'
+        $ast = [System.Management.Automation.Language.Parser]::ParseFile($path, [ref]$null, [ref]$null)
+        $calls = @($ast.FindAll({ param($n)
+            $n -is [System.Management.Automation.Language.CommandAst] -and $n.GetCommandName() -eq 'Initialize-StatusDocument' }, $true))
+        Assert-True ($calls.Count -ge 1) 'fixture sanity: the cycle initializes its status document'
+        foreach ($call in $calls) {
+            $elements = $call.CommandElements
+            for ($i = 0; $i -lt $elements.Count - 1; $i++) {
+                if ($elements[$i] -is [System.Management.Automation.Language.CommandParameterAst] -and $elements[$i].ParameterName -eq 'RepoUrl') {
+                    Assert-Match -Pattern 'ConvertTo-GitSourceSafeUrl' -Actual $elements[$i + 1].Extent.Text `
+                        -Because "line $($call.Extent.StartLineNumber): -RepoUrl is published in status.json"
+                }
+            }
+        }
+    }
+}
+
+# The dispatcher ran after Complete-CycleRun closed the transcript, and only on
+# a cycle that also alerted, so its decision reached neither the cycle folder
+# nor the event stream the pool reads.
+# The recovery handlers for these two classes quote fields from the record; no
+# producer wrote them, so every recommendation fell back to generic wording.
+Describe 'A failure record carries the fields its class handler quotes' {
+    BeforeAll {
+        function global:New-InfraFailureRecord {
+            [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter', '',
+                Justification = 'Stub mirrors the -Global builder signature Write-CycleInfraFailure binds by name.')]
+            param($Stage, $FailureClass, $Severity, $GuestKey, $VMName, $HostType, $ErrorMessage)
+            @{ File  = [ordered]@{ stage = $Stage; failureClass = $FailureClass; errorMessage = $ErrorMessage }
+               Event = [ordered]@{ stage = $Stage } }
+        }
+        function global:Send-CycleEventSafely {
+            [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter', '',
+                Justification = 'Stub mirrors the -Global event-sink signature bound by name.')]
+            param($EventRecord)
+        }
+        function global:Set-LastFailureSummary {
+            [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter', '',
+                Justification = 'Stub mirrors the -Global summary-sink signature bound by name.')]
+            [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseSupportsShouldProcess', '',
+                Justification = '-Confirm is a plain pass-through switch in the signature being mirrored.')]
+            param($FailureClass, $Severity, $SequenceName, $GuestKey, $StepName, $ErrorMessage, $VmName, $ClassificationSource, $Reason, [switch]$Confirm)
+        }
+        Import-Module (Join-Path $PSScriptRoot 'Test.StateFile.psm1') -Global -DisableNameChecking
+        $script:SavedLogDir = $env:YURUNA_LOG_DIR
+    }
+    AfterAll {
+        Remove-Item function:global:New-InfraFailureRecord, function:global:Send-CycleEventSafely, function:global:Set-LastFailureSummary -ErrorAction SilentlyContinue
+        if ($null -eq $script:SavedLogDir) { Remove-Item Env:YURUNA_LOG_DIR -ErrorAction SilentlyContinue } else { $env:YURUNA_LOG_DIR = $script:SavedLogDir }
+    }
+    BeforeEach {
+        $env:YURUNA_LOG_DIR = Join-Path $TestDrive ([guid]::NewGuid().ToString('N'))
+        $null = New-Item -ItemType Directory -Path $env:YURUNA_LOG_DIR
+    }
+    AfterEach {
+        & (Get-Module Test.RunnerInnerLoop) {
+            $script:CycleHostNetworkDegraded = $null
+            $script:CycleHostNetworkVerdict = $null
+            $script:CycleHostNetworkRecordField = $null
+        }
+    }
+
+    It 'records the two addresses of a dhcp_identity_unbounded move' {
+        & (Get-Module Test.RunnerInnerLoop) {
+            Write-CycleInfraFailure -Stage 'GuestAddressBound' -FailureClass 'dhcp_identity_unbounded' -GuestKey '(guest addressing)' `
+                -ErrorMessage 'moved' -HostType 'host.test' -ClassDetail @{ previousAddress = '192.0.2.10'; currentAddress = '192.0.2.11' }
+        }
+        $doc = Get-Content -Raw -LiteralPath (Join-Path $env:YURUNA_LOG_DIR 'last_failure.json') | ConvertFrom-Json -AsHashtable
+        $doc.previousAddress | Should -BeExactly '192.0.2.10'
+        $doc.currentAddress | Should -BeExactly '192.0.2.11'
+    }
+
+    It 'records the switch and verdict when it files a host_network_degraded failure' {
+        & (Get-Module Test.RunnerInnerLoop) {
+            $script:CycleHostNetworkDegraded = $true
+            $script:CycleHostNetworkRecordField = [ordered]@{ hostNetworkSwitch = 'LabBridge'; hostNetworkVerdict = 'no-uplink' }
+            Write-CycleInfraFailure -Stage 'StartVM' -FailureClass 'network_timeout' -GuestKey 'guest.one' -ErrorMessage 'no address' -HostType 'host.test'
+        }
+        $doc = Get-Content -Raw -LiteralPath (Join-Path $env:YURUNA_LOG_DIR 'last_failure.json') | ConvertFrom-Json -AsHashtable
+        $doc.failureClass | Should -BeExactly 'host_network_degraded'
+        $doc.hostNetworkSwitch | Should -BeExactly 'LabBridge'
+        $doc.hostNetworkVerdict | Should -BeExactly 'no-uplink'
+    }
+
+    It 'records them when it re-files an engine record against the host' {
+        $failFile = Join-Path $env:YURUNA_LOG_DIR 'last_failure.json'
+        [IO.File]::WriteAllText($failFile, (@{ failureClass = 'network_timeout'; guestKey = 'guest.one'; stepName = 'fetch' } | ConvertTo-Json))
+        $null = & (Get-Module Test.RunnerInnerLoop) {
+            $script:CycleHostNetworkDegraded = $true
+            $script:CycleHostNetworkVerdict = 'LabBridge=no-uplink'
+            $script:CycleHostNetworkRecordField = [ordered]@{ hostNetworkSwitch = 'LabBridge'; hostNetworkVerdict = 'no-uplink' }
+            Write-CycleHostNetworkReclassification -GuestKey 'guest.one'
+        }
+        $doc = Get-Content -Raw -LiteralPath $failFile | ConvertFrom-Json -AsHashtable
+        $doc.failureClass | Should -BeExactly 'host_network_degraded'
+        $doc.stepName | Should -BeExactly 'fetch' -Because 'the engine fields are kept'
+        $doc.hostNetworkSwitch | Should -BeExactly 'LabBridge'
+        $doc.hostNetworkVerdict | Should -BeExactly 'no-uplink'
+    }
+}
+
+Describe 'Every failed cycle records its remediation decision inside the cycle' {
+    It 'dispatches before Complete-CycleRun, outside the alert latch' {
+        $ast = [System.Management.Automation.Language.Parser]::ParseFile((Join-Path $PSScriptRoot 'Test.RunnerInnerLoop.psm1'), [ref]$null, [ref]$null)
+        $commands = @($ast.FindAll({ param($n) $n -is [System.Management.Automation.Language.CommandAst] }, $true))
+        $complete = @($commands | Where-Object { $_.GetCommandName() -eq 'Complete-CycleRun' })
+        Assert-Equal -Expected 1 -Actual $complete.Count -Because 'fixture sanity: one cycle finalization'
+        $early = @($commands | Where-Object { $_.GetCommandName() -eq 'Invoke-Remediation' -and $_.Extent.StartOffset -lt $complete[0].Extent.StartOffset })
+        Assert-Equal -Expected 2 -Actual $early.Count -Because 'a runner cycle and an orchestration cycle each decide before the transcript closes'
+        foreach ($call in $early) {
+            $node = $call.Parent
+            while ($node) {
+                if ($node -is [System.Management.Automation.Language.IfStatementAst]) {
+                    foreach ($clause in $node.Clauses) {
+                        Assert-False ($clause.Item1.Extent.Text -match 'AlertArmed') 'the decision is not gated on the alert latch'
+                    }
+                }
+                $node = $node.Parent
+            }
+        }
+    }
+
+    # An orchestration cycle seals its own transcript inside
+    # Invoke-OrchestrationSequence, so a decision made after it returns reached
+    # neither the cycle folder nor its stream.
+    It 'hands an orchestration cycle''s decision to the orchestrator and ships its payload' {
+        $ast = [System.Management.Automation.Language.Parser]::ParseFile((Join-Path $PSScriptRoot 'Test.RunnerInnerLoop.psm1'), [ref]$null, [ref]$null)
+        $orchestrate = @($ast.FindAll({ param($n) $n -is [System.Management.Automation.Language.CommandAst] -and $n.GetCommandName() -eq 'Invoke-OrchestrationSequence' }, $true))
+        Assert-Equal -Expected 1 -Actual $orchestrate.Count -Because 'fixture sanity: one orchestration dispatch'
+        $sealIndex = -1
+        for ($i = 0; $i -lt $orchestrate[0].CommandElements.Count; $i++) {
+            $element = $orchestrate[0].CommandElements[$i]
+            if ($element -is [System.Management.Automation.Language.CommandParameterAst] -and $element.ParameterName -eq 'BeforeSeal') { $sealIndex = $i }
+        }
+        Assert-True ($sealIndex -gt 0) 'the dispatch passes -BeforeSeal'
+        $blockName = $orchestrate[0].CommandElements[$sealIndex + 1].Extent.Text.TrimStart('$')
+        $assignment = @($ast.FindAll({ param($n) $n -is [System.Management.Automation.Language.AssignmentStatementAst] -and $n.Left.Extent.Text -eq "`$$blockName" }, $true))
+        Assert-Equal -Expected 1 -Actual $assignment.Count -Because "one assignment of `$$blockName"
+        $block = $assignment[0].Right.Extent.Text
+        Assert-Match 'Invoke-Remediation -FailureRecord' $block 'the block makes the decision'
+        Assert-Match "-cne 'fail'" $block 'the block decides only on a failed orchestration'
+        $function = $orchestrate[0].Parent
+        while ($function -and $function -isnot [System.Management.Automation.Language.FunctionDefinitionAst]) { $function = $function.Parent }
+        Assert-Match '\$cycleFailureEventData = \$orchestrationDecision\.EventData' $function.Extent.Text 'the alert ships the payload decided before the seal'
+    }
+}
+
+
+# A cycle whose planned guests were all quarantined exited 0, ended the failure
+# streak and re-armed the alert, so a host that tested nothing read as healthy;
+# and a pass that Complete-CycleRun turned into a failure still exited 0.
+Describe 'A cycle that failed nothing but skipped a planned guest is degraded' {
+    BeforeAll {
+        Import-Module (Join-Path $PSScriptRoot 'Test.RecoveryContract.psm1') -Global -DisableNameChecking
+        $script:InnerAst = [System.Management.Automation.Language.Parser]::ParseFile((Join-Path $PSScriptRoot 'Test.RunnerInnerLoop.psm1'), [ref]$null, [ref]$null)
+        $script:CycleAst = @($script:InnerAst.FindAll({ param($n)
+            $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq 'Invoke-RunnerInnerCycle' }, $true))[0]
+    }
+    It 'counts <Case>' -TestCases @(
+        @{ Case = 'a pass'; Status = 'pass'; Skipped = 0; Verdict = 'passed'; Crashes = 0; Failures = 0; Successes = 2; Armed = $true; Rearmed = $true }
+        @{ Case = 'a pass that skipped a guest'; Status = 'pass'; Skipped = 1; Verdict = 'degraded'; Crashes = 0; Failures = 2; Successes = 1; Armed = $false; Rearmed = $false }
+        @{ Case = 'a failure'; Status = 'fail'; Skipped = 0; Verdict = 'failed'; Crashes = 3; Failures = 2; Successes = 1; Armed = $false; Rearmed = $false }
+        @{ Case = 'a failure that also skipped a guest'; Status = 'fail'; Skipped = 2; Verdict = 'failed'; Crashes = 3; Failures = 2; Successes = 1; Armed = $false; Rearmed = $false }
+    ) {
+        param($Status, $Skipped, $Verdict, $Crashes, $Failures, $Successes, $Armed, $Rearmed)
+        $r = & (Get-Module Test.RunnerInnerLoop) {
+            param($s, $k)
+            Resolve-CycleVerdict -FinalStatus $s -SkippedGuestCount $k -ConsecutiveCrashes 3 -ConsecutiveFailures 2 `
+                -ConsecutiveSuccesses 1 -AlertArmed $false -SuccessesBeforeRearm 2
+        } $Status $Skipped
+        $r.Verdict | Should -Be $Verdict
+        $r.ConsecutiveCrashes | Should -Be $Crashes
+        $r.ConsecutiveFailures | Should -Be $Failures
+        $r.ConsecutiveSuccesses | Should -Be $Successes
+        $r.AlertArmed | Should -Be $Armed
+        $r.Rearmed | Should -Be $Rearmed
+    }
+    It 'records every quarantine skip and reads the verdict from the status the cycle was finalized with' {
+        $skipBranch = @($script:CycleAst.FindAll({ param($n)
+            $n -is [System.Management.Automation.Language.IfStatementAst] -and $n.Clauses[0].Item1.Extent.Text -eq '$qGate.Skip' }, $true))
+        Assert-Equal -Expected 1 -Actual $skipBranch.Count -Because 'fixture sanity: one quarantine skip branch'
+        Assert-Match -Pattern '\$skippedGuests\.Add\(' -Actual $skipBranch[0].Clauses[0].Item2.Extent.Text -Because 'a skipped guest is counted'
+        $commands = @($script:CycleAst.FindAll({ param($n) $n -is [System.Management.Automation.Language.CommandAst] }, $true))
+        $complete = @($commands | Where-Object { $_.GetCommandName() -eq 'Complete-CycleRun' })
+        $resolve = @($commands | Where-Object { $_.GetCommandName() -eq 'Resolve-CycleVerdict' })
+        Assert-Equal -Expected 1 -Actual $resolve.Count -Because 'one verdict per cycle'
+        Assert-True ($resolve[0].Extent.StartOffset -gt $complete[0].Extent.StartOffset) 'the verdict is read after the cycle is finalized'
+        Assert-Match -Pattern '-FinalStatus \$FinalStatus\b' -Actual $resolve[0].Extent.Text -Because 'the finalized status decides, not the flag passed in'
+        Assert-Match -Pattern '-SkippedGuestCount \$skippedGuests\.Count\b' -Actual $resolve[0].Extent.Text -Because 'the skips decide degraded'
+        $assigned = @($script:CycleAst.FindAll({ param($n)
+            $n -is [System.Management.Automation.Language.AssignmentStatementAst] -and $n.Left.Extent.Text -eq '$OverallPassed' -and
+            $n.Extent.StartOffset -gt $resolve[0].Extent.StartOffset -and $n.Right.Extent.Text -match '\$verdict\.Verdict' }, $true))
+        Assert-Equal -Expected 1 -Actual $assigned.Count -Because 'the exit path reads the verdict'
+    }
+    It 'exits <Code> for passed=<Passed> degraded=<Degraded>' -TestCases @(
+        @{ Passed = $true; Degraded = $true; Code = 75 }
+        @{ Passed = $true; Degraded = $false; Code = 0 }
+        @{ Passed = $false; Degraded = $false; Code = 1 }
+    ) {
+        param($Passed, $Degraded, $Code)
+        $cycleState = @{ ConfigGateFailed = $false; Degraded = $Degraded }
+        $OverallPassed = $Passed
+        $ExitOk = 0; $ExitFailure = 1
+        $null = @($cycleState, $OverallPassed, $ExitOk, $ExitFailure) # Inputs read by the production exit expression below.
+        $scriptAst = [System.Management.Automation.Language.Parser]::ParseFile((Join-Path $PSScriptRoot 'Invoke-TestRunnerInnerLoop.ps1'), [ref]$null, [ref]$null)
+        $exitAssignment = $scriptAst.Find({ param($node) $node -is [System.Management.Automation.Language.AssignmentStatementAst] -and $node.Left.Extent.Text -eq '$finalCode' }, $true)
+        . ([scriptblock]::Create($exitAssignment.Extent.Text))
+        $finalCode | Should -Be $Code
+    }
+}
+
+# A host that lost its guest network re-ran the stranded-VM sweep in process at
+# every refused cycle, with no bound, so a hypervisor that stopped answering
+# held the refusal until the preamble watchdog killed the cycle.
+Describe 'The sweep on the host-network refusal path' {
+    BeforeAll {
+        $script:InnerScriptAst = [System.Management.Automation.Language.Parser]::ParseFile((Join-Path $PSScriptRoot 'Invoke-TestRunnerInnerLoop.ps1'), [ref]$null, [ref]$null)
+    }
+    It 'runs once per loss, in a bounded process of its own' {
+        $commands = @($script:InnerScriptAst.FindAll({ param($n) $n -is [System.Management.Automation.Language.CommandAst] }, $true))
+        $inProcess = @($commands | Where-Object { $_.InvocationOperator -eq 'Ampersand' -and $_.Extent.Text -match 'Remove-TestVMFiles\.ps1' })
+        Assert-Equal -Expected 0 -Actual $inProcess.Count -Because 'the sweep never runs in the inner process'
+        $bounded = @($commands | Where-Object { $_.GetCommandName() -eq 'Invoke-BoundedNativeCommand' -and $_.Extent.Text -match 'Remove-TestVMFiles\.ps1' })
+        Assert-Equal -Expected 1 -Actual $bounded.Count -Because 'one bounded sweep'
+        Assert-Match -Pattern '-TimeoutSeconds \d+' -Actual $bounded[0].Extent.Text
+        $guard = $bounded[0].Parent
+        while ($guard -and -not ($guard -is [System.Management.Automation.Language.IfStatementAst] -and $guard.Clauses[0].Item1.Extent.Text -eq '$hostNetworkSweptUtc')) { $guard = $guard.Parent }
+        Assert-True ($null -ne $guard) 'the sweep sits behind the memory of an earlier sweep in this loss'
+        $records = @($script:InnerScriptAst.FindAll({ param($n)
+            $n -is [System.Management.Automation.Language.CommandAst] -and $n.GetCommandName() -eq 'Write-YurunaStateFileJson' -and $n.Extent.Text -match 'HostNetworkStateFile' }, $true))
+        Assert-True ($records.Count -ge 2) 'the streak record is written each lost cycle and after the sweep'
+        foreach ($record in $records) { Assert-Match -Pattern 'sweptUtc\s*=' -Actual $record.Extent.Text -Because 'every write keeps the memory' }
     }
 }

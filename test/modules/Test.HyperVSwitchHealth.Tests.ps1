@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.25
+.VERSION 2026.10.26
 .GUID 4274f795-11a9-4183-b8be-e0da0ebdbc52
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -718,5 +718,3 @@ Describe 'hyper-v-uplink-classifier: the state a real host presented' {
         Assert-StringEqual -Expected 'not-external' -Actual $verdict 'the Default Switch is Internal, so it is never an External candidate'
     }
 }
-
-# Copyright (c) 2019-2026 by Alisson Sol et al.

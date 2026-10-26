@@ -2,6 +2,7 @@
 <!--
   LICENSEURI https://yuruna.link/license
   Copyright (c) 2019-2026 by Alisson Sol et al.
+  GUID: 42131309-2d7f-4a3e-8aff-0ca3b2fa28a8
 
   Host-centric assignment. Lists EVERY host the aggregator knows -- not just pool
   members -- so an operator can see why one was never auto-enrolled.
@@ -43,7 +44,7 @@
       <button id="refresh" data-i18n="pool.refresh">Refresh</button>
       <button id="show-hostnames" hidden data-i18n="pool.show_hostnames">Show hostnames</button>
     </div>
-    <table>
+    <div class="table-wrap" tabindex="0"><table>
       <thead>
         <tr>
           <th class="rownum" aria-label="Row number" data-i18n-aria-label="pool.row_number">#</th>
@@ -61,7 +62,7 @@
         </tr>
       </thead>
       <tbody id="host-rows"></tbody>
-    </table>
+    </table></div>
   </main>
   <footer id="footer-bar">
     <span id="footer-ips"><span class="label" id="footer-ips-label" data-i18n="pool.ips">IPs:</span><textarea id="footer-ip-list" readonly rows="1" spellcheck="false" inputmode="none" autocorrect="off" autocapitalize="off" aria-labelledby="footer-ips-label">--</textarea></span>

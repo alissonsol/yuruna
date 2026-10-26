@@ -67,6 +67,12 @@ Invoke-TestRunnerInnerLoop, mas usa uma única etapa 'Sequence': os indicadores
 fixos de fase do executor interno — New-VM / Start-VM / Start-GuestOS / ... —
 exibiriam quatro marcadores "pending" que nunca mudam, pois Debug-TestSequence
 ignora essas fronteiras de fase.
+O caminho proprietário chama Register-StandaloneCycle (Test.Orchestrator), a
+única definição que uma sequência de orquestração compartilha, para que os dois
+proprietários não se distanciem. status.json é servido sem autenticação; por
+isso a URL do framework só é publicada depois das regras que o link do projeto
+já seguia: userinfo removido, fontes de clone ssh e locais rastreadas até sua
+origem web.
 $nestedNodeId é o ID do nó desta execução no mapa `nested` do proprietário;
 ele permanece $null em uma execução proprietária e é lido novamente em finally{}
 para finalizar o nó; por isso deve estar no escopo do script ANTES do ramo.
@@ -306,15 +312,31 @@ intencionalmente, para permitir a inspeção após a falha por virsh / vmconnect
 
 `yuruna/test/Debug-TestSequence.ps1`
 
-Recuse a inicialização quando um Start-TestRunner já for proprietário do diretório
-de runtime. Debug-TestSequence é um ponto de entrada de desenvolvimento: ele não
-coordena a máquina de estados do executor; assim, uma execução simultânea
-concorreria com o pidfile do executor, com os registros de status.json e com as
-operações de VM. Get-RunnerInstanceState (Test.SingleInstance) faz a leitura;
-Assert-NoOtherRunner o envolve com a semântica de recusa e mensagem necessária
-a este ponto de entrada — o caminho de tomada de controle de Start-TestRunner
+Assuma o runtime antes do primeiro efeito colateral e recuse quando outra
+execução for proprietária dele. Debug-TestSequence é um ponto de entrada de
+desenvolvimento: ele não coordena a máquina de estados do executor; assim, uma
+execução simultânea concorreria com o pidfile do executor, com os registros de
+status.json e com as operações de VM. A tomada fica logo após o portão de
+configuração, antes da atualização do checkout que substitui
+`<RepoRoot>/project` e da reinicialização do serviço de status, das quais um
+ciclo ativo depende.
+
+Initialize-YurunaOneShotEntryPoint (Test.Prelude) publica os diretórios de
+runtime e de log, assume a concessão de execução avulsa (`oneshot.pid` +
+`oneshot.start`, o mesmo formato de par de `runner.pid`) e então executa
+Assert-NoOtherRunner, que recusa ao lado de um Start-TestRunner ativo, de outra
+execução avulsa ativa ou de uma atualização do hospedeiro. A concessão vem
+primeiro, e Start-TestRunner lê a concessão depois de gravar `runner.pid`;
+assim, de duas inicializações no mesmo instante, pelo menos uma vê a outra. Uma
+concessão cujo detentor terminou, ou cujo PID agora nomeia outro processo, é
+removida como essa geração exata e assumida; uma cujo detentor não pode ser
+comprovado recusa e nunca é removida. Tudo o que vem depois da tomada é executado
+dentro de um `try`/`finally` que libera a concessão, porque uma execução
+iniciada em um shell interativo a detém sob o PID desse shell: uma concessão
+deixada para trás por um `exit` bloquearia o executor do laboratório enquanto
+o shell permanecesse aberto. O caminho de tomada de controle de Start-TestRunner
 faz o oposto (Stop-StaleRunner).
-Execuções aninhadas ignoram a proteção: elas não são proprietárias do diretório
+Execuções aninhadas ignoram a tomada: elas não são proprietárias do diretório
 de runtime (o proprietário do ciclo externo é), e ele já passou pela mesma
 verificação. Impô-la aqui faria toda etapa aninhada recusar a inicialização assim
 que o proprietário se registrasse.
@@ -443,45 +465,48 @@ que acabou de ser importado.
 
 <a id="build-the-parameter-set-invoke-testproject-must-pass-to-the-inner--nogitpull-and--noprojectclone-ar"></a>
 
-### Construa o conjunto de parâmetros que Invoke-TestProject deve passar ao executor interno. -NoGitPull e -NoProjectClone
+<a id="the-cycle-state-invoke-testproject-hands-the-runners-dispatcher"></a>
+
+### O estado de ciclo que Invoke-TestProject entrega ao despachante do executor
 
 `yuruna/test/Invoke-TestProject.ps1`
 
-Construa o conjunto de parâmetros que Invoke-TestProject deve passar ao executor
-interno. -NoGitPull e -NoProjectClone são *sempre* impostos aqui — Invoke-TestProject
-faz seu próprio clone novo e testa a árvore local como está; uma atualização do
-framework no meio do teste misturaria os sinais. logLevel só é encaminhado se o
-operador o passou na linha de comando deste script (PSBoundParameters); caso
-contrário, o executor interno usa o padrão do arquivo de configuração.
--NoConfigGate também é imposto: a verificação acima já aprovou essa mesma
-configuração segundos antes, precedendo a substituição do checkout novo realizada
-por este ponto de entrada. Verificá-la novamente no executor interno repetiria
-a consulta a todas as origens remotas para obter uma decisão que nada teve tempo
-de invalidar.
+Invoke-TestProject executa seu único ciclo por meio de `Invoke-OuterCycleDispatch`,
+o despachante do laço de Start-TestRunner, com um estado de ciclo que nomeia o
+script por ciclo (`Invoke-TestCycleRunner.ps1`), o caminho da configuração, o
+sinalizador compartilhado de Ctrl+C e uma nova geração de ciclo. `-NoGitPull` é
+sempre definido: Invoke-TestProject testa o projeto contra o framework como está
+instalado, e uma atualização do framework no meio do teste misturaria os sinais.
+`-NoStatusService` e `-NoConfigGate` são encaminhados como o operador os passou,
+e logLevel só quando o operador o passou na linha de comando deste script
+(PSBoundParameters); caso contrário, o executor interno usa o padrão do arquivo
+de configuração. O executor interno executa a própria verificação de
+configuração, como em todo ciclo do executor, de modo que este script não a
+repete.
 
 <a id="42010605-001b"></a>
 
 <a id="step-3-spawn-one-inner-cycle"></a>
 
-### Etapa 3: inicie um ciclo interno
+<a id="run-one-runner-cycle"></a>
+
+### Execute um ciclo do executor
 
 `yuruna/test/Invoke-TestProject.ps1`
 
-Invoke-TestProject usa o construtor compartilhado de argumentos tipados para
-invocar diretamente um novo processo interno; o executor recorrente o inicia
-a partir de um worker de ciclo:
-  * operador de chamada (não Start-Process) — o executor interno deste ponto de
-    entrada de execução única herda seu ambiente, stdio e contexto de sinais
-  * -Command (não -File) — pwsh -File converte cada argv em [string],
-    o que quebraria parâmetros [switch] / [int]
-  * -NoProfile — $PROFILE não pode sobrescrever variáveis de ambiente YURUNA_*
-  * YURUNA_RUNNER_RELAUNCH=1 — o executor interno ignora sua própria proteção
-    de tomada do pidfile (não pode tomar nosso controle com segurança;
-    somos o pai legítimo)
-  * -NoProjectClone — as etapas 1+2 já produziram uma árvore nova; o executor
-    interno confia nela e ignora Update-ProjectClone
-  * -NoGitPull — Invoke-TestProject é um teste do projeto, não do framework;
-    uma atualização do framework no meio do teste misturaria os sinais
+O despachante inicia o processo por ciclo e espera por ele sob o limite
+absoluto de duração de ciclo do executor, consultando o sinalizador de Ctrl+C
+para que uma parada solicitada encerre toda a árvore do ciclo. O processo por
+ciclo executa `Invoke-RunnerOuterCycle`: sincroniza a configuração do pool (um
+pool drenado ou pausado retorna sem ciclo), limpa os arquivos de runtime do
+último ciclo, arma o watchdog de etapa, inicia o executor interno com
+YURUNA_RUNNER_RELAUNCH=1 e executa os ganchos de fim de ciclo (arquivamento no
+armazenamento do pool, o encaminhador de eventos, o notificador do pool). O
+despachante avalia o ciclo pelo registro de resultado que o processo por ciclo
+deixa, nunca por um código de saída isolado, de modo que um ciclo que nada
+registrou aparece como `outcome-unrecorded`. O resultado é o mesmo de um ciclo de
+Start-TestRunner, então uma regressão em qualquer dessas partes aparece aqui
+primeiro.
 
 <a id="42010605-001c"></a>
 
@@ -489,18 +514,22 @@ a partir de um worker de ciclo:
 
 <a id="step-12-clone-verify-and-swap-the-project-checkout"></a>
 
-### Etapas 1+2: clone, verifique e substitua o checkout do projeto
+<a id="the-cycle-replaces-the-project-checkout"></a>
+
+### O ciclo substitui o checkout do projeto
 
 `yuruna/test/Invoke-TestProject.ps1`
 
-Update-ProjectClone é o mesmo auxiliar que Invoke-TestRunnerInnerLoop usa a cada
-ciclo — ao chamá-lo aqui, uma regressão na substituição do checkout, no próprio
-git clone ou na verificação de segurança (recusar a exclusão fora de RepoRoot)
-aparece em Invoke-TestProject antes de afetar Start-TestRunner. A função clona ao
-lado do checkout atual, verifica o clone e então o coloca em seu lugar; um clone
-malsucedido mantém o checkout anterior. Separar essas operações em Invoke-TestProject
-duplicaria a verificação de segurança sem acrescentar valor.
-Test.HostContract foi importado por Initialize-YurunaEntryPointModuleSet acima.
+O executor interno atualiza <RepoRoot>/project por meio de
+`Invoke-CycleProjectRefresh` (Test.RunnerInnerLoop), como em todo ciclo do
+executor. `Update-ProjectClone` clona, ao lado do checkout atual, o pin do
+projeto que a verificação de configuração selecionou para a geração deste
+ciclo, verifica o clone e o coloca no lugar, de modo que uma ponta do projeto que
+avance depois da verificação não muda o que o ciclo testa, e um clone
+malsucedido mantém o checkout anterior. A procedência instalada só é registrada
+depois de uma atualização bem-sucedida. Uma atualização malsucedida é um ciclo
+com falha e um registro `bootstrap_sync` no estágio ProjectClone, que o
+resultado da execução avulsa lê como uma falha de infraestrutura.
 
 <a id="42010605-001d"></a>
 
@@ -515,9 +544,9 @@ interno. -Scope PreSpawn arquiva um break-active.json remanescente e limpa
 sinalizadores de pausa antigos (control.step-pause / .cycle-pause), para que o
 processo interno iniciado não herde o estado de interrupção estacionado — caso
 contrário, a interface de status manteria ativo o botão Continue da execução
-anterior. Invoke-TestProject inicia Invoke-TestRunnerInnerLoop diretamente
-(sem passar pelo Start-TestRunner externo que normalmente hospeda
-Invoke-YurunaBootRecovery), portanto essa limpeza deve ocorrer aqui.
+anterior. Invoke-TestProject despacha seu ciclo sem o Start-TestRunner externo
+que normalmente hospeda Invoke-YurunaBootRecovery, portanto essa limpeza deve
+ocorrer aqui.
 PreSpawn deixa deliberadamente control.cycle-restart para que o executor interno
 filho o consuma como SUA própria reinicialização.
 
@@ -529,15 +558,19 @@ filho o consuma como SUA própria reinicialização.
 
 `yuruna/test/Invoke-TestProject.ps1`
 
-Recuse a inicialização quando um Start-TestRunner já for proprietário do diretório
-de runtime. Invoke-TestProject inicia abaixo seu próprio executor interno com
+Assuma o runtime e recuse quando outra execução for proprietária dele.
+O ciclo que esta execução despacha inicia seu executor interno com
 YURUNA_RUNNER_RELAUNCH=1, o que lhe diz para ignorar sua proteção de tomada do
-pidfile — seguro apenas quando o próprio Invoke-TestProject é o pai legítimo.
+pidfile — seguro apenas quando esta própria execução é a proprietária legítima.
 Se um Start-TestRunner real já estiver ativo, esse contrato permitiria que nosso
 executor interno concorresse com as atualizações de runner.pid + status.json do
-ciclo ativo. Assert-NoOtherRunner (Test.Prelude, apoiado por Test.SingleInstance)
-lê runner.pid + runner.start e recusa; o caminho de tomada de controle de
-Start-TestRunner faz o oposto (Stop-StaleRunner) e permanece no executor externo.
+ciclo ativo. Initialize-YurunaOneShotEntryPoint (Test.Prelude, apoiado por
+Test.SingleInstance) assume a concessão de execução avulsa e executa
+Assert-NoOtherRunner, que lê runner.pid + runner.start e a concessão de qualquer
+outra execução avulsa, e recusa; Start-TestRunner se recusa a iniciar enquanto
+esta execução detiver a concessão. Stop-WithReason e o bloco `finally` no fim do
+script a liberam. O caminho de tomada de controle de Start-TestRunner faz o
+oposto (Stop-StaleRunner) e permanece no executor externo.
 
 <a id="42010605-001f"></a>
 
@@ -561,15 +594,22 @@ caminho que nunca precisou deles.
 
 <a id="exit-code-contract-setup-failure-is-1-completed-cycles-forward-the-inner-exit-code"></a>
 
-### Contrato de código de saída: falha de preparação é 1; ciclos concluídos encaminham o código de saída interno
+<a id="exit-code-contract-setup-failure-is-1-a-dispatched-cycle-reports-its-own-code"></a>
+
+### Contrato de código de saída: falha de preparação é 1; um ciclo despachado informa o próprio código
 
 `yuruna/test/Invoke-TestProject.ps1`
 
-Falhas na checagem prévia, no clone e na criação do processo interno encerram com 1;
-um ciclo interno concluído encaminha seu código de saída exato, em que 0 indica
-sucesso. Um consumidor de CI que precise distinguir entre "preflight" /
-"clone failed" / "inner spawn failed" lê a mensagem Stop-WithReason
-("STOP (exit 1) at <Step>"). O $Step + $Reason da mensagem fornecem o motivo.
+Falhas na checagem prévia e no despacho encerram com 1. Um ciclo que foi
+executado informa o próprio código de saída por meio de
+`Get-OneShotCycleExitCode` (Test.RecoveryContract): 0 aprovado, 1 com falha, 75
+nada falhou mas um convidado planejado foi pulado, 78 a verificação de
+configuração recusou, 70 o ciclo não deixou um registro de resultado utilizável.
+Um despacho que reteve ou parou o ciclo antes de um veredito — um pool drenado
+ou pausado, uma atualização do host, Ctrl+C — encerra com 2. Um consumidor de CI
+que precise distinguir entre as etapas da checagem prévia lê a mensagem
+Stop-WithReason ("STOP (exit 1) at <Step>"). O $Step + $Reason da mensagem
+fornecem o motivo.
 
 <a id="42010605-0021"></a>
 
@@ -577,33 +617,35 @@ sucesso. Um consumidor de CI que precise distinguir entre "preflight" /
 
 <a id="one-shot-project-test-prepare-the-project-clone-and-invoke-the-inner-runner"></a>
 
-### Teste único do projeto: prepare o clone do projeto e invoque o executor interno
+<a id="one-shot-project-test-one-runner-cycle-against-a-fresh-project-clone"></a>
+
+### Teste único do projeto: um ciclo do executor contra um clone novo do projeto
 
 `yuruna/test/Invoke-TestProject.ps1`
 
 Cada etapa é verificada e informa seu próprio motivo em caso de falha:
 
-  As etapas 1+2 verificam um clone novo e substituem <RepoRoot>/project pelo mesmo
-            auxiliar Test.HostContract\Update-ProjectClone que
-            Invoke-TestRunnerInnerLoop chama a cada ciclo. Uma falha aqui
-            interrompe com uma linha clara de "o quê + por quê"; o executor
-            interno nunca é iniciado.
+  Checagem prévia  elevação, a estrutura do repositório, test.config.yml,
+                   powershell-yaml e um repositories.projectUrl não vazio;
+                   depois, a concessão do runtime. Uma falha interrompe com uma
+                   linha clara de "o quê + por quê" antes de qualquer mudança.
 
-  A etapa 3 inicia Invoke-TestRunnerInnerLoop.ps1 em um pwsh novo usando o
-            construtor compartilhado de argumentos tipados de Test.InnerSpawn,
-            com -NoProjectClone (o clone já é novo) e -NoGitPull
-            (Invoke-TestProject testa o projeto como está localmente; uma
-            atualização do framework no meio do teste confundiria o sinal).
-            O executor interno realiza o ciclo completo, registra-o como um
-            ciclo regular em status.json e encerra.
+  Ciclo            um ciclo do executor por meio do despachante do executor,
+                   com -NoGitPull (o projeto é testado contra o framework como
+                   está instalado). Seu executor interno executa a verificação
+                   de configuração, substitui <RepoRoot>/project por um clone
+                   novo do pin que a verificação selecionou, executa o ciclo e
+                   o registra como um ciclo regular em status.json.
 
-  A etapa 4 expõe o código de saída do executor interno como o nosso e para.
-            Sem retomada; o operador (ou CI) chama Invoke-TestProject novamente
-            de modo explícito se quiser outra execução.
+  Parada           informa o código de saída do ciclo como o nosso e para. Sem
+                   retomada; o operador (ou CI) chama Invoke-TestProject
+                   novamente de modo explícito se quiser outra execução.
 
-Ao chamar Update-ProjectClone + Invoke-TestRunnerInnerLoop diretamente,
-Invoke-TestProject exercita os mesmos caminhos de código que Start-TestRunner —
-uma regressão em qualquer um deles aparece aqui primeiro.
+Como o ciclo passa pelo despachante, pelo processo por ciclo e pelo executor
+interno de um ciclo de Start-TestRunner, Invoke-TestProject exercita os mesmos
+caminhos de código que Start-TestRunner — incluindo o watchdog, o limite de
+duração do ciclo, a substituição do checkout e os ganchos de fim de ciclo — e uma
+regressão em qualquer um deles aparece aqui primeiro.
 
 <a id="42010605-0022"></a>
 
@@ -997,7 +1039,7 @@ pausa por falha também consultam o sinalizador antes de continuar.
 
 <a id="sync-forwardenv-lives-in-testrunnerouterloop-and-write-outerlo"></a>
 
-### Sync-ForwardEnv fica em [Test.RunnerOuterLoop](../../test/modules/Test.RunnerOuterLoop.psm1) e Write-OuterLo
+### Sync-ForwardEnv fica em Test.RunnerOuterLoop e Write-OuterLog em Test.OuterLog
 
 `yuruna/test/Start-TestRunner.ps1`
 
@@ -1044,12 +1086,12 @@ efetivo. Veja Invoke-LibvirtGroupReExecIfNeeded para a justificativa completa
 
 <a id="publish-the-resolved-config-path-so-every-cross-module-reload-site-sync-runtimeconfig-in-the-inner"></a>
 
-### Publique o caminho resolvido da configuração para que todo ponto de recarga entre módulos (Sync-RuntimeConfig no executor interno
+### Publique o caminho resolvido da configuração para que todo ponto de recarga entre módulos (Sync-RunnerCycleConfig no executor interno
 
 `yuruna/test/Start-TestRunner.ps1`
 
 Publique o caminho resolvido da configuração para que todo ponto de recarga entre
-módulos (Sync-RuntimeConfig no executor interno, Update-TransportDefault em
+módulos (Sync-RunnerCycleConfig no executor interno, Update-TransportDefault em
 Test.Transport e futuros chamadores semelhantes) leia o MESMO arquivo quando o
 operador passar -ConfigPath <elsewhere>. Sem isso, Test.Transport usa como
 alternativa o template da árvore, e as edições de vmCommunication.* feitas pelo
@@ -2826,7 +2868,7 @@ OLHAR o plano é o que faz um operador ignorar a prévia e executar a ação rea
 
 <a id="last-and-that-ordering-is-load-bearing-testhostcontract-re-exports-testhostdetections-get-hostt"></a>
 
-### POR ÚLTIMO, pois a ordem é essencial. Test.HostContract reexporta Get-HostT de Test.HostDetection
+### Test.HostContract é importado POR ÚLTIMO, e essa ordem é essencial
 
 `yuruna/test/pool/Convert-ToPoolWorker.ps1`
 

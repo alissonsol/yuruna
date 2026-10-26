@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.25
+.VERSION 2026.10.26
 .GUID 428f620a-6793-4a91-af55-61a1a07b3e6c
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -26,7 +26,8 @@ BeforeAll {
         [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
             Justification = 'Creates isolated component fixtures beneath TestDrive.')]
         [CmdletBinding()]
-        param([string]$Root, [string]$Build = 'Set-Variable -Name LASTEXITCODE -Value 0 -Scope Global', [string]$Pre = '', [string]$Post = '', [int]$Timeout = 600)
+        param([string]$Root, [string]$Build = 'Set-Variable -Name LASTEXITCODE -Value 0 -Scope Global', [string]$Pre = '', [string]$Post = '', [int]$Timeout = 600,
+            [object]$BuildRetry = $null, [object]$EntryBuildRetry = $null)
         $null = New-Item -ItemType Directory -Force -Path "$Root/config/lab", "$Root/components/sample"
         Set-Content -LiteralPath "$Root/components/sample/Dockerfile" -Value 'FROM scratch'
         $yaml = @{
@@ -37,8 +38,16 @@ BeforeAll {
             }
             components = @(@{ project = 'sample' })
         }
+        if ($null -ne $BuildRetry) { $yaml.globalVariables.buildRetry = $BuildRetry }
+        if ($null -ne $EntryBuildRetry) { $yaml.components[0].buildRetry = $EntryBuildRetry }
         Set-Content -LiteralPath "$Root/config/lab/components.yml" -Value (ConvertTo-Yaml $yaml)
     }
+
+    # Counts its runs and fails the first componentBuildFailures of them with
+    # componentBuildError, the way a docker build ends on the error that stopped it.
+    $script:CountingBuild = '`$count = 1 + [int](Get-Content -LiteralPath `$env:componentBuildCount -ErrorAction SilentlyContinue); ' +
+        'Set-Content -LiteralPath `$env:componentBuildCount -Value `$count; ' +
+        'if (`$count -le [int]`$env:componentBuildFailures) { "ERROR: `$env:componentBuildError"; `$global:LASTEXITCODE = 1 } else { "built"; `$global:LASTEXITCODE = 0 }'
 }
 
 Describe 'component command execution' {
@@ -51,6 +60,8 @@ Describe 'component command execution' {
         $env:componentPasswordCapture = Join-Path $TestDrive ('password-' + [guid]::NewGuid().ToString('N'))
         $env:componentPushMarker = Join-Path $TestDrive ('pushed-' + [guid]::NewGuid().ToString('N'))
         $env:componentLoginExit = '0'
+        $env:componentBuildCount = Join-Path $TestDrive ('builds-' + [guid]::NewGuid().ToString('N'))
+        $env:YURUNA_RETRY_DELAY_SECONDS = '1'
         $env:registryName = 'testRegistry'
         [Environment]::SetEnvironmentVariable('testRegistry.registryLocation', 'harbor.example.com/team/image')
         $env:YURUNA_REGISTRY_USERNAME = 'fixture-user'
@@ -174,6 +185,69 @@ Start-Sleep -Seconds 60
             $state = (Get-Content -LiteralPath "/proc/$childPid/stat" -ErrorAction SilentlyContinue) -replace '^.*\) ', ''
             Assert-True ($state.StartsWith('Z ')) 'a live descendant must not survive a timed-out phase'
         } else { Assert-True ($null -eq $child -or $child.HasExited) }
+    }
+
+    It 'builds again after a passing fault while <Source> buildRetry allows another attempt' -ForEach @(
+        @{ Source = 'the global'; Global = 3; Entry = $null }
+        @{ Source = 'the entry''s'; Global = 1; Entry = 3 }
+    ) {
+        $root = Join-Path $TestDrive "build-retry-$($Global)-$($Entry)"
+        New-ComponentExecutionFixture -Root $root -Build $script:CountingBuild -BuildRetry $Global -EntryBuildRetry $Entry
+        $env:componentBuildFailures = '1'
+        $env:componentBuildError = 'failed to solve: dial tcp 10.0.0.1:5000: connect: connection refused'
+        $result = Publish-ComponentList $root lab
+        Assert-True $result.success $result.errorMessage
+        Assert-Equal 2 ([int](Get-Content -LiteralPath $env:componentBuildCount))
+        Assert-True (Test-Path -LiteralPath $env:componentPushMarker)
+        $log = Get-Content -Raw -LiteralPath "$root/.yuruna/lab/components/docker.stderr.log"
+        Assert-Equal 2 ([regex]::Matches($log, '(?m)^== \[build\[sample\]\] .* phase=begin ')).Count
+    }
+
+    It 'fails a build error at once although buildRetry allows more attempts' {
+        $root = Join-Path $TestDrive 'build-error'
+        New-ComponentExecutionFixture -Root $root -Build $script:CountingBuild -BuildRetry 3
+        $env:componentBuildFailures = '5'
+        $env:componentBuildError = 'Program.cs(4,1): error CS1002: ; expected'
+        $result = Publish-ComponentList $root lab
+        Assert-False $result.success
+        Assert-StringEqual 'tool_failed' $result.failureClass
+        Assert-Equal 1 ([int](Get-Content -LiteralPath $env:componentBuildCount))
+        Assert-False (Test-Path -LiteralPath $env:componentPushMarker)
+    }
+
+    It 'stops after the attempts buildRetry allows while the fault persists' {
+        $root = Join-Path $TestDrive 'build-exhausted'
+        New-ComponentExecutionFixture -Root $root -Build $script:CountingBuild -BuildRetry 2
+        $env:componentBuildFailures = '5'
+        $env:componentBuildError = 'failed to do request: Head "http://10.0.0.1:5000/v2/": i/o timeout'
+        $result = Publish-ComponentList $root lab
+        Assert-False $result.success
+        Assert-StringEqual 'tool_failed' $result.failureClass
+        Assert-Equal 1 $result.exitCode
+        Assert-Equal 2 ([int](Get-Content -LiteralPath $env:componentBuildCount))
+        Assert-False (Test-Path -LiteralPath $env:componentPushMarker)
+    }
+
+    It 'builds once when no buildRetry is configured' {
+        $root = Join-Path $TestDrive 'build-default'
+        New-ComponentExecutionFixture -Root $root -Build $script:CountingBuild
+        $env:componentBuildFailures = '1'
+        $env:componentBuildError = 'failed to solve: dial tcp 10.0.0.1:5000: connect: connection refused'
+        $result = Publish-ComponentList $root lab
+        Assert-False $result.success
+        Assert-Equal 1 ([int](Get-Content -LiteralPath $env:componentBuildCount))
+    }
+
+    It 'rejects buildRetry <Value> before executing the component' -ForEach @(
+        @{ Value = 0 }, @{ Value = 11 }, @{ Value = 'three' }
+    ) {
+        $root = Join-Path $TestDrive "build-retry-invalid-$Value"
+        New-ComponentExecutionFixture -Root $root -Build $script:CountingBuild -BuildRetry $Value
+        $result = Publish-ComponentList $root lab
+        Assert-False $result.success
+        Assert-StringEqual 'config_error' $result.failureClass
+        Assert-False (Test-Path -LiteralPath $env:componentBuildCount)
+        Assert-False (Test-Path -LiteralPath $env:componentPushMarker)
     }
 
     It 'rejects invalid command bounds before executing the component' {

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.25
+.VERSION 2026.10.26
 .GUID 424d0135-9a4f-40da-a735-010d52f5a269
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -435,5 +435,24 @@ Describe 'New-InnerRunnerArgList -NonInteractive' {
         Assert-Equal -Expected '-NoLogo|-NoProfile|-Command' -Actual (($plain | Select-Object -First 3) -join '|')
         $strict = New-InnerRunnerArgList -ScriptPath '/x/inner.ps1' -Parameters @{} -NonInteractive
         Assert-Equal -Expected '-NoLogo|-NoProfile|-NonInteractive|-Command' -Actual (($strict | Select-Object -First 4) -join '|')
+    }
+    # The outer branches on the cycle's 2, 70 and 78; -Command alone would hand
+    # every one of them back as 1.
+    It 'hands the caller the exit code <Code> the script returned' -TestCases @(
+        @{ Code = 0 }, @{ Code = 2 }, @{ Code = 70 }, @{ Code = 78 }
+    ) {
+        param($Code)
+        $script = Join-Path $TestDrive "exit-$Code.ps1"
+        Set-Content -LiteralPath $script -Value 'param([int]$Code) exit $Code'
+        $argList = New-InnerRunnerArgList -ScriptPath $script -Parameters @{ Code = $Code } -NonInteractive
+        $null = & ([Environment]::ProcessPath) @argList 2>&1
+        $LASTEXITCODE | Should -Be $Code
+    }
+    It 'exits 1 when the script stops on a terminating error' {
+        $script = Join-Path $TestDrive 'throws.ps1'
+        Set-Content -LiteralPath $script -Value 'throw "boom"'
+        $argList = New-InnerRunnerArgList -ScriptPath $script -Parameters @{} -NonInteractive
+        $null = & ([Environment]::ProcessPath) @argList 2>&1
+        $LASTEXITCODE | Should -Be 1
     }
 }

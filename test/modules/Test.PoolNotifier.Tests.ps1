@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.25
+.VERSION 2026.10.26
 .GUID 4295c2e6-31ed-4bb7-902e-162727b73349
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -246,6 +246,25 @@ Describe 'Invoke-PoolNotifierDelivery: claim stamps claimedUtc and reclaim measu
             Assert-Equal -Expected 1 -Actual $r.retried -Because 'unstamped + old mtime -> reclaimed via mtime fallback'
         } finally { Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue }
     }
+    It 'names a spool move it could not make, since the message left behind is sent again' -Skip:$IsWindows {
+        $root = New-TempDir
+        $done = Join-Path $root 'delivered'
+        try {
+            $out = Join-Path $root 'outgoing'; New-Item -ItemType Directory -Force -Path $out | Out-Null
+            New-Item -ItemType Directory -Force -Path $done | Out-Null
+            [System.IO.File]::SetUnixFileMode($done, [System.IO.UnixFileMode]'UserRead, UserExecute')
+            Set-Content -LiteralPath (Join-Path $out 'pool-lab-5.json') -Value '{"id":"pool-lab-5","eventCode":"pool.alert"}' -Encoding utf8
+            Mock -ModuleName Test.PoolNotifier Send-PoolAlertViaExtension { $true }
+            $r = Invoke-PoolNotifierDelivery -SpoolRoot $root -WorkDir (Join-Path $root 'work')
+            Assert-Equal -Expected 1 -Actual $r.delivered -Because 'the send itself was confirmed'
+            Assert-Equal -Expected 1 -Actual $r.spoolErrors.Count
+            Assert-True ($r.spoolErrors[0] -like 'move to delivered pool-lab-5.json:*') "error: $($r.spoolErrors[0])"
+            Assert-True (Test-Path -LiteralPath (Join-Path $root 'sending/pool-lab-5.json')) 'the message the move left behind is where the next reclaim finds it'
+        } finally {
+            if (Test-Path -LiteralPath $done) { [System.IO.File]::SetUnixFileMode($done, [System.IO.UnixFileMode]'UserRead, UserWrite, UserExecute') }
+            Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue
+        }
+    }
 }
 
 Describe 'Get-PoolNotifierReadiness distinguishes ready / unconfigured / unreadable' {
@@ -358,6 +377,49 @@ Describe 'Invoke-PoolNotifierCycle keeps draining on an unreadable transport but
             Assert-False $s.ran 'unconfigured -> clean no-op, did not run'
             Assert-Equal -Expected 'pool.alert transport not configured on this host' -Actual $s.reason -Because 'unconfigured reason'
             Should -Invoke -ModuleName Test.PoolNotifier Invoke-PoolNotifierDelivery -Times 0 -Exactly -Scope It
+        } finally { $env:YURUNA_RUNTIME_DIR = $saved }
+    }
+}
+
+Describe 'Invoke-PoolNotifierCycle runs once at a time on a host' {
+    BeforeAll {
+        Import-Module (Join-Path $here '../../automation/Yuruna.Common.psm1') -DisableNameChecking
+        if (-not (Get-Command Get-YurunaPoolStorageConfig -ErrorAction SilentlyContinue)) {
+            function global:Get-YurunaPoolStorageConfig { param($Config) $null = $Config }
+            $script:pnLockStorageShim = $true
+        }
+        if (-not (Get-Command Test-YurunaPoolStorageMounted -ErrorAction SilentlyContinue)) {
+            function global:Test-YurunaPoolStorageMounted { param($Config) $null = $Config; $true }
+            $script:pnLockMountShim = $true
+        }
+    }
+    AfterAll {
+        if ($script:pnLockStorageShim) { Remove-Item Function:\Get-YurunaPoolStorageConfig -Force -ErrorAction SilentlyContinue }
+        if ($script:pnLockMountShim)   { Remove-Item Function:\Test-YurunaPoolStorageMounted -Force -ErrorAction SilentlyContinue }
+    }
+    BeforeEach {
+        Mock -ModuleName Test.PoolNotifier Get-YurunaPoolStorageConfig { @{ LocalPath = 'x' } }
+        Mock -ModuleName Test.PoolNotifier Test-YurunaPoolStorageMounted { $true }
+        Mock -ModuleName Test.PoolNotifier Get-PoolNotifierSpoolRoot { 'pn-spool' }
+        Mock -ModuleName Test.PoolNotifier Get-PoolNotifierReadiness { @{ Ready = $true; State = 'ready' } }
+        Mock -ModuleName Test.PoolNotifier Initialize-PoolNotifierSpool { }
+        Mock -ModuleName Test.PoolNotifier Get-PoolAlertGaugeState { $null }
+        Mock -ModuleName Test.PoolNotifier Invoke-PoolNotifierDelivery { @{ delivered = 1; failed = 0; retried = 0 } }
+    }
+    It 'stays out while another live run holds the lock, and releases its own' {
+        $saved = $env:YURUNA_RUNTIME_DIR
+        try {
+            $env:YURUNA_RUNTIME_DIR = $TestDrive
+            $lock = Join-Path $TestDrive 'pool.notifier.lock'
+            $start = Get-YurunaProcessStartUtc -ProcessId $PID
+            [IO.File]::WriteAllText($lock, (ConvertTo-Json -Compress -InputObject ([ordered]@{ pid = $PID; startTicks = $start.Ticks })))
+            $held = Invoke-PoolNotifierCycle
+            $held.ran | Should -BeFalse
+            Should -Invoke -ModuleName Test.PoolNotifier Invoke-PoolNotifierDelivery -Times 0 -Exactly -Scope It
+            Remove-Item -LiteralPath $lock
+            $free = Invoke-PoolNotifierCycle
+            $free.ran | Should -BeTrue
+            Test-Path -LiteralPath $lock | Should -BeFalse -Because 'the run releases the lock it took'
         } finally { $env:YURUNA_RUNTIME_DIR = $saved }
     }
 }

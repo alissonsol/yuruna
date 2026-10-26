@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.25
+.VERSION 2026.10.26
 .GUID 4210c3aa-ab5b-4b2b-9259-5c68ad1cb72e
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -297,11 +297,13 @@ function Find-TextLocation {
         [Parameter(Mandatory)] [string]$Label
     )
     $modulesDir = Join-Path (Split-Path -Parent $PSScriptRoot) "modules"
-    # -Global keeps Test.Tesseract in the global session; a bare -Force
-    # re-import would evict the already-global copy into this module's
-    # private scope and break Tesseract callers elsewhere (legacy
-    # module-eviction regression class).
-    Import-Module (Join-Path $modulesDir "Test.Tesseract.psm1") -Force -Global -ErrorAction SilentlyContinue -Verbose:$false
+    # Imported only when its command is unresolvable: a forced re-import on
+    # every lookup re-parsed the module and reset its state mid-cycle. -Global
+    # keeps it in the global session, where a module-scoped copy would evict
+    # the shared one (module-eviction regression class).
+    if (-not (Get-Command Get-TesseractWordBox -ErrorAction SilentlyContinue)) {
+        Import-Module (Join-Path $modulesDir "Test.Tesseract.psm1") -Global -ErrorAction SilentlyContinue -Verbose:$false
+    }
 
     try {
         $boxes = @(Get-TesseractWordBox -ImagePath $ImagePath | ForEach-Object { $_ })
@@ -569,6 +571,43 @@ function Get-OcrDegradationGrace {
     $want = if ($Action -eq 'console-restart') { $BaseWindowSeconds } else { [int][math]::Ceiling($BaseWindowSeconds / 2.0) }
     $remaining = $MaxGrantSeconds - $AlreadyGrantedSeconds
     return [int][math]::Max(0, [math]::Min($want, $remaining))
+}
+
+function Resolve-CaptureRepairGrace {
+    <#
+    .SYNOPSIS
+        The deadline grace a capture repair has earned, paid once a frame
+        captured after it differs from the frame it was made against (pure).
+    .DESCRIPTION
+        A repair that ran is not one that worked: no repair reaches every
+        capture path, and the grace that lets a recovering feed deliver its
+        text before the deadline would otherwise extend a dead one. So a repair
+        only arms a pending grant, and the grant is paid on the first later
+        frame whose hash differs. A pending repair whose frames all match the
+        one it was made against earns nothing, and the deadline stands.
+    .PARAMETER Pending
+        @{ Action = 'console-restart' | 'ring-repair'; FrameHash } or $null.
+    .PARAMETER FrameHash
+        The hash of the frame captured on this poll, or empty when unknown.
+    .OUTPUTS
+        [hashtable] Grace [int] seconds to add now, and Pending: the repair
+        still waiting, or $null once it was paid.
+    #>
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param(
+        [AllowNull()]$Pending,
+        [AllowNull()][AllowEmptyString()][string]$FrameHash,
+        [Parameter(Mandatory)][int]$AlreadyGrantedSeconds,
+        [Parameter(Mandatory)][int]$MaxGrantSeconds,
+        [Parameter(Mandatory)][int]$BaseWindowSeconds
+    )
+    if ($null -eq $Pending -or [string]::IsNullOrEmpty($FrameHash) -or $FrameHash -ceq [string]$Pending.FrameHash) {
+        return @{ Grace = 0; Pending = $Pending }
+    }
+    $grace = Get-OcrDegradationGrace -Action ([string]$Pending.Action) -AlreadyGrantedSeconds $AlreadyGrantedSeconds `
+        -MaxGrantSeconds $MaxGrantSeconds -BaseWindowSeconds $BaseWindowSeconds
+    return @{ Grace = [int]$grace; Pending = $null }
 }
 
 function Get-ConsoleFloodVerdict {
@@ -1174,7 +1213,13 @@ function Wait-ForText {
     if (-not (Get-Command Initialize-YurunaLogDir -ErrorAction SilentlyContinue)) {
         Import-Module (Join-Path $modulesDir "Test.YurunaDir.psm1") -Force -Global -ErrorAction SilentlyContinue -Verbose:$false
     }
-    Import-Module (Join-Path $modulesDir "Test.Log.psm1") -Force -Global -ErrorAction SilentlyContinue -Verbose:$false
+    # Test.Log holds cycle-scoped state -- the event-delivery ledger among it --
+    # that a forced re-import on every wait reset. It is imported only when its
+    # helper is unresolvable, and without -Force, so a module still loaded is
+    # re-exposed rather than re-parsed.
+    if (-not (Get-Command Get-CycleScreenDir -ErrorAction SilentlyContinue)) {
+        Import-Module (Join-Path $modulesDir "Test.Log.psm1") -Global -ErrorAction SilentlyContinue -Verbose:$false
+    }
     $logDir     = Initialize-YurunaLogDir
     # Ring buffer lives INSIDE the cycle folder so a stuck/restarted
     # runner can't overwrite it -- the next cycle gets its own folder.
@@ -1235,6 +1280,9 @@ function Wait-ForText {
     # don't drift with $PollSeconds.
     $lastFrameHash          = $null
     $frameUnchangedSinceUtc = $null
+    # A repair waiting for a later frame to differ before its grace is paid
+    # (Resolve-CaptureRepairGrace), or $null.
+    $pendingRepairGrace     = $null
     $consoleRestarts        = 0
     $frozenFeedSeconds      = 45
     $maxConsoleRestarts     = 2
@@ -1289,6 +1337,10 @@ function Wait-ForText {
 
     try {
         while ([DateTime]::UtcNow -lt $deadlineUtc) {
+            # Every pass that gets here finished its capture and OCR, so the step
+            # heartbeat moves: the watchdog's bound then measures a poll that
+            # stuck, not a long wait the step's own timeout already bounds.
+            Write-RunnerStepHeartbeat
             $elapsed = [int]([DateTime]::UtcNow - $startUtc).TotalSeconds
             # PROGRESS-INLINE-TICK: reference impl lives in "waitForSeconds"
             $pct = [math]::Min(100, [math]::Round(($elapsed / [math]::Max($TimeoutSeconds,1)) * 100))
@@ -1331,7 +1383,8 @@ function Wait-ForText {
             # See https://yuruna.link/4213a0b3-012c
             if ($rawScreenPath -and (Test-Path $rawScreenPath)) {
                 if ($FreshMatch) {
-                    # -- FreshMatch mode: only check the last N lines --
+                    # --- REGION: FreshMatch mode
+                    # Only the last N lines can match.
                     $result = Test-CombinedOcrMatch -ImagePath $rawScreenPath -Pattern $Pattern -FreshMatchTailLines $FreshMatchTailLines -NoSegmentMatch:$NoSegmentMatch
 
                     Save-EngineOcrSidecar -ScreenshotPath $rawScreenPath -EngineResults $result.EngineResults -VerboseSummary
@@ -1362,7 +1415,8 @@ function Wait-ForText {
                         return $true
                     }
                 } else {
-                    # -- Non-FreshMatch mode: accumulate text, check for pattern --
+                    # --- REGION: Non-FreshMatch mode
+                    # Accumulate text and check it for the pattern.
                     $result = Test-CombinedOcrMatch -ImagePath $rawScreenPath -Pattern $Pattern -NoSegmentMatch:$NoSegmentMatch
 
                     Save-EngineOcrSidecar -ScreenshotPath $rawScreenPath -EngineResults $result.EngineResults -VerboseSummary
@@ -1458,10 +1512,24 @@ function Wait-ForText {
                     $progressText=$null; $progressSinceUtc=$null; $progressStaticSeconds=$null
                 }
 
-                # Bounded self-heal (arms Test.VncProvider / Test.ScreenshotProvider):
-                # several consecutive no-text polls suggest the capture feed went
-                # stale. Force the next Get-VMScreenshot to re-handshake by clearing
-                # the cached VNC handle, and best-effort clear the screenshot ring.
+                # One hash of this poll's frame serves both repair paths below and
+                # pays a pending repair's grace once a frame differs from the one
+                # the repair was made against.
+                $frameHash = $null
+                try { $frameHash = (Get-FileHash -LiteralPath $rawScreenPath -Algorithm SHA256 -ErrorAction Stop).Hash } catch { $frameHash = $null }
+                $earned = Resolve-CaptureRepairGrace -Pending $pendingRepairGrace -FrameHash $frameHash -AlreadyGrantedSeconds $deadlineGrantedSeconds `
+                    -MaxGrantSeconds $maxDeadlineGrantSeconds -BaseWindowSeconds $frozenFeedSeconds
+                if ($null -ne $pendingRepairGrace -and $null -eq $earned.Pending) {
+                    if ($earned.Grace -gt 0) { $deadlineUtc = $deadlineUtc.AddSeconds($earned.Grace); $deadlineGrantedSeconds += $earned.Grace }
+                    Write-Verbose "      Wait-ForText: the frame changed after the $($pendingRepairGrace.Action); deadline +$($earned.Grace)s."
+                }
+                $pendingRepairGrace = $earned.Pending
+
+                # Bounded self-heal: several consecutive no-text polls suggest the
+                # capture feed went stale. The one repair in reach resets the VNC
+                # input handle (Test.VncProvider), which no capture path reads, so
+                # it earns grace only if a later frame differs. The ring of earlier
+                # frames is kept: it is the run-up a failure is read against.
                 # Capped per wait so a genuinely blank screen still times out
                 # normally rather than thrashing the transport.
                 if ($result.AnyText) {
@@ -1472,23 +1540,19 @@ function Wait-ForText {
                     $noTextPolls++
                     if ($noTextPolls -ge 4 -and $ringRepairs -lt 2) {
                         $noTextPolls = 0
-                        # Only count a repair + grant deadline grace when a repair primitive
-                        # actually exists and ran. A feed with NO self-heal available must not
-                        # keep extending its own deadline (that masks a dead feed as recovering);
-                        # record the degradation but let the normal budget expire.
-                        $ringRepaired = $false
-                        if (Get-Command Repair-VncConnection -ErrorAction SilentlyContinue) { [void](Repair-VncConnection -VMName $VMName -HostType $HostType -Confirm:$false); $ringRepaired = $true }
-                        if (Get-Command Repair-ScreenshotRing -ErrorAction SilentlyContinue) { [void](Repair-ScreenshotRing -VMName $VMName -Confirm:$false); $ringRepaired = $true }
-                        if ($ringRepaired) {
+                        # Only count a repair when a primitive exists and reset something.
+                        # The grace waits for a later frame to differ, so a feed the
+                        # repair did not reach keeps its normal budget instead of
+                        # extending its own deadline while it stays dead.
+                        $repair = $null
+                        if (Get-Command Repair-VncConnection -ErrorAction SilentlyContinue) { $repair = Repair-VncConnection -VMName $VMName -HostType $HostType -Confirm:$false }
+                        if ($repair -and $repair.Attempted) {
                             $ringRepairs++
-                            Write-Verbose "      Wait-ForText: no OCR text for 4 polls; self-heal repair $ringRepairs/2 (clear VNC handle + screenshot ring)."
-                            # Grant bounded grace so the reset feed can deliver text before the
-                            # deadline, and record the degradation.
-                            $grace = Get-OcrDegradationGrace -Action 'ring-repair' -AlreadyGrantedSeconds $deadlineGrantedSeconds -MaxGrantSeconds $maxDeadlineGrantSeconds -BaseWindowSeconds $frozenFeedSeconds
-                            if ($grace -gt 0) { $deadlineUtc = $deadlineUtc.AddSeconds($grace); $deadlineGrantedSeconds += $grace }
+                            if ($frameHash) { $pendingRepairGrace = @{ Action = 'ring-repair'; FrameHash = $frameHash } }
+                            Write-Verbose "      Wait-ForText: no OCR text for 4 polls; self-heal repair $ringRepairs/2 ($($repair.Mechanism)); the deadline moves only if a later frame differs."
                             if (Get-Command Send-YurunaDegradation -ErrorAction SilentlyContinue) {
                                 Send-YurunaDegradation -Dependency 'capture-feed' -Primary 'ocr-text-feed' -Fallback 'vnc-handle-reset' `
-                                    -Reason "no OCR text 4 polls seeking '$patternLabel'; repair $ringRepairs/2, deadline +${grace}s"
+                                    -Reason "no OCR text 4 polls seeking '$patternLabel'; repair $ringRepairs/2 ($($repair.Mechanism)), grace only if a later frame differs"
                             }
                         } elseif (Get-Command Send-YurunaDegradation -ErrorAction SilentlyContinue) {
                             Send-YurunaDegradation -Dependency 'capture-feed' -Primary 'ocr-text-feed' -Fallback 'none' `
@@ -1500,8 +1564,6 @@ function Wait-ForText {
                 # Repair a readable capture feed whose frames have stopped changing.
                 # See https://yuruna.link/42e220c4-0007
                 if ($result.AnyText) {
-                    $frameHash = $null
-                    try { $frameHash = (Get-FileHash -LiteralPath $rawScreenPath -Algorithm SHA256 -ErrorAction Stop).Hash } catch { $frameHash = $null }
                     if ($frameHash) {
                         if ($frameHash -ne $lastFrameHash) {
                             $lastFrameHash = $frameHash
@@ -1516,18 +1578,17 @@ function Wait-ForText {
                             if ($frozenSecs -ge $effectiveFreezeThreshold -and $consoleRestarts -lt $maxConsoleRestarts) {
                                 $consoleRestarts++
                                 $script:LastWaitVerdict.ConsoleRestartsUsed = $consoleRestarts
-                                # Grant bounded grace so the relaunched viewer
-                                # can deliver a fresh frame before the deadline.
-                                $grace = Get-OcrDegradationGrace -Action 'console-restart' -AlreadyGrantedSeconds $deadlineGrantedSeconds -MaxGrantSeconds $maxDeadlineGrantSeconds -BaseWindowSeconds $frozenFeedSeconds
-                                if ($grace -gt 0) { $deadlineUtc = $deadlineUtc.AddSeconds($grace); $deadlineGrantedSeconds += $grace }
-                                Write-Verbose "      Wait-ForText: capture feed frozen (byte-identical ${frozenSecs}s, threshold ${effectiveFreezeThreshold}s) while still seeking '$patternLabel' -- forcing console reconnect (repair $consoleRestarts/$maxConsoleRestarts, deadline +${grace}s)."
+                                # The relaunched viewer earns its grace by
+                                # delivering a frame that differs from the frozen one.
+                                $pendingRepairGrace = @{ Action = 'console-restart'; FrameHash = $frameHash }
+                                Write-Verbose "      Wait-ForText: capture feed frozen (byte-identical ${frozenSecs}s, threshold ${effectiveFreezeThreshold}s) while still seeking '$patternLabel' -- forcing console reconnect (repair $consoleRestarts/$maxConsoleRestarts); the deadline moves only if a later frame differs."
                                 if (Get-Command Restart-VMConsole -ErrorAction SilentlyContinue) {
                                     try { [void](Restart-VMConsole -VMName $VMName -Confirm:$false) }
                                     catch { Write-Verbose "      Restart-VMConsole failed: $($_.Exception.Message)" }
                                 }
                                 if (Get-Command Send-YurunaDegradation -ErrorAction SilentlyContinue) {
                                     Send-YurunaDegradation -Dependency 'capture-feed' -Primary 'live-framebuffer' -Fallback 'console-reconnect' `
-                                        -Reason "frozen ${frozenSecs}s (threshold ${effectiveFreezeThreshold}s) seeking '$patternLabel'; restart $consoleRestarts/$maxConsoleRestarts, deadline +${grace}s"
+                                        -Reason "frozen ${frozenSecs}s (threshold ${effectiveFreezeThreshold}s) seeking '$patternLabel'; restart $consoleRestarts/$maxConsoleRestarts, grace only if a later frame differs"
                                 }
                                 # Re-arm: give the relaunched viewer a fresh full
                                 # $frozenFeedSeconds window to deliver an updated
@@ -2257,7 +2318,12 @@ function Invoke-Sequence {
     if (-not (Get-Command Initialize-YurunaLogDir -ErrorAction SilentlyContinue)) {
         Import-Module (Join-Path $modulesDir "Test.YurunaDir.psm1") -Force -Global -ErrorAction SilentlyContinue -Verbose:$false
     }
-    Import-Module (Join-Path $modulesDir "Test.Ssh.psm1")      -Force -Global -ErrorAction SilentlyContinue -Verbose:$false
+    # Test.Ssh holds the proven guest address and the SSH user override an
+    # orchestration sets just before it runs a chain; a forced re-import here
+    # dropped both at every sequence start.
+    if (-not (Get-Command Get-GuestAddress -ErrorAction SilentlyContinue)) {
+        Import-Module (Join-Path $modulesDir "Test.Ssh.psm1") -Global -ErrorAction SilentlyContinue -Verbose:$false
+    }
     $logDir = Initialize-YurunaLogDir
 
   try {
@@ -2609,7 +2675,8 @@ function Invoke-Sequence {
             foreach ($cause in @('WaitForTextMatchedFailurePattern', 'WaitForTextOcrTail',
                 'WaitForTextClosestOnScreen', 'WaitForTextConsoleFlood', 'StepGuestAddressUnresolved',
                 'StepGuestTransportLost', 'StepGuestRunLost', 'StepGuestPayloadUnavailable', 'StepInputLost',
-                'StepLauncherRejection', 'StepAptIndexMismatch', 'StepVmNotStopped', 'WaitForTextGuestLivelock', 'WaitForTextOutputStaticSeconds', 'StepProgressAdvisory')) {
+                'StepLauncherRejection', 'StepAptIndexMismatch', 'StepVmNotStopped', 'WaitForTextGuestLivelock', 'WaitForTextOutputStaticSeconds', 'StepProgressAdvisory',
+                'StepHandlerError', 'StepFailurePhase', 'StepEffect', 'StepDeployResult')) {
                 $script:Fail[$cause] = $null
             }
             $script:Fail.WaitForTextPatternsSought = [string[]]@()
@@ -2702,7 +2769,26 @@ function Invoke-Sequence {
                 # the operator sees the original ${var}-expanded text.
                 Description           = $desc
             }
-            $ok = Invoke-SequenceActionHandler -Name $step.action -Context $ctx
+            # Recorded before the handler runs, so a crash names this step and
+            # verb rather than the last step that failed in the ordinary way.
+            $script:Fail.CurrentAction = [string]$step.action
+            $script:Fail.CurrentStepNumber = $stepNum
+            try {
+                $ok = Invoke-SequenceActionHandler -Name $step.action -Context $ctx
+            } catch [System.Management.Automation.PipelineStoppedException] {
+                throw
+            } catch {
+                # A cycle restart is control flow, not a failure of this step.
+                if (($_.Exception.Data -and $_.Exception.Data['YurunaCycleRestart']) -or $_.Exception.Message -like 'YurunaCycleRestart:*') { throw }
+                # Any other throw fails the step like a returned $false, so a
+                # retry wrapping it sees the failure and can run it again.
+                $handlerOrigin = if ($_.InvocationInfo -and $_.InvocationInfo.PositionMessage) { ([string]$_.InvocationInfo.PositionMessage -split "`n")[0] } else { '' }
+                $script:Fail.StepHandlerError = [ordered]@{
+                    stepInvocationId = $stepInvocationId; message = [string]$_.Exception.Message; origin = $handlerOrigin }
+                Write-Warning (Format-YurunaOperatorMessage -Key 'runner.step_handler_threw' -Arguments @{
+                    action = "$($step.action)"; step = "$stepNum"; message = "$($_.Exception.Message)" })
+                $ok = $false
+            }
             # A handler that renamed the VM mid-sequence (saveDiskSnapshot
             # promotes a snapshot by renaming the live VM) reports the new name
             # via $ctx.NewVMName. Propagate it so subsequent steps -- and every
@@ -2792,9 +2878,17 @@ function Invoke-Sequence {
                     $clockWarningCodes = [string[]]@($ctx.ExecutionProfile.recorder.clockAnalysis.warnings |
                         ForEach-Object { if ($_) { [string]$_.code } } | Where-Object { $_ })
                 }
-                $script:Fail.StepProgressAdvisory = Get-GuestProgressAdvisory `
-                    -OutputStaticSeconds $script:Fail.WaitForTextOutputStaticSeconds `
-                    -HeartbeatAgeSeconds $heartbeatAge -SshResponsiveness $sshResponsiveness -ClockWarningCodes $clockWarningCodes
+                # A handler that threw is a failure of its own, as a crash is: the
+                # cause signals left behind are a child's or a half-run's, and
+                # read as this step's they would describe a different failure.
+                if ($script:Fail.StepHandlerError -and [string]$script:Fail.StepHandlerError['stepInvocationId'] -ceq $stepInvocationId) {
+                    $script:Fail.StepProgressAdvisory = $null
+                    $script:Fail.WaitForTextConsoleSecondOpinion = $null
+                } else {
+                    $script:Fail.StepProgressAdvisory = Get-GuestProgressAdvisory `
+                        -OutputStaticSeconds $script:Fail.WaitForTextOutputStaticSeconds `
+                        -HeartbeatAgeSeconds $heartbeatAge -SshResponsiveness $sshResponsiveness -ClockWarningCodes $clockWarningCodes
+                }
                 $script:Fail.OriginatingStepInvocationId = $stepInvocationId
                 $script:Fail.OriginatingSequenceInvocationId = $sequenceInvocationId
             }
@@ -2852,6 +2946,9 @@ function Invoke-Sequence {
 
             # See https://yuruna.link/4213a0b3-0146
             $actionLabel = Get-SequenceActionFailureLabel -Step $step -Vars $vars -ExpandVariable ${function:Expand-Variable} -VMName $VMName -GuestKey $GuestKey
+            if ($script:Fail.StepHandlerError -and [string]$script:Fail.StepHandlerError['stepInvocationId'] -ceq $stepInvocationId) {
+                $actionLabel = $actionLabel + " -- the handler threw: $($script:Fail.StepHandlerError['message'])"
+            }
 
             # See https://yuruna.link/4213a0b3-0147
             $stepUsesWaitSignals = $false
@@ -2944,7 +3041,7 @@ function Invoke-Sequence {
         $failureFile = Join-Path $logDir "last_failure.json"
         # Atomic write: a remediator/status reader must never observe a truncated
         # last_failure.json mid-write (partial-write regression class).
-        $null = Write-YurunaStateFile -Path $failureFile -Content ($failRec.File | ConvertTo-Json -Depth 12) -Confirm:$false
+        $null = Write-YurunaStateFile -Path $failureFile -Content ($failRec.File | ConvertTo-Json -Depth 12) -WarnOnFailure -Confirm:$false
         # One NDJSON line for stream consumers (status service, remediation loop, CI hook).
         Send-CycleEventSafely -EventRecord $failRec.Event
         # Mirror it into the cycle folder in the same breath. The copy above
@@ -3015,7 +3112,7 @@ function Invoke-Sequence {
         $VMName = [string]$script:SequenceFinishedVMName
         $failRec = New-SequenceFailureRecord -Reason 'crash' -VMName $VMName -GuestKey $GuestKey -HostType $HostType -SequencePath $SequencePath -LogDir $logDir -TotalSteps $sourceStepCount -CrashError $_
         # Atomic, best-effort: a reader must never see a truncated crash record.
-        $null = Write-YurunaStateFile -Path (Join-Path $logDir "last_failure.json") -Content ($failRec.File | ConvertTo-Json -Depth 12) -Confirm:$false
+        $null = Write-YurunaStateFile -Path (Join-Path $logDir "last_failure.json") -Content ($failRec.File | ConvertTo-Json -Depth 12) -WarnOnFailure -Confirm:$false
         # Mirror the normal failure path NDJSON so a stream consumer does not see
         # the cycle go silent (last step_end but no step_failure).
         Send-CycleEventSafely -EventRecord $failRec.Event
@@ -3046,7 +3143,7 @@ function Invoke-Sequence {
 
 Export-ModuleMember -Function Invoke-Sequence, Get-GuestLivelockVerdict, Invoke-SequenceByName, Send-Text, Send-Key, Send-Click, `
     Wait-ForText, Invoke-TapOn, Save-DebugScreenshot, Save-EngineOcrSidecar, Save-OcrSidecar, Write-ProgressTick, `
-    Select-SequenceStepWindow, Get-ScreenHistorySize, Get-SequenceFinishedVMName, Get-OcrDegradationGrace, `
+    Select-SequenceStepWindow, Get-ScreenHistorySize, Get-SequenceFinishedVMName, Get-OcrDegradationGrace, Resolve-CaptureRepairGrace, `
     Get-ConsoleFloodVerdict, Invoke-GuestSequenceList, Get-ConsoleTextSignature, `
     Get-ConsoleLineSignature, Select-ConsoleTextSinceBaseline, `
     Set-CarriedConsoleBaseline, Get-CarriedConsoleBaseline, Clear-CarriedConsoleBaseline, `

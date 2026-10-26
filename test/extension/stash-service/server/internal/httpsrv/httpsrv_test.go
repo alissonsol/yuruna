@@ -1,11 +1,14 @@
 // LICENSEURI https://yuruna.link/license
 // Copyright (c) 2019-2026 by Alisson Sol et al.
+// GUID: 425936b7-4539-4686-bdd4-71efdac0e882
 
 package httpsrv
 
 import (
+	"bufio"
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"io"
 	"mime/multipart"
 	"net"
@@ -33,7 +36,7 @@ const testHostID = "42aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" // 32 hex, hostId-shaped
 // testVersion stands in for the framework version the guest build stamps in
 // through -ldflags. A daemon that loses that wiring reports the zero value and
 // the UI footer shows nothing, which no other assertion here would notice.
-const testVersion = "2026.10.25"
+const testVersion = "2026.10.26"
 
 func newTestUI(t *testing.T) (*httptest.Server, *Server, string) {
 	return newTestUIHost(t, testHostID)
@@ -885,5 +888,145 @@ func decode(t *testing.T, resp *http.Response, v any) {
 	defer resp.Body.Close()
 	if err := json.NewDecoder(resp.Body).Decode(v); err != nil {
 		t.Fatalf("decode: %v", err)
+	}
+}
+
+// postCreate posts a text create and returns the response. header adds or
+// overrides request headers; a negative length sends the body chunked.
+func postCreate(t *testing.T, ts *httptest.Server, contentType, body string, length int64, header map[string]string) *http.Response {
+	t.Helper()
+	req, err := http.NewRequest(http.MethodPost, ts.URL+"/api/stashes", io.NopCloser(strings.NewReader(body)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.ContentLength = length
+	req.Header.Set("Content-Type", contentType)
+	for k, v := range header {
+		req.Header.Set(k, v)
+	}
+	resp, err := ts.Client().Do(req)
+	if err != nil {
+		t.Fatalf("POST /api/stashes: %v", err)
+	}
+	t.Cleanup(func() { resp.Body.Close() })
+	return resp
+}
+
+// A page on another site can make the operator's browser POST here; such a
+// request is refused, while the service's own pages and every non-browser
+// client (hosts, scripts, guests) are not affected.
+func TestACrossSiteCreateIsRefused(t *testing.T) {
+	ts, _, _ := newTestUI(t)
+	body := `{"text":"hello"}`
+	for _, c := range []struct {
+		header map[string]string
+		want   int
+	}{
+		{map[string]string{"Sec-Fetch-Site": "cross-site", "Origin": "http://elsewhere.example"}, http.StatusForbidden},
+		{map[string]string{"Origin": "http://elsewhere.example"}, http.StatusForbidden},
+		{map[string]string{"Sec-Fetch-Site": "same-origin"}, http.StatusOK},
+		{nil, http.StatusOK},
+	} {
+		if r := postCreate(t, ts, "application/json", body, int64(len(body)), c.header); r.StatusCode != c.want {
+			t.Errorf("create with %v = %d, want %d", c.header, r.StatusCode, c.want)
+		}
+	}
+}
+
+// Only one large text body is read at a time: while one is arriving, a second
+// is refused with a retry hint, a small paste is not held up, and a body that
+// stalls is cut off so the next one can be read.
+func TestLargeTextBodiesAreReadOneAtATime(t *testing.T) {
+	saved := textBodyReadTimeout
+	textBodyReadTimeout = 500 * time.Millisecond
+	t.Cleanup(func() { textBodyReadTimeout = saved })
+	ts, _, _ := newTestUI(t)
+	form := "application/x-www-form-urlencoded"
+	stalled, err := net.Dial("tcp", ts.Listener.Addr().String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { stalled.Close() })
+	fmt.Fprintf(stalled, "POST /api/stashes HTTP/1.1\r\nHost: %s\r\nContent-Type: %s\r\nContent-Length: %d\r\n\r\ntext=",
+		ts.Listener.Addr(), form, config.InlineTextPreviewCap+1)
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		r := postCreate(t, ts, form, "text=waiting", -1, nil)
+		if r.StatusCode == http.StatusServiceUnavailable {
+			if r.Header.Get("Retry-After") == "" {
+				t.Error("a refused large text carries no Retry-After")
+			}
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("a second large text body was never refused while the first stalled (last %d)", r.StatusCode)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if r := postCreate(t, ts, form, "text=small", int64(len("text=small")), nil); r.StatusCode != http.StatusOK {
+		t.Fatalf("a small paste behind a large one = %d, want 200", r.StatusCode)
+	}
+	_ = stalled.SetReadDeadline(time.Now().Add(5 * time.Second))
+	answer, err := http.ReadResponse(bufio.NewReader(stalled), nil)
+	if err != nil {
+		t.Fatalf("the stalled body was not cut off: %v", err)
+	}
+	answer.Body.Close()
+	if r := postCreate(t, ts, form, "text=after", -1, nil); r.StatusCode != http.StatusOK {
+		t.Fatalf("a large text after the stalled one was cut off = %d, want 200", r.StatusCode)
+	}
+}
+
+// A text body is bounded like the one file it becomes, not like a multi-file
+// upload: a urlencoded body past one file is refused instead of being read
+// into memory whole.
+func TestATextBodyIsBoundedLikeOneFile(t *testing.T) {
+	ts, _, _ := newTestUI(t)
+	conn, err := net.Dial("tcp", ts.Listener.Addr().String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { conn.Close() })
+	n := int64(config.PerFileSizeLimit) + 1<<20
+	go func() {
+		fmt.Fprintf(conn, "POST /api/stashes HTTP/1.1\r\nHost: %s\r\nContent-Type: application/x-www-form-urlencoded\r\nContent-Length: %d\r\n\r\ntext=",
+			ts.Listener.Addr(), n+5)
+		_, _ = io.Copy(conn, io.LimitReader(repeatByte('a'), n))
+	}()
+	_ = conn.SetReadDeadline(time.Now().Add(60 * time.Second))
+	resp, err := http.ReadResponse(bufio.NewReader(conn), nil)
+	if err != nil {
+		t.Fatalf("no answer to an oversized text body: %v", err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("a urlencoded body past one file = %d, want 400", resp.StatusCode)
+	}
+}
+
+type repeatByte byte
+
+func (b repeatByte) Read(p []byte) (int, error) {
+	for i := range p {
+		p[i] = byte(b)
+	}
+	return len(p), nil
+}
+
+// A control character in a stash path is refused as an invalid path, and the
+// reply never carries the file system error that would name the share.
+func TestAControlCharacterInAStashPathIsRefused(t *testing.T) {
+	ts, _, stashRoot := newTestUI(t)
+	resp, err := http.Get(ts.URL + "/raw/foo%00bar/2026/10/20/aaaa")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("a NUL in the host segment = %d, want 400", resp.StatusCode)
+	}
+	if bytes.Contains(body, []byte(stashRoot)) {
+		t.Fatalf("the reply names the share: %s", body)
 	}
 }

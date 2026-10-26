@@ -195,7 +195,22 @@ Three properties are load-bearing:
   PowerShell `catch`, so it only fires when `Move-Item` throws. A process kill
   between the two moves leaves only `<workFolder>.old`; without the guard the
   next `tofu apply` runs against a folder with no provider state and usually
-  destroys live cloud resources.
+  destroys live cloud resources. `yuruna clear` makes the same recovery before
+  its destroy, so a clear after such a kill destroys from the state in `.old`
+  instead of finding no folder and leaving the resources running.
+
+A folder that was initialized before -- a second run after a pass, or a run
+after a failure -- is initialized again: `tofu init` is idempotent, the plan is
+read-only, and the apply changes only what differs from the carried-over
+state. Refusing it and advising a clear first would destroy the resources it
+found.
+
+`runId` in `globalVariables` is the configuration's identity: the examples draw
+it at random, and the resource names carry it, so one drawn again at every run
+would make a second run create a second set of resources beside the first. Once a run
+has recorded it in `resources.output.yml`, later runs keep that value instead
+of expanding the expression again; deleting the recorded file after a clear
+starts a configuration with a new one.
 
 <a id="42e568c8-000c"></a>
 
@@ -213,8 +228,8 @@ jitter, 300s cap. That window reaches past github.com's typical 5xx blip,
 so a transient provider download does not fail the cycle.
 
 **The classifier** decides whether a failed `tofu plan`, saved-planfile
-`apply`, `tofu output`, or supported helm/kubectl fetch warrants another
-attempt. `tofu init` uses the same backoff but retries any non-zero exit;
+`apply`, `tofu output`, chart install (`helm upgrade --install --atomic`),
+component image build, or supported helm/kubectl fetch warrants another attempt. `tofu init` uses the same backoff but retries any non-zero exit;
 it has no classifier predicate. For classifier-gated calls, a deterministic
 config, plan, auth, or NotFound error does *not* match, so those calls fail
 fast instead of spending the whole backoff budget. The classifier matches:
@@ -245,8 +260,12 @@ backoff cycle.
 backoff. `tofu plan`, saved-planfile `apply`, and `tofu output` retry only
 classifier matches. The refreshing-apply fallback is not retried because it
 recomputes the plan. `helm repo update`, `helm install <repo>/<chart>` and
-`kubectl -f <URL>` retry classifier matches; `chart` and `shell` deployments
-do not retry. Why the resource phase is shaped that way:
+`kubectl -f <URL>` retry classifier matches, as does the chart install, which
+`--atomic` has rolled back before the next attempt; `shell` deployments do not
+retry. A component's image build retries classifier matches when its
+`buildRetry` allows more than one attempt; the default is one, and the matched
+text is the end of the failed attempt's output, where docker prints the error
+that stopped the build. Why the resource phase is shaped that way:
 [the saved planfile](memory.md#why-set-resource-uses-a-saved-planfile-for-apply),
 [the init retry](memory.md#why-tofu-init-retries-before-failing) and
 [the pre-seeded plugin cache](memory.md#why-set-resource-pre-seeds-tf_plugin_cache_dir)
@@ -308,6 +327,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.25
+Last review: 2026.10.26
 
 Back to [Yuruna](../README.md)

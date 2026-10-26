@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.25
+.VERSION 2026.10.26
 .GUID 42bd03c8-a33c-4517-9a8b-e97307c8b49f
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -138,8 +138,6 @@ Describe 'setup -logLevel -- every script the setup starts honors the inherited 
             "these scripts run under setup.ps1 but ignore `$env:YURUNA_LOG_LEVEL, so -logLevel Debug leaves them silent: $($missing -join ', ')"
     }
 }
-
-# Copyright (c) 2019-2026 by Alisson Sol et al.
 
 Describe 'setup elevated rebuild intent' {
     It 'preserves an explicit rebuild across the elevated argument assembly' {

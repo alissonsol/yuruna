@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.25
+.VERSION 2026.10.26
 .GUID 42b38afa-a30f-4806-9948-a381706b1765
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -287,17 +287,20 @@ function Test-PublishedChecksumSignature {
         Best-effort detached-GPG authentication of a published SHA256SUMS
         file against a pinned set of signing-key fingerprints.
     .DESCRIPTION
-        Authenticates the SHA256SUMS that the hash check trusts. GPG is a
-        BONUS here, never a hard dependency: a missing tool, signature, or
-        keyserver can NEVER brick a download. Only a signature that is
-        present, checkable, and definitively wrong returns 'bad'.
+        Authenticates the SHA256SUMS that the hash check trusts. gpg is never
+        a hard dependency: a host without gpg or the bundled keyring proceeds
+        on the hash alone. Where both are present, a signature that cannot be
+        fetched or checked is refused like a wrong one: whoever can make the
+        signature unreachable could otherwise switch the check off.
 
-          'unverified' - gpg absent, no detached .gpg published / fetch failed,
-                         keyserver unreachable, or the pinned key can't be
-                         obtained. Caller proceeds on the hash (with a warning).
-          'bad'        - signature present + key available but BAD, or a good
-                         signature from a key OUTSIDE the pinned set (tamper).
-          'good'       - a valid signature from a pinned key.
+          'unverified'  - gpg or the bundled keyring is absent. The caller
+                          proceeds on the hash (with a warning).
+          'unavailable' - gpg and the keyring are present, but the detached
+                          signature could not be fetched or carried no valid
+                          signature. The caller refuses it like 'bad'.
+          'bad'         - signature present + key available but BAD, or a good
+                          signature from a key OUTSIDE the pinned set (tamper).
+          'good'        - a valid signature from a pinned key.
 
         The pinned public keys are imported from a repo-bundled keyring into a
         throwaway homedir (offline; no dirmngr/keyserver, which is unreliable
@@ -311,7 +314,7 @@ function Test-PublishedChecksumSignature {
         function fetches its own copy and the two consumers can end up
         authenticating and parsing different bytes.
     .OUTPUTS
-        [string] 'good' | 'bad' | 'unverified'
+        [string] 'good' | 'bad' | 'unavailable' | 'unverified'
     #>
     [CmdletBinding()]
     [OutputType([string])]
@@ -345,7 +348,7 @@ function Test-PublishedChecksumSignature {
             }
             Invoke-WebRequest -Uri $SignatureUrl -OutFile $sigFile -ErrorAction Stop
         } catch {
-            return 'unverified'
+            return 'unavailable'
         }
         # Offline import of the bundled pinned public keys: no dirmngr/keyserver,
         # which is unreliable under a custom --homedir on Windows.
@@ -359,11 +362,11 @@ function Test-PublishedChecksumSignature {
             Where-Object { $_ -match '^\[GNUPG:\] VALIDSIG ' } |
             ForEach-Object { [regex]::Matches($_, '[0-9A-Fa-f]{40}') } |
             ForEach-Object { $_.Value.ToUpperInvariant() })
-        if ($validFprs.Count -eq 0) { return 'unverified' }
+        if ($validFprs.Count -eq 0) { return 'unavailable' }
         foreach ($f in $allow) { if ($validFprs -contains $f) { return 'good' } }
         return 'bad'
     } catch {
-        return 'unverified'
+        return 'unavailable'
     } finally {
         # gpg can start keyboxd or gpg-agent for a fresh home; removing the home
         # does not stop them, and their sockets may live outside it.
@@ -554,18 +557,28 @@ function Save-ImageWithChecksum {
                 switch (Test-PublishedChecksumSignature -ChecksumUrl $ChecksumUrl -ChecksumFilePath $published.Path) {
                     'good'       { Write-Information (Format-YurunaOperatorMessage -Key 'host.operator_c61b131638a59bb2') -InformationAction Continue }
                     'unverified' { Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_f11ac5338e134c99') }
-                    'bad'        {
+                    { $_ -in @('bad', 'unavailable') } {
+                        $unchecked = ($_ -eq 'unavailable')
                         Write-Warning ('=' * 72)
-                        Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_ad8085714f2d476d')
-                        Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_3b56c54914ea034a' -Arguments @{ checksumUrl = "$ChecksumUrl" })
-                        Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_be2f6115e6fbd1d0')
-                        Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_70d3814482fee27f')
+                        if ($unchecked) {
+                            Write-Warning (Format-YurunaOperatorMessage -Key 'host.signature_could_not_be_checked')
+                            Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_3b56c54914ea034a' -Arguments @{ checksumUrl = "$ChecksumUrl" })
+                            Write-Warning (Format-YurunaOperatorMessage -Key 'host.signature_could_not_be_checked_detail')
+                        } else {
+                            Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_ad8085714f2d476d')
+                            Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_3b56c54914ea034a' -Arguments @{ checksumUrl = "$ChecksumUrl" })
+                            Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_be2f6115e6fbd1d0')
+                            Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_70d3814482fee27f')
+                        }
                         Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_ee1c5f4b650b2c16' -Arguments @{ onMismatch = "$OnMismatch" })
                         Write-Warning ('=' * 72)
                         switch ($OnMismatch) {
                             'WarnAndContinue' { }
                             'WarnAndDelete'   { Remove-Item -LiteralPath $DestPath -Force -ErrorAction SilentlyContinue; return $false }
-                            'Throw'           { throw (Format-YurunaOperatorMessage -Key 'exceptions.host_b0946878b754a138' -Arguments @{ checksumUrl = "$ChecksumUrl" }) }
+                            'Throw'           {
+                                $exceptionKey = if ($unchecked) { 'exceptions.host_signature_could_not_be_checked' } else { 'exceptions.host_b0946878b754a138' }
+                                throw (Format-YurunaOperatorMessage -Key $exceptionKey -Arguments @{ checksumUrl = "$ChecksumUrl" })
+                            }
                         }
                     }
                 }
@@ -1195,7 +1208,6 @@ function Expand-ExtensionVmDisk {
     return $true
 }
 
-
 function Assert-YurunaBaseImage {
     <#
     .SYNOPSIS
@@ -1324,7 +1336,64 @@ function Invoke-DownloadAgentFirst {
 }
 
 # --- REGION: Exports
+function Publish-YurunaBaseImage {
+    <#
+    .SYNOPSIS
+        Swap a verified download into place as the base image, keeping the old
+        one as the previous image, and prove the swap before the caller writes
+        the sentinel that vouches for it.
+    .DESCRIPTION
+        The sentinel is what the next run's skip guard trusts, so it may only
+        follow a base image that holds the downloaded bytes. Every move stops on
+        error; a failed swap puts the previous image back and throws, and the
+        published file must have the downloaded size, or it is removed and the
+        previous image put back, because a skip guard that only asks whether the
+        image exists would trust it. A PID-file lock beside the
+        image keeps two publishers of one image from interleaving their moves;
+        it is taken when the lock helper is loaded.
+    .OUTPUTS
+        [bool] $true when an earlier base image was kept as the previous image.
+    #>
+    [CmdletBinding(SupportsShouldProcess)]
+    [OutputType([bool])]
+    param(
+        [Parameter(Mandatory)][string]$DownloadFile,
+        [Parameter(Mandatory)][string]$BaseImageFile,
+        [Parameter(Mandatory)][string]$PreviousFile,
+        [Parameter(Mandatory)][long]$ExpectedSize
+    )
+    if (-not $PSCmdlet.ShouldProcess($BaseImageFile, (Format-YurunaOperatorMessage -Key 'host.operator_5745d88e0f9ad1e5'))) { return $false }
+    $lock = "$BaseImageFile.publish.lock"
+    $locked = $false
+    if (Get-Command Enter-YurunaPidFileLock -ErrorAction SilentlyContinue) {
+        if (-not (Enter-YurunaPidFileLock -Path $lock)) { throw "Another process is publishing $BaseImageFile; its swap was left alone." }
+        $locked = $true
+    }
+    try {
+        $hadBase = Test-Path -LiteralPath $BaseImageFile
+        if ($hadBase) {
+            Remove-Item -LiteralPath $PreviousFile -Force -ErrorAction SilentlyContinue
+            Move-Item -LiteralPath $BaseImageFile -Destination $PreviousFile -ErrorAction Stop
+        }
+        try {
+            Move-Item -LiteralPath $DownloadFile -Destination $BaseImageFile -ErrorAction Stop
+        } catch {
+            if ($hadBase -and -not (Test-Path -LiteralPath $BaseImageFile)) { Move-Item -LiteralPath $PreviousFile -Destination $BaseImageFile -ErrorAction SilentlyContinue }
+            throw
+        }
+        $publishedSize = (Get-Item -LiteralPath $BaseImageFile -ErrorAction Stop).Length
+        if ($publishedSize -ne $ExpectedSize) {
+            Remove-Item -LiteralPath $BaseImageFile -Force -ErrorAction Stop
+            if ($hadBase) { Move-Item -LiteralPath $PreviousFile -Destination $BaseImageFile -ErrorAction SilentlyContinue }
+            throw "The published $BaseImageFile held $publishedSize bytes, not the $ExpectedSize downloaded; it was removed and any previous image put back."
+        }
+        return $hadBase
+    } finally {
+        if ($locked) { $null = Exit-YurunaPidFileLock -Path $lock }
+    }
+}
+
 Export-ModuleMember -Function Get-YurunaHttpErrorStatus, Invoke-DownloadAgentFirst, Save-ImageWithChecksum, Get-ImageChecksumLine, Get-PublishedChecksumBody, ConvertTo-ChecksumText, `
     Convert-Qcow2ToVhdx, Test-PublishedChecksumSignature, `
     Resolve-QemuImgCommand, Get-QemuImgVersion, Get-QemuImgCandidate, Select-QemuImgCandidate, Get-UbuntuExtensionImageBaseName, Get-UbuntuExtensionImageInfo, Save-UbuntuExtensionImage, Expand-ExtensionVmDisk, `
-    Assert-YurunaBaseImage
+    Assert-YurunaBaseImage, Publish-YurunaBaseImage

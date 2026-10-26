@@ -29,6 +29,7 @@ const DatazhCNstash = `{
   "stash.api_invalid_host": "宿主机无效",
   "stash.api_invalid_json_body": "JSON正文无效",
   "stash.api_invalid_stash_path": "存储服务路径无效",
+  "stash.api_large_text_busy": "另一段大文本正在存储，请稍后重试",
   "stash.api_no_stashes_given": "未提供存储服务",
   "stash.api_not_an_archive": "不是归档文件",
   "stash.api_not_found": "未找到",

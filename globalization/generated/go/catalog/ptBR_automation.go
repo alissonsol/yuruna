@@ -1383,15 +1383,6 @@ const DataptBRautomation = `{
     },
     "'."
   ],
-  "automation.operator_483ad55e8c49c6d8": [
-    "-- AVISO: tofu já inicializado: ",
-    {
-      "arg": "terraformPath",
-      "type": "detail",
-      "trust": "external"
-    },
-    "\nO recurso pode não ser criado. Use 'yuruna clear' para limpar o estado do tofu."
-  ],
   "automation.operator_485fb74637bada2f": "Sonda de conectividade (ping -c 3 -W 2 1.1.1.1)",
   "automation.operator_48a01e8836cadcfb": "Estado da resolução de DNS",
   "automation.operator_48ffd650c4a65b3b": "ecr Autenticação: 'docker' CLI não no PATH; não pode concluir o login.",

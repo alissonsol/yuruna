@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.25
+.VERSION 2026.10.26
 .GUID 421b40b9-fcaf-4a1a-bb31-9464b1ad442a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -150,10 +150,11 @@ function Initialize-YurunaEntryPointModuleSet {
             # writer the loop re-exports, so it loads first.
             'Test.OuterLog.psm1', 'Test.RunnerWatchdog.psm1',
             # The recovery contract owns the cycle outcome record and the typed
-            # result; the ledger and the repairs registered on it sit above it. All
-            # three load before the loop that calls them, and after Test.Log so the
-            # events they emit have a writer.
-            'Test.RecoveryContract.psm1', 'Test.RecoveryLedger.psm1', 'Test.RecoveryActions.psm1',
+            # result; the ledger, the probes the failure pause consults and the
+            # repairs registered on the ledger sit above it. All four load before
+            # the loop that calls them, and after Test.Log so the events they emit
+            # have a writer.
+            'Test.RecoveryContract.psm1', 'Test.RecoveryLedger.psm1', 'Test.RecoveryProbe.psm1', 'Test.RecoveryActions.psm1',
             'Test.RunnerOuterLoop.psm1',
             # Test.PoolSync: the optional, default-off pool-configuration PULL the outer
             # loop calls (Get-Command-gated) at each cycle start. Leaf; loaded so
@@ -243,10 +244,11 @@ function Initialize-YurunaEntryPointModuleSet {
             'Test.PoolPlanner.psm1',
             'Test.KeyCodeRegistry.psm1', 'Test.Transport.psm1',
             # Paired registry + bounded recovery primitives: Repair-VncConnection
-            # (clear a stale cached VNC handle so the next capture/send
-            # re-handshakes) and Repair-ScreenshotRing. Loaded so Wait-ForText's
-            # no-text self-heal can reach them and the capability banner can show
-            # which hosts have a reconnect provider.
+            # (clear a stale cached VNC handle so the next keystroke send
+            # re-handshakes) and Repair-ScreenshotRing (clear a VM's frame ring
+            # after a cold recovery). Loaded so Wait-ForText's no-text self-heal
+            # and the cold recovery can reach them and the capability banner can
+            # show which hosts have a reconnect provider.
             'Test.VncProvider.psm1', 'Test.ScreenshotProvider.psm1'
         )
         Project  = @(
@@ -305,7 +307,8 @@ function Initialize-YurunaEntryPointModuleSet {
             'Test.YurunaDir.psm1', 'Test.OcrEngine.psm1',
             'Test.Tesseract.psm1', 'Test.ConfigPreflight.psm1',
             # Bounded recovery primitives reached by Wait-ForText's no-text
-            # self-heal (Repair-VncConnection / Repair-ScreenshotRing).
+            # self-heal (Repair-VncConnection) and the cold recovery
+            # (Repair-ScreenshotRing).
             'Test.VncProvider.psm1', 'Test.ScreenshotProvider.psm1'
         )
         StatusService = @(
@@ -474,8 +477,9 @@ function Assert-NoOtherRunner {
     <#
     .SYNOPSIS
         Return $false (and print a banner) when a live Start-TestRunner
-        already owns runner.pid in the given runtime dir, or a host refresh
-        holds this host's runner.
+        already owns runner.pid in the given runtime dir, another live
+        one-shot run holds its lease, or a host refresh holds this host's
+        runner.
     .DESCRIPTION
         Start-TestRunner ([test/Start-TestRunner.ps1](../Start-TestRunner.ps1))
         owns runner.pid for its whole lifetime and takes over an
@@ -513,6 +517,14 @@ function Assert-NoOtherRunner {
         Write-Verbose "$CallerName : Test.SingleInstance not loaded; skipping no-other-runner check."
         return $true
     }
+    if (Get-Command Get-YurunaOneShotLeaseState -ErrorAction SilentlyContinue) {
+        $lease = Get-YurunaOneShotLeaseState -RuntimeDir $RuntimeDir
+        if ($lease.State -eq 'Held') {
+            Write-Information (Format-YurunaOperatorMessage -Key 'runner.oneshot_lease_held' -Arguments @{
+                callerName = "$CallerName"; pid = "$($lease.Pid)"; leasePath = "$($lease.PidFile)" }) -InformationAction Continue
+            return $false
+        }
+    }
     $runnerPidFile   = Join-Path $RuntimeDir 'runner.pid'
     $runnerStartFile = Join-Path $RuntimeDir 'runner.start'
     $state = Get-RunnerInstanceState -RunnerPidFile $runnerPidFile -RunnerStartFile $runnerStartFile
@@ -530,6 +542,49 @@ function Assert-NoOtherRunner {
         Write-Information $line -InformationAction Continue
     }
     return $false
+}
+
+function Initialize-YurunaOneShotEntryPoint {
+    <#
+    .SYNOPSIS
+        Claim the runtime for a one-shot entry point before it changes anything.
+    .DESCRIPTION
+        Publishes the runtime and log directories, takes the one-shot lease,
+        then runs Assert-NoOtherRunner. The lease comes first: a Start-TestRunner
+        writes runner.pid and then reads the lease, so of two starts at the same
+        moment at least one sees the other. A refusal releases the lease again.
+        Invoke-TestProject and Debug-TestSequence call this before their first
+        side effect (the checkout swap, the status-service restart, VM work), and
+        release the lease with Exit-YurunaOneShotLease in a finally block.
+    .PARAMETER CallerName
+        The entry point, for the refusal banner.
+    .OUTPUTS
+        [bool] $false when the caller must stop.
+    #>
+    [CmdletBinding(SupportsShouldProcess)]
+    [OutputType([bool])]
+    param([Parameter(Mandatory)][string]$CallerName)
+    if (-not $PSCmdlet.ShouldProcess($CallerName, (Format-YurunaOperatorMessage -Key 'runner.oneshot_lease_take_action'))) { return $false }
+    $null = Initialize-YurunaRuntimeDir
+    $null = Initialize-YurunaLogDir
+    $runtimeDir = $env:YURUNA_RUNTIME_DIR
+    $leased = $false
+    if (Get-Command Enter-YurunaOneShotLease -ErrorAction SilentlyContinue) {
+        $lease = Enter-YurunaOneShotLease -RuntimeDir $runtimeDir -Confirm:$false
+        if (-not $lease.Acquired) {
+            $refusal = @{ callerName = "$CallerName"; pid = "$($lease.Pid)"; leasePath = "$($lease.PidFile)" }
+            $refusalKey = 'runner.oneshot_lease_held'
+            if ($lease.State -eq 'Unknown') { $refusalKey = 'runner.oneshot_lease_unknown'; $refusal.reason = "$($lease.Reason)" }
+            Write-Information (Format-YurunaOperatorMessage -Key $refusalKey -Arguments $refusal) -InformationAction Continue
+            return $false
+        }
+        $leased = $true
+    }
+    if (-not (Assert-NoOtherRunner -RuntimeDir $runtimeDir -CallerName $CallerName)) {
+        if ($leased) { $null = Exit-YurunaOneShotLease -RuntimeDir $runtimeDir -Confirm:$false }
+        return $false
+    }
+    return $true
 }
 
 function Register-EntryPointCancelHandler {
@@ -754,4 +809,4 @@ function Get-GitHubHeadingSlug {
     return $t.Replace(' ', '-')
 }
 
-Export-ModuleMember -Function Get-GitHubHeadingSlug, Initialize-YurunaEntryPoint, Get-EntryPointExitCode, Initialize-YurunaEntryPointModuleSet, Wait-WithProgress, Initialize-SequenceEngineRegistry, Assert-NoOtherRunner, Register-EntryPointCancelHandler, Unregister-EntryPointCancelHandler, Resolve-StatusServiceStart, Start-YurunaStatusServiceIfEnabled, Resolve-ConfigServiceStart, Start-YurunaConfigServiceIfEnabled
+Export-ModuleMember -Function Get-GitHubHeadingSlug, Initialize-YurunaEntryPoint, Get-EntryPointExitCode, Initialize-YurunaEntryPointModuleSet, Wait-WithProgress, Initialize-SequenceEngineRegistry, Assert-NoOtherRunner, Initialize-YurunaOneShotEntryPoint, Register-EntryPointCancelHandler, Unregister-EntryPointCancelHandler, Resolve-StatusServiceStart, Start-YurunaStatusServiceIfEnabled, Resolve-ConfigServiceStart, Start-YurunaConfigServiceIfEnabled

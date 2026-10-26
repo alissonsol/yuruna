@@ -1,5 +1,6 @@
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
+# GUID: 4276d587-cbf5-4324-ac35-9381c429c5e0
 """Native seed contracts. Requires PyYAML and ALLOY_BINARY for pipeline execution.
 
 ZOT_BINARY, when set, names the zot release under review; its check syncs from registry.k8s.io.
@@ -192,6 +193,7 @@ class CollectorSeed(unittest.TestCase):
                 process.terminate(); process.wait(timeout=30)
             self.assertNotIn('requires http.compat docker2s2', (root/'zot.log').read_text())
 
+    @unittest.skipUnless(os.environ.get('ALLOY_BINARY'), 'set ALLOY_BINARY to run the pipeline through the alloy release the seed pins')
     def test_alloy_labels_filtering_timestamps_and_restart_positions(self):
         alloy = os.environ['ALLOY_BINARY']
         with tempfile.TemporaryDirectory() as directory:

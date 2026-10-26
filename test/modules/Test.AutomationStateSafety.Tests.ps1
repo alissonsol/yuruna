@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.25
+.VERSION 2026.10.26
 .GUID 42741ee4-f795-4b5e-ab28-a68625394829
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -84,21 +84,37 @@ Describe 'resource state survives failed provisioning and teardown' {
         foreach ($name in $script:originalEnvironment.Keys) { Set-Item -LiteralPath "Env:$name" -Value $script:originalEnvironment[$name] }
     }
 
-    It 'refuses reinitialization before touching state, templates, markers, or staging folders' {
-        $root = Join-Path $TestDrive 'refused'
+    # Every second run was refused once a folder had been initialized, and the
+    # refusal's advice -- clear first -- destroyed the resources it found.
+    It 'initializes an initialized resource again, keeping its state and providers' {
+        $root = Join-Path $TestDrive 'reinitialized'
         $work = New-StateSafetyFixture -Root $root
         $null = New-Item -ItemType Directory -Force -Path "$work/.terraform", "$work.new"
-        foreach ($name in @('terraform.tfstate', 'terraform.tfstate.backup', 'terraform.tfvars', 'main.tf', '.workfolder.complete')) {
-            Set-Content -LiteralPath "$work/$name" -Value "original $name"
-        }
-        Set-Content -LiteralPath "$work.new/partial" -Value 'retained staged evidence'
-        $before = Get-StateSafetySnapshot -Root "$root/.yuruna"
+        Set-Content -LiteralPath "$work/.terraform/providers" -Value 'fetched providers'
+        foreach ($name in @('terraform.tfstate', 'terraform.tfstate.backup')) { Set-Content -LiteralPath "$work/$name" -Value "original $name" }
+        Set-Content -LiteralPath "$work.new/partial" -Value 'an earlier staging'
+        $before = Get-StateSafetySnapshot -Root $work
         $result = Publish-ResourceListHelper -project_root $root -config_subfolder lab -isInitialization $true
-        Assert-False $result.success 'an initialized resource must be refused before staging'
-        $after = Get-StateSafetySnapshot -Root "$root/.yuruna"
-        Assert-Equal $before.Count $after.Count
-        foreach ($key in $before.Keys) { Assert-StringEqual $before[$key] $after[$key] $key }
-        Should -Invoke Invoke-TofuInitWithRetry -ModuleName Yuruna.Resource -Times 0 -Exactly
+        Assert-True $result.success 'the initialization runs again'
+        $after = Get-StateSafetySnapshot -Root $work
+        foreach ($key in 'terraform.tfstate', 'terraform.tfstate.backup', '.terraform/providers') { Assert-StringEqual $before[$key] $after[$key] $key }
+        Assert-False (Test-Path -LiteralPath "$work.new") 'the earlier staging folder is gone'
+        Should -Invoke Invoke-TofuInitWithRetry -ModuleName Yuruna.Resource -Times 1 -Exactly
+    }
+
+    # A run id drawn again at every run renamed the resources, so the second run
+    # created a second set beside the first.
+    It 'keeps the run id an earlier run recorded, and draws one only for a first run' {
+        $root = Join-Path $TestDrive 'run-id'
+        $null = New-StateSafetyFixture -Root $root -Variables ([ordered]@{ runId = '$(-join ((97..122) | Get-Random -Count 6 | %{[char]$_}))' })
+        $first = Publish-ResourceListHelper -project_root $root -config_subfolder lab -isInitialization $true
+        Assert-True $first.success 'fixture sanity: the first initialization'
+        Assert-Match -Pattern '^[a-z]{6}$' -Actual $env:runId -Because 'a first run draws a run id'
+        Set-Content -LiteralPath "$root/config/lab/resources.output.yml" -Value (ConvertTo-Yaml ([ordered]@{ globalVariables = [ordered]@{ runId = 'kept' } }))
+        $second = Publish-ResourceListHelper -project_root $root -config_subfolder lab -isInitialization $true
+        Assert-True $second.success 'the second initialization'
+        Assert-StringEqual 'kept' $env:runId 'the recorded run id'
+        Assert-StringEqual 'kept' (& (Get-Module Yuruna.Resource) { [string]$script:globalVariables['runId'] }) 'and the globals the apply pass records'
     }
 
     It 'carries local state, its backup, custom state and workspace state through template staging' {
@@ -235,6 +251,27 @@ Describe 'resource state survives failed provisioning and teardown' {
         Assert-False $result
         Assert-StringEqual $savedPassword $env:adminPassword
         Assert-StringEqual 'live state' (Get-Content -LiteralPath "$work/terraform.tfstate")
+    }
+
+    # A kill between the two moves of the folder swap leaves the state only in
+    # <resource>.old: Set-Resource restored it, but a clear saw no folder and
+    # left the resources the state describes running.
+    It 'destroys from the state a broken swap left in .old' {
+        $root = Join-Path $TestDrive 'old-only'
+        $work = New-StateSafetyFixture -Root $root
+        $null = New-Item -ItemType Directory -Force -Path "$work.old"
+        Set-Content -LiteralPath "$work.old/terraform.tfstate" -Value 'live state'
+        Set-Content -LiteralPath "$root/config/lab/resources.output.yml" -Value (ConvertTo-Yaml @{ globalVariables = @{}; sample = @{} })
+        $script:DestroyedIn = $null
+        Set-Item -Path Function:global:tofu -Value { $script:DestroyedIn = (Get-Location).Path; $global:LASTEXITCODE = 0; 'destroyed' }
+        try {
+            Mock Get-Command -ModuleName Yuruna.Clear { & $script:RealGetCommand @PesterBoundParameters }
+            Mock Get-Command -ModuleName Yuruna.Clear { @{ Source = 'tofu' } } -ParameterFilter { $Name -eq 'tofu' }
+            $result = Clear-Configuration $root lab
+            Assert-True $result 'the destroy ran'
+            Assert-StringEqual ([IO.Path]::GetFullPath($work)) ([IO.Path]::GetFullPath($script:DestroyedIn)) 'from the recovered folder'
+            Assert-False (Test-Path -LiteralPath "$work.old") 'nothing is left in .old'
+        } finally { Remove-Item -Path Function:global:tofu -ErrorAction SilentlyContinue }
     }
 
     It 'preserves state and restores location when the resolved executable cannot start' {

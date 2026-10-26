@@ -3369,8 +3369,9 @@
       "message": "[5/{steps}] serviço de status: reiniciando para que o processo em execução re-ler users.yml agora (até {bounceTimeoutSeconds}s) ..."
     },
     "runner.operator_4fb40cac594a7bbc": {
-      "sourceHash": "9ed391bdb16546f63bba339f0c311627af4e62a1c6c2e9cbf41ac6fd72bfb69e",
-      "message": "[Invoke-TestProject] Passo 1+2: limpar e re-clonar <RepoRoot>/projeto de {projectUrl}"
+      "sourceHash": "f354256e769d29df6b77f19586b5261c48adbfa45f9fcae042ee8f1c2275a40d",
+      "origin": "machine",
+      "message": "[Invoke-TestProject] Passo 1+2: o executor interno do ciclo substitui <RepoRoot>/project por um clone novo de {projectUrl}"
     },
     "runner.operator_4fc3e1360294bece": {
       "sourceHash": "03fa71d800b5d7b4a2dcda7cfae75fb49cf4ba47a89b4fa3f8105abe565713f1",
@@ -3590,8 +3591,9 @@
       "message": "Desativar (sysadminctl -screenLock off)"
     },
     "runner.operator_554a120b73560a96": {
-      "sourceHash": "10ef8fa3c00830884504ef497d45e5e6454855f8e0dbe1b82fffbb3efb857f5b",
-      "message": "[Invoke-TestProject] Etapa 3: desova Invoke-TestRunnerInnerLoop para um ciclo de teste."
+      "sourceHash": "6c5714741ebaaf5f2fe3b824ebf66bef48808421d26f46974894a14269c3c29e",
+      "origin": "machine",
+      "message": "[Invoke-TestProject] Passo 3: executando um ciclo do executor por meio de Invoke-TestCycleRunner."
     },
     "runner.operator_55583f4e86287622": {
       "sourceHash": "cbdeb52695d4642bbb153372fc3aa3e317587a3e898d1c517cb8fbf388cd131a",
@@ -12207,6 +12209,141 @@
       "sourceHash": "122fe9517c2c51dc6acc4f23ddb80e8b772eb893200dea32d7bb9b39220e94a8",
       "origin": "machine",
       "message": "O proxy de cache em {cacheHost} serve a CA com sha256 {fetched} com uma declaração que este hospedeiro não aceita ({reason}), então essa CA não é confiável."
+    },
+    "runner.recovery_disabled": {
+      "sourceHash": "2ff25029f8c6fb99500f9a475e99955285a890ab82f3ff60d933ed488b72b3c7",
+      "origin": "machine",
+      "message": "A recuperação automática está desativada ({reason}): nenhum reparo é executado até que o registro de recuperação em {ledgerPath} possa ser lido e gravado novamente."
+    },
+    "runner.oneshot_lease_take_action": {
+      "sourceHash": "dccf3940f2d60616026e3587246565f19266efb0c5e30467ec2c6d6f6186379f",
+      "origin": "machine",
+      "message": "Assumir a concessão de execução avulsa do diretório de runtime"
+    },
+    "runner.oneshot_lease_release_action": {
+      "sourceHash": "0db2ab8fba666745cc20b6b0bc548af1a521a11eb71ff98212d37cb278df0a51",
+      "origin": "machine",
+      "message": "Liberar a concessão de execução avulsa do diretório de runtime"
+    },
+    "runner.oneshot_lease_held": {
+      "sourceHash": "41dba8e194924b57a0f13e9375f27f9cbdd7d4ffb7e97a94d60fce4eeed31ee8",
+      "origin": "machine",
+      "message": "{callerName}: uma execução avulsa (PID {pid}) detém este diretório de runtime ({leasePath}); a inicialização foi recusada. Aguarde a conclusão dela ou execute a partir de outro YURUNA_RUNTIME_DIR."
+    },
+    "runner.oneshot_lease_unknown": {
+      "sourceHash": "621c1471fdb4e43ad7f1f22d8ddaad700108faf89b6beae840f6e2f8d4d8a29a",
+      "origin": "machine",
+      "message": "{callerName}: a concessão de execução avulsa {leasePath} indica o PID {pid}, cuja identidade não pode ser confirmada ({reason}); a inicialização foi recusada. Se nenhuma execução avulsa estiver ativa, remova o arquivo e execute novamente."
+    },
+    "runner.oneshot_blocks_start": {
+      "sourceHash": "9c9d84588f5ec9efb3d4958fe3e2fbd53b43eb93ad24c9ad97180262104cd983",
+      "origin": "machine",
+      "message": "Start-TestRunner: uma execução avulsa (PID {pid}) detém este diretório de runtime ({leasePath}); o runner não será iniciado. Inicie-o novamente quando essa execução terminar."
+    },
+    "runner.oneshot_lease_unconfirmed": {
+      "sourceHash": "96495cfbfcc8527b70aa9feeea21bd1e939988391c9cbe7462bf50ed712f1754",
+      "origin": "machine",
+      "message": "Start-TestRunner: a concessão de execução avulsa {leasePath} indica o PID {pid}, cuja identidade não pode ser confirmada ({reason}); o runner será iniciado mesmo assim."
+    },
+    "runner.project_checkout_replace_action": {
+      "sourceHash": "668c9b2920a8f07b9addd3221dae45c339bbf8c18f5ddb3f6156bbce38006619",
+      "origin": "machine",
+      "message": "Substituir por um checkout novo de {projectUrl} e então executar um ciclo de teste"
+    },
+    "runner.step_heartbeat_write_failed": {
+      "sourceHash": "a4cb6f17dd4d8b7ed032367f97b6232a6e506eef29ccdafc21ef5d95e85d7077",
+      "origin": "machine",
+      "message": "Não foi possível gravar o heartbeat de etapa {path} ({count} vezes seguidas): {detail}. O watchdog avalia o ciclo por este arquivo e o encerra como travado quando ele fica desatualizado; verifique o espaço livre e os bloqueios de arquivo nesse local."
+    },
+    "runner.step_handler_threw": {
+      "sourceHash": "f839c9d3199794861c3dfbf05ba6c7e21de2b1ca9f979b1af253ac9915d811bc",
+      "origin": "machine",
+      "message": "Etapa {step} ({action}): o handler lançou uma exceção: {message}. A etapa falha, e um retry em volta dela pode executá-la de novo."
+    },
+    "runner.pool_notifier_busy": {
+      "sourceHash": "87ec6fd0063fbe642ef91456aa91fbaa3500c71db8b35d5741783793ee949662",
+      "origin": "machine",
+      "message": "Outra execução do notificador do pool mantém o bloqueio neste hospedeiro; esta não entregou nada."
+    },
+    "runner.cycle_telemetry_gap": {
+      "sourceHash": "5fc7efc06449da1d594d15dc630938ee29abeaa5d06a37f6adb78f2518a74f6d",
+      "origin": "machine",
+      "message": "O ciclo terminou sem {missing}: quem consultar este ciclo não encontra esse registro. A pasta guarda telemetry_gaps.json com o que falta."
+    },
+    "runner.pool_notifier_spool_errors": {
+      "sourceHash": "7a4742e240da5059e93eacfd07cd687f6f700d6b80834b09e41f52d650753496",
+      "origin": "machine",
+      "message": "[ciclo externo {cycle}] notificador do grupo: {count} etapa(s) do spool falharam, então uma mensagem pode ser enviada duas vezes ou repetida sem fim; primeira: {detail}"
+    },
+    "runner.cycle_degraded": {
+      "sourceHash": "038878f2fe6d6f572d6227622f70e9e8f10b18001274b01c9127df811b505303",
+      "origin": "machine",
+      "message": "  O ciclo {cycleCount} não teve falhas, mas pulou {skipped} de {planned} convidado(s) planejado(s) ({guests}): ele está degradado, não aprovado, então a sequência de falhas e o alerta ficam como estavam."
+    },
+    "runner.project_cycle_not_run": {
+      "sourceHash": "399864ad299651e0b811dee9978498d4332a144aebc1fe5fc0edd1f0a4093519",
+      "origin": "machine",
+      "message": "  Ciclo NÃO EXECUTADO ({outcome}): um pool drenado ou pausado, uma atualização do host ou Ctrl+C o reteve antes de um veredito."
+    },
+    "runner.project_cycle_degraded": {
+      "sourceHash": "446f0e0f1e7cea59e565034f16b229e31d32f7be903923a86089d21d4b55daf9",
+      "origin": "machine",
+      "message": "  Ciclo DEGRADADO: nada falhou, mas um convidado planejado foi pulado. Veja {dIR} para o diário de bordo por ciclo."
+    },
+    "runner.refresh_gate_boot_resume": {
+      "sourceHash": "47724f1cf71d5c02a31a2fead7c83f7608ca42c97045a14400e0039c9219fdfc",
+      "origin": "machine",
+      "message": "Start-TestRunner: a atualização do hospedeiro {requestId} ficou inacabada em uma inicialização anterior; retomando-a uma vez com test/lab/Invoke-HostRefresh.ps1 -Resume (pid {pid}). Este início continua recusado; a atualização inicia o runner quando terminar, e seus erros vão para {stdErrPath}."
+    },
+    "runner.refresh_gate_boot_resume_tried": {
+      "sourceHash": "8aaf2839f9d8d1f8599a0b6c80968f28324b05a6bd81ce1cbb7d562e1180711d",
+      "origin": "machine",
+      "message": "Start-TestRunner: a atualização do hospedeiro {requestId}, inacabada desde uma inicialização anterior, já foi retomada uma vez nesta inicialização; retome-a novamente com test/lab/Invoke-HostRefresh.ps1 -Resume."
+    },
+    "runner.refresh_gate_boot_resume_failed": {
+      "sourceHash": "aa9764587388bed7ece04a0fbb705501ab615012d424565797b266bc9ee6bf63",
+      "origin": "machine",
+      "message": "Start-TestRunner: a atualização do hospedeiro {requestId} ficou inacabada em uma inicialização anterior, e retomá-la falhou ({reason}); retome-a com test/lab/Invoke-HostRefresh.ps1 -Resume."
+    },
+    "runner.ocr_known_answer_failed": {
+      "sourceHash": "ab40de4ef1839a98f7c4b9d40114f0fafe11108381538ae9cfd47cb6c5d83448",
+      "origin": "machine",
+      "message": "O OCR não consegue ler um quadro conhecido ({detail}); o ciclo para antes que qualquer convidado dependa dele, como falha de instrumentação do host."
+    },
+    "runner.ocr_known_answer_degraded": {
+      "sourceHash": "44205c7439c9bd9be75fca2f6f766f8affa62073724f870134d76b2d0fea41f1",
+      "origin": "machine",
+      "message": "Um provedor de OCR não consegue ler um quadro conhecido ({detail}); as esperas leem por meio dos provedores que conseguem."
+    },
+    "runner.recovery_probe_cleared": {
+      "sourceHash": "7351086a22ad13b622d8d497f3d2cda3c4b0aeed60dc5419e648c02ac20f002a",
+      "origin": "machine",
+      "message": "Ciclo {cycle}: a condição {failureClass} foi resolvida ({detail}); encerrando a pausa por falha (tentativa {attempt} de {maxAttempts})."
+    },
+    "runner.config_last_good_used": {
+      "sourceHash": "0449e2bebabd62b9a4385513feec1f4d4d88d91f2906d4a7377ebcbb1fe535ca",
+      "origin": "machine",
+      "message": "{path} não pode ser interpretado ({problem}); o executor continua decidindo pela última configuração que pôde ser lida até que o arquivo seja corrigido."
+    },
+    "runner.host_network_sweep_timed_out": {
+      "sourceHash": "a0d420ee9feecd40d137bb1ec3f3b9acf5c687cde6e49f4ac91d9c2c9f1e897a",
+      "origin": "machine",
+      "message": "A varredura de VMs abandonadas no caminho de recusa por falta de rede do host não terminou em {seconds} s e foi interrompida; o ciclo continua recusado."
+    },
+    "runner.orchestration_before_seal_failed": {
+      "sourceHash": "2ebf7fc04c1a5962186d43dc492a27d09ef976b45d7a461742fe6d967175d114",
+      "origin": "machine",
+      "message": "A etapa que registra a decisão de falha da orquestração {setName} antes de o ciclo ser selado falhou: {message}"
+    },
+    "runner.state_file_write_failed": {
+      "sourceHash": "a4720d14cf513e7a24fc4d98b72b9ca0c79e0d055cce4b92b21613962fee661c",
+      "origin": "machine",
+      "message": "Não foi possível gravar {path}: {message} Quem lê este registro não verá esta alteração."
+    },
+    "runner.fetch_archive_digest_unavailable": {
+      "sourceHash": "7dc05c265dfd0efd30e73c2b1770ec63a126c4ec49a5a0d38422ebc9827f0755",
+      "origin": "machine",
+      "message": "Não foi possível montar o resumo do arquivo de {repoDir} em {commit}, então o script de atualização descompacta essa árvore sem verificá-la."
     }
   }
 }

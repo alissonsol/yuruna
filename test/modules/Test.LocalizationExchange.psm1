@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.25
+.VERSION 2026.10.26
 .GUID 42b6c05e-7d19-4a83-95f2-c81d3e6470ab
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -192,7 +192,7 @@ function Get-MessageRow {
     $manifest = ConvertFrom-Json -InputObject ([IO.File]::ReadAllText((Join-Path $Root 'globalization/locale-manifest.json')))
     $directory = Join-Path $Root ('globalization/catalogs/{0}' -f $SourceLocale)
     if (-not [IO.Directory]::Exists($directory)) { return $rows.ToArray() }
-    foreach ($file in @(Get-ChildItem -LiteralPath $directory -Filter '*.json' | Sort-Object -Property Name)) {
+    foreach ($file in @(Get-ChildItem -LiteralPath $directory -Filter '*.json' | Sort-Object -Culture iv -Property Name)) {
         $catalog = ConvertFrom-Json -InputObject ([IO.File]::ReadAllText($file.FullName))
         $domain = [string]$catalog.domain
         foreach ($code in (Get-OrdinalSortedName -Name @($catalog.messages.PSObject.Properties.Name | Where-Object { $_ }))) {
@@ -361,7 +361,7 @@ function Get-LocalizationProjectSource {
     foreach ($directory in @('test', 'template', 'example')) {
         $base = Join-Path $ProjectRoot $directory
         if (-not [IO.Directory]::Exists($base)) { continue }
-        foreach ($file in @(Get-ChildItem -LiteralPath $base -Recurse -File | Where-Object Extension -In @('.yml', '.yaml') | Sort-Object FullName)) {
+        foreach ($file in @(Get-ChildItem -LiteralPath $base -Recurse -File | Where-Object Extension -In @('.yml', '.yaml') | Sort-Object -Culture iv FullName)) {
             $relative = [IO.Path]::GetRelativePath($ProjectRoot, $file.FullName).Replace('\', '/')
             if ($relative -notmatch '^(test/|template/(?:.*/)?test/|example/(?!nested\.host/).*/test/)' -or $relative -match '/(?:components|workloads)/') { continue }
             $null = Resolve-LocalizationPath -Root $ProjectRoot -Relative $relative
@@ -372,7 +372,7 @@ function Get-LocalizationProjectSource {
             Add-ProjectDisplayScalar -Node $document -Pointer '' -Relative $relative
         }
     }
-    return @{ schema = 'yuruna.project-locale-source-hashes/v1'; hashAlgorithm = 'sha256-utf8-nfc-scalar-v1'; entries = @($entries.Values | Sort-Object path, fieldPath) }
+    return @{ schema = 'yuruna.project-locale-source-hashes/v1'; hashAlgorithm = 'sha256-utf8-nfc-scalar-v1'; entries = @($entries.Values | Sort-Object -Culture iv path, fieldPath) }
 }
 
 function Get-YamlPointerValue {
@@ -745,12 +745,12 @@ function Get-LocalizationMessageHash {
         if ($null -eq $Value -or $Value -is [string] -or $Value -is [ValueType]) { return $Value }
         if ($Value -is [Collections.IDictionary]) {
             $result = [ordered]@{}
-            foreach ($name in @($Value.Keys | Sort-Object)) { $result[$name] = ConvertTo-MessageOrderedValue $Value[$name] }
+            foreach ($name in @($Value.Keys | Sort-Object -Culture iv)) { $result[$name] = ConvertTo-MessageOrderedValue $Value[$name] }
             return $result
         }
         if ($Value -is [Collections.IEnumerable]) { return ,@($Value | ForEach-Object { ConvertTo-MessageOrderedValue $_ }) }
         $result = [ordered]@{}
-        foreach ($property in @($Value.PSObject.Properties | Sort-Object Name)) { $result[$property.Name] = ConvertTo-MessageOrderedValue $property.Value }
+        foreach ($property in @($Value.PSObject.Properties | Sort-Object -Culture iv Name)) { $result[$property.Name] = ConvertTo-MessageOrderedValue $property.Value }
         return $result
     }
     $record = [ordered]@{ key = $Key; contract = ConvertTo-MessageOrderedValue $Message }
@@ -1050,7 +1050,7 @@ function Set-LocalizationYamlLocaleText {
         }
     }
     if (-not $plans.Count) { return }
-    $ordered = @($plans | Sort-Object -Property @{ Expression = { [int]$_.Start } } -Descending)
+    $ordered = @($plans | Sort-Object -Culture iv -Property @{ Expression = { [int]$_.Start } } -Descending)
     $previous = [int]::MaxValue
     foreach ($plan in $ordered) {
         if ([int]$plan.DeleteTo -ge $previous) { throw "Refusing overlapping edits in $Path." }

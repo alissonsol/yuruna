@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.25
+.VERSION 2026.10.26
 .GUID 4201387d-cf87-45af-987c-08f11f4a809c
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -104,11 +104,13 @@ BeforeAll {
     # pair every caller of the runner actually consumes.
     function Invoke-Runner {
         param([string]$Root, [switch]$UpdateBaseline, [switch]$RegisterNewSuites, [switch]$ListOnly, [string]$Filter, [string]$Path, [int]$TimeoutSeconds,
-            [switch]$FailFast, [ValidateRange(1, 8)][int]$ThrottleLimit = 1)
+            [switch]$FailFast, [ValidateRange(1, 8)][int]$ThrottleLimit = 1, [int]$SlowdownAllowanceSeconds = -1, [switch]$AllowSkipGrowth)
         $fixtureRunner = New-FixtureRunner -Root $Root
         $argv = @('-NoProfile', '-File', $fixtureRunner, '-Root', $Root, '-ThrottleLimit', [string]$ThrottleLimit, '-Quiet')
         if ($FailFast) { $argv += '-FailFast' }
         if ($TimeoutSeconds) { $argv += @('-TimeoutSeconds', "$TimeoutSeconds") }
+        if ($SlowdownAllowanceSeconds -ge 0) { $argv += @('-SlowdownAllowanceSeconds', "$SlowdownAllowanceSeconds") }
+        if ($AllowSkipGrowth) { $argv += '-AllowSkipGrowth' }
         if ($UpdateBaseline) { $argv += '-UpdateBaseline' }
         if ($RegisterNewSuites) { $argv += '-RegisterNewSuites' }
         if ($ListOnly) { $argv += '-ListOnly' }
@@ -264,7 +266,7 @@ Describe 'a clean tree passes and reports what ran' {
     }
 }
 
-Describe 'the five conditions that must fail a run' {
+Describe 'the six conditions that must fail a run' {
     It 'fails when a suite reports failing tests' {
         $root = New-FixtureTree
         try {
@@ -319,6 +321,25 @@ Describe 'the five conditions that must fail a run' {
             $r = Invoke-Runner -Root $root
             $r.ExitCode | Should -Not -Be 0
             ($r.Result.problems -join ' ') | Should -Match 'not in this run'
+        } finally { Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue }
+    }
+
+    It 'fails when a suite skips more tests than its budget, naming what stopped running' {
+        $root = New-FixtureTree
+        try {
+            Set-FixtureSuite -Root $root -Name 'Alpha' -Body $script:PassingSuite
+            (Invoke-Runner -Root $root -UpdateBaseline).ExitCode | Should -Be 0
+            # A host without the tool a case needs: the case still counts toward
+            # the total, so only the skip count tells it stopped running.
+            Set-FixtureSuite -Root $root -Name 'Alpha' -Body "Describe 'ok' { It 'a' { 1 | Should -Be 1 }; It 'b' { Set-ItResult -Skipped -Because 'the tool is not installed' } }"
+            $over = Invoke-Runner -Root $root
+            $over.ExitCode | Should -Not -Be 0
+            ($over.Result.problems -join ' ') | Should -Match 'Alpha\.Tests\.ps1: 1 skipped, budget 0 -- tests stopped running; first: ok\.b'
+
+            $allowed = Invoke-Runner -Root $root -AllowSkipGrowth
+            $allowed.ExitCode | Should -Be 0 -Because "the override reports instead of failing; output: $($allowed.Output)"
+            $allowed.Result.skipGrowthAllowed | Should -BeTrue
+            @($allowed.Result.skipGrowth).Count | Should -Be 1
         } finally { Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue }
     }
 
@@ -408,6 +429,25 @@ Describe 'a baseline row can carry a platform floor and a timeout of its own' {
             Set-FixtureSuite -Root $root -Name 'Alpha' -Body $script:PassingSuite
             Set-BaselineRow -Root $root -Suite 'Alpha' -Field @{ timeoutSeconds = 1 }
             (Invoke-Runner -Root $root -TimeoutSeconds 120).ExitCode | Should -Be 0
+        } finally { Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue }
+    }
+
+    It 'reports a suite that ran far longer than its recorded cost, without failing the run' {
+        $root = New-FixtureTree
+        try {
+            Set-FixtureSuite -Root $root -Name 'Alpha' -Body $script:PassingSuite
+            (Invoke-Runner -Root $root -UpdateBaseline).ExitCode | Should -Be 0
+            Set-BaselineRow -Root $root -Suite 'Alpha' -Field @{ seconds = 0.1 }
+            Set-FixtureSuite -Root $root -Name 'Alpha' -Body "Describe 'slow' { It 'a' { Start-Sleep -Seconds 2; 1 | Should -Be 1 }; It 'b' { 2 | Should -Be 2 } }"
+
+            $slow = Invoke-Runner -Root $root -SlowdownAllowanceSeconds 1
+            $slow.ExitCode | Should -Be 0 -Because "time is reported, never adjudicated; output: $($slow.Output)"
+            @($slow.Result.slowdowns).path | Should -Be 'test/modules/Alpha.Tests.ps1'
+            @($slow.Result.slowdowns)[0].recordedSeconds | Should -Be 0.1
+            $slow.Output | Should -Match 'Alpha\.Tests\.ps1 ran [0-9.]+s against 0\.1s recorded'
+
+            # The default allowance keeps a short suite's ordinary variation quiet.
+            @((Invoke-Runner -Root $root).Result.slowdowns).Count | Should -Be 0
         } finally { Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue }
     }
 

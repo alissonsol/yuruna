@@ -2,6 +2,7 @@
 <!--
   LICENSEURI https://yuruna.link/license
   Copyright (c) 2019-2026 by Alisson Sol et al.
+  GUID: 42663fc8-7bda-41df-973f-f16b6ecdd230
 -->
 <html lang="en">
 <head>
@@ -39,7 +40,7 @@
     <div class="row">
       <label class="labeled-field">
         <span class="scan-label" data-i18n="pool.pool_id_66d3d3f3">Pool id</span>
-        <input id="new-poolid" placeholder="lowercase, dns-safe" size="26" data-i18n-placeholder="pool.lowercase_dns_safe">
+        <input id="new-poolid" placeholder="lowercase, dns-safe" size="26" data-i18n-placeholder="pool.lowercase_dns_safe" autocapitalize="none" autocorrect="off" spellcheck="false" pattern="[a-z0-9][a-z0-9-]{0,62}">
       </label>
       <label class="labeled-field">
         <span class="scan-label" data-i18n="pool.display_name">Display name</span>
@@ -47,7 +48,7 @@
       </label>
       <button id="create" class="primary" data-i18n="pool.create_pool">Create pool</button>
     </div>
-    <table>
+    <div class="table-wrap" tabindex="0"><table>
       <thead>
         <tr>
           <th class="rownum" aria-label="Row number" data-i18n-aria-label="pool.row_number">#</th>
@@ -61,7 +62,7 @@
         </tr>
       </thead>
       <tbody id="pool-rows"></tbody>
-    </table>
+    </table></div>
   </main>
   <footer id="footer-bar">
     <span id="footer-ips"><span class="label" id="footer-ips-label" data-i18n="pool.ips">IPs:</span><textarea id="footer-ip-list" readonly rows="1" spellcheck="false" inputmode="none" autocorrect="off" autocapitalize="off" aria-labelledby="footer-ips-label">--</textarea></span>

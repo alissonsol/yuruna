@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.25
+.VERSION 2026.10.26
 .GUID 42983c1f-31e3-40bb-a130-e4b666739c19
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -56,7 +56,8 @@ Describe 'the compiler generates the same bytes every time' {
             '"description": "Shown when the queue is empty.", "placeholders": {},')
         $root = New-CatalogRoot -Name 'empty-placeholders' -DomainJson $json
         $run = Invoke-Compile -Root $root -Update
-        Assert-Equal -Expected 1 -Actual $run.ExitCode -Because "the first pass writes artifacts:`n$($run.Output)"
+        Assert-Equal -Expected 0 -Actual $run.ExitCode -Because "the first pass compiles:`n$($run.Output)"
+        Assert-Match -Pattern '(?m)^WROTE ' -Actual $run.Output 'the first pass writes artifacts'
         Assert-False ($run.Output -match 'Catalog validation failed') 'an empty declaration names no unused placeholder'
         $catalog = Import-PowerShellDataFile -LiteralPath (Join-Path $root 'generated/powershell/en-US.sample.psd1')
         Assert-StringEqual 'Nothing is running.' $catalog['sample.plain'] 'a literal needs no placeholder metadata'
@@ -69,7 +70,7 @@ Describe 'the compiler generates the same bytes every time' {
     It 'preserves generated artifacts when the catalog root is relative' {
         $root = New-CatalogRoot -Name 'relative-root' -DomainJson $script:GoodCatalog
         $first = Invoke-Compile -Root $root -Update
-        Assert-Equal 1 $first.ExitCode $first.Output
+        Assert-Equal 0 $first.ExitCode $first.Output
         $relative = [IO.Path]::GetRelativePath((Get-Location).Path, $root)
         $run = Invoke-Compile -Root $relative -Update
         Assert-Equal 0 $run.ExitCode $run.Output
@@ -80,12 +81,14 @@ Describe 'the compiler generates the same bytes every time' {
     It 'writes nothing on a second pass over unchanged sources' {
         $root = New-CatalogRoot -Name 'determinism' -DomainJson $script:GoodCatalog
         $first = Invoke-Compile -Root $root -Update
-        Assert-Equal -Expected 1 -Actual $first.ExitCode 'the first pass has artifacts to write'
+        Assert-Equal -Expected 0 -Actual $first.ExitCode 'the first pass compiles'
+        Assert-Match -Pattern '(?m)^WROTE ' -Actual $first.Output 'the first pass has artifacts to write'
         $before = @(Get-ChildItem -LiteralPath $root -Recurse -File |
             Sort-Object FullName | ForEach-Object { (Get-Content -Raw -LiteralPath $_.FullName) })
         $second = Invoke-Compile -Root $root -Update
         Assert-Equal -Expected 0 -Actual $second.ExitCode `
             -Because "a compiler that rewrites unchanged output cannot back a staleness gate:`n$($second.Output)"
+        Assert-False ($second.Output -match '(?m)^WROTE ') 'the second pass names nothing it wrote'
         $after = @(Get-ChildItem -LiteralPath $root -Recurse -File |
             Sort-Object FullName | ForEach-Object { (Get-Content -Raw -LiteralPath $_.FullName) })
         Assert-StringEqual -Expected ($before -join "`n--`n") -Actual ($after -join "`n--`n") `
@@ -98,10 +101,42 @@ Describe 'the compiler generates the same bytes every time' {
         $artifact = Join-Path $root 'generated/browser/en-US.sample.js'
         Add-Content -LiteralPath $artifact -Value '// edited by hand'
         $run = Invoke-Compile -Root $root
-        Assert-Equal -Expected 1 -Actual $run.ExitCode `
+        Assert-Equal -Expected 3 -Actual $run.ExitCode `
             -Because "generated files are never hand-edited, and the gate is what says so:`n$($run.Output)"
     }
 
+    # The browser artifact is also inlined into a <script> on the self-contained
+    # pages; text that closes the script would end it there.
+    It 'writes no character that could end an inline script' {
+        $root = New-CatalogRoot -Name 'script-safe' -DomainJson $script:GoodCatalog.Replace('Nothing is running.', 'Nothing is running.</script><!--x-->&')
+        $run = Invoke-Compile -Root $root -Update
+        Assert-Equal -Expected 0 -Actual $run.ExitCode -Because "the catalog has to compile:`n$($run.Output)"
+        $artifact = [IO.File]::ReadAllText((Join-Path $root 'generated/browser/en-US.sample.js'))
+        Assert-True $artifact.Contains('Nothing is running.\x3c/script\x3e\x3c!--x--\x3e\x26') 'the text is escaped, not dropped'
+        Assert-False ($artifact -match '</script|<!--') 'no raw sequence can end or derail the inline script'
+    }
+    # A Turkish or Lithuanian host collates these names differently (Lithuanian
+    # sorts y right after i), and the compiler's sorts followed the host culture.
+    It 'writes the same bytes whatever culture the host runs in' {
+        $catalog = $script:GoodCatalog.Replace('"message": "Nothing is running."', '"message": "{jName} {yName} {aIc} {aib}", "placeholders": { "jName": { "type": "text", "trust": "internal", "example": "j" }, "yName": { "type": "text", "trust": "internal", "example": "y" }, "aIc": { "type": "text", "trust": "internal", "example": "I" }, "aib": { "type": "text", "trust": "internal", "example": "i" } }').Replace('"sample.counted": {', '"sample.jam": { "message": "J.", "description": "Culture fixture.", "lifecycle": "active" }, "sample.yam": { "message": "Y.", "description": "Culture fixture.", "lifecycle": "active" }, "sample.counted": {')
+        $plain = New-CatalogRoot -Name 'culture-plain' -DomainJson $catalog
+        $run = Invoke-Compile -Root $plain -Update
+        Assert-False ($run.Output -match 'Catalog validation failed') "the catalog has to compile:`n$($run.Output)"
+        # The artifacts, and the manifests that record each message's source hash.
+        $plainFiles = @(foreach ($dir in 'generated', 'manifests') { Get-ChildItem -LiteralPath (Join-Path $plain $dir) -Recurse -File })
+        $plainFiles.Count | Should -BeGreaterThan 0
+        foreach ($culture in 'tr-TR', 'lt-LT') {
+            $root = New-CatalogRoot -Name "culture-$culture" -DomainJson $catalog
+            $command = "[Globalization.CultureInfo]::CurrentCulture = '$culture'; [Globalization.CultureInfo]::CurrentUICulture = '$culture'; & '$($script:Compiler)' -Root '$root' -Quiet -Update"
+            $null = & pwsh -NoProfile -Command $command 2>&1
+            foreach ($file in $plainFiles) {
+                $relative = [IO.Path]::GetRelativePath($plain, $file.FullName)
+                # The manifests name inputs by paths that include the root's folder.
+                $actual = [IO.File]::ReadAllText((Join-Path $root $relative)).Replace((Split-Path -Leaf $root), '<root>')
+                $actual | Should -BeExactly ([IO.File]::ReadAllText($file.FullName).Replace((Split-Path -Leaf $plain), '<root>')) -Because "$relative compiled under $culture"
+            }
+        }
+    }
     It 'writes a change that differs only in letter case' {
         $root = New-CatalogRoot -Name 'case-only' -DomainJson $script:GoodCatalog
         Invoke-Compile -Root $root -Update | Out-Null
@@ -110,7 +145,8 @@ Describe 'the compiler generates the same bytes every time' {
             [IO.File]::ReadAllText($source).Replace('Nothing is running.', 'NOTHING is running.'),
             [Text.UTF8Encoding]::new($false))
         $run = Invoke-Compile -Root $root -Update
-        Assert-Equal -Expected 1 -Actual $run.ExitCode -Because "the recased message has to be written:`n$($run.Output)"
+        Assert-Equal -Expected 0 -Actual $run.ExitCode -Because "the recased message has to be written:`n$($run.Output)"
+        Assert-Match -Pattern '(?m)^WROTE ' -Actual $run.Output 'the recased message is written'
         # Ordinal on purpose: -match would find the old casing and pass.
         $artifact = [IO.File]::ReadAllText((Join-Path $root 'generated/browser/en-US.sample.js'))
         Assert-True $artifact.Contains('NOTHING is running.') 'the artifact kept the old letter case'
@@ -128,8 +164,8 @@ Describe 'the compiler generates the same bytes every time' {
         [IO.File]::WriteAllText((Join-Path $root 'catalogs/.old/sample.json'), 'not a catalog',
             [Text.UTF8Encoding]::new($false))
         $run = Invoke-Compile -Root $root -Update
-        # A validation failure also exits 1, so the write is what proves the skip.
-        Assert-Equal -Expected 1 -Actual $run.ExitCode -Because "a dot-named file is not a source:`n$($run.Output)"
+        # A dot-named file read as a source would fail validation, which exits 1.
+        Assert-Equal -Expected 0 -Actual $run.ExitCode -Because "a dot-named file is not a source:`n$($run.Output)"
         Assert-False ($run.Output -match 'Catalog validation failed') 'a dot-named entry was read as a source'
         Assert-True (Test-Path -LiteralPath (Join-Path $root 'generated/browser/en-US.sample.js')) `
             'the catalog next to the dot-named entries was not compiled'
@@ -146,7 +182,7 @@ Describe 'the compiler generates the same bytes every time' {
         Copy-Item -LiteralPath (Join-Path $root 'generated/browser/en-US.sample.js') `
                   -Destination (Join-Path $root 'generated/browser/en-US.retired.js')
         $run = Invoke-Compile -Root $root
-        Assert-Equal -Expected 1 -Actual $run.ExitCode `
+        Assert-Equal -Expected 3 -Actual $run.ExitCode `
             -Because "an artifact left behind keeps being served:`n$($run.Output)"
         Assert-Match -Pattern 'ORPHAN' -Actual $run.Output 'the report has to name the leftover artifact'
     }
@@ -158,8 +194,10 @@ Describe 'the compiler generates the same bytes every time' {
         Copy-Item -LiteralPath (Join-Path $root 'generated/browser/en-US.sample.js') -Destination $orphan
 
         $run = Invoke-Compile -Root $root -Update
-        Assert-Equal -Expected 1 -Actual $run.ExitCode `
-            -Because "removing an artifact changes generated output and must be visible to the caller:`n$($run.Output)"
+        Assert-Equal -Expected 0 -Actual $run.ExitCode `
+            -Because "removing an orphan is part of an update that succeeds:`n$($run.Output)"
+        # Removing an artifact changes generated output; the line naming it is
+        # how the caller sees that.
         Assert-Match -Pattern 'REMOVED' -Actual $run.Output 'the update report has to name the removed artifact'
         Assert-False (Test-Path -LiteralPath $orphan) 'the orphan should actually be removed'
 
@@ -213,7 +251,7 @@ Describe 'the generated pseudo-locales expose untranslated text and layout' {
             '"description": "Shown when the queue is empty.", "placeholders": { "name": { "type": "text", "trust": "internal", "example": "host" } },')
         $root = New-CatalogRoot -Name 'pseudo-protected' -DomainJson $json
         $run = Invoke-Compile -Root $root -Update
-        Assert-Equal -Expected 1 -Actual $run.ExitCode "the protected-token fixture should compile:`n$($run.Output)"
+        Assert-Equal -Expected 0 -Actual $run.ExitCode "the protected-token fixture should compile:`n$($run.Output)"
         $js = Get-Content -Raw -LiteralPath (Join-Path $root 'generated/browser/qps-Ploc.sample.js')
         foreach ($literal in @('https://example.test/a', 'status.bad_code', 'Ctrl+R', "'arg':'name'")) {
             Assert-True ($js.Contains($literal)) "pseudo generation changed the machine token '$literal'"
@@ -277,7 +315,7 @@ Describe 'generated PowerShell data preserves literal text safely' {
         $catalog.messages.'sample.counted'.plural.variants.one = $variant
         $root = New-CatalogRoot -Name 'literal-quotes' -DomainJson (ConvertTo-Json $catalog -Depth 12)
         $run = Invoke-Compile -Root $root -Update
-        $run.ExitCode | Should -Be 1 -Because $run.Output
+        $run.ExitCode | Should -Be 0 -Because $run.Output
         $run.Output | Should -Not -Match 'Catalog validation failed'
         $file = Join-Path $root 'generated/powershell/en-US.sample.psd1'
         $errors = $null
@@ -304,7 +342,7 @@ Describe 'generated PowerShell data preserves literal text safely' {
         $catalog.messages.'sample.plain'.message = $expected['sample.plain']
         $root = New-CatalogRoot -Name 'parse-every-artifact' -DomainJson (ConvertTo-Json $catalog -Depth 12)
         $run = Invoke-Compile -Root $root -Update
-        $run.ExitCode | Should -Be 1 -Because $run.Output
+        $run.ExitCode | Should -Be 0 -Because $run.Output
         $run.Output | Should -Match '; wrote \d+ artifact\(s\)\.'
         $run.Output | Should -Not -Match 'Catalog validation failed'
         $check = Invoke-Compile -Root $root
@@ -357,7 +395,7 @@ Describe 'generated PowerShell data preserves literal text safely' {
             $run.Output | Should -Match 'en-US\.sample\.psd1 does not parse'
             Test-Path -LiteralPath $file | Should -BeFalse -Because 'a refused run must not leave the broken data file behind'
         } else {
-            $run.ExitCode | Should -Be 1 -Because $run.Output
+            $run.ExitCode | Should -Be 0 -Because $run.Output
             $errors = $null
             $null = [Management.Automation.Language.Parser]::ParseFile($file, [ref]$null, [ref]$errors)
             @($errors).Count | Should -Be 0 -Because "$(@($errors | ForEach-Object Message) -join '; ')"

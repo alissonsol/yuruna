@@ -1,5 +1,6 @@
 // LICENSEURI https://yuruna.link/license
 // Copyright (c) 2019-2026 by Alisson Sol et al.
+// GUID: 42f65600-b56a-415e-a577-2fb28d1a3ae3
 
 // Pool-wide aggregation. The local host's stashes come from its SQLite index
 // (live, including pending/buffered); every OTHER host's come from its

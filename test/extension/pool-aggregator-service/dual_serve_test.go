@@ -1,5 +1,6 @@
 // LICENSEURI https://yuruna.link/license
 // Copyright (c) 2019-2026 by Alisson Sol et al.
+// GUID: 42dce1e1-8c50-4078-af64-7f2aafe75833
 
 package main
 
@@ -10,11 +11,14 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
+	"errors"
 	"fmt"
 	"io"
 	"math/big"
 	"net"
 	"net/http"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -121,5 +125,63 @@ func TestNormalizeHostID(t *testing.T) {
 	}
 	if got := normalizeHostID("not-a-guid"); got != "not-a-guid" {
 		t.Fatalf("non-guid must pass through, got %q", got)
+	}
+}
+
+// failingListener fails every Accept with a transient error, the way an
+// exhausted descriptor table does, and counts the attempts.
+type failingListener struct {
+	calls  atomic.Int64
+	closed chan struct{}
+	once   sync.Once
+}
+
+var errTooManyOpenFiles = errors.New("accept: too many open files")
+
+func (f *failingListener) Accept() (net.Conn, error) {
+	select {
+	case <-f.closed:
+		return nil, net.ErrClosed
+	default:
+	}
+	f.calls.Add(1)
+	return nil, errTooManyOpenFiles
+}
+
+func (f *failingListener) Close() error {
+	f.once.Do(func() { close(f.closed) })
+	return nil
+}
+
+func (f *failingListener) Addr() net.Addr { return &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1)} }
+
+// A transient accept error must not turn the accept loop into a busy loop: the
+// http.Server backoff paces only the wrapper's Accept, never the inner one.
+func TestDualProtocolListenerBacksOffOnAcceptErrors(t *testing.T) {
+	inner := &failingListener{closed: make(chan struct{})}
+	l := newDualProtocolListener(inner, nil)
+	if _, err := l.Accept(); !errors.Is(err, errTooManyOpenFiles) {
+		t.Fatalf("Accept() error = %v, want the parked transient error", err)
+	}
+	time.Sleep(300 * time.Millisecond)
+	if err := l.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+	// 5+10+20+40+80+160ms: about seven attempts fit in the window, where a loop
+	// without the backoff makes them by the million.
+	if n := inner.calls.Load(); n < 2 || n > 50 {
+		t.Errorf("inner Accept called %d times in 300ms, want a handful (capped exponential backoff)", n)
+	}
+}
+
+func TestNextAcceptDelayDoublesToACeiling(t *testing.T) {
+	var got time.Duration
+	for _, want := range []time.Duration{5 * time.Millisecond, 10 * time.Millisecond, 20 * time.Millisecond} {
+		if got = nextAcceptDelay(got); got != want {
+			t.Fatalf("delay = %s, want %s", got, want)
+		}
+	}
+	if got := nextAcceptDelay(800 * time.Millisecond); got != time.Second {
+		t.Errorf("nextAcceptDelay(800ms) = %s, want the 1s ceiling", got)
 	}
 }

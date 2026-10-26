@@ -1,5 +1,6 @@
 // LICENSEURI https://yuruna.link/license
 // Copyright (c) 2019-2026 by Alisson Sol et al.
+// GUID: 422d3708-5212-415c-897e-5a9a8cbd3ec8
 
 // Package config holds the download-agent-service daemon's frozen constants,
 // mirroring the pool-control-service config package so the extension services

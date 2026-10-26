@@ -1,5 +1,6 @@
 // LICENSEURI https://yuruna.link/license
 // Copyright (c) 2019-2026 by Alisson Sol et al.
+// GUID: 42de265e-4918-4dda-8c32-b6437e87936b
 /*
   Framework-free checks for this directory's index.js (the stashes list page).
   Run: node index.test.js (exit 0 = pass). There is no JS test runner in the repo,

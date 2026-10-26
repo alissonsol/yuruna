@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
+# GUID: 42c4be37-484f-42e8-bd57-8f3de9caedfc
 """Install bounded, recoverable Git origins inside a disposable worker sandbox."""
 import base64
 import fcntl

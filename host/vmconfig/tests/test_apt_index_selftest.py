@@ -1,5 +1,6 @@
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
+# GUID: 429bac0c-a170-4e58-8673-9fbb72a3eaff
 """The apt index self-test against stand-in repositories: each verdict, and what it tells the reader.
 
 Runs the script exactly as the seed ships it, read out of the seed the way

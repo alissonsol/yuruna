@@ -29,6 +29,7 @@ const DataheILstash = `{
   "stash.api_invalid_host": "מארח לא תקין",
   "stash.api_invalid_json_body": "גוף JSON לא תקין",
   "stash.api_invalid_stash_path": "נתיב מאגר אחסון לא תקין",
+  "stash.api_large_text_busy": "טקסט גדול אחר נשמר כעת; נסו שוב בעוד רגע",
   "stash.api_no_stashes_given": "לא סופקו מאגרי אחסון",
   "stash.api_not_an_archive": "אינו ארכיון",
   "stash.api_not_found": "לא נמצא",

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.25
+.VERSION 2026.10.26
 .GUID 42a2e5eb-3669-4a46-8c83-b6e76b040378
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -51,8 +51,10 @@ BeforeAll {
             context=@{causeDetail=@{ocrTail='current fetch failed'; executionTail='obsolete tail'; executionLogPath='obsolete.log'}} }
     }
     function Write-YurunaStateFile {
+        [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter', '',
+            Justification = 'Stub mirrors the writer signature the producers bind by name; it writes whatever it is given.')]
         [CmdletBinding(SupportsShouldProcess)]
-        param([string]$Path, [string]$Content)
+        param([string]$Path, [string]$Content, [switch]$WarnOnFailure)
         if ($PSCmdlet.ShouldProcess($Path, 'Write test state')) { [IO.File]::WriteAllText($Path, $Content) }
     }
     function Copy-CycleFailureRecord { }

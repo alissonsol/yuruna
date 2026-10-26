@@ -1,7 +1,8 @@
 #!/bin/bash
-# Version: 2026.10.25
+# Version: 2026.10.26
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
+# GUID: 426a6ad8-45b3-4008-972c-5b67700fa245
 #
 # Single source of truth for retry wrappers used by guest provisioning
 # scripts. Sourced via /usr/local/lib/yuruna/yuruna-retry.sh after
@@ -625,6 +626,39 @@ sys.exit(1)
 YURUNA_PINNED_GIT
 }
 
+# --- REGION: yuruna_fetch_archive
+# Unpacks an archive the host serves into a directory. With the commit and
+# digest the fetch context carries, which the host sends for every update script
+# it launches, it asks for that commit's archive and checks the bytes before
+# unpacking any of them. Without them, as in a run by hand, it unpacks the
+# archive as served. The updaters keep identical copies for a guest whose lib
+# predates this one.
+yuruna_fetch_archive() {
+    local url="$1" destination="$2" commit="${3:-}" expected="${4:-}" archive actual rc=1
+    if [ -z "$commit" ] || [ -z "$expected" ]; then
+        if command -v wget >/dev/null 2>&1; then
+            wget --no-proxy --timeout=30 --tries=2 -qO- "$url" | tar -xz -C "$destination"
+        else
+            curl -fsSL --noproxy '*' --connect-timeout 30 --speed-limit 1024 --speed-time 60 "$url" | tar -xz -C "$destination"
+        fi
+        return
+    fi
+    archive=$(mktemp) || return 1
+    if command -v wget >/dev/null 2>&1; then
+        wget --no-proxy --timeout=30 --tries=2 -qO "$archive" "$url?commit=$commit" || { rm -f "$archive"; return 1; }
+    else
+        curl -fsSL --noproxy '*' --connect-timeout 30 --speed-limit 1024 --speed-time 60 -o "$archive" "$url?commit=$commit" || { rm -f "$archive"; return 1; }
+    fi
+    if command -v sha256sum >/dev/null 2>&1; then actual=$(sha256sum "$archive"); else actual=$(shasum -a 256 "$archive"); fi
+    if [ "${actual%% *}" = "$expected" ]; then
+        tar -xzf "$archive" -C "$destination" && rc=0
+    else
+        echo "yuruna: the archive at $url for commit $commit does not match the digest the host sent; not unpacked."
+    fi
+    rm -f "$archive"
+    return "$rc"
+}
+
 # --- REGION: yuruna_materialize_repositories
 yuruna_materialize_repositories() {
     local REAL_HOME="$1" REAL_USER="$2" FRAMEWORK_URL="$3" PROJECT_URL="$4"
@@ -644,7 +678,7 @@ if [ ! -d "$REAL_HOME/yuruna" ]; then
     if yuruna_host_livecheck; then
       echo "yuruna: fetching committed tarball from $TARBALL_URL"
       mkdir -p "$REAL_HOME/yuruna"
-      if wget --no-proxy --timeout=30 --tries=2 -qO- "$TARBALL_URL" | tar -xz -C "$REAL_HOME/yuruna" && [ -f "$REAL_HOME/yuruna/VERSION" ] && [ -s "$REAL_HOME/yuruna/VERSION" ]; then
+      if yuruna_fetch_archive "$TARBALL_URL" "$REAL_HOME/yuruna" "${E_ARCHIVE_COMMIT:-}" "${E_ARCHIVE_SHA:-}" && [ -f "$REAL_HOME/yuruna/VERSION" ] && [ -s "$REAL_HOME/yuruna/VERSION" ]; then
         HOST_OK=true
         break
       else
@@ -701,8 +735,8 @@ if [ ! -d "$REAL_HOME/yuruna/project" ]; then
     fi
     echo "yuruna: trying project tarball at $PROJECT_TARBALL_URL"
     mkdir -p "$REAL_HOME/yuruna/project"
-    if wget --no-proxy --timeout=30 --tries=2 -qO- "$PROJECT_TARBALL_URL" \
-         | tar -xz -C "$REAL_HOME/yuruna/project" 2>/dev/null \
+    if yuruna_fetch_archive "$PROJECT_TARBALL_URL" "$REAL_HOME/yuruna/project" \
+         "${E_PROJECT_ARCHIVE_COMMIT:-}" "${E_PROJECT_ARCHIVE_SHA:-}" 2>/dev/null \
          && [ -n "$(ls -A "$REAL_HOME/yuruna/project" 2>/dev/null)" ]; then
       PROJECT_HOST_OK=true
       break
@@ -801,7 +835,7 @@ yuruna_install_pwsh_tarball() (
     sudo chmod +x /opt/microsoft/powershell/7/pwsh || return 1
     sudo ln -sf /opt/microsoft/powershell/7/pwsh /usr/bin/pwsh
 )
-export -f yuruna_host_env yuruna_host_relocate yuruna_materialize_framework_pin yuruna_materialize_repositories yuruna_wait_network _yuruna_verify_key_fpr yuruna_install_pwsh_tarball
+export -f yuruna_host_env yuruna_host_relocate yuruna_fetch_archive yuruna_materialize_framework_pin yuruna_materialize_repositories yuruna_wait_network _yuruna_verify_key_fpr yuruna_install_pwsh_tarball
 
 # --- REGION: https://yuruna.link/4220a755-0003
 # Child Bash payloads need the wrappers and every helper they call.

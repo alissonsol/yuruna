@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
+# GUID: 42b247b0-efdf-44a1-8724-744092514861
 """Recoverable signing-key rotation on an explicitly disposable proxy VM."""
 import base64
 import fcntl

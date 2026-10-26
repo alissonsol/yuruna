@@ -857,6 +857,36 @@
       "sourceHash": "1119e7416a9854e3111c91005788de244fc41633b6b681615c1f0ee0f61fb1cc",
       "origin": "machine",
       "message": "检查配置验证诊断中的 sourceSelections 和镜像状态；保持签名和提交验证启用。"
+    },
+    "remediation.vm_not_stopped_rationale": {
+      "sourceHash": "08037372e114765752250461f6454c4ff930fd653db40d4d3b2fef71e4cd2beb",
+      "origin": "machine",
+      "message": "{vmName}始终未进入该步骤等待的停止状态：客户机忽略了关机请求，再次等待无法改变这一点。冷关机再开机可以。"
+    },
+    "remediation.vm_not_stopped_action_power": {
+      "sourceHash": "640f5e262c898dcd8a1c107df70ea1f19a9723d1b55c9c5880a7bc01dd5ece1c",
+      "origin": "machine",
+      "message": "从宿主机关闭该虚拟机（带restartVmBeforeRetry: coldPowerCycle的retry会这样做），然后再次运行该步骤。"
+    },
+    "remediation.vm_not_stopped_action_inspect": {
+      "sourceHash": "15879774c917340e974da8827f0752cbe47da1a3c47659d751689a71d933031b",
+      "origin": "machine",
+      "message": "如果再次发生，请在客户机控制台中查看是什么阻止了关机。"
+    },
+    "remediation.guest_run_lost_rationale": {
+      "sourceHash": "4bd1594123a8566bdd8b7a3bf25ec8abe219c4701f942702a61e9a9741baa1dd",
+      "origin": "machine",
+      "message": "{vmName}上的运行已丢失：客户机的监管进程有响应，但无法说明该运行的去向，进程已不存在，重新连接无法恢复它。"
+    },
+    "remediation.guest_run_lost_action_restore": {
+      "sourceHash": "1134d22bef2d923248fa744f8cf8ab854a679519c337c8a11710d53a930807ff",
+      "origin": "machine",
+      "message": "恢复最后一个良好的快照，然后再次运行该序列。"
+    },
+    "remediation.guest_run_lost_action_inspect": {
+      "sourceHash": "28e9abf2f74ea280b26312eeac2fb6013582d2472223baf12eb8e542297f5001",
+      "origin": "machine",
+      "message": "阅读客户机的执行日志，查明是什么结束了该进程。"
     }
   }
 }

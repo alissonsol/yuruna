@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
+# GUID: 42799884-3db8-4a49-976f-56d32e62a114
 """A loopback Git origin whose outage can end without moving a repository ref."""
 
 from __future__ import annotations

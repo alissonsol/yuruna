@@ -1,5 +1,6 @@
 // LICENSEURI https://yuruna.link/license
 // Copyright (c) 2019-2026 by Alisson Sol et al.
+// GUID: 42bafd89-1637-4b5b-b71d-ff10aa659022
 
 package imagestore
 
@@ -619,5 +620,55 @@ func TestCleanupProtectsRecentlyPromotedSiblingWithoutSidecar(t *testing.T) {
 				t.Fatalf("old orphan survived: %v", err)
 			}
 		})
+	}
+}
+
+// The byte route opens only a regular file inside the image folder: a link in
+// the share is refused when it points out of the folder, and a folder named
+// like a generation is no generation.
+func TestOpenServesOnlyARegularFileInTheImageFolder(t *testing.T) {
+	s := testStore(t)
+	id := ImageID{HostTypeKVM, KeyUbuntuServer26, ArchAMD64, VariantStable}
+	gen := mustCommit(t, s, id, "img.iso", strings.Repeat("ab", 32), 10, time.Now())
+	outside := filepath.Join(t.TempDir(), "secret")
+	if err := os.WriteFile(outside, []byte("not an image"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, filepath.Join(s.Dir(id), "escape.iso.aabbccddeeff")); err != nil {
+		t.Skipf("no symlinks here: %v", err)
+	}
+	if err := os.Mkdir(filepath.Join(s.Dir(id), "folder.iso.aabbccddeeff"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	f, _, err := s.Open(id, gen)
+	if err != nil {
+		t.Fatalf("a committed generation would not open: %v", err)
+	}
+	f.Close()
+	for _, name := range []string{"escape.iso.aabbccddeeff", "folder.iso.aabbccddeeff"} {
+		if f, _, err := s.Open(id, name); err == nil {
+			f.Close()
+			t.Errorf("Open(%s) served it", name)
+		}
+	}
+}
+
+// The drop folder adopts only a regular file: a link would be hashed and
+// adopted through to whatever it points at.
+func TestAManualLinkIsNotAdopted(t *testing.T) {
+	s := testStore(t)
+	id := ImageID{HostTypeKVM, KeyUbuntuServer26, ArchAMD64, VariantStable}
+	outside := filepath.Join(t.TempDir(), "secret")
+	if err := os.WriteFile(outside, []byte("not an image"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(s.ManualDir(id), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, filepath.Join(s.ManualDir(id), "linked.iso")); err != nil {
+		t.Skipf("no symlinks here: %v", err)
+	}
+	if path, _, ok := s.ManualCandidate(id, time.Now().Add(time.Hour)); ok {
+		t.Fatalf("a link in the drop folder was offered for adoption: %s", path)
 	}
 }

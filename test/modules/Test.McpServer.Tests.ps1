@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.25
+.VERSION 2026.10.26
 .GUID 42b151d1-856e-48cb-8f07-88010f773bcb
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -533,8 +533,11 @@ Describe 'the transcript pointer is decided, not discovered' {
         # temporary name loses the pointer silently -- nothing fails, the
         # server just stops finding one.
         $automation = Join-Path $script:RepoRoot 'automation'
+        # An entry point starts its transcript itself or through
+        # Invoke-YurunaEntrypoint, which starts it at the path the entry point
+        # resolved.
         $writers = @(Get-ChildItem -Path $automation -Filter '*.ps1' | Where-Object {
-                [IO.File]::ReadAllText($_.FullName) -match '(?m)^\$null = Start-Transcript ' })
+                [IO.File]::ReadAllText($_.FullName) -match '(?m)^\$null = Start-Transcript |Invoke-YurunaEntrypoint -TranscriptFile \$transcriptFileName' })
         Assert-True ($writers.Count -ge 6) "expected the transcript-writing entry points, found $($writers.Count)"
         foreach ($writer in $writers) {
             $text = [IO.File]::ReadAllText($writer.FullName)

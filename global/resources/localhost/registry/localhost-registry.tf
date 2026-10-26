@@ -1,5 +1,6 @@
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
+# GUID: 429529f4-b014-43b4-bd74-538c0ad6839f
 #
 # --- REGION: https://yuruna.link/42fa6f45-000f
 # The workload bash starts the registry container BEFORE Set-Resource runs; this data source only verifies it.

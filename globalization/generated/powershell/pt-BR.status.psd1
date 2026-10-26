@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.25
+.VERSION 2026.10.26
 .GUID 4253ddeb-5580-1ecb-1ae9-590969e1bd2e
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -299,6 +299,7 @@
     'status.banner_idle' = 'Não existem dados de ensaio disponíveis'
     'status.banner_incident_details' = 'Incidente detectado — ver detalhes abaixo'
     'status.banner_pass' = 'Todos os convidados operacionais'
+    'status.banner_recovery_disabled' = 'A recuperação automática está desligada: o registro de recuperação não pode ser lido nem gravado.'
     'status.banner_running' = 'Teste em curso'
     'status.banner_stalled' = @(
         'Teste em andamento, mas nenhuma etapa avançou dentro do limite de '

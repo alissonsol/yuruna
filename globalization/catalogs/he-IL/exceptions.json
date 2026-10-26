@@ -846,6 +846,11 @@
       "sourceHash": "452def7ac03c859d673da4abd0a9b989702fb80f54d822a9b7797d333603600f",
       "message": "המאגר '{poolId}' משתמש ב־⁦desiredState⁩ ב־⁦schemaVersion 4⁩; השתמשו ב־⁦configuredState⁩.",
       "origin": "machine"
+    },
+    "exceptions.host_signature_could_not_be_checked": {
+      "sourceHash": "13917984ef4619374aae86d6b0af96bb943efd7e06fac2a7f3da05a51de86233",
+      "origin": "machine",
+      "message": "לא ניתן היה לבדוק את חתימת GPG של SHA256SUMS עבור {checksumUrl}"
     }
   }
 }

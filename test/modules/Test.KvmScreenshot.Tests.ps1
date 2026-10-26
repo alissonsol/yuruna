@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.25
+.VERSION 2026.10.26
 .GUID 4241b748-d045-41cb-81f6-f42876137267
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -34,7 +34,17 @@ BeforeAll {
     . ([scriptblock]::Create($definition.Extent.Text))
     $consoleDefinition = $ast.Find({ param($node) $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq 'Restart-VMConsole' }, $true)
     . ([scriptblock]::Create($consoleDefinition.Extent.Text))
+    $completeDefinition = $ast.Find({ param($node) $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq 'Test-DriverNativeResultComplete' }, $true)
+    . ([scriptblock]::Create($completeDefinition.Extent.Text))
+    Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Common.psm1') -Force -DisableNameChecking
+    $script:VirshQueryTimeoutSeconds = 20
+    function Get-NativeResultFixture {
+        param([int]$ExitCode = 0, [switch]$TimedOut)
+        @{ Started = $true; ExitCode = $(if ($TimedOut) { 124 } else { $ExitCode }); TimedOut = [bool]$TimedOut
+            DrainTimedOut = $false; KillFailed = $false; OutputTruncated = $false; StdOut = ''; StdErr = '' }
+    }
     function Invoke-Virsh { param([string[]]$VirshArgs) $null = $VirshArgs }
+    function Invoke-VirshBounded { param([string[]]$VirshArgs, [int]$TimeoutSeconds) $null = $VirshArgs, $TimeoutSeconds }
     function bash { }
     function pkill { }
     function Test-VMConsoleOpen { param($VMName) $null = $VMName; return $false }
@@ -107,16 +117,21 @@ Describe 'KVM screenshot fallback behavior' {
             if ($Name -eq $script:Engine) { return [pscustomobject]@{ Name = $Name } }
             return $null
         } -ParameterFilter { $Name -in @('convert', 'pamtopng') }
-        Mock Invoke-Virsh {
+        Mock Invoke-VirshBounded {
             $script:CaptureArgs = @($VirshArgs)
             [IO.File]::WriteAllBytes($VirshArgs[-1], $script:PpmBytes)
-            $global:LASTEXITCODE = 0
+            Get-NativeResultFixture
         }
-        Mock convert {
-            $script:ConvertArgs = @($args)
-            [IO.File]::WriteAllText($args[-1], 'png-fixture')
-        }
-        Mock pamtopng { 'pamtopng-fixture' }
+        Mock Invoke-BoundedNativeCommand {
+            $script:ConvertArgs = @($ArgumentList)
+            [IO.File]::WriteAllText($ArgumentList[-1], 'png-fixture')
+            Get-NativeResultFixture
+        } -ParameterFilter { $FilePath -eq 'convert' }
+        Mock Invoke-BoundedNativeCommand {
+            $script:PamArgs = @($ArgumentList)
+            [IO.File]::WriteAllText($ArgumentList[-1], 'pamtopng-fixture')
+            Get-NativeResultFixture
+        } -ParameterFilter { $FilePath -eq 'sh' }
     }
     It 'excludes only date and time metadata and keeps literal VM/path arguments' {
         Get-VMScreenshot -VMName "vm `u{fc} [1]; literal" -OutFile $script:OutFile | Should -BeExactly $script:OutFile
@@ -126,20 +141,40 @@ Describe 'KVM screenshot fallback behavior' {
     }
     It 'maps window capture to the same framebuffer operation' {
         Get-VMScreenshot -VMName 'vm' -Source window -OutFile $script:OutFile | Should -BeExactly $script:OutFile
-        Should -Invoke Invoke-Virsh -Times 1 -Exactly
+        Should -Invoke Invoke-VirshBounded -Times 1 -Exactly
     }
     It 'returns no frame when virsh fails' {
-        Mock Invoke-Virsh { $global:LASTEXITCODE = 1 }
+        Mock Invoke-VirshBounded { Get-NativeResultFixture -ExitCode 1 }
         Get-VMScreenshot -VMName 'vm' -OutFile $script:OutFile -WarningAction SilentlyContinue | Should -BeNullOrEmpty
-        Should -Invoke convert -Times 0
+        Should -Invoke Invoke-BoundedNativeCommand -Times 0
+    }
+    It 'gives up on a frame virsh does not deliver within its cap, keeping no partial capture' {
+        Mock Invoke-VirshBounded {
+            [IO.File]::WriteAllBytes($VirshArgs[-1], $script:PpmBytes[0..5])
+            Get-NativeResultFixture -TimedOut
+        }
+        Get-VMScreenshot -VMName 'vm' -OutFile $script:OutFile -WarningAction SilentlyContinue | Should -BeNullOrEmpty
+        Should -Invoke Invoke-VirshBounded -Times 1 -Exactly -ParameterFilter { $TimeoutSeconds -eq 20 }
+        Should -Invoke Invoke-BoundedNativeCommand -Times 0
+        Test-Path -LiteralPath ([IO.Path]::ChangeExtension($script:OutFile, '.ppm')) | Should -BeFalse
+    }
+    It 'discards the partial PNG of a converter stopped at its cap' {
+        Mock Invoke-BoundedNativeCommand {
+            [IO.File]::WriteAllText($ArgumentList[-1], 'partial')
+            Get-NativeResultFixture -TimedOut
+        } -ParameterFilter { $FilePath -eq 'convert' }
+        Get-VMScreenshot -VMName 'vm' -OutFile $script:OutFile | Should -BeNullOrEmpty
+        Test-Path -LiteralPath $script:OutFile | Should -BeFalse
+        Test-Path -LiteralPath ([IO.Path]::ChangeExtension($script:OutFile, '.ppm')) | Should -BeFalse
     }
     It 'retains the pamtopng fallback' {
         $script:Engine = 'pamtopng'
         $script:OutFile = Join-Path $TestDrive 'pam-frame.png'
         Get-VMScreenshot -VMName 'vm' -OutFile $script:OutFile | Should -BeExactly $script:OutFile
         (Get-Content -LiteralPath $script:OutFile -Raw).Trim() | Should -BeExactly 'pamtopng-fixture'
-        Should -Invoke convert -Times 0
-        Should -Invoke pamtopng -Times 1 -Exactly
+        $script:PamArgs | Should -Be @('-c', 'exec pamtopng "$1" > "$2"', 'sh', [IO.Path]::ChangeExtension($script:OutFile, '.ppm'), $script:OutFile)
+        Should -Invoke Invoke-BoundedNativeCommand -Times 0 -ParameterFilter { $FilePath -eq 'convert' }
+        Should -Invoke Invoke-BoundedNativeCommand -Times 1 -Exactly -ParameterFilter { $FilePath -eq 'sh' }
     }
     It 'retains the raw PPM when neither converter is installed' {
         $script:Engine = 'none'
@@ -148,7 +183,7 @@ Describe 'KVM screenshot fallback behavior' {
         Test-Path -LiteralPath $ppm | Should -BeTrue
     }
     It 'returns no frame when conversion creates no output' {
-        Mock convert { }
+        Mock Invoke-BoundedNativeCommand { Get-NativeResultFixture } -ParameterFilter { $FilePath -eq 'convert' }
         Get-VMScreenshot -VMName 'vm' -OutFile $script:OutFile | Should -BeNullOrEmpty
         Test-Path -LiteralPath ([IO.Path]::ChangeExtension($script:OutFile, '.ppm')) | Should -BeFalse
     }
@@ -164,13 +199,12 @@ Describe 'KVM stable PNG conversion with actual ImageMagick' {
             return
         }
         $script:CaptureIndex = 0
-        Mock Invoke-Virsh {
+        Mock Invoke-VirshBounded {
             [IO.File]::WriteAllBytes($VirshArgs[-1], $script:PpmBytes)
             [IO.File]::SetLastWriteTimeUtc($VirshArgs[-1], [datetime]::new(2020 + $script:CaptureIndex, 1, 1, 0, 0, 0, [DateTimeKind]::Utc))
             $script:CaptureIndex++
-            $global:LASTEXITCODE = 0
+            Get-NativeResultFixture
         }
-        Mock convert { & $script:ImageMagick.Source @args }
         $frameA = Join-Path $TestDrive 'stable-a.png'
         $frameB = Join-Path $TestDrive 'stable-b.png'
         $rawPpm = Join-Path $TestDrive 'original.ppm'

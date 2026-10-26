@@ -1,5 +1,6 @@
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
+# GUID: 426d764b-1d96-43e0-914e-7892b25b8dcf
 $schema: https://json-schema.org/draft/2020-12/schema
 $id: https://yuruna.com/schemas/pools.schema.yml
 title: Yuruna pool definitions

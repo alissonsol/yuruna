@@ -74,8 +74,15 @@ service invokes the same pool scripts.
 Setup always brings up the cache, and the stash when storage is configured. The
 download agent defaults off in standalone mode and on in lab mode unless
 `downloadAgentService.enabled` says otherwise; lab mode also enrolls the lab
-token and adds a default pool and pool-control. A healthy service VM can be
-adopted; rebuilding applies changed provisioning settings. An interactive
+token and adds a default pool and pool-control. A healthy stash, download-agent,
+or pool-control VM can be adopted; rebuilding applies changed provisioning
+settings. The caching-proxy launcher defaults to a full rebuild and
+authenticated pool CA trust recovery; `-RepairPoolCaTrust:$false` permits its
+healthy-VM adoption path. Recovery verifies the proxy's signed CA statement
+before enrolling the builder's public mirror key through audience-bound host
+control. Existing CA pins remain until the next verified CA fetch. Unreachable
+hosts receive individual pending-enrollment diagnostics; an explicit
+`-RepairPoolCaTrust` makes incomplete enrollment fail the launcher. An interactive
 [caching-proxy launcher](../../test/service/Start-CachingProxyServiceVM.ps1)
 start also offers an optional GitHub token for the Git mirror; a supplied token
 is stored in the host's authentication vault and forces a rebuild, so the new
@@ -303,8 +310,12 @@ every driver execute every script.
 The guest family groups amazon.linux.2023, ubuntu.server.24, ubuntu.server.26,
 windows.11, macos.26, and [guest/shared](../../guest/shared/) helpers. Platform
 support comes from the corresponding builder folders; the diagram does not imply
-every provider supports every guest. macos.26 has a UTM builder only; Hyper-V,
-libvirt, and UTM retain their own native console and networking implementations.
+every provider supports every guest. macos.26 has a UTM builder only. That
+[builder](../../host/macos.utm/guest.macos.26/New-VM.ps1) restores an IPSW into a
+stopped VM bundle; the operator starts it and completes Setup Assistant. A
+[guest update script](../../guest/macos.26/macos.26.update.sh) exists, but no
+checked-in macos.26 start sequence automates initial setup. Hyper-V, libvirt,
+and UTM retain their own native console and networking implementations.
 When a guest update script materializes a pinned framework revision, it tries
 the caching-proxy Git mirror first if the guest has the proxy address, then
 GitHub.
@@ -473,5 +484,11 @@ The AWS template exposes the Kubernetes control-plane API separately from
 application ingress, as shown in [Deployment](06-deployment.md#aws-application-ingress).
 
 ---
+
+LICENSEURI https://yuruna.link/license
+
+Copyright (c) 2019-2026 by Alisson Sol et al.
+
+Last review: 2026.10.26
 
 [Architecture](../architecture.md) | [Design overview](README.md)

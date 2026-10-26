@@ -1,5 +1,6 @@
 // LICENSEURI https://yuruna.link/license
 // Copyright (c) 2019-2026 by Alisson Sol et al.
+// GUID: 42a42558-6b05-478d-8842-dcb7037a297c
 
 // Package controlproof verifies the shared host-control credential wire format.
 package controlproof

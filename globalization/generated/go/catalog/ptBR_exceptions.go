@@ -803,6 +803,14 @@ const DataptBRexceptions = `{
     },
     " do worker de host-refresh não corresponde aos parâmetros do script de entrada; recusando iniciar um worker que o ponto de entrada não aceitaria."
   ],
+  "exceptions.host_signature_could_not_be_checked": [
+    "A assinatura GPG do SHA256SUMS não pôde ser verificada para ",
+    {
+      "arg": "checksumUrl",
+      "type": "detail",
+      "trust": "external"
+    }
+  ],
   "exceptions.host_utm_sudo_requires_noninteractive": "Invoke-UtmHostTool: o sudo deve ser chamado com -n como primeiro argumento, para que nunca fique bloqueado em uma solicitação de senha.",
   "exceptions.host_utmctl_kill_requires_stop": [
     "Invoke-UtmctlLifecycle: -Kill se aplica apenas ao verbo stop, não a '",

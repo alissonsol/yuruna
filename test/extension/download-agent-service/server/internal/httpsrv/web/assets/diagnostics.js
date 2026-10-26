@@ -1,5 +1,6 @@
 // LICENSEURI https://yuruna.link/license
 // Copyright (c) 2019-2026 by Alisson Sol et al.
+// GUID: 4251e331-dc4c-487d-999e-9eec9f66c35f
 // Diagnostics page: renders /api/v1/diagnostics and drives the gated resolver
 // test. All data lands via textContent (Y.el) -- captured child-process output
 // is untrusted display text, never markup.

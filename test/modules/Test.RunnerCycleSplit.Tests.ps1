@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.25
+.VERSION 2026.10.26
 .GUID 424757c6-0173-447c-a3d1-c814f73109f8
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -164,6 +164,56 @@ Describe 'Wait-OuterInterruptible' {
         $sw.Stop()
         $cut | Should -Be $false
         $sw.Elapsed.TotalSeconds | Should -BeGreaterThan 1
+    }
+}
+
+Describe 'The resident delivers pool alerts between cycles' {
+    BeforeEach {
+        Mock -ModuleName Test.RunnerOuterLoop Write-OuterLog { }
+        $script:StartedJobs = 0
+        # A real job, so Receive-Job binds it; it sleeps until a test stops it.
+        $script:SleepingJob = Start-ThreadJob -ScriptBlock { Start-Sleep -Seconds 60 }
+        Mock -ModuleName Test.RunnerOuterLoop Start-ThreadJob { $script:StartedJobs++; $script:SleepingJob }
+        Mock -ModuleName Test.RunnerOuterLoop Receive-Job { @{ ran = $true; enqueued = 1; delivered = 1; failed = 0; retried = 0 } }
+        Mock -ModuleName Test.RunnerOuterLoop Remove-Job { }
+    }
+    AfterEach {
+        & (Get-Module Test.RunnerOuterLoop) { $script:OuterWaitTickState = $null }
+        Stop-Job -Job $script:SleepingJob -ErrorAction SilentlyContinue
+        Microsoft.PowerShell.Core\Remove-Job -Job $script:SleepingJob -Force -ErrorAction SilentlyContinue
+    }
+
+    It 'ticks from each wait slice while the resident has registered its state, and not otherwise' {
+        Mock -ModuleName Test.RunnerOuterLoop Invoke-OuterPoolNotifierTick { }
+        & (Get-Module Test.RunnerOuterLoop) { $script:OuterWaitTickState = @{ ConfigPath = 'c' } }
+        $null = Wait-OuterInterruptible -Seconds 2 -ShutdownState @{ Requested = $false } -SliceSeconds 1
+        Should -Invoke -ModuleName Test.RunnerOuterLoop Invoke-OuterPoolNotifierTick -Times 2 -Exactly -Scope It
+        & (Get-Module Test.RunnerOuterLoop) { $script:OuterWaitTickState = $null }
+        $null = Wait-OuterInterruptible -Seconds 1 -ShutdownState @{ Requested = $false } -SliceSeconds 1
+        Should -Invoke -ModuleName Test.RunnerOuterLoop Invoke-OuterPoolNotifierTick -Times 2 -Exactly -Scope It
+    }
+    It 'starts at most one run a minute, never waits on it, and collects it once it ends' {
+        $state = @{ ConfigPath = 'c' }
+        Invoke-OuterPoolNotifierTick -State $state
+        $script:StartedJobs | Should -Be 1
+        Invoke-OuterPoolNotifierTick -State $state
+        $script:StartedJobs | Should -Be 1 -Because 'the run it started is still going'
+        Stop-Job -Job $script:SleepingJob
+        Invoke-OuterPoolNotifierTick -State $state
+        Should -Invoke -ModuleName Test.RunnerOuterLoop Receive-Job -Times 1 -Exactly -Scope It
+        $state['PoolNotifierJob'] | Should -BeNullOrEmpty
+        $script:StartedJobs | Should -Be 1 -Because 'a minute has not passed'
+        $state['PoolNotifierTickMs'] = [Environment]::TickCount64 - 61000
+        Invoke-OuterPoolNotifierTick -State $state
+        $script:StartedJobs | Should -Be 2
+    }
+    It 'sets a run past the cap aside for the reaper instead of waiting on it' {
+        $state = @{ ConfigPath = 'c' }
+        Invoke-OuterPoolNotifierTick -State $state
+        $state['PoolNotifierJobStartedMs'] = [Environment]::TickCount64 - 121000
+        Invoke-OuterPoolNotifierTick -State $state
+        @($state.LeakedNotifierJobs).Count | Should -Be 1
+        $state['PoolNotifierJob'] | Should -BeNullOrEmpty
     }
 }
 

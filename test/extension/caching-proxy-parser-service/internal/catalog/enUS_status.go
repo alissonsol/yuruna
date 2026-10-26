@@ -266,6 +266,7 @@ const DataenUSstatus = `{
   "status.banner_idle": "No test data available",
   "status.banner_incident_details": "Incident detected — see details below",
   "status.banner_pass": "All guests operational",
+  "status.banner_recovery_disabled": "Automatic recovery is off: the recovery ledger cannot be read or written.",
   "status.banner_running": "Test in progress",
   "status.banner_stalled": [
     "Test in progress, but no step has advanced within its ",

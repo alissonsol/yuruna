@@ -1,5 +1,6 @@
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
+# GUID: 4260c12e-bffd-4cb4-b40e-88a193d5e0da
 resource "azurerm_public_ip" "frontendIp" {
   name                = format("%s.frontendIp", var.resourceGroup)
   resource_group_name = azurerm_kubernetes_cluster.default.node_resource_group

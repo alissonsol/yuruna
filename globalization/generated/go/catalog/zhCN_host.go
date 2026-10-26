@@ -7,6 +7,36 @@ package catalog
 // DatazhCNhost is the compiled catalog for this locale and domain. It is a
 // string so the package carries no init cost until a caller decodes it.
 const DatazhCNhost = `{
+  "host.agent_image_unverifiable": [
+    "下载代理从 ",
+    {
+      "arg": "sourceUrl",
+      "type": "detail",
+      "trust": "external"
+    },
+    " 提供了 ",
+    {
+      "arg": "isoFileName",
+      "type": "identifier",
+      "trust": "external"
+    },
+    "，但发布者的校验和列表中没有它，因此不使用该映像。"
+  ],
+  "host.base_image_publish_failed": [
+    "无法将下载内容就位为",
+    {
+      "arg": "baseImageFile",
+      "type": "detail",
+      "trust": "internal"
+    },
+    "：",
+    {
+      "arg": "message",
+      "type": "detail",
+      "trust": "external"
+    },
+    " 未为其写入哨兵或来源记录。"
+  ],
   "host.clock_service_description": "Windows时间服务（W32Time）",
   "host.enable_automation_no_prompt_confirm_conflict": "Enable-TestAutomation：-NoOperatorPrompt不能与-Confirm同时使用，后者会在每次更改前询问；未记录或更改任何内容。",
   "host.enable_automation_no_prompt_mode": "Enable-TestAutomation：正在以-NoOperatorPrompt运行，不显示同意对话框、不重启程序坞或屏幕保护程序、不安装模块、不显示sudo提示，也不询问networkStorage配置。需要操作员处理的设置将报告为仍未满足。",
@@ -4854,7 +4884,7 @@ const DatazhCNhost = `{
     },
     "'加入网桥）——其上的客户机将无法收到DHCP响应。正在回滚netplan更改。"
   ],
-  "host.operator_891e818fe6ad2659": "SHA256SUMS签名未经验证（gpg/keyserver不可用，或缺少分离式.gpg签名）；将仅依据哈希值继续。",
+  "host.operator_891e818fe6ad2659": "SHA256SUMS签名未经验证（未安装gpg或固定的密钥环）；将仅依据哈希值继续。",
   "host.operator_89af27dbbf79e963": [
     "路径不存在：",
     {
@@ -8179,7 +8209,7 @@ const DatazhCNhost = `{
   ],
   "host.operator_f08765755eb06413": "apt软件包（qemu-kvm、libvirt-daemon-system、cifs-utils、acl等）和PSGallery模块",
   "host.operator_f0fd9838eca3f370": "  virsh --source agent     ：已尝试（初始化配置会尽力安装qemu-guest-agent；请逐一确认客户机）",
-  "host.operator_f11ac5338e134c99": "Save-ImageWithChecksum：SHA256SUMS签名未经验证（gpg/keyserver不可用，或缺少分离式.gpg签名）；将仅依据哈希值继续。",
+  "host.operator_f11ac5338e134c99": "Save-ImageWithChecksum：SHA256SUMS签名未经验证（未安装gpg或固定的密钥环）；将仅依据哈希值继续。",
   "host.operator_f138be59eb9fb325": "libvirt图形界面，用于查看无界面步骤卡住时的客户机",
   "host.operator_f14a8d0740e60f7c": [
     "Save-VMDiskSnapshot：“",
@@ -8714,6 +8744,23 @@ const DatazhCNhost = `{
       "trust": "external"
     },
     "”，也未编辑其应用包。"
+  ],
+  "host.signature_could_not_be_checked": "  无法检查SHA256SUMS的GPG签名",
+  "host.signature_could_not_be_checked_detail": "  gpg和固定的Ubuntu签名密钥都存在，但无法获取或验证签名；该校验和因未经认证而被拒绝。",
+  "host.snapshot_state_unknown": [
+    "无法确定",
+    {
+      "arg": "vMName",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "上是否存在快照“",
+    {
+      "arg": "id",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "”：虚拟机管理程序没有响应。"
   ],
   "host.unified_screen_lock_description": "sysadminctl统一屏幕锁定",
   "host.utm_app_census_unknown": [

@@ -1,11 +1,13 @@
 // LICENSEURI https://yuruna.link/license
 // Copyright (c) 2019-2026 by Alisson Sol et al.
+// GUID: 426ba8f5-e0b5-408e-a580-e059e1b52972
 
 package main
 
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -312,4 +314,22 @@ func TestMirrorMaintenanceDrainsReadersWithoutRefreshSlot(t *testing.T) {
 		t.Fatal("admission stayed closed")
 	}
 	release()
+}
+
+// A registry that cannot reload stops the mirror learning new repositories, so
+// the failure is kept for status until a reload succeeds, and counted each time.
+func TestMirrorRegistryReloadFailureIsKeptUntilAReloadSucceeds(t *testing.T) {
+	c := &mirrorCoordinator{metrics: map[string]uint64{}}
+	c.noteReload(errors.New("registration file unreadable"))
+	c.noteReload(errors.New("registration file unreadable"))
+	if c.reloadError != "registration file unreadable" {
+		t.Fatalf("reloadError = %q, want the failure", c.reloadError)
+	}
+	if c.metrics["registry-reload-failures"] != 2 {
+		t.Fatalf("registry-reload-failures = %d, want 2", c.metrics["registry-reload-failures"])
+	}
+	c.noteReload(nil)
+	if c.reloadError != "" {
+		t.Fatalf("reloadError = %q after a successful reload, want empty", c.reloadError)
+	}
 }

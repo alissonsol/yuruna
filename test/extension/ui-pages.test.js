@@ -1,5 +1,6 @@
 // LICENSEURI https://yuruna.link/license
 // Copyright (c) 2019-2026 by Alisson Sol et al.
+// GUID: 427ca31b-5c50-48a7-98b1-d8ecd145303e
 /*
   Every page of every extension service UI, loaded the way a browser loads it:
   the SDK's shared runtime, then the service's common.js, then the page's own

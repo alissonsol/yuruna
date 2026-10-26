@@ -1,5 +1,6 @@
 // LICENSEURI https://yuruna.link/license
 // Copyright (c) 2019-2026 by Alisson Sol et al.
+// GUID: 4259be0a-4e8f-46ac-b11d-4b2cde8fae0a
 
 // Package i18n decides which language a reader gets, and renders the compiled
 // catalog in it.

@@ -1,5 +1,6 @@
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
+# GUID: 42f71002-4a3c-4c39-947b-d1e8180fdfc0
 # KVM/libvirt overlay for stash-service.base.user-data.
 # Anchor sections in base-file order. An empty section emits nothing at that anchor.
 # See https://yuruna.link/42e220c4-0006

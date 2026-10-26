@@ -1,5 +1,6 @@
 // LICENSEURI https://yuruna.link/license
 // Copyright (c) 2019-2026 by Alisson Sol et al.
+// GUID: 42df1035-4aba-4238-aa8c-dcadd6bf7664
 
 package mcp
 
@@ -44,7 +45,7 @@ func newTestServer(t *testing.T, gate Gate) *httptest.Server {
 			return map[string]any{"ok": true, "on": in.On}, nil
 		},
 	})
-	srv := httptest.NewServer(NewServer("test-service", "2026.10.25", reg, gate).Handler())
+	srv := httptest.NewServer(NewServer("test-service", "2026.10.26", reg, gate).Handler())
 	t.Cleanup(srv.Close)
 	return srv
 }
@@ -96,7 +97,7 @@ func TestInitializeAnswersThePinnedProtocol(t *testing.T) {
 		}
 	}
 	info, _ := res["serverInfo"].(map[string]any)
-	if info["name"] != "test-service" || info["version"] != "2026.10.25" {
+	if info["name"] != "test-service" || info["version"] != "2026.10.26" {
 		t.Errorf("serverInfo = %v", info)
 	}
 }

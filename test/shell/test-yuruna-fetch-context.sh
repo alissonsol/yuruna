@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
+# GUID: 4273d99c-bbde-4599-b45e-354eed802b0a
 set -euo pipefail
 
 root=$(cd "$(dirname "$0")/../.." && pwd)
@@ -152,6 +153,36 @@ id=01234567892
 command='[[ ! -v E_PROJECT_REPO && ! -v E_PROJECT_REF && ! -v E_FB_REPO && ! -v E_FB_REF && ! -v E_SHA && ! -v E_RETRY_SHA && ! -v FAE_INVOCATION_SCRIPT ]]'
 prepare "$id" "$(context "$id" "$command")"
 E_PROJECT_REPO=stale/project E_PROJECT_REF=stale E_FB_REPO=stale/framework E_FB_REF=stale E_SHA=stale E_RETRY_SHA=stale FAE_INVOCATION_SCRIPT=guest/prior.sh \
+    "$launcher" "$id" bash -c "$command"
+
+# The archives an update script unpacks: a commit and digest per tree, exported
+# to the payload, each pair whole or absent.
+id=01234567893
+archive_commit=$(printf 'c%.0s' {1..40})
+archive_sha=$(printf 'd%.0s' {1..64})
+archive_fields="E_ARCHIVE_COMMIT=$(encode "$archive_commit")"$'\n'"E_ARCHIVE_SHA=$(encode "$archive_sha")"$'\n'
+archive_fields+="E_PROJECT_ARCHIVE_COMMIT=$(encode "$(printf 'e%.0s' {1..40})")"$'\n'"E_PROJECT_ARCHIVE_SHA=$(encode "$(printf 'f%.0s' {1..64})")"$'\n'
+command="printf '%s %s %s %s' \"\$E_ARCHIVE_COMMIT\" \"\$E_ARCHIVE_SHA\" \"\$E_PROJECT_ARCHIVE_COMMIT\" \"\$E_PROJECT_ARCHIVE_SHA\" > '$tmp/archive'"
+prepare "$id" "$(context "$id" "$command" "$archive_fields")"
+"$launcher" "$id" bash -c "$command"
+[[ $(cat "$tmp/archive") == "$archive_commit $archive_sha $(printf 'e%.0s' {1..40}) $(printf 'f%.0s' {1..64})" ]]
+
+id=01234567894
+commit_field="E_ARCHIVE_COMMIT=$(encode "$archive_commit")"$'\n'
+sha_field="E_ARCHIVE_SHA=$(encode "$archive_sha")"$'\n'
+rejected CONTEXT_DIGEST prepare "$id" "$(context "$id" true "$commit_field")"
+rejected CONTEXT_SOURCE prepare "$id" "$(context "$id" true "$sha_field")"
+for bad_commit in main abcdef1 AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA ''; do
+    rejected CONTEXT_SOURCE prepare "$id" "$(context "$id" true "$sha_field""E_ARCHIVE_COMMIT=$(encode "$bad_commit")"$'\n')"
+done
+rejected CONTEXT_DIGEST prepare "$id" "$(context "$id" true "$commit_field""E_ARCHIVE_SHA=$(encode abc)"$'\n')"
+rejected CONTEXT_DIGEST prepare "$id" "$(context "$id" true "E_PROJECT_ARCHIVE_COMMIT=$(encode "$archive_commit")"$'\n')"
+
+# A context without archive pins must not inherit an earlier shell's.
+id=01234567895
+command='[[ ! -v E_ARCHIVE_COMMIT && ! -v E_ARCHIVE_SHA && ! -v E_PROJECT_ARCHIVE_COMMIT && ! -v E_PROJECT_ARCHIVE_SHA ]]'
+prepare "$id" "$(context "$id" "$command")"
+E_ARCHIVE_COMMIT=stale E_ARCHIVE_SHA=stale E_PROJECT_ARCHIVE_COMMIT=stale E_PROJECT_ARCHIVE_SHA=stale \
     "$launcher" "$id" bash -c "$command"
 
 printf 'yuruna-fetch-context: all checks passed\n'

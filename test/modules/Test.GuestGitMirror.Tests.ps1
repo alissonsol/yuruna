@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.25
+.VERSION 2026.10.26
 .GUID 42cfce16-0bb7-4e30-aec8-058268db517a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -131,6 +131,96 @@ printf 'CALLS_END\n'
     }
 }
 
+# An update script unpacked the archives the host served with nothing to check
+# them against, so any responder at the host's address chose the tree it ran.
+Describe 'The archives an update script unpacks' -Skip:(-not $script:CanRunGuestGit) {
+    BeforeAll {
+        function Invoke-ArchiveFetchFixture {
+            param([string]$Mode)
+            $root = Join-Path $TestDrive ([guid]::NewGuid().ToString('N'))
+            $null = New-Item -ItemType Directory -Path $root
+            $driver = @'
+set -euo pipefail
+cd "$FIXTURE_ROOT"
+mkdir -p tree destination
+printf 'served\n' > tree/VERSION
+tar -czf served.tar.gz -C tree .
+if command -v sha256sum >/dev/null 2>&1; then sha=$(sha256sum served.tar.gz); else sha=$(shasum -a 256 served.tar.gz); fi
+sha=${sha%% *}
+. "$FIXTURE_LIBRARY"
+wget() {
+    local output='' url=''
+    while [ $# -gt 0 ]; do
+        case "$1" in -qO) output="$2"; shift 2 ;; -qO-) output=-; shift ;; -*) shift ;; *) url="$1"; shift ;; esac
+    done
+    printf '%s\n' "$url" >> "$FIXTURE_ROOT/requests"
+    [ "$FIXTURE_MODE" != unreachable ] || return 4
+    if [ "$output" = - ]; then cat served.tar.gz; else cp served.tar.gz "$output"; fi
+}
+commit=0123456789abcdef0123456789abcdef01234567
+expected=$sha
+case "$FIXTURE_MODE" in
+    mismatch) expected=$(printf '0%.0s' {1..64}) ;;
+    by-hand) commit=''; expected='' ;;
+esac
+rc=0
+yuruna_fetch_archive http://host.invalid:8080/yuruna-archive.tar.gz destination "$commit" "$expected" || rc=$?
+printf 'RC=%s\n' "$rc"
+if [ -f destination/VERSION ]; then printf 'UNPACKED\n'; else printf 'NOTHING_UNPACKED\n'; fi
+cat requests
+'@
+            $entry = Join-Path $root 'fixture.sh'
+            [IO.File]::WriteAllText($entry, $driver.Replace("`r`n", "`n"))
+            $result = Invoke-BoundedNativeCommand -FilePath (Get-Command bash).Source -ArgumentList @($entry) -TimeoutSeconds 20 `
+                -Environment @{ FIXTURE_ROOT = $root; FIXTURE_MODE = $Mode; FIXTURE_LIBRARY = (Join-Path $script:RepoRoot 'automation/yuruna-retry.sh') }
+            $result.ExitCode | Should -Be 0 -Because $result.StdErr
+            return $result.StdOut
+        }
+    }
+
+    It 'asks for the commit the host named and unpacks the archive only when its digest matches' {
+        $output = Invoke-ArchiveFetchFixture verified
+        $output | Should -Match '(?m)^RC=0$'
+        $output | Should -Match '(?m)^UNPACKED$'
+        $output | Should -Match '(?m)^http://host\.invalid:8080/yuruna-archive\.tar\.gz\?commit=0123456789abcdef0123456789abcdef01234567$'
+    }
+
+    It 'unpacks nothing from an archive whose digest does not match, and says so' {
+        $output = Invoke-ArchiveFetchFixture mismatch
+        $output | Should -Match '(?m)^RC=1$'
+        $output | Should -Match '(?m)^NOTHING_UNPACKED$'
+        $output | Should -Match 'does not match the digest the host sent; not unpacked'
+    }
+
+    It 'unpacks nothing when the archive cannot be fetched' {
+        $output = Invoke-ArchiveFetchFixture unreachable
+        $output | Should -Not -Match '(?m)^RC=0$'
+        $output | Should -Match '(?m)^NOTHING_UNPACKED$'
+    }
+
+    It 'unpacks the archive as served in a run by hand, where no context names a digest' {
+        $output = Invoke-ArchiveFetchFixture by-hand
+        $output | Should -Match '(?m)^RC=0$'
+        $output | Should -Match '(?m)^UNPACKED$'
+        $output | Should -Match '(?m)^http://host\.invalid:8080/yuruna-archive\.tar\.gz$'
+    }
+
+    It 'is what <File> calls for each tree it unpacks, with the context''s pins' -ForEach @(
+        @{ File = 'automation/yuruna-retry.sh'; Framework = 1 }
+        @{ File = 'guest/shared/ubuntu.update.sh'; Framework = 2 }
+        @{ File = 'guest/amazon.linux.2023/amazon.linux.2023.update.sh'; Framework = 2 }
+        @{ File = 'guest/macos.26/macos.26.update.sh'; Framework = 2 }
+    ) {
+        $source = Get-Content (Join-Path $script:RepoRoot $File) -Raw
+        $frameworkCalls = [regex]::Matches($source, 'yuruna_fetch_archive "\$TARBALL_URL" "\$REAL_HOME/yuruna" "\$\{E_ARCHIVE_COMMIT:-\}" "\$\{E_ARCHIVE_SHA:-\}"')
+        $frameworkCalls.Count | Should -Be $Framework
+        $projectCalls = [regex]::Matches($source, 'yuruna_fetch_archive "\$PROJECT_TARBALL_URL" "\$REAL_HOME/yuruna/project" \\\s+"\$\{E_PROJECT_ARCHIVE_COMMIT:-\}" "\$\{E_PROJECT_ARCHIVE_SHA:-\}"')
+        $projectCalls.Count | Should -Be 1
+        # Only the helper unpacks, into its own destination argument.
+        $source | Should -Not -Match 'tar -xzf? -C "\$REAL_HOME/yuruna'
+    }
+}
+
 Describe 'Guest framework Git materialization' -Skip:(-not $script:CanRunGuestGit) {
     It '<Platform> fetches the selected commit even when the branch advanced or installed library is old' -ForEach @(
         @{ Platform='Library' }, @{ Platform='Ubuntu' }, @{ Platform='Amazon' }
@@ -178,7 +268,7 @@ Describe 'Guest framework Git materialization' -Skip:(-not $script:CanRunGuestGi
         $library = Get-Content (Join-Path $script:RepoRoot 'automation/yuruna-retry.sh') -Raw
         foreach ($relative in 'guest/shared/ubuntu.update.sh', 'guest/amazon.linux.2023/amazon.linux.2023.update.sh', 'guest/macos.26/macos.26.update.sh') {
             $source = Get-Content (Join-Path $script:RepoRoot $relative) -Raw
-            $names = @('yuruna_materialize_framework_pin')
+            $names = @('yuruna_materialize_framework_pin', 'yuruna_fetch_archive')
             if ($relative -notlike 'guest/macos*') { $names += 'yuruna_materialize_repositories' }
             foreach ($name in $names) {
                 $pattern = "(?ms)^$name\(\) \{.*?^\}"

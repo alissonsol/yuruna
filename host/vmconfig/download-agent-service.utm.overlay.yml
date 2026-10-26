@@ -1,5 +1,6 @@
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
+# GUID: 422bfbe4-5ddb-466f-9425-3d49f7b16d38
 # macOS/UTM (QEMU) overlay for download-agent-service.base.user-data.
 # Anchor sections in base-file order. An empty section emits nothing at that anchor.
 # See https://yuruna.link/42e220c4-0006

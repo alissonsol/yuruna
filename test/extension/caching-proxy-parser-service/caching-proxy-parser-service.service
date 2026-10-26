@@ -1,5 +1,6 @@
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
+# GUID: 42a47e6a-b66b-43fd-af32-b3ebc017c18e
 # --- REGION: [Unit]
 [Unit]
 Description=Yuruna caching-proxy-parser-service (in-memory last-100 squid requests)

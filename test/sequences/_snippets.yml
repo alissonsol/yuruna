@@ -2,6 +2,7 @@
 
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
+# GUID: 42bc46c9-3534-4149-9b88-7bd2b2878604
 
 # Nudge agetty before waiting so the login prompt is redrawn and input settles.
 # See https://yuruna.link/42e220c4-0007

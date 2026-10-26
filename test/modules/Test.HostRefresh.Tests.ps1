@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.25
+.VERSION 2026.10.26
 .GUID 4253a1e0-9103-4f16-8461-710adf91da65
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -755,6 +755,40 @@ exit 0
         $unreadable = Start-HostRefreshStatusService -RepoRoot $garbage -RuntimeDir $runtime -Port 8123 -ResultPath (Join-Path $garbage 'result.json') -Deadline (New-YurunaDeadline -TotalMilliseconds 60000) -Confirm:$false
         Assert-Equal 'unavailable' $unreadable.Outcome
         Assert-Equal 'result-unreadable' $unreadable.Reason
+    }
+
+    It 'never reads an earlier start''s result as this one''s' {
+        $silent = New-FakeListenerRepo -Body "param([switch]`$RefreshSafe, [int]`$Port, [string]`$ResultPath, [long]`$DeadlineTickMs)`nexit 1`n"
+        $resultPath = Join-Path $silent 'result.json'
+        $earlier = @{ schemaVersion = 1; outcome = 'existing-ready'; pid = 4242; startTimeUnixMs = 1 } | ConvertTo-Json -Compress
+        [IO.File]::WriteAllText($resultPath, $earlier)
+        $removed = Start-HostRefreshStatusService -RepoRoot $silent -RuntimeDir '/tmp' -Port 8123 -ResultPath $resultPath -Deadline (New-YurunaDeadline -TotalMilliseconds 60000) -Confirm:$false
+        Assert-Equal 'unavailable' $removed.Outcome 'a child that wrote nothing has no outcome of its own'
+        Assert-Equal 'result-unreadable' $removed.Reason
+    }
+
+    It 'refuses to start while an earlier result cannot be removed' {
+        if (-not $IsWindows -and [Environment]::IsPrivilegedProcess) {
+            Set-ItResult -Skipped -Because 'root removes a file from a read-only directory, so the fixture cannot keep it'; return
+        }
+        $marker = Join-Path (New-ScratchDir -Prefix 'svc') 'launched'
+        $body = "param([switch]`$RefreshSafe, [int]`$Port, [string]`$ResultPath, [long]`$DeadlineTickMs)`n[IO.File]::WriteAllText('$marker', 'ran')`n"
+        $root = New-FakeListenerRepo -Body $body
+        $resultDir = Join-Path $root 'private'
+        $null = New-Item -ItemType Directory -Path $resultDir
+        $resultPath = Join-Path $resultDir 'result.json'
+        [IO.File]::WriteAllText($resultPath, '{"outcome":"existing-ready"}')
+        if ($IsWindows) { (Get-Item -LiteralPath $resultPath).IsReadOnly = $true }
+        else { [IO.File]::SetUnixFileMode($resultDir, [IO.UnixFileMode]'UserRead, UserExecute') }
+        try {
+            $stale = Start-HostRefreshStatusService -RepoRoot $root -RuntimeDir '/tmp' -Port 8123 -ResultPath $resultPath -Deadline (New-YurunaDeadline -TotalMilliseconds 60000) -Confirm:$false
+        } finally {
+            if ($IsWindows) { (Get-Item -LiteralPath $resultPath).IsReadOnly = $false }
+            else { [IO.File]::SetUnixFileMode($resultDir, [IO.UnixFileMode]'UserRead, UserWrite, UserExecute') }
+        }
+        Assert-Equal 'unavailable' $stale.Outcome
+        Assert-Equal 'stale-result' $stale.Reason
+        Assert-False (Test-Path -LiteralPath $marker) 'the listener is not started over a result it could be confused with'
     }
 }
 

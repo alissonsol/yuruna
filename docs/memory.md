@@ -398,8 +398,8 @@ The recurring runner's cycle worker launches the inner `pwsh` through
 that process and reads its exit code. Its native stdout remains attached to the
 console even when a caller captures the cycle function's typed result, so
 descendant services do not inherit a PowerShell success-stream pipe. The
-standalone `Invoke-TestProject.ps1` entry point uses the call operator
-`& $pwshExe @argList` for its direct inner invocation.
+standalone `Invoke-TestProject.ps1` entry point runs its one cycle through the
+same dispatcher and cycle worker.
 
 An earlier `Start-Process -NoNewWindow -Wait -PassThru` launch was observed
 to remain blocked after the inner emitted its final cycle-end line.
@@ -1468,8 +1468,8 @@ Source:
 [`automation/fetch-and-execute.sh`](../automation/fetch-and-execute.sh)
 tees the inner script's combined stdout/stderr into
 `/tmp/yuruna-last-fetch-and-execute.log` so the harness can `scp` it
-back on failure
-(`Copy-FailureArtifactsToStatusLog` -> `Save-GuestFetchAndExecuteLog`).
+back on failure (`Copy-FailureArtifactsToStatusLog` copies it into the
+sequence's log folder as `last-fetch-and-execute.log`).
 The file is truncated at every fetch-and-execute call so it always
 holds the LAST script's output -- the most useful post-mortem artifact
 for a sequence that ended on a `fetchAndExecute` step.
@@ -1652,6 +1652,18 @@ certain post-render rejections (server-side admission failures that
 surface only in the trailing log). Either signal aborts the test
 sequence.
 
+The install goes through the shared retry policy with the transient-failure
+classifier, like the helm and kubectl tool deployments: an install whose chart or image
+fetch fails for a passing reason runs again, over the release
+`--atomic` has rolled back, and each attempt is one section of
+`helm.stderr.log`. The chart is copied into an emptied work folder first,
+so a template the chart dropped is not installed again from an earlier copy,
+and a copy that fails stops the deployment. A failed lint, install or tool
+deployment puts the last lines of the tool's output into the result's
+`errorMessage` (`Get-YurunaOutputTail`, redacted and bounded): the entry
+points run at `-logLevel Error` by default, which drops the lines they print,
+and the `YURUNA_RESULT` line is what reaches the host.
+
 Source:
 [`automation/Yuruna.Workload.psm1`](../automation/Yuruna.Workload.psm1).
 
@@ -1744,6 +1756,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.25
+Last review: 2026.10.26
 
 Back to [Yuruna](../README.md)

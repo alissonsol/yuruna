@@ -1332,6 +1332,50 @@
       "message": "Inspect sourceSelections in the configuration-gate diagnostics and the mirror status; keep signature and commit verification enabled.",
       "description": "Source verification recovery guidance. Keep stable codes, sourceSelections, key IDs and SHA unchanged.",
       "lifecycle": "active"
+    },
+    "remediation.vm_not_stopped_rationale": {
+      "message": "{vmName} never reached the stopped state the step waited for: the guest ignored the shutdown request, and waiting again cannot change that. A cold power cycle can.",
+      "description": "Rationale of the vm_not_stopped recovery handler in test/modules/Test.Remediation.psm1.",
+      "lifecycle": "active",
+      "placeholders": {
+        "vmName": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "test-ubuntu-server-26"
+        }
+      }
+    },
+    "remediation.vm_not_stopped_action_power": {
+      "message": "Power the VM off from the host -- a retry with restartVmBeforeRetry: coldPowerCycle does this -- and run the step again.",
+      "description": "Action of the vm_not_stopped recovery handler in test/modules/Test.Remediation.psm1; keep the sequence key and its value.",
+      "lifecycle": "active"
+    },
+    "remediation.vm_not_stopped_action_inspect": {
+      "message": "If it happens again, look at the guest console for what is holding the shutdown.",
+      "description": "Action of the vm_not_stopped recovery handler in test/modules/Test.Remediation.psm1.",
+      "lifecycle": "active"
+    },
+    "remediation.guest_run_lost_rationale": {
+      "message": "The run on {vmName} was lost: the guest's supervisor answered but could not account for it, so the process is gone and reconnecting cannot bring it back.",
+      "description": "Rationale of the guest_run_lost recovery handler in test/modules/Test.Remediation.psm1.",
+      "lifecycle": "active",
+      "placeholders": {
+        "vmName": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "test-ubuntu-server-26"
+        }
+      }
+    },
+    "remediation.guest_run_lost_action_restore": {
+      "message": "Restore the last good snapshot and run the sequence again.",
+      "description": "Action of the guest_run_lost recovery handler in test/modules/Test.Remediation.psm1.",
+      "lifecycle": "active"
+    },
+    "remediation.guest_run_lost_action_inspect": {
+      "message": "Read the guest's execution log for what ended the process.",
+      "description": "Action of the guest_run_lost recovery handler in test/modules/Test.Remediation.psm1.",
+      "lifecycle": "active"
     }
   }
 }

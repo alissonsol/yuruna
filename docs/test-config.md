@@ -115,7 +115,10 @@ defines are removed (a populated removed key first backs the previous file
 up to `test.config.yml.backup`); and the file is rewritten with all map
 keys and scalar-array elements in alphabetical order so it is byte-stable
 and diff-friendly. Operator values that still map are kept and the
-out-of-band `secrets` node is untouched.
+out-of-band `secrets` node is untouched. A template leaf written as `null`
+(`downloadAgentService.enabled`, `vmCommunication.batchedTextSend`) means
+"unstated": the code picks a default that depends on the mode or the host, and
+the reconciled file keeps `null` until the operator states a value.
 
 Outcomes: already canonical -> PASS with no rewrite; fields added/re-sorted
 -> PASS listing new fields to fill in; populated keys dropped from the
@@ -123,7 +126,10 @@ schema -> WARN or FAIL per `-OnConfigSchemaDrift` (recover from the
 `.backup`). At cycle start the runner runs the same reconciliation via
 `Update-TestConfigFromTemplate`, which additionally STOPS the run when a
 populated value no longer maps; `-ApplyConfigMigration` runs that
-stop-on-unmappable variant immediately.
+stop-on-unmappable variant immediately. A file that exists but holds no
+mapping (empty, comments only, a bare scalar or list) is refused as
+`config-corrupt` before anything is written, so neither the file nor its
+`.backup` changes: restore the file and run again.
 
 <a id="42b11c32-0004"></a>
 
@@ -212,7 +218,7 @@ guide: [download-agent.md](download-agent.md); the service section of
 | Key | Type | Meaning |
 |---|---|---|
 | `autoSeed` | bool | Pre-download the stable image families for the host types the pool aggregator reports, instead of waiting for a host to ask. Default `true`; `false` leaves the pool demand-driven and manual. |
-| `enabled` | bool | Master switch for the setup bring-up. `false` makes `install/setup.ps1` skip the agent's reset+start pair, so a re-run neither rebuilds nor starts it; `true` brings it up in either mode. An absent key resolves by mode: a **lab** runs the agent (sharing images across the pool's hosts is its whole point), a **standalone** host does not -- its memory goes to the test guests instead. Running `test/service/Start-DownloadAgentServiceVM.ps1` by hand still starts it -- asking for it explicitly overrides the setup default. |
+| `enabled` | bool | Master switch for the setup bring-up. `false` makes `install/setup.ps1` skip the agent's reset+start pair, so a re-run neither rebuilds nor starts it; `true` brings it up in either mode. An absent key, or the template's `null`, resolves by mode: a **lab** runs the agent (sharing images across the pool's hosts is its whole point), a **standalone** host does not -- its memory goes to the test guests instead. Running `test/service/Start-DownloadAgentServiceVM.ps1` by hand still starts it -- asking for it explicitly overrides the setup default. |
 | `freshnessSeconds` | int | How long an image stays fresh after its last successful **direct** origin check. Default `86400` (24 h). |
 | `prefetchLeadSeconds` | int | The scanner acts on an image whose freshness expires within this window, rather than waiting for it to go stale. Default `7200` (2 h). |
 | `scanIntervalSeconds` | int | How often the agent walks the pool looking for work. Default `900` (15 min). |
@@ -711,6 +717,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.25
+Last review: 2026.10.26
 
 Back to [Yuruna](../README.md)

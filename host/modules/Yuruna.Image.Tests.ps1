@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.25
+.VERSION 2026.10.26
 .GUID 42fd17d5-cc0b-4b81-94e7-4b54d311a679
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -411,6 +411,61 @@ Describe 'The download policy is permissive by default and strict only on reques
                 -Confirm:$false -WarningAction SilentlyContinue -InformationAction SilentlyContinue
             Assert-True $ok 'the caller opted out of verification, which is not a failure'
             Assert-True (Test-Path -LiteralPath $dest) 'and the download is kept'
+        } finally {
+            $bound.Listener.Stop()
+            $job | Remove-Job -Force -ErrorAction SilentlyContinue
+            Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction SilentlyContinue
+        }
+    }
+}
+
+# gpg is never required, but where gpg and the pinned keyring are present a
+# signature that cannot be fetched or checked is refused like a wrong one:
+# whoever can block the signature must not be able to switch the check off.
+Describe 'A checksum signature that cannot be checked is refused where it could have been' {
+    BeforeAll {
+        $script:SumsPath = Join-Path ([System.IO.Path]::GetTempPath()) ('yuruna-sig-test-' + [Guid]::NewGuid().ToString('N') + '.SHA256SUMS')
+        [System.IO.File]::WriteAllBytes($script:SumsPath, $script:ImageSumsBytes)
+    }
+    AfterAll { Remove-Item -LiteralPath $script:SumsPath -Force -ErrorAction SilentlyContinue }
+
+    It 'proceeds on the hash alone on a host without gpg' {
+        Mock -ModuleName Yuruna.Image Get-Command { $null } -ParameterFilter { $Name -eq 'gpg' }
+        Test-PublishedChecksumSignature -ChecksumUrl 'http://127.0.0.1:9/SHA256SUMS' -ChecksumFilePath $script:SumsPath |
+            Should -BeExactly 'unverified'
+    }
+
+    It 'calls a signature it could not fetch unavailable, not unverified' -Skip:(-not (Get-Command gpg -ErrorAction SilentlyContinue)) {
+        Mock -ModuleName Yuruna.Image Invoke-WebRequest { throw 'connection refused' }
+        Test-PublishedChecksumSignature -ChecksumUrl 'http://127.0.0.1:9/SHA256SUMS' -ChecksumFilePath $script:SumsPath |
+            Should -BeExactly 'unavailable'
+    }
+
+    It 'calls a fetched signature gpg cannot verify unavailable' -Skip:(-not (Get-Command gpg -ErrorAction SilentlyContinue)) {
+        Mock -ModuleName Yuruna.Image Invoke-WebRequest { [System.IO.File]::WriteAllText($OutFile, 'not a signature') }
+        Test-PublishedChecksumSignature -ChecksumUrl 'http://127.0.0.1:9/SHA256SUMS' -ChecksumFilePath $script:SumsPath |
+            Should -BeExactly 'unavailable'
+    }
+
+    It 'refuses the download under the mismatch policy when the signature cannot be checked' -Skip:(-not (Get-Command gpg -ErrorAction SilentlyContinue)) {
+        $payload = 'yuruna image bytes'
+        $hash    = [BitConverter]::ToString(
+            [System.Security.Cryptography.SHA256]::HashData([System.Text.Encoding]::UTF8.GetBytes($payload))
+        ).Replace('-', '').ToLowerInvariant()
+        $dir   = New-ImageTestDirectory
+        $bound = Get-LoopbackChecksumListener
+        # The signature request matches the SHA256SUMS route, so gpg is handed
+        # the checksum text as a signature, which it cannot verify.
+        $job   = Get-ChecksumResponderJob -Listener $bound.Listener -ImageBody $payload `
+            -SumsBody "$hash *image.img`n" -RequestCount 3
+        $dest = Join-Path $dir 'image.img'
+        try {
+            $ok = Save-ImageWithChecksum -SourceUrl "$($bound.BaseUrl)/image.img" -DestPath $dest `
+                -ChecksumUrl "$($bound.BaseUrl)/SHA256SUMS" -VerifyUbuntuSignature -RetryBudgetSeconds 0 `
+                -OnMismatch 'WarnAndDelete' `
+                -Confirm:$false -WarningAction SilentlyContinue -InformationAction SilentlyContinue
+            Assert-True (-not $ok) 'a checksum list whose signature cannot be checked is not trusted'
+            Assert-True (-not (Test-Path -LiteralPath $dest)) 'and the file is removed'
         } finally {
             $bound.Listener.Stop()
             $job | Remove-Job -Force -ErrorAction SilentlyContinue

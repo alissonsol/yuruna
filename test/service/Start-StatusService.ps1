@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.25
+.VERSION 2026.10.26
 .GUID 42fba995-7607-4a66-acfd-0149a2a9f06a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -73,7 +73,6 @@ param(
 )
 
 Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
-
 
 $ErrorActionPreference = "Stop"
 
@@ -905,15 +904,8 @@ Import-Module (Join-Path `$repoRoot 'test/modules/Test.StatusControlRoute.psm1')
     'host-config-ca', 'host-config-ca/*', '*/host-config-ca', '*/host-config-ca/*')
 
 # --- REGION: Served source files
-# The repository mount serves source files: the ones git tracks, or would track
-# because they are not ignored, in the framework checkout and, under project/,
-# in the project checkout. Everything the harness writes into a checkout --
-# configuration, vault state, keys, caches, runtime records -- is ignored there,
-# so a list read from git cannot be outgrown by a file added later the way a
-# deny list of names is. The listing is kept for a short while and read again on
-# a miss at most every couple of seconds, so a file created a moment ago is
-# served without a restart. Where git cannot answer (not a checkout, no git),
-# the deny lists alone decide, as they did before.
+# See https://yuruna.link/42185271-000d
+# The repository mount serves what git lists in each checkout; the deny lists still apply.
 `$script:ServedSourceCache = @{}
 function Get-ServedSourceSet {
     param([Parameter(Mandatory)][string]`$Root, [switch]`$Refresh)
@@ -1483,8 +1475,11 @@ function Start-StatusWorker {
 
 # See https://yuruna.link/42e5cdfd-0045
 function Add-PendingRequestBody {
-    param([Parameter(Mandatory)]`$RequestContext, [bool]`$Loopback, [string]`$ProofWire, `$Upload)
-    if (`$pendingBodies.Count -ge 4) {
+    param([Parameter(Mandatory)]`$RequestContext, [bool]`$Loopback, [string]`$ProofWire, `$Upload, `$Completion)
+    # Anonymous callers share half of the slots, so a burst of them cannot keep
+    # a refresh or an upload from being read.
+    `$anonymousPending = @(`$pendingBodies | Where-Object { `$_.Tag.Completion -and `$_.Tag.Completion.Anonymous }).Count
+    if (`$pendingBodies.Count -ge 4 -or (`$Completion -and `$Completion.Anonymous -and `$anonymousPending -ge 2)) {
         Send-JsonReply -Response `$RequestContext.Response -Request `$RequestContext.Request -StatusCode 503 -Close -RetryAfter '2' ``
             -Body ([ordered]@{ ok = `$false; reason = 'listener_busy' }) -MessageKey 'status.api_listener_busy'
         return
@@ -1495,10 +1490,10 @@ function Add-PendingRequestBody {
             -Body ([ordered]@{ ok = `$false; reason = 'listener_dependency_missing' }) -MessageKey 'status.api_listener_dependency_missing'
         return
     }
-    `$maxBytes = if (`$Upload) { [int]`$Upload.MaximumBytes } else { 4096 }
-    `$timeoutMs = if (`$Upload) { `$script:UploadBodyTimeoutMilliseconds } else { 2000 }
+    `$maxBytes = if (`$Upload) { [int]`$Upload.MaximumBytes } elseif (`$Completion) { [int]`$Completion.MaximumBytes } else { 4096 }
+    `$timeoutMs = if (`$Upload) { `$script:UploadBodyTimeoutMilliseconds } elseif (`$Completion) { 10000 } else { 2000 }
     `$bodyRead = New-StatusBoundedBodyRead -Stream `$RequestContext.Request.InputStream -MaxBytes `$maxBytes -TimeoutMs `$timeoutMs ``
-        -Tag ([pscustomobject]@{ RequestContext = `$RequestContext; Loopback = `$Loopback; ProofWire = `$ProofWire; Upload = `$Upload })
+        -Tag ([pscustomobject]@{ RequestContext = `$RequestContext; Loopback = `$Loopback; ProofWire = `$ProofWire; Upload = `$Upload; Completion = `$Completion })
     `$pendingBodies.Add(`$bodyRead)
     Step-PendingRequestBody
 }
@@ -1535,6 +1530,230 @@ function Complete-StatusArtifactUpload {
     }
 }
 
+# The write half of POST /control/test-config, once the whole body is in.
+function Invoke-TestConfigWrite {
+    param([Parameter(Mandatory)]`$RequestContext, [byte[]]`$BodyBytes)
+    `$req = `$RequestContext.Request
+    `$res = `$RequestContext.Response
+    `$testConfigFile = Join-Path `$repoRoot 'test/test.config.yml'
+    `$encoding = if (`$req.ContentEncoding) { `$req.ContentEncoding } else { [System.Text.Encoding]::UTF8 }
+    `$payload = `$encoding.GetString(`$(if (`$BodyBytes) { `$BodyBytes } else { [byte[]]@() }))
+    `$parsedDoc = `$null
+    try {
+        `$parsedDoc = `$payload | ConvertFrom-Json -AsHashtable -ErrorAction Stop
+    } catch {
+        `$errMsg = (ConvertTo-JsonEscapedString `$_.Exception.Message)
+        Send-JsonError -Response `$res -StatusCode 400 -Request `$req -Key 'status.api_invalid_json_detail_c907dfc3' -Arguments @{ detail = `$_.Exception.Message }
+        return
+    }
+    # See https://yuruna.link/42e5cdfd-0045
+    `$cacheIpErr = `$null
+    if (`$parsedDoc -is [System.Collections.IDictionary] -and `$parsedDoc.Contains('vmStart')) {
+        `$vsNode = `$parsedDoc['vmStart']
+        if (`$vsNode -is [System.Collections.IDictionary] -and `$vsNode.Contains('cachingProxyIp')) {
+            `$cacheIp = "`$(`$vsNode['cachingProxyIp'])".Trim()
+            `$vsNode['cachingProxyIp'] = `$cacheIp
+            if (`$cacheIp) {
+                if (-not (Get-Command Test-IpAddress -ErrorAction SilentlyContinue)) {
+                    `$cacheIpErr = "Test-IpAddress not available in this runspace -- cannot validate vmStart.cachingProxyIp"
+                } elseif (-not (Test-IpAddress `$cacheIp)) {
+                    `$cacheIpErr = "vmStart.cachingProxyIp='`$cacheIp' is not a valid IPv4 or IPv6 address"
+                } else {
+                    `$cachePort = Get-CachingProxyServicePort -Scheme http
+                    `$probeTcp = New-Object System.Net.Sockets.TcpClient
+                    `$probeOk  = `$false
+                    try {
+                        `$probeAsync = `$probeTcp.BeginConnect(`$cacheIp, `$cachePort, `$null, `$null)
+                        `$probeOk    = (`$probeAsync.AsyncWaitHandle.WaitOne(1500) -and `$probeTcp.Connected)
+                    } catch {
+                        Write-ServerErr "save-time cachingProxyIp probe `${cacheIp}:`${cachePort} threw: `$(`$_.Exception.Message)"
+                    } finally {
+                        `$probeTcp.Close()
+                    }
+                    if (-not `$probeOk) {
+                        `$cacheIpErr = "vmStart.cachingProxyIp='`$cacheIp' is not reachable on TCP :`$cachePort"
+                    }
+                }
+            }
+        }
+    }
+    if (`$cacheIpErr) {
+        `$errMsg = (ConvertTo-JsonEscapedString `$cacheIpErr)
+        Send-JsonError -Response `$res -StatusCode 400 -Json ('{"ok":false,"error":"' + `$errMsg + '"}')
+        return
+    }
+    # See https://yuruna.link/42e5cdfd-0045
+    # Re-merge the on-disk secrets node: the GET above serves it redacted
+    # and the UI round-trips the whole document, so a save would otherwise
+    # overwrite the stored secrets with the empty node.
+    `$diskDoc = `$null
+    try {
+        if ((`$parsedDoc -is [System.Collections.IDictionary]) -and (Test-Path -LiteralPath `$testConfigFile)) {
+            `$diskDoc = Read-TestConfig -Path `$testConfigFile -NoCache -ThrowOnError
+            if (`$diskDoc -is [System.Collections.IDictionary] -and `$diskDoc.Contains('secrets') -and (`$diskDoc['secrets'] -is [System.Collections.IDictionary])) {
+                `$diskSecrets = `$diskDoc['secrets']
+                if (-not `$parsedDoc.Contains('secrets') -or -not (`$parsedDoc['secrets'] -is [System.Collections.IDictionary])) {
+                    `$parsedDoc['secrets'] = `$diskSecrets
+                } else {
+                    `$postedSecrets = `$parsedDoc['secrets']
+                    foreach (`$sk in @(`$diskSecrets.Keys)) {
+                        `$postedVal = if (`$postedSecrets.Contains(`$sk)) { "`$(`$postedSecrets[`$sk])" } else { '' }
+                        if ([string]::IsNullOrEmpty(`$postedVal)) { `$postedSecrets[`$sk] = `$diskSecrets[`$sk] }
+                    }
+                }
+            }
+        }
+    } catch {
+        Write-ServerErr "test-config secrets re-merge failed: `$(`$_.Exception.Message)"
+        Send-JsonError -Response `$res -StatusCode 500 -Request `$req -Key 'status.api_write_failed_detail_c07681e1' -Arguments @{ detail = `$_.Exception.Message }
+        return
+    }
+    `$tmp = "`$testConfigFile.`$PID-`$([guid]::NewGuid().ToString('N')).tmp"
+    `$writeOk = `$false
+    try {
+        # Older editors omit mirror fields. Omission is not an
+        # operator request to remove enrolled trust.
+        if (-not `$diskDoc) { `$diskDoc = [ordered]@{} }
+        `$parsedDoc = Merge-ConfigMirrorSetting -Current `$diskDoc -Proposed `$parsedDoc
+        `$mirrorChanges = @(Get-ConfigMirrorChange -Current `$diskDoc -Proposed `$parsedDoc)
+        if (`$mirrorChanges.Count -gt 0 -and (Test-Path -LiteralPath `$testConfigFile)) {
+            Copy-Item -LiteralPath `$testConfigFile -Destination "`$testConfigFile.backup" -Force
+        }
+        foreach (`$change in `$mirrorChanges) {
+            Write-ServerErr "`$(`$change.Path): `$(`$change.Previous) -> `$(`$change.Current) (backup: `$testConfigFile.backup)"
+        }
+        # See https://yuruna.link/42e5cdfd-0045
+        `$yamlOut = `$parsedDoc | ConvertTo-Yaml
+        Set-Content -LiteralPath `$tmp -Value `$yamlOut -Encoding utf8 -NoNewline
+        [System.IO.File]::Move(`$tmp, `$testConfigFile, `$true)
+        `$writeOk = `$true
+    } catch {
+        `$errMsg = (ConvertTo-JsonEscapedString `$_.Exception.Message)
+        Send-JsonError -Response `$res -StatusCode 500 -Request `$req -Key 'status.api_write_failed_detail_c07681e1' -Arguments @{ detail = `$_.Exception.Message }
+        Write-ServerErr "test-config write failed: `$errMsg"
+    } finally {
+        # On the failure path, Set-Content may have left
+        # a partial .tmp next to the real file; on the
+        # success path the atomic move already consumed it.
+        # Either way, ensure no .tmp is left behind.
+        if (-not `$writeOk -and (Test-Path -LiteralPath `$tmp)) {
+            Remove-Item -LiteralPath `$tmp -Force -ErrorAction SilentlyContinue
+        }
+    }
+    if (-not `$writeOk) { return }
+    `$body = [System.Text.Encoding]::UTF8.GetBytes('{"ok":true}')
+    `$res.ContentLength64 = `$body.Length
+    `$res.OutputStream.Write(`$body, 0, `$body.Length)
+    `$res.OutputStream.Close()
+}
+
+# The write half of POST /control/perf-checkpoints, once the whole body is in.
+function Invoke-PerfCheckpointWrite {
+    param([Parameter(Mandatory)]`$RequestContext, [byte[]]`$BodyBytes)
+    `$req = `$RequestContext.Request
+    `$res = `$RequestContext.Response
+    `$encoding = if (`$req.ContentEncoding) { `$req.ContentEncoding } else { [System.Text.Encoding]::UTF8 }
+    `$rawBody = `$encoding.GetString(`$(if (`$BodyBytes) { `$BodyBytes } else { [byte[]]@() }))
+    `$parsed = `$null
+    try { `$parsed = `$rawBody | ConvertFrom-Json -AsHashtable -ErrorAction Stop } catch { `$parsed = `$null }
+    if (`$null -eq `$parsed -or -not (`$parsed -is [System.Collections.IDictionary])) {
+        Send-JsonError -Response `$res -StatusCode 400 -Request `$req -Key 'status.api_body_must_be_a_json_object_831ab327'
+        return
+    }
+    # Bounded, validated copy of the checkpoint list (max 500;
+    # name <= 200 chars; offsetMs a non-negative int). Off-shape
+    # entries are dropped, not rejected, so a partial run still
+    # records the checkpoints it did capture.
+    `$cleanCkpts = New-Object System.Collections.ArrayList
+    if (`$parsed.Contains('checkpoints') -and (`$parsed.checkpoints -is [System.Collections.IEnumerable])) {
+        foreach (`$ck in `$parsed.checkpoints) {
+            if (`$cleanCkpts.Count -ge 500) { break }
+            if (-not (`$ck -is [System.Collections.IDictionary])) { continue }
+            `$nm = ''
+            if (`$ck.Contains('name') -and `$null -ne `$ck.name) { `$nm = [string]`$ck.name }
+            if (`$nm.Length -gt 200) { `$nm = `$nm.Substring(0, 200) }
+            if ([string]::IsNullOrWhiteSpace(`$nm)) { continue }
+            `$off = 0
+            try { `$off = [int]`$ck.offsetMs } catch { `$off = 0 }
+            if (`$off -lt 0) { `$off = 0 }
+            `$null = `$cleanCkpts.Add([ordered]@{ name = `$nm; offsetMs = `$off })
+        }
+    }
+    `$scriptPathIn = ''
+    if (`$parsed.Contains('scriptPath') -and `$null -ne `$parsed.scriptPath) { `$scriptPathIn = [string]`$parsed.scriptPath }
+    if (`$scriptPathIn.Length -gt 400) { `$scriptPathIn = `$scriptPathIn.Substring(0, 400) }
+    `$srcTag = ''
+    if (`$parsed.Contains('source') -and `$null -ne `$parsed.source) { `$srcTag = [string]`$parsed.source }
+    `$guestHost = ''
+    if (`$parsed.Contains('hostname') -and `$null -ne `$parsed.hostname) { `$guestHost = [string]`$parsed.hostname }
+    `$ckptExit = 0
+    try { if (`$parsed.Contains('exitCode')) { `$ckptExit = [int]`$parsed.exitCode } } catch { `$ckptExit = 0 }
+    `$remoteIp = ''
+    try { `$remoteIp = `$req.RemoteEndPoint.Address.ToString() } catch { `$remoteIp = '' }
+
+    `$receivedUtc = [DateTime]::UtcNow.ToString('o')
+    `$sidecar = [ordered]@{
+        schema        = 1
+        receivedAtUtc = `$receivedUtc
+        remoteIp      = `$remoteIp
+        scriptPath    = `$scriptPathIn
+        source        = `$srcTag
+        hostname      = `$guestHost
+        exitCode      = `$ckptExit
+        checkpoints   = @(`$cleanCkpts)
+    }
+    foreach (`$identityField in 'stepInvocationId', 'sequenceInvocationId') {
+        if (`$parsed.Contains(`$identityField) -and [string]`$parsed[`$identityField] -match '^[0-9a-fA-F]{32}$') {
+            `$sidecar[`$identityField] = [string]`$parsed[`$identityField]
+        }
+    }
+
+    `$ckptDir = Join-Path `$statusDir 'perf/checkpoints'
+    `$writeOk = `$false
+    try {
+        if (-not (Test-Path -LiteralPath `$ckptDir)) {
+            `$null = New-Item -ItemType Directory -Path `$ckptDir -Force -ErrorAction SilentlyContinue
+        }
+        # ':' is illegal in Windows filenames, so the ISO arrival
+        # stamp gets colons -> hyphens (same transform Test.Perf uses
+        # for cycle JSONL names); the receivedAtUtc field inside keeps
+        # the untouched ISO for the window comparison.
+        `$safeStamp   = `$receivedUtc -replace ':', '-'
+        `$tail        = ([Guid]::NewGuid().ToString('N')).Substring(0, 4)
+        `$ckptFile    = Join-Path `$ckptDir "`${safeStamp}__`${tail}.json"
+        # The checkpoint filename already carries a per-write stamp+guid, so
+        # its .tmp sibling is unique per writer without a further suffix.
+        `$tmpFile     = "`$ckptFile.tmp"
+        `$sidecarJson = `$sidecar | ConvertTo-Json -Depth 6 -Compress
+        [System.IO.File]::WriteAllText(`$tmpFile, `$sidecarJson)
+        [System.IO.File]::Move(`$tmpFile, `$ckptFile, `$true)
+        `$writeOk = `$true
+        # Light retention: keep the newest ~500 sidecars so the
+        # directory can't grow without bound across many cycles.
+        `$allCkpts = @(Get-ChildItem -LiteralPath `$ckptDir -Filter '*.json' -File -ErrorAction SilentlyContinue | Sort-Object Name -Descending)
+        if (`$allCkpts.Count -gt 500) {
+            foreach (`$old in (`$allCkpts | Select-Object -Skip 500)) {
+                Remove-Item -LiteralPath `$old.FullName -Force -ErrorAction SilentlyContinue
+            }
+        }
+    } catch {
+        Write-ServerErr "perf-checkpoints: write failed: `$(`$_.Exception.Message)"
+    }
+    if (-not `$writeOk) {
+        Send-JsonError -Response `$res -StatusCode 500 -Request `$req -Key 'status.api_sidecar_write_failed_0ce361a9'
+        return
+    }
+    # Fresh checkpoint data invalidates the memoized aggregates so the
+    # next GET re-runs the join (mirrors the POST-recalc invalidation).
+    `$script:perfAggregatesCache = `$null
+    `$script:perfAggregatesBytes = `$null
+    `$payloadOut = '{"ok":true,"checkpoints":' + `$cleanCkpts.Count + '}'
+    `$body = [System.Text.Encoding]::UTF8.GetBytes(`$payloadOut)
+    `$res.ContentLength64 = `$body.Length
+    `$res.OutputStream.Write(`$body, 0, `$body.Length)
+    `$res.OutputStream.Close()
+}
+
 function Step-PendingRequestBody {
     for (`$bodyIndex = `$pendingBodies.Count - 1; `$bodyIndex -ge 0; `$bodyIndex--) {
         `$bodyRead = `$pendingBodies[`$bodyIndex]
@@ -1551,12 +1770,17 @@ function Step-PendingRequestBody {
                 'complete' {
                     if (`$bodyRead.Tag.Upload) {
                         Complete-StatusArtifactUpload -RequestContext `$pendingContext -Bytes `$bodyRead.Bytes -Upload `$bodyRead.Tag.Upload
+                    } elseif (`$bodyRead.Tag.Completion) {
+                        switch ([string]`$bodyRead.Tag.Completion.Kind) {
+                            'test-config'      { Invoke-TestConfigWrite -RequestContext `$pendingContext -BodyBytes `$bodyRead.Bytes }
+                            'perf-checkpoints' { Invoke-PerfCheckpointWrite -RequestContext `$pendingContext -BodyBytes `$bodyRead.Bytes }
+                        }
                     } else {
                         Invoke-HostRefreshRequest -RequestContext `$pendingContext -BodyBytes `$bodyRead.Bytes -Loopback ([bool]`$bodyRead.Tag.Loopback) -ProofWire ([string]`$bodyRead.Tag.ProofWire)
                     }
                 }
                 'too_large' {
-                    `$sizeMessage = if (`$bodyRead.Tag.Upload) { [string]`$bodyRead.Tag.Upload.SizeMessage } else { 'status.api_payload_too_large_4_kb' }
+                    `$sizeMessage = if (`$bodyRead.Tag.Upload) { [string]`$bodyRead.Tag.Upload.SizeMessage } elseif (`$bodyRead.Tag.Completion) { [string]`$bodyRead.Tag.Completion.SizeMessage } else { 'status.api_payload_too_large_4_kb' }
                     Send-JsonReply -Response `$pendingContext.Response -Request `$pendingContext.Request -StatusCode 413 -Close ``
                         -Body ([ordered]@{ ok = `$false; reason = 'payload_too_large' }) -MessageKey `$sizeMessage
                 }
@@ -1565,8 +1789,15 @@ function Step-PendingRequestBody {
                         -Body ([ordered]@{ ok = `$false; reason = 'body_timeout' }) -MessageKey 'status.api_request_body_timeout'
                 }
                 default {
-                    Write-ServerErr 'request body ended with a read error; the connection is dropped.'
-                    try { `$pendingContext.Response.Abort() } catch { Write-Debug `$_ }
+                    if (`$bodyRead.Tag.Completion) {
+                        # The configuration save and the checkpoint push always answered
+                        # a body they could not read; the reply may still reach a client
+                        # that is there.
+                        Send-JsonError -Response `$pendingContext.Response -StatusCode 400 -Request `$pendingContext.Request -Key 'status.api_could_not_read_body_aa31dc00'
+                    } else {
+                        Write-ServerErr 'request body ended with a read error; the connection is dropped.'
+                        try { `$pendingContext.Response.Abort() } catch { Write-Debug `$_ }
+                    }
                 }
             }
         } catch {
@@ -2129,127 +2360,15 @@ try {
                     continue
                 }
                 if (`$req.HttpMethod -eq 'POST' -or `$req.HttpMethod -eq 'PUT') {
-                    `$payload = `$null
                     # ContentLength64 == -1 means chunked/unknown; allow those through.
                     if (`$req.ContentLength64 -gt 1MB) {
                         Send-JsonError -Response `$res -StatusCode 413 -Request `$req -Key 'status.api_payload_too_large_1_mb_350b49df'
                         continue
                     }
-                    try {
-                        `$reader = [System.IO.StreamReader]::new(`$req.InputStream, `$req.ContentEncoding)
-                        `$payload = `$reader.ReadToEnd()
-                        `$reader.Close()
-                    } catch {
-                        Send-JsonError -Response `$res -StatusCode 400 -Request `$req -Key 'status.api_could_not_read_body_aa31dc00'
-                        continue
-                    }
-                    `$parsedDoc = `$null
-                    try {
-                        `$parsedDoc = `$payload | ConvertFrom-Json -AsHashtable -ErrorAction Stop
-                    } catch {
-                        `$errMsg = (ConvertTo-JsonEscapedString `$_.Exception.Message)
-                        Send-JsonError -Response `$res -StatusCode 400 -Request `$req -Key 'status.api_invalid_json_detail_c907dfc3' -Arguments @{ detail = `$_.Exception.Message }
-                        continue
-                    }
-                    # See https://yuruna.link/42e5cdfd-0045
-                    `$cacheIpErr = `$null
-                    if (`$parsedDoc -is [System.Collections.IDictionary] -and `$parsedDoc.Contains('vmStart')) {
-                        `$vsNode = `$parsedDoc['vmStart']
-                        if (`$vsNode -is [System.Collections.IDictionary] -and `$vsNode.Contains('cachingProxyIp')) {
-                            `$cacheIp = "`$(`$vsNode['cachingProxyIp'])".Trim()
-                            `$vsNode['cachingProxyIp'] = `$cacheIp
-                            if (`$cacheIp) {
-                                if (-not (Get-Command Test-IpAddress -ErrorAction SilentlyContinue)) {
-                                    `$cacheIpErr = "Test-IpAddress not available in this runspace -- cannot validate vmStart.cachingProxyIp"
-                                } elseif (-not (Test-IpAddress `$cacheIp)) {
-                                    `$cacheIpErr = "vmStart.cachingProxyIp='`$cacheIp' is not a valid IPv4 or IPv6 address"
-                                } else {
-                                    `$cachePort = Get-CachingProxyServicePort -Scheme http
-                                    `$probeTcp = New-Object System.Net.Sockets.TcpClient
-                                    `$probeOk  = `$false
-                                    try {
-                                        `$probeAsync = `$probeTcp.BeginConnect(`$cacheIp, `$cachePort, `$null, `$null)
-                                        `$probeOk    = (`$probeAsync.AsyncWaitHandle.WaitOne(1500) -and `$probeTcp.Connected)
-                                    } catch {
-                                        Write-ServerErr "save-time cachingProxyIp probe `${cacheIp}:`${cachePort} threw: `$(`$_.Exception.Message)"
-                                    } finally {
-                                        `$probeTcp.Close()
-                                    }
-                                    if (-not `$probeOk) {
-                                        `$cacheIpErr = "vmStart.cachingProxyIp='`$cacheIp' is not reachable on TCP :`$cachePort"
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    if (`$cacheIpErr) {
-                        `$errMsg = (ConvertTo-JsonEscapedString `$cacheIpErr)
-                        Send-JsonError -Response `$res -StatusCode 400 -Json ('{"ok":false,"error":"' + `$errMsg + '"}')
-                        continue
-                    }
-                    # See https://yuruna.link/42e5cdfd-0045
-                    # Re-merge the on-disk secrets node: the GET above serves it redacted
-                    # and the UI round-trips the whole document, so a save would otherwise
-                    # overwrite the stored secrets with the empty node.
-                    `$diskDoc = `$null
-                    try {
-                        if ((`$parsedDoc -is [System.Collections.IDictionary]) -and (Test-Path -LiteralPath `$testConfigFile)) {
-                            `$diskDoc = Read-TestConfig -Path `$testConfigFile -NoCache -ThrowOnError
-                            if (`$diskDoc -is [System.Collections.IDictionary] -and `$diskDoc.Contains('secrets') -and (`$diskDoc['secrets'] -is [System.Collections.IDictionary])) {
-                                `$diskSecrets = `$diskDoc['secrets']
-                                if (-not `$parsedDoc.Contains('secrets') -or -not (`$parsedDoc['secrets'] -is [System.Collections.IDictionary])) {
-                                    `$parsedDoc['secrets'] = `$diskSecrets
-                                } else {
-                                    `$postedSecrets = `$parsedDoc['secrets']
-                                    foreach (`$sk in @(`$diskSecrets.Keys)) {
-                                        `$postedVal = if (`$postedSecrets.Contains(`$sk)) { "`$(`$postedSecrets[`$sk])" } else { '' }
-                                        if ([string]::IsNullOrEmpty(`$postedVal)) { `$postedSecrets[`$sk] = `$diskSecrets[`$sk] }
-                                    }
-                                }
-                            }
-                        }
-                    } catch {
-                        Write-ServerErr "test-config secrets re-merge failed: `$(`$_.Exception.Message)"
-                        Send-JsonError -Response `$res -StatusCode 500 -Request `$req -Key 'status.api_write_failed_detail_c07681e1' -Arguments @{ detail = `$_.Exception.Message }
-                        continue
-                    }
-                    `$tmp = "`$testConfigFile.`$PID-`$([guid]::NewGuid().ToString('N')).tmp"
-                    `$writeOk = `$false
-                    try {
-                        # Older editors omit mirror fields. Omission is not an
-                        # operator request to remove enrolled trust.
-                        if (-not `$diskDoc) { `$diskDoc = [ordered]@{} }
-                        `$parsedDoc = Merge-ConfigMirrorSetting -Current `$diskDoc -Proposed `$parsedDoc
-                        `$mirrorChanges = @(Get-ConfigMirrorChange -Current `$diskDoc -Proposed `$parsedDoc)
-                        if (`$mirrorChanges.Count -gt 0 -and (Test-Path -LiteralPath `$testConfigFile)) {
-                            Copy-Item -LiteralPath `$testConfigFile -Destination "`$testConfigFile.backup" -Force
-                        }
-                        foreach (`$change in `$mirrorChanges) {
-                            Write-ServerErr "`$(`$change.Path): `$(`$change.Previous) -> `$(`$change.Current) (backup: `$testConfigFile.backup)"
-                        }
-                        # See https://yuruna.link/42e5cdfd-0045
-                        `$yamlOut = `$parsedDoc | ConvertTo-Yaml
-                        Set-Content -LiteralPath `$tmp -Value `$yamlOut -Encoding utf8 -NoNewline
-                        [System.IO.File]::Move(`$tmp, `$testConfigFile, `$true)
-                        `$writeOk = `$true
-                    } catch {
-                        `$errMsg = (ConvertTo-JsonEscapedString `$_.Exception.Message)
-                        Send-JsonError -Response `$res -StatusCode 500 -Request `$req -Key 'status.api_write_failed_detail_c07681e1' -Arguments @{ detail = `$_.Exception.Message }
-                        Write-ServerErr "test-config write failed: `$errMsg"
-                    } finally {
-                        # On the failure path, Set-Content may have left
-                        # a partial .tmp next to the real file; on the
-                        # success path the atomic move already consumed it.
-                        # Either way, ensure no .tmp is left behind.
-                        if (-not `$writeOk -and (Test-Path -LiteralPath `$tmp)) {
-                            Remove-Item -LiteralPath `$tmp -Force -ErrorAction SilentlyContinue
-                        }
-                    }
-                    if (-not `$writeOk) { continue }
-                    `$body = [System.Text.Encoding]::UTF8.GetBytes('{"ok":true}')
-                    `$res.ContentLength64 = `$body.Length
-                    `$res.OutputStream.Write(`$body, 0, `$body.Length)
-                    `$res.OutputStream.Close()
+                    # The body arrives through the pending reads, bounded in size and
+                    # time, so a client that sends it slowly cannot hold the listener.
+                    Add-PendingRequestBody -RequestContext `$ctx -Completion ([pscustomobject]@{
+                        Kind = 'test-config'; MaximumBytes = 1MB; SizeMessage = 'status.api_payload_too_large_1_mb_350b49df'; Anonymous = `$true })
                     continue
                 }
                 `$res.Headers.Add('Allow', 'GET, POST, PUT')
@@ -2526,109 +2645,10 @@ try {
                     Send-JsonError -Response `$res -StatusCode 413 -Request `$req -Key 'status.api_payload_too_large_256_kb_ad49d5cd'
                     continue
                 }
-                `$rawBody = ''
-                try {
-                    `$reader = [System.IO.StreamReader]::new(`$req.InputStream, `$req.ContentEncoding)
-                    try { `$rawBody = `$reader.ReadToEnd() } finally { `$reader.Close() }
-                } catch { `$rawBody = '' }
-                `$parsed = `$null
-                try { `$parsed = `$rawBody | ConvertFrom-Json -AsHashtable -ErrorAction Stop } catch { `$parsed = `$null }
-                if (`$null -eq `$parsed -or -not (`$parsed -is [System.Collections.IDictionary])) {
-                    Send-JsonError -Response `$res -StatusCode 400 -Request `$req -Key 'status.api_body_must_be_a_json_object_831ab327'
-                    continue
-                }
-                # Bounded, validated copy of the checkpoint list (max 500;
-                # name <= 200 chars; offsetMs a non-negative int). Off-shape
-                # entries are dropped, not rejected, so a partial run still
-                # records the checkpoints it did capture.
-                `$cleanCkpts = New-Object System.Collections.ArrayList
-                if (`$parsed.Contains('checkpoints') -and (`$parsed.checkpoints -is [System.Collections.IEnumerable])) {
-                    foreach (`$ck in `$parsed.checkpoints) {
-                        if (`$cleanCkpts.Count -ge 500) { break }
-                        if (-not (`$ck -is [System.Collections.IDictionary])) { continue }
-                        `$nm = ''
-                        if (`$ck.Contains('name') -and `$null -ne `$ck.name) { `$nm = [string]`$ck.name }
-                        if (`$nm.Length -gt 200) { `$nm = `$nm.Substring(0, 200) }
-                        if ([string]::IsNullOrWhiteSpace(`$nm)) { continue }
-                        `$off = 0
-                        try { `$off = [int]`$ck.offsetMs } catch { `$off = 0 }
-                        if (`$off -lt 0) { `$off = 0 }
-                        `$null = `$cleanCkpts.Add([ordered]@{ name = `$nm; offsetMs = `$off })
-                    }
-                }
-                `$scriptPathIn = ''
-                if (`$parsed.Contains('scriptPath') -and `$null -ne `$parsed.scriptPath) { `$scriptPathIn = [string]`$parsed.scriptPath }
-                if (`$scriptPathIn.Length -gt 400) { `$scriptPathIn = `$scriptPathIn.Substring(0, 400) }
-                `$srcTag = ''
-                if (`$parsed.Contains('source') -and `$null -ne `$parsed.source) { `$srcTag = [string]`$parsed.source }
-                `$guestHost = ''
-                if (`$parsed.Contains('hostname') -and `$null -ne `$parsed.hostname) { `$guestHost = [string]`$parsed.hostname }
-                `$ckptExit = 0
-                try { if (`$parsed.Contains('exitCode')) { `$ckptExit = [int]`$parsed.exitCode } } catch { `$ckptExit = 0 }
-                `$remoteIp = ''
-                try { `$remoteIp = `$req.RemoteEndPoint.Address.ToString() } catch { `$remoteIp = '' }
-
-                `$receivedUtc = [DateTime]::UtcNow.ToString('o')
-                `$sidecar = [ordered]@{
-                    schema        = 1
-                    receivedAtUtc = `$receivedUtc
-                    remoteIp      = `$remoteIp
-                    scriptPath    = `$scriptPathIn
-                    source        = `$srcTag
-                    hostname      = `$guestHost
-                    exitCode      = `$ckptExit
-                    checkpoints   = @(`$cleanCkpts)
-                }
-                foreach (`$identityField in 'stepInvocationId', 'sequenceInvocationId') {
-                    if (`$parsed.Contains(`$identityField) -and [string]`$parsed[`$identityField] -match '^[0-9a-fA-F]{32}$') {
-                        `$sidecar[`$identityField] = [string]`$parsed[`$identityField]
-                    }
-                }
-
-                `$ckptDir = Join-Path `$statusDir 'perf/checkpoints'
-                `$writeOk = `$false
-                try {
-                    if (-not (Test-Path -LiteralPath `$ckptDir)) {
-                        `$null = New-Item -ItemType Directory -Path `$ckptDir -Force -ErrorAction SilentlyContinue
-                    }
-                    # ':' is illegal in Windows filenames, so the ISO arrival
-                    # stamp gets colons -> hyphens (same transform Test.Perf uses
-                    # for cycle JSONL names); the receivedAtUtc field inside keeps
-                    # the untouched ISO for the window comparison.
-                    `$safeStamp   = `$receivedUtc -replace ':', '-'
-                    `$tail        = ([Guid]::NewGuid().ToString('N')).Substring(0, 4)
-                    `$ckptFile    = Join-Path `$ckptDir "`${safeStamp}__`${tail}.json"
-                    # The checkpoint filename already carries a per-write stamp+guid, so
-                    # its .tmp sibling is unique per writer without a further suffix.
-                    `$tmpFile     = "`$ckptFile.tmp"
-                    `$sidecarJson = `$sidecar | ConvertTo-Json -Depth 6 -Compress
-                    [System.IO.File]::WriteAllText(`$tmpFile, `$sidecarJson)
-                    [System.IO.File]::Move(`$tmpFile, `$ckptFile, `$true)
-                    `$writeOk = `$true
-                    # Light retention: keep the newest ~500 sidecars so the
-                    # directory can't grow without bound across many cycles.
-                    `$allCkpts = @(Get-ChildItem -LiteralPath `$ckptDir -Filter '*.json' -File -ErrorAction SilentlyContinue | Sort-Object Name -Descending)
-                    if (`$allCkpts.Count -gt 500) {
-                        foreach (`$old in (`$allCkpts | Select-Object -Skip 500)) {
-                            Remove-Item -LiteralPath `$old.FullName -Force -ErrorAction SilentlyContinue
-                        }
-                    }
-                } catch {
-                    Write-ServerErr "perf-checkpoints: write failed: `$(`$_.Exception.Message)"
-                }
-                if (-not `$writeOk) {
-                    Send-JsonError -Response `$res -StatusCode 500 -Request `$req -Key 'status.api_sidecar_write_failed_0ce361a9'
-                    continue
-                }
-                # Fresh checkpoint data invalidates the memoized aggregates so the
-                # next GET re-runs the join (mirrors the POST-recalc invalidation).
-                `$perfAggregatesCache = `$null
-                `$perfAggregatesBytes = `$null
-                `$payloadOut = '{"ok":true,"checkpoints":' + `$cleanCkpts.Count + '}'
-                `$body = [System.Text.Encoding]::UTF8.GetBytes(`$payloadOut)
-                `$res.ContentLength64 = `$body.Length
-                `$res.OutputStream.Write(`$body, 0, `$body.Length)
-                `$res.OutputStream.Close()
+                # The body arrives through the pending reads, bounded in size and
+                # time, so a guest that sends it slowly cannot hold the listener.
+                Add-PendingRequestBody -RequestContext `$ctx -Completion ([pscustomobject]@{
+                    Kind = 'perf-checkpoints'; MaximumBytes = 256KB; SizeMessage = 'status.api_payload_too_large_256_kb_ad49d5cd'; Anonymous = `$true })
                 continue
             }
 
@@ -2759,11 +2779,12 @@ try {
                 # value the payload reports has to be cleared per request: a probe
                 # that throws before the bound is resolved would otherwise print
                 # the PREVIOUS poll's number next to a fresh verdict.
-                `$bound = `$null; `$runState = `$null
+                `$bound = `$null; `$runState = `$null; `$recoveryDisabled = ''
                 try {
                     `$hbPath = Join-Path `$runtimeDir 'runner.stepHeartbeat'
                     if (Test-Path -LiteralPath `$hbPath) {
-                        `$hbAge = [int]((Get-Date) - (Get-Item -LiteralPath `$hbPath).LastWriteTime).TotalSeconds
+                        # UTC: local time moves an hour at a daylight-saving change.
+                        `$hbAge = [int]([datetime]::UtcNow - (Get-Item -LiteralPath `$hbPath).LastWriteTimeUtc).TotalSeconds
                     }
                     `$phasePath = Join-Path `$runtimeDir 'runner.phase'
                     if (Test-Path -LiteralPath `$phasePath) {
@@ -2772,6 +2793,12 @@ try {
                     `$lapsePath = Join-Path `$runtimeDir 'runner.watchdog.lapsed'
                     if (Test-Path -LiteralPath `$lapsePath) {
                         `$lapsed = "`$(Get-Content -LiteralPath `$lapsePath -Raw)".Trim()
+                    }
+                    # Written by the recovery ledger while it cannot be read or
+                    # written; no automatic repair runs until it is cleared.
+                    `$healthPath = Join-Path `$runtimeDir 'recovery.health.json'
+                    if (Test-Path -LiteralPath `$healthPath) {
+                        try { `$recoveryDisabled = "`$((Get-Content -LiteralPath `$healthPath -Raw | ConvertFrom-Json).state)".Trim() } catch { `$recoveryDisabled = 'unknown' }
                     }
                     # See https://yuruna.link/42e5cdfd-0045
                     `$statePath = Join-Path `$runtimeDir 'runner.state.json'
@@ -2813,6 +2840,7 @@ try {
                     stepHeartbeatAgeSeconds = `$hbAge
                     boundSeconds            = `$bound
                     watchdogLapsed          = `$lapsed
+                    recoveryDisabled        = `$recoveryDisabled
                     runnerState             = `$runState
                 } | ConvertTo-Json -Compress
                 `$body = [System.Text.Encoding]::UTF8.GetBytes(`$payload)
@@ -3075,8 +3103,7 @@ try {
             }
 
             # --- REGION: Control endpoints: Pause/Continue back-channel from UI
-            # Flag-file semantics:
-            # docs/control-routes.md#pause-and-resume-the-flag-file-back-channel
+            # See https://yuruna.link/42185271-0009
             if (`$path -eq 'control/step-pause' -or `$path -eq 'control/step-resume' -or
                 `$path -eq 'control/cycle-pause' -or `$path -eq 'control/cycle-resume') {
                 `$isCycle = (`$path -like 'control/cycle-*')
@@ -3084,20 +3111,27 @@ try {
                 `$targetFile = if (`$isCycle) { `$cyclePauseFile } else { `$stepPauseFile }
                 `$fieldName  = if (`$isCycle) { 'cyclePaused' } else { 'stepPaused' }
                 `$sinceField = if (`$isCycle) { 'cyclePausedSinceUtc' } else { 'stepPausedSinceUtc' }
-                # Stamped here as well as into the flag file, because the runner's
-                # own status write is what normally mirrors the two -- and during a
-                # hold there are no step boundaries to trigger one. Without this the
-                # dashboard would show a hold with no age for as long as it lasts,
-                # which is exactly the reading that matters on a step-pause.
+                # status.json is stamped here as well as the flag file, and a flag that
+                # was not written is a refused request, never an ok.
                 `$sinceValue = ''
+                `$flagError = `$null
                 try {
                     if (`$desiredPaused) {
                         `$sinceValue = (Get-Date -Format o)
-                        Set-Content -Path `$targetFile -Value `$sinceValue -ErrorAction SilentlyContinue
+                        Set-Content -Path `$targetFile -Value `$sinceValue -ErrorAction Stop
                     } else {
-                        Remove-Item `$targetFile -Force -ErrorAction SilentlyContinue
+                        # File.Delete never prompts (Remove-Item asks before
+                        # removing a directory, and a prompt would hold this
+                        # one-request-at-a-time listener) and answers a missing
+                        # file with nothing to do.
+                        [System.IO.File]::Delete(`$targetFile)
                     }
-                } catch { Write-Debug `$_ }
+                } catch { `$flagError = `$_.Exception.Message }
+                if (`$flagError) {
+                    Write-ServerErr "`$path flag write failed: `$flagError"
+                    Send-JsonError -Response `$res -StatusCode 500 -Request `$req -Key 'status.api_write_failed_detail_c07681e1' -Arguments @{ detail = `$flagError }
+                    continue
+                }
                 try {
                     # Read-modify-write: must read fresh from disk every
                     # time (a concurrent runner-side write would otherwise
@@ -3133,8 +3167,13 @@ try {
                     Send-JsonError -Response `$res -StatusCode 409 -Request `$req -Key 'status.api_no_lab_hold_is_active_49dd8185'
                     continue
                 }
-                try { Set-Content -Path `$labHoldReleaseFile -Value (Get-Date -Format o) -ErrorAction SilentlyContinue }
-                catch { Write-Debug `$_ }
+                try {
+                    Set-Content -Path `$labHoldReleaseFile -Value (Get-Date -Format o) -ErrorAction Stop
+                } catch {
+                    Write-ServerErr "lab-hold-release flag write failed: `$(`$_.Exception.Message)"
+                    Send-JsonError -Response `$res -StatusCode 500 -Request `$req -Key 'status.api_write_failed_detail_c07681e1' -Arguments @{ detail = `$_.Exception.Message }
+                    continue
+                }
                 `$res.ContentType = 'application/json; charset=utf-8'
                 `$res.Headers.Add('Cache-Control', 'no-store')
                 `$payload = '{"ok":true,"labHoldRelease":true}'
@@ -3945,6 +3984,7 @@ try {
                     '.md'   { 'text/markdown; charset=utf-8' }
                     default { 'application/octet-stream' }
                 }
+                `$assetBytes = `$null
                 # See https://yuruna.link/42e5cdfd-0045
                 if (`$immutableLocaleCatalog) {
                     if (-not (Set-ImmutableAssetValidator -Request `$req -Response `$res ``
@@ -3955,7 +3995,21 @@ try {
                 } elseif (`$ext -eq '.html') {
                     `$res.Headers.Add('Cache-Control', 'public, max-age=60, must-revalidate')
                     `$res.Headers.Add('Last-Modified', ([System.IO.File]::GetLastWriteTimeUtc(`$file).ToString('R')))
-                } elseif (`$ext -in '.json','.txt','.css','.js','.sh','.ps1','.psm1','.yml','.yaml','.md') {
+                } elseif (`$ext -in '.css','.js') {
+                    # The page code changes only with a deployment and is most of
+                    # what a view pulls, so a browser revalidates it on every load
+                    # and an unchanged copy is answered with 304 instead of being
+                    # sent again.
+                    `$res.Headers.Add('Cache-Control', 'no-cache')
+                    `$assetBytes = [System.IO.File]::ReadAllBytes(`$file)
+                    `$assetETag = Get-RepresentationETag -Bytes `$assetBytes
+                    `$res.Headers.Set('ETag', `$assetETag)
+                    if (Test-RepresentationETagMatch -Header `$req.Headers['If-None-Match'] -ETag `$assetETag) {
+                        `$res.StatusCode = 304
+                        `$res.OutputStream.Close()
+                        continue
+                    }
+                } elseif (`$ext -in '.json','.txt','.sh','.ps1','.psm1','.yml','.yaml','.md') {
                     `$res.Headers.Add('Cache-Control', 'no-store, no-cache, must-revalidate')
                     `$res.Headers.Add('Pragma', 'no-cache')
                     `$res.Headers.Add('Expires', '0')
@@ -3980,6 +4034,9 @@ try {
                 # new bytes under the old immutable URL.
                 `$bytes = if (`$immutableLocaleCatalog) {
                     [byte[]]`$immutableLocaleCatalog.Bytes
+                } elseif (`$assetBytes) {
+                    # The bytes the ETag above was computed from.
+                    `$assetBytes
                 } else {
                     [System.IO.File]::ReadAllBytes(`$file)
                 }

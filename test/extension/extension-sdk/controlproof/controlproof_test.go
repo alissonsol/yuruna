@@ -1,5 +1,6 @@
 // LICENSEURI https://yuruna.link/license
 // Copyright (c) 2019-2026 by Alisson Sol et al.
+// GUID: 4238ba2b-a276-4ec2-acab-d9b36e90ddf3
 
 package controlproof
 

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.25
+.VERSION 2026.10.26
 .GUID 4248723f-4da9-4aa4-932f-35e16aecf9b0
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -366,12 +366,27 @@ Describe 'a plural question is asked in the target language' {
 
 Describe 'the row hash is the compiler''s hash' {
 
+    # Sort-Object collates in the host's culture: Turkish keeps a dotless I apart
+    # from i, and Lithuanian sorts y right after i, so these placeholder names
+    # reorder there, and every hash built over them moved with the host.
+    It 'hashes a message the same whatever culture the host runs in' {
+        $message = ConvertFrom-Json -InputObject '{"message":"{jName} {yName} {aIc} {aib}","description":"Culture fixture.","lifecycle":"active","placeholders":{"jName":{"type":"text","trust":"internal","example":"j"},"yName":{"type":"text","trust":"internal","example":"y"},"aIc":{"type":"text","trust":"internal","example":"I"},"aib":{"type":"text","trust":"internal","example":"i"}}}'
+        $prior = [Globalization.CultureInfo]::CurrentCulture
+        try {
+            $hashes = foreach ($culture in 'en-US', 'tr-TR', 'lt-LT') {
+                [Globalization.CultureInfo]::CurrentCulture = $culture
+                Get-LocalizationMessageHash -Key 'sample.culture' -Message $message
+            }
+        } finally { [Globalization.CultureInfo]::CurrentCulture = $prior }
+        @($hashes | Select-Object -Unique).Count | Should -Be 1
+    }
+
     It 'hashes a message exactly as the compiler' {
         $fixture = New-RowModelFixture -Base (Join-Path $TestDrive 'compiled')
         $run = Invoke-FixtureCompile -Fixture $fixture
-        # -Update exits 1 when it wrote, and a fresh tree always has artifacts
-        # to write; a validation failure also exits 1, so the text decides.
-        $run.Code | Should -Be 1 -Because $run.Output
+        # -Update exits 0 when it is done; a fresh tree always has artifacts to
+        # write, and its summary counts them.
+        $run.Code | Should -Be 0 -Because $run.Output
         $run.Output | Should -Match '; wrote [1-9][0-9]* artifact\(s\)\.' -Because $run.Output
         $run.Output | Should -Not -Match 'Catalog validation failed' -Because $run.Output
 
@@ -403,5 +418,3 @@ Describe 'the row hash is the compiler''s hash' {
         Assert-NoFinding $drift 'a message row carries a source digest the compiler does not record'
     }
 }
-
-# Copyright (c) 2019-2026 by Alisson Sol et al.

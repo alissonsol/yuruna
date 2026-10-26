@@ -1,5 +1,6 @@
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
+# GUID: 42526f77-52e9-4ffe-9473-11db50d7e030
 $schema: https://json-schema.org/draft/2020-12/schema
 $id: https://yuruna.com/schemas/lab.vault.schema.yml
 title: Yuruna lab vault

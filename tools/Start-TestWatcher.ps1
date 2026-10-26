@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.25
+.VERSION 2026.10.26
 .GUID 4254370d-577a-4b3f-a8a8-77e38fafee0e
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -196,5 +196,3 @@ while ($true) {
     }
     Start-Sleep -Seconds $IntervalSeconds
 }
-
-# Copyright (c) 2019-2026 by Alisson Sol et al.

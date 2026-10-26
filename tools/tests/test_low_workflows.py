@@ -1,5 +1,6 @@
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
+# GUID: 424114f7-3f97-458a-8b5e-fb421e58acdc
 """Local shell contracts. Commands that could mutate a host are fixture executables."""
 import hashlib
 import os
@@ -199,10 +200,10 @@ sleep() { [ "$1" = 1 ]; sleeps=$((sleeps+1)); }
             (root / 'VERSION').write_text('2026.09.30\n')
             subprocess.run([sys.executable, str(root / 'tools/Sync-GuestWorkflows.py')], check=True)
 
-            (root / 'VERSION').write_text('2026.10.25\n')
+            (root / 'VERSION').write_text('2026.10.26\n')
             for name in ('update', 'code', 'k8s', 'n8n', 'openclaw', 'postgresql'):
                 shared = root / f'guest/shared/ubuntu.{name}.sh'
-                shared.write_bytes(b'#!/bin/bash\n# Version: 2026.10.25\nexit 17\n')
+                shared.write_bytes(b'#!/bin/bash\n# Version: 2026.10.26\nexit 17\n')
             stale = subprocess.run([sys.executable, str(root / 'tools/Sync-GuestWorkflows.py'), '--check'], capture_output=True, text=True)
             self.assertNotEqual(stale.returncode, 0)
             self.assertEqual(len(stale.stderr.splitlines()) - 1, 12)
@@ -212,7 +213,7 @@ sleep() { [ "$1" = 1 ]; sleeps=$((sleeps+1)); }
                 for name in ('update', 'code', 'k8s', 'n8n', 'openclaw', 'postgresql'):
                     wrapper = (root / f'guest/ubuntu.server.{release}/ubuntu.server.{release}.{name}.sh').read_text()
                     digest = hashlib.sha256((root / f'guest/shared/ubuntu.{name}.sh').read_bytes()).hexdigest()
-                    self.assertIn('# Version: 2026.10.25\n', wrapper)
+                    self.assertIn('# Version: 2026.10.26\n', wrapper)
                     self.assertIn(f'expected="{digest}"', wrapper)
 
     def test_guest_workflow_pre_commit_stages_pins(self):
@@ -255,10 +256,10 @@ sleep() { [ "$1" = 1 ]; sleeps=$((sleeps+1)); }
             git('-c', 'core.hooksPath=', 'commit', '-q', '-m', 'seed')
             git('config', 'core.hooksPath', 'tools/githooks')
 
-            (root / 'VERSION').write_text('2026.10.25\n')
+            (root / 'VERSION').write_text('2026.10.26\n')
             for name in ('update', 'code', 'k8s', 'n8n', 'openclaw', 'postgresql'):
                 (root / f'guest/shared/ubuntu.{name}.sh').write_bytes(
-                    b'#!/bin/bash\n# Version: 2026.10.25\nexit 0\n')
+                    b'#!/bin/bash\n# Version: 2026.10.26\nexit 0\n')
             git('add', 'VERSION', 'guest/shared')
             committed = git('commit', '-q', '-m', 'version stamp')
             self.assertIn('regenerated and staged Ubuntu workflow checksum pins', committed.stderr)
@@ -271,7 +272,7 @@ sleep() { [ "$1" = 1 ]; sleeps=$((sleeps+1)); }
                     digest = hashlib.sha256(
                         (root / f'guest/shared/ubuntu.{name}.sh').read_bytes()).hexdigest()
                     self.assertIn(f'expected="{digest}"', wrapper)
-                    self.assertIn('# Version: 2026.10.25', wrapper)
+                    self.assertIn('# Version: 2026.10.26', wrapper)
 
             # A staged version with an unstaged workflow edit must not pin
             # bytes that the proposed commit does not contain.
@@ -390,8 +391,8 @@ wget() {
     local url="${@: -1}"
     printf 'wget %s\n' "$*" >> "$FIXTURE_LOG"
     case "$url" in
-        */livecheck) [ "$MODE" = host ] || [ "$MODE" = archive_failure ];;
-        */yuruna-archive.tar.gz)
+        */livecheck) [ "$MODE" = host ] || [ "$MODE" = archive_failure ] || [ "$MODE" = digest_mismatch ];;
+        */yuruna-archive.tar.gz\?commit=$FIXTURE_COMMIT)
             [ "$*" = "--no-proxy --timeout=30 --tries=1 -qO $FETCH_DIR/archive.tar.gz $url" ] || return 99
             printf 'ARCHIVE\n' > "$FETCH_DIR/archive.tar.gz"
             [ "$MODE" != archive_failure ] || return 7
@@ -439,11 +440,19 @@ rm() {
                               if line.strip() and not line.startswith(body_indent)), len(lines))
                 lines = lines[:limit]
             block = textwrap.dedent('\n'.join(lines))
-            for mode in ('host', 'mirror', 'archive_failure', 'git_failure'):
+            # The host archive is requested by the seeded commit and accepted only
+            # when it matches the seeded digest; digest_mismatch is a tampered or
+            # stale archive, which must fall through to the verified paths.
+            commit = 'a' * 40
+            archive_digest = hashlib.sha256(b'ARCHIVE\n').hexdigest()
+            for mode in ('host', 'mirror', 'archive_failure', 'digest_mismatch', 'git_failure'):
                 with self.subTest(service=service, mode=mode), tempfile.TemporaryDirectory() as tmp:
                     fixture = Path(tmp)
                     host_env = fixture / 'host.env'
-                    host_env.write_text('YURUNA_STATUS_SERVICE_IP=192.0.2.10\nYURUNA_STATUS_SERVICE_PORT=8080\n')
+                    host_env.write_text('YURUNA_STATUS_SERVICE_IP=192.0.2.10\nYURUNA_STATUS_SERVICE_PORT=8080\n'
+                                        f'YURUNA_GITHUB_REF={commit}\n')
+                    seeded = ('0' * 64) if mode == 'digest_mismatch' else archive_digest
+                    (fixture / 'framework-archive.sha256').write_text(seeded + '\n')
                     log = fixture / 'commands.log'
                     log.write_text('')
                     destination = fixture / 'checkout'
@@ -454,7 +463,7 @@ rm() {
                     (fixture / 'framework-source').write_text('source=previous\nversion=previous-version\n')
                     source = re.sub(r'(?m)^[ \t]*DEST=.*$', 'DEST="$FIXTURE_DEST"', block)
                     source = source.replace('/etc/yuruna', '"$FIXTURE_DIR"')
-                    env = {**os.environ, 'MODE': mode, 'FIXTURE_LOG': log.as_posix(),
+                    env = {**os.environ, 'MODE': mode, 'FIXTURE_LOG': log.as_posix(), 'FIXTURE_COMMIT': commit,
                            'FIXTURE_DEST': destination.as_posix(), 'FIXTURE_DIR': fixture.as_posix()}
                     result = bash(mocks + source + '\nprintf "DAEMON_CONTINUES\\n"', env)
                     self.assertEqual(result.returncode, 0, result.stderr)
@@ -463,6 +472,7 @@ rm() {
                     provenance = (fixture / 'framework-source').read_text()
                     if mode == 'host':
                         self.assertNotIn('git ', commands)
+                        self.assertIn(f'yuruna-archive.tar.gz?commit={commit}', commands)
                         self.assertIn('source=host\n', provenance)
                         self.assertIn('version=fixture-host-version\n', provenance)
                     else:

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.25
+.VERSION 2026.10.26
 .GUID 42fa6f61-9143-4a1d-9bdb-005d250ec17e
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -264,18 +264,18 @@ Describe 'Generated checkpoint ingestion' {
         $raw = [regex]::Match($source, '(?ms)^\$serverScript = @"\r?\n(.*?)^"@').Groups[1].Value
         $server = $ExecutionContext.InvokeCommand.ExpandString($raw)
         $ast = [Management.Automation.Language.Parser]::ParseInput($server, [ref]$null, [ref]$null)
-        $route = $ast.FindAll({ param($node)
-            $node -is [Management.Automation.Language.IfStatementAst] -and
-            $node.Clauses[0].Item1.Extent.Text -eq '$path -eq ''control/perf-checkpoints'''
-        }, $true) | Select-Object -First 1
+        $writer = $ast.Find({ param($node)
+            $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq 'Invoke-PerfCheckpointWrite'
+        }, $true)
+        $writer | Should -Not -BeNullOrEmpty -Because 'the route hands the body it read to this completion'
         $payload = @{ stepInvocationId = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'; sequenceInvocationId = 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'
             checkpoints = @(@{ name = 'packages'; offsetMs = 300 }); source = 'bash'; scriptPath = 'guest/install.sh' } | ConvertTo-Json -Depth 5
         $bytes = [Text.Encoding]::UTF8.GetBytes($payload)
         $req = @{ HttpMethod = 'POST'; ContentLength64 = $bytes.Length; ContentEncoding = [Text.Encoding]::UTF8
-            InputStream = [IO.MemoryStream]::new($bytes); RemoteEndPoint = @{ Address = [Net.IPAddress]::Loopback } }
+            RemoteEndPoint = @{ Address = [Net.IPAddress]::Loopback } }
         $res = @{ Headers = @{}; OutputStream = [IO.MemoryStream]::new() }
-        $handler = [scriptblock]::Create('param($req, $res, $path, $statusDir) foreach ($once in 1) {' + $route.Extent.Text + '}')
-        & $handler $req $res 'control/perf-checkpoints' $TestDrive
+        $handler = [scriptblock]::Create('param($req, $res, $bytes, $statusDir) ' + $writer.Extent.Text + '; Invoke-PerfCheckpointWrite -RequestContext @{ Request = $req; Response = $res } -BodyBytes $bytes')
+        & $handler $req $res $bytes $TestDrive
         $sidecar = Get-ChildItem (Join-Path $TestDrive 'perf/checkpoints') -Filter '*.json' | Get-Content -Raw | ConvertFrom-Json
         $sidecar.stepInvocationId | Should -Be 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
         $sidecar.sequenceInvocationId | Should -Be 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'

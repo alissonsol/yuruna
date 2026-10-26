@@ -1,5 +1,6 @@
 // LICENSEURI https://yuruna.link/license
 // Copyright (c) 2019-2026 by Alisson Sol et al.
+// GUID: 42c5db5a-d926-4e64-9f2c-612f61c04fdc
 
 // Host resolution. A stash's hostId is an opaque UUID; to build the remote-host
 // deep-link the UI turns it into a reachable stash-UI base URL by reusing the

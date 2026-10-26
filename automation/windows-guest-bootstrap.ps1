@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.25
+.VERSION 2026.10.26
 .GUID 42ae98ea-d3b9-46df-ad7b-f011055484ff
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -90,6 +90,9 @@ if (-not $token) { return }
 $askpass = Join-Path $dir 'git-askpass.cmd'
 Set-Content -Path $askpass -Encoding Ascii -Value @'
 @echo off
+rem Answers github.com alone; any other host a remote names gets nothing.
+echo %* | findstr /i /c:"//github.com'" /c:"@github.com'" >nul
+if errorlevel 1 (echo.& exit /b 0)
 echo %* | find /i "Username" >nul
 if errorlevel 1 (echo %GH_TOKEN%) else (echo x-access-token)
 '@

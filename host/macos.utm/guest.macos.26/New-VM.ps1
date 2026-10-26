@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.25
+.VERSION 2026.10.26
 .GUID 42f70b5c-df30-487c-a638-ea7b52866f97
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -166,8 +166,8 @@ Write-Verbose "All host prerequisites met."
 Write-Output ""
 
 # --- REGION: Seek the base image
-# Auto-run Get-Image.ps1 once if the base IPSW is missing; recheck and
-# only error out when it's still missing afterward.
+# See https://yuruna.link/42e220c4-0003
+# Fetch missing media once; fail if manual-download requirements remain unmet.
 $baseImageName = "host.macos.utm.guest.macos.26"
 $baseImageFile = Join-Path $downloadDir "$baseImageName.ipsw"
 Import-Module -Name (Join-Path (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)) 'modules/Yuruna.Image.psm1') -Force
@@ -316,15 +316,9 @@ do {
 let vm = VZVirtualMachine(configuration: cfg)
 
 // --- REGION: Run the installer
-//
-// `vm` was created with VZVirtualMachine(configuration:) and no explicit
-// queue, so it is bound to the MAIN dispatch queue. VZMacOSInstaller
-// delivers BOTH its progress KVO updates and its completion handler on
-// that queue. Blocking the main thread here (e.g. `sema.wait()`) would
-// stall the main queue and deadlock the install before it writes a
-// single byte -- the completion handler could never run. Instead we hand
-// the thread to dispatchMain() and let the completion handler exit the
-// process.
+// See https://yuruna.link/42885ada-0010
+// The installer calls back on the main queue, so the thread goes to dispatchMain()
+// instead of a semaphore wait, and the completion handler exits the process.
 let installer = VZMacOSInstaller(virtualMachine: vm, restoringFromImageAt: URL(fileURLWithPath: ipswPath))
 
 let progress = installer.progress
@@ -413,8 +407,9 @@ if (-not (Test-Path $TemplatePath)) {
 
 $VmUuid = [guid]::NewGuid().ToString().ToUpper()
 $DiskId = [guid]::NewGuid().ToString().ToUpper()
-# Deterministic per (host, VM name): a rebuilt guest presents the SAME MAC,
-# so the DHCP server returns the SAME lease instead of consuming a new one.
+
+# --- REGION: https://yuruna.link/4220a755-000a
+# Key the MAC by VM name so a rebuild presents the same address and keeps its DHCP lease.
 $MacAddress = Get-YurunaGuestMacAddress -VMName $VMName
 
 $PlistContent = (Get-Content -Raw $TemplatePath) `

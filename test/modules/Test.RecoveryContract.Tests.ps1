@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.25
+.VERSION 2026.10.26
 .GUID 42994830-6205-4cf7-a39c-84254b1669c3
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -198,7 +198,7 @@ Describe 'New-RecoveryResult and Test-RecoveryResult' {
     It 'builds a result that validates, with every documented field' {
         $r = New-RecoveryResult -EntryPoint runner -CycleGeneration (Get-Generation) -Outcome failed -ExitCode 1 -FailureClass wait_timeout -Stage s -Reason 'x'
         (Test-RecoveryResult -Result $r).Valid | Should -BeTrue
-        @($r.Keys) | Should -Be @('schemaVersion', 'resultId', 'entryPoint', 'cycleGeneration', 'recordedAtUtc', 'outcome', 'exitCode', 'failureClass', 'fingerprint', 'stage', 'reason', 'evidence', 'steps', 'recovery')
+        @($r.Keys) | Should -Be @('schemaVersion', 'resultId', 'entryPoint', 'cycleGeneration', 'recordedAtUtc', 'durationSeconds', 'outcome', 'exitCode', 'failureClass', 'fingerprint', 'stage', 'reason', 'evidence', 'steps', 'recovery')
         $r['schemaVersion'] | Should -Be 1
         $r['resultId'] | Should -Match '^[0-9a-f]{32}$'
     }
@@ -445,6 +445,17 @@ Describe 'ConvertTo-RunnerRecoveryResult' {
         $r['fingerprint'] | Should -Be ''
         (Test-RecoveryResult -Result $r).Valid | Should -BeTrue
     }
+    It 'calls a cycle that failed nothing but skipped a planned guest degraded, and blames no failure record' {
+        Write-Json (Join-Path $script:Log 'last_failure.json') ([ordered]@{ failureClass = 'wait_timeout'; description = 'previous cycle' })
+        $r = Convert-Dispatch @{ Outcome = 'completed'; ExitCode = (Get-DegradedCycleExitCode) }
+        $r['outcome'] | Should -Be 'degraded'
+        $r['exitCode'] | Should -Be 75
+        $r['failureClass'] | Should -Be ''
+        $r['fingerprint'] | Should -Be ''
+        $r['reason'] | Should -Match 'skipped a planned guest'
+        @($r['evidence'] | Where-Object { $_['ref'] -like '*last_failure.json' }).Count | Should -Be 0
+        (Test-RecoveryResult -Result $r).Valid | Should -BeTrue
+    }
     It 'reads a failed cycle from its failure record' {
         Write-Json (Join-Path $script:Log 'last_failure.json') ([ordered]@{ failureClass = 'wait_timeout'; sequenceName = 'workload.x'; actionVerb = 'waitForText'; description = 'timed out'; reason = 'timeout' })
         $r = Convert-Dispatch @{ Outcome = 'completed'; ExitCode = 1 }
@@ -555,6 +566,36 @@ Describe 'ConvertTo-ExitRecoveryResult and Save-RecoveryResult' {
     }
     It 'reads the cannot-run exit code as cannot-run' {
         (ConvertTo-ExitRecoveryResult -EntryPoint sequence -ExitCode 2 -LogDir $script:Log -CycleGeneration (Get-Generation))['outcome'] | Should -Be 'cannot-run'
+    }
+    It 'reads the configuration gate code of a project run as cannot-run with the gate''s class' {
+        $r = ConvertTo-ExitRecoveryResult -EntryPoint project -ExitCode (Get-ConfigGateFailureExitCode) -LogDir $script:Log -CycleGeneration (Get-Generation)
+        $r['outcome'] | Should -Be 'cannot-run'
+        $r['failureClass'] | Should -Be 'config_gate_failed'
+        $r['stage'] | Should -Be 'ConfigGate'
+    }
+    It 'reports <Code> for a dispatched cycle that ended <Outcome> with exit <Exit>' -TestCases @(
+        @{ Outcome = 'completed'; Exit = 0; Code = 0 }
+        @{ Outcome = 'completed'; Exit = 1; Code = 1 }
+        @{ Outcome = 'completed'; Exit = 75; Code = 75 }
+        @{ Outcome = 'config-gate-failed'; Exit = 78; Code = 78 }
+        @{ Outcome = 'outcome-unrecorded'; Exit = 70; Code = 70 }
+        @{ Outcome = 'cycle-aborted'; Exit = 64; Code = 64 }
+        @{ Outcome = 'spawn-failed'; Exit = 0; Code = 1 }
+        @{ Outcome = 'storage-full'; Exit = 1; Code = 1 }
+        @{ Outcome = 'drain'; Exit = 0; Code = 2 }
+        @{ Outcome = 'paused'; Exit = 0; Code = 2 }
+        @{ Outcome = 'refresh-gated'; Exit = 0; Code = 2 }
+        @{ Outcome = 'shutdown'; Exit = 0; Code = 2 }
+    ) {
+        param($Outcome, $Exit, $Code)
+        Get-OneShotCycleExitCode -Result ([pscustomobject]@{ Outcome = $Outcome; ExitCode = $Exit }) | Should -Be $Code
+    }
+    It 'reads the degraded cycle exit code of a project run as degraded, not from an old failure record' {
+        Write-Json (Join-Path $script:Log 'last_failure.json') ([ordered]@{ failureClass = 'ocr_timeout'; description = 'previous run' })
+        $r = ConvertTo-ExitRecoveryResult -EntryPoint project -ExitCode 75 -LogDir $script:Log -CycleGeneration (Get-Generation)
+        $r['outcome'] | Should -Be 'degraded'
+        $r['failureClass'] | Should -Be ''
+        @($r['evidence']).Count | Should -Be 0
     }
     It 'reads any other failing exit code from the failure record' {
         Write-Json (Join-Path $script:Log 'last_failure.json') ([ordered]@{ failureClass = 'ocr_timeout'; sequenceName = 'workload.x'; actionVerb = 'waitForText'; description = 'no text' })
@@ -718,5 +759,92 @@ Describe 'The shared module is the only home of the moved code' {
         foreach ($name in 'Read-OuterCycleOutcomeRecord', 'Publish-OuterCycleOutcome', 'Get-OuterUnrecordedOutcomeExitCode', 'Read-OuterVmAdmissionRecord') {
             $text | Should -Not -Match ([regex]::Escape($name)) -Because "$name moved to the contract module"
         }
+    }
+}
+
+# A recovery decision read only the root record, which the next guest's
+# sequence start clears; the cycle's failure index keeps the first failure.
+Describe 'Get-LastFailureFact reads the cycle failure index first' {
+    BeforeEach {
+        $script:FactDir = Join-Path $TestDrive ([guid]::NewGuid().ToString('N'))
+        $null = New-Item -ItemType Directory -Path $script:FactDir -Force
+        $script:Generation = ('c' * 32) + ':3'
+        $index = [ordered]@{ schemaVersion = 1; identity = $script:Generation; rows = @(
+            [ordered]@{ key = 'vm:vm-a'; record = [ordered]@{ failureClass = 'provisioning_failure'; sequenceName = 'first'; actionVerb = 'waitForText' } },
+            [ordered]@{ key = 'vm:vm-b'; record = [ordered]@{ failureClass = 'wait_timeout'; sequenceName = 'second' } }) }
+        Set-Content -LiteralPath (Join-Path $script:FactDir 'cycle_failures.json') -Value ($index | ConvertTo-Json -Depth 8) -Encoding utf8NoBOM
+        Set-Content -LiteralPath (Join-Path $script:FactDir 'last_failure.json') -Value '{"failureClass":"wait_timeout","sequenceName":"root"}' -Encoding utf8NoBOM
+    }
+    It 'returns the cycle''s first failure for its own generation' {
+        $fact = Get-LastFailureFact -LogDir $script:FactDir -CycleGeneration $script:Generation
+        $fact.FailureClass | Should -Be 'provisioning_failure'
+        $fact.SequenceName | Should -Be 'first'
+        $fact.Path | Should -BeLike '*cycle_failures.json'
+    }
+    It 'reads the root record for another generation, or with none given' {
+        (Get-LastFailureFact -LogDir $script:FactDir -CycleGeneration (('d' * 32) + ':1')).SequenceName | Should -Be 'root'
+        (Get-LastFailureFact -LogDir $script:FactDir).SequenceName | Should -Be 'root'
+    }
+    It 'still has the first failure once the root record is gone' {
+        Remove-Item -LiteralPath (Join-Path $script:FactDir 'last_failure.json') -Force
+        (Get-LastFailureFact -LogDir $script:FactDir -CycleGeneration $script:Generation).FailureClass | Should -Be 'provisioning_failure'
+    }
+}
+
+Describe 'Get-LastFailureFact names the cause a wrapper class hides' {
+    It 'returns the inner class, the routing class, the classification source and the reason' {
+        $dir = Join-Path $TestDrive ([guid]::NewGuid().ToString('N'))
+        $null = New-Item -ItemType Directory -Path $dir -Force
+        Set-Content -LiteralPath (Join-Path $dir 'last_failure.json') -Encoding utf8NoBOM -Value (@{
+            failureClass = 'retry_exhausted'; innerFailureClass = 'wait_timeout'; classificationSource = 'verb-registry'; reason = 'step' } | ConvertTo-Json)
+        $fact = Get-LastFailureFact -LogDir $dir
+        $fact.FailureClass | Should -Be 'retry_exhausted' -Because 'the recovery policy still decides on the recorded class'
+        $fact.InnerFailureClass | Should -Be 'wait_timeout'
+        $fact.RoutingClass | Should -Be 'wait_timeout'
+        $fact.ClassificationSource | Should -Be 'verb-registry'
+        $fact.Reason | Should -Be 'step'
+    }
+}
+
+
+# A hang the watchdog killed is filed as a wait_timeout, whose repair is the
+# retry, so the same hang repeated at every early end of the failure pause.
+Describe 'The runner-minutes a failure class spent' {
+    It 'adds the durations of the failed runner cycles of that class inside the window' {
+        $dir = Join-Path $TestDrive ([guid]::NewGuid().ToString('N'))
+        $null = New-Item -ItemType Directory -Path $dir
+        $now = [datetime]::new(2026, 10, 25, 12, 0, 0, [DateTimeKind]::Utc)
+        $rows = @(
+            @{ Outcome = 'failed'; Class = 'wait_timeout'; At = $now.AddHours(-1); Seconds = 1800; Entry = 'runner' }
+            @{ Outcome = 'infrastructure-fault'; Class = 'wait_timeout'; At = $now.AddHours(-23); Seconds = 600; Entry = 'runner' }
+            @{ Outcome = 'failed'; Class = 'wait_timeout'; At = $now.AddHours(-25); Seconds = 9000; Entry = 'runner' }
+            @{ Outcome = 'failed'; Class = 'ocr_timeout'; At = $now.AddHours(-2); Seconds = 3000; Entry = 'runner' }
+            @{ Outcome = 'passed'; Class = ''; At = $now.AddHours(-3); Seconds = 3000; Entry = 'runner' }
+            @{ Outcome = 'failed'; Class = 'wait_timeout'; At = $now.AddHours(-4); Seconds = 3000; Entry = 'project' }
+        )
+        $history = (Get-RecoveryResultPath -RuntimeDir $dir).History
+        foreach ($row in $rows) {
+            $r = New-RecoveryResult -EntryPoint $row.Entry -CycleGeneration (Get-Generation) -Outcome $row.Outcome -ExitCode 1 `
+                -FailureClass $row.Class -RecordedAtUtc $row.At -DurationSeconds $row.Seconds
+            Add-Content -LiteralPath $history -Value ($r | ConvertTo-Json -Depth 8 -Compress) -Encoding utf8
+        }
+        # A result written before runs carried a duration adds nothing.
+        $old = New-RecoveryResult -EntryPoint runner -CycleGeneration (Get-Generation) -Outcome failed -ExitCode 1 -FailureClass wait_timeout -RecordedAtUtc $now.AddHours(-5)
+        $old.Remove('durationSeconds')
+        Add-Content -LiteralPath $history -Value ($old | ConvertTo-Json -Depth 8 -Compress) -Encoding utf8
+        Get-RecoveryClassRetryMinutes -RuntimeDir $dir -FailureClass wait_timeout -Now $now | Should -Be 40
+        Get-RecoveryClassRetryMinutes -RuntimeDir $dir -FailureClass ocr_timeout -Now $now | Should -Be 50
+        Get-RecoveryClassRetryMinutes -RuntimeDir $dir -FailureClass network_timeout -Now $now | Should -Be 0
+        Get-RecoveryClassRetryMinutes -RuntimeDir $dir -FailureClass '' -Now $now | Should -Be 0
+    }
+    It 'records how long a runner cycle took on its result' {
+        $r = ConvertTo-RunnerRecoveryResult -Dispatch ([pscustomobject]@{ Outcome = 'completed'; ExitCode = 1 }) -CycleGeneration (Get-Generation) `
+            -LogDir $TestDrive -RuntimeDir $TestDrive -SpawnedAtUtc ([datetime]::UtcNow.AddMinutes(-7))
+        $r['durationSeconds'] | Should -BeGreaterOrEqual 419
+        $r['durationSeconds'] | Should -BeLessOrEqual 480
+        (Test-RecoveryResult -Result $r).Valid | Should -BeTrue
+        $bad = New-RecoveryResult -EntryPoint runner -CycleGeneration (Get-Generation) -Outcome failed -ExitCode 1 -FailureClass wait_timeout
+        $bad['durationSeconds'] = -5
+        (Test-RecoveryResult -Result $bad).Problems | Should -Contain 'durationSeconds is not a non-negative integer'
     }
 }

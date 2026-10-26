@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
-# Version: 2026.10.25
+# Version: 2026.10.26
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
+# GUID: 42134528-d6d9-4a77-870e-43e44f105a58
 #
 # --- REGION: https://yuruna.link/42fa6f45-000f
 # tofu data "external" hook: copy the kube context bundle at the stdin query's sourceContext under destinationContext inside ~/.kube/config.

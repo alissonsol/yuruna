@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.25
+.VERSION 2026.10.26
 .GUID 42305b75-dbdd-448e-8c59-ffaf93235629
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -162,6 +162,18 @@ Describe 'Get-OuterAutoRemediation (pool override WINS over config > default)' {
     It 'lets a pool override DISABLE remediation over a config that is on' {
         $r = Get-OuterAutoRemediation -ConfigPath $script:CfgRemediationOn -PoolTestCycleOverride @{ autoRemediation = @{ enabled = $false } }
         Assert-False $r.Enabled 'override disables'
+    }
+    # A half-saved edit read as no configuration turned recovery off on every
+    # host that was in the middle of a failure pause.
+    It 'keeps the last configuration that parsed while an edit leaves the file broken' {
+        $path = New-TempConfig "testCycle:`n  autoRemediation:`n    enabled: true`n    maxAttemptsPerCycle: 4`n"
+        try {
+            Assert-True (Get-OuterAutoRemediation -ConfigPath $path).Enabled 'fixture sanity: on'
+            Set-Content -LiteralPath $path -Value "testCycle:`n  autoRemediation: [unclosed" -Encoding utf8
+            $r = Get-OuterAutoRemediation -ConfigPath $path -WarningAction SilentlyContinue
+            Assert-True $r.Enabled 'the broken edit does not turn recovery off'
+            Assert-Equal -Expected 4 -Actual $r.MaxAttempts -Because 'the last good budget'
+        } finally { Remove-Item -LiteralPath $path -Force -ErrorAction SilentlyContinue }
     }
 }
 
@@ -355,9 +367,10 @@ Describe 'Invoke-RunnerOuterLoop failure pause (auto-remediation trigger is reac
 Describe 'Typed configuration failures and network recovery holds' {
     BeforeAll {
         function Invoke-NetworkPauseFixture {
-            param([object[]]$Failures, [int]$RecoverOnPoll = 0, [int]$BaseSeconds = 1)
+            param([object[]]$Failures, [int]$RecoverOnPoll = 0, [int]$BaseSeconds = 1, [switch]$JumpWallClock)
             $control = @{
                 Requested = $false; Clock = [datetime]'2026-10-20T12:00:00Z'
+                WallSkewSeconds = 0; JumpWall = [bool]$JumpWallClock
                 Holds = [System.Collections.Generic.List[int]]::new()
                 CycleIndex = 0; Slept = 0; Polls = 0; RecoverOnPoll = $RecoverOnPoll
                 Failures = $Failures
@@ -391,13 +404,17 @@ Describe 'Typed configuration failures and network recovery holds' {
         Mock -ModuleName Test.RunnerOuterLoop Get-OuterProjectUrl { '' }
         Mock -ModuleName Test.RunnerOuterLoop Get-OuterConfigMtime { $null }
         Mock -ModuleName Test.RunnerOuterLoop Test-OuterNewCommitsAvailable { $false }
-        Mock -ModuleName Test.RunnerOuterLoop Get-Date { $State.ShutdownState.Clock }
+        # The wall clock can be moved apart from elapsed time; the pause must run
+        # on the monotonic one.
+        Mock -ModuleName Test.RunnerOuterLoop Get-Date { $State.ShutdownState.Clock.AddSeconds($State.ShutdownState.WallSkewSeconds) }
+        Mock -ModuleName Test.RunnerOuterLoop Get-OuterMonotonicTime { $State.ShutdownState.Clock.Ticks / 1e7 }
         Mock -ModuleName Test.RunnerOuterLoop Test-OuterRepositoryAccess {
             $State.ShutdownState.Polls++
             return $State.ShutdownState.RecoverOnPoll -eq $State.ShutdownState.Polls
         }
         Mock -ModuleName Test.RunnerOuterLoop Start-Sleep {
             $State.ShutdownState.Clock = $State.ShutdownState.Clock.AddSeconds($Seconds)
+            if ($State.ShutdownState.JumpWall) { $State.ShutdownState.WallSkewSeconds = 3600 }
             $State.ShutdownState.Slept += $Seconds
             if ($State.ShutdownState.Slept -gt 20) { $State.ShutdownState.Requested = $true }
         }
@@ -461,6 +478,13 @@ Import-Module '__MODULE__' -DisableNameChecking
             @(@{ message = 'connection timed out' })
         )
         @($control.Holds) | Should -Be @(10, 10)
+    }
+
+    # A daylight-saving change moves the local clock an hour in the middle of a
+    # pause; a pause timed on it ended at once (spring) or ran an hour long (fall).
+    It 'holds the whole pause when the wall clock jumps an hour' {
+        $control = Invoke-NetworkPauseFixture -Failures @(, @(@{ message = 'connection timed out' })) -JumpWallClock
+        @($control.Holds) | Should -Be @(10)
     }
 
     It 'ends the hold on unchanged-source recovery and resets the next backoff' {
@@ -666,8 +690,13 @@ Describe 'Invoke-RunnerOuterCycle at its refresh sites (in-process, stand-in inn
             Should -Invoke -CommandName Invoke-OuterGitPull -ModuleName Test.RunnerOuterLoop -Times 0 -Exactly -Scope It
             Assert-True (Test-Path -LiteralPath (Join-Path $f.Log 'last_failure.json')) 'the last failure record is kept'
             Assert-True (Test-Path -LiteralPath (Join-Path $f.Runtime 'break-active.json')) 'the break marker is kept'
-            Assert-False (Test-Path -LiteralPath (Join-Path $f.Runtime 'inner.pid')) 'inner.pid wiped'
-            Assert-False (Test-Path -LiteralPath (Join-Path $f.Runtime 'inner.start')) 'inner.start wiped'
+            # The cycle process records the inner it starts, so the files hold the
+            # stand-in's identity now; the stale 'x' records must not survive.
+            foreach ($name in 'inner.pid', 'inner.start') {
+                $record = Join-Path $f.Runtime $name
+                $kept = if (Test-Path -LiteralPath $record) { (Get-Content -LiteralPath $record -Raw).Trim() } else { '' }
+                Assert-True ($kept -ne 'x') "$name wiped"
+            }
             $seen = Get-Content -LiteralPath $f.EnvFile -Raw | ConvertFrom-Json
             Assert-Equal -Expected '1' -Actual $seen.preflight
             Assert-Equal -Expected ('d' * 32) -Actual $seen.token

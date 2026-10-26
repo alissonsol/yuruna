@@ -1,5 +1,6 @@
 // LICENSEURI https://yuruna.link/license
 // Copyright (c) 2019-2026 by Alisson Sol et al.
+// GUID: 422bf59c-dca1-40dc-9b21-d718066e3a64
 
 package sshsrv
 

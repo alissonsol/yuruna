@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.25
+.VERSION 2026.10.26
 .GUID 42bb7615-cee4-a88b-8802-0ac4f598abc0
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -844,6 +844,15 @@
             'trust' = 'internal'
         }
         ' ďóéš ñóţ ɱáţçħ ţħé éñţřý šçříƥţ''š ƥářáɱéţéřš; řéƒúšíñğ ţó ļáúñçħ á ŵóřķéř ţħé éñţřý ƥóíñţ ŵóúļď ñóţ áççéƥţ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    )
+    'exceptions.host_signature_could_not_be_checked' = @(
+        '[ŠĦÁ256ŠÚⱮŠ ĞƤĞ šíğñáţúřé çóúļď ñóţ ƀé çħéçķéď ƒóř '
+        @{
+            'arg' = 'checksumUrl'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' ~~~~~~~~~~~~~~~~~~~~~~~~~~]'
     )
     'exceptions.host_utm_sudo_requires_noninteractive' = '[Íñṽóķé-ÚţɱĦóšţŢóóļ: šúďó ɱúšţ ƀé çáļļéď ŵíţħ -ñ áš íţš ƒířšţ ářğúɱéñţ šó íţ çáñ ñéṽéř ŵáíţ óñ á ƥáššŵóřď ƥřóɱƥţ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
     'exceptions.host_utmctl_kill_requires_stop' = @(

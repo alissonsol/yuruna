@@ -1,5 +1,6 @@
 // LICENSEURI https://yuruna.link/license
 // Copyright (c) 2019-2026 by Alisson Sol et al.
+// GUID: 420eb0be-a4a2-437f-a4cc-01f7d5a003a5
 
 package main
 
@@ -336,5 +337,25 @@ func TestLandingIsServedAtItsOwnRouteAndTheStatsPageKeepsRoot(t *testing.T) {
 	rootBody, _ := readAllString(root)
 	if strings.Contains(rootBody, `data-i18n="cache.extension_hosts">Extension hosts</h2>`) {
 		t.Error("/ now serves the landing page; the service's statistics page has nowhere left to live")
+	}
+}
+
+// Only the Apache proxy on this VM is believed about the host the operator
+// typed: a client reaching the daemon's port directly cannot point the page's
+// links somewhere else.
+func TestOnlyTheLocalProxyIsBelievedAboutTheHost(t *testing.T) {
+	forwarded := func(remote string) *http.Request {
+		r := httptest.NewRequest(http.MethodGet, "http://proxy.lan:9310/landing", nil)
+		r.RemoteAddr = remote
+		r.Header.Set("X-Forwarded-Host", "elsewhere.example")
+		return r
+	}
+	if got := browserHost(forwarded("192.0.2.7:51000")); got != "proxy.lan" {
+		t.Errorf("a direct client's X-Forwarded-Host was believed: %q", got)
+	}
+	for _, remote := range []string{"127.0.0.1:51000", "[::1]:51000"} {
+		if got := browserHost(forwarded(remote)); got != "elsewhere.example" {
+			t.Errorf("the local proxy's X-Forwarded-Host from %s was ignored: %q", remote, got)
+		}
 	}
 }

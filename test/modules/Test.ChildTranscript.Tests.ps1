@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.25
+.VERSION 2026.10.26
 .GUID 427f1267-e087-42e4-ad77-aab3e3216101
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -230,5 +230,3 @@ Describe 'Set-LogLevelPreference -- the captured ProgressPreference survives a f
             'a capture slot that a re-import empties records SilentlyContinue as the caller value and pins the progress bar off for the rest of the run'
     }
 }
-
-# Copyright (c) 2019-2026 by Alisson Sol et al.

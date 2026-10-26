@@ -1973,16 +1973,8 @@
       }
     },
     "automation.operator_483ad55e8c49c6d8": {
-      "message": "-- WARNING: tofu already initialized: {terraformPath} \n   Resource may not be created. Use 'yuruna clear' to clear tofu state.",
       "description": "Whole Write-Information message in automation/Yuruna.Resource.psm1; preserve command names, paths, codes, and argument boundaries.",
-      "lifecycle": "active",
-      "placeholders": {
-        "terraformPath": {
-          "type": "detail",
-          "trust": "external",
-          "example": "$terraformPath"
-        }
-      }
+      "lifecycle": "tombstone"
     },
     "automation.operator_485fb74637bada2f": {
       "message": "Connectivity probe (ping -c 3 -W 2 1.1.1.1)",

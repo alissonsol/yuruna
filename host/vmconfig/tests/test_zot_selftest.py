@@ -1,5 +1,6 @@
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
+# GUID: 4268a97a-5055-43ff-8303-6f866a0d38f3
 """The zot sync self-test against a stand-in registry: each verdict, and the fix it tells the reader.
 
 Runs the script exactly as the seed ships it, read out of the seed the way

@@ -1,5 +1,6 @@
 // LICENSEURI https://yuruna.link/license
 // Copyright (c) 2019-2026 by Alisson Sol et al.
+// GUID: 42ebbda3-4d19-44a4-917c-afc8889b3216
 
 // Package config holds the spec-frozen constants for the Stash
 // Service daemon. Everything in section 10 "Constants in code" lives here so
@@ -39,6 +40,11 @@ const (
 	MaxRequestBytes = 512 * 1024 * 1024
 	// MaxUploadFiles caps the file count in one multi-file UI upload.
 	MaxUploadFiles = 64
+	// TextBodyReadTimeout bounds how long a large text body (JSON or
+	// urlencoded) may take to arrive: 100 MB in five minutes is under 3 Mbit/s.
+	// Only one such body is read at a time, so it also bounds how long one slow
+	// client can keep the next one waiting.
+	TextBodyReadTimeout = 5 * time.Minute
 )
 
 // Presence beacon (section 4.7). The daemon self-announces to the pool-aggregator-service

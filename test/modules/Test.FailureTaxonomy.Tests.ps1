@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.25
+.VERSION 2026.10.26
 .GUID 42e7a0f2-fce5-47f4-aa02-059ecae18abf
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -103,5 +103,99 @@ Describe 'taxonomy single-source invariant (the three lists are identical)' {
             Where-Object { $_ -is [System.Management.Automation.ValidateSetAttribute] } |
             ForEach-Object { $_.ValidValues }
         Assert-Equal -Expected ((Get-FailureClassEnum) -join '|') -Actual ($vs -join '|') -Because 'the ValidateSet literal must match the canonical set'
+    }
+    It 'the Register-SequenceAction reference table lists the canonical classes in order' {
+        $doc = Join-Path $here '../../docs/test-sequences.md'
+        $row = @(Get-Content -LiteralPath $doc | Where-Object { $_.StartsWith('| `FailureClass`', [StringComparison]::Ordinal) })
+        Assert-Equal -Expected 1 -Actual $row.Count -Because 'the parameter table has one FailureClass row'
+        $listed = @([regex]::Matches(($row[0] -split '\|')[2], '`([a-z_]+)`') | ForEach-Object { $_.Groups[1].Value })
+        Assert-Equal -Expected ((Get-FailureClassEnum) -join '|') -Actual ($listed -join '|') -Because 'the table is what authors read to pick a class'
+    }
+}
+
+# The unattended-retry allow-list, the warm-resume list and the network check
+# each kept their own copy of the classes they admit, and the copies had
+# drifted apart with nothing to say which difference was meant.
+Describe 'The class routing table is the one place a class is routed' {
+    BeforeAll {
+        Import-Module (Join-Path $here 'Test.Remediation.psm1') -Force -DisableNameChecking -Global -ErrorAction SilentlyContinue
+        Import-Module (Join-Path $here 'Test.WarmResume.psm1') -Force -DisableNameChecking -Global -ErrorAction SilentlyContinue
+    }
+    It 'routes only classes the enum defines' {
+        $enum = @(Get-FailureClassEnum)
+        foreach ($route in 'UnattendedRetry', 'WarmResume', 'TransientNetwork') {
+            foreach ($class in @(Get-FailureClassByRoute -Route $route)) {
+                Assert-True ($enum -ccontains $class) "$class ($route) is a canonical class"
+            }
+        }
+        $none = Get-FailureClassRoute -FailureClass 'never_classified'
+        Assert-False ($none.UnattendedRetry -or $none.WarmResume -or $none.TransientNetwork) 'an unrouted class has no routing attribute'
+    }
+    It 'gives every class a runner-minute budget for unattended retries' {
+        foreach ($class in @(Get-FailureClassEnum) + 'never_classified') {
+            $budget = (Get-FailureClassRoute -FailureClass $class).RetryMinutesPerDay
+            Assert-True ($budget -is [int] -and $budget -gt 0) "$class has a positive budget ($budget)"
+        }
+        Assert-Equal -Expected 180 -Actual (Get-FailureClassRoute -FailureClass 'wait_timeout').RetryMinutesPerDay -Because 'the default'
+    }
+    It 'is what the unattended-retry allow-list admits, each with its reason' {
+        $allowList = Get-AutoRemediationAllowList
+        Assert-Equal -Expected ((Get-FailureClassByRoute -Route UnattendedRetry) -join ',') -Actual (@($allowList.Keys) -join ',')
+        foreach ($class in @($allowList.Keys)) {
+            Assert-False ([string]::IsNullOrWhiteSpace([string]$allowList[$class])) "$class records why it qualifies"
+        }
+    }
+    It 'is what warm resume admits, and what the network check calls transient' {
+        Assert-Equal -Expected ((Get-FailureClassByRoute -Route WarmResume) -join ',') -Actual ((Get-WarmResumeEligibleClass) -join ',')
+        foreach ($class in @(Get-FailureClassEnum)) {
+            Assert-Equal -Expected ((Get-FailureClassRoute -FailureClass $class).TransientNetwork) -Actual (Test-TransientNetworkFailureClass -FailureClass $class) -Because $class
+        }
+    }
+    It 'leaves no class list in the modules that consume it' {
+        $enum = @(Get-FailureClassEnum)
+        foreach ($module in 'Test.Remediation.psm1', 'Test.WarmResume.psm1') {
+            $ast = [System.Management.Automation.Language.Parser]::ParseFile((Join-Path $here $module), [ref]$null, [ref]$null)
+            $lists = @($ast.FindAll({ param($n)
+                ($n -is [System.Management.Automation.Language.ArrayLiteralAst] -and
+                    @($n.Elements | Where-Object { $_ -is [System.Management.Automation.Language.StringConstantExpressionAst] -and $enum -ccontains $_.Value }).Count -ge 2) }, $true))
+            Assert-Equal -Expected 0 -Actual $lists.Count -Because "$module asks the taxonomy instead of listing classes"
+        }
+    }
+}
+
+# retry_exhausted says only that the retries ran out; the inner class says
+# what kept failing, and only the dispatcher looked at it.
+Describe 'Resolve-RoutingClass' {
+    It 'routes <Class> with inner <Inner> as <Expected>' -TestCases @(
+        @{ Class = 'retry_exhausted'; Inner = 'wait_timeout'; Expected = 'wait_timeout'; Wrapped = $true }
+        @{ Class = 'retry_exhausted'; Inner = ''; Expected = 'retry_exhausted'; Wrapped = $false }
+        @{ Class = 'retry_exhausted'; Inner = 'never_classified'; Expected = 'retry_exhausted'; Wrapped = $false }
+        @{ Class = 'retry_exhausted'; Inner = 'retry_exhausted'; Expected = 'retry_exhausted'; Wrapped = $false }
+        @{ Class = 'ocr_timeout'; Inner = 'wait_timeout'; Expected = 'ocr_timeout'; Wrapped = $false }
+    ) {
+        param($Class, $Inner, $Expected, $Wrapped)
+        $routing = Resolve-RoutingClass -FailureClass $Class -InnerFailureClass $Inner
+        Assert-Equal -Expected $Expected -Actual $routing.RoutingClass
+        Assert-Equal -Expected $Wrapped -Actual $routing.Wrapped
+        Assert-Equal -Expected $Class -Actual $routing.FailureClass -Because 'the recorded class is kept'
+    }
+}
+
+
+Describe 'Get-FailureClassDocUrl' {
+    It 'names each canonical class''s own anchor in the failure schema' {
+        $doc = [IO.File]::ReadAllText((Join-Path (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)) 'docs/failure-schema.md'))
+        # Joined from parts: a literal link with a placeholder for its anchor
+        # reads to the anchor gate as a broken pointer.
+        $schema = 'https://yuruna.link/42820e91'
+        foreach ($class in @(Get-FailureClassEnum)) {
+            $url = Get-FailureClassDocUrl -FailureClass $class
+            $url | Should -BeExactly ($schema + '#failure-class-' + $class)
+            $doc.Contains("<a id=`"failure-class-$class`"></a>") | Should -BeTrue -Because "the link for $class must land on its row"
+        }
+    }
+    It 'falls back to the schema for a value the taxonomy does not name' {
+        Get-FailureClassDocUrl -FailureClass 'not_a_class' | Should -BeExactly 'https://yuruna.link/42820e91'
+        Get-FailureClassDocUrl -FailureClass '' | Should -BeExactly 'https://yuruna.link/42820e91'
     }
 }

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.25
+.VERSION 2026.10.26
 .GUID 4264b221-526c-4487-9f9f-8d58b28b11dd
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -169,9 +169,8 @@ try {
     $hostPort = $_statusSeed.Port
 
     # --- REGION: Render user-data / meta-data
-    # New-CloudInitUserData merges base+overlay, auto-bakes yuruna-retry.sh /
-    # fetch-and-execute.sh / yuruna-network.sh from $repoRoot/automation/ as base64
-    # write_files entries, then resolves the per-cycle placeholders below.
+    # See https://yuruna.link/4220a755-0003
+    # Embed the guest libraries as base64 write_files entries so bootstrap needs no download.
     $userData = New-CloudInitUserData `
         -BasePath    $baseUserData `
         -OverlayPath $overlayUserData `
@@ -226,7 +225,7 @@ try {
     # Reserve at least one host thread while applying the shared guest core policy.
     $vmCores = [math]::Min($hostCores - 1, [math]::Max(2, [math]::Floor($hostCores / 2)))
 
-    # --- REGION: https://yuruna.link/42e220c4-0004
+    # --- REGION: https://yuruna.link/4220a755-000a
     # Key the MAC by durable guest identity so rebuilds and VM renames keep the DHCP lease.
     $YurunaGuestMac = Get-YurunaGuestMacAddress -VMName $GuestHostname
     Write-Verbose "Deterministic guest MAC for '$GuestHostname': $YurunaGuestMac"

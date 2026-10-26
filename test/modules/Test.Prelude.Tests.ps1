@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.25
+.VERSION 2026.10.26
 .GUID 423c8376-a989-4f09-aa00-2e5a728ffa76
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -211,6 +211,7 @@ Describe 'entry-point Ctrl+C handlers delegate to the shared helper' {
     It "<Entry> delegates to the shared cancel handler with no inline CancelKeyPress registration" -TestCases @(
         @{ Entry = 'Start-TestRunner.ps1' }
         @{ Entry = 'Debug-TestSequence.ps1' }
+        @{ Entry = 'Invoke-TestProject.ps1' }
     ) {
         param($Entry)
         $path = Join-Path $script:EntryPointDir $Entry
@@ -258,6 +259,126 @@ Describe 'Assert-NoOtherRunner returns exactly one boolean' {
         $out = @(Assert-NoOtherRunner -RuntimeDir $script:NoOtherDir -CallerName 'unit' 6>$null)
         Assert-Equal -Expected 1 -Actual $out.Count
         Assert-True ($out[0] -is [bool] -and -not $out[0]) 'a single $false'
+    }
+    It 'is a single $false while another live one-shot run holds the lease' {
+        $oneShot = Start-Process -FilePath ([Environment]::ProcessPath) -ArgumentList '-NoProfile', '-Command', 'Start-Sleep -Seconds 60' -PassThru
+        try {
+            Start-Sleep -Milliseconds 300
+            Set-Content -LiteralPath (Join-Path $script:NoOtherDir 'oneshot.pid') -Value "$($oneShot.Id)" -Encoding utf8NoBOM
+            Set-Content -LiteralPath (Join-Path $script:NoOtherDir 'oneshot.start') -Value ((Get-Process -Id $oneShot.Id).StartTime.ToUniversalTime().ToString('o')) -Encoding utf8NoBOM
+            $info = $null
+            $out = @(Assert-NoOtherRunner -RuntimeDir $script:NoOtherDir -CallerName 'unit' -InformationVariable info 6>$null)
+            Assert-Equal -Expected 1 -Actual $out.Count
+            Assert-True ($out[0] -is [bool] -and -not $out[0]) 'a single $false'
+            Assert-Match -Pattern ([regex]::Escape("$($oneShot.Id)")) -Actual (@($info) -join ' ') -Because 'the banner names the holder'
+        } finally {
+            if (-not $oneShot.HasExited) { $oneShot.Kill() }
+        }
+    }
+}
+
+# The one-shot entry points ran their checkout swap and status-service restart
+# before they looked for another runner, and held nothing while they ran.
+Describe 'Initialize-YurunaOneShotEntryPoint' {
+    BeforeAll {
+        Import-Module (Join-Path $here '../../automation/Yuruna.Common.psm1') -Force -Global -DisableNameChecking
+        Import-Module (Join-Path $here 'Test.SingleInstance.psm1') -Force -Global -DisableNameChecking
+        Import-Module (Join-Path $here 'Test.YurunaDir.psm1') -Force -Global -DisableNameChecking
+        $script:SavedRuntimeEnv = Save-YurunaTestEnvironment -Name 'YURUNA_RUNTIME_DIR', 'YURUNA_LOG_DIR'
+    }
+    AfterAll { Restore-YurunaTestEnvironment -Saved $script:SavedRuntimeEnv }
+    BeforeEach {
+        $script:OneShotDir = New-YurunaTestTempDir -Prefix 'yrn-oneshot'
+        $env:YURUNA_RUNTIME_DIR = Join-Path $script:OneShotDir 'runtime'
+        $env:YURUNA_LOG_DIR = Join-Path $script:OneShotDir 'log'
+        Mock -ModuleName Test.Prelude Get-YurunaRefreshGateState { [pscustomobject]@{ SpawnAllowed = $true; State = 'open'; RequestId = $null } }
+    }
+    AfterEach {
+        $null = Exit-YurunaOneShotLease -RuntimeDir $env:YURUNA_RUNTIME_DIR -Confirm:$false
+        Remove-YurunaTestTempDir $script:OneShotDir
+    }
+
+    It 'publishes the runtime, takes the lease, and lets the holder release it' {
+        Assert-True (Initialize-YurunaOneShotEntryPoint -CallerName 'unit' -Confirm:$false 6>$null) 'an unowned runtime is claimed'
+        Assert-Equal -Expected 'Self' -Actual (Get-YurunaOneShotLeaseState -RuntimeDir $env:YURUNA_RUNTIME_DIR).State
+        Assert-True (Test-Path -LiteralPath $env:YURUNA_LOG_DIR) 'the log directory is published too'
+        Assert-True (Exit-YurunaOneShotLease -RuntimeDir $env:YURUNA_RUNTIME_DIR -Confirm:$false) 'the caller releases it'
+    }
+    It 'refuses beside a live runner and gives the lease back' {
+        $runner = Start-Process -FilePath ([Environment]::ProcessPath) -ArgumentList '-NoProfile', '-Command', 'Start-Sleep -Seconds 60' -PassThru
+        try {
+            Start-Sleep -Milliseconds 300
+            $null = New-Item -ItemType Directory -Path $env:YURUNA_RUNTIME_DIR -Force
+            Set-Content -LiteralPath (Join-Path $env:YURUNA_RUNTIME_DIR 'runner.pid') -Value "$($runner.Id)" -Encoding utf8NoBOM
+            Set-Content -LiteralPath (Join-Path $env:YURUNA_RUNTIME_DIR 'runner.start') -Value ((Get-Process -Id $runner.Id).StartTime.ToUniversalTime().ToString('o')) -Encoding utf8NoBOM
+            Assert-False (Initialize-YurunaOneShotEntryPoint -CallerName 'unit' -Confirm:$false 6>$null) 'a live runner owns the runtime'
+            Assert-Equal -Expected 'Missing' -Actual (Get-YurunaOneShotLeaseState -RuntimeDir $env:YURUNA_RUNTIME_DIR).State -Because 'a refused run holds nothing'
+        } finally {
+            if (-not $runner.HasExited) { $runner.Kill() }
+        }
+    }
+    It 'refuses while another live one-shot run holds the lease' {
+        $oneShot = Start-Process -FilePath ([Environment]::ProcessPath) -ArgumentList '-NoProfile', '-Command', 'Start-Sleep -Seconds 60' -PassThru
+        try {
+            Start-Sleep -Milliseconds 300
+            $null = New-Item -ItemType Directory -Path $env:YURUNA_RUNTIME_DIR -Force
+            Set-Content -LiteralPath (Join-Path $env:YURUNA_RUNTIME_DIR 'oneshot.pid') -Value "$($oneShot.Id)" -Encoding utf8NoBOM
+            Set-Content -LiteralPath (Join-Path $env:YURUNA_RUNTIME_DIR 'oneshot.start') -Value ((Get-Process -Id $oneShot.Id).StartTime.ToUniversalTime().ToString('o')) -Encoding utf8NoBOM
+            $info = $null
+            Assert-False (Initialize-YurunaOneShotEntryPoint -CallerName 'unit' -Confirm:$false -InformationVariable info 6>$null) 'the other run keeps the runtime'
+            Assert-Match -Pattern ([regex]::Escape("$($oneShot.Id)")) -Actual (@($info) -join ' ') -Because 'the refusal names the holder'
+            Assert-Equal -Expected "$($oneShot.Id)" -Actual ([IO.File]::ReadAllText((Join-Path $env:YURUNA_RUNTIME_DIR 'oneshot.pid')).Trim()) -Because 'its lease is untouched'
+        } finally {
+            if (-not $oneShot.HasExited) { $oneShot.Kill() }
+        }
+    }
+    It '<Script> claims the runtime before its first side effect, and every later exit releases the lease' -TestCases @(
+        @{ Script = 'Debug-TestSequence.ps1' }
+        @{ Script = 'Invoke-TestProject.ps1' }
+    ) {
+        param($Script)
+        $ast = [System.Management.Automation.Language.Parser]::ParseFile((Join-Path $script:EntryPointDir $Script), [ref]$null, [ref]$null)
+        $commands = @($ast.FindAll({ param($n) $n -is [System.Management.Automation.Language.CommandAst] }, $true))
+        $claim = @($commands | Where-Object { $_.GetCommandName() -eq 'Initialize-YurunaOneShotEntryPoint' })
+        Assert-Equal -Expected 1 -Actual $claim.Count -Because "$Script claims the runtime once"
+        foreach ($effect in 'Invoke-CycleCheckoutStep', 'Start-YurunaStatusServiceIfEnabled', 'Invoke-GitSourceGate', 'Clear-StaleControlState', 'Invoke-OuterCycleDispatch') {
+            foreach ($call in @($commands | Where-Object { $_.GetCommandName() -eq $effect })) {
+                Assert-True ($call.Extent.StartOffset -gt $claim[0].Extent.EndOffset) "$Script claims the runtime before $effect (line $($call.Extent.StartLineNumber))"
+            }
+        }
+        $claimIf = $claim[0]
+        while ($claimIf -isnot [System.Management.Automation.Language.IfStatementAst]) { $claimIf = $claimIf.Parent }
+        # The release is Exit-YurunaOneShotLease, called directly or through a
+        # helper the script defines for it.
+        $releasers = @('Exit-YurunaOneShotLease') + @($ast.FindAll({ param($n)
+            $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Body.Extent.Text -match 'Exit-YurunaOneShotLease' }, $true) | ForEach-Object { $_.Name })
+        $callsRelease = { param($Node) @($Node.FindAll({ param($n)
+            $n -is [System.Management.Automation.Language.CommandAst] -and $n.GetCommandName() -in $releasers }, $true)).Count -gt 0 }
+        $releasing = @($ast.FindAll({ param($n)
+            $n -is [System.Management.Automation.Language.TryStatementAst] -and $n.Finally }, $true) | Where-Object { & $callsRelease $_.Finally })
+        Assert-True ($releasing.Count -ge 1) "$Script releases the lease in a finally block"
+        foreach ($exitAst in @($ast.FindAll({ param($n) $n -is [System.Management.Automation.Language.ExitStatementAst] }, $true))) {
+            if ($exitAst.Extent.StartOffset -le $claimIf.Extent.EndOffset) { continue }
+            $covered = @($releasing | Where-Object {
+                $exitAst.Extent.StartOffset -ge $_.Body.Extent.StartOffset -and $exitAst.Extent.EndOffset -le $_.Body.Extent.EndOffset }).Count -gt 0
+            Assert-True $covered "$Script line $($exitAst.Extent.StartLineNumber): an exit after the claim must pass the finally that releases the lease"
+        }
+        $stop = @($ast.FindAll({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq 'Stop-WithReason' }, $true))
+        foreach ($fn in $stop) {
+            Assert-True (& $callsRelease $fn.Body) "$Script's Stop-WithReason releases the lease before it exits"
+        }
+    }
+    It 'Start-TestRunner reads the lease before it reclaims anything, and again once runner.pid is written' {
+        $text = Get-Content -Raw -LiteralPath (Join-Path $script:EntryPointDir 'Start-TestRunner.ps1')
+        $refusalsAt = $text.IndexOf('$refuseStart = {')
+        $freshCallAt = $text.IndexOf('if (-not $RefreshResume) { . $refuseStart }')
+        $pidAt = $text.IndexOf('$pidWritten = Write-RunnerPidFile')
+        Assert-True ($refusalsAt -gt 0 -and $pidAt -gt 0) 'fixture sanity: the startup refusals and the pidfile write are where this test looks'
+        $inRefusals = $text.IndexOf('& $refuseOneShot', $refusalsAt)
+        Assert-True ($inRefusals -gt $refusalsAt -and $inRefusals -lt $freshCallAt) 'the startup refusals, which run before boot recovery and the takeover, read the lease'
+        $afterPid = $text.IndexOf('& $refuseOneShot', $pidAt)
+        $resumeRecoveryAt = $text.IndexOf('if ($RefreshResume) { & $runStartupRecovery }')
+        Assert-True ($pidAt -gt 0 -and $afterPid -gt $pidAt -and $afterPid -lt $resumeRecoveryAt) 'the lease is read again after runner.pid is published'
     }
 }
 

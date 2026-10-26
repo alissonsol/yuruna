@@ -19,7 +19,7 @@ architecture and [Yuruna Test ...](../test/README.md) for operator usage.
 | `service/Start-StatusService.ps1` / `service/Stop-StatusService.ps1` | Detached HTTP status UI |
 | `Test-CachingProxyService.ps1`                            | Preflight a local or remote cache |
 | `Test-Config.ps1`                                  | Validate `test.config.yml` + optional notification send |
-| `Invoke-TestProject.ps1`                                 | One-shot variant: verify a fresh clone, replace `<RepoRoot>/project`, run a single cycle |
+| `Invoke-TestProject.ps1`                                 | One-shot variant: run a single runner cycle, whose inner replaces `<RepoRoot>/project` with a fresh clone |
 | `Debug-TestSequence.ps1`                                 | Dev helper: single sequence, any start/stop step |
 | `check/Test-TesseractOcr.ps1`                      | OCR sanity check via Tesseract (open-source; independent of WinRT) |
 | `check/Test-WinRtOcr.ps1`                          | OCR sanity check via WinRT -- also demonstrates the modern-pwsh "closed access" issue |
@@ -43,7 +43,8 @@ copy-paste the `$PSScriptRoot`/`Split-Path`/`Join-Path` boilerplate to
 compute it. **Exit-code contract:** `0` means success; preflight failures
 use `1`; `2` means a gate could not produce a verdict (VM admission that
 cannot tell whether other guests are running), and `Invoke-TestProject`
-forwards the inner cycle's exact exit code.
+reports the exit code of the cycle it dispatched, or `2` when the cycle did not
+run (a drained or paused pool, a host refresh, Ctrl+C).
 Distinct preflight failures surface through the `Stop-WithReason` banner
 text -- an operator or a CI parser reads "STOP (exit 1) at &lt;Step&gt;"
 and the reason to distinguish them.
@@ -151,8 +152,8 @@ source searches and status-UI click-throughs land on their exported entry point.
 | `Test.HostIO.{HyperV,Kvm,Utm}` | Registration-only wiring: bind each host type to its backends. No logic |
 | `Test.Transport`       | The backend bodies themselves -- PS/2 scancodes, VNC/RFB, AppleScript/CGEvent -- and the settle windows they need |
 | `Test.KeyCodeRegistry` | Per-transport key-code and character tables the transports look up |
-| `Test.VncProvider`     | VNC connection registry + `Repair-VncConnection`, which forces the next call to re-handshake after a cached handle goes stale |
-| `Test.ScreenshotProvider` | Screenshot-capture provider registry + `Repair-ScreenshotRing` |
+| `Test.VncProvider`     | VNC connection registry + `Repair-VncConnection`, which forces the next keystroke send to re-handshake after a cached handle goes stale and reports `{ Attempted, Effective, Mechanism }` |
+| `Test.ScreenshotProvider` | Screenshot-capture provider registry + `Repair-ScreenshotRing`, which clears a VM's frame ring after a cold recovery |
 | `Test.OcrEngine` / `Test.Tesseract` | Pluggable [OCR providers](ocr.md) and the Tesseract locate / install / invoke helpers |
 | `Test.OcrMatch`        | OCR-tolerant normalization and matching (confusion groups) + the multi-engine combiner |
 | `Test.OcrPath`         | `Resolve-OcrImagePath` -- copies a capture to a short temporary path when the real one is past a native OCR engine's path ceiling; shared by the Tesseract and WinRT providers |
@@ -166,10 +167,13 @@ source searches and status-UI click-throughs land on their exported entry point.
 | `Test.HostDetection`   | Host-type discovery, host-folder mapping, test VM-name derivation, minimum-requirement checks |
 | `Test.HostBootstrap`   | `Initialize-YurunaHost` -- imports the matching `Yuruna.Host` driver into the runner's session |
 | `Test.HostCondition` (+ `.Mac`, `.Windows`, `.Linux`) | Facade + per-platform Set/Assert/AssertMinimum triplets -- see [Host-condition registry](#host-condition-registry) |
+| `Test.SourceSelection` | Host source settings read before the first update, credential-free source URLs, the installed source selection and the git source gate |
+| `Test.GitOutageFixture` | Test fixture: redirects GitHub Git traffic and direct probes to loopback stand-ins, restored on disposal |
 | `Test.HostGit`         | Cycle-start framework update (`Invoke-GitPull`), HEAD short hashes, verified project clone replacement, Windows file-locker PID diagnosis after `Remove-Item` failures (Restart Manager / PEB current-directory scanner), repository-access answers for pool UIs (`Get-HostRepositoryAccess`), and on-demand PSGallery installs (`powershell-yaml`, `PSScriptAnalyzer`) PowerShell 7 does not ship |
 | `Test.HostAutomationState` | Records each host knob's prior value before `Enable-TestAutomation` writes it, so `Disable` can restore rather than guess |
 | `Test.HostFacts`       | The machine's own hardware facts in the shape `/control/host-facts` serves them, including the storage-counting rules |
 | `Test.HostSampling`    | Bounded host performance evidence retained independently of the inner runner: counter inventory, power status, VM snapshots and the VM livelock verdict (`Start-YurunaHostSampling`, `Get-YurunaVmLivelockVerdict`) |
+| `Test.HostMemoryMetrics` | Native Linux and macOS memory gauges the host status service exports; an unreadable or incomplete sample is never reported as zero |
 | `Test.HostMetricsExporter` | Converges the Windows host-metrics exporter, the per-host Prometheus endpoint for memory commit, CPU, disk and Hyper-V VM state: package acquisition, service, firewall rule and probe (`Set-YurunaHostMetricsExporter`). Best-effort; never throws |
 | `Test.HostIdentity`    | Hardware fingerprint + the operator-confirmed uuid reclaim that keeps a reimaged host's pool history from forking |
 | `Test.HostIdentitySeed` | `Resolve-SeededHostId` -- the hardware-derived seed for a new `host.uuid`, derived only when needed, with a random fallback when hardware is unavailable or `YURUNA_HOST_ID_SEED` is `random` |
@@ -198,7 +202,7 @@ source searches and status-UI click-throughs land on their exported entry point.
 | `Test.RunnerElevation` | Launch-time elevation contract: resolve it once while an operator is present, or refuse to start |
 | `Test.PrivateStateRepair` | `Repair-YurunaStartupPrivateState` -- recovers private-state permissions at runner or status-service startup; elevates only on an explicit interactive request and never prompts an unattended caller |
 | `Test.SingleInstance`  | Pidfile guard shared by the runner trio (`Get-RunnerInstanceState`, `Stop-StaleRunner`); the process-table builder and identity classifier that decide which runner processes a repair may stop, the refresh gate that holds spawns during a repair, the handoff token and readiness acknowledgment that bring the runner back, and the persisted launch record a resumed runner starts from |
-| `Test.InnerSpawn`      | `New-InnerRunnerArgList` -- type-preserving `pwsh -Command` argv builder for the outer->inner spawn and `Invoke-TestProject`; `Start-YurunaDetachedProcess`, which starts a worker that outlives its launcher and confirms it with a handshake |
+| `Test.InnerSpawn`      | `New-InnerRunnerArgList` -- type-preserving `pwsh -Command` argv builder for the outer->inner spawn; `Start-YurunaDetachedProcess`, which starts a worker that outlives its launcher and confirms it with a handshake |
 | `Test.Recovery`        | Boot-time sweep that detects and archives every stale state class a crashed cycle left behind; its refresh-preservation mode keeps operator controls and the reclaimed runner's records when a repair restarts the runner |
 | `Test.HostRefreshTrigger` | Automatic host-refresh policy: per-cycle hypervisor-timeout evidence, the persisted count, the UTC-day attempt budget and the resident runner's post-cycle repair decision -- see [testCycle.autoRefreshAfterStalls](test-config.md) |
 | `Test.OuterLog`        | Timestamped `outer.log` writer shared by the outer loop and the host-refresh worker; never throws when the runtime directory is unset |
@@ -251,7 +255,8 @@ source searches and status-UI click-throughs land on their exported entry point.
 | `Test.SnapshotManifest`| Snapshot sidecars, so a restore can refuse a snapshot it does not recognize |
 | `Test.RecoveryContract` | The one result shape every entry point returns -- outcomes, runner fault classes, recovery states, failure fingerprint, redaction, evidence and step results -- and its best-effort persistence |
 | `Test.RecoveryLedger`  | The append-only `recovery.ledger.ndjson` that bounds what the runner repairs on its own, the registry of repairs and the protocol that runs one: write before act, and an unreadable ledger counts as an exhausted budget |
-| `Test.RecoveryActions` | The three repairs registered on the ledger (`Register-BuiltinRecoveryAction`): move a stale git lock aside, retry the project clone, and end the failure pause early |
+| `Test.RecoveryProbe`   | The probes the failure pause runs, in a short-lived process (`Invoke-RecoveryProbe.ps1`), to learn that a host condition (`hypervisor_unresponsive`, `host_network_degraded`, `pool_storage_full`) has cleared |
+| `Test.RecoveryActions` | The four repairs registered on the ledger (`Register-BuiltinRecoveryAction`): move a stale git lock aside, retry the project clone, end the failure pause early, and end it when a recovery probe says the condition cleared |
 | `Test.CredentialProvider` | Test-only inspection / repair helpers over the [component-login registry](authentication.md#component-registry-login) |
 
 **Pool and lab** -- everything that is only meaningful with more than one machine:
@@ -321,7 +326,7 @@ The driver exports a fixed set of contract functions covering VM
 lifecycle (`New-VM`, `Start-VM`, `Stop-VM`, `Stop-VMForce`, `Remove-VM`,
 `Rename-VM`, `Get-VMState`), VM inventory (`Get-VMName`), snapshot
 management (`Save-VMDiskSnapshot`, `Restore-VMDiskSnapshot`,
-`Test-VMDiskSnapshot`), VM console (`Test-VMConsoleOpen`,
+`Test-VMDiskSnapshot`, `Get-VMDiskSnapshotState`), VM console (`Test-VMConsoleOpen`,
 `Restart-VMConsole`), image fetch (`Get-Image`, `Get-ImagePath`),
 VM I/O (`Send-Text`, `Send-Key`, `Send-Click`, `Get-VMScreenshot`,
 `Get-VMConsoleHandle`), discovery (`Wait-VMIp`, `Get-VMIp`, `Get-VMMac`,
@@ -577,11 +582,34 @@ still execute, so a change cannot have a passing result before it is tested.
 **The exit code of a single suite is not a pass/fail signal.** Pester's
 standalone path does not propagate a failing run through the call operator: a
 suite whose tests fail still returns 0, and one that discovers nothing returns 0
-with zero tests. The runner therefore reads the result file and fails on five
+with zero tests. The runner therefore reads the result file and fails on six
 conditions -- no result file (crash, parse error, timeout), failures or errors,
-zero tests, a suite in the baseline missing from the run, or a suite's test
-count below its baseline. The last two are what catch SILENT test loss: a
-deleted suite and a `Describe` that quietly stopped discovering half its cases.
+zero tests, a suite in the baseline missing from the run, a suite's test count
+below its baseline, or a suite that skipped more tests than its baseline
+budget. The last three are what catch SILENT test loss: a deleted suite, a
+`Describe` that quietly stopped discovering half its cases, and a host that
+lacks a tool a suite needs, whose skipped tests still count toward the total.
+A skip over budget names the first skipped cases. `-AllowSkipGrowth` reports it
+as a warning instead, for a developer host that knowingly lacks the tool; the
+run records `skipGrowthAllowed`, and release evidence refuses such a run.
+
+Test programs written in other languages run only when a suite names them,
+because the runner discovers `*.Tests.ps1` files alone. `Test.TestPrograms`
+runs the Python, PowerShell-contract and Node programs beside the tools, each
+with the number of tests it must still report, and its guard fails on any
+tracked test program (`test_*.py`, `*.test.js`, `*.test.cjs`, `*_contracts.*`)
+that no suite names. The private `Test-OntologyTests` runs the ontology's own
+tests from `dev-only/ontology/.venv` (see `dev-only/ontology/README.md`). The
+cross-repository gate runs yuruna-project's test programs (`project-tests`)
+and, when an amisad.dev checkout sits beside this one, its regression suite
+(`amisad-tests`).
+
+Time is reported, never adjudicated. A suite that ran longer than twice its
+recorded `seconds` and more than `-SlowdownAllowanceSeconds` (default 60) over
+them is printed as a warning, the five largest first, and listed under
+`slowdowns` in `suite-results.json`. A run never fails for it: the warning is
+there so a feedback loop that grows slower is noticed before a suite reaches its
+kill cap.
 
 `test/modules/suite-baseline.json` is that reference and is tracked. Re-record
 all rows with `-UpdateBaseline` only from a passing full run, as a deliberate,
@@ -1408,6 +1436,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.25
+Last review: 2026.10.26
 
 Back to [Yuruna](../README.md)

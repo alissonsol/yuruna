@@ -1,5 +1,6 @@
 // LICENSEURI https://yuruna.link/license
 // Copyright (c) 2019-2026 by Alisson Sol et al.
+// GUID: 4236ee74-7d32-43b3-88aa-9400929ffcd6
 
 // caching-proxy-service: the management plane for the Yuruna caching proxy.
 // Full design and operator guide: https://yuruna.link/42f6b05f-003c.
@@ -76,6 +77,9 @@ type daemon struct {
 	// squid's business.
 	run          func(name string, args ...string) (string, error)
 	readSwitches func() SwitchState
+	// switchMu serializes switch changes: two writers interleaving a drop-in
+	// write and a reconfigure leave the file saying one thing and squid another.
+	switchMu sync.Mutex
 	// parserURL is the sibling daemon on this VM that tails squid's access log.
 	// It is read over HTTP rather than imported: the parser holds a live ring in
 	// its own process, and it deliberately has no agent surface of its own.
@@ -247,7 +251,11 @@ func (d *daemon) routes() http.Handler {
 	// links to.
 	mux.HandleFunc("GET /landing", d.handleLanding)
 
-	return mux
+	// Any page an operator opens can make the browser POST here, so a
+	// cross-site unsafe request is refused on top of the session cookie's
+	// SameSite rule. Hosts, guests and scripts send neither Origin nor
+	// Sec-Fetch-Site and pass; this service's own pages are same-origin.
+	return http.NewCrossOriginProtection().Handler(mux)
 }
 
 func (d *daemon) handleHealth(w http.ResponseWriter, _ *http.Request) {
@@ -343,7 +351,7 @@ func (d *daemon) applySwitch(w http.ResponseWriter, r *http.Request, apply func(
 	var body struct {
 		On *bool `json:"on"`
 	}
-	if err := jsonbody.Decode(r.Body, &body, maxRequestBytes, false); err != nil {
+	if err := jsonbody.DecodeRequest(w, r, &body, maxRequestBytes, false); err != nil {
 		writeErr(w, http.StatusBadRequest, "body must be JSON with an \"on\" boolean")
 		return
 	}
@@ -351,7 +359,9 @@ func (d *daemon) applySwitch(w http.ResponseWriter, r *http.Request, apply func(
 		writeErr(w, http.StatusBadRequest, "body must name \"on\": true or false")
 		return
 	}
-	if err := apply(*body.On); err != nil {
+	err := apply(*body.On)
+	logSwitchChange(what, *body.On, r.RemoteAddr, err)
+	if err != nil {
 		if errors.Is(err, errRemoteReadOnly) {
 			// 501, not 403: the operator is permitted, the capability does not
 			// exist here. Stock squid has no remote reconfigure, so this
@@ -367,6 +377,17 @@ func (d *daemon) applySwitch(w http.ResponseWriter, r *http.Request, apply func(
 		"ok":       true,
 		"switches": d.readSwitches(),
 	})
+}
+
+// logSwitchChange records every switch request with who asked and what came
+// of it: either switch makes every guest's downloads fail lab-wide, and the
+// operator investigating that needs to find when it was turned on, and by whom.
+func logSwitchChange(what string, on bool, source string, err error) {
+	outcome := "applied"
+	if err != nil {
+		outcome = "refused: " + err.Error()
+	}
+	log.Printf("switch %s on=%t requested by %s: %s", what, on, source, outcome)
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {

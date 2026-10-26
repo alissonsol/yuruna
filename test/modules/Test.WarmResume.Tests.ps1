@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.25
+.VERSION 2026.10.26
 .GUID 42bc2da1-ebdb-48ed-9d8a-68099d34d1f5
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -86,6 +86,14 @@ Describe 'Get-WarmResumeCheckpointFromRecord' {
         Assert-Equal -Expected 'network_timeout' -Actual $cp.FailureClass
         Assert-Equal -Expected 'k8s' -Actual $cp.SequenceName
         Assert-Equal -Expected 27 -Actual $cp.ResumeFromStep
+    }
+    It 'carries the failing step''s proof that it did nothing, and nothing else as a proof' {
+        $cp = Get-WarmResumeCheckpointFromRecord -Record @{ failureClass = 'ip_not_discovered'; stepEffect = 'none-proven'; stepEffectSource = 'address-unresolved'; repro = @{ resumeFromStep = 4 } }
+        Assert-Equal -Expected 'none-proven' -Actual $cp.StepEffect
+        Assert-Equal -Expected 'address-unresolved' -Actual $cp.StepEffectSource
+        $other = Get-WarmResumeCheckpointFromRecord -Record @{ failureClass = 'ip_not_discovered'; stepEffect = 'partial'; stepEffectSource = 'x' }
+        Assert-Equal -Expected 'unknown' -Actual $other.StepEffect
+        Assert-Equal -Expected '' -Actual $other.StepEffectSource
     }
     It 'returns safe defaults for a null / malformed record' {
         $cp = Get-WarmResumeCheckpointFromRecord -Record $null
@@ -247,6 +255,12 @@ Describe 'warm_resume event records a replay' {
         Assert-Equal -Expected 0 -Actual $v.Count -Because "schema violations: $($v -join '; ')"
     }
 
+    It 'names the proof a resume rested on' {
+        $ev = New-WarmResumeEvent -GuestKey 'g' -SequenceName 's' -ResumeFromStep 4 -Attempt 1 -StepEffectSource 'address-unresolved'
+        Assert-Equal -Expected 'address-unresolved' -Actual $ev['stepEffectSource']
+        $plain = New-WarmResumeEvent -GuestKey 'g' -SequenceName 's' -ResumeFromStep 4 -Attempt 1
+        Assert-False ($plain.Contains('stepEffectSource')) 'absent when no proof was used'
+    }
     It 'omits the replay fields when nothing was rewound' {
         $ev = New-WarmResumeEvent -GuestKey 'g' -VmName 'vm' -SequenceName 's010' -ResumeFromStep 3 `
             -FailureClass 'network_timeout' -Attempt 1 -HostType 'host.ubuntu.kvm' -CheckpointStep 3
@@ -547,6 +561,38 @@ workload:
         Assert-Equal -Expected $true   -Actual (Test-WarmResumeReplayIsSafe -StepAction $actions -ResumeFromStep 3 -StepReplayClass $classes)
     }
 
+    It 'counts a retry that power-cycles the VM before retrying as changing state, whatever it holds' {
+        $coldFile = Join-Path $script:rcDir 'workload.guest.ubuntu.server.24.cold.yml'
+        @'
+sequenceGuid: 42c8b2d4-6e3f-4071-8b92-4d5e6f708192
+description: "Replay-class fixture: observe-only retries with and without a power cycle."
+keystrokeMechanism: ssh
+resource:
+  ubuntu.server.24:
+    - workload.guest.ubuntu.server.24.probe.base
+requiresSnapshot:
+  id: "probe"
+component:
+  - action: retry
+    description: "Observe, power-cycling between attempts"
+    restartVmBeforeRetry: coldPowerCycle
+    steps:
+      - action: waitForText
+        pattern: "login:"
+        description: "Wait for the prompt"
+  - action: retry
+    description: "Observe, no restart"
+    steps:
+      - action: waitForText
+        pattern: "login:"
+        description: "Wait for the prompt"
+'@ | Set-Content -LiteralPath $coldFile -Encoding utf8
+        $classes = @(Get-WarmResumeStepReplayClass -Path $coldFile)
+        Assert-Equal -Expected 2 -Actual $classes.Count
+        Assert-Equal -Expected 'state-changing' -Actual $classes[0] -Because 'the power cycle runs before every repeated attempt'
+        Assert-Equal -Expected 'observe' -Actual $classes[1]
+    }
+
     It 'returns nothing readable for a missing or blank path, without throwing' {
         Assert-Equal -Expected 0 -Actual (@(Get-WarmResumeStepReplayClass -Path (Join-Path $script:rcDir 'no-such.yml'))).Count
         Assert-Equal -Expected 0 -Actual (@(Get-WarmResumeStepReplayClass -Path '')).Count
@@ -756,6 +802,27 @@ workload:
         $plan = Resolve-WarmResumeReplayPlan -Decision (Build-RPDecision) -Checkpoint (Build-RPCheckpoint 3) -VMName 'vm-1'
         Assert-Equal -Expected 'no-restore-point' -Actual $plan.DeclineReason
         Assert-Equal -Expected 0 -Actual @($plan.Actions).Count
+    }
+    It 'replays a state-changing step in place when its handler proved it did nothing' {
+        $global:__rpPlan.Path = $script:rpNoBoundary
+        $cp = [pscustomobject]@{ ResumeFromStep = 2; FailureClass = 'ip_not_discovered'; StepEffect = 'none-proven'; StepEffectSource = 'address-unresolved' }
+        $plan = Resolve-WarmResumeReplayPlan -Decision (Build-RPDecision 'workload.guest.ubuntu.server.24.noboundary') -Checkpoint $cp -VMName 'vm-1'
+        Assert-Equal -Expected '' -Actual $plan.DeclineReason -Because 'nothing ran, so nothing is left to compound'
+        Assert-Equal -Expected 2 -Actual $plan.ResumeFromStep
+        Assert-Equal -Expected 'address-unresolved' -Actual $plan.StepEffectSource
+    }
+    It 'resumes where the proven step failed instead of rewinding to the restore point' {
+        $cp = [pscustomobject]@{ ResumeFromStep = 3; FailureClass = 'payload_unavailable'; StepEffect = 'none-proven'; StepEffectSource = 'no-source-served' }
+        $plan = Resolve-WarmResumeReplayPlan -Decision (Build-RPDecision) -Checkpoint $cp -VMName 'vm-1'
+        Assert-Equal -Expected 3 -Actual $plan.ResumeFromStep -Because 'the steps before it left the state it was written for'
+        Assert-Equal -Expected $false -Actual $plan.Rewound
+    }
+    It 'falls back to the reading of the step when the proven step no longer exists in the file' {
+        $global:__rpPlan.Path = $script:rpNoBoundary
+        $cp = [pscustomobject]@{ ResumeFromStep = 9; FailureClass = 'ip_not_discovered'; StepEffect = 'none-proven'; StepEffectSource = 'address-unresolved' }
+        $plan = Resolve-WarmResumeReplayPlan -Decision (Build-RPDecision 'workload.guest.ubuntu.server.24.noboundary') -Checkpoint $cp -VMName 'vm-1'
+        Assert-Equal -Expected 'no-restore-point' -Actual $plan.DeclineReason
+        Assert-Equal -Expected '' -Actual $plan.StepEffectSource
     }
     It 'declines as unavailable when the safety check itself fails' {
         Mock -ModuleName Test.WarmResume Test-WarmResumeReplayIsSafe { throw 'the check broke' }

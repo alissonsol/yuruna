@@ -24,6 +24,16 @@ through `Test.Tesseract.psm1` in [`../modules/`](../modules/), which
 `Test-TesseractOcr.ps1` imports so the check and the cycle exercise the
 same code.
 
-The repo-wide encoding gate that used to sit next to these is now
-[`tools/Test-AsciiNoBom.ps1`](../../tools/Test-AsciiNoBom.ps1) -- it gates
-commits and releases rather than a host capability.
+The repo-wide encoding gate is not one of these: it gates commits and releases
+rather than a host capability, so it lives in
+[`tools/Test-AsciiNoBom.ps1`](../../tools/Test-AsciiNoBom.ps1).
+
+---
+
+LICENSEURI https://yuruna.link/license
+
+Copyright (c) 2019-2026 by Alisson Sol et al.
+
+Last review: 2026.10.26
+
+Back to [Yuruna](../../README.md)

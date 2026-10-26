@@ -3,8 +3,8 @@
   "recordedUtc": "2026-10-21T13:44:45.0925658Z",
   "pesterVersion": "6.2.0",
   "totals": {
-    "suites": 432,
-    "tests": 10709,
+    "suites": 437,
+    "tests": 10774,
     "failed": 0,
     "skipped": 36
   },
@@ -1222,6 +1222,11 @@
       "skipped": 0,
       "seconds": 1.95
     },
+    "test/modules/Test.MobileSourceRules.Tests.ps1": {
+      "total": 27,
+      "skipped": 0,
+      "seconds": 1.24
+    },
     "test/modules/Test.ModuleImportScope.Tests.ps1": {
       "total": 12,
       "skipped": 0,
@@ -1261,6 +1266,11 @@
       "total": 4,
       "skipped": 0,
       "seconds": 1.33
+    },
+    "test/modules/Test.OcrKnownAnswer.Tests.ps1": {
+      "total": 8,
+      "skipped": 0,
+      "seconds": 2.02
     },
     "test/modules/Test.OcrMatch.Tests.ps1": {
       "total": 117,
@@ -1546,6 +1556,11 @@
       "total": 19,
       "skipped": 0,
       "seconds": 13.69
+    },
+    "test/modules/Test.RecoveryProbe.Tests.ps1": {
+      "total": 12,
+      "skipped": 0,
+      "seconds": 3.98
     },
     "test/modules/Test.ReferenceFixture.Tests.ps1": {
       "total": 12,
@@ -2070,6 +2085,11 @@
       "skipped": 0,
       "seconds": 1.3
     },
+    "test/modules/Test.SymbolReference.Tests.ps1": {
+      "total": 4,
+      "skipped": 0,
+      "seconds": 15.68
+    },
     "test/modules/Test.SystemDiagnosticBios.Tests.ps1": {
       "total": 17,
       "skipped": 0,
@@ -2099,6 +2119,11 @@
       "total": 26,
       "skipped": 0,
       "seconds": 3.63
+    },
+    "test/modules/Test.TestPrograms.Tests.ps1": {
+      "total": 14,
+      "skipped": 0,
+      "seconds": 26.45
     },
     "test/modules/Test.TranscriptStructure.Tests.ps1": {
       "total": 11,
@@ -2287,7 +2312,7 @@
       }
     },
     {
-      "registeredUtc": "2026-10-24T19:40:43.7972210Z",
+      "registeredUtc": "2026-10-24T19:40:43.797221Z",
       "pesterVersion": "6.2.0",
       "suites": [
         "test/modules/Test.NasCredential.Tests.ps1",
@@ -2303,6 +2328,34 @@
         "test/modules/Test.SecretRedaction.Tests.ps1": "E2125E4664EC1ADA19A8A635404F018A7BDC23B6F745647CB36DAE15AF06F5A5",
         "test/modules/Test.ServiceVmIntegrity.Tests.ps1": "D97AC89ABA0ECBF6724A35568C1E67F2FCFF1BB6DA5CBE3EBE74C2526D2B408F",
         "test/modules/Test.VMStorageReference.Tests.ps1": "E63B122EF46DC57E19374760B7B86023BC7FFE93242AF7C5AA2E41BB0543ACB1"
+      }
+    },
+    {
+      "registeredUtc": "2026-10-25T23:01:45.5785296Z",
+      "pesterVersion": "6.2.0",
+      "suites": [
+        "test/modules/Test.MobileSourceRules.Tests.ps1"
+      ],
+      "tests": 27,
+      "sourceSha256": {
+        "test/modules/Test.MobileSourceRules.Tests.ps1": "E89805517465F9896EF2578A959820346FCDF2714E51F4120E5E7FDB627556BC"
+      }
+    },
+    {
+      "registeredUtc": "2026-10-26T01:38:56.8285691Z",
+      "pesterVersion": "6.2.0",
+      "suites": [
+        "test/modules/Test.OcrKnownAnswer.Tests.ps1",
+        "test/modules/Test.RecoveryProbe.Tests.ps1",
+        "test/modules/Test.SymbolReference.Tests.ps1",
+        "test/modules/Test.TestPrograms.Tests.ps1"
+      ],
+      "tests": 38,
+      "sourceSha256": {
+        "test/modules/Test.OcrKnownAnswer.Tests.ps1": "3D7791CA715F08DE45D836E8AF65A3EC3C69E1EBABB3D537386FB59F606144E8",
+        "test/modules/Test.RecoveryProbe.Tests.ps1": "D719D86E9EC0FB19441EC677EEC574649C4D75D6D88D7EEECD6D5D0DE4B77EAE",
+        "test/modules/Test.SymbolReference.Tests.ps1": "8F763C6A3946009A52639A2219D02B5E211E57C8A7D46256EFD177ED473EE62C",
+        "test/modules/Test.TestPrograms.Tests.ps1": "C299CB33C4E3F9FA86A3BB84A8008C4BE4B25DB8200A98C1CC90891EFAA1F90B"
       }
     }
   ]

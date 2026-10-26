@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
+# GUID: 42e26038-c3d4-40e0-8111-bc838e48a6b6
 """Validate the real template, then plan its ingress against local module fixtures.
 
 Usage: python3 tests/verify.py /path/to/tofu

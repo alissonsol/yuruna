@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.25
+.VERSION 2026.10.26
 .GUID 42c57683-d950-42e5-b4d6-4ab0ea4adc92
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -82,5 +82,59 @@ Describe 'complete-yuruna-run -- the entrypoint failure tail is shared by one he
         Assert-True ($iTranscript -ge 0) 'the failure tail must emit the transcript'
         Assert-True ($iJson -ge 0) 'the failure tail must emit the result JSON'
         Assert-True ($iTranscript -lt $iJson) 'the transcript must be emitted before the result JSON, so the reason is the last thing printed'
+    }
+}
+
+Describe 'The failure tail ends with the record the runner reads' {
+    It 'prints YURUNA_RESULT with the manifest and its canonical class as the last line, and exits 1' {
+        $transcript = Join-Path $TestDrive 'transcript.txt'
+        Set-Content -LiteralPath $transcript -Value 'step one' -NoNewline
+        $command = "Import-Module '$($script:resultMod)'; Complete-YurunaRun -Result (New-YurunaResultManifest -Success `$false -FailureClass chart_invalid -ErrorMessage 'lint failed') -TranscriptFile '$transcript'"
+        $output = @(& pwsh -NoProfile -NonInteractive -Command $command)
+        $LASTEXITCODE | Should -Be 1
+        $last = [string]$output[-1]
+        $last | Should -Match '^YURUNA_RESULT \{'
+        $record = $last.Substring('YURUNA_RESULT '.Length) | ConvertFrom-Json -AsHashtable
+        $record['failureClass'] | Should -Be 'chart_invalid'
+        $record['canonicalFailureClass'] | Should -Be 'plan_invalid'
+        $record['errorMessage'] | Should -Be 'lint failed'
+        ($output -join "`n") | Should -Match 'step one' -Because 'the transcript still comes first'
+    }
+}
+
+Describe 'Invoke-YurunaEntrypoint' {
+    BeforeAll {
+        Import-Module $script:resultMod -Force -DisableNameChecking
+        $script:entryTranscript = Join-Path ([IO.Path]::GetTempPath()) ("yuruna-entry-{0}.txt" -f [guid]::NewGuid().ToString('N'))
+    }
+    AfterAll {
+        Remove-Module Yuruna.Result -Force -ErrorAction SilentlyContinue
+        Remove-Item -LiteralPath $script:entryTranscript -Force -ErrorAction SilentlyContinue
+    }
+    It 'passes an operation''s own result through' {
+        $result = Invoke-YurunaEntrypoint -TranscriptFile $script:entryTranscript -Operation { New-YurunaResultManifest -Success $true }
+        $result.success | Should -BeTrue
+    }
+    It 'turns a throw into a failure manifest that names it, and still stops the transcript' {
+        $result = Invoke-YurunaEntrypoint -TranscriptFile $script:entryTranscript -Operation { throw 'Resource output manifest must be a nonempty mapping' }
+        $result.success | Should -BeFalse
+        $result.failureClass | Should -Be 'unknown'
+        $result.exitCode | Should -Be 1
+        $result.errorMessage | Should -Match 'nonempty mapping'
+        { Stop-Transcript -ErrorAction Stop } | Should -Throw -Because 'the harness already stopped it'
+    }
+    It 'turns a throw into a false result for a yes-or-no entry point' {
+        $result = Invoke-YurunaEntrypoint -TranscriptFile $script:entryTranscript -BooleanResult -Operation { throw 'validation blew up' }
+        [bool]$result | Should -BeFalse -Because 'the entry point''s bool tail must take its failure branch'
+        $result.Reason | Should -Match 'validation blew up'
+    }
+    It 'runs every entry point''s operation through it' -TestCases @(
+        @{ Entry = 'Set-Resource' }, @{ Entry = 'Set-Component' }, @{ Entry = 'Set-Workload' }, @{ Entry = 'yuruna' },
+        @{ Entry = 'Invoke-Clear' }, @{ Entry = 'Test-Configuration' }, @{ Entry = 'Test-Requirement' }) {
+        param($Entry)
+        $src = Get-Content -Raw -LiteralPath (Join-Path $autoDir "$Entry.ps1")
+        $src | Should -Match 'Invoke-YurunaEntrypoint -TranscriptFile \$transcriptFileName'
+        $starts = ([regex]::Matches($src, '(?m)^\s*\$null = Start-Transcript')).Count
+        $starts | Should -BeLessOrEqual $(if ($Entry -eq 'yuruna') { 1 } else { 0 }) -Because 'only the usage text of yuruna.ps1 keeps its own transcript'
     }
 }

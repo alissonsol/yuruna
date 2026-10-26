@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.25
+.VERSION 2026.10.26
 .GUID 42dba0ee-ceaf-a7ec-5c0b-f7f0ef9d34c6
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -74,6 +74,21 @@
             'trust' = 'internal'
         }
         '。未启动新的测试周期。请更正配置后重试。'
+    )
+    'runner.config_last_good_used' = @(
+        '无法解析'
+        @{
+            'arg' = 'path'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+        '（'
+        @{
+            'arg' = 'problem'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '）；在文件修复之前，运行器继续依据最后一次成功解析的配置进行决策。'
     )
     'runner.config_naming_backup' = @(
         '将配置备份到 '
@@ -152,6 +167,33 @@
             'trust' = 'internal'
         }
         ' s，即每次运行两个步骤超时。'
+    )
+    'runner.cycle_degraded' = @(
+        '  周期'
+        @{
+            'arg' = 'cycleCount'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        '没有失败，但跳过了'
+        @{
+            'arg' = 'planned'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        '个计划来宾中的'
+        @{
+            'arg' = 'skipped'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        '个（'
+        @{
+            'arg' = 'guests'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '）：它属于降级，不算通过，因此失败连续计数和警报保持不变。'
     )
     'runner.cycle_outcome_rejected_kept' = @(
         '[外层周期'
@@ -246,6 +288,15 @@
         }
         '退出，而非0。'
     )
+    'runner.cycle_telemetry_gap' = @(
+        '该周期结束时缺少'
+        @{
+            'arg' = 'missing'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+        '：查看此周期的人在那里找不到记录。文件夹中保存的telemetry_gaps.json列出了缺少的内容。'
+    )
     'runner.detached_handshake_write_action' = '写入分离式工作进程的身份握手信息'
     'runner.detached_launch_action' = '启动分离式工作进程'
     'runner.diagnostic_budget_exhausted' = @(
@@ -329,6 +380,21 @@
             )
         }
     }
+    'runner.fetch_archive_digest_unavailable' = @(
+        '无法生成'
+        @{
+            'arg' = 'repoDir'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+        '在'
+        @{
+            'arg' = 'commit'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+        '处归档的摘要，因此更新脚本会在不校验的情况下解包该目录树。'
+    )
     'runner.fetch_context_deadline' = @(
         'fetchAndExecute：准备或等待完成期间，已达到'
         @{
@@ -530,6 +596,15 @@
             'trust' = 'internal'
         }
         '个字符处截断]'
+    )
+    'runner.host_network_sweep_timed_out' = @(
+        '主机网络拒绝路径上的滞留VM清理未在'
+        @{
+            'arg' = 'seconds'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        '秒内完成，已被停止；本周期仍被拒绝。'
     )
     'runner.host_refresh_action_dispose_obligations' = @(
         '下一步：手动检查每一项后，使用以下命令记录：pwsh test/lab/Invoke-HostRefresh.ps1 -DisposeObligation '
@@ -2109,6 +2184,108 @@
             'trust' = 'internal'
         }
         '）；拒绝启动。请等待其完成，或使用test/lab/Invoke-HostRefresh.ps1 -Resume恢复执行。'
+    )
+    'runner.ocr_known_answer_degraded' = @(
+        '有一个OCR提供程序无法读取已知帧（'
+        @{
+            'arg' = 'detail'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+        '）；等待操作改用能够读取的提供程序。'
+    )
+    'runner.ocr_known_answer_failed' = @(
+        'OCR无法读取已知帧（'
+        @{
+            'arg' = 'detail'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+        '）；周期在任何来宾依赖它之前停止，记为主机的检测工具故障。'
+    )
+    'runner.oneshot_blocks_start' = @(
+        'Start-TestRunner：一次性运行（PID '
+        @{
+            'arg' = 'pid'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        '）正占用此运行时目录（'
+        @{
+            'arg' = 'leasePath'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+        '）；不会启动运行器。请在该运行结束后再次启动。'
+    )
+    'runner.oneshot_lease_held' = @(
+        @{
+            'arg' = 'callerName'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        '：一次性运行（PID '
+        @{
+            'arg' = 'pid'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        '）正占用此运行时目录（'
+        @{
+            'arg' = 'leasePath'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+        '）；拒绝启动。请等待其完成，或从另一个YURUNA_RUNTIME_DIR运行。'
+    )
+    'runner.oneshot_lease_release_action' = '释放运行时目录的一次性运行租约'
+    'runner.oneshot_lease_take_action' = '获取运行时目录的一次性运行租约'
+    'runner.oneshot_lease_unconfirmed' = @(
+        'Start-TestRunner：一次性运行租约'
+        @{
+            'arg' = 'leasePath'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+        '指向PID '
+        @{
+            'arg' = 'pid'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        '，但无法确认其身份（'
+        @{
+            'arg' = 'reason'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        '）；仍将启动运行器。'
+    )
+    'runner.oneshot_lease_unknown' = @(
+        @{
+            'arg' = 'callerName'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        '：一次性运行租约'
+        @{
+            'arg' = 'leasePath'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+        '指向PID '
+        @{
+            'arg' = 'pid'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        '，但无法确认其身份（'
+        @{
+            'arg' = 'reason'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        '）；拒绝启动。如果没有正在进行的一次性运行，请删除该文件后重新运行。'
     )
     'runner.operator_00041714738b26ad' = '设置克隆（复制）拓扑'
     'runner.operator_0021edc0297e700d' = @(
@@ -8316,13 +8493,13 @@
         's）……'
     )
     'runner.operator_4fb40cac594a7bbc' = @(
-        '[Invoke-TestProject] 步骤1+2：清空<RepoRoot>/project并从'
+        '[Invoke-TestProject] 步骤1+2：周期的内部运行器用'
         @{
             'arg' = 'projectUrl'
             'type' = 'detail'
             'trust' = 'external'
         }
-        '重新克隆'
+        '的新克隆替换<RepoRoot>/project'
     )
     'runner.operator_4fc3e1360294bece' = @(
         'Invoke-RemoteDiagnosticsConsole：按键注入引发异常：'
@@ -8755,7 +8932,7 @@
     )
     'runner.operator_55110b53e7e30cf1' = '未在此宿主机上构建'
     'runner.operator_55420bdecd564874' = '禁用（sysadminctl -screenLock off）'
-    'runner.operator_554a120b73560a96' = '[Invoke-TestProject] 步骤3：正在启动Invoke-TestRunnerInnerLoop以运行一个测试周期。'
+    'runner.operator_554a120b73560a96' = '[Invoke-TestProject] 步骤3：通过Invoke-TestCycleRunner运行一个运行器周期。'
     'runner.operator_55583f4e86287622' = @(
         '在'
         @{
@@ -22563,6 +22740,20 @@
         }
         '，应为0（禁用）或正整数。'
     )
+    'runner.orchestration_before_seal_failed' = @(
+        '在周期封存前记录编排'
+        @{
+            'arg' = 'setName'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+        '失败决定的步骤失败：'
+        @{
+            'arg' = 'message'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+    )
     'runner.outer_attempt_failed' = '运行器尝试失败'
     'runner.outer_log_runtime_dir_unset' = @(
         'Write-OuterLog：未设置YURUNA_RUNTIME_DIR，因此无法定位outer.log；此行及后续各行不会写入该文件：'
@@ -22683,6 +22874,27 @@
         }
         '）更新。请先更新此检出版本，再更改池配置。'
     )
+    'runner.pool_notifier_busy' = '此主机上另一个池通知程序运行持有其锁；本次运行未投递任何内容。'
+    'runner.pool_notifier_spool_errors' = @(
+        '[外部周期 '
+        @{
+            'arg' = 'cycle'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '] 池通知器：'
+        @{
+            'arg' = 'count'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' 个队列步骤失败，因此一条消息可能被发送两次或无休止地重试；第一个：'
+        @{
+            'arg' = 'detail'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+    )
     'runner.pool_repositories_cleared' = @(
         "已清除池`“"
         @{
@@ -22739,6 +22951,33 @@
     )
     'runner.prior_runner_cleanup_action' = "  操作：  停止它，并在启动前运行`n           Remove-TestVMFiles.ps1"
     'runner.process_start_record_write_action' = '写入进程启动时间记录'
+    'runner.project_checkout_replace_action' = @(
+        '替换为'
+        @{
+            'arg' = 'projectUrl'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '的全新检出副本，然后运行一个测试周期'
+    )
+    'runner.project_cycle_degraded' = @(
+        '  周期降级：没有失败，但跳过了一个计划来宾。请在'
+        @{
+            'arg' = 'dIR'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '查看各周期的日志。'
+    )
+    'runner.project_cycle_not_run' = @(
+        '  周期未运行（'
+        @{
+            'arg' = 'outcome'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        '）：池已排空或暂停、主机刷新或Ctrl+C在得出结论前阻止了它。'
+    )
     'runner.project_previous_cleanup_failed' = @(
         '无法删除位于'
         @{
@@ -22847,6 +23086,54 @@
         }
         '次尝试）；跳过失败后的暂停，立即启动下一个周期。'
     )
+    'runner.recovery_disabled' = @(
+        '自动恢复已禁用（'
+        @{
+            'arg' = 'reason'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+        '）：在 '
+        @{
+            'arg' = 'ledgerPath'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+        ' 处的恢复台账可以再次读写之前，不会运行任何修复。'
+    )
+    'runner.recovery_probe_cleared' = @(
+        '周期'
+        @{
+            'arg' = 'cycle'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        '：'
+        @{
+            'arg' = 'failureClass'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        '状况已解除（'
+        @{
+            'arg' = 'detail'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+        '）；正在结束失败暂停（第'
+        @{
+            'arg' = 'attempt'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        '次，共'
+        @{
+            'arg' = 'maxAttempts'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        '次）。'
+    )
     'runner.recovery_result_write_failed' = @(
         '无法将恢复结果记录到'
         @{
@@ -22917,6 +23204,51 @@
             'trust' = 'internal'
         }
         '）；不会启动第二个运行器。请等待刷新完成，或使用test/lab/Invoke-HostRefresh.ps1 -Resume继续刷新。'
+    )
+    'runner.refresh_gate_boot_resume' = @(
+        'Start-TestRunner：宿主机刷新'
+        @{
+            'arg' = 'requestId'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        '在之前的一次启动中未完成；正在使用test/lab/Invoke-HostRefresh.ps1 -Resume继续执行一次（pid '
+        @{
+            'arg' = 'pid'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        '）。本次启动仍被拒绝；刷新完成后会启动运行器，其错误写入'
+        @{
+            'arg' = 'stdErrPath'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+        '。'
+    )
+    'runner.refresh_gate_boot_resume_failed' = @(
+        'Start-TestRunner：宿主机刷新'
+        @{
+            'arg' = 'requestId'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        '在之前的一次启动中未完成，继续执行失败（'
+        @{
+            'arg' = 'reason'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        '）；请使用test/lab/Invoke-HostRefresh.ps1 -Resume继续。'
+    )
+    'runner.refresh_gate_boot_resume_tried' = @(
+        'Start-TestRunner：宿主机刷新'
+        @{
+            'arg' = 'requestId'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        '在之前的一次启动中未完成，本次启动已继续执行过一次；请使用test/lab/Invoke-HostRefresh.ps1 -Resume再次继续。'
     )
     'runner.refresh_gate_hold' = @(
         '[外层周期'
@@ -23944,6 +24276,21 @@
             )
         }
     }
+    'runner.state_file_write_failed' = @(
+        '无法写入'
+        @{
+            'arg' = 'path'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+        '：'
+        @{
+            'arg' = 'message'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' 读取此记录的程序将看不到此更改。'
+    )
     'runner.status_beacon_start_failed' = @(
         '无法启动宿主机地址信标：'
         @{
@@ -24105,6 +24452,48 @@
     )
     'runner.status_worker_directory_prepare_action' = '准备工作进程的私有目录'
     'runner.status_worker_state_write_action' = '发布工作进程状态记录'
+    'runner.step_handler_threw' = @(
+        '步骤'
+        @{
+            'arg' = 'step'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        '（'
+        @{
+            'arg' = 'action'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        '）：处理程序抛出异常：'
+        @{
+            'arg' = 'message'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '。该步骤失败，包裹它的retry可能会再次运行它。'
+    )
+    'runner.step_heartbeat_write_failed' = @(
+        '无法写入步骤心跳'
+        @{
+            'arg' = 'path'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+        '（连续'
+        @{
+            'arg' = 'count'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        '次）：'
+        @{
+            'arg' = 'detail'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '。看门狗依据此文件判断周期状态，文件过期后会将周期视为卡死并停止；请检查该位置的可用空间和文件锁。'
+    )
     'runner.telemetry_event_dropped' = @(
         '无法记录一个周期事件（'''
         @{

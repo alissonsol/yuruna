@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.25
+.VERSION 2026.10.26
 .GUID 42aaece2-9ccd-4d9f-b467-c4468bc981ba
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -47,7 +47,7 @@ Import-Module (Join-Path $PSScriptRoot 'Test.StateFile.psm1') -Force -DisableNam
 # --- REGION: Vocabulary
 # Kept as script arrays so a test can read the exact set a validator enforces.
 $script:ResultSchemaVersion = 1
-$script:OutcomeEnum       = @('passed', 'failed', 'infrastructure-fault', 'cannot-run', 'aborted')
+$script:OutcomeEnum       = @('passed', 'degraded', 'failed', 'infrastructure-fault', 'cannot-run', 'aborted')
 $script:EntryPointEnum    = @('runner', 'project', 'sequence')
 $script:RecoveryStateEnum = @('none', 'advised', 'declined', 'applied', 'failed', 'exhausted', 'escalated')
 $script:EvidenceKindEnum  = @('file', 'record', 'event', 'command')
@@ -314,6 +314,9 @@ function New-RecoveryResult {
         advised. Absent keys keep their defaults (state none).
     .PARAMETER RecordedAtUtc
         For tests; defaults to now.
+    .PARAMETER DurationSeconds
+        How long the run took, from its spawn to this result; it is what the
+        runner-minute budget of a failure class adds up.
     #>
     [CmdletBinding()]
     [OutputType([System.Collections.Specialized.OrderedDictionary])]
@@ -332,7 +335,8 @@ function New-RecoveryResult {
         [object[]]$Evidence = @(),
         [object[]]$Steps = @(),
         [hashtable]$Recovery = @{},
-        [datetime]$RecordedAtUtc = ([datetime]::UtcNow)
+        [datetime]$RecordedAtUtc = ([datetime]::UtcNow),
+        [ValidateRange(0, [int]::MaxValue)][int]$DurationSeconds = 0
     )
     if ($EntryPoint -cnotin $script:EntryPointEnum) { throw "New-RecoveryResult: entry point '$EntryPoint' is not one of: $($script:EntryPointEnum -join ', ')." }
     if ($Outcome -cnotin $script:OutcomeEnum) { throw "New-RecoveryResult: outcome '$Outcome' is not one of: $($script:OutcomeEnum -join ', ')." }
@@ -354,7 +358,7 @@ function New-RecoveryResult {
             reason       = (ConvertTo-RecoverySafeText -Text $step.Reason)
         }
     }
-    $fingerprint = if ($Outcome -ne 'passed') {
+    $fingerprint = if ($Outcome -cnotin @('passed', 'degraded')) {
         Get-FailureFingerprint -FailureClass $FailureClass -Stage $Stage -SequenceName $SequenceName -ActionVerb $ActionVerb
     } else { '' }
     [string[]]$advised = if ($Recovery.ContainsKey('advised')) { @($Recovery['advised'] | ForEach-Object { [string]$_ }) } else { @() }
@@ -364,6 +368,7 @@ function New-RecoveryResult {
         entryPoint      = $EntryPoint
         cycleGeneration = $CycleGeneration
         recordedAtUtc   = $RecordedAtUtc.ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", [Globalization.CultureInfo]::InvariantCulture)
+        durationSeconds = $DurationSeconds
         outcome         = $Outcome
         exitCode        = $ExitCode
         failureClass    = $FailureClass
@@ -411,6 +416,9 @@ function Test-RecoveryResult {
     if ([string](& $get 'outcome') -cnotin $script:OutcomeEnum) { $problems.Add('outcome is not in the vocabulary') }
     $exit = & $get 'exitCode'
     if ($exit -isnot [int] -and $exit -isnot [long]) { $problems.Add('exitCode is not an integer') }
+    # Absent in a result written before runs carried their duration.
+    $duration = & $get 'durationSeconds'
+    if ($null -ne $duration -and (($duration -isnot [int] -and $duration -isnot [long]) -or $duration -lt 0)) { $problems.Add('durationSeconds is not a non-negative integer') }
     $class = [string](& $get 'failureClass')
     if (-not (Test-RecoveryFailureClass -FailureClass $class)) { $problems.Add('failureClass is not a known class') }
     $fp = [string](& $get 'fingerprint')
@@ -494,7 +502,7 @@ function Write-RecoveryResult {
             $lines = @([IO.File]::ReadAllLines($paths.History))
             if ($lines.Count -gt $script:HistoryTrimAtLines) {
                 $kept = ($lines | Select-Object -Last $script:HistoryKeepLines) -join "`n"
-                $null = Write-YurunaStateFile -Path $paths.History -Content ($kept + "`n") -Confirm:$false
+                $null = Write-YurunaStateFile -Path $paths.History -Content ($kept + "`n") -WarnOnFailure -Confirm:$false
             }
         } catch {
             Write-Verbose "Write-RecoveryResult: history not updated: $($_.Exception.Message)"
@@ -527,6 +535,47 @@ function Read-RecoveryResult {
         $doc['recordedAtUtc'] = $doc['recordedAtUtc'].ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", [Globalization.CultureInfo]::InvariantCulture)
     }
     return $doc
+}
+
+function Get-RecoveryClassRetryMinutes {
+    <#
+    .SYNOPSIS
+        The runner-minutes the failed runner cycles of one class took in a
+        rolling window.
+    .DESCRIPTION
+        Adds the durationSeconds of every runner result in the results history
+        that names the class and neither passed nor degraded, recorded inside
+        the window. A result written before runs carried their duration adds
+        nothing.
+    .OUTPUTS
+        [double] minutes, to one decimal.
+    #>
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseSingularNouns', '',
+        Justification = 'The plural is the unit, not a collection: a time value is named <Name>Minutes so a bare number cannot be read in the wrong unit.')]
+    [CmdletBinding()]
+    [OutputType([double])]
+    param(
+        [Parameter(Mandatory)][string]$RuntimeDir,
+        [Parameter(Mandatory)][AllowEmptyString()][string]$FailureClass,
+        [ValidateRange(1, 168)][int]$WindowHours = 24,
+        [datetime]$Now = ([datetime]::UtcNow)
+    )
+    if (-not $FailureClass) { return 0.0 }
+    $since = $Now.ToUniversalTime().AddHours(-$WindowHours)
+    $seconds = [long]0
+    foreach ($row in @(Get-RecoveryResultHistory -RuntimeDir $RuntimeDir -Last 1000)) {
+        if ([string]$row['entryPoint'] -cne 'runner' -or [string]$row['failureClass'] -cne $FailureClass -or
+            [string]$row['outcome'] -cin @('passed', 'degraded')) { continue }
+        $recorded = $row['recordedAtUtc']
+        $at = [datetime]::MinValue
+        if ($recorded -is [datetime]) { $at = $recorded.ToUniversalTime() }
+        elseif (-not [datetime]::TryParse([string]$recorded, [Globalization.CultureInfo]::InvariantCulture,
+                ([Globalization.DateTimeStyles]::AdjustToUniversal -bor [Globalization.DateTimeStyles]::AssumeUniversal), [ref]$at)) { continue }
+        if ($at -lt $since) { continue }
+        $duration = $row['durationSeconds']
+        if (($duration -is [int] -or $duration -is [long]) -and $duration -gt 0) { $seconds += [long]$duration }
+    }
+    return [math]::Round($seconds / 60.0, 1)
 }
 
 function Get-RecoveryResultHistory {
@@ -565,6 +614,13 @@ function Get-RecoveryResultHistory {
 # code space.
 $script:UnrecordedOutcomeExitCode = 70
 
+# The exit code for a cycle that failed nothing but skipped a planned guest (a
+# quarantined one). It is not 0 because the cycle proved nothing about that
+# guest, and not 1 because nothing failed; like 70 it comes from sysexits
+# (EX_TEMPFAIL: try again later), so it cannot collide with the inner runner's
+# own codes.
+$script:DegradedCycleExitCode = 75
+
 function Get-ConfigGateFailureExitCode {
     <#
     .SYNOPSIS
@@ -574,6 +630,18 @@ function Get-ConfigGateFailureExitCode {
     [OutputType([int])]
     param()
     return 78
+}
+
+function Get-DegradedCycleExitCode {
+    <#
+    .SYNOPSIS
+        The exit code that stands for a cycle that failed nothing but skipped a
+        planned guest.
+    #>
+    [CmdletBinding()]
+    [OutputType([int])]
+    param()
+    return $script:DegradedCycleExitCode
 }
 
 function Get-UnrecordedOutcomeExitCode {
@@ -602,8 +670,8 @@ function Read-CycleOutcomeRecord {
         it as a clean completion is the one mistake that hides a broken runner
         behind a green host.
 
-        The optional failureClass and detail fields never decide validity: an
-        unknown class or a field of the wrong kind reads as empty.
+        The optional failureClass, detail and poolTestCycle fields never decide
+        validity: an unknown class or a field of the wrong kind reads as empty.
     .PARAMETER Path
         The runner.cycle.outcome.json location.
     .PARAMETER ExpectedGeneration
@@ -613,7 +681,7 @@ function Read-CycleOutcomeRecord {
     .OUTPUTS
         pscustomobject: Valid, Reason ('ok' | 'missing' | 'malformed' |
         'stale-generation'), Detail, Outcome, ExitCode, CycleGeneration,
-        FailureClass, RecordDetail.
+        FailureClass, RecordDetail, PoolTestCycle (a hashtable, or $null).
     #>
     [CmdletBinding()]
     [OutputType([pscustomobject])]
@@ -622,11 +690,11 @@ function Read-CycleOutcomeRecord {
         [AllowNull()][AllowEmptyString()][string]$ExpectedGeneration = ''
     )
     $verdict = {
-        param([bool]$Valid, [string]$Reason, [string]$Detail, [string]$Outcome = '', $ExitCode = $null, [string]$CycleGeneration = '', [string]$FailureClass = '', [string]$RecordDetail = '')
+        param([bool]$Valid, [string]$Reason, [string]$Detail, [string]$Outcome = '', $ExitCode = $null, [string]$CycleGeneration = '', [string]$FailureClass = '', [string]$RecordDetail = '', $PoolTestCycle = $null)
         [pscustomobject]@{
             Valid = $Valid; Reason = $Reason; Detail = $Detail
             Outcome = $Outcome; ExitCode = $ExitCode; CycleGeneration = $CycleGeneration
-            FailureClass = $FailureClass; RecordDetail = $RecordDetail
+            FailureClass = $FailureClass; RecordDetail = $RecordDetail; PoolTestCycle = $PoolTestCycle
         }
     }
     if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) {
@@ -661,7 +729,14 @@ function Read-CycleOutcomeRecord {
     $recordedClass = if ($classField -and $classField.Value -is [string] -and (Test-RecoveryFailureClass -FailureClass $classField.Value)) { [string]$classField.Value } else { '' }
     $detailField = $doc.PSObject.Properties['detail']
     $recordedDetail = if ($detailField -and $detailField.Value -is [string]) { ConvertTo-RecoverySafeText -Text $detailField.Value } else { '' }
-    return (& $verdict $true 'ok' '' ([string]$outcome.Value) ([int]$exit.Value) $recordedGeneration $recordedClass $recordedDetail)
+    $poolField = $doc.PSObject.Properties['poolTestCycle']
+    $recordedPool = $null
+    if ($poolField -and $poolField.Value -is [pscustomobject]) {
+        # Nested blocks (autoRemediation) are read as dictionaries, the shape the
+        # pool sync hands the cycle.
+        try { $recordedPool = $poolField.Value | ConvertTo-Json -Depth 10 -Compress | ConvertFrom-Json -AsHashtable } catch { $recordedPool = $null }
+    }
+    return (& $verdict $true 'ok' '' ([string]$outcome.Value) ([int]$exit.Value) $recordedGeneration $recordedClass $recordedDetail $recordedPool)
 }
 
 function Read-VmAdmissionRecord {
@@ -761,6 +836,12 @@ function Publish-CycleOutcomeRecord {
         if ($detailProperty -and $detailProperty.Value -is [string] -and $detailProperty.Value) {
             $record['detail'] = ConvertTo-RecoverySafeText -Text $detailProperty.Value
         }
+        # The pool's testCycle override this cycle resolved; the resident takes its
+        # repair policy from it, since it never syncs the pool itself.
+        $poolProperty = if ($Result) { $Result.PSObject.Properties['PoolTestCycle'] } else { $null }
+        if ($poolProperty -and $poolProperty.Value -is [System.Collections.IDictionary]) {
+            $record['poolTestCycle'] = $poolProperty.Value
+        }
         $json = $record | ConvertTo-Json -Compress
         # The write reports failure by returning $false rather than throwing, so
         # the catch below would not see one. The [bool] is consumed here: this
@@ -794,20 +875,48 @@ function Get-LastFailureFact {
         in context.stage). Both reduce to class, stage, sequence and verb, so the
         fingerprint is built the same way for either. A class outside the
         vocabulary reads as 'unknown' rather than invalidating the result.
+
+        With -CycleGeneration, the cycle's failure index (cycle_failures.json,
+        written beside the root record) is read first and its first row -- the
+        cycle's first failure -- is the fact: every sequence start clears the
+        root record, so by the end of a cycle that ran on past a failure it is
+        gone or names a later guest. An index left by another cycle is ignored.
     .PARAMETER LogDir
         The log root holding last_failure.json; defaults to YURUNA_LOG_DIR.
+    .PARAMETER CycleGeneration
+        The cycle whose failure index to read.
     #>
     [CmdletBinding()]
     [OutputType([pscustomobject])]
-    param([AllowNull()][AllowEmptyString()][string]$LogDir = $env:YURUNA_LOG_DIR)
+    param(
+        [AllowNull()][AllowEmptyString()][string]$LogDir = $env:YURUNA_LOG_DIR,
+        [AllowNull()][AllowEmptyString()][string]$CycleGeneration
+    )
     if (-not $LogDir) { return $null }
     $path = Join-Path $LogDir 'last_failure.json'
-    if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { return $null }
-    try {
-        $record = Get-Content -LiteralPath $path -Raw -ErrorAction Stop | ConvertFrom-Json -AsHashtable -NoEnumerate -ErrorAction Stop
-    } catch {
-        Write-Verbose "Get-LastFailureFact: $path is unreadable: $($_.Exception.Message)"
-        return $null
+    $record = $null
+    if ($CycleGeneration) {
+        $indexPath = Join-Path $LogDir 'cycle_failures.json'
+        if (Test-Path -LiteralPath $indexPath -PathType Leaf) {
+            try {
+                $index = Get-Content -LiteralPath $indexPath -Raw -ErrorAction Stop | ConvertFrom-Json -AsHashtable -NoEnumerate -ErrorAction Stop
+                if ($index -is [System.Collections.IDictionary] -and [string]$index['identity'] -ceq $CycleGeneration) {
+                    $first = @($index['rows'] | Where-Object { $_ -is [System.Collections.IDictionary] -and $_['record'] -is [System.Collections.IDictionary] }) | Select-Object -First 1
+                    if ($first) { $record = $first['record']; $path = $indexPath }
+                }
+            } catch {
+                Write-Verbose "Get-LastFailureFact: $indexPath is unreadable: $($_.Exception.Message)"
+            }
+        }
+    }
+    if (-not $record) {
+        if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { return $null }
+        try {
+            $record = Get-Content -LiteralPath $path -Raw -ErrorAction Stop | ConvertFrom-Json -AsHashtable -NoEnumerate -ErrorAction Stop
+        } catch {
+            Write-Verbose "Get-LastFailureFact: $path is unreadable: $($_.Exception.Message)"
+            return $null
+        }
     }
     if ($record -isnot [System.Collections.IDictionary]) { return $null }
     $context = if ($record['context'] -is [System.Collections.IDictionary]) { $record['context'] } else { @{} }
@@ -815,9 +924,17 @@ function Get-LastFailureFact {
     $stage = if ($context['stage']) { [string]$context['stage'] } elseif ($infra -and $record['action']) { [string]$record['action'] } else { '' }
     $class = [string]$record['failureClass']
     if ($class -and -not (Test-RecoveryFailureClass -FailureClass $class)) { $class = 'unknown' }
+    $innerClass = [string]$record['innerFailureClass']
+    $routingClass = (Resolve-RoutingClass -FailureClass $class -InnerFailureClass $innerClass).RoutingClass
     return [pscustomobject]@{
         Path         = $path
         FailureClass = $class
+        # What a wrapper class hides, and how the class was derived; the
+        # recovery policy still decides on FailureClass.
+        InnerFailureClass    = $innerClass
+        RoutingClass         = [string]$routingClass
+        ClassificationSource = [string]$record['classificationSource']
+        Reason               = [string]$record['reason']
         Stage        = $stage
         SequenceName = [string]$record['sequenceName']
         ActionVerb   = [string]$record['actionVerb']
@@ -838,6 +955,33 @@ function Get-StepExitCode {
     param([Parameter(Mandatory)][ValidateSet('Ok', 'Failure', 'CannotRun')][string]$Outcome)
     if (Get-Command Get-EntryPointExitCode -ErrorAction SilentlyContinue) { return [int](Get-EntryPointExitCode -Outcome $Outcome) }
     return @{ Ok = 0; Failure = 1; CannotRun = 2 }[$Outcome]
+}
+
+function Get-OneShotCycleExitCode {
+    <#
+    .SYNOPSIS
+        The exit code a one-shot run reports for the runner cycle it dispatched.
+    .DESCRIPTION
+        A cycle that ran reports its own exit code -- the inner's, including the
+        degraded and configuration-gate codes -- and so does one whose outcome
+        went unrecorded. A dispatch that held or stopped the cycle before it
+        reached a verdict (a drained or paused pool, a host refresh, the
+        operator's Ctrl+C) is cannot-run; one that could not start the cycle and
+        carries no code of its own is a failure.
+    .PARAMETER Result
+        What Invoke-OuterCycleDispatch returned: Outcome and ExitCode.
+    #>
+    [CmdletBinding()]
+    [OutputType([int])]
+    param([Parameter(Mandatory)][AllowNull()]$Result)
+    if ($null -eq $Result) { return (Get-StepExitCode -Outcome Failure) }
+    $outcome = [string]$Result.Outcome
+    if ($outcome -cin @('drain', 'paused', 'refresh-gated', 'refresh-preflight', 'shutdown')) {
+        return (Get-StepExitCode -Outcome CannotRun)
+    }
+    $code = [int]$Result.ExitCode
+    if ($code -ne 0 -or $outcome -ceq 'completed') { return $code }
+    return (Get-StepExitCode -Outcome Failure)
 }
 
 function Invoke-CycleCheckoutStep {
@@ -951,6 +1095,7 @@ function Resolve-CycleReplayStep {
         -Extra @{
             ResumeFromStep = [int]$plan.ResumeFromStep; BoundaryStep = [int]$plan.BoundaryStep; Rewound = [bool]$plan.Rewound
             ReplayClass = [string]$plan.ReplayClass; DeclineReason = $declined; Actions = @($plan.Actions); Classes = @($plan.Classes)
+            StepEffectSource = [string]$plan.StepEffectSource
         }
 }
 
@@ -1013,7 +1158,7 @@ function ConvertTo-RunnerRecoveryResult {
     if ($name -in @('drain', 'refresh-gated', 'refresh-preflight', 'paused', 'shutdown')) { return $null }
     $exitCode = [int]$Dispatch.ExitCode
     $property = { param([string]$Key) $p = $Dispatch.PSObject.Properties[$Key]; if ($p -and $null -ne $p.Value) { [string]$p.Value } else { '' } }
-    $fact = Get-LastFailureFact -LogDir $LogDir
+    $fact = Get-LastFailureFact -LogDir $LogDir -CycleGeneration $CycleGeneration
     $evidence = @()
     $outcome = 'failed'; $class = ''; $stage = ''; $reason = ''; $sequence = ''; $verb = ''
     switch -Exact ($name) {
@@ -1077,6 +1222,9 @@ function ConvertTo-RunnerRecoveryResult {
         default {
             if ($exitCode -eq 0) {
                 $outcome = 'passed'
+            } elseif ($exitCode -eq $script:DegradedCycleExitCode) {
+                $outcome = 'degraded'
+                $reason = 'the cycle failed nothing but skipped a planned guest'
             } else {
                 $refusal = if ($RuntimeDir) { Read-VmAdmissionRecord -RuntimeDir $RuntimeDir -NotBeforeUtc $SpawnedAtUtc } else { $null }
                 if ($refusal) {
@@ -1092,11 +1240,13 @@ function ConvertTo-RunnerRecoveryResult {
             }
         }
     }
-    if ($fact -and $outcome -ne 'passed' -and $name -ne 'config-gate-failed') {
+    if ($fact -and $outcome -cnotin @('passed', 'degraded') -and $name -ne 'config-gate-failed') {
         $evidence = @($evidence) + @(Get-RecoveryEvidenceFromPath -Pair @(@{ Path = $fact.Path; Note = 'the failure record' }))
     }
+    $duration = [int][math]::Max(0, [math]::Min([int]::MaxValue, ([datetime]::UtcNow - $SpawnedAtUtc.ToUniversalTime()).TotalSeconds))
     return New-RecoveryResult -EntryPoint runner -CycleGeneration $CycleGeneration -Outcome $outcome -ExitCode $exitCode `
-        -FailureClass $class -Stage $stage -SequenceName $sequence -ActionVerb $verb -Reason $reason -Evidence $evidence -Recovery $Recovery
+        -FailureClass $class -Stage $stage -SequenceName $sequence -ActionVerb $verb -Reason $reason -Evidence $evidence -Recovery $Recovery `
+        -DurationSeconds $duration
 }
 
 function ConvertTo-ExitRecoveryResult {
@@ -1108,8 +1258,10 @@ function ConvertTo-ExitRecoveryResult {
         A failed step names the cause first: a checkout that failed is an
         infrastructure fault of stage ProjectClone whatever the exit code says, and
         a refused admission is cannot-run. With no failed step, exit 0 is a pass,
-        the cannot-run exit code is cannot-run, and anything else is read from
-        last_failure.json the way the runner does.
+        the cannot-run exit code is cannot-run, the degraded cycle exit code is
+        degraded, the configuration gate's code is cannot-run with the gate's
+        class, and anything else is read from last_failure.json the way the
+        runner does.
     #>
     [CmdletBinding()]
     [OutputType([System.Collections.Specialized.OrderedDictionary])]
@@ -1124,7 +1276,7 @@ function ConvertTo-ExitRecoveryResult {
     )
     $generation = if ($CycleGeneration -cmatch $script:GenerationPattern) { $CycleGeneration } else { Get-CycleGeneration }
     $failedStep = @($Steps | Where-Object { $_ -and -not $_.Ok -and -not $_.Skipped }) | Select-Object -First 1
-    $fact = Get-LastFailureFact -LogDir $LogDir
+    $fact = Get-LastFailureFact -LogDir $LogDir -CycleGeneration $generation
     $outcome = 'passed'; $class = ''; $stage = ''; $sequence = ''; $verb = ''; $detail = $Reason
     $evidence = @()
     if ($failedStep) {
@@ -1132,13 +1284,19 @@ function ConvertTo-ExitRecoveryResult {
         $class = [string]$failedStep.FailureClass
         $stage = if ($failedStep.PSObject.Properties['Stage']) { [string]$failedStep.Stage } else { '' }
         if (-not $detail) { $detail = [string]$failedStep.Reason }
+    } elseif ($ExitCode -eq $script:DegradedCycleExitCode) {
+        $outcome = 'degraded'
+        if (-not $detail) { $detail = 'the cycle failed nothing but skipped a planned guest' }
+    } elseif ($ExitCode -eq (Get-ConfigGateFailureExitCode)) {
+        $outcome = 'cannot-run'; $class = 'config_gate_failed'; $stage = 'ConfigGate'
+        if (-not $detail) { $detail = 'the configuration gate refused to start the cycle' }
     } elseif ($ExitCode -ne 0) {
         $outcome = if ($ExitCode -eq (Get-StepExitCode -Outcome CannotRun)) { 'cannot-run' } elseif ($fact -and $fact.Infra) { 'infrastructure-fault' } else { 'failed' }
         $class = if ($fact -and $fact.FailureClass) { $fact.FailureClass } else { 'unknown' }
         if ($fact) { $stage = $fact.Stage; $sequence = $fact.SequenceName; $verb = $fact.ActionVerb; if (-not $detail) { $detail = $fact.Description } }
         if (-not $detail) { $detail = "exited $ExitCode" }
     }
-    if ($fact -and $outcome -ne 'passed') {
+    if ($fact -and $outcome -cnotin @('passed', 'degraded')) {
         $evidence = @(Get-RecoveryEvidenceFromPath -Pair @(@{ Path = $fact.Path; Note = 'the failure record' }))
     }
     return New-RecoveryResult -EntryPoint $EntryPoint -CycleGeneration $generation -Outcome $outcome -ExitCode $ExitCode `
@@ -1174,7 +1332,7 @@ function Save-RecoveryResult {
 Export-ModuleMember -Function Get-RecoveryOutcomeEnum, Get-RecoveryEntryPointEnum, Get-RecoveryStateEnum, Get-RunnerFaultClassEnum, `
     Test-RecoveryFailureClass, ConvertTo-RecoverySafeText, Get-FailureFingerprint, New-RecoveryEvidence, New-RecoveryStepResult, `
     New-CycleGeneration, Get-CycleGeneration, New-RecoveryResult, Test-RecoveryResult, Get-RecoveryResultPath, `
-    Write-RecoveryResult, Read-RecoveryResult, Get-RecoveryResultHistory, `
-    Get-UnrecordedOutcomeExitCode, Get-ConfigGateFailureExitCode, Read-CycleOutcomeRecord, Read-VmAdmissionRecord, Publish-CycleOutcomeRecord, `
-    Get-LastFailureFact, Get-StepExitCode, Invoke-CycleCheckoutStep, Invoke-CycleAdmissionStep, Resolve-CycleReplayStep, `
+    Write-RecoveryResult, Read-RecoveryResult, Get-RecoveryResultHistory, Get-RecoveryClassRetryMinutes, `
+    Get-UnrecordedOutcomeExitCode, Get-DegradedCycleExitCode, Get-ConfigGateFailureExitCode, Read-CycleOutcomeRecord, Read-VmAdmissionRecord, Publish-CycleOutcomeRecord, `
+    Get-LastFailureFact, Get-StepExitCode, Get-OneShotCycleExitCode, Invoke-CycleCheckoutStep, Invoke-CycleAdmissionStep, Resolve-CycleReplayStep, `
     Get-RecoveryEvidenceFromPath, ConvertTo-RunnerRecoveryResult, ConvertTo-ExitRecoveryResult, Save-RecoveryResult

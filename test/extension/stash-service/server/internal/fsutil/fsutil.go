@@ -1,5 +1,6 @@
 // LICENSEURI https://yuruna.link/license
 // Copyright (c) 2019-2026 by Alisson Sol et al.
+// GUID: 4275eb32-ded2-486e-a8ee-91201cdf438a
 
 // Package fsutil holds small filesystem-durability primitives shared by the
 // store and meta packages, so a fix to one cannot silently diverge from a copy.

@@ -287,6 +287,7 @@ const DataptBRstatus = `{
   "status.banner_idle": "Não existem dados de ensaio disponíveis",
   "status.banner_incident_details": "Incidente detectado — ver detalhes abaixo",
   "status.banner_pass": "Todos os convidados operacionais",
+  "status.banner_recovery_disabled": "A recuperação automática está desligada: o registro de recuperação não pode ser lido nem gravado.",
   "status.banner_running": "Teste em curso",
   "status.banner_stalled": [
     "Teste em andamento, mas nenhuma etapa avançou dentro do limite de ",

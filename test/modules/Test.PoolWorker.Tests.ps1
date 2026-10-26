@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.25
+.VERSION 2026.10.26
 .GUID 42297400-7548-4b09-b1c9-29bdec98ce18
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -402,5 +402,3 @@ Describe 'Test-PoolWorkerAddressIsThisHost' {
         Assert-False (Test-PoolWorkerAddressIsThisHost -Address 'no-such-host.invalid')
     }
 }
-
-# Copyright (c) 2019-2026 by Alisson Sol et al.

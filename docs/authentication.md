@@ -145,7 +145,10 @@ Each provider exposes two scriptblocks:
 | `docker-generic` | `.+` | `$env:YURUNA_REGISTRY_PASSWORD \| docker login --username $env:YURUNA_REGISTRY_USERNAME --password-stdin <host>` |
 
 Order matters and is preserved: more specific patterns precede the
-catch-all `docker-generic`. The path-suffix tolerance (`(/|$)`) lets
+catch-all `docker-generic`. A provider a project registers from outside the
+module is consulted before all of these, the most recently registered first,
+so the catch-all cannot shadow it and a project can replace a built-in kind for
+its own hosts. The path-suffix tolerance (`(/|$)`) lets
 `foo.azurecr.io/myimage` match the same provider as the bare host.
 
 <a id="427ac634-000a"></a>
@@ -261,6 +264,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.25
+Last review: 2026.10.26
 
 Back to [Yuruna](../README.md)

@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
+# GUID: 4287ebad-ce15-48a8-b90a-5c26849907cb
 """Origin transfer and restoration regression tests without a live proxy VM."""
 import importlib.util
 import io

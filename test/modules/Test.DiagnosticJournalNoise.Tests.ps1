@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.25
+.VERSION 2026.10.26
 .GUID 42a6b0a3-6ac8-4209-8138-98b813018d22
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -192,5 +192,3 @@ Describe 'diagnostic: a libvirt host is asked about the DHCP service it runs' {
             -Because 'a runner account outside the libvirt group must be retried, not reported as a host without libvirt'
     }
 }
-
-# Copyright (c) 2019-2026 by Alisson Sol et al.

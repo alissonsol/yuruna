@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.25
+.VERSION 2026.10.26
 .GUID 4235cf39-20c0-270a-724d-9125095a5d8a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -19,6 +19,36 @@
 # locale: en-US  domain: host
 
 @{
+    'host.agent_image_unverifiable' = @(
+        'The download agent served '
+        @{
+            'arg' = 'isoFileName'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        ' from '
+        @{
+            'arg' = 'sourceUrl'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ', but no publisher checksum list names it, so the image is not used.'
+    )
+    'host.base_image_publish_failed' = @(
+        'Could not put the download in place as '
+        @{
+            'arg' = 'baseImageFile'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+        ': '
+        @{
+            'arg' = 'message'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' No sentinel or origin record was written for it.'
+    )
     'host.clock_service_description' = 'Windows Time service (W32Time)'
     'host.enable_automation_no_prompt_confirm_conflict' = 'Enable-TestAutomation: -NoOperatorPrompt cannot be combined with -Confirm, which asks before every change; nothing was captured or changed.'
     'host.enable_automation_no_prompt_mode' = 'Enable-TestAutomation: running with -NoOperatorPrompt -- no consent dialogs, no Dock or screen saver restart, no module installs, no sudo prompt and no networkStorage questionnaire. Settings that need an operator are reported as still unmet.'
@@ -4862,7 +4892,7 @@
         }
         ''' will not enslave) -- guests on it would never get a DHCP offer. Rolling the netplan change back.'
     )
-    'host.operator_891e818fe6ad2659' = 'SHA256SUMS signature unverified (gpg/keyserver unavailable or no detached .gpg); proceeding on hash only.'
+    'host.operator_891e818fe6ad2659' = 'SHA256SUMS signature unverified (gpg or the pinned keyring is not installed); proceeding on hash only.'
     'host.operator_89af27dbbf79e963' = @(
         'Path does not exist: '
         @{
@@ -8178,7 +8208,7 @@
     )
     'host.operator_f08765755eb06413' = 'apt packages (qemu-kvm, libvirt-daemon-system, cifs-utils, acl, ...) and PSGallery modules'
     'host.operator_f0fd9838eca3f370' = '  virsh --source agent     : attempted (seed installs qemu-guest-agent best-effort; confirm per guest)'
-    'host.operator_f11ac5338e134c99' = 'Save-ImageWithChecksum: SHA256SUMS signature unverified (gpg/keyserver unavailable or no detached .gpg); proceeding on hash only.'
+    'host.operator_f11ac5338e134c99' = 'Save-ImageWithChecksum: SHA256SUMS signature unverified (gpg or the pinned keyring is not installed); proceeding on hash only.'
     'host.operator_f138be59eb9fb325' = 'the libvirt GUI, to watch a guest a headless step is stuck on'
     'host.operator_f14a8d0740e60f7c' = @(
         'Save-VMDiskSnapshot: '''
@@ -8713,6 +8743,23 @@
             'trust' = 'external'
         }
         ''' was not renamed and its bundle was not edited.'
+    )
+    'host.signature_could_not_be_checked' = '  SHA256SUMS GPG SIGNATURE COULD NOT BE CHECKED'
+    'host.signature_could_not_be_checked_detail' = '  gpg and the pinned Ubuntu signing keys are present, but the signature could not be fetched or verified; the checksum is refused as unauthenticated.'
+    'host.snapshot_state_unknown' = @(
+        'Could not tell whether snapshot '''
+        @{
+            'arg' = 'id'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ''' exists on '
+        @{
+            'arg' = 'vMName'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ': the hypervisor did not answer.'
     )
     'host.unified_screen_lock_description' = 'sysadminctl unified screen lock'
     'host.utm_app_census_unknown' = @(

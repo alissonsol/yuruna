@@ -1,5 +1,6 @@
 // LICENSEURI https://yuruna.link/license
 // Copyright (c) 2019-2026 by Alisson Sol et al.
+// GUID: 4292b191-5f7d-4ec0-b2ac-87fda0bf58ba
 
 // Package beacon self-announces an extension service's presence to the
 // pool-aggregator service. See
@@ -35,8 +36,8 @@ const (
 
 	// maxHelloRetry caps the catch-up cadence. An aggregator that is down for an
 	// hour must not be polled every ten seconds for that hour, so the wait
-	// doubles up to this ceiling. Once one hello succeeds the loop settles into
-	// Interval.
+	// doubles up to this ceiling. Once an announce succeeds the loop settles
+	// into Interval.
 	maxHelloRetry = time.Minute
 
 	// announceBodyCap bounds the reply read. The body is discarded, but it must
@@ -102,10 +103,13 @@ func (b *Beacon) Enabled() bool {
 	return b.AggregatorURL != "" && b.HostID != "" && b.Interval > 0
 }
 
-// Run announces until ctx is canceled: hello at start (retried on the doubling
-// catch-up cadence until it first lands), a re-announce every Interval, and a
-// goodbye once ctx is done. Blocks; callers run it in a goroutine and wait for
-// it to return so the goodbye gets its bounded window before process exit.
+// Run announces until ctx is canceled: hello at start, a re-announce every
+// Interval, and a goodbye once ctx is done. Any failed announce, the hello or a
+// later one, retries on the doubling catch-up cadence until one lands: an
+// aggregator answers 503 when it kept the entry but could not make it durable,
+// and only a quick retry closes the window in which its restart forgets the
+// service. Blocks; callers run it in a goroutine and wait for it to return so
+// the goodbye gets its bounded window before process exit.
 func (b *Beacon) Run(ctx context.Context) {
 	if !b.Enabled() {
 		return
@@ -126,15 +130,16 @@ func (b *Beacon) Run(ctx context.Context) {
 			if ctx.Err() == nil {
 				log.Printf("presence beacon (%s): announce to %s failed: %v", b.Area, b.AggregatorURL, err)
 			}
-			if !announced {
-				delay = retry
-				retry = nextHelloRetry(retry)
-				continue // keep catching up until the first success
-			}
-		} else if !announced {
+			// Never slower than the steady-state cadence the failure interrupted.
+			delay = min(retry, b.Interval)
+			retry = nextHelloRetry(retry)
+			continue
+		}
+		if !announced {
 			announced = true
 			log.Printf("presence beacon (%s): announced %s to %s (re-announce every %s)", b.Area, b.HostID, b.AggregatorURL, b.Interval)
 		}
+		retry = b.helloRetry
 		delay = b.Interval
 	}
 }

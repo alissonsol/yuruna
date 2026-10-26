@@ -4,9 +4,31 @@ Yuruna uses [Calendar Versioning](https://calver.org/): `YYYY.MM.DD`.
 Tags are cut from the `main` branch; entries below summarize each
 tagged release.
 
+## 2026.10.26
+
+- **Actionable failures.** Every failed guest in a cycle is recorded, repairs
+  and reports follow the underlying cause, each record links to its class
+  documentation, and pool alerts arrive between cycles.
+- **Steadier runner.** Daylight-saving changes no longer distort watchdog and
+  pause timing, a malformed config save keeps prior settings, and a cycle
+  skipping a quarantined guest reports degraded, not passed.
+- **Also in this release.** Guests unpack only source archives whose SHA-256
+  matches, services bound uploads and refuse cross-site requests, pages read
+  better on phones, chart installs and image builds can retry transient
+  faults, one-shot runs stop colliding with the runner, and OCR is checked
+  before guests start.
+
 ## 2026.10.25
 
-- **TBD.** To be defined.
+- **Self-rescuing runner.** Loop errors no longer stop it, an update that
+  breaks cycles no longer blocks the next, and a cycle ceiling and second
+  watchdog stop hung cycles.
+- **Tighter lab security.** The status service serves only allow-listed files,
+  control proofs are bound to one host, secrets are redacted from logs, and
+  the proxy CA is pinned.
+- **Safer builds and storage.** Seed secrets stay owner-only and staging is
+  always removed, service VMs check code digests and fetch NAS credentials
+  over mutual TLS, and storage deletes are reference-checked.
 
 ## 2026.10.22
 
@@ -626,10 +648,10 @@ tagged release.
 
 ---
 
-LICENSEURI <https://yuruna.link/license>
+LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.25
+Last review: 2026.10.26
 
 Back to [Yuruna](README.md)

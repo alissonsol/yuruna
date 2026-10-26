@@ -70,11 +70,12 @@ Top-level fields, in order:
 | `vmName` / `guestKey` | string | Failing guest identity. |
 | `timestamp` | string | UTC `yyyy-MM-dd HH:mm:ss`. |
 | `failureClass` | enum | Machine-routable class. The canonical set lives in [`Test.FailureTaxonomy`](../test/modules/Test.FailureTaxonomy.psm1) (one source of truth for the verb `ValidateSet` and the event-schema validator). Guest/sequence classes come from the failing verb's registration; `unknown` when the verb is unresolved; `pattern_matched_failure` when `Wait-ForText` short-circuited on a hard-block pattern; the host infra classes `provisioning_failure` / `bootstrap_sync` / `plan_invalid` / `network_timeout` / `hypervisor_unresponsive` come from the runner's infra stages (see [Infra-stage records](#infra-stage-records)). |
+| `docUrl` | string | Where the class's meaning and first check are documented: the failure schema's link with the class's anchor, as in `https://yuruna.link/42820e91#failure-class-network_timeout`, the [class table](#why-each-infra-failure-class-exists) row the pool dashboard also links to; the schema itself for a value outside the taxonomy. Mirrored on the event. |
 | `severity` | enum | `hard` / `soft` from the verb; `unknown` when unresolved. |
 | `suggestedRecoveries` | string[] | Verb's `SuggestedRecoveries` (always a JSON array, never `null`). |
 | `actionVerb` | string | The failing verb name (`script_error` for an unattributed crash; the stage name for an infra record). |
 | `reason` | enum | `step` (a step failed), `crash` (engine crashed mid-step), `infra` (a host stage failed outside the sequence engine), or `watchdog_kill` (the outer watchdog SIGKILLed a wedged inner; see [Synthetic records](#synthetic--infra-records)). |
-| `classificationSource` | enum | How `failureClass` was derived: `verb-registry`, `pattern-match` (a hard-block OCR pattern reclassified the step), `unresolved-verb` (`unknown` only because the verb carries no registration -- register it, don't escalate), `crash`, `infra-stage` (a runner infra stage), or `synthetic` (a watchdog-synthesized record). Lets a consumer distinguish a genuinely-novel cause from missing metadata. |
+| `classificationSource` | enum | How `failureClass` was derived: `verb-registry`, `pattern-match` (a hard-block OCR pattern reclassified the step), `unresolved-verb` (`unknown` only because the verb carries no registration -- register it, don't escalate), `handler-exception` (the step's handler threw: the step failed like any other, so a `retry` around it ran it again, and the class is `unknown` because the exception says nothing about the verb's own class), `deploy-result` (an ssh verb read the guest's `YURUNA_RESULT` line: a deploy entry point or an example workload named its own failure class, which replaces the verb's `script_error`), `crash`, `infra-stage` (a runner infra stage), or `synthetic` (a watchdog-synthesized record). Lets a consumer distinguish a genuinely-novel cause from missing metadata. |
 | `sequenceName` | string | Failing sequence's base name (no `.yml`) -- first-class identity for routing and repro (the path is still under `context.sequencePath`). |
 | `stepInvocationId` / `sequenceInvocationId` | string | Failed outer invocation identities, shared with that step's events. A failed retry retains its wrapper's IDs. Empty when a crash or infrastructure failure occurred before an invocation existed. |
 | `originatingStepInvocationId` / `originatingSequenceInvocationId` | string | Failed leaf identities when a retry propagates an inner failure, joining its fetch evidence and progress advisory. Otherwise the failed invocation's own IDs, including when an outer handler throws a distinct error. |
@@ -102,6 +103,7 @@ These appear on **both** step and crash records (a crash after step N began stil
 | Field | Type | Notes |
 |---|---|---|
 | `lastSucceededStepNumber` | int | Replay boundary -- step N succeeded; the failure landed on N+1. A "what's safe to replay past" marker, not an auto-resume pointer. |
+| `stepEffect` / `stepEffectSource` | string / string | What the failing step is proven to have done to the guest: `none-proven` when its own handler showed that nothing ran, with how it knows -- `address-unresolved` (no address was discovered and ssh itself failed, so no session opened) or `no-source-served` (the fetch wrapper reported that no source served its script) -- else `unknown` and `''`. Only the failing step's own proof counts, so a `retry` wrapper never inherits one from a step inside it, and a matched failure pattern or a thrown handler leaves it `unknown`. Crash records carry `unknown`. Mirrored on the event. Warm resume replays a `none-proven` step where it failed ([rewind](#42820e91-0010)). |
 | `innerActionVerb` / `innerFailureClass` / `innerSeverity` / `innerSuggestedRecoveries` | string / string / string / string[] | Set only when the failure bubbled through an exhausted `retry`; carry the deepest inner verb's classification so a remediator routes on the inner cause rather than the outer `retry_exhausted`. The [dispatcher](#remediation-dispatcher) routes on `innerFailureClass` when the outer class is `retry_exhausted` and an inner handler exists. `null` (array empty) otherwise. |
 
 <a id="42820e91-0005"></a>
@@ -112,6 +114,7 @@ These appear on **both** step and crash records (a crash after step N began stil
 |---|---|
 | `hostType` | e.g. `host.windows.hyper-v`. |
 | `matchedFailurePattern` | The hard-block pattern `Wait-ForText` matched, or `null`. |
+| `stepFailurePhase` | Which part of a wait-then-type step failed: `wait` (the screen never showed what the step waited for), `input`, or empty. A step that failed in its wait is filed as `ocr_timeout` whatever class the verb registers, because the verb's class describes the part after the wait: a `passwdPrompt` whose prompt never appeared is not a rejected password. |
 | `sequencePath` | Path of the failing sequence YAML. |
 | `cycleFolder` | The cycle's stable identity (step failures only) -- the same value the NDJSON stream stamps, so this file joins to the event stream and resolves to the folder on disk. |
 | `failureScreenshotPath` / `failureOcrPath` | Cycle-dir-relative names of this failure's screen evidence (step failures only). **Absent** unless the artifact exists and was last written after the failing step began: both are sticky per-VM files that only the screen-reading verbs rewrite, so a failure in a verb that reads no text would otherwise point at an earlier step's screen. A reader follows these; nothing audits them, so a present name is a claim the record has to be able to keep. |
@@ -273,8 +276,8 @@ loop can route on them like any other failure. They carry `reason` =
 `infra`, `classificationSource` = `infra-stage`, `stepNumber` = `0`, and
 `actionVerb` = the stage name. The class maps the stage to a routable
 recovery: `provisioning_failure` (New-VM/Start-VM -- `retry_with_backoff`),
-`network_timeout` (GetImage, and a git failure whose DNS/TCP probe failed
--- `retry_with_backoff`), `bootstrap_sync` (ProjectClone, or a non-network
+`network_timeout` (GetImage unless the stage said otherwise -- below -- and a
+git failure whose DNS/TCP probe failed -- `retry_with_backoff`), `bootstrap_sync` (ProjectClone, or a non-network
 git divergence -- `operator_intervention_required`), `plan_invalid`
 (Resolve-CyclePlan / capability gate / folder-check --
 `operator_intervention_required`), and `pool_storage_full`
@@ -283,9 +286,22 @@ written by the OUTER loop rather than the sequence engine, since a share that
 cannot hold the results is discovered either before the cycle spawns or after it
 finishes), and `hypervisor_unresponsive` (HypervisorControl, the pre-cycle
 probe of the hypervisor's control channel, or a host action whose VM start
-reported the channel hung -- `operator_intervention_required`). The runner never clobbers a richer
-engine-written record and the write is fully guarded so telemetry cannot
-fail the cycle.
+reported the channel hung -- `operator_intervention_required`). A GetImage stage
+that knows why it failed says so before it exits: `Write-YurunaProvisionResult`
+writes `{ kind, failureClass, message }` to `<log>/provision/<guestKey>.GetImage.json`,
+the path `Invoke-GetImage` names in `YURUNA_PROVISION_RESULT` for that run after
+deleting any earlier record. `kind` is closed: `network` (`network_timeout`),
+`integrity` (`source_integrity`: a checksum or signature failure, which another
+download of the same bytes repeats), `unsupported` (`plan_invalid`) and `tool`
+(`provisioning_failure`). The Ubuntu image pipeline records `network` and
+`integrity`; a stage that records nothing keeps `network_timeout`, and a guest with
+no `Get-Image.ps1` on the host is `plan_invalid`. A record already
+at the log root is replaced only when it was written before the current guest
+iteration began -- another guest's, or this guest's from an earlier iteration --
+so a failure is never filed under an earlier one's class. A record written during
+the iteration (the engine's richer account of the same failure, or the dependency
+record an orchestration stage inherits) is kept, and so is any record outside a
+guest iteration. The write is fully guarded so telemetry cannot fail the cycle.
 
 A host action (a project's `host:` sequence such as `initialize-lab`) that
 exits non-zero is recorded under its own name with whatever class the action
@@ -308,6 +324,17 @@ blind retries. A probe that could not measure capacity retains the existing
 retry policy. Storage admission before a cycle uses the configuration-gate
 failure path (yellow on the pool dashboard); a VM startup failure during a
 cycle remains a provisioning failure with its original evidence.
+
+Two classes carry top-level fields that their recovery handler quotes. A
+record filed or re-filed as `host_network_degraded` carries `hostNetworkSwitch`
+(the host's External virtual switches, comma-separated) and
+`hostNetworkVerdict` (the classifier's verdict for each, in the same order). A
+`dhcp_identity_unbounded` record carries `previousAddress` and
+`currentAddress`, the two addresses of the first guest that was rebuilt under
+its own identity and handed a different one. Every write of a failure record,
+of its history and of the remediation decision reports a write that did not
+happen as a warning naming the path, because a missing record reads the same as
+no failure to everything downstream.
 
 <a id="42820e91-000b"></a>
 
@@ -545,6 +572,16 @@ check all count as unsafe. A restore point whose snapshot the host definitely
 lacks counts as no boundary, so it cannot license a replay. A checkpoint already
 sitting on the boundary is not a rewind.
 
+A record whose `stepEffect` is `none-proven` needs neither reading: the step's
+own handler showed it did nothing, so the guest is as the steps before it left it
+-- the state the step was written for -- and the step is replayed where it
+failed, with no rewind, whatever its verb's replay class. The class still decides
+whether to resume at all: the proof says a replay is safe, not that it will
+succeed. A typed command the console never took (`input_lost` from
+`fetchAndExecute`) carries no proof, because its shell may still hold the open
+input. A proven step the sequence file no longer has is read as above. The
+`warm_resume` event names the proof in `stepEffectSource`.
+
 A resume that was eligible and declined says so with a `warm_resume_declined`
 event: `timestamp`, `event`, `guestKey`, `sequenceName`, `resumeFromStep` and a
 `reason` token -- `no-restore-point`, `restore-point-missing` or
@@ -663,9 +700,14 @@ the scope is on the event at all:
 
 For the live dashboard, `Set-LastFailureSummary` records a denormalized
 top-level `lastFailure` object on `status.json` at failure time:
-`{ failureClass, severity, stepNumber, sequenceName, guestKey, stepName,
-errorMessage, reproCommand, relPath, vmName, recordedAt }` -- `null` on a
-passing cycle. `relPath` points at the per-guest cycle-folder
+`{ failureClass, routingClass, innerFailureClass, classificationSource, reason,
+severity, stepNumber, sequenceName, guestKey, stepName, errorMessage,
+reproCommand, relPath, vmName, recordedAt }` -- `null` on a passing cycle.
+`routingClass` is the class a consumer routes on: for a wrapper class such as
+`retry_exhausted` it is the inner class the record carries, so the summary says
+what kept failing rather than only that the retries ran out. One function,
+`Resolve-RoutingClass` in `Test.FailureTaxonomy`, decides it for the summary,
+the remediation dispatcher and `Get-LastFailureFact`. `relPath` points at the per-guest cycle-folder
 `last_failure.json` (the dashboard resolves it against the per-guest
 folder URL). `Complete-Run` snapshots it into the history row (alongside
 per-guest `failureClass` / `errorMessage` in `guestSummary`) so a row is
@@ -728,6 +770,8 @@ choosing a recovery. The canonical list comes from
 | <a id="failure-class-input_lost"></a>`input_lost` | Typed shell input did not launch the payload; guest-side checks confirmed it never ran. | Inspect the console and input-delivery diagnostics before repeating the step. |
 | <a id="failure-class-hypervisor_unresponsive"></a>`hypervisor_unresponsive` | The hypervisor answers state queries but its lifecycle control requests time out. | Inspect the control snapshot and the hypervisor application's process or crash logs. |
 | <a id="failure-class-source_integrity"></a>`source_integrity` | Signed source evidence or fetched content failed verification. A verified origin fallback may still succeed while preserving this warning. | Inspect the receipt, enrolled key IDs, selected commit and transport attempts. Never bypass signature or commit verification. |
+| <a id="failure-class-vm_not_stopped"></a>`vm_not_stopped` | The guest never reached the stopped state the step waited for: it ignored the shutdown request. Not a wait to repeat -- waiting again only waits for the shutdown it already ignored. | Power the VM off from the host (a `retry` with `restartVmBeforeRetry: coldPowerCycle` does it), then inspect the console if it recurs. |
+| <a id="failure-class-guest_run_lost"></a>`guest_run_lost` | The guest's supervisor answered but could not account for the run, so the payload's process is gone. Not an instrumentation fault to re-run, and not a network fault to reconnect. | Restore the last good snapshot and read the guest's execution log for what ended the process. |
 | <a id="failure-class-unknown"></a>`unknown` | The failure has no usable classification. | Read `classificationSource` and the artifacts; check for missing verb registration before assigning a cause. |
 
 <a id="42820e91-0015"></a>
@@ -738,6 +782,12 @@ A token earns its own class only where the retry policy, or the person who can
 fix it, differs from every class already in the enum. The infra classes are
 where that line is easiest to get wrong -- they all look like "the environment
 broke" from a distance -- so each one's reason is recorded here.
+
+The routing these reasons decide -- whether the runner may retry a class
+unattended, whether a step that failed with it may be resumed in place, and
+whether it is a transport-only network refusal -- is one table in
+`Test.FailureTaxonomy`, which the auto-remediation allow-list, warm resume and
+the network gates all read. A class the table does not name is routed nowhere.
 
 - **`elevation_required`** -- the host asked for a sudo password with no operator
   present. Its own class because it is the one failure that is provably
@@ -1006,7 +1056,8 @@ how the run ends.
 | `resultId` | A new GUID (N format) per result. |
 | `entryPoint` | `runner`, `project` or `sequence`. |
 | `cycleGeneration` | `<runnerInstanceId>:<cycle>` for the runner. A one-shot entry point mints `<new guid>:1`, exports it as `YURUNA_CYCLE_GENERATION`, and everything it starts shares it. |
-| `outcome` | `passed`; `failed` (the tests ran and failed); `infrastructure-fault` (the machinery around the tests failed); `cannot-run` (a precondition such as VM admission refused the cycle); `aborted` (a child died before it could run a cycle). |
+| `durationSeconds` | How long the run took, from its spawn to the result; `0` for a one-shot entry point. The runner-minute budget of a failure class adds up the durations of the runner cycles that failed with it. |
+| `outcome` | `passed`; `degraded` (nothing failed, but the cycle skipped a planned guest, a quarantined one; exit code 75); `failed` (the tests ran and failed); `infrastructure-fault` (the machinery around the tests failed); `cannot-run` (a precondition such as VM admission refused the cycle); `aborted` (a child died before it could run a cycle). |
 | `exitCode` | The exit code the entry point (or, for the runner, the cycle) ended with. |
 | `failureClass` | Empty, a [failure class](#why-each-infra-failure-class-exists) of the shared taxonomy, or a runner fault class (below). |
 | `fingerprint` | `fp1-` plus 16 hex characters: the SHA-256 of failure class, stage, sequence name and action verb, each trimmed and lowercased. Counts, timestamps, VM names and addresses are never inputs, so the same failure has the same fingerprint on the next cycle and after a restart. Empty for a pass or a failure without a class. |
@@ -1117,6 +1168,13 @@ Rules:
    seconds treats the line as not written, which means no repair.
 6. The file is compacted past 256 KB, keeping seven days, every unfinished attempt
    and the latest `resolved` line of each scope.
+7. A ledger that cannot be read or written stops every repair, and no ledger line
+   can say so. `recovery.health.json` in the runtime directory names the state
+   (`ledger-unreadable` or `ledger-unwritable`) until a later attempt writes a
+   line again; `/control/runner-status` reports it as `recoveryDisabled`, and the
+   status page adds a note to its banner. The runner warns when the state
+   starts, not on every refusal. No `recovery_action` event is emitted, because
+   the events mirror ledger lines.
 
 <a id="42820e91-0024"></a>
 
@@ -1136,11 +1194,16 @@ repositories and stand-in functions.
 | `clear_stale_git_lock` | a `bootstrap_sync` failure at stage `FrameworkPull` or `ProjectClone` whose reason names a `.lock` file | a `*.lock` file directly under a repository's `.git` (or under `.git/refs`, three levels deep) is older than 10 minutes, and no `git` process is running on the machine (a process list that cannot be read counts as running, and so does a resident file-system-monitor daemon) | moves each lock into `runtime/recovery.quarantine/<attemptId>/<framework or project>/<path inside the repository>` (never deletes; nothing prunes the folder afterwards) | `git --no-optional-locks status --porcelain` (read-only, so it cannot recreate the lock) exits 0 within 30 seconds in every repository touched | moves the locks back, and never over a lock that has reappeared |
 | `reclone_project` | a `bootstrap_sync` failure at stage `ProjectClone` | a project URL resolves (a pool assignment in `project.access.json` that is not `denied`, else `repositories.projectUrl`), and the current `project/` is not already healthy | `Update-ProjectClone`: clone beside, verify, swap; the previous checkout is kept when it fails | the checkout passes the health check | restores an interrupted swap |
 | `end_failure_pause_early` | a failure class the dispatcher maps to a clearly safe retry (`wait_timeout`, `network_timeout`, `ip_not_discovered`, `input_lost`, `instrumentation_failure`, `host_io_blocked`) | the class is on that list | none: the effect is that the pause ends | always | none |
+| `end_failure_pause_on_probe` | a failure class with a registered recovery probe (`hypervisor_unresponsive`, `host_network_degraded`, `pool_storage_full`) | the probe, run by the pause in a short-lived process, says the condition has cleared | none: the effect is that the pause ends | always | none |
 
 `clear_stale_git_lock` and `reclone_project` run before the failure pause (and
 `clear_stale_git_lock` also before the hold that follows a failed framework pull);
-`end_failure_pause_early` runs inside the pause, after its first poll interval, as
-it always did. A repair that applied replaces the pause, and the next cycle is its
+`end_failure_pause_early` runs inside the pause, after a hold of one poll interval
+that doubles with each early end the ledger already holds for the fingerprint, to
+at most 15 minutes, and `end_failure_pause_on_probe` runs there too, writing its
+ledger lines only once a probe says the condition cleared. Both decline with
+`class-budget-spent` once the runner cycles that failed with the class took its
+runner-minute budget (`RetryMinutesPerDay`, 180 by default) in the last 24 hours. A repair that applied replaces the pause, and the next cycle is its
 proof: a pass re-arms every budget, and a repeat of the same fingerprint spends it.
 When a budget is spent the result says `exhausted` and the normal failure pause
 applies.
@@ -1168,6 +1231,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.25
+Last review: 2026.10.26
 
 Back to [Yuruna](../README.md)

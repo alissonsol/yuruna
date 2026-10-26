@@ -4915,6 +4915,11 @@
           "slug": "hostwindowshyper-vmodulesyurunahostpsm1-get-besthostip"
         },
         {
+          "id": "42f52e37-001e",
+          "heading": "host/windows.hyper-v/modules/Yuruna.Host.psm1: Serial console capture",
+          "slug": "hostwindowshyper-vmodulesyurunahostpsm1-serial-console-capture"
+        },
+        {
           "id": "42f52e37-001b",
           "heading": "host/windows.hyper-v/Sync-HostConfiguration.ps1: Initialize host setup",
           "slug": "hostwindowshyper-vsync-hostconfigurationps1-initialize-host-setup"
@@ -6465,6 +6470,11 @@
           "slug": "operator-overrides"
         },
         {
+          "id": "42607283-000a",
+          "heading": "The known-answer check at cycle start",
+          "slug": "the-known-answer-check-at-cycle-start"
+        },
+        {
           "id": "42607283-0005",
           "heading": "Why a persistent WinRT worker",
           "slug": "why-a-persistent-winrt-worker"
@@ -7286,18 +7296,18 @@
         },
         {
           "id": "42010605-001a",
-          "heading": "Build the parameter set Invoke-TestProject must pass to the inner. -NoGitPull and -NoProjectClone ar",
-          "slug": "build-the-parameter-set-invoke-testproject-must-pass-to-the-inner--nogitpull-and--noprojectclone-ar"
+          "heading": "The cycle state Invoke-TestProject hands the runner's dispatcher",
+          "slug": "the-cycle-state-invoke-testproject-hands-the-runners-dispatcher"
         },
         {
           "id": "42010605-001b",
-          "heading": "Step 3: spawn one inner cycle",
-          "slug": "step-3-spawn-one-inner-cycle"
+          "heading": "Run one runner cycle",
+          "slug": "run-one-runner-cycle"
         },
         {
           "id": "42010605-001c",
-          "heading": "Step 1+2: clone, verify, and swap the project checkout",
-          "slug": "step-12-clone-verify-and-swap-the-project-checkout"
+          "heading": "The cycle replaces the project checkout",
+          "slug": "the-cycle-replaces-the-project-checkout"
         },
         {
           "id": "42010605-001d",
@@ -7316,13 +7326,13 @@
         },
         {
           "id": "42010605-0020",
-          "heading": "Exit-code contract: setup failure is 1; completed cycles forward the inner exit code",
-          "slug": "exit-code-contract-setup-failure-is-1-completed-cycles-forward-the-inner-exit-code"
+          "heading": "Exit-code contract: setup failure is 1; a dispatched cycle reports its own code",
+          "slug": "exit-code-contract-setup-failure-is-1-a-dispatched-cycle-reports-its-own-code"
         },
         {
           "id": "42010605-0021",
-          "heading": "One-shot project test: prepare the project clone and invoke the inner runner",
-          "slug": "one-shot-project-test-prepare-the-project-clone-and-invoke-the-inner-runner"
+          "heading": "One-shot project test: one runner cycle against a fresh project clone",
+          "slug": "one-shot-project-test-one-runner-cycle-against-a-fresh-project-clone"
         },
         {
           "id": "42010605-0022",
@@ -7426,8 +7436,8 @@
         },
         {
           "id": "42010605-0036",
-          "heading": "Sync-ForwardEnv lives in [Test.RunnerOuterLoop](../test/modules/Test.RunnerOuterLoop.psm1) and Write-OuterLo",
-          "slug": "sync-forwardenv-lives-in-testrunnerouterloop-and-write-outerlo"
+          "heading": "Sync-ForwardEnv lives in Test.RunnerOuterLoop and Write-OuterLog in Test.OuterLog",
+          "slug": "sync-forwardenv-lives-in-testrunnerouterloop-and-write-outerlog-in-testouterlog"
         },
         {
           "id": "42010605-0037",
@@ -7441,8 +7451,8 @@
         },
         {
           "id": "42010605-0039",
-          "heading": "Publish the resolved config path so every cross-module reload site (Sync-RuntimeConfig in the inner",
-          "slug": "publish-the-resolved-config-path-so-every-cross-module-reload-site-sync-runtimeconfig-in-the-inner"
+          "heading": "Publish the resolved config path so every cross-module reload site (Sync-RunnerCycleConfig in the inner",
+          "slug": "publish-the-resolved-config-path-so-every-cross-module-reload-site-sync-runnercycleconfig-in-the-inner"
         },
         {
           "id": "42010605-003a",
@@ -7871,8 +7881,8 @@
         },
         {
           "id": "42010605-008f",
-          "heading": "LAST, and that ordering is load-bearing. Test.HostContract re-exports Test.HostDetection's Get-HostT",
-          "slug": "last-and-that-ordering-is-load-bearing-testhostcontract-re-exports-testhostdetections-get-hostt"
+          "heading": "Test.HostContract imports LAST, and that ordering is load-bearing",
+          "slug": "testhostcontract-imports-last-and-that-ordering-is-load-bearing"
         },
         {
           "id": "42010605-0090",

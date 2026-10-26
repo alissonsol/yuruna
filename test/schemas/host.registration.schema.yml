@@ -1,5 +1,6 @@
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
+# GUID: 423cba3e-db4a-4dec-9ae2-e20ed7979ef9
 $schema: https://json-schema.org/draft/2020-12/schema
 $id: https://yuruna.com/schemas/host.registration.schema.yml
 title: Yuruna host registration record

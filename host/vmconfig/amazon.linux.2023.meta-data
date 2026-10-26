@@ -1,5 +1,6 @@
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
+# GUID: 42a80009-b310-4763-ae12-2ff35dd8e2f3
 # See https://yuruna.link/429f3d06-0002
 # --- REGION: instance-id
 # instance-id tracks the VM name, not the hostname: a change re-runs per-instance

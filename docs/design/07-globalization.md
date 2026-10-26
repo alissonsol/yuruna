@@ -64,7 +64,12 @@ coverage and domain ownership, required descriptions, lifecycle rules,
 placeholder contracts, matching message kinds, plural forms, and translation
 `sourceHash` values. The hash covers the whole en-US message contract, so editing
 a translator description also makes translations stale. Stale translations for
-supported locales fail compilation. The compiler derives both diagnostic
+supported locales fail compilation. Names used in hashes and compiled output
+are sorted under the invariant culture, so a host running in another culture
+(Lithuanian sorts `y` beside `i`) computes the same hashes and writes the same
+bytes. A message embedded in a JavaScript string escapes `<`, `>` and
+`&`, so catalog text can never close the inline `<script>` of a
+self-contained page. The compiler derives both diagnostic
 locales from the en-US sources. `origin: machine` records translation
 provenance only; draft acceptance follows
 [Translating a source revision](../globalization.md#420b66d2-0004). The
@@ -374,5 +379,11 @@ first failure. The project locale-map gate validates each project label map
 against the companion repository's source hashes.
 
 ---
+
+LICENSEURI https://yuruna.link/license
+
+Copyright (c) 2019-2026 by Alisson Sol et al.
+
+Last review: 2026.10.26
 
 [Architecture](../architecture.md) | [Design overview](README.md)

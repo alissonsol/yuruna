@@ -1,13 +1,16 @@
 // LICENSEURI https://yuruna.link/license
 // Copyright (c) 2019-2026 by Alisson Sol et al.
+// GUID: 425e6b36-b4e4-4a84-ba7d-73d3fd560288
 
 package main
 
 import (
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -17,7 +20,7 @@ import (
 )
 
 const (
-	testVersion = "2026.10.25"
+	testVersion = "2026.10.26"
 	testBearer  = "test-internal-auth-key"
 )
 
@@ -249,6 +252,32 @@ func TestLocalModeAppliesOfflineThroughReconfigure(t *testing.T) {
 	}
 	if got := d.readSwitches(); got.Offline {
 		t.Errorf("after clearing, offline still reads %+v", got)
+	}
+}
+
+// A reconfigure squid refuses leaves the drop-in as squid is running it, so the
+// switch never reads "on" over a squid running without it.
+func TestFailedReconfigureRestoresTheDropIn(t *testing.T) {
+	fx := &fakeExec{err: errors.New("squid: reconfigure refused")}
+	d := newTestDaemon(t, modeLocal, t.TempDir(), fx, testBearer)
+	if err := d.applyOffline(true); err == nil {
+		t.Fatal("applyOffline(true) returned nil though squid refused the reconfigure")
+	}
+	if _, err := os.Stat(d.offlinePath); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("the drop-in squid never loaded is still on disk (stat err %v)", err)
+	}
+	fx.err = nil
+	if err := d.applyOffline(true); err != nil {
+		t.Fatalf("applyOffline(true): %v", err)
+	}
+	before, _ := os.ReadFile(d.offlinePath)
+	fx.err = errors.New("squid: reconfigure refused")
+	if err := d.applyOffline(false); err == nil {
+		t.Fatal("applyOffline(false) returned nil though squid refused the reconfigure")
+	}
+	after, err := os.ReadFile(d.offlinePath)
+	if err != nil || string(after) != string(before) {
+		t.Fatalf("the running drop-in was not restored: %q, err %v", after, err)
 	}
 }
 
@@ -578,4 +607,35 @@ func callRecentRequests(t *testing.T, srv *httptest.Server, args string) map[str
 		t.Fatalf("unreadable tool text %q: %v", text, err)
 	}
 	return out
+}
+
+// Any page an operator opens can make the browser POST here; a cross-site
+// unsafe request is refused, while a host, guest or script, which sends
+// neither Origin nor Sec-Fetch-Site, is answered as before.
+func TestACrossSiteUnsafeRequestIsRefused(t *testing.T) {
+	d := newTestDaemon(t, modeLocal, t.TempDir(), &fakeExec{}, "")
+	srv := httptest.NewServer(d.routes())
+	defer srv.Close()
+	for _, path := range []string{"/api/login", "/mcp", "/git-mirror/v1/resolve"} {
+		req, _ := http.NewRequest(http.MethodPost, srv.URL+path, strings.NewReader(`{}`))
+		req.Header.Set("Content-Type", "text/plain")
+		req.Header.Set("Origin", "http://elsewhere.example")
+		req.Header.Set("Sec-Fetch-Site", "cross-site")
+		resp, err := srv.Client().Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp.Body.Close()
+		if resp.StatusCode != http.StatusForbidden {
+			t.Errorf("cross-site POST %s = %d, want 403", path, resp.StatusCode)
+		}
+		plain, err := srv.Client().Post(srv.URL+path, "application/json", strings.NewReader(`{}`))
+		if err != nil {
+			t.Fatal(err)
+		}
+		plain.Body.Close()
+		if plain.StatusCode == http.StatusForbidden {
+			t.Errorf("POST %s from a non-browser client = 403", path)
+		}
+	}
 }

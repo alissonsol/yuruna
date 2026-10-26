@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.25
+.VERSION 2026.10.26
 .GUID 42a70b09-faec-4f05-9d24-b07e35b3f8f3
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -42,6 +42,10 @@ function Write-YurunaStateFile {
         Write UTF-8 with BOM. Default is UTF-8 without BOM (matches
         what JSON / YAML / shell consumers expect; the BOM trips most
         non-PowerShell parsers).
+    .PARAMETER WarnOnFailure
+        Also report a write that did not happen as a warning naming the path and
+        its cause. For a record whose absence a reader cannot tell from "nothing
+        happened": a failure record, its history, a remediation decision.
     .OUTPUTS
         [bool] $true on success, $false when temp write or rename fails.
     #>
@@ -52,7 +56,8 @@ function Write-YurunaStateFile {
     param(
         [Parameter(Mandatory)][string]$Path,
         [Parameter(Mandatory)][AllowEmptyString()][string]$Content,
-        [switch]$WithBom
+        [switch]$WithBom,
+        [switch]$WarnOnFailure
     )
     if (-not $PSCmdlet.ShouldProcess($Path, (Format-YurunaOperatorMessage -Key 'runner.operator_918cd3bc5faa52b6'))) { return $true }
     $encoding = if ($WithBom) {
@@ -65,8 +70,14 @@ function Write-YurunaStateFile {
     $tmp = "$Path.$PID-$([guid]::NewGuid().ToString('N')).tmp"
     try {
         [System.IO.File]::WriteAllText($tmp, $Content, $encoding)
+        # The rename below can reach the disk before the data does, and a power
+        # loss in between leaves an empty file where the state was. Flushing the
+        # temp file to disk first makes the rename publish only written bytes.
+        $flush = [System.IO.FileStream]::new($tmp, [System.IO.FileMode]::Open, [System.IO.FileAccess]::Write, [System.IO.FileShare]::Read)
+        try { $flush.Flush($true) } finally { $flush.Dispose() }
     } catch {
         Write-Verbose "Write-YurunaStateFile: tmp write at $tmp failed: $($_.Exception.Message)"
+        if ($WarnOnFailure) { Write-Warning (Format-YurunaOperatorMessage -Key 'runner.state_file_write_failed' -Arguments @{ path = "$Path"; message = "$($_.Exception.Message)" }) }
         return $false
     }
     try {
@@ -76,6 +87,7 @@ function Write-YurunaStateFile {
         [System.IO.File]::Move($tmp, $Path, $true)
     } catch {
         Write-Verbose "Write-YurunaStateFile: rename $tmp -> $Path failed: $($_.Exception.Message)"
+        if ($WarnOnFailure) { Write-Warning (Format-YurunaOperatorMessage -Key 'runner.state_file_write_failed' -Arguments @{ path = "$Path"; message = "$($_.Exception.Message)" }) }
         # Best-effort clean-up of the orphan .tmp so a future run isn't
         # surprised by a stale partial write sharing the directory.
         if (Test-Path -LiteralPath $tmp) {
@@ -108,6 +120,9 @@ function Write-YurunaStateFileJson {
         Write UTF-8 with a BOM. Default is no BOM (what JSON consumers
         expect). Pass-through to Write-YurunaStateFile for the rare reader
         that needs one.
+    .PARAMETER WarnOnFailure
+        Pass-through to Write-YurunaStateFile; a serialization failure is
+        reported the same way.
     .OUTPUTS
         [bool] $true on success, $false on serialization or write failure.
     #>
@@ -120,7 +135,8 @@ function Write-YurunaStateFileJson {
         [Parameter(Mandatory)]$InputObject,
         [int]$Depth = 10,
         [bool]$Compress = $true,
-        [switch]$WithBom
+        [switch]$WithBom,
+        [switch]$WarnOnFailure
     )
     $json = $null
     try {
@@ -131,10 +147,11 @@ function Write-YurunaStateFileJson {
         }
     } catch {
         Write-Verbose "Write-YurunaStateFileJson: ConvertTo-Json failed for $Path : $($_.Exception.Message)"
+        if ($WarnOnFailure) { Write-Warning (Format-YurunaOperatorMessage -Key 'runner.state_file_write_failed' -Arguments @{ path = "$Path"; message = "$($_.Exception.Message)" }) }
         return $false
     }
     if (-not $PSCmdlet.ShouldProcess($Path, (Format-YurunaOperatorMessage -Key 'runner.operator_40eeaa317b25e65f'))) { return $true }
-    return (Write-YurunaStateFile -Path $Path -Content $json -WithBom:$WithBom -Confirm:$false)
+    return (Write-YurunaStateFile -Path $Path -Content $json -WithBom:$WithBom -WarnOnFailure:$WarnOnFailure -Confirm:$false)
 }
 
 Export-ModuleMember -Function Write-YurunaStateFile, Write-YurunaStateFileJson

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.25
+.VERSION 2026.10.26
 .GUID 4284df2f-52a5-4145-9114-1e901d60121e
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -129,7 +129,6 @@ if (-not $CatalogRoot) { $CatalogRoot = Join-Path $RepoRoot 'globalization/catal
 if (-not $Update) { $Check = $true }
 
 # --- REGION: Shared extraction
-#
 # The inventory's count and this tool's triage have to describe the same set of
 # literals, or the number being closed here is not the number being reported
 # there. Copying the prose test and the scanner would leave two definitions of
@@ -198,7 +197,6 @@ function Get-SharedDefinition {
 }
 
 # --- REGION: Classification rules
-#
 # Every rule states, in one sentence, why the text it matches is not shipped UI.
 # The reason travels with the verdict into the manifest so a reviewer can
 # disagree with a rule rather than with a number.

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.25
+.VERSION 2026.10.26
 .GUID 42b44044-9076-41c3-a573-d5fa643cd35e
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -229,15 +229,14 @@ if (-not $innerPidWritten) {
     Write-Warning $innerPidWarn
     Write-InnerLog $innerPidWarn
 }
-[System.IO.File]::WriteAllText($StepHeartbeatFile, [DateTime]::UtcNow.ToString('o'))
+Write-RunnerStepHeartbeat -Path $StepHeartbeatFile
 
 # Background heartbeat timer lives in Test.RunnerHeartbeat.psm1 (imported with
-# the Inner module set): a threadpool-driven runner.heartbeat the outer watchdog
-# reads to prove the inner PROCESS is alive even when the runspace is wedged in
-# a long OCR / SSH call. The in-runspace runner.stepHeartbeat (seeded above,
-# touched per step by Invoke-Sequence) proves the RUNSPACE is alive. Get-Runner-
-# HeartbeatError surfaces consecutive write failures (disk full / AV) for
-# diagnostics.
+# the Inner module set): a threadpool-driven runner.heartbeat that proves the
+# inner PROCESS is alive even when the runspace is wedged in a long OCR / SSH
+# call; no decision reads it. The watchdog judges the in-runspace
+# runner.stepHeartbeat (seeded above, touched as work completes), and its one
+# writer reports failed writes (Get-RunnerHeartbeatError counts them).
 Start-RunnerHeartbeat -Path $HeartbeatFile
 
 # --- REGION: Unattended contract
@@ -476,6 +475,7 @@ $HostNetworkTotalLossCycles = 3
 $HostNetworkStateFile       = Join-Path $env:YURUNA_RUNTIME_DIR "runner.hostNetwork.json"
 $hostNetwork                = Test-HostGuestNetworkHealth -HostType $HostType
 $hostNetworkStreak          = 0
+$hostNetworkSweptUtc        = ''
 if ($hostNetwork.Healthy) {
     Write-Verbose "Host guest-network: path '$($hostNetwork.Path)'. $($hostNetwork.Reason)"
     Remove-Item -LiteralPath $HostNetworkStateFile -Force -ErrorAction SilentlyContinue
@@ -484,6 +484,7 @@ if ($hostNetwork.Healthy) {
         try {
             $priorHostNetwork  = Get-Content -Raw -LiteralPath $HostNetworkStateFile | ConvertFrom-Json
             $hostNetworkStreak = [int]$priorHostNetwork.consecutiveTotalLoss
+            if ($priorHostNetwork.PSObject.Properties['sweptUtc']) { $hostNetworkSweptUtc = [string]$priorHostNetwork.sweptUtc }
         } catch {
             Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_a45d371d59f46ba6' -Arguments @{ hostNetworkStateFile = "$HostNetworkStateFile"; message = "$($_.Exception.Message)" })
         }
@@ -494,6 +495,7 @@ if ($hostNetwork.Healthy) {
         path                 = [string]$hostNetwork.Path
         reason               = [string]$hostNetwork.Reason
         observedUtc          = [DateTime]::UtcNow.ToString('o')
+        sweptUtc             = $hostNetworkSweptUtc
     } -Confirm:$false)
 }
 if ($hostNetwork.Degraded -and $hostNetwork.Healthy) {
@@ -636,12 +638,33 @@ if (-not $hostNetwork.Healthy) {
         # removes VMs stranded by the previous cycle lives inside the cycle
         # body, which this refusal skips. Not while a host refresh holds the
         # host: the sweep is a VM mutation the refresh has not released.
-        if (Test-YurunaRefreshSpawnAllowed -RuntimeDir $env:YURUNA_RUNTIME_DIR) {
+        # Once per loss: no cycle runs between two refusals, so nothing new
+        # can be stranded, and the state file of the streak remembers the
+        # sweep. In a bounded process of its own: a hypervisor that stopped
+        # answering would otherwise hold the refusal until the preamble
+        # watchdog killed it.
+        if ($hostNetworkSweptUtc) {
+            Write-Verbose "The stranded-VM sweep already ran during this loss of the guest network ($hostNetworkSweptUtc)."
+        } elseif (Test-YurunaRefreshSpawnAllowed -RuntimeDir $env:YURUNA_RUNTIME_DIR) {
             try {
-                & (Join-Path $TestRoot "Remove-TestVMFiles.ps1") -Quiet
+                $sweep = Invoke-BoundedNativeCommand -FilePath (Get-PwshApplicationPath) -TimeoutSeconds 300 `
+                    -ArgumentList @('-NoLogo', '-NoProfile', '-NonInteractive', '-File', (Join-Path $TestRoot 'Remove-TestVMFiles.ps1'), '-Quiet')
+                foreach ($line in @(Get-BoundedNativeOutputLine -Result $sweep -IncludeError)) { Write-Output $line }
+                if ($sweep.TimedOut) {
+                    Write-Warning (Format-YurunaOperatorMessage -Key 'runner.host_network_sweep_timed_out' -Arguments @{ seconds = '300' })
+                } elseif ([int]$sweep.ExitCode -ne 0) {
+                    Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_80e0664397f67e27' -Arguments @{ value = "exit $($sweep.ExitCode)" })
+                }
             } catch {
                 Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_80e0664397f67e27' -Arguments @{ value = "$_" })
             }
+            [void](Write-YurunaStateFileJson -Path $HostNetworkStateFile -InputObject @{
+                consecutiveTotalLoss = $hostNetworkStreak
+                path                 = [string]$hostNetwork.Path
+                reason               = [string]$hostNetwork.Reason
+                observedUtc          = [DateTime]::UtcNow.ToString('o')
+                sweptUtc             = [DateTime]::UtcNow.ToString('o')
+            } -Confirm:$false)
         }
         exit $ExitFailure
     }
@@ -855,13 +878,16 @@ if ($cachingProxyUrl) {
 
 $savedVerbose = $global:VerbosePreference
 $global:VerbosePreference = "SilentlyContinue"
-Import-Module (Join-Path $ModulesDir "Test.OcrEngine.psm1") -Force
-Import-Module (Join-Path $ModulesDir "Test.Tesseract.psm1") -Force
+# -Global without -Force: this process is fresh per cycle, so a forced
+# re-import only re-parses a module the set above already loaded, and one
+# into this script's scope evicts the global copy that other modules call.
+Import-Module (Join-Path $ModulesDir "Test.OcrEngine.psm1") -Global
+Import-Module (Join-Path $ModulesDir "Test.Tesseract.psm1") -Global
 # Test.Ssh exposes Get-GuestAddress + Wait-GuestIp for the per-guest IP
 # suffix printed alongside Start-VM: PASS. Imported even though SSH itself
 # is optional, because IP discovery uses host-side facilities (Hyper-V
 # KVP, utmctl, dhcpd_leases) and works without sshd in the guest.
-Import-Module (Join-Path $ModulesDir "Test.Ssh.psm1") -Force
+Import-Module (Join-Path $ModulesDir "Test.Ssh.psm1") -Global
 $global:VerbosePreference = $savedVerbose
 $activeEngines = Get-EnabledOcrProvider
 $combineMode = ($env:YURUNA_OCR_COMBINE -eq 'And') ? 'And' : 'Or'
@@ -1091,6 +1117,8 @@ try {
     Write-Verbose "Final gating-state save failed (best-effort, ignoring): $($_.Exception.Message)"
 }
 
-$finalCode = if ($cycleState.ConfigGateFailed) { Get-ConfigGateFailureExitCode } else { $OverallPassed ? $ExitOk : $ExitFailure }
+# A pass that skipped a planned guest exits with the degraded code: a caller that
+# reads 0 as a pass must not count a cycle that tested less than it planned.
+$finalCode = if ($cycleState.ConfigGateFailed) { Get-ConfigGateFailureExitCode } elseif ($OverallPassed -and $cycleState.Degraded) { Get-DegradedCycleExitCode } else { $OverallPassed ? $ExitOk : $ExitFailure }
 Write-InnerLog "about to exit with code $finalCode"
 exit $finalCode

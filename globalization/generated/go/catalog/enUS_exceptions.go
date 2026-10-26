@@ -804,6 +804,14 @@ const DataenUSexceptions = `{
     },
     " does not match the entry script's parameters; refusing to launch a worker the entry point would not accept."
   ],
+  "exceptions.host_signature_could_not_be_checked": [
+    "SHA256SUMS GPG signature could not be checked for ",
+    {
+      "arg": "checksumUrl",
+      "type": "detail",
+      "trust": "external"
+    }
+  ],
   "exceptions.host_utm_sudo_requires_noninteractive": "Invoke-UtmHostTool: sudo must be called with -n as its first argument so it can never wait on a password prompt.",
   "exceptions.host_utmctl_kill_requires_stop": [
     "Invoke-UtmctlLifecycle: -Kill applies only to the stop verb, not '",

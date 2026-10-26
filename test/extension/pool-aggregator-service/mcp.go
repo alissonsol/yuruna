@@ -1,5 +1,6 @@
 // LICENSEURI https://yuruna.link/license
 // Copyright (c) 2019-2026 by Alisson Sol et al.
+// GUID: 42a6c550-639b-4604-954c-e3314e1b5d7e
 
 package main
 
@@ -37,11 +38,10 @@ func (s *poolState) mcpRegistry() *mcp.Registry {
 		ReadOnly:    true,
 		Handler:     mcp.FromRoute(s.handleExtensionHosts, http.MethodGet, routeExtensionHosts),
 	})
-	// The route accepts four windows and this tool used to reach one of them:
-	// built with FromRoute, the `range` argument was discarded and the caller
-	// got a 24h payload stamped "24h" under a JSON-RPC success. A silently
-	// wrong answer is worse than a refused one, so the window is now a real
-	// argument and a bad value is a named refusal.
+	// The route accepts four windows, so `range` must reach it: FromRoute would
+	// discard the argument and answer every caller with the 24h payload under a
+	// JSON-RPC success. A silently wrong answer is worse than a refused one, so
+	// the window is a real argument and a bad value is a named refusal.
 	reg.MustAdd(mcp.Tool{
 		Name: "pool_stats",
 		Description: "Read per-host counts of terminal cycles (passed and failed) over the window given by `range` -- " +

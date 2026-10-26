@@ -1,6 +1,7 @@
 /*
   LICENSEURI https://yuruna.link/license
   Copyright (c) 2019-2026 by Alisson Sol et al.
+  GUID: 42d2b000-0477-46b8-b17e-0335b850b5f3
   Stash UI styles. Mirrors the status-pages' yuruna.common design tokens
   (light/dark custom properties). Vendored into the daemon binary, not fetched
   from the host.
@@ -124,19 +125,17 @@ body {
 a { color: var(--link); text-decoration: none; }
 a:hover { text-decoration: underline; }
 
-/* ===========================================================================
-   PAGE CHROME -- the black header bar, its menu, and the black footer bar.
-   Header and footer are one surface, and every Yuruna UI carries the same one:
-   same tokens, same type scale, same menu in the same corner, so the host
-   status pages and the service UIs read as one product rather than four
-   lookalikes.
+/* REGION: Page chrome */
+/* The black header bar, its menu, and the black footer bar. Header and footer
+   are one surface, and every Yuruna UI carries the same one: same tokens, same
+   type scale, same menu in the same corner, so the host status pages and the
+   service UIs read as one product rather than four lookalikes.
 
    Keep this block, and the --chrome-* tokens it reads, byte-identical across
    the status pages' yuruna.common.css and the three services' style.css. Each
    daemon embeds its own copy because //go:embed cannot reach outside its own
    module -- the duplication is forced, so drift is the thing to watch for, and
-   Test.ExtensionUiChrome.Tests.ps1 fails when the copies stop matching.
-   =========================================================================== */
+   Test.ExtensionUiChrome.Tests.ps1 fails when the copies stop matching. */
 header.app {
   background: var(--chrome-bg); color: var(--chrome-fg);
   display: flex; align-items: center; flex-wrap: nowrap;
@@ -242,7 +241,10 @@ textarea#footer-ip-list {
 }
 textarea#footer-ip-list::-webkit-scrollbar { display: none; }
 /* The page class makes the fixed-footer clearance explicit on pages that need it. */
-body.has-footer-bar main { padding-bottom: 3rem; padding-bottom: calc(3rem + env(safe-area-inset-bottom)); }
+/* --footer-h is the bar's measured height, set by the page script: the bar
+   wraps to more rows than any fixed padding predicts, and then covers the last
+   control. The constant below it stays the fallback without the script. */
+body.has-footer-bar main { padding-bottom: 3rem; padding-bottom: calc(3rem + env(safe-area-inset-bottom)); padding-bottom: calc(var(--footer-h, calc(2.25rem + env(safe-area-inset-bottom))) + .75rem); }
 
 /* The in-flow footer of a page with no data feed of its own (create, detail).
    Same surface, same padding and same type scale as the fixed bar above, so a
@@ -278,11 +280,15 @@ footer.app a { color: var(--chrome-muted); }
   /* The IP field claims its own row. Reserve space for the touch-height
      controls below it so a fixed footer cannot cover the last table row. */
   #footer-ips { flex-basis: 100%; max-width: 100%; }
-  body.has-footer-bar main { padding-bottom: 6.5rem; padding-bottom: calc(6.5rem + env(safe-area-inset-bottom)); }
+  body.has-footer-bar main { padding-bottom: 6.5rem; padding-bottom: calc(6.5rem + env(safe-area-inset-bottom)); padding-bottom: calc(var(--footer-h, calc(5.75rem + env(safe-area-inset-bottom))) + .75rem); }
 }
 @media (pointer: coarse) {
   .menu-button { min-height: var(--touch-min); min-width: var(--touch-min); }
   .menu-panel a { min-height: var(--touch-min); line-height: 1.7; }
+  /* iOS zooms into a text control under 16px when it takes focus. That is a
+     property of the device, not the width: a landscape phone is wider than
+     the 600px block above. */
+  input:not([type="checkbox"]):not([type="radio"]):not([type="range"]), select, textarea, textarea#footer-ip-list { font-size: 16px; }
 }
 /* Footer controls that read as text. Both are real <button>s: the refresh was
    an <a href="#"> that never navigated -- announced as a link, behaving as a
@@ -296,18 +302,17 @@ footer.app a { color: var(--chrome-muted); }
 }
 #footer-bar .linkish[aria-pressed="true"] { color: var(--chrome-fg); font-weight: 600; }
 /* REGION: Right-to-left mirror */
-/*
-   The right-to-left mirror for the chrome above.
+/* The right-to-left mirror for the chrome above.
 
    The safe-area insets are physical, so the chrome states each side for the
    page's reading direction. Only the sides are mirrored: sizes, colors and
    the tick glyph are the same in both directions.
 
    These rules live in the shared chrome block so every service presents the
-   same header direction.
-   -------------------------------------------------------------------------- */
+   same header direction. */
 [dir="rtl"] header.app > * + * { margin-left: 0; margin-right: 1rem; }
 [dir="rtl"] .menu-button .menu-icon + .menu-label { margin-left: 0; margin-right: .4rem; }
+[dir="rtl"] .menu-panel { right: auto; left: 0; }
 [dir="rtl"] .menu-panel a[aria-current="page"]::after { float: left; margin-left: 0; margin-right: 1.5rem; }
 [dir="rtl"] #footer-bar { text-align: right; }
 [dir="rtl"] #footer-bar > * + * { margin-left: 0; margin-right: .75rem; }
@@ -325,7 +330,7 @@ footer.app a { color: var(--chrome-muted); }
 }
 }
 
-/* === end page chrome ====================================================== */
+/* End of page chrome. */
 
 /* The page barrier (Y.block in common.js). Covers the viewport -- header, menu
    and footer bar included -- because "no action is available" has to be true of

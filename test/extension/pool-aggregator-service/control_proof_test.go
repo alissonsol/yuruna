@@ -1,5 +1,6 @@
 // LICENSEURI https://yuruna.link/license
 // Copyright (c) 2019-2026 by Alisson Sol et al.
+// GUID: 42891177-a774-4abf-8eda-74a0b372c36f
 
 package main
 
@@ -37,8 +38,8 @@ func TestMintControlProofEmptyToken(t *testing.T) {
 	}
 }
 
-// --- verification: the answer an extension service cannot work out for itself -
-
+// --- REGION: Verification
+// The answer an extension service cannot work out for itself.
 const proofToken = "sekret-internal-auth-key"
 
 // refreshHostIDForProofs is a host id used as the audience of a host-bound proof.

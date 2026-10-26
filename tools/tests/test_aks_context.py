@@ -1,5 +1,6 @@
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
+# GUID: 42a1ffe5-0e65-449c-a069-dee91d70ade1
 """Exercise AKS import locally with a fake Azure CLI and real kubectl."""
 import json
 import os
@@ -10,11 +11,15 @@ import tempfile
 import unittest
 
 ROOT = Path(__file__).resolve().parents[2]
-KUBECTL = Path(os.environ.get('KUBECTL', ROOT / '.test-results/review-2026-09-28/dependency-tools/kubectl'))
+# A real kubectl writes the kubeconfig this import edits: KUBECTL names one,
+# else the first on PATH. A host without kubectl skips the case.
+_KUBECTL = os.environ.get('KUBECTL') or shutil.which('kubectl')
+KUBECTL = Path(_KUBECTL) if _KUBECTL else None
 SCRIPT = Path(os.environ.get('AKS_IMPORT_SCRIPT', ROOT / 'global/resources/azure/aks-cluster/cluster-import.sh'))
 
 
 class ContextImport(unittest.TestCase):
+    @unittest.skipUnless(KUBECTL and KUBECTL.is_file(), 'kubectl is not installed; set KUBECTL to run the context import')
     def test_repeat_import_and_equal_names(self):
         for cluster in ('cluster-a', 'destination'):
             with tempfile.TemporaryDirectory() as tmp:

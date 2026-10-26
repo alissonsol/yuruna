@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.25
+.VERSION 2026.10.26
 .GUID 42f81a2e-d65b-4d01-a8b1-3eb5638207d8
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -165,9 +165,8 @@ try {
     $YurunaHostPort = $_statusSeed.Port
 
     # --- REGION: Render user-data / meta-data
-    # New-CloudInitUserData merges base+overlay, auto-bakes yuruna-retry.sh /
-    # fetch-and-execute.sh / yuruna-network.sh from $repoRoot/automation/ as base64
-    # write_files entries, then resolves the per-cycle placeholders below.
+    # See https://yuruna.link/4220a755-0003
+    # Embed the guest libraries as base64 write_files entries so bootstrap needs no download.
     $UserData = New-CloudInitUserData `
         -BasePath    $baseUserData `
         -OverlayPath $overlayUserData `
@@ -206,7 +205,7 @@ try {
     $VmUuid = [guid]::NewGuid().ToString().ToUpper()
     $DiskId = [guid]::NewGuid().ToString().ToUpper()
     $SeedId = [guid]::NewGuid().ToString().ToUpper()
-    # --- REGION: https://yuruna.link/42e220c4-0004
+    # --- REGION: https://yuruna.link/4220a755-000a
     # Key the MAC by durable guest identity so rebuilds and VM renames keep the DHCP lease.
     $MacAddress = Get-YurunaGuestMacAddress -VMName $GuestHostname
 

@@ -1,5 +1,6 @@
 // LICENSEURI https://yuruna.link/license
 // Copyright (c) 2019-2026 by Alisson Sol et al.
+// GUID: 42a38edd-7727-498b-b5a7-072bd9a2e14f
 'use strict';
 const assert = require('assert');
 const {runPage, makeEl, fire} = require('./ui-pages.test.js');

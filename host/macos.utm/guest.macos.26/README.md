@@ -54,7 +54,7 @@ import it into UTM and start the VM.
 
 The Setup Assistant flow is not automated yet. Until OCR templates and
 a `test/sequences/start.guest.macos.26.yml` sequence land, the harness
-can create the bundle and start the VM (`Test-VMRunning` succeeds
+can create the bundle and start the VM (`Wait-VMRunning` succeeds
 because the VM process exists), but every interactive step after that
 must be driven by hand. Treat this guest as "scaffolding-ready,
 sequence-pending".
@@ -70,6 +70,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.25
+Last review: 2026.10.26
 
 Back to [Yuruna](../../../README.md)

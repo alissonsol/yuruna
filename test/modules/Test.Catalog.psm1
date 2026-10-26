@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.25
+.VERSION 2026.10.26
 .GUID 422bc4f3-b6dd-4964-868e-1ae5f65db198
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -284,6 +284,12 @@ function Format-CatalogMessage {
     <#
     .SYNOPSIS
         The rendered sentence for a message key, in a resolved locale.
+    .DESCRIPTION
+        Rendering runs inside the error handlers of nearly every caller, so a
+        catalog file that cannot be read must not replace the error being
+        reported with one about its message: the message then renders as its
+        key and raw arguments, which still say what happened. A wrong argument
+        still throws, since only the caller's own code produces one.
     .PARAMETER Key
         The namespaced key, e.g. 'status.cycle_paused'.
     .PARAMETER Arguments
@@ -305,17 +311,23 @@ function Format-CatalogMessage {
     )
 
     $domain = ($Key -split '\.')[0]
-    $table = Get-CatalogDomain -Locale $Locale -Domain $domain -Root $Root
-    $entry = $table[$Key]
-    $renderLocale = $Locale
-
-    if ($null -eq $entry) {
-        $defaultLocale = [string](Get-LocaleManifest).Default
-        if (-not [string]::Equals($Locale, $defaultLocale, [StringComparison]::Ordinal)) {
-            $defaultTable = Get-CatalogDomain -Locale $defaultLocale -Domain $domain -Root $Root
-            $entry = $defaultTable[$Key]
-            if ($null -ne $entry) { $renderLocale = $defaultLocale }
+    try {
+        $table = Get-CatalogDomain -Locale $Locale -Domain $domain -Root $Root
+        $entry = $table[$Key]
+        $renderLocale = $Locale
+        if ($null -eq $entry) {
+            $defaultLocale = [string](Get-LocaleManifest).Default
+            if (-not [string]::Equals($Locale, $defaultLocale, [StringComparison]::Ordinal)) {
+                $defaultTable = Get-CatalogDomain -Locale $defaultLocale -Domain $domain -Root $Root
+                $entry = $defaultTable[$Key]
+                if ($null -ne $entry) { $renderLocale = $defaultLocale }
+            }
         }
+    } catch {
+        Write-Verbose "Format-CatalogMessage: the catalog for '$Key' could not be read: $($_.Exception.Message)"
+        $detail = @($Arguments.Keys | ForEach-Object { [string]$_ } | Sort-Object -Culture iv | ForEach-Object { "$_=$($Arguments[$_])" }) -join ', '
+        if ($detail) { return "$Key ($detail)" }
+        return $Key
     }
 
     if ($null -eq $entry) {

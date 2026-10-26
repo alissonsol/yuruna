@@ -1,5 +1,6 @@
 // LICENSEURI https://yuruna.link/license
 // Copyright (c) 2019-2026 by Alisson Sol et al.
+// GUID: 42995dd1-3864-4c4c-bf93-e5beebce0c68
 package servicecfg
 
 import (

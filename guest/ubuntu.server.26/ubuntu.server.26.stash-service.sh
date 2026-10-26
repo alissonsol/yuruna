@@ -1,7 +1,8 @@
 #!/bin/bash
-# Version: 2026.10.25
+# Version: 2026.10.26
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
+# GUID: 4269ddd2-50e1-4f8b-a2aa-0cb1d876bac8
 # See https://yuruna.link/42e220c4-0005
 # See https://yuruna.link/42f5e921
 # --- REGION: Initialize environment
@@ -57,12 +58,14 @@ done
 
 # --- REGION: Service locale
 # See https://yuruna.link/42fffc2c-000d
+# Use the canonical seeded locale; pseudo locales require explicit opt-in.
 SERVICE_LANGUAGE="$(sed -n 's/^YURUNA_LANGUAGE=//p' /etc/yuruna/globalization.env 2>/dev/null | head -1 || true)"
 [ -n "$SERVICE_LANGUAGE" ] || SERVICE_LANGUAGE=auto
 SERVICE_ALLOW_PSEUDO_LOCALE="$(sed -n 's/^YURUNA_ALLOW_PSEUDO_LOCALE=//p' /etc/yuruna/globalization.env 2>/dev/null | head -1 || true)"
 [ "$SERVICE_ALLOW_PSEUDO_LOCALE" = true ] || SERVICE_ALLOW_PSEUDO_LOCALE=false
 
 # --- REGION: Service tunables
+# See https://yuruna.link/42fffc2c-000d
 HTTP_ADDR="${STASH_HTTP_ADDR-0.0.0.0:80}"
 POOL_WINDOW_DAYS="${STASH_POOL_WINDOW_DAYS:-30}"
 AGGREGATOR_URL_SEED=$(sed -nE "s/^YURUNA_AGGREGATOR_URL='(.*)'\$/\1/p" /etc/yuruna/pool.env 2>/dev/null | head -n1 || true)

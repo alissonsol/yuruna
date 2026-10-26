@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.25
+.VERSION 2026.10.26
 .GUID 42d7a1c5-8e60-4b3f-9a52-6cb0f4e21d78
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -35,8 +35,18 @@
 
     Regenerating is safe to repeat: the block between the markers is replaced
     whole, so running twice leaves the same file.
+
+    Exit codes follow the entry-point contract, so a caller reads the outcome
+    from the code and never from the text:
+        0  Every runtime and generated file is current (-Check) or was brought
+           up to date (writing, the default).
+        1  A runtime or generated file cannot be embedded as it stands: it is
+           missing, its markers do not splice, a compiled artifact or go.mod
+           is absent, or its kernel copy differs after the run.
+        3  -Check only: everything can be embedded and something would change.
 .PARAMETER Check
-    Report what would change and exit non-zero instead of writing. For the gate.
+    Report what would change instead of writing, and exit 3 when something
+    would. For the gate.
 .PARAMETER Quiet
     Print only findings.
 .EXAMPLE
@@ -514,7 +524,35 @@ function Get-GoCatalogRegistry {
     return ($lines -join "`n") + "`n"
 }
 
+function Write-ReplacingFile {
+    <#
+    .SYNOPSIS
+        Replace a file's content in one step: write a temp file beside it and
+        rename it over the old one.
+    .DESCRIPTION
+        These runtimes are served while the embed runs, and a write in place
+        truncates the file first, so a reader could get half of it. A rename
+        swaps the whole file at once, and a reader that already opened the old
+        one keeps reading all of it. The rename makes a new file, so the old
+        file's Unix mode is carried over to it.
+    #>
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][string]$Path, [Parameter(Mandatory)][AllowEmptyString()][string]$Text)
+    $tmp = "$Path.$PID-$([guid]::NewGuid().ToString('N')).tmp"
+    try {
+        [IO.File]::WriteAllText($tmp, $Text)
+        if (-not $IsWindows -and (Test-Path -LiteralPath $Path -PathType Leaf)) {
+            [IO.File]::SetUnixFileMode($tmp, [IO.File]::GetUnixFileMode($Path))
+        }
+        [IO.File]::Move($tmp, $Path, $true)
+    } finally {
+        if (Test-Path -LiteralPath $tmp) { Remove-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue }
+    }
+}
+
 $findings = @()
+# What -Check reports as stale, kept apart from what cannot be embedded at all.
+$drift = @()
 $changed = @()
 
 foreach ($target in $Targets) {
@@ -540,11 +578,11 @@ foreach ($target in $Targets) {
 
     $changed += $target.Path
     if ($Check) {
-        $findings += "$($target.Path): the embedded block does not match the kernel and the compiled catalog"
+        $drift += "$($target.Path): the embedded block does not match the kernel and the compiled catalog"
         continue
     }
     if ($PSCmdlet.ShouldProcess($target.Path, 'embed the catalog kernel and default-locale tables')) {
-        [IO.File]::WriteAllText($path, $after)
+        Write-ReplacingFile -Path $path -Text $after
         if (-not $Quiet) { Write-Output "$($target.Path): updated" }
     }
 }
@@ -577,13 +615,13 @@ function Set-GeneratedFile {
         return ''
     }
     if ($Check) {
-        $script:findings += "${Relative}: the generated file does not match the catalog sources"
+        $script:drift += "${Relative}: the generated file does not match the catalog sources"
         return $Relative
     }
     if ($PSCmdlet.ShouldProcess($Relative, 'write generated catalog data')) {
         $parent = Split-Path -Parent $full
         if (-not (Test-Path -LiteralPath $parent)) { New-Item -ItemType Directory -Path $parent -Force | Out-Null }
-        [IO.File]::WriteAllText($full, $Text)
+        Write-ReplacingFile -Path $full -Text $Text
         if (-not $Quiet) { Write-Information "${Relative}: updated" -InformationAction Continue }
     }
     return $Relative
@@ -683,6 +721,9 @@ $kernelText = ([IO.File]::ReadAllText($KernelPath)).TrimEnd() -replace "`r`n", "
 foreach ($target in $Targets) {
     $path = Join-Path $RepoRoot $target.Path
     if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { continue }
+    # Under -Check a runtime that would change still carries the old kernel;
+    # that is the drift already reported, not a second defect.
+    if ($Check -and $target.Path -in $changed) { continue }
     $text = [IO.File]::ReadAllText($path) -replace "`r`n", "`n"
     if ($text.IndexOf($BeginMarker) -lt 0) {
         $findings += "$($target.Path): carries no embedded block"
@@ -702,10 +743,11 @@ foreach ($target in $Targets) {
     }
 }
 
-if ($findings.Count -gt 0) {
-    foreach ($f in $findings) { Write-Output "FINDING: $f" }
-    Write-Output "Invoke-CatalogEmbed: $($findings.Count) finding(s)."
-    exit 1
+if ($findings.Count + $drift.Count -gt 0) {
+    foreach ($f in @($findings) + @($drift)) { Write-Output "FINDING: $f" }
+    Write-Output "Invoke-CatalogEmbed: $($findings.Count + $drift.Count) finding(s)."
+    if ($findings.Count -gt 0) { exit 1 }
+    exit 3
 }
 
 if (-not $Quiet) {

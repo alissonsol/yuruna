@@ -803,6 +803,15 @@ const DatazhCNexceptions = `{
     },
     "与入口脚本的参数不匹配；拒绝启动入口点无法接受的工作进程。"
   ],
+  "exceptions.host_signature_could_not_be_checked": [
+    "无法检查",
+    {
+      "arg": "checksumUrl",
+      "type": "detail",
+      "trust": "external"
+    },
+    "的SHA256SUMS GPG签名"
+  ],
   "exceptions.host_utm_sudo_requires_noninteractive": "Invoke-UtmHostTool：调用sudo时必须将-n作为第一个参数，以确保其绝不等待密码输入。",
   "exceptions.host_utmctl_kill_requires_stop": [
     "Invoke-UtmctlLifecycle：-Kill仅适用于stop动词，不适用于“",

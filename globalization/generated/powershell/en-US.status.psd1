@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.25
+.VERSION 2026.10.26
 .GUID 429cc804-7b62-2db1-9091-f5ab5410d797
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -278,6 +278,7 @@
     'status.banner_idle' = 'No test data available'
     'status.banner_incident_details' = 'Incident detected — see details below'
     'status.banner_pass' = 'All guests operational'
+    'status.banner_recovery_disabled' = 'Automatic recovery is off: the recovery ledger cannot be read or written.'
     'status.banner_running' = 'Test in progress'
     'status.banner_stalled' = @(
         'Test in progress, but no step has advanced within its '

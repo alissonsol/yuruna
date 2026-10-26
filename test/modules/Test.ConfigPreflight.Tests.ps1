@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.25
+.VERSION 2026.10.26
 .GUID 42871662-c8fc-4b5a-9380-fa9ff5c48ae5
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -361,10 +361,27 @@ Describe 'One gate per cycle, at the front of it' {
     It 'the bypass reaches the layer that now gates' {
         Assert-True ($script:outerText -notmatch 'OuterOnlyParams') `
             '-NoConfigGate withheld from the inner would re-impose the gate the operator bypassed'
-        Assert-True ($script:projText -match 'ConfigGateInherited\s+= \[switch\]::new\(\$true\)') `
-            'the parent gate must be inherited without suppressing the refreshed project check'
-        Assert-True ($script:projText -match 'NoConfigGate\s+= \[switch\]::new\(\[bool\]\$NoConfigGate\)') `
-            'only the operator bypass suppresses the refreshed project check'
+        Assert-True ($script:projText -notmatch 'ConfigGateInherited') `
+            'a one-shot run is a runner cycle, whose inner gates the configuration itself'
+        Assert-True ($script:projText -match 'NoConfigGate\s+= \[bool\]\$NoConfigGate') `
+            'only the operator bypass suppresses the cycle''s gate'
+    }
+
+    # A start that refused after stopping the runner it would replace left the
+    # host with no runner at all, and the old one's runtime state cleared.
+    It 'a fresh start refuses before it stops another runner or clears runtime state' {
+        $refuseAt = $script:outerText.IndexOf('if (-not $RefreshResume) { . $refuseStart }')
+        $recoverAt = $script:outerText.IndexOf('if (-not $RefreshResume) { & $runStartupRecovery }')
+        $stopAt = $script:outerText.IndexOf('Stop-StaleRunner -ProcessId')
+        $launchAt = $script:outerText.IndexOf('$launchRecord = & $writeLaunchRecord')
+        Assert-True ($refuseAt -gt 0) 'the refusals must run on a fresh start'
+        Assert-True ($recoverAt -gt $refuseAt) 'boot recovery clears runtime state, so it follows the refusals'
+        Assert-True ($stopAt -gt $refuseAt) 'stopping the other runner follows the refusals'
+        Assert-True ($launchAt -gt $refuseAt) 'the launch record is the owning runner''s, so it follows the refusals'
+        $block = $script:outerText.Substring($script:outerText.IndexOf('$refuseStart = {'), $refuseAt - $script:outerText.IndexOf('$refuseStart = {'))
+        foreach ($check in 'powershell-yaml', 'Assert-RunnerElevation', 'Invoke-ConfigGate') {
+            Assert-True ($block -match [regex]::Escape($check)) "the startup refusals include $check"
+        }
     }
 
     It 'names a structural bypass as itself' {
@@ -599,19 +616,20 @@ Describe 'Storage admission after project synchronization' {
     }
 }
 
-Describe 'Project runner inherited gate arguments' {
-    It 'forwards inheritance separately from both values of the explicit bypass' {
+Describe 'Project runner gate arguments' {
+    It 'hands the cycle both values of the explicit bypass and never an inherited gate' {
         Import-Module (Join-Path $here 'Test.InnerSpawn.psm1') -DisableNameChecking
         $path = Join-Path (Split-Path -Parent $here) 'Invoke-TestProject.ps1'
         $ast = [Management.Automation.Language.Parser]::ParseFile($path, [ref]$null, [ref]$null)
-        $assignment = $ast.Find({param($node) $node -is [Management.Automation.Language.AssignmentStatementAst] -and $node.Left.Extent.Text -eq '$innerParams'}, $true)
-        $ConfigPath = 'fixture.yml'
-        $null = $ConfigPath # Read by the production argument expression below.
+        $assignment = $ast.Find({param($node) $node -is [Management.Automation.Language.AssignmentStatementAst] -and $node.Left.Extent.Text -eq '$cycleState'}, $true)
+        $ModulesDir = 'fixture-modules'; $RepoRoot = 'fixture-repo'; $ConfigPath = 'fixture.yml'; $NoStatusService = $false
+        $script:CancelState = @{ Requested = $false }
+        $null = @($ModulesDir, $RepoRoot, $ConfigPath, $NoStatusService) # Read by the production state expression below.
         foreach ($NoConfigGate in @($false,$true)) {
             . ([scriptblock]::Create($assignment.Extent.Text))
-            $argsForInner = New-InnerRunnerArgList -ScriptPath 'fixture-inner.ps1' -Parameters $innerParams
-            $argsForInner[-1] | Should -Match '-ConfigGateInherited'
-            ($argsForInner[-1] -match '-NoConfigGate') | Should -Be $NoConfigGate
+            $cycleState.NoConfigGate | Should -Be $NoConfigGate
+            $cycleState.NoGitPull | Should -BeTrue
+            $cycleState.ContainsKey('ConfigGateInherited') | Should -BeFalse
         }
     }
 

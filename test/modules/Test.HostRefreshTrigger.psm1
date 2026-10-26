@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.25
+.VERSION 2026.10.26
 .GUID 424f9ac4-a8c5-484f-9b6f-760e69d94781
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -1427,7 +1427,7 @@ function Get-HostRefreshAutoThreshold {
     $raw = $null
     if ($ConfigPath -and (Resolve-HostRefreshAutoCommand -Name @('Read-TestConfig', 'Get-TestConfigValue')).Resolved) {
         try {
-            $config = Read-TestConfig -Path $ConfigPath -NoCache
+            $config = Read-TestConfig -Path $ConfigPath -NoCache -LastGoodOnError
             $raw = Get-TestConfigValue -Config $config -Path 'testCycle.autoRefreshAfterStalls'
         } catch {
             Write-Verbose "Get-HostRefreshAutoThreshold: reading '$ConfigPath' failed: $($_.Exception.Message)"

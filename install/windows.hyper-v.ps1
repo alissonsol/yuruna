@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.25
+.VERSION 2026.10.26
 .GUID 425b1941-f370-4155-9842-47cbe6837b47
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -1011,6 +1011,29 @@ function Move-YurunaDirectory {
     return $true
 }
 
+# A re-clone that fails must not leave the host with no checkout: whatever the
+# clone left is removed and the checkout moved aside is put back, then used as
+# it was, as the shell installers' reclone_checkout does. $false when it could
+# not be put back, so the caller stops and names where it is.
+function Restore-YurunaCheckoutAfterFailedClone {
+    [CmdletBinding(SupportsShouldProcess)]
+    [OutputType([bool])]
+    param(
+        [Parameter(Mandatory)][string]$Path,
+        [Parameter(Mandatory)][string]$Backup,
+        [Parameter(Mandatory)][string]$Remote,
+        [Parameter(Mandatory)][string]$Branch,
+        [int]$ExitCode
+    )
+    if (-not $PSCmdlet.ShouldProcess($Path, "Put back '$Backup'")) { return $false }
+    if (Test-Path -LiteralPath $Path) { Remove-Item -LiteralPath $Path -Recurse -Force -ErrorAction SilentlyContinue }
+    # Something still at the path would take the moved checkout inside it.
+    if (Test-Path -LiteralPath $Path) { return $false }
+    try { $null = Move-YurunaDirectory -From $Backup -To $Path } catch { return $false }
+    Add-InstallIssue "Re-cloning from $Remote ('$Branch') failed (exit $ExitCode), so the previous checkout was put back at $Path and used as-is. Re-run the installer once the remote and the ref are reachable."
+    return $true
+}
+
 # --- REGION: Preflight: the checkout is not held open
 # See https://yuruna.link/429fb30b-000e
 # A failed probe WARNS and the install continues -- it never vetoes the run.
@@ -1575,7 +1598,13 @@ if (Test-Path (Join-Path $YurunaDir '.git')) {
             $recloneRemote = if ($actualRemote) { $actualRemote } else { $YurunaRepo }
             Write-Step "Cloning fresh Yuruna into $YurunaDir from $recloneRemote"
             & $gitExe clone --branch $YurunaBranch $recloneRemote $YurunaDir
-            if ($LASTEXITCODE -ne 0) { Write-Die "git clone --branch $YurunaBranch failed (exit $LASTEXITCODE) -- the branch/tag '$YurunaBranch' may not exist on $recloneRemote. No checkout was created." }
+            $cloneExit = $LASTEXITCODE
+            if ($cloneExit -ne 0) {
+                if (-not (Restore-YurunaCheckoutAfterFailedClone -Path $YurunaDir -Backup $YurunaBackupDir -Remote $recloneRemote -Branch $YurunaBranch -ExitCode $cloneExit -Confirm:$false)) {
+                    Write-Die "Re-cloning from $recloneRemote ('$YurunaBranch') failed (exit $cloneExit) and the previous checkout could not be put back. It is at $YurunaBackupDir, with its test/status runtime state inside."
+                }
+                $script:YurunaBackupCreated = $null
+            }
         }
     }
 } else {

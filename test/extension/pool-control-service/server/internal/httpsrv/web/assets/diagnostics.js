@@ -1,5 +1,6 @@
 // LICENSEURI https://yuruna.link/license
 // Copyright (c) 2019-2026 by Alisson Sol et al.
+// GUID: 427bff59-8869-4adb-bc9c-e5b3459330f8
 // Diagnostics view. Renders the report even when checks fail -- this is the one
 // page that has to work while the service is broken.
 (function () {

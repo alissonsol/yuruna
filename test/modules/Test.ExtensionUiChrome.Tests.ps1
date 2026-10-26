@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.25
+.VERSION 2026.10.26
 .GUID 42a98740-f91d-4449-a691-90bbcafc57af
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -104,7 +104,7 @@ $services = @(
 # Read in BeforeAll, not in a Describe body: a Describe body is evaluated during
 # the discovery pass and its scope is discarded before any It runs, so a fixture
 # declared inside one reaches the assertions as $null.
-$script:chromePattern = '(?s)/\* =+\r?\n   PAGE CHROME.*?/\* === end page chrome =+ \*/'
+$script:chromePattern = '(?s)/\* REGION: Page chrome \*/.*?/\* End of page chrome\. \*/'
 $pages = @()
 $stylesheets = @()
 $scripts = @()

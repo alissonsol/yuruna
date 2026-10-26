@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
+# GUID: 423d5501-b286-4871-b228-42bf6526675b
 """Real key-file recovery tests without invoking SSH or changing systemd."""
 import base64
 import hashlib

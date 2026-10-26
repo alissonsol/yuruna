@@ -29,6 +29,7 @@ const DataenUSstash = `{
   "stash.api_invalid_host": "invalid host",
   "stash.api_invalid_json_body": "invalid JSON body",
   "stash.api_invalid_stash_path": "invalid stash path",
+  "stash.api_large_text_busy": "another large text is being stored; try again shortly",
   "stash.api_no_stashes_given": "no stashes given",
   "stash.api_not_an_archive": "not an archive",
   "stash.api_not_found": "not found",

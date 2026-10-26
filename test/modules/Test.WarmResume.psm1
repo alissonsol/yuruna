@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.25
+.VERSION 2026.10.26
 .GUID 42ea34d8-15ca-4975-b90d-c0c44c40017d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -21,31 +21,12 @@
 # the warm_resume event builder. The retry loop lives in Test.RunnerInnerLoop
 # and the re-invocation in Invoke-Sequence -StartStep.
 
-# The failure classes for which an in-place resume is sound -- the same
-# transient allow-list the outer loop's gated auto-remediation already uses
-# (Test.RunnerOuterLoop). A hard/deterministic class (script_error,
-# provisioning_failure, pattern_matched_failure, ...) is never resumed.
-$script:WarmResumeEligibleClass = @(
-    'network_timeout', 'wait_timeout', 'instrumentation_failure', 'host_io_blocked',
-    # A step that never resolved an address never reached the guest, so nothing
-    # it might have done is in question and replaying it is as sound as replaying
-    # a timeout. It earns a place here because on a host whose address moves
-    # under it, discovery going quiet for a moment is the ordinary case rather
-    # than a broken lab -- and it was the one class the harness produced with no
-    # recovery at all, turning a lookup that would have answered seconds later
-    # into a lost cycle.
-    'ip_not_discovered',
-    # No source served the script, so the payload never ran. That is the same
-    # ground the address class stands on -- nothing the step might have done is
-    # in question, because it did nothing -- and the usual cause, a host that
-    # renumbered while the guest held its old address, is gone by the next
-    # attempt. It reaches here only for the shortage cases: a digest mismatch
-    # never ran either but is a refusal, and the taxonomy keeps it out.
-    'payload_unavailable',
-    # The staged command never closed in the guest shell, so the payload never
-    # ran and replaying the step cannot repeat any of its work.
-    'input_lost'
-)
+# The failure classes for which an in-place resume is sound: the taxonomy's
+# WarmResume attribute, where the reason for each one is recorded. A
+# hard/deterministic class (script_error, provisioning_failure,
+# pattern_matched_failure, ...) is never resumed.
+Import-Module (Join-Path $PSScriptRoot 'Test.FailureTaxonomy.psm1') -DisableNameChecking
+$script:WarmResumeEligibleClass = @(Get-FailureClassByRoute -Route WarmResume)
 
 function Get-WarmResumeUtcNow {
     <#
@@ -94,16 +75,23 @@ function Get-WarmResumeCheckpointFromRecord {
         Extract the warm-resume checkpoint fields from a parsed last_failure.json
         record (pure). Returns FailureClass, SequenceName, and ResumeFromStep
         (from repro.resumeFromStep) with safe defaults for a malformed record.
+        StepEffect and StepEffectSource carry the failing step's own proof that
+        it did nothing ('none-proven'), else 'unknown' and ''.
     .OUTPUTS
-        [hashtable] FailureClass [string], SequenceName [string], ResumeFromStep [int].
+        [hashtable] FailureClass [string], SequenceName [string], ResumeFromStep [int],
+        StepEffect [string], StepEffectSource [string].
     #>
     [CmdletBinding()]
     [OutputType([hashtable])]
     param([AllowNull()]$Record)
-    $out = @{ FailureClass = ''; SequenceName = ''; ResumeFromStep = 0 }
+    $out = @{ FailureClass = ''; SequenceName = ''; ResumeFromStep = 0; StepEffect = 'unknown'; StepEffectSource = '' }
     if ($Record -isnot [System.Collections.IDictionary]) { return $out }
     if ($Record.Contains('failureClass')) { $out.FailureClass = [string]$Record['failureClass'] }
     if ($Record.Contains('sequenceName')) { $out.SequenceName = [string]$Record['sequenceName'] }
+    if ($Record.Contains('stepEffect') -and [string]$Record['stepEffect'] -ceq 'none-proven') {
+        $out.StepEffect = 'none-proven'
+        $out.StepEffectSource = [string]$Record['stepEffectSource']
+    }
     $repro = if ($Record.Contains('repro')) { $Record['repro'] } else { $null }
     if ($repro -is [System.Collections.IDictionary] -and $repro.Contains('resumeFromStep')) {
         $out.ResumeFromStep = [int]$repro['resumeFromStep']
@@ -297,7 +285,10 @@ function New-WarmResumeEvent {
         # the step actually resumed, so a run that replayed work says how much
         # rather than leaving the gap to be inferred from two step numbers that
         # no longer agree.
-        [int]$CheckpointStep = 0
+        [int]$CheckpointStep = 0,
+        # The handler's proof that the failed step did nothing, when the resume
+        # rests on it rather than on a restore point or an observing step.
+        [AllowNull()][string]$StepEffectSource = ''
     )
     $emit = [ordered]@{
         timestamp      = (Get-WarmResumeUtcNow)
@@ -312,6 +303,7 @@ function New-WarmResumeEvent {
         $emit['rewoundSteps']   = [int]$CheckpointStep - [int]$ResumeFromStep
     }
     if (-not [string]::IsNullOrWhiteSpace($FailureClass)) { $emit['failureClass'] = [string]$FailureClass }
+    if (-not [string]::IsNullOrWhiteSpace($StepEffectSource)) { $emit['stepEffectSource'] = [string]$StepEffectSource }
     if ($VmName)   { $emit['vmName']   = [string]$VmName }
     if ($HostType) { $emit['hostType'] = [string]$HostType }
     return $emit
@@ -361,6 +353,11 @@ function Get-WarmResumeStepWorstClass {
     $inner = @(@($Step.steps) | Where-Object { $null -ne $_ }) + @(@($Step.stepsAfterVmRestart) | Where-Object { $null -ne $_ })
     if ($own -eq 'composite' -and $inner.Count -lt 1) { return 'unclassified' }
     $worst = if ($own -eq 'composite') { 'observe' } else { $own }
+    # A retry that power-cycles the VM before its next attempt changes the guest
+    # whatever the steps it holds do, so replaying it is never only observing.
+    if ([string]$Step.restartVmBeforeRetry -and $script:ReplayClassRank[$worst] -lt $script:ReplayClassRank['state-changing']) {
+        $worst = 'state-changing'
+    }
     foreach ($child in $inner) {
         $childClass = Get-WarmResumeStepWorstClass -Step $child -Depth ($Depth + 1)
         if ($script:ReplayClassRank[$childClass] -gt $script:ReplayClassRank[$worst]) { $worst = $childClass }
@@ -601,8 +598,9 @@ function Resolve-WarmResumeReplayPlan {
         [pscustomobject] ResumeFromStep (where to restart), Rewound, BoundaryStep,
         Actions and Classes (the sequence's steps as the plan saw them),
         DeclineReason ('' to go ahead; 'no-restore-point', 'restore-point-missing'
-        or 'safety-check-unavailable' to decline) and ReplayClass (the worst class
-        of the replayed steps, set only when declining).
+        or 'safety-check-unavailable' to decline), ReplayClass (the worst class
+        of the replayed steps, set only when declining) and StepEffectSource
+        (the handler's proof the plan relied on to replay in place, else '').
     #>
     [CmdletBinding()]
     [OutputType([pscustomobject])]
@@ -627,6 +625,23 @@ function Resolve-WarmResumeReplayPlan {
         try { $sequencePath = [string](Resolve-SequencePath -SequencesDir $SequencesDir -Name $sequenceName -HostType $HostType -RepoRoot $RepoRoot) } catch { $sequencePath = '' }
     }
     [string[]]$actions = @(Get-WarmResumeStepAction -Path $sequencePath)
+    # A step whose own handler proved it did nothing left the guest as the steps
+    # before it did -- the state it was written for -- so it is replayed where
+    # it failed, with no rewind and whatever its verb's replay class. The proof
+    # names a step of the run that failed, so it holds only while that step
+    # still exists in the file.
+    if ([string]$Checkpoint.StepEffect -ceq 'none-proven' -and $checkpointStep -ge 1 -and $checkpointStep -le $actions.Count) {
+        return [pscustomobject]@{
+            ResumeFromStep   = $checkpointStep
+            Rewound          = $false
+            BoundaryStep     = 0
+            Actions          = $actions
+            Classes          = [string[]]@()
+            DeclineReason    = ''
+            ReplayClass      = ''
+            StepEffectSource = [string]$Checkpoint.StepEffectSource
+        }
+    }
     $rewind = Get-WarmResumeRewindStep -StepAction $actions -ResumeFromStep $checkpointStep
     $step = [int]$rewind.ResumeFromStep
     $rewound = [bool]$rewind.Rewound
@@ -665,13 +680,14 @@ function Resolve-WarmResumeReplayPlan {
         try { $replayClass = [string](Get-WarmResumeReplayClass -StepAction $actions -ResumeFromStep $checkpointStep -StepReplayClass $classes) } catch { $replayClass = 'unclassified' }
     }
     return [pscustomobject]@{
-        ResumeFromStep = $step
-        Rewound        = $rewound
-        BoundaryStep   = $boundary
-        Actions        = $actions
-        Classes        = $classes
-        DeclineReason  = $decline
-        ReplayClass    = $replayClass
+        ResumeFromStep   = $step
+        Rewound          = $rewound
+        BoundaryStep     = $boundary
+        Actions          = $actions
+        Classes          = $classes
+        DeclineReason    = $decline
+        ReplayClass      = $replayClass
+        StepEffectSource = ''
     }
 }
 

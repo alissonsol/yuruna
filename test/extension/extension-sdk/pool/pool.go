@@ -1,5 +1,6 @@
 // LICENSEURI https://yuruna.link/license
 // Copyright (c) 2019-2026 by Alisson Sol et al.
+// GUID: 42eed439-3d40-4cf7-b938-ff1f4a5d4e4a
 
 // Package pool is the client for the pool-aggregator service. See
 // ../../../../docs/extensions-api.md#2-the-go-sdk----talking-to-the-pool-and-gating-writes

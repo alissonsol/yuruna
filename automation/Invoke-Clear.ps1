@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.25
+.VERSION 2026.10.26
 .GUID 42fb7715-90fe-4d23-bc04-b69682dd192a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -76,15 +76,12 @@ $transcriptFileName = Resolve-YurunaTranscriptPath
 Get-Module Yuruna.* | Remove-Module *>&1 | Write-Verbose
 $clearModulePath = Join-Path -Path $yuruna_root -ChildPath "automation/Yuruna.Clear.psm1"
 Import-Module -Name $clearModulePath -Force
-
-# --- REGION: Start transcript
-$null = Start-Transcript $transcriptFileName
+Import-Module -Name (Join-Path -Path $yuruna_root -ChildPath "automation/Yuruna.Result.psm1") -Global -Force
 
 # --- REGION: Run operation
-$result = Clear-Configuration $project_root $config_subfolder
-
-# --- REGION: Stop transcript
-$null = Stop-Transcript
+# The harness starts and stops the transcript, so an operation that throws
+# still ends it and still reports a result.
+$result = Invoke-YurunaEntrypoint -TranscriptFile $transcriptFileName -BooleanResult -Operation { Clear-Configuration $project_root $config_subfolder }
 
 # --- REGION: Completion
 if (-Not $result) {

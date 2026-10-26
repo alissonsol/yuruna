@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.25
+.VERSION 2026.10.26
 .GUID 420a4a34-c1ef-485b-9c87-3ba17e1a4250
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -77,5 +77,3 @@ Describe 'Shared lazy host identity policy' {
         } finally { & $script:SeedModule { $script:SeedFails = $false } }
     }
 }
-
-# Copyright (c) 2019-2026 by Alisson Sol et al.

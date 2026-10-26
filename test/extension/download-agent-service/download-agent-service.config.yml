@@ -2,6 +2,7 @@
 
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
+# GUID: 42681380-e2b0-471f-ab64-eb75cf2d49c5
 # Active provider for the download-agent-service extension. Single-provider
 # area; the Go daemon under server/ is fetched + built inside the
 # yuruna-download-agent-service VM by that VM's cloud-init user-data, so this

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.25
+.VERSION 2026.10.26
 .GUID 42539052-a22b-452d-ad7f-0bbf053904ff
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -1303,14 +1303,42 @@ function Restore-VMDiskSnapshot {
     return $true
 }
 
+# --- REGION: Get-VMDiskSnapshotState
+function Get-VMDiskSnapshotState {
+    <#
+    .SYNOPSIS
+        Whether snapshot $Id exists on $VMName: 'present', 'absent', or
+        'unknown' when the hypervisor could not answer.
+    .DESCRIPTION
+        A probe that cannot answer is not an absence: read as one, it rebuilds a
+        baseline over a snapshot that may exist, or skips a restore that would
+        have worked. Only a VM that does not exist, or an answer that lists no
+        such snapshot, is 'absent'.
+    #>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param(
+        [Parameter(Mandatory)][string]$VMName,
+        [Parameter(Mandatory)][string]$Id
+    )
+    if ((Get-VMState -VMName $VMName) -eq 'absent') { return 'absent' }
+    # The list, not snapshot-info's error text: libvirt localizes its messages,
+    # and only the list says "no such snapshot" in a form that does not vary.
+    $names = @(Invoke-Virsh -VirshArgs @('snapshot-list', '--domain', $VMName, '--name') 2>$null)
+    if ($LASTEXITCODE -ne 0) { return 'unknown' }
+    if (@($names | ForEach-Object { ([string]$_).Trim() }) -ccontains $Id) { return 'present' }
+    return 'absent'
+}
+
 # --- REGION: Test-VMDiskSnapshot
 function Test-VMDiskSnapshot {
     <#
     .SYNOPSIS
-        Returns $true when snapshot $Id is present on $VMName, $false
-        otherwise (including when the domain does not exist). Used by
-        Debug-TestSequence.ps1's requiresSnapshot warm-path probe before
-        deciding whether to walk the baseline chain.
+        Returns $true when snapshot $Id is present on $VMName, $false when it
+        is absent (including when the domain does not exist), and throws when
+        libvirt could not answer. Used by Debug-TestSequence.ps1's
+        requiresSnapshot warm-path probe before deciding whether to walk the
+        baseline chain.
     #>
     [CmdletBinding()]
     [OutputType([bool])]
@@ -1318,9 +1346,11 @@ function Test-VMDiskSnapshot {
         [Parameter(Mandatory)][string]$VMName,
         [Parameter(Mandatory)][string]$Id
     )
-    if ((Get-VMState -VMName $VMName) -eq 'absent') { return $false }
-    Invoke-Virsh -VirshArgs @('snapshot-info', '--domain', $VMName, '--snapshotname', $Id) 2>&1 | Out-Null
-    return ($LASTEXITCODE -eq 0)
+    $state = Get-VMDiskSnapshotState -VMName $VMName -Id $Id
+    # A probe that could not answer throws, so a caller's indeterminate branch
+    # runs instead of reading the blip as a missing snapshot.
+    if ($state -eq 'unknown') { throw (Format-YurunaOperatorMessage -Key 'host.snapshot_state_unknown' -Arguments @{ id = "$Id"; vMName = "$VMName" }) }
+    return ($state -eq 'present')
 }
 
 # --- REGION: VM console
@@ -1552,9 +1582,12 @@ function Get-VMScreenshot {
     # virsh screenshot writes PPM by default; convert to PNG via
     # ImageMagick (`convert`) if available, else netpbm (`pamtopng`),
     # else write the PPM next to the requested .png path with a warning.
+    # Both steps run inside the OCR poll loop, so each is bounded: a libvirtd
+    # or a converter that stops answering costs one frame, not the whole cycle
+    # to the step watchdog.
     $ppm = [System.IO.Path]::ChangeExtension($OutFile, '.ppm')
-    Invoke-Virsh -VirshArgs @('screenshot', $VMName, $ppm) | Out-Null
-    if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $ppm)) {
+    $shot = Invoke-VirshBounded -VirshArgs @('screenshot', $VMName, $ppm) -TimeoutSeconds $script:VirshQueryTimeoutSeconds
+    if (-not (Test-DriverNativeResultComplete -Result $shot) -or $shot.ExitCode -ne 0 -or -not (Test-Path -LiteralPath $ppm)) {
         Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_ba1882e41aac59a1' -Arguments @{ vMName = "$VMName" })
         # A failed virsh call can still leave a partial PPM behind.
         Remove-Item -LiteralPath $ppm -Force -ErrorAction SilentlyContinue
@@ -1564,12 +1597,21 @@ function Get-VMScreenshot {
         # Date/time chunks change even when every pixel is identical. Exclude
         # those volatile fields so OCR's exact-frame cache can reuse its answer;
         # retain color profiles, gamma and all image data.
-        & convert $ppm -define 'png:exclude-chunk=date,time' $OutFile 2>$null | Out-Null
+        $converted = Invoke-BoundedNativeCommand -FilePath 'convert' -ArgumentList @($ppm, '-define', 'png:exclude-chunk=date,time', $OutFile) `
+            -TimeoutSeconds $script:VirshQueryTimeoutSeconds
     } elseif (Get-Command pamtopng -ErrorAction SilentlyContinue) {
-        & pamtopng $ppm > $OutFile 2>$null
+        # pamtopng writes the PNG to stdout. The shell redirect keeps those
+        # bytes binary, which a captured output stream would not.
+        $converted = Invoke-BoundedNativeCommand -FilePath 'sh' -ArgumentList @('-c', 'exec pamtopng "$1" > "$2"', 'sh', $ppm, $OutFile) `
+            -TimeoutSeconds $script:VirshQueryTimeoutSeconds
     } else {
         Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_6d9c4686b08fcf2a' -Arguments @{ ppm = "$ppm" })
         return $ppm
+    }
+    # A converter stopped at its cap may have written part of a PNG; a partial
+    # frame must never reach OCR as a whole one.
+    if (-not (Test-DriverNativeResultComplete -Result $converted)) {
+        Remove-Item -LiteralPath $OutFile -Force -ErrorAction SilentlyContinue
     }
     Remove-Item -LiteralPath $ppm -ErrorAction SilentlyContinue
     if (Test-Path -LiteralPath $OutFile) { return $OutFile }
@@ -5067,7 +5109,7 @@ function New-KvmServiceDomain {
 # --- REGION: Exports
 Export-ModuleMember -Function Remove-KvmDomainDefinition, Resolve-KvmOsVariant, New-KvmServiceDomain, Repair-VMStorageLocation, `
     New-VM, Start-VM, Stop-VM, Stop-VMForce, Remove-VM, Rename-VM, Get-VMState, Get-VMName, Test-VirtualizationResponsive, Start-VirtualizationServiceIfStopped, `
-    Save-VMDiskSnapshot, Restore-VMDiskSnapshot, Test-VMDiskSnapshot, `
+    Save-VMDiskSnapshot, Restore-VMDiskSnapshot, Test-VMDiskSnapshot, Get-VMDiskSnapshotState, `
     Test-VMConsoleOpen, Restart-VMConsole, `
     Get-Image, Get-ImagePath, `
     Send-Text, Send-Key, Send-Click, Get-VMScreenshot, Get-VMConsoleHandle, `
@@ -5085,7 +5127,7 @@ Import-Module (Join-Path -Path $PSScriptRoot -ChildPath '..' -AdditionalChildPat
 $null = Assert-YurunaHostContractCoverage -HostType 'ubuntu.kvm' `
     -Module $ExecutionContext.SessionState.Module -ExportedFunction @(
     'New-VM','Start-VM','Stop-VM','Stop-VMForce','Remove-VM','Rename-VM','Get-VMState','Get-VMName',
-    'Save-VMDiskSnapshot','Restore-VMDiskSnapshot','Test-VMDiskSnapshot',
+    'Save-VMDiskSnapshot','Restore-VMDiskSnapshot','Test-VMDiskSnapshot','Get-VMDiskSnapshotState',
     'Test-VMConsoleOpen','Restart-VMConsole',
     'Get-Image','Get-ImagePath',
     'Send-Text','Send-Key','Send-Click','Get-VMScreenshot','Get-VMConsoleHandle',

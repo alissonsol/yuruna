@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.25
+.VERSION 2026.10.26
 .GUID 42c43b4f-9392-49b0-a0ce-755a0560f4cd
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -168,11 +168,18 @@ Describe 'local diagnostic data handling' {
             $n -is [Management.Automation.Language.CommandAst] -and $n.GetCommandName() -eq 'Copy-Item' -and $n.Extent.Text.Contains('$' + $Variable + '/*')
         }, $true)
         $call | Should -Not -BeNullOrEmpty
-        & { param($SourceVariable, $DestinationVariable, $SourcePath, $DestinationPath, $Expression)
-            Set-Variable -Name $SourceVariable -Value $SourcePath
-            Set-Variable -Name $DestinationVariable -Value $DestinationPath
-            & $Expression
-        } $Variable $Destination $source $target ([scriptblock]::Create($call.Extent.Text))
+        # A copy whose destination is not the variable set below would copy into
+        # the current location, so it fails here, and the copy runs from inside
+        # TestDrive whatever it names.
+        $call.Extent.Text | Should -Match ('-Destination \$' + $Destination + '\b')
+        Push-Location -LiteralPath $TestDrive
+        try {
+            & { param($SourceVariable, $DestinationVariable, $SourcePath, $DestinationPath, $Expression)
+                Set-Variable -Name $SourceVariable -Value $SourcePath
+                Set-Variable -Name $DestinationVariable -Value $DestinationPath
+                & $Expression
+            } $Variable $Destination $source $target ([scriptblock]::Create($call.Extent.Text))
+        } finally { Pop-Location }
         Test-Path -LiteralPath (Join-Path $target '.helmignore') | Should -BeTrue
         Test-Path -LiteralPath (Join-Path $target 'values.yml') | Should -BeTrue
     }

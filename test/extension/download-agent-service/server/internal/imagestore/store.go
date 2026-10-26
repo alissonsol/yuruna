@@ -1,5 +1,6 @@
 // LICENSEURI https://yuruna.link/license
 // Copyright (c) 2019-2026 by Alisson Sol et al.
+// GUID: 42648a44-771d-42b2-aa2d-e4c1b0f9e19a
 
 // Package imagestore owns the Download pool: generation-addressed artifacts on
 // the pool share, the pointer/sidecar metadata that makes one of them servable,
@@ -526,11 +527,19 @@ func parsePointerName(name string) (arch, variant string, ok bool) {
 }
 
 // Open returns a handle on one generation for byte serving. The caller closes it.
+// The open goes through a root on the image folder, so a link placed in the
+// share cannot hand out a file from outside that folder, and only a regular file
+// is a generation: the byte route is open to every client on the LAN.
 func (s *Store) Open(id ImageID, generation string) (*os.File, os.FileInfo, error) {
 	if !ValidGenerationName(generation) {
 		return nil, nil, fmt.Errorf("invalid generation name %q", generation)
 	}
-	f, err := os.Open(filepath.Join(s.Dir(id), generation))
+	root, err := os.OpenRoot(s.Dir(id))
+	if err != nil {
+		return nil, nil, err
+	}
+	defer root.Close()
+	f, err := root.Open(generation)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -538,6 +547,10 @@ func (s *Store) Open(id ImageID, generation string) (*os.File, os.FileInfo, erro
 	if err != nil {
 		f.Close()
 		return nil, nil, err
+	}
+	if !fi.Mode().IsRegular() {
+		f.Close()
+		return nil, nil, fmt.Errorf("generation %q is not a regular file", generation)
 	}
 	return f, fi, nil
 }

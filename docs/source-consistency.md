@@ -15,6 +15,7 @@ Use `# --- REGION: <label>` for a named block and
 `# --- REGION: https://yuruna.link/42xxxxxx-yyyy` for its rationale.
 Keep the same label and relative order wherever the blocks have the same role.
 Do not put empty lines after a region marker; its content starts on the next line.
+A bare comment marker (`#` or `//` alone) on that line counts as an empty line.
 Use short labels such as `Install log`, `Configuration`, `Remove existing VM`,
 `Fetch the framework`, and `Build and start the service`. Explain an ordering
 exception at the affected block, with a link to its durable rationale.
@@ -102,10 +103,21 @@ local cache discovery.
 
 Ubuntu checksum authentication pins the primary CD Image and UEC signing-key
 fingerprints. Verify the detached signature against the same saved
-`SHA256SUMS` file used to select the artifact hash. Unavailable verification may
-leave an image explicitly unverified; a bad or foreign signature must fail.
+`SHA256SUMS` file used to select the artifact hash. A host without gpg or the
+bundled keyring may leave an image explicitly unverified. Where both are
+present, a signature that cannot be fetched or checked fails like a bad or
+foreign one: whoever can make the signature unreachable could otherwise switch
+the check off.
 Before rotating a pinned key, independently verify a fresh `SHA256SUMS.gpg`
 and then refresh the fingerprint pins.
+
+The next run's skip guard trusts the sentinel beside the base image, so the
+Ubuntu pipeline writes it only after `Publish-YurunaBaseImage` proves the swap:
+every move stops on error, a failed swap puts the previous image back, the
+published file must hold the downloaded size, and a PID-file lock beside the
+image keeps two publishers of one image apart. A failed publish is recorded as a
+`tool` failure for the runner (see the provisioning results in the failure
+schema), and a checksum or signature failure as `integrity`.
 
 All service families on one host share the same downloaded Ubuntu cloud image.
 Hyper-V converts it to VHDX once. Keep the base image's native capacity and grow
@@ -1640,7 +1652,9 @@ Project sequences keep English `description` values as fallbacks. Optional `desc
 
 ### Workload configuration boundaries
 
-Cert-manager cleanup selects installed resources by `app.kubernetes.io/instance=cert-manager`, including cluster-wide resources and leader-election roles in `kube-system`. It must not download a version-specific release manifest to remove existing resources. Namespaced resources are removed with the namespaces already covered by the workload cleanup.
+A configuration's cleanup removes only what that configuration installs. The localhost configurations take their certificate from mkcert and never install cert-manager, so they leave any cert-manager on the cluster alone; a developer's cluster may run one for other projects. The Azure configuration installs cert-manager, and its cleanup selects the installed resources by `app.kubernetes.io/instance=cert-manager`, including cluster-wide resources and leader-election roles in `kube-system`. It must not download a version-specific release manifest to remove existing resources. Namespaced resources are removed with the namespaces already covered by the workload cleanup.
+
+Every namespace delete passes `--timeout=300s`. Without it kubectl waits up to a week for the namespace's finalizers, so one stuck finalizer holds the deployment step until the runner's watchdog kills the cycle. With the deadline the deployment fails with kubectl's own timeout message.
 
 The generic template creates a namespace and registry pull secret, leaving `TO-SET` for the user's component. The website localhost configuration supplies a complete mkcert/ingress example; its Azure configuration demonstrates cert-manager using a single `certManagerLatest` variable.
 
@@ -1671,6 +1685,14 @@ with status 1 so shell callers using `set -e` stop at the failing action.
 Resource, component, and workload operations return result manifests;
 clear/requirements/validation retain their Boolean outcomes. The dispatcher
 checks the result type before choosing the corresponding completion path.
+Every entry point runs its operation through `Invoke-YurunaEntrypoint`, which
+starts and stops the transcript around it: an operation that throws still ends
+its transcript and still yields a failure result (a manifest with class
+`unknown`, or a false validation result), so its completion tail reports it
+instead of the process dying with neither. A failed manifest's last line is
+`YURUNA_RESULT <json>`: the manifest plus its `canonicalFailureClass`. The ssh
+verbs read that line and file the failure under the canonical class; the
+project's example workloads print the same line through `example_fail`.
 
 A caller can name its transcript through `YURUNA_TRANSCRIPT_PATH`. The resolver
 consumes that environment value before starting nested operations so an inner
@@ -2435,7 +2457,7 @@ plain timeout was reported as a script error, routed to
 pause_and_inspect ("auto-retry would just re-trigger it") and excluded
 from the warm-resume allow-list. That turned a transient upstream
 stall into a dead cycle needing an operator.
-Build-SequenceFailureRecord still reclassifies to
+New-SequenceFailureRecord still reclassifies to
 pattern_matched_failure when a pattern really matched.
 
 **`test/modules/Test.StashAddressResolution.Tests.ps1`.**
@@ -2582,6 +2604,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.25
+Last review: 2026.10.26
 
 Back to [Yuruna](../README.md)

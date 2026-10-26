@@ -1,0 +1,96 @@
+{
+  "schemaVersion": 1,
+  "description": "Command names that tools/Test-SymbolReference.ps1 accepts without finding them in the tree or in the running PowerShell. commands: cmdlets of modules a Linux host lacks, by module. hooks: commands the code calls only when a module provides them. illustrative: names an example invents, each with where and why.",
+  "commands": {
+    "Hyper-V": [
+      "Add-VMDvdDrive",
+      "Add-VMHardDiskDrive",
+      "Connect-VMNetworkAdapter",
+      "Enable-VMTPM",
+      "Get-VMDvdDrive",
+      "Get-VMVideo",
+      "New-VMSwitch",
+      "Remove-VMDvdDrive",
+      "Remove-VMSwitch",
+      "Resize-VHD",
+      "Set-VM",
+      "Set-VMComPort",
+      "Set-VMMemory",
+      "Set-VMSwitch"
+    ],
+    "Dism": [
+      "Enable-WindowsOptionalFeature",
+      "Get-WindowsOptionalFeature"
+    ],
+    "Microsoft.PowerShell.LocalAccounts": [
+      "Add-LocalGroupMember",
+      "Get-LocalGroupMember",
+      "New-LocalUser",
+      "Remove-LocalUser"
+    ],
+    "SmbShare": [
+      "Get-SmbMapping",
+      "Get-SmbMultichannelConnection",
+      "Get-SmbShare",
+      "New-SmbMapping",
+      "New-SmbShare",
+      "Remove-SmbMapping"
+    ],
+    "NetTCPIP": [
+      "Get-NetIPAddress",
+      "Get-NetNeighbor",
+      "Test-NetConnection"
+    ],
+    "NetAdapter": [
+      "Rename-NetAdapter",
+      "Restart-NetAdapter"
+    ],
+    "NetSecurity": [
+      "Get-NetFirewallPortFilter"
+    ],
+    "DnsClient": [
+      "Resolve-DnsName"
+    ],
+    "PKI": [
+      "Import-Certificate"
+    ],
+    "Appx": [
+      "Add-AppxPackage"
+    ],
+    "CimCmdlets": [
+      "Invoke-CimMethod"
+    ],
+    "PnpDevice": [
+      "Get-PnpDevice"
+    ],
+    "Microsoft.PowerShell.Management (Windows)": [
+      "Get-ComputerInfo",
+      "Get-Service",
+      "Set-Service",
+      "Start-Service"
+    ],
+    "Microsoft.PowerShell.Diagnostics (Windows)": [
+      "Get-WinEvent"
+    ],
+    "Microsoft.PowerShell.Security (Windows)": [
+      "Get-Acl",
+      "Set-Acl"
+    ],
+    "BranchCache": [
+      "Disable-BC"
+    ]
+  },
+  "illustrative": {
+    "Invoke-WhateverOcr": "docs/ocr.md: the placeholder engine an OCR provider example calls",
+    "Send-KeyYourNewHost": "docs/host-io.md: the placeholder key sender of a new host type",
+    "Send-Scroll": "docs/host-io.md: an example name for a new input verb",
+    "Send-Drag": "docs/host-io.md: an example name for a new input verb",
+    "Start-GuestRepair": "docs/framework-implementation-notes.md: an example name for a new sibling dispatcher",
+    "Confirm-X": "automation/Yuruna.Result.psm1: a placeholder for any Confirm- predicate in an example",
+    "Start-Log": "test/modules/README.md: a hypothetical name the text explains must not be added",
+    "Test-VM": "docs/design/naming.md and host/README.md: the heading 'Test-VM names' names test VMs, not a command"
+  },
+  "hooks": {
+    "Get-HostElevationCommand": "test/modules/Test.RunnerElevation.psm1 prefers it when a host driver exports one"
+  }
+}

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.25
+.VERSION 2026.10.26
 .GUID 4250f9af-bcc6-41b0-85fb-2c2f4e968e7d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -433,6 +433,13 @@ function Update-TestConfigFromTemplate {
 
     $existingText = [string](Get-Content -Raw -LiteralPath $ConfigPath)
     $current = ConvertFrom-Yaml -Yaml $existingText -Ordered
+    # An existing file that does not hold a mapping -- empty, comments only, a
+    # bare scalar or list -- has no settings to merge, and merging it would
+    # write the template defaults over it and over its earlier backup. Nothing
+    # is written; the operator restores the file and runs again.
+    if ($current -isnot [System.Collections.IDictionary]) {
+        throw "config-corrupt: $ConfigPath does not hold a configuration mapping; restore it (for example from $ConfigPath.backup) and run again"
+    }
     $mirrorFailures = @(Test-ConfigMirrorSetting -Config $current)
     if ($mirrorFailures.Count -gt 0) { throw "$($mirrorFailures[0].Cause): $($mirrorFailures[0].Path)" }
     $migration = ConvertTo-ConfigNamingMigration -Config $current -ObsoleteEntry (Get-ObsoleteConfigEntry -Text $existingText)
@@ -741,6 +748,14 @@ function ConvertTo-DocumentedConfigYaml {
             [void]$out.Add("${indent}${key}: []")
             continue
         }
+        # A template leaf written as null is a sentinel for "unstated": the code
+        # then picks a default that depends on the host or the mode. An unset
+        # value keeps that spelling, because '""' reads back as a string that
+        # casts to 0 or false and would decide the setting instead.
+        if ($null -eq $value -and $rest -cmatch '^(?:null|Null|NULL|~)$') {
+            [void]$out.Add("${indent}${key}: null")
+            continue
+        }
         if ($value -is [System.Collections.IEnumerable] -and
             $value -isnot [string] -and $value -isnot [System.Collections.IDictionary]) {
             $items = @($value)
@@ -857,6 +872,11 @@ function Sync-TestConfigToTemplate {
         [Parameter()] [string]$TemplatePath
     )
 
+    # The same refusal as Update-TestConfigFromTemplate: an existing file that
+    # held no mapping must not be replaced by the template and backed up empty.
+    if ((Test-Path -LiteralPath $ConfigPath) -and $Current -isnot [System.Collections.IDictionary]) {
+        throw "config-corrupt: $ConfigPath does not hold a configuration mapping; restore it (for example from $ConfigPath.backup) and run again"
+    }
     $mirrorFailures = @(Test-ConfigMirrorSetting -Config $Current) + @(Test-ConfigMirrorSetting -Config $Template)
     if ($mirrorFailures.Count -gt 0) { throw "$($mirrorFailures[0].Cause): $($mirrorFailures[0].Path)" }
     $existingText = if (Test-Path -LiteralPath $ConfigPath) { [string](Get-Content -Raw -LiteralPath $ConfigPath) } else { '' }

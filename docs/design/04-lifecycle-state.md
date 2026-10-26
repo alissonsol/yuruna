@@ -22,7 +22,7 @@ stateDiagram-v2
     cycle_start --> in_cycle: Spawn inner
     cycle_start --> fault: Archive space exhausted
     cycle_start --> paused: Pool, refresh, or pull
-    in_cycle --> cycle_end: Zero, preflight, or held
+    in_cycle --> cycle_end: Pass, degraded, preflight, held
     in_cycle --> fault: Failure, watchdog, or ceiling
     cycle_end --> idle: Close cycle
     fault --> paused: Backoff or preservation
@@ -36,6 +36,16 @@ The persistent outer starts a fresh [Invoke-TestCycleRunner.ps1](../../test/modu
 `Invoke-RunnerOuterSupervisor` keeps the resident runner alive when an exception escapes the outer loop. It writes the exception type and location to `outer.log`, publishes a `script_error` `runnerFault` in `status.json`, counts it toward the crash alert, stops a cycle process that the escaped loop left running, and re-enters the loop after a hold that starts at 30 seconds and doubles with each escape within an hour, up to 15 minutes. The supervisor writes no enum transition, and the cycle counter continues; Ctrl+C and a shutdown request still end the runner.
 
 Startup with a different prior run ID and unfinished state emits a synthetic transition from that prior state to `fault`, followed by `idle`. The validator warns about unexpected transition pairs but still persists telemetry. A missing, malformed, or mismatched cycle-outcome record is reported separately from a completed test verdict; a zero process exit without its expected record is insufficient to declare success.
+
+A completed cycle that failed nothing but skipped a planned guest exits 75 and
+closes through `cycle-end` to `idle`, with a degraded summary. It takes no
+failure pause, claims no success for automatic refresh, and does not rearm
+repair budgets. [Test.RecoveryContract.psm1](../../test/modules/Test.RecoveryContract.psm1)
+defines that exit code and the outcome-record contract.
+[Invoke-TestProject.ps1](../../test/Invoke-TestProject.ps1) dispatches one cycle
+through the same worker, watchdog, cycle ceiling, and end hooks with framework
+pulling disabled; it reports the cycle's exit code, or 2 when pool, refresh, or
+shutdown controls prevent a verdict.
 
 A framework pull error moves `cycle-start` to `paused` and publishes a `runnerFault` with stage `FrameworkPull` before a short interruptible hold; with automatic remediation enabled, a pull error from a stale Git lock is repaired and retried immediately. The pull selects its source through [Test.SourceSelection.psm1](../../test/modules/Test.SourceSelection.psm1) and [Test.HostGit.psm1](../../test/modules/Test.HostGit.psm1) within one deadline; an unavailable mirror, or a mirror reply that is not a successful protocol response, falls back to the origin instead of failing the update. Process-creation failures use the same short hold. A very early unexplained cycle-worker abort holds 30 seconds, doubling with each consecutive abort at the same framework commit up to 15 minutes. Neither hold transitions state, so the next dispatch records an undeclared `cycle-start` or `in-cycle` to `cycle-start` pair that the validator warns about. `runner.framework-health.json` keeps the last framework commit whose cycle recorded an outcome and the streak of dispatches at the current commit that ended without one, aborted or unrecorded. From the second such dispatch the outer pulls the framework with the code it loaded at startup, because a commit that breaks the cycle process also stops the pull that process would make; for an abort it also publishes a `runnerFault` with stage `FrameworkRescue` and class `cycle_killed`, counted toward the crash alert. Pool `paused` rechecks configuration after a short hold; `drain` stops at dispatch. Move-mode archive-space exhaustion can fault before an inner starts or change a passing inner's cycle verdict afterward. `refresh-gated` short-holds without ordinary verdict accounting: a hold before the pull changes no state, a hold before the wipe moves `cycle-start` to `paused`, and a hold inside the inner closes through `cycle-end` to `idle` with a refresh reason.
 
@@ -74,6 +84,20 @@ refuse the cycle. Once per cycle, `Invoke-RunnerTempHousekeeping` also calls the
 process and temporary-file helpers in
 [Yuruna.Common.psm1](../../automation/Yuruna.Common.psm1) to remove bounded,
 recognized orphaned entries; housekeeping errors do not fail the cycle.
+
+The pre-VM gates also run `Test-OcrKnownAnswer` in
+[Test.OcrEngine.psm1](../../test/modules/Test.OcrEngine.psm1) against a committed
+frame. An enabled provider passes at 80% word recall. `Or` mode needs one
+passing provider and reports a failing peer as degraded; `And` needs every
+provider. A failed check records `instrumentation_failure` at
+`OcrKnownAnswer` and takes bootstrap failure handling before resetting the
+cycle's status document or creating a guest.
+
+Before the cycle body, a total guest-network loss can refuse VM work in
+[Invoke-TestRunnerInnerLoop.ps1](../../test/modules/Invoke-TestRunnerInnerLoop.ps1).
+Its stranded-VM sweep runs once per loss in a separate process bounded to 300
+seconds, only when the refresh gate allows VM mutation; the network-streak
+record remembers the attempt. A healthy check clears that record.
 
 Start sequences that power the guest off use the `stopVm` action in [Test.SequenceHandler.psm1](../../test/modules/Test.SequenceHandler.psm1): the driver's `Stop-VM -ShutdownTimeoutSeconds -NoForce` requests the shutdown, and the stopped state is observed through the host. A guest that ignores the request leaves console frames, OCR text, the observed state, the livelock verdict, and the first guest-silence marker, and `Start-GuestOS` fails as `wait_timeout`. With `forceOnTimeout`, the VM is turned off with a recorded `guest-shutdown` degradation and the sequence continues. `startVm` shares the same stopped-wait evidence.
 
@@ -222,7 +246,7 @@ stateDiagram-v2
     state "Disarm watchdog" as stop_watchdog
     [*] --> start_watchdog
     start_watchdog --> runner_step_heartbeat: Capture inner identity
-    start_watchdog --> stop_watchdog: Lapsed, resident guards the cycle
+    start_watchdog --> stop_watchdog: Lapsed, resident guards cycle
     runner_step_heartbeat --> runner_step_heartbeat: Heartbeat within bound
     runner_step_heartbeat --> get_watchdog_inner_identity_script: Heartbeat stale
     runner_step_heartbeat --> stop_watchdog: Inner exits
@@ -265,7 +289,37 @@ during an unfinished cycle still finalizes that cycle as failed.
 
 ## Recovery and host refresh
 
-[Test.RecoveryLedger.psm1](../../test/modules/Test.RecoveryLedger.psm1) registers bounded repairs and keeps their attempt ledger; the outer plans them per failure through `Invoke-OuterRecovery`, gated by `testCycle.autoRemediation.enabled` (default off). [Test.Recovery.psm1](../../test/modules/Test.Recovery.psm1) runs the startup stale-state sweep. An applied repair can bypass ordinary backoff and use the next cycle for verification. Otherwise outer failure pause defaults to one hour, polling the configured framework upstream tip, the project tip, and local configuration changes every 30 seconds; restart requests, enabled bounded repair, or the deadline can release it. From the third consecutive stall in the same preamble phase, the pause widens geometrically up to eight times its length while retaining early-release triggers; a passing cycle, or a failure outside a preamble stall, resets the streak. A configuration-gate refusal whose structured failures are all transient network classes holds for 120 seconds instead, doubling up to 15 minutes while consecutive holds expire without recovery; it probes repository access every 30 seconds and ends once every required source answers, while configuration edits and restart requests still end it early.
+[Test.RecoveryLedger.psm1](../../test/modules/Test.RecoveryLedger.psm1) registers bounded repairs and keeps their attempt ledger; the outer plans them per failure through `Invoke-OuterRecovery`, gated by `testCycle.autoRemediation.enabled` (default off). [Test.Recovery.psm1](../../test/modules/Test.Recovery.psm1) runs the startup stale-state sweep. An applied repair can bypass ordinary backoff and use the next cycle for verification. Otherwise outer failure pause defaults to one hour, polling the configured framework upstream tip, the project tip, and local configuration changes every 30 seconds; restart requests, enabled bounded repair, or the deadline can release it. The outer reads configuration through `Read-TestConfig -LastGoodOnError` in [Test.Config.psm1](../../test/modules/Test.Config.psm1), so a malformed save keeps its last parsed settings and warns instead of silently resetting recovery and timeout policy. From the third consecutive stall in the same preamble phase, the pause widens geometrically up to eight times its length while retaining early-release triggers; a passing cycle, or a failure outside a preamble stall, resets the streak. A configuration-gate refusal whose structured failures are all transient network classes holds for 120 seconds instead, doubling up to 15 minutes while consecutive holds expire without recovery; it probes repository access every 30 seconds and ends once every required source answers, while configuration edits and restart requests still end it early.
+
+
+With automatic remediation enabled, a failure pause also runs the registered
+checks in [Test.RecoveryProbe.psm1](../../test/modules/Test.RecoveryProbe.psm1)
+from [Test.RunnerOuterLoop.psm1](../../test/modules/Test.RunnerOuterLoop.psm1),
+through the bounded child process
+[Invoke-RecoveryProbe.ps1](../../test/modules/Invoke-RecoveryProbe.ps1).
+`hypervisor_unresponsive` and `host_network_degraded` are probed every 300
+seconds, and `pool_storage_full` every 600 seconds; each child has a 180-second
+limit. Only a completed exit 0 can end the pause, through the recovery ledger.
+A timeout, failed launch, or inconclusive answer keeps it held. The separate
+`end_failure_pause_early` shortcut first waits one poll interval and doubles
+that wait after each use, to a 15-minute cap. Both shortcuts honor the failure
+class's rolling 24-hour runner-minute budget in
+[Test.RecoveryActions.psm1](../../test/modules/Test.RecoveryActions.psm1).
+
+```mermaid
+stateDiagram-v2
+    state "Failure pause" as test_runner_outer_loop_psm1
+    state "Run registered probe" as invoke_recovery_probe
+    state "Check recovery ledger" as invoke_recovery_action
+    state "Resume supervision" as invoke_runner_outer_loop
+    [*] --> test_runner_outer_loop_psm1
+    test_runner_outer_loop_psm1 --> invoke_recovery_probe: Enabled and probe due
+    invoke_recovery_probe --> test_runner_outer_loop_psm1: Not cleared or inconclusive
+    invoke_recovery_probe --> invoke_recovery_action: Confirmed cleared
+    invoke_recovery_action --> test_runner_outer_loop_psm1: Budget spent or refused
+    invoke_recovery_action --> invoke_runner_outer_loop: Applied
+    invoke_runner_outer_loop --> [*]: Dispatch next cycle
+```
 
 Host refresh uses [Test.HostRefresh.psm1](../../test/modules/Test.HostRefresh.psm1), [Test.HostRefreshTrigger.psm1](../../test/modules/Test.HostRefreshTrigger.psm1), and the refresh dispatch/preflight/barrier handlers in both runner loops. The view below shows the existing dispatch roles; preflight and the ordinary barrier run in separate fresh cycle chains.
 
@@ -294,7 +348,12 @@ Closed, recovery-pending, handoff, or unreadable gates prevent ordinary pulls, s
 
 The outer can re-ensure the status service when a held gate is proven orphaned
 and has no live handoff, keeping the dashboard's recovery controls reachable.
-That exception does not release cycle dispatch. If refresh still finds a hung
+That exception does not release cycle dispatch. On a normal
+[Start-TestRunner.ps1](../../test/Start-TestRunner.ps1) start, an orphaned
+unfinished refresh whose owner predates this boot can also launch
+[Invoke-HostRefresh.ps1](../../test/lab/Invoke-HostRefresh.ps1) with `-Resume`
+once per boot and request. The normal start still refuses; the refresh's
+verified handoff owns restarting the runner. If refresh still finds a hung
 hypervisor and no applicable restart or reboot rung ran, its summary names the
 provider's manual remedy; another resume alone only repeats the probe.
 
@@ -303,5 +362,11 @@ The first ordinary chain after refresh adopts preserved pause and lab-hold contr
 Manual repair rungs are provider-specific and further constrained by qualification, privilege, and session requirements. The current automatic-refresh qualification table disables unattended refresh for every provider, and `testCycle.autoRefreshAfterStalls` defaults to zero. Declared but unavailable repair rungs are not implied operational paths in this diagram.
 
 ---
+
+LICENSEURI https://yuruna.link/license
+
+Copyright (c) 2019-2026 by Alisson Sol et al.
+
+Last review: 2026.10.26
 
 [Architecture](../architecture.md) | [Design overview](README.md)

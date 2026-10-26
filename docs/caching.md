@@ -1723,6 +1723,11 @@ curl -s -X POST http://<cache-ip>:9310/api/switches/offline \
 The daemon writes the same `conf.d` drop-in and runs the same
 `squid -k reconfigure` an operator would, so a switch flipped through it and one
 flipped by hand are the same change -- there is no second state to reconcile.
+When squid refuses the reconfigure, the offline drop-in goes back to what squid
+is running, so the switch never reads "on" over a squid running without it.
+Every switch request is logged with its source and outcome
+(`journalctl -u caching-proxy-service`), because either switch makes every
+guest's downloads fail lab-wide.
 It also beacons, which is what puts the proxy in the dashboard's **Extension
 hosts** row rather than being the one service the pool could not see.
 
@@ -2960,7 +2965,12 @@ On the VM, inspect `/cache-health`, `/git-mirror/status.json`,
 `journalctl -u git-mirror-worker -u git-mirror-reader`, and the mirror metrics
 collected by Prometheus. Check repository registration, pending population,
 last origin confirmation, queue/capacity failures, and free-space status before
-rebuilding. A first population can run in the background while hosts use
+rebuilding. A registry that cannot reload, so the mirror stops learning new pool
+repositories, shows as `registryError` in the status document and counts in
+`yuruna_git_mirror_registry_reload_failures_total`; refreshes that the queue refused
+and failed weekly maintenance runs count in
+`yuruna_git_mirror_refresh_admit_failures_total` and
+`yuruna_git_mirror_maintenance_failures_total`. A first population can run in the background while hosts use
 GitHub. Worker failure preserves published content and an interrupted mutation
 must pass recovery checks before it is served again. Do not remove repository
 locks, maintenance barriers, or confirmation state to force a refresh.
@@ -2980,14 +2990,6 @@ arguments, Git stderr, and tokens are not exposed in this diagnostic. Save
 the status document and the corresponding worker journal entry before
 restarting or rebuilding the proxy.
 
-LICENSEURI https://yuruna.link/license
-
-Copyright (c) 2019-2026 by Alisson Sol et al.
-
-Last review: 2026.10.25
-
-Back to [Yuruna](../README.md)
-
 The recent-request parser recovers from same-inode copytruncate rotation when
 it observes a file shorter than its consumed offset; it discards any unfinished
 old line. Rename rotation and partial appends remain supported. Numeric parse
@@ -2995,3 +2997,11 @@ overflow and timestamps outside the supported four-digit-year range fall back to
 zero and increment the field-error diagnostic. Invalid values cannot poison the
 entire JSON response. A truncate-and-regrow that completes beyond the old offset
 between polls cannot be distinguished from an append by this size check.
+
+LICENSEURI https://yuruna.link/license
+
+Copyright (c) 2019-2026 by Alisson Sol et al.
+
+Last review: 2026.10.26
+
+Back to [Yuruna](../README.md)

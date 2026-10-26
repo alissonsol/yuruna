@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.25
+.VERSION 2026.10.26
 .GUID 4292b140-f5e0-474e-8de4-bb7e802db56d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -1533,8 +1533,10 @@ with a different owner, that is likewise invisible in the exit status.
         # A failure with no address behind it gets its own exit code and says so in
         # the first line. ssh reports every one of these as 255, the same code it
         # uses for auth and host-key faults, so the code alone sends a reader toward
-        # the guest. -1 is already the timeout above, hence -2.
-        if (-not $addressResolved -and $exit -ne 0) {
+        # the guest. -1 is already the timeout above, hence -2. Only 255 is ssh's
+        # own: any other status came from a far end the bare name did reach, so
+        # the command ran and the status is the guest's to report.
+        if (-not $addressResolved -and $exit -eq 255) {
             $preface = "No host-side probe discovered an address for '$VMName'; the bare VM name was dialed and could not be resolved. This is a host address-discovery failure, not a guest error -- the command never ran."
             return @{
                 success         = $false
@@ -1961,9 +1963,9 @@ System.String. An IPv4 address, or '' when the guest could not be identified.
     }
 
     # UTM's Shared-NAT subnet is the one candidate no host-subnet sweep reaches,
-    # because the guest is not on this host's LAN at all. That rung stays
-    # UTM-specific by nature, so it is tried last and its absence is now just a
-    # missing rung rather than the end of the function.
+    # because the guest is not on this host's LAN at all. That rung is
+    # UTM-specific by nature, so it is tried last, and a host without it simply
+    # has one rung fewer.
     $byMac = Get-Command Resolve-UtmGuestIpByMac -ErrorAction SilentlyContinue
     if (-not $byMac) { return '' }
     if (-not $BundlePath) { $BundlePath = "$HOME/yuruna/guest.nosync/$VMName.utm" }

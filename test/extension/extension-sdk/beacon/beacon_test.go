@@ -1,11 +1,13 @@
 // LICENSEURI https://yuruna.link/license
 // Copyright (c) 2019-2026 by Alisson Sol et al.
+// GUID: 4246cfa2-f02e-48d7-b645-885b5de0cd6b
 
 package beacon
 
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -176,6 +178,56 @@ func TestHelloRetriesUntilFirstSuccess(t *testing.T) {
 	hello := waitFor(t, rec.notify, "hello after retries")
 	if !hello.Active {
 		t.Errorf("first successful announce = %+v, want active=true", hello)
+	}
+	cancel()
+	<-done
+}
+
+// An announce that fails AFTER the first success goes back to the catch-up
+// cadence instead of waiting a whole Interval: the aggregator answers 503 when it
+// kept the entry in memory but could not make it durable, and the entry survives
+// the aggregator's next restart only once a retry lands.
+func TestFailedReannounceRetriesOnTheCatchUpCadence(t *testing.T) {
+	var calls atomic.Int32
+	failedAt := make(chan time.Time, 1)
+	landed := make(chan time.Time, 16)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		_, _ = io.Copy(io.Discard, req.Body)
+		if calls.Add(1) == 2 {
+			failedAt <- time.Now()
+			http.Error(w, "accepted but not durably recorded", http.StatusServiceUnavailable)
+			return
+		}
+		landed <- time.Now()
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer srv.Close()
+
+	b := New(srv.URL, "hid", "stash-service", 80, time.Second)
+	b.helloRetry = 10 * time.Millisecond
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan struct{})
+	go func() { b.Run(ctx); close(done) }()
+
+	select {
+	case <-landed:
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for the hello")
+	}
+	var failed time.Time
+	select {
+	case failed = <-failedAt:
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for the re-announce the aggregator refuses")
+	}
+	select {
+	case got := <-landed:
+		if gap := got.Sub(failed); gap >= 500*time.Millisecond {
+			t.Errorf("retry landed %s after the 503, want the catch-up cadence (well under the 1s Interval)", gap)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for the retry")
 	}
 	cancel()
 	<-done

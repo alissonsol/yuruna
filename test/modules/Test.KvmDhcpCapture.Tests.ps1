@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.25
+.VERSION 2026.10.26
 .GUID 429cf70d-40bb-4de7-a305-1a10d263253b
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -319,5 +319,3 @@ Describe 'kvm DHCP evidence: what the failure folder ends up holding' {
         & $script:Driver { $script:YurunaDhcpCapture = $null }
     }
 }
-
-# Copyright (c) 2019-2026 by Alisson Sol et al.

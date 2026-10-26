@@ -239,7 +239,7 @@ sequenceDiagram
     test-runner-inner-loop-psm1->>guest-vm: Send pinned fetch context
 ```
 
-`Get-GitSourceConfiguration` reads `repositories.mirror`, where `mode` defaults to `prefer` and `mirrorOnlyMaxAgeSeconds` to 604800. Without a mirror URL it uses `vmStart.cachingProxyIp`, `YURUNA_CACHING_PROXY_SERVICE_IP`, or the recorded caching-proxy state. A pool manifest can reassign `frameworkUrl` and `projectUrl`, but mirror trust always comes from the host's own configuration. The handoff records the cycle generation, checkout and configuration paths, and the framework's selected commit; readers refuse a record whose identity or framework HEAD differs. A `-NoGitPull` cycle, a detached release, or an inner started without a handoff records the installed HEAD as `not-applicable` rather than claiming upstream confirmation, and the gate skips revalidation for it. [Invoke-TestProject.ps1](../../test/Invoke-TestProject.ps1) follows the same order for its single cycle. Only GitHub URLs take part; other project URLs keep their existing Git transport.
+`Get-GitSourceConfiguration` reads `repositories.mirror`, where `mode` defaults to `prefer` and `mirrorOnlyMaxAgeSeconds` to 604800. Without a mirror URL it uses `vmStart.cachingProxyIp`, `YURUNA_CACHING_PROXY_SERVICE_IP`, or the recorded caching-proxy state. A pool manifest can reassign `frameworkUrl` and `projectUrl`, but mirror trust always comes from the host's own configuration. The handoff records the cycle generation, checkout and configuration paths, and the framework's selected commit; readers refuse a record whose identity or framework HEAD differs. A `-NoGitPull` cycle, a detached release, or an inner started without a handoff records the installed HEAD as `not-applicable` rather than claiming upstream confirmation, and the gate skips revalidation for it. [Invoke-TestProject.ps1](../../test/Invoke-TestProject.ps1) dispatches its single cycle through the same cycle worker, watchdog, and end hooks, with framework pulling disabled. Only GitHub URLs take part; other project URLs keep their existing Git transport.
 
 When every required GitHub selection succeeded, the gate skips its separate GitHub TCP probe, because the ref query already proved connectivity. The selection's `source`, `verification`, `fallbackReason`, and `keyId` fields are copied into the cycle's commit records for host status and the pool. Fetch steps take `E_FB_REPO` and `E_FB_REF` from the framework checkout's origin and HEAD through [Yuruna.GitHubSource.psm1](../../automation/Yuruna.GitHubSource.psm1), and `project/` payloads take `E_PROJECT_REPO` and `E_PROJECT_REF` from the project checkout, so guest fallbacks use the selected full commit.
 
@@ -342,6 +342,62 @@ Framework paths use `E_FB_REPO` and `E_FB_REF`, falling back to `EXEC_FALLBACK_*
 
 Guest updaters such as [ubuntu.update.sh](../../guest/shared/ubuntu.update.sh) materialize checkouts through `yuruna_materialize_repositories` in [yuruna-retry.sh](../../automation/yuruna-retry.sh). The framework comes from the host's committed tarball, retried once after a directory relocation. Otherwise the pinned commit is fetched from the mirror's `/git/` path, then from GitHub, and HEAD must match before the checkout is renamed into place. Without a pin, the legacy unpinned clone remains. The project falls back from the host's project tarball to a clone of `projectUrl`.
 
+## Guest checkout archives
+
+For `guest/*.update.sh` payloads, `Get-FetchArchiveField` in
+[Test.SequenceHandler.psm1](../../test/modules/Test.SequenceHandler.psm1) adds the
+framework and project archive identities to the command context. Its archive
+builder is `Get-YurunaGitArchiveDigest` in
+[Test.HostGit.psm1](../../test/modules/Test.HostGit.psm1); the
+[status service](../../test/service/Start-StatusService.ps1) uses that module's
+`Export-YurunaGitArchive` to serve the same committed bytes. The guest updater
+participant groups [ubuntu.update.sh](../../guest/shared/ubuntu.update.sh),
+[Amazon Linux's updater](../../guest/amazon.linux.2023/amazon.linux.2023.update.sh),
+and [macOS's updater](../../guest/macos.26/macos.26.update.sh), which embed the
+same `yuruna_fetch_archive` fallback as
+[yuruna-retry.sh](../../automation/yuruna-retry.sh). Guest checkouts aggregate
+`$HOME/yuruna` and its `project/` subfolder.
+
+```mermaid
+sequenceDiagram
+    participant test-sequence-handler-psm1 as Sequence handler
+    participant test-host-git-psm1 as Archive builder
+    participant ubuntu-update-sh as Guest updater
+    participant start-status-service-ps1 as Host status service
+    participant yuruna-project as Guest checkouts
+    test-sequence-handler-psm1->>test-host-git-psm1: Hash committed archives
+    test-host-git-psm1-->>test-sequence-handler-psm1: Commit and SHA-256
+    test-sequence-handler-psm1->>ubuntu-update-sh: Send command context
+    loop Framework and project
+        alt Archive identity supplied
+            ubuntu-update-sh->>start-status-service-ps1: GET archive by commit
+            start-status-service-ps1->>test-host-git-psm1: Export committed archive
+            test-host-git-psm1-->>start-status-service-ps1: Archive bytes
+            start-status-service-ps1-->>ubuntu-update-sh: Archive bytes
+            alt Digest matches
+                ubuntu-update-sh->>yuruna-project: Extract verified archive
+            else Digest differs
+                ubuntu-update-sh->>ubuntu-update-sh: Refuse archive extraction
+            end
+        else Archive identity absent
+            ubuntu-update-sh->>start-status-service-ps1: GET current archive
+            start-status-service-ps1-->>ubuntu-update-sh: Archive bytes
+            ubuntu-update-sh->>yuruna-project: Extract unchecked archive
+        end
+    end
+```
+
+The framework pair is `E_ARCHIVE_COMMIT` / `E_ARCHIVE_SHA`; the project pair is
+`E_PROJECT_ARCHIVE_COMMIT` / `E_PROJECT_ARCHIVE_SHA`. The host hashes the committed
+archive bytes for a checkout's 40-character HEAD and caches the digest per
+process and commit. The
+[context launcher](../../automation/yuruna-fetch-context.sh) accepts and exports
+these fields. With both values present, the updater downloads to a temporary
+file, verifies SHA-256, and extracts only matching bytes; failure returns to its
+ordinary source fallbacks. A manual invocation without the pair, or a host that
+cannot compute it and warns, still extracts the archive as served. Archive
+verification is separate from the fetched updater script's `E_SHA` check.
+
 ## Pool telemetry
 
 When installed, the aggregator in [main.go](../../test/extension/pool-aggregator-service/main.go) periodically discovers and polls host status services and reads new cycle events. [Invoke-PoolPushForwarder.ps1](../../test/modules/Invoke-PoolPushForwarder.ps1) and [Test.PoolPush.psm1](../../test/modules/Test.PoolPush.psm1) add an optional authenticated push after a cycle.
@@ -374,7 +430,7 @@ sequenceDiagram
     end
 ```
 
-The default poll interval is 30 seconds. Discovery combines Squid access-log client addresses, hosts already known, and host self-announcements. Push uses the internal authentication key over HTTPS pinned to the pool CA, which the forwarder fetches over HTTP from Apache on the cache VM on first use, caches as `runtime/pool-ca.crt`, and refreshes once when a batch fails. A fetched CA is cached only when it is a root this host trusts for that proxy, the CA it seeds into the proxies it builds or the root pinned for that address at first use, as [Test.CachingProxyService.psm1](../../test/modules/Test.CachingProxyService.psm1) decides; a different root is refused with a warning and the trusted copy is kept. The aggregator binds pushed lines to the host already discovered at the sender's address and returns 503 when no key is configured. Forwarding is detached, uses bounded HTTP calls, and stops at the first failed batch. Pull remains the discovery and backfill path when push is absent or fails. [Test.PoolNotifier.psm1](../../test/modules/Test.PoolNotifier.psm1) separately evaluates pool alert gauges and, when configured, maintains delivery state and sends through the notification extension.
+The default poll interval is 30 seconds. Discovery combines Squid access-log client addresses, hosts already known, and host self-announcements. Push uses the internal authentication key over HTTPS pinned to the pool CA, which the forwarder fetches over HTTP from Apache on the cache VM on first use, caches as `runtime/pool-ca.crt`, and refreshes once when a batch fails. A fetched CA must pass `Resolve-YurunaPinnedProxyCa` in [Test.CachingProxyService.psm1](../../test/modules/Test.CachingProxyService.psm1): the host-owned root, the root pinned for that address, a matching legacy cached root, or a root named by a builder-signed statement verified with an enrolled mirror public key. Only a host without enrolled keys can accept an unpinned root on first use. A signed statement can authorize a rotation; a refused root produces a warning and preserves the pinned copy. The aggregator binds pushed lines to the host already discovered at the sender's address and returns 503 when no key is configured. Forwarding is detached, uses bounded HTTP calls, and stops at the first failed batch. Pull remains the discovery and backfill path when push is absent or fails. [Test.PoolNotifier.psm1](../../test/modules/Test.PoolNotifier.psm1) separately evaluates pool alert gauges and, when configured, maintains delivery state and sends through the notification extension.
 
 ## Cached image download
 
@@ -386,9 +442,10 @@ sequenceDiagram
     participant caching-proxy-service as Caching proxy
     participant cloud-images-ubuntu-com as Ubuntu origin
     yuruna-host-download-psm1->>caching-proxy-service: Probe proxy listeners
-    opt HTTPS proxy usable
-        yuruna-host-download-psm1->>caching-proxy-service: Fetch Squid CA
-        caching-proxy-service-->>yuruna-host-download-psm1: CA certificate
+    opt HTTPS listeners reachable
+        yuruna-host-download-psm1->>caching-proxy-service: Fetch CA and statement
+        caching-proxy-service-->>yuruna-host-download-psm1: CA and signed statement
+        yuruna-host-download-psm1->>yuruna-host-download-psm1: Verify CA trust
     end
     alt Proxy selected
         yuruna-host-download-psm1->>caching-proxy-service: Fetch image URL
@@ -405,7 +462,7 @@ sequenceDiagram
     end
 ```
 
-HTTPS proxying requires the bump listener and usable CA material. The helper goes direct when no proxy is usable; a proxied transfer that fails is not retried direct. Squid's response cache stays on the service VM at `/var/spool/squid`. Image integrity checks are independent of transport selection.
+HTTPS proxying requires the bump listener and a CA accepted by the same host trust policy as pool push and guest seeding. The helper goes direct when no proxy is usable; a proxied transfer that fails is not retried direct. Squid's response cache stays on the service VM at `/var/spool/squid`. Image integrity checks are independent of transport selection.
 
 Guest scripts choose payload sources separately; [Guest fetch source routing](#guest-fetch-source-routing) traces that order.
 
@@ -609,10 +666,16 @@ sequenceDiagram
         stash-service->>buffer: Store buffered artifact
     end
     stash-service->>stash-sqlite: Complete upload record
-    opt Share online
+    alt Share online
         stash-service->>stash: Write metadata sidecar
+        alt Sidecar committed
+            stash-service-->>new-js: ID and permalink
+        else Sidecar retries exhausted
+            stash-service-->>new-js: Stored artifact, metadata error
+        end
+    else Buffered artifact
+        stash-service-->>new-js: ID and permalink
     end
-    stash-service-->>new-js: ID and permalink
     opt Share recovers
         stash-service->>buffer: Read buffered artifact
         stash-service->>stash: Copy artifact sidecar
@@ -639,9 +702,21 @@ sequenceDiagram
 
 The SQLite index `stash.sqlite` stays in `/var/lib/stash-service/metadata`; the offline buffer stays in `/var/lib/stash-service/buffer`. [config.go](../../test/extension/stash-service/server/internal/config/config.go) defines these paths and the buffer ceiling. An unavailable share causes buffering; reaching the fixed 5 GB ceiling rejects new uploads. Without configured stash storage, the installer selects the local fallback `/var/lib/stash-service/share-local`.
 
+The same commit function in
+[sshsrv.go](../../test/extension/stash-service/server/internal/sshsrv/sshsrv.go)
+serves browser, SCP, and SFTP uploads. A share-side sidecar gets three write
+attempts; exhaustion returns an error after the artifact and local metadata
+already exist. The diagram therefore acknowledges success only after that
+sidecar, or after a buffered commit that schedules later flushing. During a
+flush, a sidecar or metadata-update failure keeps the local buffered copy for
+another pass. Per-file content is capped at 100 MiB and marked truncated when
+longer. HTTP creates additionally cap multipart bodies at 512 MiB and 64 files;
+text bodies are bounded to 100 MiB plus framing, with only one large text body
+read at a time and a five-minute read deadline.
+
 ## The stderr.log / rc sidecar contract
 
-Deployment logs ending in `.stderr.log` contain captured stdout and stderr. Producers are [Yuruna.Resource.psm1](../../automation/Yuruna.Resource.psm1), [Yuruna.Component.psm1](../../automation/Yuruna.Component.psm1), [Yuruna.Workload.psm1](../../automation/Yuruna.Workload.psm1), and [Yuruna.Retry.psm1](../../automation/Yuruna.Retry.psm1). Sections identify their command or label and `exit=N`; retries include attempt information. Labels, captured output, and retry events first pass through `Protect-YurunaSecretText` in Yuruna.Retry.psm1, which replaces the value of every environment variable whose name marks a secret, such as a password, token, credential, or key, with `<redacted>`; workload manifests, console lines, and the component phase use the same rule. The companion `.rc` contains the most recently completed logged operation's native exit code, which can differ from aggregate phase success.
+Deployment logs ending in `.stderr.log` contain captured stdout and stderr. Producers are [Yuruna.Resource.psm1](../../automation/Yuruna.Resource.psm1), [Yuruna.Component.psm1](../../automation/Yuruna.Component.psm1), [Yuruna.Workload.psm1](../../automation/Yuruna.Workload.psm1), and [Yuruna.Retry.psm1](../../automation/Yuruna.Retry.psm1). Sections identify their command or label and `exit=N`; retries include attempt information. Labels, captured output, and retry events first pass through `Protect-YurunaSecretText` in Yuruna.Retry.psm1. Its environment-name matcher covers password, passwd, passphrase, secret, token, credential, and API/private/access key forms; a bare `key` name does not match. Workload manifests, console lines, and the component phase use the same [secret-value redaction rule](../architecture.md#reusable-conventions). The companion `.rc` contains the most recently completed logged operation's native exit code, which can differ from aggregate phase success.
 
 | Producer | Project-relative log | Companion |
 |---|---|---|
@@ -655,5 +730,11 @@ Resources reset the pair at each pass, then capture init, plan or apply, and out
 [Get-SystemDiagnostic.ps1](../../automation/Get-SystemDiagnostic.ps1) recursively scans beneath its framework root with `-Force` for `*.stderr.log`, bounded to depth 12, the first 100 files, and a 10-second deadline. It reports the companion sidecar and displays the last 64 KiB of large logs after redacting them with an embedded copy of that rule, which also replaces secret assignments and GitHub token shapes, because the script runs as one file on guests. Separate gap heuristics compare OpenTofu state and the `globalVariables` namespaces in `resources.output.yml` with the cluster. A native zero exit is insufficient to establish overall success: chart deployment also rejects terminal Helm error output, and diagnostics can detect resources without releases.
 
 ---
+
+LICENSEURI https://yuruna.link/license
+
+Copyright (c) 2019-2026 by Alisson Sol et al.
+
+Last review: 2026.10.26
 
 [Architecture](../architecture.md) | [Design overview](README.md)

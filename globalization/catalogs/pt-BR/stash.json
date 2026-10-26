@@ -562,6 +562,11 @@
     "stash.yuruna_stash_service": {
       "sourceHash": "03e2de1c6ebed2c471b069cf16b7ab6b3a52a2a501a658cf692bc437b5d20c18",
       "message": "Serviço de stash Yuruna"
+    },
+    "stash.api_large_text_busy": {
+      "sourceHash": "9fae303d1dc73a579c935787a8546a6a423c033f799ecd1660d0a4321268bd9d",
+      "origin": "machine",
+      "message": "outro texto grande está sendo armazenado; tente de novo em instantes"
     }
   }
 }

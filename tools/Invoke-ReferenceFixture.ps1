@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.25
+.VERSION 2026.10.26
 .GUID 4213717a-c9d8-4963-a773-bbe6c4201235
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -518,5 +518,3 @@ Write-Output ('Invoke-ReferenceFixture: {0} row(s), {1} matched, {2} drifted.' -
     $rows.Count, $matched, $drift.Count)
 if ($drift.Count -gt 0 -or $script:Problem.Count -gt 0) { exit 2 }
 exit 0
-
-# Copyright (c) 2019-2026 by Alisson Sol et al.

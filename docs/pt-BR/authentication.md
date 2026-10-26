@@ -148,9 +148,12 @@ Cada provedor expõe dois scriptblocks:
 | `docker-generic` | `.+` | `$env:YURUNA_REGISTRY_PASSWORD \| docker login --username $env:YURUNA_REGISTRY_USERNAME --password-stdin <host>` |
 
 A ordem importa e é preservada: padrões mais específicos precedem o
-`docker-generic`, que captura todo o resto. A tolerância a sufixo de
-caminho (`(/|$)`) faz com que `foo.azurecr.io/myimage` corresponda ao
-mesmo provedor que o host puro.
+`docker-generic`, que captura todo o resto. Um provedor que um projeto
+registra fora do módulo é consultado antes de todos esses, o registrado mais
+recentemente primeiro, de modo que o `docker-generic` não o encobre e um
+projeto pode substituir um tipo embutido para os seus próprios hosts. A
+tolerância a sufixo de caminho (`(/|$)`) faz com que `foo.azurecr.io/myimage`
+corresponda ao mesmo provedor que o host puro.
 
 <a id="427ac634-000a"></a>
 
@@ -274,6 +277,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Última revisão: 2026.10.25
+Última revisão: 2026.10.26
 
 Voltar para [Yuruna](../../README.md)

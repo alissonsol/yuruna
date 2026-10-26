@@ -1,5 +1,6 @@
 // LICENSEURI https://yuruna.link/license
 // Copyright (c) 2019-2026 by Alisson Sol et al.
+// GUID: 424c1a0c-aae3-45e0-9e9b-2cf938721dbc
 
 package imagestore
 
@@ -623,6 +624,27 @@ func TestHeadOfKeepsCompleteUTF8Boundary(t *testing.T) {
 	} {
 		if got := headOf(c.text, c.limit); got != c.want {
 			t.Errorf("headOf(%q, %d) = %q, want %q", c.text, c.limit, got, c.want)
+		}
+	}
+}
+
+// An identity the host type cannot use is unsupported: an arch it does not run,
+// or a best-effort family it does not take, is media no guest boots from.
+func TestSupportedRefusesWhatTheHostTypeCannotUse(t *testing.T) {
+	cases := []struct {
+		id   ImageID
+		want bool
+		why  string
+	}{
+		{ImageID{HostTypeUTM, KeyUbuntuServer26, ArchAMD64, VariantStable}, false, "UTM runs arm64 guests only"},
+		{ImageID{HostTypeUTM, KeyUbuntuServer26, ArchARM64, VariantStable}, true, "UTM runs arm64 guests"},
+		{ImageID{HostTypeHyperV, KeyVirtioWin, ArchAMD64, VariantStable}, false, "Hyper-V guests use Microsoft's own drivers"},
+		{ImageID{HostTypeUTM, KeyVirtioWin, ArchARM64, VariantStable}, false, "UTM installs its guest tools instead"},
+		{ImageID{"no.such.host", KeyUbuntuServer26, ArchAMD64, VariantStable}, false, "an unknown host type runs nothing"},
+	}
+	for _, tc := range cases {
+		if got := Supported(tc.id); got != tc.want {
+			t.Errorf("Supported(%s) = %v, want %v: %s", tc.id, got, tc.want, tc.why)
 		}
 	}
 }

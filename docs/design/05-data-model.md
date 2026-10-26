@@ -103,6 +103,7 @@ erDiagram
         string tagCommand
         string pushCommand
         int commandTimeoutSeconds
+        int buildRetry
         map variables
     }
     workloads-yml {
@@ -137,6 +138,7 @@ registry lookup described by `registryName` below.
 | `components[].buildPath` | Resolves under project `components/`; defaults to the expanded `project` value when omitted. The folder must contain `Dockerfile`, `dockerfile`, or `<project>-dockerfile`. |
 | Component commands | `buildCommand`, `tagCommand`, and `pushCommand` prefer entry values and fall back to document globals. `preProcessor` and `postProcessor` come from the merged variables. |
 | `components[].commandTimeoutSeconds` | Read from the entry, overriding `globalVariables.commandTimeoutSeconds`; the default is 600 seconds. The publisher requires integers from 1 through 3600. Each supervised command phase, including registry login, receives this bound. |
+| `components[].buildRetry` | Read from the entry, overriding `globalVariables.buildRetry`; the default is 1. The publisher requires integers from 1 through 10. It is the number of build attempts, and another attempt starts only when the failed one's output matches the shared transient-failure classifier, under the shared backoff ([retry policy](../architecture.md#42e568c8-000c)). |
 | `workloads[].context` | Selects an existing kubeconfig context; the operator's original context is restored afterward. Raw and expanded duplicate contexts are rejected. The publisher sets `contextName` and `workFolder` before expanding workload variables. |
 | `deployments[].chart` | Resolves under project `workloads/`. `variables.installName` is required and must be unique within the expanded context. |
 | `deployments[].kubectl`, `.helm`, `.shell` | `kubectl` and `helm` hold arguments that the kind catalog prefixes with the tool name; `shell` holds a PowerShell command. Each runs from `.yuruna/<config>/workloads/<context>/` with the merged variables in the environment. `chart` wins when several keys are present; otherwise the last of `kubectl`, `helm`, `shell` wins. |
@@ -194,8 +196,12 @@ ownership from a successful component build. It destroys each listed resource
 that still has a work folder, deletes the folder on success, and retains it with
 its state on failure. Cleanup does not edit `resources.output.yml`, so the next
 apply preserves its mappings. A template that produces no outputs fails the
-apply, and the initialization pass refuses a work folder that already holds
-`.terraform`.
+apply. Initialization can run again against an existing work folder: template
+refresh carries `.terraform`, the lock file, saved plan, and `*.tfstate*` data
+forward before running initialization again. When resource globals include
+`runId`, an existing nonblank `globalVariables.runId` in the output document
+is reused instead of re-expanded, keeping generated resource names attached to
+the same deployment.
 
 Sources: [output serialization and planning](../../automation/Yuruna.Resource.psm1),
 [output flattening](../../automation/Yuruna.VariableExpansion.psm1),
@@ -352,5 +358,11 @@ VMs over mutual TLS; that exchange is shown in the
 [service credential channel](06-deployment.md#service-credential-channel).
 
 ---
+
+LICENSEURI https://yuruna.link/license
+
+Copyright (c) 2019-2026 by Alisson Sol et al.
+
+Last review: 2026.10.26
 
 [Architecture](../architecture.md) | [Design overview](README.md)

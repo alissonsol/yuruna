@@ -1,5 +1,6 @@
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
+# GUID: 42acb007-acfe-4034-bf5c-81864ab7b8d4
 # Kubernetes provider
 # https://learn.hashicorp.com/terraform/kubernetes/provision-eks-cluster#optional-configure-terraform-kubernetes-provider
 # Scheduling deployments and services: https://learn.hashicorp.com/terraform/kubernetes/deploy-nginx-kubernetes

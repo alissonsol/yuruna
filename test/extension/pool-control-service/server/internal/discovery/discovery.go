@@ -1,5 +1,6 @@
 // LICENSEURI https://yuruna.link/license
 // Copyright (c) 2019-2026 by Alisson Sol et al.
+// GUID: 420646d2-582f-4ffc-b7c1-6c0e93e47485
 
 // Package discovery finds Yuruna hosts by sweeping a network. See
 // ../../../../../../docs/pool-admin.md#network-scan----finding-hosts-nobody-registered

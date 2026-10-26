@@ -1,5 +1,6 @@
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
+# GUID: 429cbc42-7de8-4629-8064-7d393faaead2
 resource "null_resource" "cluster_context" {
   depends_on = [module.eks]
 

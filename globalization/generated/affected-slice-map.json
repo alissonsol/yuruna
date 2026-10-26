@@ -3553,7 +3553,7 @@
       "path": "test/service/Start-StatusService.ps1",
       "code": "host_refresh.unknown",
       "role": "producer",
-      "matchCount": 3
+      "matchCount": 4
     },
     {
       "id": "code:host_refresh.unqualified:consumer:test/extension/extension-sdk/pool/pool.go",
@@ -3994,7 +3994,7 @@
       "path": "test/extension/stash-service/server/internal/httpsrv/handlers.go",
       "code": "stash.api_open_artifact",
       "role": "producer",
-      "matchCount": 1
+      "matchCount": 2
     },
     {
       "id": "code:stash.api_open_upload:producer:test/extension/stash-service/server/internal/httpsrv/handlers.go",
@@ -4354,7 +4354,7 @@
       "path": "test/service/Start-StatusService.ps1",
       "code": "status.api_payload_too_large_1_mb_350b49df",
       "role": "producer",
-      "matchCount": 1
+      "matchCount": 2
     },
     {
       "id": "code:status.api_payload_too_large_256_kb_ad49d5cd:producer:test/service/Start-StatusService.ps1",
@@ -4363,7 +4363,7 @@
       "path": "test/service/Start-StatusService.ps1",
       "code": "status.api_payload_too_large_256_kb_ad49d5cd",
       "role": "producer",
-      "matchCount": 1
+      "matchCount": 2
     },
     {
       "id": "code:status.api_payload_too_large_4_mb_3455f869:producer:test/service/Start-StatusService.ps1",
@@ -4480,7 +4480,7 @@
       "path": "test/service/Start-StatusService.ps1",
       "code": "status.api_write_failed_detail_c07681e1",
       "role": "producer",
-      "matchCount": 4
+      "matchCount": 6
     },
     {
       "id": "code:status.api_yaml_parse_failed_detail_363d5cf4:producer:test/service/Start-StatusService.ps1",
@@ -4924,8 +4924,14 @@
     },
     {
       "wireCode": "host_refresh.completed",
+      "path": "test/modules/Test.RecoveryContract.psm1",
+      "matchCount": 1,
+      "reason": "Outer-cycle outcome a one-shot run maps to its exit code; not a host-refresh state."
+    },
+    {
+      "wireCode": "host_refresh.completed",
       "path": "test/modules/Test.RunnerOuterLoop.psm1",
-      "matchCount": 8,
+      "matchCount": 9,
       "reason": "Outer-cycle outcome; not a host-refresh state."
     },
     {
@@ -5117,8 +5123,8 @@
     {
       "wireCode": "host_refresh.failed",
       "path": "test/modules/Test.RunnerInnerLoop.psm1",
-      "matchCount": 4,
-      "reason": "Configuration reload result and cycle readiness; not a host-refresh verdict."
+      "matchCount": 6,
+      "reason": "Configuration reload result, cycle readiness and the cycle verdict; not a host-refresh verdict."
     },
     {
       "wireCode": "host_refresh.failed",
@@ -5231,7 +5237,7 @@
     {
       "wireCode": "host_refresh.idle",
       "path": "test/modules/Test.RunnerOuterLoop.psm1",
-      "matchCount": 7,
+      "matchCount": 8,
       "reason": "Runner state transition; not the host-refresh state."
     },
     {
@@ -5920,6 +5926,18 @@
     },
     {
       "wireCode": "host_refresh.unavailable",
+      "path": "host/modules/Yuruna.Image.psm1",
+      "matchCount": 5,
+      "reason": "Checksum signature verdict when gpg and the pinned keys are present but the detached signature could not be fetched or checked; not the host-refresh state."
+    },
+    {
+      "wireCode": "host_refresh.unavailable",
+      "path": "host/modules/Yuruna.UbuntuImage.psm1",
+      "matchCount": 1,
+      "reason": "Checksum signature verdict when gpg and the pinned keys are present but the detached signature could not be fetched or checked; not the host-refresh state."
+    },
+    {
+      "wireCode": "host_refresh.unavailable",
       "path": "host/ubuntu.kvm/modules/Yuruna.Host.psm1",
       "matchCount": 2,
       "reason": "KVM driver virtualization start-action result for an unqualified unit layout; not the host-refresh availability."
@@ -6065,13 +6083,13 @@
     {
       "wireCode": "host_refresh.unknown",
       "path": "automation/Yuruna.Result.psm1",
-      "matchCount": 4,
+      "matchCount": 6,
       "reason": "Failure-class enumeration of the result manifest; not the host-refresh state."
     },
     {
       "wireCode": "host_refresh.unknown",
       "path": "host/macos.utm/modules/Yuruna.Host.psm1",
-      "matchCount": 32,
+      "matchCount": 35,
       "reason": "UTM virtual machine, session, app and automation-grant states that could not be read; not the host-refresh state."
     },
     {
@@ -6095,7 +6113,7 @@
     {
       "wireCode": "host_refresh.unknown",
       "path": "host/ubuntu.kvm/modules/Yuruna.Host.psm1",
-      "matchCount": 39,
+      "matchCount": 41,
       "reason": "libvirt domain, process and unit states that could not be read; not the host-refresh state."
     },
     {
@@ -6113,7 +6131,7 @@
     {
       "wireCode": "host_refresh.unknown",
       "path": "host/windows.hyper-v/modules/Yuruna.Host.psm1",
-      "matchCount": 24,
+      "matchCount": 26,
       "reason": "Uplink verdict, virtual machine state fallbacks, and storage admission inventory or capacity readings; not the host-refresh state."
     },
     {
@@ -6329,7 +6347,7 @@
     {
       "wireCode": "host_refresh.unknown",
       "path": "test/modules/Test.Log.psm1",
-      "matchCount": 2,
+      "matchCount": 3,
       "reason": "Cycle disposition default; not the host-refresh state."
     },
     {
@@ -6395,13 +6413,13 @@
     {
       "wireCode": "host_refresh.unknown",
       "path": "test/modules/Test.SequenceFailureState.psm1",
-      "matchCount": 2,
-      "reason": "Failure class and severity fallbacks; not the host-refresh state."
+      "matchCount": 4,
+      "reason": "Failure class and severity fallbacks, and a step effect no handler proved; not the host-refresh state."
     },
     {
       "wireCode": "host_refresh.unknown",
       "path": "test/modules/Test.SequenceHandler.psm1",
-      "matchCount": 13,
+      "matchCount": 14,
       "reason": "Sequence check status, diagnostic outcome and failure-class fallbacks, plus unobserved VM states in cold-power-cycle recovery, pre-restart diagnostics and stopVm and startVm stopped-waits; not a host-refresh value."
     },
     {
@@ -6445,6 +6463,12 @@
       "path": "test/modules/Test.StatusFirewall.psm1",
       "matchCount": 1,
       "reason": "Firewall platform fallback; not the host-refresh state."
+    },
+    {
+      "wireCode": "host_refresh.unknown",
+      "path": "test/modules/Test.WarmResume.psm1",
+      "matchCount": 1,
+      "reason": "The step effect a failure record carries when no handler proved it; not the host-refresh state."
     },
     {
       "wireCode": "host_refresh.unknown",
@@ -6538,6 +6562,6 @@
     "displayOnlyCount": 10,
     "catalogBoundaryCount": 11,
     "consumerCount": 410,
-    "literalExclusionCount": 290
+    "literalExclusionCount": 294
   }
 }

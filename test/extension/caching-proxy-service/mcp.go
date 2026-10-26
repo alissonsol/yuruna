@@ -1,5 +1,6 @@
 // LICENSEURI https://yuruna.link/license
 // Copyright (c) 2019-2026 by Alisson Sol et al.
+// GUID: 42f985c5-99c7-4722-ad94-795ba6a83d19
 
 package main
 
@@ -110,7 +111,7 @@ func (d *daemon) mcpTools() *mcp.Registry {
 		Description: "Turn squid's offline mode on or off. Offline mode suppresses REVALIDATION, not fetching: a cache miss still reaches the origin. Local mode only.",
 		InputSchema: onArg,
 		Idempotent:  true,
-		Handler:     d.mcpSwitchHandler(d.applyOffline),
+		Handler:     d.mcpSwitchHandler(d.applyOffline, "offline mode"),
 	})
 
 	reg.MustAdd(mcp.Tool{
@@ -118,7 +119,7 @@ func (d *daemon) mcpTools() *mcp.Registry {
 		Description: "Turn the no-upstream switch on or off. This refuses cache misses outright, making the cache's content the whole of what the lab can see. Local mode only.",
 		InputSchema: onArg,
 		Idempotent:  true,
-		Handler:     d.mcpSwitchHandler(d.applyNoUpstream),
+		Handler:     d.mcpSwitchHandler(d.applyNoUpstream, "no-upstream"),
 	})
 
 	return reg
@@ -127,7 +128,7 @@ func (d *daemon) mcpTools() *mcp.Registry {
 // mcpSwitchHandler is the tool half of applySwitch, and it refuses the same way
 // for the same reasons -- including translating the remote-mode error into the
 // reason token an operator already knows from the 501 body.
-func (d *daemon) mcpSwitchHandler(apply func(bool) error) func(context.Context, json.RawMessage) (any, error) {
+func (d *daemon) mcpSwitchHandler(apply func(bool) error, what string) func(context.Context, json.RawMessage) (any, error) {
 	return func(_ context.Context, args json.RawMessage) (any, error) {
 		var in struct {
 			On *bool `json:"on"`
@@ -138,7 +139,9 @@ func (d *daemon) mcpSwitchHandler(apply func(bool) error) func(context.Context, 
 				Message: `arguments must name "on": true or false`,
 			}
 		}
-		if err := apply(*in.On); err != nil {
+		err := apply(*in.On)
+		logSwitchChange(what, *in.On, "an MCP tool call", err)
+		if err != nil {
 			if err == errRemoteReadOnly {
 				return nil, &mcp.ReasonError{
 					Reason:  "caching-proxy-remote-readonly",

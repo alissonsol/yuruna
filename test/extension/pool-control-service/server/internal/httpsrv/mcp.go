@@ -1,5 +1,6 @@
 // LICENSEURI https://yuruna.link/license
 // Copyright (c) 2019-2026 by Alisson Sol et al.
+// GUID: 4228f17c-eed5-461a-b1a0-8ccb07b7b7ee
 
 package httpsrv
 
@@ -47,7 +48,6 @@ func (s *Server) mcpRegistry() *mcp.Registry {
 		})
 	}
 	// --- REGION: Mutating tools
-	//
 	// Every one of these is ReadOnly:false, which is what makes the MCP server
 	// run s.gate.Allow on the INCOMING request before the handler is reached --
 	// the daemon's own Authed, so an agent and a curl face the same check. The

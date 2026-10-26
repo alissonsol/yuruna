@@ -8,9 +8,10 @@ downloadAgentService:
   # Pre-download the stable image families for the host types the aggregator
   # reports, instead of waiting for a host to ask for one.
   autoSeed: true
-  # enabled is deliberately unstated: it resolves by mode (a lab runs the agent,
-  # a standalone host does not). State true or false to override that default.
+  # null leaves the bring-up to the mode: a lab runs the agent, a standalone
+  # host does not. State true or false to override that default.
   # See https://yuruna.link/42b11c32-0006
+  enabled: null
   # How long an image stays fresh after its last successful origin check.
   freshnessSeconds: 86400
   # The scanner refreshes anything whose freshness expires within this window.
@@ -139,6 +140,10 @@ testCycle:
     enabled: true
     maxAttempts: 2
 vmCommunication:
+  # Hyper-V text sends: null keeps the host default (one character per call on
+  # an ARM64 host, batched elsewhere); true or false overrides it.
+  # See https://yuruna.link/4222e5f2-0005
+  batchedTextSend: null
   charDelayMs: 10
   pollSeconds: 5
   # How many raw console frames the wait loop keeps per VM. A guest that PASSES
@@ -151,6 +156,8 @@ vmCommunication:
   # longer window knowing a host that fails often pays for it in disk. Values
   # outside 1..240 are clamped into that range.
   screenHistorySize: 20
+  # Milliseconds a typed field settles before the next key or screenshot.
+  settleMs: 200
   timeoutSeconds: 180
   vncPort: 5900
 vmImage:
@@ -161,6 +168,10 @@ vmStart:
   # Seed-time setting; rebuild the caching-proxy VM to apply a changed interval.
   cachingProxyGitMirrorRefreshSeconds: 60
   cachingProxyIp: ""
+  # The longest a Kubernetes guest entry waits for the cache's registry path to
+  # settle before it starts.
+  # See https://yuruna.link/42f6b05f-0055
+  cachingProxyRegistryWaitSeconds: 900
   # A zot release to install instead of the pinned one. Set both the tag and its
   # SHA-256 or neither, then rebuild the cache to apply.
   # See https://yuruna.link/42f6b05f-0056

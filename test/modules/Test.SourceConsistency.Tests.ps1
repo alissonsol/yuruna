@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.25
+.VERSION 2026.10.26
 .GUID 42e220c4-9472-4e35-bf37-59a7e003196b
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -39,11 +39,11 @@ BeforeAll {
     $script:SeedRoot = Join-Path $script:RepoRoot 'host/vmconfig'
     # SQL comments open with `--` and CSS comments with `/* */`, so the `#` and
     # `//` patterns elsewhere in this file never see them. A line that starts
-    # a dash run followed by whitespace, or ends with one, is a decorative rule
-    # or title; the native REGION form is the replacement. A CSS custom
-    # property such as `--fg-header` is not a rule, because no whitespace
-    # follows its dashes.
-    $script:SqlCssDividerPattern = '(?m)^[ \t]*(?:--[ \t]*-{4,}[ \t]*$|--[ \t]+--+[ \t]+(?!REGION:)\S|--[ \t]+(?!REGION:)[^\r\n]*[ \t]-{5,}[ \t]*$|/\*[ \t]*-{2,}(?=[ \t]|$)|/\*[^\r\n]*[ \t]-{5,}[ \t]*\*/)'
+    # a dash or equals run followed by whitespace, or ends with one, is a
+    # decorative rule or title, and so is a bare rule that closes a comment;
+    # the native REGION form is the replacement. A CSS custom property such as
+    # `--fg-header` is not a rule, because no whitespace follows its dashes.
+    $script:SqlCssDividerPattern = '(?m)^[ \t]*(?:--[ \t]*-{4,}[ \t]*$|--[ \t]+--+[ \t]+(?!REGION:)\S|--[ \t]+(?!REGION:)[^\r\n]*[ \t]-{5,}[ \t]*$|/\*[ \t]*(?:-{2,}|={2,})(?=[ \t]|$)|/\*[^\r\n]*[ \t](?:-{5,}|={5,})[ \t]*\*/|(?:-{5,}|={5,})[ \t]*\*/)'
     $script:SqlCssRegionBlankPattern = '(?m)^[ \t]*(?:--[ \t]+---[ \t]+REGION:[^\r\n]*|/\*[ \t]*REGION:[^\r\n]*)\r?\n[ \t]*\r?\n'
     Import-Module (Join-Path $script:RepoRoot 'automation/Yuruna.CloudInitTemplate.psm1') -Force
     Import-Module (Join-Path $script:RepoRoot 'automation/Yuruna.GuestSeed.psm1') -Force
@@ -73,7 +73,7 @@ BeforeAll {
     function Get-NormalizedSource {
         param([string]$Path)
         (Get-Content -LiteralPath $Path -Raw) -replace '\r\n', "`n" -replace
-            'ubuntu\.server\.(24|26)', 'ubuntu.server.VERSION'
+            'ubuntu\.server\.(24|26)', 'ubuntu.server.VERSION' -replace '(?m)^# GUID: .+$', '# GUID: ID'
     }
 
     function Get-NormalizedUbuntuSequence {
@@ -527,7 +527,7 @@ Describe 'VM seed overlay contracts' {
         foreach ($platform in 'hyperv', 'kvm', 'utm') {
             $expected = $null
             foreach ($service in 'stash-service', 'pool-control-service', 'download-agent-service') {
-                $text = (Get-Content (Join-Path $script:SeedRoot "$service.$platform.overlay.yml") -Raw).Replace($service, 'SERVICE')
+                $text = (Get-Content (Join-Path $script:SeedRoot "$service.$platform.overlay.yml") -Raw).Replace($service, 'SERVICE') -replace '(?m)^# GUID: .+$', '# GUID: ID'
                 if ($null -eq $expected) { $expected = $text }
                 $text | Should -BeExactly $expected
             }
@@ -616,8 +616,8 @@ Describe 'Project workload parity' {
         Confirm-SiblingCheckout -Path $script:ProjectRoot
         $first = Get-Content (Join-Path $script:ProjectRoot "example/website/$Website") -Raw
         $second = Get-Content (Join-Path $script:ProjectRoot "example/text-to-sql/$TextToSql") -Raw
-        $first = $first.Replace('website', 'PROJECT') -replace '(?m)^\.GUID .*$', '.GUID ID'
-        $second = $second.Replace('text-to-sql-ui', 'PROJECT').Replace('text-to-sql', 'PROJECT') -replace '(?m)^\.GUID .*$', '.GUID ID'
+        $first = $first.Replace('website', 'PROJECT') -replace '(?m)^(\.GUID |# GUID: ).*$', '$1ID'
+        $second = $second.Replace('text-to-sql-ui', 'PROJECT').Replace('text-to-sql', 'PROJECT') -replace '(?m)^(\.GUID |# GUID: ).*$', '$1ID'
         ($second -replace '\r\n', "`n") | Should -BeExactly ($first -replace '\r\n', "`n") -Because "$Family has the same contract in both examples"
     }
 
@@ -807,7 +807,9 @@ Describe 'Shared source regions' {
     }
 
     It 'leaves no blank line immediately after a REGION marker' {
-        $pattern = '(?m)^[ \t]*(?:(?:#|//)[ \t]*---[ \t]+REGION:[^\r\n]*|<!--[ \t]*(?:---[ \t]+)?REGION:[^\r\n]*-->)[ \t]*\r?\n[ \t]*\r?\n'
+        # A bare comment marker on the next line is an empty line too: the block
+        # still starts one line late.
+        $pattern = '(?m)^[ \t]*(?:(?:#|//)[ \t]*---[ \t]+REGION:[^\r\n]*|<!--[ \t]*(?:---[ \t]+)?REGION:[^\r\n]*-->)[ \t]*\r?\n[ \t]*(?:#|//)?[ \t]*\r?\n'
         $findings = @()
         foreach ($file in Get-ConsistencySourceFile) {
             $text = Get-ConsistencySourceText -Path $file.FullName
@@ -924,7 +926,7 @@ Describe 'Shared source regions' {
     }
 
     It 'has no legacy decorative structural headers or decorative See markers' {
-        $pattern = '(?m)^[ \t]*(?:(?:#|//)[ \t]*-{8,}[ \t]*|(?:#|//)[ \t]*-{2,}[ \t]+(?!REGION:|See\b)[^\r\n]*?[ \t]-{3,}[ \t]*|(?:#|//)[ \t]*---[ \t]+(?!REGION:|See\b)[A-Z][^\r\n]*|(?:#|//)[ \t]*---[ \t]+See[ \t]+https://yuruna\.link/[^\r\n]*|//[ \t]*={2,}[^\r\n]*={2,}[ \t]*|//[ \t]*[\u2500\u2501\u2550]{2,}[^\r\n]*)$'
+        $pattern = '(?m)^[ \t]*(?:(?:#|//)[ \t]*-{8,}[ \t]*|(?:#|//)[ \t]*-{2,}[ \t]+(?!REGION:|See\b)[^\r\n]*?[ \t]-{3,}[ \t]*|(?:#|//)[ \t]*---[ \t]+(?!REGION:|See\b)\S[^\r\n]*|(?:#|//)[ \t]*---[ \t]+See[ \t]+https://yuruna\.link/[^\r\n]*|//[ \t]*={2,}[^\r\n]*={2,}[ \t]*|//[ \t]*[\u2500\u2501\u2550]{2,}[^\r\n]*)$'
         $findings = @()
         foreach ($file in Get-ConsistencySourceFile) {
             $text = Get-ConsistencySourceText -Path $file.FullName
@@ -1141,7 +1143,10 @@ Describe 'SQL and CSS divider fixtures' {
         @{ Name = 'a SQL title with a trailing rule'; Text = '-- Core entities ------------------------' },
         @{ Name = 'a CSS legacy title'; Text = '/* -- Page header -------------------------------------------------------- */' },
         @{ Name = 'a CSS rule opener'; Text = '/* --------------------------------------------------------------------------' },
-        @{ Name = 'a CSS trailing rule'; Text = '/* ---------- header chrome (both windows) ---------- */' }
+        @{ Name = 'a CSS trailing rule'; Text = '/* ---------- header chrome (both windows) ---------- */' },
+        @{ Name = 'a CSS equals-rule banner'; Text = '/* ===========================================================================' },
+        @{ Name = 'a CSS title with a trailing equals rule'; Text = '/* === end page chrome ====================================================== */' },
+        @{ Name = 'a CSS rule that closes a comment'; Text = '   -------------------------------------------------------------------------- */' }
     ) {
         param($Name, $Text)
         $null = $Name
@@ -1152,7 +1157,8 @@ Describe 'SQL and CSS divider fixtures' {
         @{ Name = 'a SQL native region'; Text = '-- --- REGION: Reference tables' },
         @{ Name = 'a SQL prose comment'; Text = '-- Yuruna Text-to-SQL example schema: a small SaaS-style' },
         @{ Name = 'a CSS native region'; Text = '/* REGION: Page header */' },
-        @{ Name = 'a CSS custom property in prose'; Text = '/* --fg-header is white and stays white here, in both color schemes */' }
+        @{ Name = 'a CSS custom property in prose'; Text = '/* --fg-header is white and stays white here, in both color schemes */' },
+        @{ Name = 'a CSS comment that closes on prose'; Text = '   same header direction. */' }
     ) {
         param($Name, $Text)
         $null = $Name

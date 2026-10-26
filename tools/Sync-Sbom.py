@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
+# GUID: 42447810-d34f-4428-9699-d8369e9cad48
 """Maintain source, host, and guest SBOMs from repository files, without network access."""
 # --- REGION: Imports
 import argparse

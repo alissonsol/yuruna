@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.25
+.VERSION 2026.10.26
 .GUID 420eae9d-b5a9-4ca6-af97-df678c83b820
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -222,10 +222,10 @@ try {
     if (-not $SshAuthorizedKey) { Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_6424990f88c7f7bc' -Arguments @{ testSshModule = "$TestSshModule" }); exit 1 }
 
     # --- REGION: Detect the caching-proxy service
+    # See https://yuruna.link/42e220c4-0004
+    # A bound URL, including empty for direct fetching, overrides discovery. A missing
+    # or stopped cache permits direct fetching; a running but unresponsive cache fails.
     # See https://yuruna.link/4220a755-0017
-    # Detect the caching-proxy-service and inject its proxy URL if available. Severity:
-    # URL found -> inject; cache VM started but no :3128 on LAN -> ERROR, exit 1;
-    # cache VM not registered / not started -> WARNING, proceed direct.
     if ($PSBoundParameters.ContainsKey('CachingProxyServiceUrl')) {
         # URL was forwarded by the caller (test runner). Skip the probe so this
         # script and the runner's detection agree on a single cache URL.
@@ -381,7 +381,7 @@ To intentionally skip the cache:
     Publish-SeedMediaImage -Workspace $seedWorkspace -Path $SeedIso -Confirm:$false
 
     # --- REGION: Create and configure the UTM bundle
-    # Generate UTM config.plist from template (QEMU backend, with -vnc 127.0.0.1:N AdditionalArgument)
+    # config.plist selects the QEMU backend.
     $TemplatePath = Join-Path $ScriptDir "config.plist.template"
     if (-not (Test-Path $TemplatePath)) {
         Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_603b5ff75924a72c' -Arguments @{ templatePath = "$TemplatePath" })
@@ -393,10 +393,7 @@ To intentionally skip the cache:
     $IsoId = [guid]::NewGuid().ToString().ToUpper()
     $SeedId = [guid]::NewGuid().ToString().ToUpper()
     # --- REGION: https://yuruna.link/4220a755-000a
-    # Keyed on the guest's durable identity, not on the name the VM carries now: a
-    # guest is built in a per-kind slot and renamed to its real name when its
-    # baseline is snapshotted, and an address that moved with that rename would
-    # re-DHCP a guest whose own state already records the one it was built on.
+    # Key the MAC by durable guest identity so rebuilds and VM renames keep the DHCP lease.
     $MacAddress = Get-YurunaGuestMacAddress -VMName $GuestHostname
 
     # Per-VM VNC display number (Get-VncDisplayForVm hashes the name into

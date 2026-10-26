@@ -1,5 +1,6 @@
 // LICENSEURI https://yuruna.link/license
 // Copyright (c) 2019-2026 by Alisson Sol et al.
+// GUID: 4255bf66-23d9-4c73-920d-3cf3df63ca65
 'use strict';
 const assert = require('node:assert/strict');
 const fs = require('node:fs');

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.25
+.VERSION 2026.10.26
 .GUID 427d85b1-fda1-4ae0-9a2f-5a950d4da265
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -165,7 +165,7 @@ if (-not $aclKnob -or -not $aclKnob.present) {
     else { $skipped.Add("libvirt-qemu search ACL on $HOME (setfacl -x failed, exit $LASTEXITCODE)") }
 }
 
-# --- REGION: ufw status-port rule
+# --- REGION: Status-service LAN reachability (host firewall)
 # Removed with or without a capture: the rule is ours by construction -- Enable
 # is what added it, for the status service's port.
 $statusPort = 8080

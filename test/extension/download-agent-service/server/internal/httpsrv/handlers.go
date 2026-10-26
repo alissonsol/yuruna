@@ -1,5 +1,6 @@
 // LICENSEURI https://yuruna.link/license
 // Copyright (c) 2019-2026 by Alisson Sol et al.
+// GUID: 4210f4c0-86cd-483b-8f33-97b19dba4bc4
 
 package httpsrv
 
@@ -72,7 +73,11 @@ func (s *Server) routes() http.Handler {
 	// mean serving a 401 body a browser cannot act on.
 	mux.HandleFunc("GET /{$}", s.servePage("index.html"))
 	mux.HandleFunc("GET /diagnostics", s.servePage("diagnostics.html"))
-	return mux
+	// Any page an operator opens can make the browser POST here, and ensure
+	// is open, so a cross-site unsafe request is refused. Hosts and scripts
+	// send neither Origin nor Sec-Fetch-Site and pass; this service's own pages
+	// are same-origin.
+	return http.NewCrossOriginProtection().Handler(mux)
 }
 
 // --- REGION: JSON helpers
@@ -86,7 +91,7 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 // decodeOptional accepts an absent or empty body, which is how a client that
 // holds nothing locally sends ensure.
 func (s *Server) decodeOptional(w http.ResponseWriter, r *http.Request, dst any) bool {
-	err := jsonbody.Decode(r.Body, dst, config.MaxRequestBytes, true)
+	err := jsonbody.DecodeRequest(w, r, dst, config.MaxRequestBytes, true)
 	if err == nil {
 		return true
 	}

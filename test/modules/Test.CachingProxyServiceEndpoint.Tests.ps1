@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.25
+.VERSION 2026.10.26
 .GUID 424c3d85-6f03-4c68-b42d-34204ceb41ef
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -203,5 +203,3 @@ Describe 'Test-CachingProxyService.ps1 resolves through the shared runner-order 
         Assert-True ($envWrites.Count -eq 0) 'the runner publishes the winner; the smoke test must not mutate the session'
     }
 }
-
-# Copyright (c) 2019-2026 by Alisson Sol et al.

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.25
+.VERSION 2026.10.26
 .GUID 420897b3-ba3c-4550-ba93-63e8deebf8a9
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -80,10 +80,24 @@ function Invoke-WorkloadChartDeployment {
         Write-Information (Format-YurunaOperatorMessage -Key 'automation.operator_aa8bf2f60f5da888' -Arguments @{ chartName = "$chartName"; workloadsFile = "$workloadsFile" }); return (New-YurunaResultManifest -Success $false -ErrorMessage "Chart[$chartName] missing variables['installName'] in $workloadsFile" -FailureClass 'config_error' -DurationMs $sw.ElapsedMilliseconds);
     }
     $workFolder = Join-Path -Path $project_root -ChildPath ".yuruna/$config_subfolder/workloads/$contextName/$installName"
-    $null = New-Item -ItemType Directory -Force -Path $workFolder -ErrorAction SilentlyContinue
+    # The chart goes into an emptied folder: a template the chart no longer
+    # has must not stay behind to be installed, and a copy that fails stops the
+    # deployment instead of installing what half arrived. The folder is emptied
+    # only inside the project's .yuruna tree.
+    $workBase = [IO.Path]::GetFullPath((Join-Path -Path $project_root -ChildPath '.yuruna'))
+    $workFolder = [IO.Path]::GetFullPath($workFolder)
+    if (-not $workFolder.StartsWith($workBase + [IO.Path]::DirectorySeparatorChar, [StringComparison]::Ordinal)) {
+        return (New-YurunaResultManifest -Success $false -ErrorMessage "Chart[$chartName] work folder $workFolder is outside $workBase; check variables['installName'] in $workloadsFile" -FailureClass 'config_error' -DurationMs $sw.ElapsedMilliseconds)
+    }
+    try {
+        if (Test-Path -LiteralPath $workFolder) { Remove-Item -LiteralPath $workFolder -Recurse -Force -ErrorAction Stop }
+        $null = New-Item -ItemType Directory -Force -Path $workFolder -ErrorAction Stop
+        Write-Debug "Copying chart from: $chartFolder to $workFolder"
+        Copy-Item "$chartFolder/*" -Destination $workFolder -Recurse -Container -Force -ErrorAction Stop
+    } catch {
+        return (New-YurunaResultManifest -Success $false -ErrorMessage "chart '$chartName' could not be copied to ${workFolder}: $($_.Exception.Message)" -FailureClass 'tool_failed' -DurationMs $sw.ElapsedMilliseconds)
+    }
     $workFolder = Resolve-Path -Path $workFolder
-    Write-Debug "Copying chart from: $chartFolder to $workFolder"
-    Copy-Item "$chartFolder/*" -Destination $workFolder -Recurse -Container -Force -ErrorAction SilentlyContinue
 
     # Values files are YAML documents, not helm --set expressions.
     $helmValuesFile = Join-Path -Path $workFolder -ChildPath "values.yaml"
@@ -117,7 +131,7 @@ function Invoke-WorkloadChartDeployment {
     if ($lintExit -ne 0) {
         Write-Information (Format-YurunaOperatorMessage -Key 'automation.operator_e1738c24bf654188' -Arguments @{ lintExit = "$lintExit"; installName = "$installName"; workFolder = "$workFolder" })
         $lintOutput | ForEach-Object { Write-Information (Protect-YurunaSecretText -Text ([string]$_) -SecretValue $secretValues) }
-        return (New-YurunaResultManifest -Success $false -ErrorMessage "helm lint failed for chart '$installName' in $workFolder" -FailureClass 'chart_invalid' -ExitCode $lintExit -DurationMs $sw.ElapsedMilliseconds)
+        return (New-YurunaResultManifest -Success $false -ErrorMessage "helm lint failed for chart '$installName' in ${workFolder}: $(Get-YurunaOutputTail -Output $lintOutput -SecretValue $secretValues)" -FailureClass 'chart_invalid' -ExitCode $lintExit -DurationMs $sw.ElapsedMilliseconds)
     }
 
     # Pre-flight: a process kill mid-upgrade leaves the release pending-*
@@ -153,10 +167,21 @@ function Invoke-WorkloadChartDeployment {
     # and the output is ALSO scanned for "Error:" lines because helm can
     # return 0 on post-render admission rejections; either signal aborts.
     # --- REGION: https://yuruna.link/42d69dfa-0040
+    # A fetch that fails for a passing reason (a registry or chart repository
+    # that drops the connection) is retried, as the kubectl and helm tool
+    # deployments are; --atomic has rolled the failed attempt back, so the
+    # retry installs over the release as it was. Each attempt is one section
+    # of helm.stderr.log.
     Write-Debug "Helm upgrade --install --atomic $installName"
-    $installOutput = helm upgrade --install --atomic $installName . --debug *>&1
-    $installExit = $LASTEXITCODE
-    Write-YurunaToolLogSection -LogFile $helmLogFile -Header "== helm upgrade --install --atomic $installName --debug (exit=$installExit) ==" -Line @($installOutput | ForEach-Object { [string]$_ })
+    $transientPattern = Get-YurunaTransientPattern
+    $installBlock = { helm upgrade --install --atomic $installName . --debug *>&1 }.GetNewClosure()
+    $installRetry = {
+        param($info)
+        ((@($info.Output) | ForEach-Object { [string]$_ }) -join "`n") -match $transientPattern
+    }.GetNewClosure()
+    $install = Invoke-WithYurunaRetry -Label "helm upgrade --install --atomic $installName --debug" -ScriptBlock $installBlock -LogPath $helmLogFile -ShouldRetry $installRetry
+    $installOutput = @($install.LastOutput)
+    $installExit = [int]$install.LastExit
     $installOutput | ForEach-Object { Write-Verbose (Protect-YurunaSecretText -Text ([string]$_) -SecretValue $secretValues) }
     Set-Content -LiteralPath $helmRcFile -Value $installExit -NoNewline
     # Match only helm's terminal error shapes: a real error line starts at column
@@ -168,7 +193,8 @@ function Invoke-WorkloadChartDeployment {
     if ($installExit -ne 0 -or $installErrorLines.Count -gt 0) {
         Write-Information (Format-YurunaOperatorMessage -Key 'automation.operator_ce3524d480509234' -Arguments @{ installName = "$installName"; installExit = "$installExit"; count = "$($installErrorLines.Count)"; workFolder = "$workFolder" })
         $installOutput | ForEach-Object { Write-Information (Protect-YurunaSecretText -Text ([string]$_) -SecretValue $secretValues) }
-        return (New-YurunaResultManifest -Success $false -ErrorMessage "helm upgrade --install --atomic '$installName' failed in $workFolder (exit $installExit, $($installErrorLines.Count) Error: line(s))" -FailureClass 'tool_failed' -ExitCode $installExit -DurationMs $sw.ElapsedMilliseconds)
+        $reasonLines = if ($installErrorLines.Count -gt 0) { $installErrorLines } else { $installOutput }
+        return (New-YurunaResultManifest -Success $false -ErrorMessage "helm upgrade --install --atomic '$installName' failed in $workFolder (exit $installExit, $($installErrorLines.Count) Error: line(s)): $(Get-YurunaOutputTail -Output $reasonLines -SecretValue $secretValues)" -FailureClass 'tool_failed' -ExitCode $installExit -DurationMs $sw.ElapsedMilliseconds)
     }
     } finally { Pop-Location }
 }
@@ -276,7 +302,7 @@ function Invoke-WorkloadToolDeployment {
         # times out minutes later -- masking the real fault.
         Write-Information (Format-YurunaOperatorMessage -Key 'automation.operator_796c5d30f7816aa9' -Arguments @{ toolExit = "$toolExit"; expression = "$loggedExpression" })
         $output | ForEach-Object { Write-Information (Protect-YurunaSecretText -Text ([string]$_) -SecretValue $secretValues) }
-        return (New-YurunaResultManifest -Success $false -ErrorMessage "$toolName exit $toolExit for: $loggedExpression" -FailureClass 'tool_failed' -ExitCode $toolExit -DurationMs $sw.ElapsedMilliseconds)
+        return (New-YurunaResultManifest -Success $false -ErrorMessage "$toolName exit $toolExit for: ${loggedExpression}: $(Get-YurunaOutputTail -Output $output -SecretValue $secretValues)" -FailureClass 'tool_failed' -ExitCode $toolExit -DurationMs $sw.ElapsedMilliseconds)
     }
     } finally { Pop-Location }
 }

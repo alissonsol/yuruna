@@ -65,6 +65,29 @@ matching mode. The comparison cache retains at most four text frames and
 patterns larger than 1 Ki characters. Changed text and strict matching use
 their own comparisons, so a cached failure cannot hide a newly drawn prompt.
 
+<a id="42607283-000a"></a>
+
+## The known-answer check at cycle start
+
+Before any guest depends on OCR, each runner cycle reads
+`test/fixtures/ocr/selftest.png` -- nine known words in DejaVu Sans Mono,
+black on white -- through every enabled provider (`Test-OcrKnownAnswer` in
+`Test.OcrEngine`). A provider passes when it reads at least 80% of the words,
+ignoring case. The presence of an engine is not enough: one that is installed
+but cannot read (a missing language pack, a crashing helper, a permission the
+host withdrew) returns empty text, and without this check every wait would
+time out as if the guest were slow and the failure would be filed against a
+guest and its repair.
+
+With the default `Or` combine mode the cycle stops only when no provider reads
+the frame, because a wait reads through any one of them; a provider that fails
+beside one that reads is a warning and an `ocr_known_answer_degraded` event.
+With `And` every provider must read it. A cycle that stops records an
+`instrumentation_failure` at stage `OcrKnownAnswer` for `(host)`, the host's
+instrumentation rather than a guest's. The frame and the word list in the
+module are one fixture: change both together, and the suite
+`Test.OcrKnownAnswer` reads the frame with tesseract to keep them matched.
+
 <a id="42607283-0005"></a>
 
 ## Why a persistent WinRT worker
@@ -265,6 +288,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.25
+Last review: 2026.10.26
 
 Back to [Yuruna](../README.md)

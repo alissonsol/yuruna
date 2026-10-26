@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.25
+.VERSION 2026.10.26
 .GUID 42e5a9c3-7b16-4f02-a8d4-9c3b1e6f5a27
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -221,5 +221,30 @@ Describe 'Host driver contract parity' {
         $dependent = Get-ParameterAst -FunctionAst $fn -Name 'DependentVMName'
         $dependent | Should -Not -BeNullOrEmpty
         $dependent.StaticType | Should -Be ([string[]])
+    }
+}
+
+# The probe record was built in three places on strings nothing checked, so a
+# driver that spelled a state or a reason its consumers do not know passed
+# every gate it reached.
+Describe 'the virtualization probe record has one builder that checks what it records' {
+    BeforeAll {
+        Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Common.psm1') -DisableNameChecking -Global
+        $script:ProbeBase = @{ HostType = 'host.ubuntu.kvm'; ObservedUtc = '2026-10-25T12:00:00Z'; Evidence = [ordered]@{ socket = 'reachable' } }
+    }
+    It 'refuses a state the schema does not name and a reason that is not a lowercase token' {
+        { New-YurunaVirtualizationProbeRecord @script:ProbeBase -State 'Unresponsve' -Reason 'timeout' } | Should -Throw
+        { New-YurunaVirtualizationProbeRecord @script:ProbeBase -State 'Unresponsive' -Reason 'Timed out' } | Should -Throw
+        $record = New-YurunaVirtualizationProbeRecord @script:ProbeBase -State 'Unresponsive' -Reason 'timeout' -Corroborated $true
+        $record.corroborated | Should -BeTrue
+        $record.evidence.socket | Should -Be 'reachable'
+    }
+    It 'is the only place a probe record is built' {
+        $root = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
+        $hand = @(Get-ChildItem -Path (Join-Path $root 'host'), (Join-Path $root 'test/modules'), (Join-Path $root 'automation') -Recurse -Include '*.psm1', '*.ps1' |
+            Where-Object { $_.Name -notlike '*.Tests.ps1' -and $_.FullName -notlike '*automation*Yuruna.Common.psm1' } |
+            Where-Object { (Get-Content -Raw -LiteralPath $_.FullName) -match "PSTypeName\s*=\s*'Yuruna\.VirtualizationProbe'" } |
+            ForEach-Object { $_.FullName.Substring($root.Length + 1) })
+        $hand | Should -BeNullOrEmpty -Because 'every probe record goes through New-YurunaVirtualizationProbeRecord'
     }
 }

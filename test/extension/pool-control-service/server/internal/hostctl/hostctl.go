@@ -1,5 +1,6 @@
 // LICENSEURI https://yuruna.link/license
 // Copyright (c) 2019-2026 by Alisson Sol et al.
+// GUID: 42486ec2-5e9a-4eba-945f-181e2c78575f
 
 // Package hostctl drives another host's operator-control routes: the two pause
 // switches behind the status page's "Pause after cycle" and "Pause after step"

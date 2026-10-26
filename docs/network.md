@@ -1713,8 +1713,8 @@ Three things cover that, and they are independent.
 **The failure is named correctly.** `ssh` reports its own faults as exit 255 and
 passes anything else through as the remote command's status. A dropped transport
 and a script that genuinely exited 255 are therefore identical in exit status,
-and the harness used to attribute both to the guest script -- sending an operator
-to read a script that had often run perfectly. The stderr text separates them
+and attributing both to the guest script sends an operator to read a script that
+has often run perfectly. The stderr text separates them
 (an authentication refusal and a rejected host key are 255 too, and are *not*
 transport losses), and a dropped transport is reported as `network_timeout`,
 which is the class warm resume acts on.
@@ -2834,6 +2834,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.25
+Last review: 2026.10.26
 
 Back to [Yuruna](../README.md)

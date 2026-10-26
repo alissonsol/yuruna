@@ -1,5 +1,6 @@
 /* LICENSEURI https://yuruna.link/license */
 /* Copyright (c) 2019-2026 by Alisson Sol et al. */
+/* GUID: 42c088e9-719f-4dbc-aebb-b1144a6b0c39 */
 
 /* Page tokens. The --chrome-* set is the shared one: see the page-chrome block
    below for why it must not drift between services.
@@ -66,19 +67,17 @@ html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%;
        scroll-padding-bottom: calc(3.5rem + env(safe-area-inset-bottom)); }
 body { font: 15px/1.5 -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; color: var(--fg); background: var(--bg); margin: 0; }
 
-/* ===========================================================================
-   PAGE CHROME -- the black header bar, its menu, and the black footer bar.
-   Header and footer are one surface, and every Yuruna UI carries the same one:
-   same tokens, same type scale, same menu in the same corner, so the host
-   status pages and the service UIs read as one product rather than four
-   lookalikes.
+/* REGION: Page chrome */
+/* The black header bar, its menu, and the black footer bar. Header and footer
+   are one surface, and every Yuruna UI carries the same one: same tokens, same
+   type scale, same menu in the same corner, so the host status pages and the
+   service UIs read as one product rather than four lookalikes.
 
    Keep this block, and the --chrome-* tokens it reads, byte-identical across
    the status pages' yuruna.common.css and the three services' style.css. Each
    daemon embeds its own copy because //go:embed cannot reach outside its own
    module -- the duplication is forced, so drift is the thing to watch for, and
-   Test.ExtensionUiChrome.Tests.ps1 fails when the copies stop matching.
-   =========================================================================== */
+   Test.ExtensionUiChrome.Tests.ps1 fails when the copies stop matching. */
 header.app {
   background: var(--chrome-bg); color: var(--chrome-fg);
   display: flex; align-items: center; flex-wrap: nowrap;
@@ -184,7 +183,10 @@ textarea#footer-ip-list {
 }
 textarea#footer-ip-list::-webkit-scrollbar { display: none; }
 /* The page class makes the fixed-footer clearance explicit on pages that need it. */
-body.has-footer-bar main { padding-bottom: 3rem; padding-bottom: calc(3rem + env(safe-area-inset-bottom)); }
+/* --footer-h is the bar's measured height, set by the page script: the bar
+   wraps to more rows than any fixed padding predicts, and then covers the last
+   control. The constant below it stays the fallback without the script. */
+body.has-footer-bar main { padding-bottom: 3rem; padding-bottom: calc(3rem + env(safe-area-inset-bottom)); padding-bottom: calc(var(--footer-h, calc(2.25rem + env(safe-area-inset-bottom))) + .75rem); }
 
 /* The in-flow footer of a page with no data feed of its own (create, detail).
    Same surface, same padding and same type scale as the fixed bar above, so a
@@ -220,11 +222,15 @@ footer.app a { color: var(--chrome-muted); }
   /* The IP field claims its own row. Reserve space for the touch-height
      controls below it so a fixed footer cannot cover the last table row. */
   #footer-ips { flex-basis: 100%; max-width: 100%; }
-  body.has-footer-bar main { padding-bottom: 6.5rem; padding-bottom: calc(6.5rem + env(safe-area-inset-bottom)); }
+  body.has-footer-bar main { padding-bottom: 6.5rem; padding-bottom: calc(6.5rem + env(safe-area-inset-bottom)); padding-bottom: calc(var(--footer-h, calc(5.75rem + env(safe-area-inset-bottom))) + .75rem); }
 }
 @media (pointer: coarse) {
   .menu-button { min-height: var(--touch-min); min-width: var(--touch-min); }
   .menu-panel a { min-height: var(--touch-min); line-height: 1.7; }
+  /* iOS zooms into a text control under 16px when it takes focus. That is a
+     property of the device, not the width: a landscape phone is wider than
+     the 600px block above. */
+  input:not([type="checkbox"]):not([type="radio"]):not([type="range"]), select, textarea, textarea#footer-ip-list { font-size: 16px; }
 }
 /* Footer controls that read as text. Both are real <button>s: the refresh was
    an <a href="#"> that never navigated -- announced as a link, behaving as a
@@ -238,18 +244,17 @@ footer.app a { color: var(--chrome-muted); }
 }
 #footer-bar .linkish[aria-pressed="true"] { color: var(--chrome-fg); font-weight: 600; }
 /* REGION: Right-to-left mirror */
-/*
-   The right-to-left mirror for the chrome above.
+/* The right-to-left mirror for the chrome above.
 
    The safe-area insets are physical, so the chrome states each side for the
    page's reading direction. Only the sides are mirrored: sizes, colors and
    the tick glyph are the same in both directions.
 
    These rules live in the shared chrome block so every service presents the
-   same header direction.
-   -------------------------------------------------------------------------- */
+   same header direction. */
 [dir="rtl"] header.app > * + * { margin-left: 0; margin-right: 1rem; }
 [dir="rtl"] .menu-button .menu-icon + .menu-label { margin-left: 0; margin-right: .4rem; }
+[dir="rtl"] .menu-panel { right: auto; left: 0; }
 [dir="rtl"] .menu-panel a[aria-current="page"]::after { float: left; margin-left: 0; margin-right: 1.5rem; }
 [dir="rtl"] #footer-bar { text-align: right; }
 [dir="rtl"] #footer-bar > * + * { margin-left: 0; margin-right: .75rem; }
@@ -267,7 +272,7 @@ footer.app a { color: var(--chrome-muted); }
 }
 }
 
-/* === end page chrome ====================================================== */
+/* End of page chrome. */
 
 /* Wider than the other Yuruna UIs on purpose. Every page here is a table whose
    columns are each load-bearing -- a pool, its repositories, its members and
@@ -283,6 +288,10 @@ main {
 }
 h1 { font-size: 1.15rem; margin: 0 0 1rem; }
 table { border-collapse: collapse; width: 100%; margin-top: .5rem; }
+/* Every table sits in a scroll region at any width: a wide table scrolls
+   itself instead of the page, and stays a table (display: block on the table
+   would drop its row and column semantics). */
+.table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
 th, td { text-align: start; padding: .5rem .6rem; border-bottom: 1px solid var(--line); vertical-align: top; }
 th { color: var(--muted); font-weight: 600; font-size: .82rem; text-transform: uppercase; letter-spacing: .03em; }
 /* Banded rows. Every table here is wide enough that the eye loses its row
@@ -425,9 +434,6 @@ progress { vertical-align: middle; width: 12rem; max-width: 40vw; }
 .badge.rekeyed { border-color: var(--err); color: var(--err); }
 
 @media (max-width: 600px) {
-  /* The 4-6 column tables overflow a 375px phone; scroll the table itself
-     instead of the whole page (matches the stash UI's .table-wrap idiom). */
-  table { display: block; overflow-x: auto; -webkit-overflow-scrolling: touch; }
   /* iOS Safari zooms the viewport when a focused text control computes under
      16px and never zooms back out; keep desktop density, pay 16px on phones.
      min-height widens the tap targets toward the 44px touch minimum. */
@@ -519,7 +525,9 @@ progress { vertical-align: middle; width: 12rem; max-width: 40vw; }
 .unlock-overlay .login input,
 .unlock-overlay .login button { min-height: 44px; font-size: 1rem; border-radius: 10px; padding: 0 0.7rem; }
 .unlock-overlay .login input {
-  border: 1px solid var(--line); background: var(--bg); color: var(--fg);
+  /* --control-edge, not --line: --line is a divider at 1.25:1, too faint to
+     show where the one field on the overlay is. */
+  border: 1px solid var(--control-edge); background: var(--bg); color: var(--fg);
   text-align: center; letter-spacing: 0.2em; text-transform: lowercase;
 }
 .unlock-overlay .login-error { color: var(--err); font-size: 0.9rem; margin: 0.6rem 0 0; }

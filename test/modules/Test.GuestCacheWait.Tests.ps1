@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.25
+.VERSION 2026.10.26
 .GUID 4276e020-0628-4d46-8dad-488125045d50
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -555,5 +555,3 @@ Describe 'guest-cache-wait: the workload helper names a lost address too' {
         Assert-True ($branch -match 'yuruna_net_tcp_verdict "\$CACHE_HOST" 5000') 'the verdict line must precede the zot hint'
     }
 }
-
-# Copyright (c) 2019-2026 by Alisson Sol et al.

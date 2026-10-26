@@ -1,5 +1,6 @@
 // LICENSEURI https://yuruna.link/license
 // Copyright (c) 2019-2026 by Alisson Sol et al.
+// GUID: 42992c0e-3b83-4a06-adf5-b96c98dff151
 //
 // What the pool-control UI adds to the shared runtime: the Lab-token gate.
 // Everything page-agnostic -- Y.el, Y.api, the chrome, the table furniture --

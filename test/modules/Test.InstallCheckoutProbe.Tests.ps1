@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.25
+.VERSION 2026.10.26
 .GUID 42d7f870-73af-4342-b771-c578f6b19167
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -85,7 +85,8 @@ function Import-InstallerFunction {
 $installerAst = Get-InstallerAst -Path $installer
 $probeSource  = Import-InstallerFunction -RootAst $installerAst -Name @(
     'Move-YurunaDirectory', 'Test-YurunaPathInside',
-    'Restore-YurunaCheckoutFromProbe', 'Assert-YurunaCheckoutMovable')
+    'Restore-YurunaCheckoutFromProbe', 'Assert-YurunaCheckoutMovable',
+    'Restore-YurunaCheckoutAfterFailedClone', 'Add-InstallIssue')
 . ([scriptblock]::Create($probeSource))
 
 # Output stubs. Write-Die is the installer's fatal exit (Write-Error under
@@ -312,4 +313,33 @@ Describe 'install checkout probe -- the installer moves directories by rename on
     }
 }
 
-# Copyright (c) 2019-2026 by Alisson Sol et al.
+Describe 'A re-clone that fails puts the previous checkout back' {
+    BeforeEach {
+        $script:Said.Clear()
+        $script:YurunaIssue = [System.Collections.Generic.List[string]]::new()
+        $script:CheckoutPath = Join-Path $probeRoot 'reclone-checkout'
+        $script:BackupPath = Join-Path $probeRoot 'reclone-checkout.backup.2026-10-25.10-00-00'
+        foreach ($dir in $script:CheckoutPath, $script:BackupPath) { if (Test-Path -LiteralPath $dir) { Remove-Item -LiteralPath $dir -Recurse -Force } }
+        $null = New-Item -ItemType Directory -Path (Join-Path $script:BackupPath 'test/status/runtime') -Force
+        Set-Content -LiteralPath (Join-Path $script:BackupPath 'VERSION') -Value 'kept'
+    }
+    AfterEach { foreach ($dir in $script:CheckoutPath, $script:BackupPath) { if (Test-Path -LiteralPath $dir) { Remove-Item -LiteralPath $dir -Recurse -Force } } }
+
+    It 'removes what the clone left, restores the moved checkout and records why' {
+        $null = New-Item -ItemType Directory -Path (Join-Path $script:CheckoutPath '.git') -Force
+        Restore-YurunaCheckoutAfterFailedClone -Path $script:CheckoutPath -Backup $script:BackupPath -Remote 'https://example.invalid/yuruna.git' -Branch 'main' -ExitCode 128 -Confirm:$false | Should -BeTrue
+        Get-Content -LiteralPath (Join-Path $script:CheckoutPath 'VERSION') | Should -Be 'kept'
+        Test-Path -LiteralPath (Join-Path $script:CheckoutPath 'test/status/runtime') | Should -BeTrue -Because 'the runtime state comes back with it'
+        Test-Path -LiteralPath $script:BackupPath | Should -BeFalse
+        @($script:YurunaIssue | Where-Object { $_ -match 'put back' }).Count | Should -Be 1
+    }
+    It 'says it could not when the checkout moved aside is gone' {
+        Remove-Item -LiteralPath $script:BackupPath -Recurse -Force
+        Restore-YurunaCheckoutAfterFailedClone -Path $script:CheckoutPath -Backup $script:BackupPath -Remote 'r' -Branch 'main' -ExitCode 128 -Confirm:$false | Should -BeFalse
+        $script:YurunaIssue.Count | Should -Be 0
+    }
+    It 'is what the installer runs when its re-clone fails, before it would stop' {
+        $src = Get-Content -Raw -LiteralPath $installer
+        $src | Should -Match '(?s)\$cloneExit = \$LASTEXITCODE\s+if \(\$cloneExit -ne 0\) \{\s+if \(-not \(Restore-YurunaCheckoutAfterFailedClone '
+    }
+}

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.25
+.VERSION 2026.10.26
 .GUID 42cf4f7f-3c33-488c-8cc6-1cb70b8f8836
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -116,8 +116,9 @@ function New-HookRepository {
 if ([IO.File]::Exists((Join-Path $base 'pester6-missing'))) { exit 1 }
 exit 0
 '@)
-    # The compiler exits 1 when it wrote, so the hook reads success from the
-    # summary line; a file beside the repository replaces what it prints.
+    # The compiler exits 0 when it is done, whether or not it wrote; a file
+    # beside the repository replaces what it prints and stands for a refused
+    # source, which exits 1.
     Write-FixtureFile -Path (Join-Path $root 'tools/Invoke-CatalogCompile.ps1') -Text (Get-StubText -Name 'Invoke-CatalogCompile' -Behavior @'
 $scripted = Join-Path $base 'compile-output.txt'
 if ([IO.File]::Exists($scripted)) { [IO.File]::ReadAllText($scripted).TrimEnd("`n") -split "`n" | ForEach-Object { Write-Output $_ }; exit 1 }
@@ -133,7 +134,7 @@ if ([IO.File]::Exists($writes)) {
     }
 }
 Write-Output "PASS; wrote $count artifact(s)."
-exit 1
+exit 0
 '@)
     Write-FixtureFile -Path (Join-Path $root 'tools/Invoke-DomainInventory.ps1') -Text (Get-StubText -Name 'Invoke-DomainInventory' -Behavior @'
 $stale = Join-Path $base 'inventory-stale'
@@ -375,6 +376,17 @@ exit 0
         $run.Code | Should -Be 1 -Because $run.Text
         $run.Text | Should -Match 'retranslate'
         $run.Text | Should -Not -Match 'dev-only|localization-pro|Export-Localization'
+    }
+
+    # The hook read success from the summary line, so a failed run that still
+    # printed one was taken for a compile that wrote.
+    It 'refuses a compile that exits 1 even when its output carries a summary line' {
+        $fixture = New-HookRepository -Name 'summary-not-success'
+        Write-FixtureFile -Path (Join-Path $fixture.Base 'compile-output.txt') -Text "Compiled 1 domain(s) in 1 locale(s); wrote 1 artifact(s).`n"
+        Set-EnglishCatalog -Fixture $fixture
+        $run = Invoke-HookCommit -Fixture $fixture
+        $run.Code | Should -Be 1 -Because $run.Text
+        $run.Text | Should -Match 'the catalog compiler failed \(exit 1\)'
     }
 
     It 'gives no retranslation hint for a planned locale''s warning' {
@@ -671,5 +683,3 @@ Export-ModuleMember -Function Get-EntryPointExitCode
         $exclusive.Dispose()
     }
 }
-
-# Copyright (c) 2019-2026 by Alisson Sol et al.

@@ -1,5 +1,6 @@
 // LICENSEURI https://yuruna.link/license
 // Copyright (c) 2019-2026 by Alisson Sol et al.
+// GUID: 42644eba-c8df-46eb-8420-df54490805ee
 
 package imagestore
 
@@ -720,7 +721,7 @@ func (a *Agent) refreshNow(ctx context.Context, id ImageID, p *Progress) error {
 	if err != nil {
 		return err
 	}
-	sha, written, viaProxy, err := a.downloadTo(ctx, res.SourceURL, staged, p)
+	sha, written, viaProxy, err := a.downloadTo(ctx, res.SourceURL, staged, size, p)
 	if err != nil {
 		_ = os.Remove(staged)
 		return err
@@ -754,7 +755,7 @@ func (a *Agent) refreshNow(ctx context.Context, id ImageID, p *Progress) error {
 			_ = os.Remove(staged)
 			return &presentationError{cause: fmt.Errorf("proxy content failed verification (%v); direct retry: %w", err, directErr), presentation: errorPresentation{code: "download.refresh_proxy_retry", arguments: map[string]any{"proxy": err.Error(), "direct": directErr.Error()}}}
 		}
-		sha, written, err = copyStream(direct, staged, p)
+		sha, written, err = copyStream(direct, staged, size, p)
 		viaProxy = false
 		if err != nil {
 			_ = os.Remove(staged)
@@ -856,7 +857,7 @@ func (a *Agent) probe(ctx context.Context, rawURL string) (int64, string, error)
 // because a partially proxied file cannot be resumed against a different peer.
 // The boolean identifies the final byte source, so origin verification can
 // retry a complete but stale proxy hit without retrying already-direct bytes.
-func (a *Agent) downloadTo(ctx context.Context, rawURL, dstPath string, p *Progress) (string, int64, bool, error) {
+func (a *Agent) downloadTo(ctx context.Context, rawURL, dstPath string, size int64, p *Progress) (string, int64, bool, error) {
 	resp, viaProxy, err := a.openStream(ctx, rawURL)
 	if err != nil {
 		return "", 0, false, err
@@ -864,7 +865,7 @@ func (a *Agent) downloadTo(ctx context.Context, rawURL, dstPath string, p *Progr
 	if viaProxy {
 		a.logf("fetching %s via the caching proxy", rawURL)
 	}
-	sha, n, err := copyStream(resp, dstPath, p)
+	sha, n, err := copyStream(resp, dstPath, size, p)
 	if err == nil || !viaProxy || ctx.Err() != nil {
 		return sha, n, viaProxy, err
 	}
@@ -875,21 +876,28 @@ func (a *Agent) downloadTo(ctx context.Context, rawURL, dstPath string, p *Progr
 	if derr != nil {
 		return "", n, false, &presentationError{cause: fmt.Errorf("proxy stream failed (%v); direct retry: %w", err, derr), presentation: errorPresentation{code: "download.refresh_proxy_retry", arguments: map[string]any{"proxy": err.Error(), "direct": derr.Error()}}}
 	}
-	sha, n, err = copyStream(direct, dstPath, p)
+	sha, n, err = copyStream(direct, dstPath, size, p)
 	return sha, n, false, err
 }
 
 // copyStream writes one response body into dstPath, hashing and counting as it
 // goes, and always closes the body. dstPath is truncated, so a retry starts a
-// clean artifact rather than appending to a partial one.
-func copyStream(resp *http.Response, dstPath string, p *Progress) (string, int64, error) {
+// clean artifact rather than appending to a partial one. With a size from the
+// origin's probe it reads at most one byte past it: that byte is enough for the
+// caller's size check to call the reply a mismatch, and reading on would fill
+// the pool with whatever an origin or proxy keeps sending.
+func copyStream(resp *http.Response, dstPath string, size int64, p *Progress) (string, int64, error) {
 	defer resp.Body.Close()
 	f, err := os.Create(dstPath)
 	if err != nil {
 		return "", 0, err
 	}
+	body := io.Reader(resp.Body)
+	if size > 0 {
+		body = io.LimitReader(resp.Body, size+1)
+	}
 	hasher := sha256.New()
-	n, copyErr := io.Copy(io.MultiWriter(f, hasher, p), resp.Body)
+	n, copyErr := io.Copy(io.MultiWriter(f, hasher, p), body)
 	closeErr := f.Close()
 	if copyErr != nil {
 		return "", n, copyErr

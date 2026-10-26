@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.25
+.VERSION 2026.10.26
 .GUID 423d0447-f082-4bcc-aa8c-feb1b6cfab81
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -134,6 +134,26 @@ Describe 'Get-CredentialProvider pattern dispatch' {
         Assert-True ($p.Pattern -is [string] -and $p.Pattern.Length -gt 0)
         Assert-True ($p.Authenticator -is [scriptblock]) 'the self-heal path needs the Authenticator'
         Assert-True ($p.LoginCommand  -is [scriptblock]) 'the batch push path needs the LoginCommand'
+    }
+}
+
+# A provider a project registered after the module loaded sat behind the
+# built-in catch-all, which claims every host, so it was never reached.
+Describe 'A provider a project registers' {
+    AfterEach {
+        & (Get-Module Test.CredentialProvider) { foreach ($type in 'project-harbor', 'project-harbor-2', 'project-azurecr') { $script:Providers.Remove($type) } }
+    }
+    It 'is reached ahead of the catch-all, the most recent registration first' {
+        Register-CredentialProvider -Type 'project-harbor' -Pattern '^harbor\.example\.test(/|$)' -Authenticator { $true }
+        Assert-Equal -Expected 'project-harbor' -Actual (Get-CredentialProvider -Target 'harbor.example.test/app').Type
+        Register-CredentialProvider -Type 'project-harbor-2' -Pattern '^harbor\.example\.test(/|$)' -Authenticator { $true }
+        Assert-Equal -Expected 'project-harbor-2' -Actual (Get-CredentialProvider -Target 'harbor.example.test').Type -Because 'the newest registration wins'
+        Assert-Equal -Expected 'docker-generic' -Actual (Get-CredentialProvider -Target 'other.example.test').Type -Because 'other hosts still reach the catch-all'
+    }
+    It 'can take a built-in kind''s hosts, and leaves the built-in order otherwise' {
+        Register-CredentialProvider -Type 'project-azurecr' -Pattern '\.azurecr\.io(/|$)' -Authenticator { $true }
+        Assert-Equal -Expected 'project-azurecr' -Actual (Get-CredentialProvider -Target 'yuruna.azurecr.io').Type
+        Assert-Equal -Expected 'dockerhub' -Actual (Get-CredentialProvider -Target 'docker.io').Type
     }
 }
 

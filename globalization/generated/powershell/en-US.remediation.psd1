@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.25
+.VERSION 2026.10.26
 .GUID 42566df9-1f3e-a604-b789-3ec5dfc0e347
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -19,6 +19,17 @@
 # locale: en-US  domain: remediation
 
 @{
+    'remediation.guest_run_lost_action_inspect' = 'Read the guest''s execution log for what ended the process.'
+    'remediation.guest_run_lost_action_restore' = 'Restore the last good snapshot and run the sequence again.'
+    'remediation.guest_run_lost_rationale' = @(
+        'The run on '
+        @{
+            'arg' = 'vmName'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ' was lost: the guest''s supervisor answered but could not account for it, so the process is gone and reconnecting cannot bring it back.'
+    )
     'remediation.hypervisor_unresponsive_action_evidence' = 'Read utm-control-snapshot.*.json and utm-log-show.*.txt in the cycle folder: a UTM pid or start time that changed mid-cycle is a crash and relaunch, and the unified-log excerpt names what preceded it'
     'remediation.hypervisor_unresponsive_action_restart' = 'Restart the hypervisor control application on the host: on macOS quit UTM.app from the desktop session (or run test/lab/Invoke-HostRefresh.ps1), then confirm that `utmctl stop` on a stopped VM returns at once'
     'remediation.hypervisor_unresponsive_action_resume' = 'Resume the runner once a lifecycle verb answers again; the next cycle probes the control channel before it builds anything'
@@ -727,5 +738,15 @@
             'type' = 'detail'
             'trust' = 'external'
         }
+    )
+    'remediation.vm_not_stopped_action_inspect' = 'If it happens again, look at the guest console for what is holding the shutdown.'
+    'remediation.vm_not_stopped_action_power' = 'Power the VM off from the host -- a retry with restartVmBeforeRetry: coldPowerCycle does this -- and run the step again.'
+    'remediation.vm_not_stopped_rationale' = @(
+        @{
+            'arg' = 'vmName'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ' never reached the stopped state the step waited for: the guest ignored the shutdown request, and waiting again cannot change that. A cold power cycle can.'
     )
 }

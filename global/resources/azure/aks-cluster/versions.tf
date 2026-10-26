@@ -1,5 +1,6 @@
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
+# GUID: 427603f0-4c28-4a7a-9bd1-b2cb654af610
 # https://registry.terraform.io/providers/hashicorp/azurerm/latest
 
 terraform {

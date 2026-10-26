@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.25
+.VERSION 2026.10.26
 .GUID 42311ffa-42b0-4315-961e-121394721d42
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -99,31 +99,36 @@ Import-Module -Name $resourcesModulePath -Force
 Import-Module -Name $componentsModulePath -Force
 Import-Module -Name $workloadsModulePath -Force
 
-# --- REGION: Start transcript
-$null = Start-Transcript $transcriptFileName
-
 # --- REGION: Run operation
+# The harness starts and stops the transcript, so an operation that throws
+# still ends it and still reports a result: a manifest for the deploy phases,
+# a false result for the yes-or-no ones. The usage text stays outside it:
+# output inside the harness is the operation's result.
 $result = $false
-switch -Exact ($operation)
-{
-    'requirements' { $result = Confirm-RequirementList }
-    'clear' { $result = Clear-Configuration $project_root $config_subfolder }
-    'validate' { $result = Confirm-Configuration $project_root $config_subfolder }
-    'resources' { $result = Publish-ResourceList $project_root $config_subfolder }
-    'components' { $result = Publish-ComponentList $project_root $config_subfolder }
-    'workloads' { $result = Publish-WorkloadList $project_root $config_subfolder }
-    Default {
-        Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_f4f81454232e5a55');
-        Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_26f9c3d0c529d327');
-        Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_bb12775978dc7d56');
-        Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_5b2ea4673a88ff6f');
-        Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_e0765f1e2dfb2c75');
-        Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_8cc3b54d17ecd066');
+if ($operation -in @('requirements', 'clear', 'validate', 'resources', 'components', 'workloads')) {
+    $booleanOperation = $operation -in @('requirements', 'clear', 'validate')
+    $result = Invoke-YurunaEntrypoint -TranscriptFile $transcriptFileName -BooleanResult:$booleanOperation -Operation {
+        switch -Exact ($operation)
+        {
+            'requirements' { Confirm-RequirementList }
+            'clear' { Clear-Configuration $project_root $config_subfolder }
+            'validate' { Confirm-Configuration $project_root $config_subfolder }
+            'resources' { Publish-ResourceList $project_root $config_subfolder }
+            'components' { Publish-ComponentList $project_root $config_subfolder }
+            'workloads' { Publish-WorkloadList $project_root $config_subfolder }
+        }
     }
 }
-
-# --- REGION: Stop transcript
-$null = Stop-Transcript
+else {
+    $null = Start-Transcript $transcriptFileName
+    Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_f4f81454232e5a55');
+    Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_26f9c3d0c529d327');
+    Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_bb12775978dc7d56');
+    Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_5b2ea4673a88ff6f');
+    Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_e0765f1e2dfb2c75');
+    Write-Output (Format-YurunaOperatorMessage -Key 'automation.operator_8cc3b54d17ecd066');
+    $null = Stop-Transcript
+}
 
 # --- REGION: Completion
 # See https://yuruna.link/42e220c4-0019

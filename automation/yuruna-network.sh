@@ -1,7 +1,8 @@
 #!/bin/bash
-# Version: 2026.10.25
+# Version: 2026.10.26
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
+# GUID: 4243a9d0-6816-43a1-83f6-9809b63ccfa5
 #
 # Guest network helper for Ubuntu Server and Amazon Linux, deployed at
 # /usr/local/lib/yuruna/yuruna-network.sh and shared by diagnostics and release.

@@ -1,7 +1,8 @@
 #!/bin/bash
-# Version: 2026.10.25
+# Version: 2026.10.26
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
+# GUID: 4293fe9e-c743-4e9d-b6c1-586585bfa3d1
 
 # --- REGION: https://yuruna.link/42fa6f45-0005
 # Honor trusted payload/library hashes and source pins before running downloaded bytes.

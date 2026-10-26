@@ -1,5 +1,6 @@
 // LICENSEURI https://yuruna.link/license
 // Copyright (c) 2019-2026 by Alisson Sol et al.
+// GUID: 425949da-8c67-455b-9f3f-c71f524d2668
 // Recent-stashes list + search. Visibility-aware auto-refresh, so a
 // backgrounded tab does not poll. Also the delete surface for a whole page of
 // stashes: one button per row, plus a checkbox selection driving a bulk delete.

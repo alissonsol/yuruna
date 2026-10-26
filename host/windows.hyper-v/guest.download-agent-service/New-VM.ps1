@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.25
+.VERSION 2026.10.26
 .GUID 4284f1a3-c3b1-43a6-8b63-36822be6e25d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -121,13 +121,16 @@ if (-not (Expand-ExtensionVmDisk -Path $vhdxFile -SizeBytes 256GB -Format 'vhdx'
 }
 
 # --- REGION: Stage the cloud-init seed directory
-# meta-data is shared under host/vmconfig/ (byte-identical across all 3 host platforms).
-$hostVmConfigDir = Join-Path (Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSScriptRoot))) 'host/vmconfig'
 # The seed carries the admin password. It is staged in a private workspace
 # beside the disk (owner, SYSTEM and Administrators only), published as an
 # image only the new VM may read, and removed on every exit by the finally below.
+# meta-data is shared under host/vmconfig/ (byte-identical across all 3 host platforms).
+$hostVmConfigDir = Join-Path (Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSScriptRoot))) 'host/vmconfig'
 Import-Module (Join-Path $PSScriptRoot '../../../automation/Yuruna.Common.psm1') -DisableNameChecking
 Import-Module (Join-Path $PSScriptRoot '../../modules/Yuruna.SeedMedia.psm1') -Force
+# A plaintext source an older builder left in the temp folder goes first.
+Get-ChildItem -LiteralPath ([IO.Path]::GetTempPath()) -Directory -Filter "seed_${VMName}_*" -ErrorAction SilentlyContinue |
+    Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
 $seedWorkspace = $null
 try {
     $seedWorkspace = New-SeedMediaWorkspace -ParentPath $vmDir
@@ -289,10 +292,8 @@ try {
     $createdVm = Hyper-V\Get-VM -Name $VMName -ErrorAction Stop
     Grant-SeedMediaVmRead -Path $SeedIso -VMId $createdVm.Id -Confirm:$false
 
-    # --- REGION: Clean up temporary files
 } finally {
-    # The seed holds the guest's admin credentials; it must not outlive this
-    # script on any path, an early exit or a throw included.
+    # --- REGION: Clean up temporary files
     Remove-SeedMediaWorkspace -Workspace $seedWorkspace -Confirm:$false
 }
 
@@ -304,8 +305,8 @@ Hyper-V\Start-VM -Name $VMName
 Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_2c8ff2df499f232c')
 Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_b93b853caa0a1c89')
 
-# Discover via Get-CacheVmCandidateIp -- shared primitive in Yuruna.Host
-# that combines KVP + ARP. Same approach as the caching-proxy-service pattern.
+# Wait-HyperVServiceGuestAddress polls KVP and bridge neighbors, the same
+# discovery the caching-proxy-service builder uses.
 $ProgressPreference = 'Continue'
 $dockCandidateIps = @(Wait-HyperVServiceGuestAddress -VMName $VMName -SwitchName $switchName -TimeoutSeconds 600)
 

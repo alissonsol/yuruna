@@ -1,5 +1,6 @@
 // LICENSEURI https://yuruna.link/license
 // Copyright (c) 2019-2026 by Alisson Sol et al.
+// GUID: 42da69e1-9466-4e8c-abca-cec9af001407
 
 package httpsrv
 
@@ -158,7 +159,7 @@ func newServer(t *testing.T, opts Options) (*httptest.Server, *fakeImages) {
 	f := newFake(t)
 	opts.Images = f
 	if opts.Version == "" {
-		opts.Version = "2026.10.25"
+		opts.Version = "2026.10.26"
 	}
 	srv := httptest.NewServer(New(opts).Handler())
 	t.Cleanup(srv.Close)
@@ -443,7 +444,7 @@ func TestTheAdvertisedFileUrlIsFetchableVerbatim(t *testing.T) {
 		t.Fatalf("Commit: %v", err)
 	}
 
-	srv := httptest.NewServer(New(Options{Images: agent, Version: "2026.10.25"}).Handler())
+	srv := httptest.NewServer(New(Options{Images: agent, Version: "2026.10.26"}).Handler())
 	t.Cleanup(srv.Close)
 
 	catalog := decodeBody(t, get(t, srv, "/api/v1/images"))
@@ -778,5 +779,30 @@ func TestDiagnosticsPageServesWithTheMenuWiredBothWays(t *testing.T) {
 	}
 	if !strings.Contains(string(page), `href="/"`) {
 		t.Fatal("diagnostics.html has no menu link back to the pool page")
+	}
+}
+
+// ensure is open, so a page on another site could make the operator's browser
+// start downloads through it; such a request is refused, while a host, which
+// sends neither Origin nor Sec-Fetch-Site, is not affected.
+func TestACrossSiteEnsureIsRefused(t *testing.T) {
+	srv, f := newServer(t, Options{})
+	req, _ := http.NewRequest(http.MethodPost, srv.URL+imgPath+"/ensure"+imgQuery, strings.NewReader(""))
+	req.Header.Set("Origin", "http://elsewhere.example")
+	req.Header.Set("Sec-Fetch-Site", "cross-site")
+	req.Header.Set("Content-Type", "text/plain")
+	resp, err := srv.Client().Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("cross-site ensure = %d, want 403", resp.StatusCode)
+	}
+	if len(f.ensured) != 0 {
+		t.Fatalf("a cross-site ensure reached the store: %+v", f.ensured)
+	}
+	if r := post(t, srv, imgPath+"/ensure"+imgQuery, "", nil); r.StatusCode != http.StatusOK {
+		t.Fatalf("a host's ensure = %d, want 200", r.StatusCode)
 	}
 }

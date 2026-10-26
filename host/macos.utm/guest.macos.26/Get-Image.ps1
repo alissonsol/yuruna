@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.25
+.VERSION 2026.10.26
 .GUID 42b0f1a0-585e-4f1d-8e6b-453c54b16950
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -246,12 +246,18 @@ Write-Output ($vOut -join "`n")
 
 # --- REGION: Preserve previous and finalize
 $previousFile = Join-Path $downloadDir "$baseImageName.previous.ipsw"
-Remove-Item $previousFile -Force -ErrorAction SilentlyContinue
-if (Test-Path $baseImageFile) {
-    Move-Item -Path $baseImageFile -Destination $previousFile
+# The sentinel below vouches for the base image, so it follows only a swap
+# that is proven to have put the downloaded bytes there.
+Import-Module -Name (Join-Path (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)) 'modules/Yuruna.Image.psm1') -DisableNameChecking
+try {
+    $keptPrevious = Publish-YurunaBaseImage -DownloadFile $downloadFile -BaseImageFile $baseImageFile -PreviousFile $previousFile -ExpectedSize $downloadedSize -Confirm:$false
+} catch {
+    Write-Error (Format-YurunaOperatorMessage -Key 'host.base_image_publish_failed' -Arguments @{ baseImageFile = "$baseImageFile"; message = "$($_.Exception.Message)" })
+    exit 1
+}
+if ($keptPrevious) {
     Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_05027812540d620c' -Arguments @{ previousFile = "$previousFile" })
 }
-Move-Item -Path $downloadFile -Destination $baseImageFile
 
 # Origin sentinel (filename, URL, byte count, Last-Modified) read back by
 # Test-DownloadAlreadyCurrent on the next run to skip an identical re-download.

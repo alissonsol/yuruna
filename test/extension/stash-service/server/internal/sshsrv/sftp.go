@@ -1,5 +1,6 @@
 // LICENSEURI https://yuruna.link/license
 // Copyright (c) 2019-2026 by Alisson Sol et al.
+// GUID: 42a33bd5-74fb-4226-b81e-c99e762b9468
 
 // SFTP ingest path. Modern OpenSSH scp (>= 9.0) speaks the SFTP protocol
 // by default and does NOT fall back to the legacy scp wire protocol, so
@@ -54,12 +55,19 @@ func (s *Server) serveSFTP(ch ssh.Channel, username, remote string) {
 	log.Printf("sftp session ended: user=%s remote=%s", username, clientIP)
 }
 
+// maxOpenUploads caps the files one SFTP session holds open at once. Each is
+// a pending index row, a staging folder and a descriptor until its CLOSE, and
+// a client that sends its files one after another needs only a few.
+var maxOpenUploads = 16
+
 // stashSFTP implements the pkg/sftp request handler interfaces, scoped to
 // one SSH connection (so it carries the captured username + client IP).
 type stashSFTP struct {
 	srv      *Server
 	username string
 	clientIP string
+	mu       sync.Mutex
+	open     int
 }
 
 // Fileread -- downloads are not supported; the stash is write-only.
@@ -70,7 +78,27 @@ func (h *stashSFTP) Fileread(*sftp.Request) (io.ReaderAt, error) {
 // Filewrite routes an upload into the stash and returns a writer whose
 // Close() finalizes the artifact.
 func (h *stashSFTP) Filewrite(r *sftp.Request) (io.WriterAt, error) {
-	return h.srv.newSFTPUpload(r.Filepath, h.username, h.clientIP)
+	h.mu.Lock()
+	if h.open >= maxOpenUploads {
+		h.mu.Unlock()
+		return nil, sftp.ErrSSHFxFailure
+	}
+	h.open++
+	h.mu.Unlock()
+	u, err := h.srv.newSFTPUpload(r.Filepath, h.username, h.clientIP)
+	if err != nil {
+		h.release()
+		return nil, err
+	}
+	u.release = h.release
+	return u, nil
+}
+
+// release gives back one open-upload slot; an upload calls it once, on Close.
+func (h *stashSFTP) release() {
+	h.mu.Lock()
+	h.open--
+	h.mu.Unlock()
 }
 
 // Filecmd accepts the metadata operations scp issues (setstat/mtime,
@@ -133,6 +161,7 @@ type sftpUpload struct {
 	size       int64
 	truncated  bool
 	failed     bool
+	release    func()
 }
 
 // newSFTPUpload allocates an ID, picks the share/buffer target, inserts a
@@ -218,6 +247,10 @@ var _ sftp.TransferError = (*sftpUpload)(nil)
 func (u *sftpUpload) Close() error {
 	u.mu.Lock()
 	defer u.mu.Unlock()
+	if u.release != nil {
+		defer u.release()
+		u.release = nil
+	}
 	closeErr := fsutil.SyncClose(u.f)
 	if closeErr != nil {
 		u.failed = true

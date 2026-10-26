@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.25
+.VERSION 2026.10.26
 .GUID 421267e3-f5fa-3558-ead4-2600d7d08c6a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -1394,15 +1394,6 @@
             'trust' = 'external'
         }
         '''.'
-    )
-    'automation.operator_483ad55e8c49c6d8' = @(
-        '-- AVISO: tofu já inicializado: '
-        @{
-            'arg' = 'terraformPath'
-            'type' = 'detail'
-            'trust' = 'external'
-        }
-        "`nO recurso pode não ser criado. Use 'yuruna clear' para limpar o estado do tofu."
     )
     'automation.operator_485fb74637bada2f' = 'Sonda de conectividade (ping -c 3 -W 2 1.1.1.1)'
     'automation.operator_48a01e8836cadcfb' = 'Estado da resolução de DNS'

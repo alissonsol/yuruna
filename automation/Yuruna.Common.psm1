@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.25
+.VERSION 2026.10.26
 .GUID 42fcd8c5-0a6a-4e17-b89b-9c4d030faa8e
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -5092,8 +5092,15 @@ function Remove-YurunaHostProxyBackup {
 }
 
 function New-YurunaVirtualizationProbeRecord {
-    <# .SYNOPSIS
+    <#
+    .SYNOPSIS
         Build the common probe schema from driver evidence and a sanitized diagnostic.
+    .DESCRIPTION
+        The one builder of the record every driver's Test-VirtualizationResponsive
+        returns and the refresh worker synthesizes. Its consumers branch on the
+        state and the reason, so both are checked here: a state outside the three
+        the schema names, or a reason that is not a lowercase token, is a driver
+        bug that would otherwise pass every gate it reaches unnoticed.
     #>
     [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
         Justification = 'Builds an in-memory record only; nothing on disk or in process state changes.')]
@@ -5101,11 +5108,12 @@ function New-YurunaVirtualizationProbeRecord {
     [OutputType([pscustomobject])]
     param(
         [Parameter(Mandatory)][string]$HostType,
-        [Parameter(Mandatory)][string]$State,
-        [Parameter(Mandatory)][string]$Reason,
+        [Parameter(Mandatory)][ValidateSet('Responsive', 'Unresponsive', 'Undetermined')][string]$State,
+        [Parameter(Mandatory)][ValidatePattern('^[a-z][a-z0-9-]{0,63}$', Options = 'None')][string]$Reason,
         [bool]$Started,
         [bool]$TimedOut,
         [bool]$DeadlineExhausted,
+        [bool]$Corroborated,
         [Parameter(Mandatory)][string]$ObservedUtc,
         [long]$ObservedTick,
         [long]$ElapsedMs,
@@ -5121,7 +5129,7 @@ function New-YurunaVirtualizationProbeRecord {
         started           = $Started
         timedOut          = $TimedOut
         deadlineExhausted = $DeadlineExhausted
-        corroborated      = $false
+        corroborated      = $Corroborated
         observedUtc       = $ObservedUtc
         observedTick      = $ObservedTick
         elapsedMs         = $ElapsedMs

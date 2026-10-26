@@ -1,5 +1,6 @@
 // LICENSEURI https://yuruna.link/license
 // Copyright (c) 2019-2026 by Alisson Sol et al.
+// GUID: 42b203d1-9e48-4e62-9c84-d1fd0d9c6909
 
 // Package scp implements just enough of OpenSSH's SCP sink-mode wire
 // protocol (section 5) to receive files from a standard `scp` client.
@@ -190,21 +191,37 @@ func finishFile(br *bufio.Reader, out io.Writer) error {
 	return nil
 }
 
+// maxControlLine bounds one control line. A header is a mode, a size and one
+// file name, which no file system the stash writes to lets exceed 255 bytes,
+// so a longer line is a client that will never send its newline.
+const maxControlLine = 4096
+
 // readControlLine returns one \n-terminated line WITHOUT the trailing
 // newline. The protocol guarantees ASCII for C/D/E/T headers.
 func readControlLine(br *bufio.Reader) (string, error) {
-	line, err := br.ReadString('\n')
-	if err != nil {
+	var line []byte
+	for {
+		chunk, err := br.ReadSlice('\n')
+		line = append(line, chunk...)
+		if len(line) > maxControlLine {
+			return "", fmt.Errorf("control line longer than %d bytes", maxControlLine)
+		}
+		if err == nil {
+			break
+		}
+		if errors.Is(err, bufio.ErrBufferFull) {
+			continue
+		}
 		// EOF without a partial line is the natural session end.
 		if errors.Is(err, io.EOF) {
-			if line == "" {
+			if len(line) == 0 {
 				return "", io.EOF
 			}
 			return "", io.ErrUnexpectedEOF
 		}
 		return "", err
 	}
-	return strings.TrimRight(line, "\n"), nil
+	return strings.TrimRight(string(line), "\n"), nil
 }
 
 // parseCLine handles both C<mode> <size> <name> and D<mode> 0 <name>

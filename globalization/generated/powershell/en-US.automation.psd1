@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.25
+.VERSION 2026.10.26
 .GUID 42c500e1-53a2-2a0c-075b-981a925571bd
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -1366,15 +1366,6 @@
             'trust' = 'external'
         }
         '''.'
-    )
-    'automation.operator_483ad55e8c49c6d8' = @(
-        '-- WARNING: tofu already initialized: '
-        @{
-            'arg' = 'terraformPath'
-            'type' = 'detail'
-            'trust' = 'external'
-        }
-        " `n   Resource may not be created. Use 'yuruna clear' to clear tofu state."
     )
     'automation.operator_485fb74637bada2f' = 'Connectivity probe (ping -c 3 -W 2 1.1.1.1)'
     'automation.operator_48a01e8836cadcfb' = 'DNS resolver status'

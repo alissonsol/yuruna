@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.25
+.VERSION 2026.10.26
 .GUID 42785eb2-7793-490d-933e-6ced2c275f4a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -222,6 +222,83 @@ Describe 'Refresh gate states (Get-YurunaRefreshGateState)' {
             -ExpectedGeneration $closed.Generation -PrivateRoot $t.Root -Confirm:$false
         Assert-Equal -Expected 'lock-busy' -Actual $busy.Reason
         $holder.Kill($true)
+    }
+}
+
+# A power loss in the middle of a refresh left its gate held by an owner that no
+# longer exists; nothing expires a gate by age, so every start refused until an
+# operator ran Invoke-HostRefresh.ps1 -Resume.
+Describe 'A refresh an earlier boot left unfinished' {
+    BeforeEach {
+        $script:Launches = [System.Collections.Generic.List[object]]::new()
+        Mock -ModuleName Test.SingleInstance Start-YurunaDetachedProcess {
+            $script:Launches.Add(@{ FilePath = $FilePath; ArgumentList = @($ArgumentList); StdErrPath = $StdErrPath; PrivateDirectory = $PrivateDirectory })
+            [pscustomobject]@{ Launched = $true; Reason = 'launched'; FinalPid = 4242 }
+        }
+        $script:Boot = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
+        $script:EarlierBootGate = [pscustomobject]@{
+            Orphaned = $true; RequestId = $script:RequestId
+            Owner = @{ pid = 999999; startTimeUnixMs = $script:Boot - 3600000; role = 'refresh-worker' }
+        }
+    }
+    It 'resumes it once per boot and request, detached, with the operator''s own remedy' {
+        $t = New-TestRoot
+        $first = Invoke-YurunaRefreshBootResume -Gate $script:EarlierBootGate -RepoRoot $script:Work -PrivateRoot $t.Root -BootEpochMs $script:Boot -Confirm:$false
+        Assert-True $first.Launched "launched ($($first.Reason))"
+        Assert-Equal -Expected 4242 -Actual $first.Pid
+        Assert-Equal -Expected 1 -Actual $script:Launches.Count
+        Assert-Equal -Expected (Join-Path $script:Work 'test/lab/Invoke-HostRefresh.ps1') -Actual $script:Launches[0].FilePath
+        Assert-Equal -Expected '-Resume' -Actual ($script:Launches[0].ArgumentList -join ' ')
+        Assert-Equal -Expected $t.Root -Actual $script:Launches[0].PrivateDirectory -Because 'the worker''s streams stay private'
+        $marker = Get-Content -Raw -LiteralPath (Join-Path $t.Root 'boot-resume.json') | ConvertFrom-Json
+        Assert-Equal -Expected $script:RequestId -Actual $marker.requestId
+        $again = Invoke-YurunaRefreshBootResume -Gate $script:EarlierBootGate -RepoRoot $script:Work -PrivateRoot $t.Root -BootEpochMs ($script:Boot + 5000) -Confirm:$false
+        Assert-Equal -Expected 'already-tried' -Actual $again.Reason
+        Assert-Equal -Expected 1 -Actual $script:Launches.Count -Because 'a second start in the same boot launches nothing'
+        $nextBoot = Invoke-YurunaRefreshBootResume -Gate $script:EarlierBootGate -RepoRoot $script:Work -PrivateRoot $t.Root -BootEpochMs ($script:Boot + 86400000) -Confirm:$false
+        Assert-True $nextBoot.Launched 'the next boot tries once more'
+        $other = $script:EarlierBootGate.PSObject.Copy()
+        $other.RequestId = '0f1c2d3e-4a5b-4c6d-8e7f-0a1b2c3d4e5f'
+        Assert-True (Invoke-YurunaRefreshBootResume -Gate $other -RepoRoot $script:Work -PrivateRoot $t.Root -BootEpochMs ($script:Boot + 86400000) -Confirm:$false).Launched 'another request gets its own attempt'
+    }
+    It 'leaves to the operator a gate that is not orphaned, or whose owner died in this boot or has no recorded start' {
+        $t = New-TestRoot
+        $held = $script:EarlierBootGate.PSObject.Copy(); $held.Orphaned = $false
+        Assert-Equal -Expected 'not-orphaned' -Actual (Invoke-YurunaRefreshBootResume -Gate $held -RepoRoot $script:Work -PrivateRoot $t.Root -BootEpochMs $script:Boot -Confirm:$false).Reason
+        # Recorded while alive, so the gate carries its start time, then ended.
+        $owner = Start-TestProcess -FilePath $script:Pwsh -ArgumentList @('-NoProfile', '-Command', 'Start-Sleep -Seconds 30')
+        $null = Close-TestGate -T $t -OwnerPid $owner.Id
+        $owner.Kill($true)
+        $owner.WaitForExit()
+        $thisBoot = Get-YurunaRefreshGateState -RuntimeDir $t.Runtime -PrivateRoot $t.Root
+        Assert-True $thisBoot.Orphaned 'fixture sanity: the owner is gone'
+        Assert-True ($null -ne $thisBoot.Owner['startTimeUnixMs']) 'fixture sanity: the owner''s start was recorded'
+        Assert-Equal -Expected 'owner-this-boot' -Actual (Invoke-YurunaRefreshBootResume -Gate $thisBoot -RepoRoot $script:Work -PrivateRoot $t.Root -Confirm:$false).Reason
+        $unknown = $script:EarlierBootGate.PSObject.Copy(); $unknown.Owner = @{ pid = 999999; role = 'refresh-worker' }
+        Assert-Equal -Expected 'owner-start-unknown' -Actual (Invoke-YurunaRefreshBootResume -Gate $unknown -RepoRoot $script:Work -PrivateRoot $t.Root -BootEpochMs $script:Boot -Confirm:$false).Reason
+        Assert-Equal -Expected 0 -Actual $script:Launches.Count
+    }
+    It 'does not retry in the same boot when the launch failed, and writes nothing under -WhatIf' {
+        $t = New-TestRoot
+        Assert-Equal -Expected 'whatif' -Actual (Invoke-YurunaRefreshBootResume -Gate $script:EarlierBootGate -RepoRoot $script:Work -PrivateRoot $t.Root -BootEpochMs $script:Boot -WhatIf).Reason
+        Assert-False (Test-Path -LiteralPath (Join-Path $t.Root 'boot-resume.json')) 'a preview leaves no marker'
+        Mock -ModuleName Test.SingleInstance Start-YurunaDetachedProcess { [pscustomobject]@{ Launched = $false; Reason = 'launcher-failed' } }
+        $failed = Invoke-YurunaRefreshBootResume -Gate $script:EarlierBootGate -RepoRoot $script:Work -PrivateRoot $t.Root -BootEpochMs $script:Boot -Confirm:$false
+        Assert-Equal -Expected 'launch-failed:launcher-failed' -Actual $failed.Reason
+        Assert-Equal -Expected 'already-tried' -Actual (Invoke-YurunaRefreshBootResume -Gate $script:EarlierBootGate -RepoRoot $script:Work -PrivateRoot $t.Root -BootEpochMs $script:Boot -Confirm:$false).Reason
+    }
+    It 'runs from a refused start only for an orphaned gate, before the start exits' {
+        $ast = [System.Management.Automation.Language.Parser]::ParseFile((Join-Path $script:Here '../Start-TestRunner.ps1'), [ref]$null, [ref]$null)
+        $call = @($ast.FindAll({ param($n) $n -is [System.Management.Automation.Language.CommandAst] -and $n.GetCommandName() -eq 'Invoke-YurunaRefreshBootResume' }, $true))
+        Assert-Equal -Expected 1 -Actual $call.Count -Because 'one boot resume at startup'
+        $guard = $call[0].Parent
+        while ($guard -and $guard -isnot [System.Management.Automation.Language.IfStatementAst]) { $guard = $guard.Parent }
+        Assert-Equal -Expected '$startGate.Orphaned' -Actual $guard.Clauses[0].Item1.Extent.Text
+        $refusal = $guard.Parent
+        while ($refusal -and $refusal -isnot [System.Management.Automation.Language.IfStatementAst]) { $refusal = $refusal.Parent }
+        Assert-Match -Pattern 'SpawnAllowed' -Actual $refusal.Clauses[0].Item1.Extent.Text
+        $exit = @($refusal.Clauses[0].Item2.FindAll({ param($n) $n -is [System.Management.Automation.Language.ExitStatementAst] }, $true))
+        Assert-True ($exit.Count -ge 1 -and $exit[-1].Extent.StartOffset -gt $call[0].Extent.StartOffset) 'the start still refuses after the resume'
     }
 }
 
@@ -680,16 +757,35 @@ Describe 'Runner startup order in resume mode (source)' {
         $resumed = @($calls | Where-Object { (& $conditionOf $_) -eq '$RefreshResume' })
         Assert-Equal -Expected 1 -Actual $normal.Count
         Assert-Equal -Expected 1 -Actual $resumed.Count
-        Assert-True ($normal[0].Extent.StartOffset -lt (Get-FirstCommandOffset 'Get-RunnerInstanceState')) 'a normal start sweeps before its takeover'
-        Assert-True ($normal[0].Extent.StartOffset -lt (Get-FirstCommandOffset 'Get-YurunaRunnerRecordState')) 'and before any record classification'
+        # A refusing start reads runner.pid only to decide whether to record its
+        # own launch, and changes nothing; the classification the sweep must
+        # precede is the takeover's.
+        $refusalBlock = @($script:RunnerAst.FindAll({ param($n)
+            $n -is [System.Management.Automation.Language.AssignmentStatementAst] -and $n.Left.Extent.Text -eq '$completeLaunchRecord' }, $true) |
+            Sort-Object { $_.Extent.StartOffset } | Select-Object -First 1)
+        Assert-Equal -Expected 1 -Actual $refusalBlock.Count -Because 'the refusal-time launch record block exists'
+        $takeoverOffset = {
+            param([string]$Name)
+            $call = @($script:RunnerCommands | Where-Object {
+                $_.GetCommandName() -eq $Name -and -not (
+                    $_.Extent.StartOffset -ge $refusalBlock[0].Extent.StartOffset -and $_.Extent.EndOffset -le $refusalBlock[0].Extent.EndOffset) }) |
+                Sort-Object { $_.Extent.StartOffset } | Select-Object -First 1
+            Assert-NotNull $call "required startup command: $Name"
+            return $call.Extent.StartOffset
+        }
+        Assert-True ($normal[0].Extent.StartOffset -lt (& $takeoverOffset 'Get-RunnerInstanceState')) 'a normal start sweeps before its takeover'
+        Assert-True ($normal[0].Extent.StartOffset -lt (& $takeoverOffset 'Get-YurunaRunnerRecordState')) 'and before any record classification'
         Assert-True ($resumed[0].Extent.StartOffset -gt (Get-FirstCommandOffset 'Write-RunnerPidFile')) 'a resumed start touches runtime state only after it holds runner.pid'
     }
-    It 'marks the launch record a clean exit before every startup refusal that follows it' {
-        $written = Get-FirstCommandOffset 'Write-YurunaRunnerLaunchRecord'
-        $loop = Get-FirstCommandOffset 'Invoke-RunnerOuterSupervisor'
-        $exits = @($script:RunnerAst.FindAll({ param($n) $n -is [System.Management.Automation.Language.ExitStatementAst] }, $true) |
-            Where-Object { $_.Extent.StartOffset -gt $written -and $_.Extent.StartOffset -lt $loop })
-        Assert-True ($exits.Count -ge 3) "the yaml, elevation and config-gate refusals ($($exits.Count) exits)"
+    # The refusals run before the takeover on a fresh start and after it on a
+    # resumed one, so they live in two scriptblocks rather than in one stretch
+    # of the script; every exit in them marks the record first.
+    It 'marks the launch record a clean exit before every startup refusal' {
+        $refusals = @($script:RunnerAst.FindAll({ param($n)
+            $n -is [System.Management.Automation.Language.AssignmentStatementAst] -and $n.Left.Extent.Text -in @('$refuseStart', '$refuseOneShot') }, $true))
+        Assert-Equal -Expected 2 -Actual $refusals.Count -Because 'the startup refusals and the one-shot lease refusal'
+        $exits = @($refusals | ForEach-Object { $_.Right.FindAll({ param($n) $n -is [System.Management.Automation.Language.ExitStatementAst] }, $true) })
+        Assert-True ($exits.Count -ge 4) "the yaml, elevation, config-gate and one-shot refusals ($($exits.Count) exits)"
         foreach ($exit in $exits) {
             $block = $exit.Parent
             $marks = @($block.FindAll({ param($n) $n -is [System.Management.Automation.Language.CommandAst] -and $n.InvocationOperator -eq 'Ampersand' -and

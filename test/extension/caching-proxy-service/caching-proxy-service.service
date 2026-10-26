@@ -1,5 +1,6 @@
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
+# GUID: 4289744f-0b56-42fb-97cb-8d931d4d6c7c
 # --- REGION: [Unit]
 [Unit]
 Description=Yuruna caching-proxy-service (management plane for the caching proxy)

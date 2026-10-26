@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.25
+.VERSION 2026.10.26
 .GUID 42eaea7b-b54f-495c-bbdc-838c8758fced
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -98,12 +98,17 @@ function Publish-ComponentList {
         return (Protect-YurunaSecretText -Text $Text)
     }
 
+    # The redacted end of the last phase's output, which decides whether a
+    # failed build attempt is worth another (buildRetry).
+    $phaseTail = @{ text = '' }
+
     function Invoke-ComponentCommand {
         # Each phase has its own supervised process so a stuck native child is
         # bounded without terminating the publisher. A private state sidecar
         # preserves environment changes made by PowerShell preprocessors.
         param([string]$Phase, [string]$Command, [switch]$Sensitive)
         $phaseWatch = [Diagnostics.Stopwatch]::StartNew()
+        $phaseTail.text = ''
         $secrets = Get-YurunaSecretValue
         function Protect-ComponentText {
             param([string]$Text)
@@ -165,6 +170,8 @@ exit $code
                 param([string]$Text)
                 if (-not $Text) { return }
                 Add-Content -LiteralPath $dockerLogFile -Value $Text -NoNewline -ErrorAction Stop
+                $phaseTail.text += $Text
+                if ($phaseTail.text.Length -gt 16384) { $phaseTail.text = $phaseTail.text.Substring($phaseTail.text.Length - 16384) }
                 $message = [Management.Automation.HostInformationMessage]::new()
                 $message.Message = $Text
                 $message.NoNewLine = $true
@@ -261,6 +268,11 @@ exit $code
         if ($null -ne $configuredTimeout -and (-not [int]::TryParse([string]$configuredTimeout, [ref]$commandTimeout) -or $commandTimeout -lt 1 -or $commandTimeout -gt 3600)) {
             return (New-YurunaResultManifest -Success $false -ErrorMessage 'commandTimeoutSeconds must be an integer between 1 and 3600.' -FailureClass 'config_error' -DurationMs $sw.ElapsedMilliseconds)
         }
+        $buildAttempts = 1
+        $configuredAttempts = if ($component.Contains('buildRetry')) { $component['buildRetry'] } else { $componentsYaml.globalVariables['buildRetry'] }
+        if ($null -ne $configuredAttempts -and (-not [int]::TryParse([string]$configuredAttempts, [ref]$buildAttempts) -or $buildAttempts -lt 1 -or $buildAttempts -gt 10)) {
+            return (New-YurunaResultManifest -Success $false -ErrorMessage 'buildRetry must be an integer between 1 and 10.' -FailureClass 'config_error' -DurationMs $sw.ElapsedMilliseconds)
+        }
         $projectName = $component['project']
         if ([string]::IsNullOrEmpty($projectName)) { Write-Information (Format-YurunaOperatorMessage -Key 'automation.operator_c6903487e18366b6' -Arguments @{ componentsFile = "$componentsFile" }); return (New-YurunaResultManifest -Success $false -ErrorMessage "component.project cannot be null or empty in file: $componentsFile" -FailureClass 'config_error' -DurationMs $sw.ElapsedMilliseconds); }
         $projectNameExpanded = $ExecutionContext.InvokeCommand.ExpandString($projectName)
@@ -329,7 +341,19 @@ exit $code
         $executionCommand = $ExecutionContext.InvokeCommand.ExpandString($buildCommand)
         $displayCommand = Protect-ComponentCommandText $executionCommand
         Write-Debug "Build: $displayCommand"
-        Invoke-ComponentCommand -Phase "build[$projectName]" -Command $executionCommand
+        if ($buildAttempts -gt 1) {
+            # See https://yuruna.link/42e568c8-000c
+            # Another attempt only while the failed one's output names a passing
+            # fault (a registry or proxy that dropped the connection); a compile
+            # error fails at once. Each attempt is its own phase section of
+            # docker.stderr.log.
+            $buildRun = Invoke-WithYurunaRetry -Label "build[$projectName]" -MaxAttempts $buildAttempts `
+                -ScriptBlock { Invoke-ComponentCommand -Phase "build[$projectName]" -Command $executionCommand } `
+                -ShouldRetry { param($info) $null = $info; Test-YurunaTransientFailure -Output $phaseTail.text }
+            $global:LASTEXITCODE = [int]$buildRun.LastExit
+        } else {
+            Invoke-ComponentCommand -Phase "build[$projectName]" -Command $executionCommand
+        }
         if (-Not (0 -eq $LASTEXITCODE)) {
             Write-Information (Format-YurunaOperatorMessage -Key 'automation.operator_04b616b009d4b902' -Arguments @{ lASTEXITCODE = "$LASTEXITCODE"; executionCommand = "$displayCommand" })
             return (New-YurunaResultManifest -Success $false -ErrorMessage "build[$projectName] exit ${LASTEXITCODE}: $displayCommand" -FailureClass 'tool_failed' -ExitCode $LASTEXITCODE -DurationMs $sw.ElapsedMilliseconds);

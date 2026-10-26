@@ -300,6 +300,8 @@ paket-files/
 # Python
 *.pyc
 __pycache__/
+# Python virtual environments, such as the one dev-only/ontology/README.md describes.
+.venv/
 
 # Tabs Studio
 *.tss

@@ -1,5 +1,6 @@
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
+# GUID: 42be4e86-3a20-423f-8c70-4b0e3c50505b
 #
 # Example guest-to-hypervisor compatibility rules. Validates against
 # test/schemas/guests.compatibility.schema.yml. This is validated with pool

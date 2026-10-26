@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.25
+.VERSION 2026.10.26
 .GUID 421a4d8a-ef0d-4f12-ab3c-235c0e8c3732
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -250,9 +250,9 @@ function Test-SnapshotManifestMatch {
 function Remove-SnapshotManifest {
     <#
     .SYNOPSIS
-        Delete a snapshot's manifest. Called by a future
-        Remove-VMDiskSnapshot path; today's only caller is a test
-        fixture cleaning up. Returns $true when a file was removed.
+        Delete a snapshot's manifest, for a snapshot-removal path that does
+        not exist yet; today's only caller is a test fixture cleaning up.
+        Returns $true when a file was removed.
     #>
     [CmdletBinding(SupportsShouldProcess)]
     [OutputType([bool])]

@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
+# GUID: 425296f7-f0c9-4c8c-a77a-dcb90be36706
 
 """Private-state repair tests confined to disposable directories."""
 

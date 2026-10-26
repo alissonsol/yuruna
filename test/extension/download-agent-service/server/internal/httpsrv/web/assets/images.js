@@ -1,5 +1,6 @@
 // LICENSEURI https://yuruna.link/license
 // Copyright (c) 2019-2026 by Alisson Sol et al.
+// GUID: 42d3dd75-c05c-4072-b17c-2cb36e140b02
 // The Download pool page: agent header, image table, per-row actions.
 // No innerHTML on data.
 (function () {

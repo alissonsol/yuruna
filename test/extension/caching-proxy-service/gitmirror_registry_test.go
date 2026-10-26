@@ -1,5 +1,6 @@
 // LICENSEURI https://yuruna.link/license
 // Copyright (c) 2019-2026 by Alisson Sol et al.
+// GUID: 42c95fde-d66a-4f97-8aea-c4bbba918da3
 
 package main
 
@@ -96,5 +97,20 @@ func TestMirrorMissingCredentialFileStaysAbsent(t *testing.T) {
 	}
 	if _, err := os.Stat(path); !os.IsNotExist(err) {
 		t.Fatal("credential file was minted")
+	}
+}
+
+// A repository name follows GitHub's limits, which keep its storage key, one
+// path component, short enough to be a file name.
+func TestMirrorRepositoryNamesFitTheFileSystem(t *testing.T) {
+	longest := strings.Repeat("o", 39) + "/" + strings.Repeat("n", 100)
+	if _, err := canonicalMirrorRepository(longest); err != nil {
+		t.Fatalf("GitHub's longest owner and name were refused: %v", err)
+	}
+	if name := mirrorRepoKey(longest) + ".json"; len(name) > 255 {
+		t.Fatalf("the longest name's state file is %d bytes long", len(name))
+	}
+	if _, err := canonicalMirrorRepository(strings.Repeat("o", 40) + "/name"); err == nil {
+		t.Fatal("an owner longer than GitHub allows was accepted")
 	}
 }

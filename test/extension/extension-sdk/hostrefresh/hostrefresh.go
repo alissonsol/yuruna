@@ -1,5 +1,6 @@
 // LICENSEURI https://yuruna.link/license
 // Copyright (c) 2019-2026 by Alisson Sol et al.
+// GUID: 42fe010a-ff84-4bc7-b7fd-db874195d67c
 
 // Package hostrefresh is the remote authorization boundary for a host refresh:
 // the versioned refresh proof a host verifies, the signer that mints it, the

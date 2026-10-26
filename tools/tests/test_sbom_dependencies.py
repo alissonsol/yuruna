@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
+# GUID: 42077c55-b246-40c3-b3b6-b9b846da9051
 """Verify offline dependency identity, graph and checksum evidence collection."""
 import base64
 import json

@@ -7,6 +7,16 @@ package catalog
 // DatazhCNremediation is the compiled catalog for this locale and domain. It is a
 // string so the package carries no init cost until a caller decodes it.
 const DatazhCNremediation = `{
+  "remediation.guest_run_lost_action_inspect": "阅读客户机的执行日志，查明是什么结束了该进程。",
+  "remediation.guest_run_lost_action_restore": "恢复最后一个良好的快照，然后再次运行该序列。",
+  "remediation.guest_run_lost_rationale": [
+    {
+      "arg": "vmName",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "上的运行已丢失：客户机的监管进程有响应，但无法说明该运行的去向，进程已不存在，重新连接无法恢复它。"
+  ],
   "remediation.hypervisor_unresponsive_action_evidence": "阅读周期文件夹中的utm-control-snapshot.*.json和utm-log-show.*.txt：UTM的进程ID或启动时间在周期中途发生变化表明曾崩溃并重新启动，统一日志摘录则说明了此前发生的事情",
   "remediation.hypervisor_unresponsive_action_restart": "在宿主机上重新启动虚拟机管理程序控制应用：在macOS上从桌面会话退出UTM.app（或运行test/lab/Invoke-HostRefresh.ps1），然后确认对已停止的虚拟机执行` + "`" + `utmctl stop` + "`" + `能立即返回",
   "remediation.hypervisor_unresponsive_action_resume": "当生命周期命令再次响应后恢复运行器；下一个周期会在构建任何内容之前探测控制通道",
@@ -690,6 +700,16 @@ const DatazhCNremediation = `{
       "type": "detail",
       "trust": "external"
     }
+  ],
+  "remediation.vm_not_stopped_action_inspect": "如果再次发生，请在客户机控制台中查看是什么阻止了关机。",
+  "remediation.vm_not_stopped_action_power": "从宿主机关闭该虚拟机（带restartVmBeforeRetry: coldPowerCycle的retry会这样做），然后再次运行该步骤。",
+  "remediation.vm_not_stopped_rationale": [
+    {
+      "arg": "vmName",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "始终未进入该步骤等待的停止状态：客户机忽略了关机请求，再次等待无法改变这一点。冷关机再开机可以。"
   ]
 }
 `

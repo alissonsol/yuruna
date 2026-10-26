@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.25
+.VERSION 2026.10.26
 .GUID 4208c0a7-cacd-4e3f-a54a-dc38c6dcd0b3
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -177,5 +177,3 @@ function Get-YurunaMachineCredential {
 Export-ModuleMember -Function `
     Select-YurunaLabStorageRoot, Resolve-YurunaLabVaultKey, `
     Get-YurunaLabStorageRoot, Get-YurunaLabVaultPassword, Get-YurunaMachineCredential
-
-# Copyright (c) 2019-2026 by Alisson Sol et al.

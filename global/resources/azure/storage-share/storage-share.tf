@@ -1,5 +1,6 @@
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
+# GUID: 42c718f9-cd42-4b2a-b587-dea25a0fc76c
 resource "azurerm_storage_account" "default" {
   name                     = var.storageAccountName
   resource_group_name      = var.resourceGroup

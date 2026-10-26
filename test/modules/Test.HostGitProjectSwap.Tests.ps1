@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.25
+.VERSION 2026.10.26
 .GUID 4207281c-d594-4c5f-b5f3-215bb075539f
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -387,6 +387,17 @@ Describe 'Restore-ProjectCloneSwap recovers an interrupted refresh' {
         $actions | Should -Be @('removed-previous')
         Test-Path -LiteralPath (Join-Path $script:Repo 'project/current.txt') | Should -BeTrue
         Test-Path -LiteralPath (Join-Path $script:Repo 'project.previous') | Should -BeFalse
+    }
+    It 'puts the complete set-aside checkout back over a partial one a copy left' {
+        $remote = New-GitRemoteFixture -Root $script:Root
+        & git clone --quiet $remote (Join-Path $script:Repo 'project.previous') 2>&1 | Out-Null
+        & git clone --quiet $remote (Join-Path $script:Repo 'project') 2>&1 | Out-Null
+        Remove-Item -LiteralPath (Join-Path $script:Repo 'project/tracked.txt') -Force
+        $actions = @(Restore-ProjectCloneSwap -RepoRoot $script:Repo -Confirm:$false)
+        $actions | Should -Be @('restored-previous', 'removed-incoming')
+        Test-Path -LiteralPath (Join-Path $script:Repo 'project/tracked.txt') | Should -BeTrue -Because 'the complete copy is the checkout again'
+        Test-Path -LiteralPath (Join-Path $script:Repo 'project.previous') | Should -BeFalse
+        Test-Path -LiteralPath (Join-Path $script:Repo 'project.incoming') | Should -BeFalse
     }
     It 'deletes a clone that never finished, and keeps the checkout' {
         & $script:AddDir 'project' 'current.txt'

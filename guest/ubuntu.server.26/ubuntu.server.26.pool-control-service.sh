@@ -1,7 +1,8 @@
 #!/bin/bash
-# Version: 2026.10.25
+# Version: 2026.10.26
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
+# GUID: 426b4671-5d78-44e6-b6d7-77924967ec88
 # See https://yuruna.link/42e220c4-0005
 # See https://yuruna.link/4207d71a-000c
 # --- REGION: Initialize environment
@@ -88,8 +89,8 @@ if ! grep -q '^YURUNA_POOL_CONFIGURATION_GIT_URL=' /etc/yuruna/pool.env 2>/dev/n
 fi
 
 # --- REGION: Storage paths
-# Pool NAS mount (CIFS) -> state dir. NAS host/share/cred come from pool.env,
-# matching Test.PoolStorage's networkStorage.poolStorageNetworkPath contract.
+# See https://yuruna.link/42e220c4-000f
+# Read pool NAS coordinates from pool.env, matching the host storage contract.
 POOL_NAS_UNC="$(sed -n 's/^YURUNA_POOL_NETWORK_PATH=//p' /etc/yuruna/pool.env 2>/dev/null | head -1 || true)"
 POOL_NAS_IP="$(sed -n 's/^YURUNA_POOL_NETWORK_IP=//p' /etc/yuruna/pool.env 2>/dev/null | head -1 || true)"
 POOL_NAS_USER="$(sed -n 's/^YURUNA_POOL_NETWORK_USER=//p' /etc/yuruna/pool.env 2>/dev/null | head -1 || true)"

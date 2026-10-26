@@ -1867,6 +1867,11 @@
       "sourceHash": "aedd2003b2a7c38b4af0667a090aa363d68b67814e6401b5f0821bad691dd39b",
       "origin": "machine",
       "message": "Proibido (não é um arquivo servido)"
+    },
+    "status.banner_recovery_disabled": {
+      "sourceHash": "a9c3d53b4d9e6073373c5d96b95265a7531ccf3f447c74d7437476087d8e62ba",
+      "origin": "machine",
+      "message": "A recuperação automática está desligada: o registro de recuperação não pode ser lido nem gravado."
     }
   }
 }

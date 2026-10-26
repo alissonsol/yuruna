@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
+# GUID: 427e2337-8a33-448d-8d0e-80c94d0106d8
 # Seeded fetch context launcher. Values in the context are data, never shell code.
 # --- REGION: Initialize environment
 set -euo pipefail
@@ -61,7 +62,7 @@ validate_context() {
         key=${line%%=*}
         encoded=${line#*=}
         case $key in
-            id|cmd_sha|rel|E_SHA|E_RETRY_SHA|EXEC_REQUIRE_SHA256|E_FB_REPO|E_FB_REF|E_PROJECT_REPO|E_PROJECT_REF|E_SI|E_QI|EXEC_PROFILE|EXEC_KEEP_PROFILE|EXEC_RECORDER|E_RECORDER_URL|E_RECORDER_PATH) ;;
+            id|cmd_sha|rel|E_SHA|E_RETRY_SHA|EXEC_REQUIRE_SHA256|E_FB_REPO|E_FB_REF|E_PROJECT_REPO|E_PROJECT_REF|E_ARCHIVE_COMMIT|E_ARCHIVE_SHA|E_PROJECT_ARCHIVE_COMMIT|E_PROJECT_ARCHIVE_SHA|E_SI|E_QI|EXEC_PROFILE|EXEC_KEEP_PROFILE|EXEC_RECORDER|E_RECORDER_URL|E_RECORDER_PATH) ;;
             *) fail CONTEXT_FIELD ;;
         esac
         [[ ! -v values[$key] && $encoded =~ ^[A-Za-z0-9+/]*={0,2}$ ]] || fail CONTEXT_FIELD
@@ -110,6 +111,15 @@ validate_context() {
         [[ ${values[E_PROJECT_REF]-} =~ ^[0-9a-f]{40}$ ]] || fail CONTEXT_SOURCE
         [[ ${values[rel]-} == project/?* ]] || fail CONTEXT_SOURCE
     fi
+    # The framework and project trees an update script unpacks: the commit to
+    # request and the digest of the archive the host builds for it.
+    local archive
+    for archive in E_ARCHIVE E_PROJECT_ARCHIVE; do
+        if [[ -v values[${archive}_COMMIT] || -v values[${archive}_SHA] ]]; then
+            [[ ${values[${archive}_COMMIT]-} =~ ^[0-9a-f]{40}$ ]] || fail CONTEXT_SOURCE
+            valid_sha "${values[${archive}_SHA]-}" || fail CONTEXT_DIGEST
+        fi
+    done
 }
 
 # --- REGION: Prepare context
@@ -200,14 +210,14 @@ validate_context "$claim/context" "$id"
 actual_sha=$(printf '%s' "$command" | sha256sum)
 [[ ${actual_sha%% *} == "${values[cmd_sha]}" ]] || fail COMMAND_DIGEST
 unset FAE_INVOCATION_SCRIPT
-for key in E_SHA E_RETRY_SHA EXEC_REQUIRE_SHA256 E_FB_REPO E_FB_REF E_PROJECT_REPO E_PROJECT_REF E_SI E_QI EXEC_PROFILE EXEC_KEEP_PROFILE EXEC_RECORDER E_RECORDER_URL E_RECORDER_PATH; do
+for key in E_SHA E_RETRY_SHA EXEC_REQUIRE_SHA256 E_FB_REPO E_FB_REF E_PROJECT_REPO E_PROJECT_REF E_ARCHIVE_COMMIT E_ARCHIVE_SHA E_PROJECT_ARCHIVE_COMMIT E_PROJECT_ARCHIVE_SHA E_SI E_QI EXEC_PROFILE EXEC_KEEP_PROFILE EXEC_RECORDER E_RECORDER_URL E_RECORDER_PATH; do
     # An absent field must not inherit a previous invocation's source pin.
     unset "$key"
     if [[ -v values[$key] ]]; then
         printf -v "$key" '%s' "${values[$key]}"
     fi
 done
-export E_SHA E_RETRY_SHA EXEC_REQUIRE_SHA256 E_FB_REPO E_FB_REF E_PROJECT_REPO E_PROJECT_REF E_SI E_QI EXEC_PROFILE EXEC_KEEP_PROFILE EXEC_RECORDER E_RECORDER_URL E_RECORDER_PATH
+export E_SHA E_RETRY_SHA EXEC_REQUIRE_SHA256 E_FB_REPO E_FB_REF E_PROJECT_REPO E_PROJECT_REF E_ARCHIVE_COMMIT E_ARCHIVE_SHA E_PROJECT_ARCHIVE_COMMIT E_PROJECT_ARCHIVE_SHA E_SI E_QI EXEC_PROFILE EXEC_KEEP_PROFILE EXEC_RECORDER E_RECORDER_URL E_RECORDER_PATH
 rm -rf -- "$claim"
 trap - EXIT
 umask "$caller_umask"

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.25
+.VERSION 2026.10.26
 .GUID 424332a3-0599-4bf6-b2b3-ef2842f9fe93
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -18,7 +18,7 @@
 
 <#
 .SYNOPSIS
-    The three repairs the runner may make on its own, registered on the recovery
+    The four repairs the runner may make on its own, registered on the recovery
     ledger.
 .DESCRIPTION
     Each repair is small, idempotent and takes no action beyond a bounded git
@@ -34,6 +34,11 @@
       end_failure_pause_early The failure classes the remediation dispatcher
                               already treats as clearly safe to retry end the
                               pause early.
+      end_failure_pause_on_probe
+                              A host condition whose registered probe
+                              (Test.RecoveryProbe) says it has cleared ends the
+                              pause. The pause runs the probe and hands its
+                              result over in the context's Probe key.
 
     The context a repair receives carries RepoRoot, ProjectDir, ProjectUrl,
     ConfigPath and RuntimeDir, besides what the ledger adds. A test can replace
@@ -54,6 +59,7 @@
 Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
 Import-Module (Join-Path $PSScriptRoot 'Test.RecoveryContract.psm1') -DisableNameChecking -Global
 Import-Module (Join-Path $PSScriptRoot 'Test.RecoveryLedger.psm1') -Force -DisableNameChecking -Global
+Import-Module (Join-Path $PSScriptRoot 'Test.RecoveryProbe.psm1') -DisableNameChecking -Global
 
 # --- REGION: Constants
 # A lock younger than this may belong to a git that is still working.
@@ -446,6 +452,40 @@ function Invoke-RecoveryProjectHealth {
 }
 
 # --- REGION: Failure pause
+function Get-RecoveryClassBudget {
+    <#
+    .SYNOPSIS
+        Whether the unattended retries of a failure class have spent their
+        runner-minute budget in the rolling 24 h, and the reason a refusal
+        records.
+    .DESCRIPTION
+        The budget is the class's RetryMinutesPerDay in the taxonomy; the
+        spending is the duration of the runner cycles that failed with the class
+        (Get-RecoveryClassRetryMinutes). Without a runtime directory nothing was
+        recorded, so nothing is spent.
+    .OUTPUTS
+        [pscustomobject] @{ Spent; Minutes; Budget; Reason }
+    #>
+    [CmdletBinding()]
+    [OutputType([pscustomobject])]
+    param(
+        [Parameter(Mandatory)][System.Collections.IDictionary]$Context,
+        [AllowEmptyString()][string]$FailureClass
+    )
+    $runtime = Get-RecoveryValueText -Source $Context -Key 'RuntimeDir'
+    if (-not (Get-Command -Name Get-FailureClassRoute -ErrorAction SilentlyContinue)) {
+        Import-Module (Join-Path $PSScriptRoot 'Test.FailureTaxonomy.psm1') -Global -DisableNameChecking
+    }
+    $budget = [int](Get-FailureClassRoute -FailureClass $FailureClass).RetryMinutesPerDay
+    $minutes = if ($runtime -and $FailureClass) {
+        Get-RecoveryClassRetryMinutes -RuntimeDir $runtime -FailureClass $FailureClass -Now (Get-RecoveryContextNow -Context $Context)
+    } else { 0.0 }
+    return [pscustomobject]@{
+        Spent = ($minutes -ge $budget); Minutes = $minutes; Budget = $budget
+        Reason = ('class-budget-spent: {0} of {1} runner-minutes in 24 h' -f $minutes.ToString([Globalization.CultureInfo]::InvariantCulture), $budget)
+    }
+}
+
 function Test-RecoveryAutoRemediationAllowed {
     <#
     .SYNOPSIS
@@ -473,7 +513,7 @@ function Test-RecoveryAutoRemediationAllowed {
 function Register-BuiltinRecoveryAction {
     <#
     .SYNOPSIS
-        Registers the three built-in repairs, in the order they are tried.
+        Registers the four built-in repairs, in the order they are tried.
     .DESCRIPTION
         Idempotent: a name that is already registered is replaced in its place.
         Called once when the module loads; tests that cleared the registry call it
@@ -668,6 +708,8 @@ function Register-BuiltinRecoveryAction {
             $result = if ($Context.Contains('Result')) { $Context['Result'] } else { $null }
             $failureClass = Get-RecoveryValueText -Source $result -Key 'failureClass'
             if (-not (Test-RecoveryAutoRemediationAllowed -FailureClass $failureClass)) { return @{ Ok = $false; Reason = 'class-not-allowed'; Evidence = @() } }
+            $spend = Get-RecoveryClassBudget -Context $Context -FailureClass $failureClass
+            if ($spend.Spent) { return @{ Ok = $false; Reason = $spend.Reason; Evidence = @() } }
             return @{ Ok = $true; Reason = 'class-allowed'; Evidence = @() }
         }
         Action        = { @{ Ok = $true; Reason = 'pause-ended-early'; Evidence = @() } }
@@ -676,6 +718,29 @@ function Register-BuiltinRecoveryAction {
         SkipsFailurePause = $true
     }
     Register-RecoveryAction @endPause
+
+    $endOnProbe = @{
+        Name        = 'end_failure_pause_on_probe'
+        Description = 'End the failure pause when the probe registered for the failure class says its host condition has cleared.'
+        Applies     = {
+            param($Result)
+            $null -ne (Get-RecoveryProbe -FailureClass (Get-RecoveryValueText -Source $Result -Key 'failureClass'))
+        }
+        Precondition = {
+            param($Context)
+            $probe = if ($Context.Contains('Probe')) { $Context['Probe'] } else { $null }
+            if (-not $probe -or -not $probe.Cleared) { return @{ Ok = $false; Reason = 'probe-not-cleared'; Evidence = @() } }
+            $result = if ($Context.Contains('Result')) { $Context['Result'] } else { $null }
+            $spend = Get-RecoveryClassBudget -Context $Context -FailureClass (Get-RecoveryValueText -Source $result -Key 'failureClass')
+            if ($spend.Spent) { return @{ Ok = $false; Reason = $spend.Reason; Evidence = @() } }
+            return @{ Ok = $true; Reason = 'probe-cleared'; Evidence = @(New-RecoveryEvidence -Kind command -Ref 'test/modules/Invoke-RecoveryProbe.ps1' -Note ([string]$probe.Detail)) }
+        }
+        Action        = { @{ Ok = $true; Reason = 'pause-ended-on-probe'; Evidence = @() } }
+        Postcondition = { @{ Ok = $true; Reason = 'ok'; Evidence = @() } }
+        MaxAttempts       = 0
+        SkipsFailurePause = $true
+    }
+    Register-RecoveryAction @endOnProbe
 }
 
 Register-BuiltinRecoveryAction

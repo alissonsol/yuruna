@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.25
+.VERSION 2026.10.26
 .GUID 42696ce9-89fb-43d5-ab5b-3d4eda2725cd
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -360,5 +360,3 @@ Describe 'Diagnostic native output with a trailing exit code' {
         $output[1] | Should -Be 'second'
     }
 }
-
-# Copyright (c) 2019-2026 by Alisson Sol et al.

@@ -4992,15 +4992,6 @@
     },
     {
       "path": "automation/Yuruna.Resource.psm1",
-      "line": 163,
-      "sink": "Write-Information",
-      "key": "automation.operator_483ad55e8c49c6d8",
-      "arguments": [
-        "terraformPath"
-      ]
-    },
-    {
-      "path": "automation/Yuruna.Resource.psm1",
       "line": 257,
       "sink": "Write-Information",
       "key": "automation.operator_227db199c3c8f906",
